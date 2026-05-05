@@ -2760,3 +2760,24 @@ The finding is named here so the Phase B-1.5 batch has a tracked target rather t
 - Closure path is the same as ORPHAN-HIGH-045 (async-opcua hook gap class) — fixing one likely fixes both.
 
 The architectural decision is documented in `auth_throttle.rs` preamble + this orphan finding so future planners + auditors see the gap explicitly.
+
+
+## ORPHAN-MEDIUM-052 — OPC UA SessionLease decrement-on-close depends on TTL fail-safe; no async-opcua session-close callback hook (Phase B-3 architectural decision, 2026-05-05)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-3.5 / future PR. Deadline: gated on either an upstream `async-opcua` PR exposing a session-lifecycle callback OR an integration with the existing `ServerHandle` event surface (verify in async-opcua 0.18 API doc).
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/session_quota.rs::SessionLease` lifetime + `sens-api-gateway/src/opc_ua_sens_auth_manager.rs::active_leases` per-token registry.
+
+**Edge-expert surfaced:** Phase B-3 ships the per-tenant + per-user session quota with `SessionLease` RAII Drop decrementing the count. In the ideal world, the lease lives exactly as long as the corresponding async-opcua session — Drop fires on session-close. Reality: async-opcua 0.18's `AuthManager` trait does not pass the lease ownership to async-opcua in a way that ties to the session lifetime. The lease lives in the SensAuthManager-side `active_leases: HashMap<UserToken, SessionLease>` registry, which has no automatic invalidation on session-close.
+
+**Impact:** a session that closes without an explicit lease release (TCP RST, async-opcua silent drop, network interruption) keeps consuming a quota slot until the TTL fail-safe (`LEASE_FAIL_SAFE_TTL = 1 hour`) evicts it. Defense-in-depth: the global `Limits.max_sessions = 10` cap (Batch 228) is the hard floor, so total sessions cannot exceed 10 even if our per-(tenant, user) counter has TTL imprecision. But within that 10-cap, a single user could repeatedly establish + crash-disconnect sessions; each crash-disconnect leaves a stale lease, eventually starving other users for up to 1 hour.
+
+**HOW to resolve (Phase B-3.5 / B-2.5 paired):**
+
+1. **Upstream `async-opcua` PR** — add `ServerHandle::on_session_close(impl Fn(SessionId, UserToken) + Send + Sync)` callback. Suderra's SensAuthManager subscribes + drains `active_leases` keyed by UserToken. Same architectural class as ORPHAN-HIGH-045 (no `ClientCertVerifier` callback) and ORPHAN-MEDIUM-051 (no `ClientAddr` exposure) — these three findings could close together with a single upstream API extension exposing session lifecycle.
+
+2. **`ServerHandle` event subscription** — verify whether async-opcua 0.18 already exposes a session-event stream (e.g., via `ServerHandle::session_events_rx`). If yes, wire an interceptor task in `init_opc_ua_server` that subscribes + drains `active_leases` on session-close events. Pros: agent-side fully owned. Cons: depends on the actual API surface.
+
+3. **Periodic active-session reconciliation** — agent boots a 30s tick task that polls `ServerHandle::active_sessions()` (if exposed) + diffs against `active_leases`; drops leases whose UserToken no longer corresponds to a running session. Pros: works without a callback. Cons: 30s lag between session-close + lease release; race between poll + close that briefly keeps the lease alive.
+
+The TTL=1h fail-safe is the load-bearing release path until one of (1)/(2)/(3) lands. The architectural shape is documented in `session_quota.rs` preamble + this finding.

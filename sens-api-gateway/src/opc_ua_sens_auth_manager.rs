@@ -141,6 +141,34 @@ pub struct SensAuthManager {
     /// `crate::opc_ua_server::auth_throttle` module preamble for the
     /// architectural decision record.
     throttle: Arc<crate::opc_ua_server::auth_throttle::FailedAuthWindow>,
+    /// Phase B-3 (Batch #272 closure) — per-tenant + per-user session
+    /// quota. Type-level invariant: SensAuthManager carries the quota
+    /// for the agent's single tenant; every successful authenticate
+    /// path consumes a `SessionLease` before issuing the UserToken.
+    /// The `opc_ua_session_quota_enforced` invariant pins the wire.
+    session_quota: Arc<crate::opc_ua_server::session_quota::SessionQuota>,
+    /// Per-token lease registry — the lease lives in this map keyed
+    /// by the UserToken string we return to async-opcua. Drop on
+    /// session-close is best-effort: async-opcua 0.18 does not expose
+    /// a session-close callback at the AuthManager layer (same
+    /// architectural class as ORPHAN-HIGH-045 +
+    /// ORPHAN-MEDIUM-051). The TTL fail-safe inside SessionQuota
+    /// (1-hour default) is the load-bearing release path; this map
+    /// is the explicit-release-on-token-known path for callers that
+    /// can iterate token lifecycle.
+    ///
+    /// Note: storing leases keyed by token allows future Phase B-3.5
+    /// to wire a per-token cleanup hook (e.g., when async-opcua
+    /// upstream exposes the close callback) without reshaping the
+    /// SensAuthManager API. See ORPHAN-MEDIUM-052.
+    active_leases: Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                String,
+                crate::opc_ua_server::session_quota::SessionLease,
+            >,
+        >,
+    >,
 }
 
 #[cfg(feature = "opc-ua-server")]
@@ -154,11 +182,16 @@ impl SensAuthManager {
     pub fn new(
         validator: Arc<UserTokenValidator>,
         throttle: Arc<crate::opc_ua_server::auth_throttle::FailedAuthWindow>,
+        session_quota: Arc<crate::opc_ua_server::session_quota::SessionQuota>,
     ) -> Self {
         Self {
             validator,
             policies: Self::default_policies(),
             throttle,
+            session_quota,
+            active_leases: Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
         }
     }
 
@@ -334,7 +367,69 @@ impl AuthManager for SensAuthManager {
                 // should not carry the failure history into their next
                 // typing burst.
                 self.throttle.clear_on_success(&throttle_key);
+
+                // Phase B-3 (Batch #272) — acquire a SessionLease
+                // BEFORE issuing the UserToken. Quota check is the
+                // last gate at session-establish; a successful
+                // credential authentication still cannot establish a
+                // session if the per-user or per-tenant cap is full.
+                // Defense-in-depth: brute-force throttle (B-2) +
+                // quota fairness (B-3) + global Limits.max_sessions
+                // (Batch 228) — three layers each tunable
+                // independently.
+                let normalized_user = username.trim().to_lowercase();
+                let lease = match self.session_quota.try_acquire(&normalized_user) {
+                    Ok(lease) => lease,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "opc_ua.session_quota",
+                            user = %normalized_user,
+                            error = %e,
+                            "SensAuthManager: session-establish REJECTED by quota \
+                             after successful authentication (Phase B-3)"
+                        );
+                        crate::audit::try_emit_mtls_forensic_event(
+                            crate::audit::AuditAction::OpcUaSessionQuotaExceeded,
+                            "opc_ua.session.quota.exceeded",
+                            serde_json::json!({
+                                "user": normalized_user,
+                                "reason": format!("{e}"),
+                                "current_user_count": self.session_quota.current_user_count(&normalized_user),
+                                "current_tenant_total": self.session_quota.current_tenant_total(),
+                            }),
+                        );
+                        return Err(Error::new(
+                            StatusCode::BadTooManySessions,
+                            "Session quota exceeded — close an existing \
+                             session for this user (or wait for an idle \
+                             session in the tenant to release).",
+                        ));
+                    }
+                };
+
                 let token_str = format_operator_token(&op);
+                // Stash the lease keyed by the token string so a
+                // future session-close callback (Phase B-3.5 /
+                // ORPHAN-MEDIUM-052) can look it up + drop it
+                // explicitly. Until then, the SessionQuota's TTL
+                // fail-safe is the release path.
+                if let Ok(mut leases) = self.active_leases.lock() {
+                    leases.insert(token_str.clone(), lease);
+                } else {
+                    // Mutex poisoned — we still hold the lease in
+                    // scope; the Drop impl will release it when
+                    // this match arm returns. The token-keyed
+                    // registry is best-effort cleanup for
+                    // explicit-release; the on-Drop release is the
+                    // architectural floor.
+                    tracing::error!(
+                        "SensAuthManager: active_leases mutex poisoned — \
+                         lease will release on scope exit instead of via \
+                         token-keyed registry"
+                    );
+                    // Drop happens at end of scope (lease moves out).
+                    drop(lease);
+                }
                 tracing::info!(
                     "SensAuthManager: UserName/Password session \
                      established for operator_id_hex={:?}",

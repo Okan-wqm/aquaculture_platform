@@ -2366,6 +2366,22 @@ pub struct OpcUaServerConfig {
     /// IP-throttled. Plan §5 Faz 5 step 9: 20 failed / 60s.
     pub max_failed_auth_per_60s: u32,
 
+    /// Phase B-3 (Plan §B-3 Batch #271) — per-tenant session quota.
+    /// On a single-tenant agent this acts as a refined global cap
+    /// distinct from `max_sessions` (the absolute hard floor). On a
+    /// multi-tenant agent (future) it isolates noisy-neighbor
+    /// scenarios. Default 5 — well below `max_sessions=10` so per-user
+    /// fairness has room to fan out.
+    pub max_sessions_per_tenant: u32,
+
+    /// Phase B-3 (Plan §B-3 Batch #271) — per-user session quota
+    /// within a tenant. A single compromised operator credential
+    /// cannot starve other operators by opening many parallel
+    /// sessions. Default 2 — enough for a primary operator session +
+    /// a single supplementary connection (e.g., HMI + UaExpert
+    /// debug).
+    pub max_sessions_per_user: u32,
+
     /// Primary auth mode. Secondary gate is always the authz
     /// policy engine — see module doc.
     pub auth_mode: OpcUaAuthMode,
@@ -2400,6 +2416,8 @@ impl Default for OpcUaServerConfig {
             port: 4840,
             max_sessions: 10,
             max_failed_auth_per_60s: 20,
+            max_sessions_per_tenant: 5,
+            max_sessions_per_user: 2,
             auth_mode: OpcUaAuthMode::default(),
             security_policy: OpcUaSecurityPolicy::default(),
             own_pki_dir: "/var/lib/suderra/pki/own".to_string(),
@@ -2445,6 +2463,38 @@ impl OpcUaServerConfig {
                 "opc_ua_server.max_failed_auth_per_60s must be >= 1 (0 disables brute-force throttle)"
                     .to_string(),
             );
+        }
+        // Phase B-3 — session quota validators. Per-user MUST be <=
+        // per-tenant (a single user cannot exceed the tenant cap by
+        // construction); per-tenant MUST be <= max_sessions (the
+        // global hard floor — the per-tenant cap is a refinement, not
+        // an override). Both fields >= 1 — 0 would lock out all
+        // operators which is a misconfig.
+        if self.max_sessions_per_user == 0 {
+            return Err(
+                "opc_ua_server.max_sessions_per_user must be >= 1 (0 locks out every operator — misconfig)"
+                    .to_string(),
+            );
+        }
+        if self.max_sessions_per_tenant == 0 {
+            return Err(
+                "opc_ua_server.max_sessions_per_tenant must be >= 1 (0 locks out every tenant — misconfig)"
+                    .to_string(),
+            );
+        }
+        if self.max_sessions_per_user > self.max_sessions_per_tenant {
+            return Err(format!(
+                "opc_ua_server.max_sessions_per_user ({}) cannot exceed max_sessions_per_tenant ({}) — \
+                 per-user is refined per-tenant, must be <= the tenant ceiling",
+                self.max_sessions_per_user, self.max_sessions_per_tenant
+            ));
+        }
+        if self.max_sessions_per_tenant > self.max_sessions {
+            return Err(format!(
+                "opc_ua_server.max_sessions_per_tenant ({}) cannot exceed max_sessions ({}) — \
+                 the per-tenant cap is a refinement of the global hard floor, must be <= it",
+                self.max_sessions_per_tenant, self.max_sessions
+            ));
         }
         // Polling below 10ms risks pathological lock contention
         // on ProcessImage::get_all_tags + starves other tasks.

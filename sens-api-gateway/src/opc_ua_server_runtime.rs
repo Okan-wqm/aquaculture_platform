@@ -719,10 +719,35 @@ pub async fn init_opc_ua_server(
     let throttle = crate::opc_ua_server::auth_throttle::FailedAuthWindow::new(
         config.max_failed_auth_per_60s,
     );
+
+    // Phase B-3 (Batch #272) — construct the SessionQuota for the
+    // agent's single tenant from the operator-configured caps. The
+    // quota is the architectural fairness floor on top of the
+    // brute-force throttle; SensAuthManager::new takes the Arc by
+    // value (Tier-1 typed-injection per the
+    // `opc_ua_session_quota_enforced` invariant). Tenant identity is
+    // the agent's tenant_id when present; absent (pre-provisioned
+    // edge) collapses to a sentinel so the per-tenant cap still
+    // applies as a global cap on the agent.
+    let quota_tenant = tenant
+        .map(|t| {
+            // Render the TenantId 16 bytes as a short hex tag for the
+            // quota key; tenant identity stability across reboots is
+            // what matters, not human-readable text.
+            let bytes = t.as_bytes();
+            format!("{:02x}{:02x}{:02x}{:02x}", bytes[0], bytes[1], bytes[2], bytes[3])
+        })
+        .unwrap_or_else(|| "unprovisioned-edge".to_string());
+    let session_quota = crate::opc_ua_server::session_quota::SessionQuota::new(
+        quota_tenant,
+        config.max_sessions_per_tenant,
+        config.max_sessions_per_user,
+    );
     let auth_manager = Arc::new(
         crate::opc_ua_sens_auth_manager::SensAuthManager::new(
             validator,
             throttle,
+            session_quota,
         ),
     );
 
@@ -910,6 +935,9 @@ mod tests {
             port: random_test_port(),
             max_sessions: 10,
             max_failed_auth_per_60s: 20,
+            // Phase B-3 test defaults — match production OpcUaServerConfig::default.
+            max_sessions_per_tenant: 5,
+            max_sessions_per_user: 2,
             auth_mode: OpcUaAuthMode::AnonymousReadOnly,
             security_policy: OpcUaSecurityPolicy::Basic256Sha256,
             own_pki_dir: std::env::temp_dir()
@@ -1074,12 +1102,18 @@ mod tests {
             Arc::new(NoCommitPi),
             Arc::new(NoAudit),
         );
-        // Phase B-2 — test fixture default throttle (cap=20 matches
-        // OpcUaServerConfig::default). Tests don't exercise the
-        // throttle; production cap comes from config.
+        // Phase B-2/B-3 — test fixture default throttle + session
+        // quota (caps match OpcUaServerConfig::default). Tests don't
+        // exercise the gates; production caps come from config.
         let throttle = crate::opc_ua_server::auth_throttle::FailedAuthWindow::new(20);
+        let session_quota =
+            crate::opc_ua_server::session_quota::SessionQuota::new(
+                "test-tenant".to_string(),
+                5,
+                2,
+            );
         let auth_manager =
-            Arc::new(SensAuthManager::new(validator, throttle));
+            Arc::new(SensAuthManager::new(validator, throttle, session_quota));
         SensRuntimeBundle::new(builder, auth_manager)
     }
 

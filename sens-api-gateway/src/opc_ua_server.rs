@@ -63,6 +63,9 @@
 pub mod auth_throttle;
 pub mod cert_rotation;
 pub mod pki_store;
+// Phase B-3 (Plan §B-3 Batch #271-#272) — per-tenant + per-user session
+// quota primitive with RAII SessionLease decrement.
+pub mod session_quota;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

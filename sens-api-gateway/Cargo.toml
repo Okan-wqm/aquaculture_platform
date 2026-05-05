@@ -732,3 +732,15 @@ path = "tests/invariants/opc_ua_leaf_pin_enforced.rs"
 [[test]]
 name = "opc_ua_auth_throttle_enforced"
 path = "tests/invariants/opc_ua_auth_throttle_enforced.rs"
+
+# Phase B-3 (Batches #271-#272) — OPC UA session quota closure
+# invariant. Tier-3 source-grep detector that pins the SessionQuota
+# primitive + RAII SessionLease + SensAuthManager `Arc<SessionQuota>`
+# field + try_acquire callsite after Argon2id success + audit emit on
+# OpcUaSessionQuotaExceeded + config field validators. A regression
+# that drops the try_acquire callsite would silently regress the
+# fairness floor — a single compromised user could again monopolize
+# all `max_sessions=10` slots, starving other operators.
+[[test]]
+name = "opc_ua_session_quota"
+path = "tests/invariants/opc_ua_session_quota.rs"

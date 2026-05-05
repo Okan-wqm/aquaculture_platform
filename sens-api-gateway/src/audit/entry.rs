@@ -214,6 +214,15 @@ pub enum AuditAction {
     /// brute-force attempts at the OPC UA surface — paired with
     /// `MtlsHandshakeRejectStrict` for the TLS-layer reject events.
     OpcUaAuthThrottled,
+    /// Phase B-3 / Batch #272 closure. Emitted when
+    /// `SessionQuota::try_acquire` rejects a session-establish call
+    /// because either the per-tenant or per-user cap was reached.
+    /// Distinguished from `OpcUaAuthThrottled` (brute-force reject)
+    /// — quota-exceeded means the credential AUTHENTICATED but the
+    /// fairness gate prevents a parallel session. Operators querying
+    /// the audit chain see "compromised user starves others" patterns
+    /// here.
+    OpcUaSessionQuotaExceeded,
 }
 
 impl AuditAction {
@@ -264,6 +273,8 @@ impl AuditAction {
             Self::OpcUaPkiPhaseTransition => 34,
             // Phase B-2 / Batch #270 — brute-force throttle wire.
             Self::OpcUaAuthThrottled => 35,
+            // Phase B-3 / Batch #272 — session quota wire.
+            Self::OpcUaSessionQuotaExceeded => 36,
         }
     }
 }
@@ -746,6 +757,8 @@ mod tests {
         assert_eq!(AuditAction::OpcUaPkiPhaseTransition.wire_tag(), 34);
         // Phase B-2 — brute-force throttle wire.
         assert_eq!(AuditAction::OpcUaAuthThrottled.wire_tag(), 35);
+        // Phase B-3 — session quota wire.
+        assert_eq!(AuditAction::OpcUaSessionQuotaExceeded.wire_tag(), 36);
     }
 
     /// WHY (EDGE-HIGH-001 closure): AuditResource wire_tag stability pin.

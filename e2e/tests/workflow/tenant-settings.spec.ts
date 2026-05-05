@@ -4,13 +4,12 @@ import { generateTenantFixture, TestTenantFixture } from '../../helpers/tenant.f
 /**
  * Tenant Settings E2E Workflow Test
  *
- * Tests updating tenant settings via the updateTenant(id, input) mutation
+ * Tests updating tenant settings (name, description, contactEmail)
  * and verifying persistence through the myTenant query.
  */
 describe('Tenant Settings', () => {
   let client: GraphQLTestClient;
   let fixture: TestTenantFixture;
-  let tenantId: string;
   let originalName: string;
   let originalDescription: string | null;
   let originalContactEmail: string | null;
@@ -24,7 +23,6 @@ describe('Tenant Settings', () => {
     try {
       const current = await client.query<{
         myTenant: {
-          id: string;
           name: string;
           description: string | null;
           contactEmail: string | null;
@@ -32,19 +30,16 @@ describe('Tenant Settings', () => {
       }>(`
         query MyTenant {
           myTenant {
-            id
             name
             description
             contactEmail
           }
         }
       `);
-      tenantId = current.myTenant.id;
       originalName = current.myTenant.name;
       originalDescription = current.myTenant.description;
       originalContactEmail = current.myTenant.contactEmail;
     } catch {
-      tenantId = '';
       originalName = '';
       originalDescription = null;
       originalContactEmail = null;
@@ -53,16 +48,15 @@ describe('Tenant Settings', () => {
 
   afterAll(async () => {
     // Restore original settings
-    if (originalName && tenantId) {
+    if (originalName) {
       try {
         await client.mutate(`
-          mutation RestoreTenantSettings($id: ID!, $input: UpdateTenantInput!) {
-            updateTenant(id: $id, input: $input) {
+          mutation RestoreTenantSettings($input: UpdateTenantInput!) {
+            updateTenantSettings(input: $input) {
               id
             }
           }
         `, {
-          id: tenantId,
           input: {
             name: originalName,
             description: originalDescription,
@@ -76,40 +70,31 @@ describe('Tenant Settings', () => {
     client.clearToken();
   });
 
-  test('Update tenant settings via updateTenant -> verify persistence', async () => {
-    // Skip if tenant ID was not obtained during setup
-    if (!tenantId) {
-      console.warn('Skipping: tenant ID not available');
-      return;
-    }
-
+  test('Update tenant settings -> verify persistence', async () => {
     const updatedName = `E2E Updated Tenant ${Date.now()}`;
     const updatedDescription = `E2E test description updated at ${new Date().toISOString()}`;
     const updatedContactEmail = `e2e-updated-${Date.now()}@test.aquaculture.dev`;
 
-    // Step 1: Update tenant via updateTenant(id, input) mutation
+    // Step 1: Update tenant settings via updateTenantSettings mutation
     const updateResult = await client.mutate<{
-      updateTenant: {
+      updateTenantSettings: {
         id: string;
         name: string;
         description: string | null;
         contactEmail: string | null;
-        updatedAt: string;
       };
     }>(
       `
-      mutation UpdateTenant($id: ID!, $input: UpdateTenantInput!) {
-        updateTenant(id: $id, input: $input) {
+      mutation UpdateTenantSettings($input: UpdateTenantInput!) {
+        updateTenantSettings(input: $input) {
           id
           name
           description
           contactEmail
-          updatedAt
         }
       }
       `,
       {
-        id: tenantId,
         input: {
           name: updatedName,
           description: updatedDescription,
@@ -119,11 +104,9 @@ describe('Tenant Settings', () => {
     );
 
     // Verify mutation returned updated values
-    expect(updateResult.updateTenant.id).toBe(tenantId);
-    expect(updateResult.updateTenant.name).toBe(updatedName);
-    expect(updateResult.updateTenant.description).toBe(updatedDescription);
-    expect(updateResult.updateTenant.contactEmail).toBe(updatedContactEmail);
-    expect(updateResult.updateTenant.updatedAt).toBeTruthy();
+    expect(updateResult.updateTenantSettings.name).toBe(updatedName);
+    expect(updateResult.updateTenantSettings.description).toBe(updatedDescription);
+    expect(updateResult.updateTenantSettings.contactEmail).toBe(updatedContactEmail);
 
     // Step 2: Verify persistence by re-querying
     const verifyResult = await client.query<{

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, load_jsonl
+from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
 
@@ -69,12 +70,17 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
     day = str(reflection["recorded_at"])[:10]
     path = root / "reports" / "daily" / f"{day}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
+    file_counts = file_counts_from_payload(reflection.get("coverage", {}))
     lines = [
         f"# ARIA Daily Report {day}",
         "",
         "## Coverage",
         "",
-        f"- Tracked files: {reflection['coverage'].get('tracked_file_count', 0)}",
+        f"- Git tracked: {file_counts.get('git_tracked', 0)}",
+        f"- Working-tree: {file_counts.get('working_tree', 0)}",
+        f"- Allowed: {file_counts.get('allowed', 0)}",
+        f"- Generated: {file_counts.get('generated', 0)}",
+        f"- Fated: {file_counts.get('fated', 0)}",
         f"- Discovery complete: {reflection['coverage'].get('complete', False)}",
         "",
         "## Beliefs",

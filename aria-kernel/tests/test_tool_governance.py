@@ -105,7 +105,8 @@ def fake_tool_argv(output, *, exit_code=0, mutate=False, sleep_seconds=0):
     if sleep_seconds:
         statements.append(f"time.sleep({sleep_seconds})")
     if mutate:
-        statements.append("pathlib.Path('mutated.txt').write_text('changed', encoding='utf-8')")
+        statements.append("pathlib.Path('apps/farm-service/src/mutated.ts').parent.mkdir(parents=True, exist_ok=True)")
+        statements.append("pathlib.Path('apps/farm-service/src/mutated.ts').write_text('changed', encoding='utf-8')")
     statements.append(f"print({json.dumps(json.dumps(output))})")
     if exit_code:
         statements.append(f"sys.exit({exit_code})")
@@ -248,6 +249,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertTrue(run["output_hash"].startswith("sha256:"))
 
     def test_tool_runner_allowed_read_path_keeps_active_tool_healthy(self):
+        (self.root / "apps/farm-service/src/main.ts").write_text("export const main = true;\n", encoding="utf-8")
         register_tool(
             valid_tool(runner=runner(fake_tool_argv(valid_tool_output(read_paths=["apps/farm-service/src/main.ts"])))),
             base_dir=self.tools_dir,

@@ -1,6 +1,7 @@
 """ARIA adapter and skill health governance kernel."""
 
 from .adapter_calibration import generate_adapter_calibration_report, list_adapter_calibration_reports
+from .constants import OUTPUT_CONTRACT_COMPAT_FINDING_ID, OUTPUT_CONTRACT_COMPAT_REMOVAL_VERSION
 from .apply_engine import gate_apply_action, plan_apply_worktree
 from .agent_genesis import approve_agent_pr, draft_agent_from_gap, evaluate_genesis_sandbox, list_agent_drafts, prepare_agent_pr_lane
 from .agent_priors import latest_agent_priors, map_agent_priors, related_agents_for_paths
@@ -164,6 +165,8 @@ __all__ = [
     "list_validation_plans",
     "list_validation_runs",
     "open_pr_for_action",
+    "OUTPUT_CONTRACT_COMPAT_FINDING_ID",
+    "OUTPUT_CONTRACT_COMPAT_REMOVAL_VERSION",
     "observe_pr_event",
     "plan_pr_lifecycle",
     "plan_pr_split",

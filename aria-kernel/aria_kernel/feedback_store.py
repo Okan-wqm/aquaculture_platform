@@ -50,6 +50,11 @@ def record_raw_findings_for_run(
             continue
         fingerprint = finding_fingerprint(run["tool_id"], finding)
         suppressed = confirmed_false_positives.get(fingerprint)
+        status = "raw"
+        if run.get("status") in ("evidence_error", "scope_violation"):
+            status = "invalid_evidence"
+        elif suppressed:
+            status = "suppressed_false_positive"
         append_jsonl(
             raw_findings_path(base_dir),
             {
@@ -61,7 +66,7 @@ def record_raw_findings_for_run(
                 "finding_id": finding.get("id"),
                 "finding_fingerprint": fingerprint,
                 "evidence_hash": evidence_hash_for_finding(finding),
-                "status": "suppressed_false_positive" if suppressed else "raw",
+                "status": status,
                 "suppressed_by_feedback": suppressed,
                 "finding": finding,
             },
@@ -447,6 +452,8 @@ def _sampleable_raw_findings(
     candidates = []
     for row in load_jsonl(raw_findings_path(base_dir)):
         if row.get("tool_id") != tool_id:
+            continue
+        if row.get("status") == "invalid_evidence":
             continue
         if cycle_id is not None and row.get("cycle_id") != cycle_id:
             continue

@@ -7,6 +7,7 @@ from typing import Any
 
 from .ledger import append_jsonl, load_jsonl
 from .feedback_store import load_feedback
+from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, load_registry, utc_now
 
@@ -32,6 +33,7 @@ def update_memory(
     observations_written = 0
     if include_discovery_beliefs:
         repo_state = _repo_state(root, cycle_id)
+        file_counts = file_counts_from_payload(fingerprint)
         observation = {
             "schema_version": 1,
             "recorded_at": utc_now(),
@@ -39,7 +41,9 @@ def update_memory(
             "repo_state_id": repo_state.get("repo_state_id"),
             "base_commit_sha": repo_state.get("base_commit_sha"),
             "kind": "repo_fingerprint",
+            "file_counts": file_counts,
             "tracked_file_count": fingerprint.get("tracked_file_count", 0),
+            "legacy_tracked_file_count": fingerprint.get("legacy_tracked_file_count", fingerprint.get("tracked_file_count", 0)),
             "service_count": fingerprint.get("service_count", 0),
             "web_module_count": fingerprint.get("web_module_count", 0),
             "migration_count": fingerprint.get("migration_count", 0),

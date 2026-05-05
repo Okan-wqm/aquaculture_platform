@@ -1,16 +1,13 @@
 /**
  * Dosing Simulator Hook
  *
- * Equilibrium-pH based control with freshwater mixing:
- * 1. Aeration: CO₂ exchange with atmosphere (Henry's law) - every tick
- * 2. Plant disturbances: root H⁺ extrusion, nutrient uptake - every tick
- * 3. If EC out of range → dose nutrients or dilute with freshwater
- * 4. If equilibrium pH out of range → calculate exact acid/base dose
- * 5. Recalculate pH from thermodynamics
+ * Range-based control with freshwater mixing and instant CO₂ equilibration:
+ * 1. Plant disturbances: root H⁺ extrusion, nutrient uptake - every tick
+ * 2. If EC out of range → dose nutrients or dilute with freshwater
+ * 3. If pH out of range → calculate exact acid/base dose
+ * 4. Instant CO₂ equilibration: DIC adjusted so CO₂ = atmospheric equilibrium
  *
- * Key insight: dose based on equilibrium pH (what pH will be when CO₂
- * equilibrates with atmosphere), not instantaneous pH. This prevents
- * wasting acid during aeration-driven CO₂ degassing.
+ * Reagent selection: user picks acid & base chemical + concentration.
  */
 
 import { useRef, useState, useCallback, useEffect } from 'react';
@@ -31,7 +28,7 @@ import {
   calcCo2OfDic,
   co2MmToMg,
   calcPhForAlkDic,
-  calcEquilibriumPH,
+  equilibrateCo2,
 } from '../engine/carbonate-chemistry';
 import { HYDRO_REAGENTS, HydroReagent, reagentDeltas } from '../engine/reagents';
 
@@ -48,17 +45,16 @@ function findReagent(name: string): HydroReagent {
 }
 
 function createInitialState(config: SimConfig): SimState {
-  const DIC = calcDicOfAlk(config.initialAlkMeq, config.initialPH, config.tempC, config.salinity);
-  const co2mm = calcCo2OfDic(DIC, config.initialPH, config.tempC, config.salinity);
-  const eqPH = calcEquilibriumPH(config.initialAlkMeq, CO2_EQ_MMOL, config.tempC, config.salinity);
+  // Start at atmospheric CO₂ equilibrium for the given ALK
+  const eq = equilibrateCo2(config.initialAlkMeq, CO2_EQ_MMOL, config.tempC, config.salinity);
 
   return {
     tick: 0,
-    DIC,
+    DIC: eq.DIC,
     ALK: config.initialAlkMeq,
-    pH: config.initialPH,
+    pH: eq.pH,
     EC: config.initialEC,
-    co2: co2MmToMg(co2mm),
+    co2: co2MmToMg(CO2_EQ_MMOL),
     acidPump: 0,
     basePump: 0,
     nutPump: 0,
@@ -85,42 +81,42 @@ function createInitialState(config: SimConfig): SimState {
 // ============================================================================
 
 /**
- * Calculate grams of reagent needed to move equilibrium pH to target.
- * Uses bisection: find grams where calcEquilibriumPH(ALK + dALK) = targetEqPH.
- * Only ALK matters for eq pH (CO₂ equilibrates to atmospheric constant).
+ * Calculate grams of reagent needed to move pH to target.
+ * Uses bisection: find grams where pH(ALK + dALK, DIC + dDIC) = targetPH.
  */
-function calcDoseGramsForEqPH(
-  currentALK: number,
-  targetEqPH: number,
+function calcDoseGrams(
+  state: SimState,
+  targetPH: number,
   reagent: HydroReagent,
   config: SimConfig,
 ): number {
-  const currentEqPH = calcEquilibriumPH(currentALK, CO2_EQ_MMOL, config.tempC, config.salinity);
-  if (Math.abs(currentEqPH - targetEqPH) < 0.01) return 0;
+  const currentPH = state.pH;
+  if (Math.abs(currentPH - targetPH) < 0.01) return 0;
 
-  const isBase = reagent.radians < Math.PI;
+  const isBase = reagent.radians < Math.PI; // bases point UP or diagonal UP
 
-  if (isBase && currentEqPH >= targetEqPH) return 0;
-  if (!isBase && currentEqPH <= targetEqPH) return 0;
+  // Quick check: do we need this reagent?
+  if (isBase && currentPH >= targetPH) return 0;  // pH already high enough
+  if (!isBase && currentPH <= targetPH) return 0;  // pH already low enough
 
   let lo = 0;
-  let hi = 500;
+  let hi = 500; // max 500g per calculation
 
   for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
-    const { deltaALK } = reagentDeltas(reagent, mid, config.volumeL);
-    const newEqPH = calcEquilibriumPH(
-      currentALK + deltaALK,
-      CO2_EQ_MMOL,
+    const { deltaDIC, deltaALK } = reagentDeltas(reagent, mid, config.volumeL);
+    const newPH = calcPhForAlkDic(
+      state.ALK + deltaALK,
+      Math.max(0.001, state.DIC + deltaDIC),
       config.tempC,
       config.salinity,
     );
 
     if (isBase) {
-      if (newEqPH < targetEqPH) lo = mid;
+      if (newPH < targetPH) lo = mid;
       else hi = mid;
     } else {
-      if (newEqPH > targetEqPH) lo = mid;
+      if (newPH > targetPH) lo = mid;
       else hi = mid;
     }
 
@@ -190,17 +186,12 @@ export function useSimulation() {
     const acidReagent = findReagent(cfg.acidReagent);
     const baseReagent = findReagent(cfg.baseReagent);
 
-    // ── 1. Aeration: CO₂ exchange with atmosphere (Henry's law) ──
-    const co2Now = calcCo2OfDic(state.DIC, state.pH, cfg.tempC, cfg.salinity);
-    const dDIC = cfg.aerationRate * (dt / 60) * (CO2_EQ_MMOL - co2Now);
-    state.DIC += dDIC;
-
-    // ── 2. Plant disturbances ──
+    // ── 1. Plant disturbances ──
     state.ALK -= 0.0005 * (dt / 60);
     state.EC -= 0.002 * (dt / 60);
     state.EC = Math.max(0.1, state.EC);
 
-    // ── 3. Determine what to dose ──
+    // ── 2. Determine what to dose ──
     const ecMid = (cfg.ecMin + cfg.ecMax) / 2;
     const phMid = (cfg.phMin + cfg.phMax) / 2;
     let acidPump = 0;
@@ -211,9 +202,6 @@ export function useSimulation() {
 
     const ecInRange = state.EC >= cfg.ecMin && state.EC <= cfg.ecMax;
 
-    // Calculate equilibrium pH (pH when CO₂ reaches atmospheric equilibrium)
-    const eqPH = calcEquilibriumPH(state.ALK, CO2_EQ_MMOL, cfg.tempC, cfg.salinity);
-
     if (!ecInRange) {
       if (state.EC < cfg.ecMin) {
         const mlNeeded = calcEcDose(state.EC, ecMid, cfg.volumeL);
@@ -223,18 +211,12 @@ export function useSimulation() {
         dilPump = 80;
         newState = 'DILUTE';
       }
-    } else if (state.state === 'DILUTE') {
-      // After dilution → go directly to IDLE (no CO2_WAIT needed with eq pH dosing)
-      newState = 'IDLE';
-    } else if (eqPH < cfg.phMin || eqPH > cfg.phMax) {
-      // Equilibrium pH out of range → calculate dose based on eq pH
-      if (eqPH > cfg.phMax) {
-        // eq pH too high → need acid
-        const grams = calcDoseGramsForEqPH(state.ALK, phMid, acidReagent, cfg);
+    } else if (state.pH < cfg.phMin || state.pH > cfg.phMax) {
+      if (state.pH > cfg.phMax) {
+        const grams = calcDoseGrams(state, phMid, acidReagent, cfg);
         acidPump = gramsToPumpPercent(grams, ACID_PUMP_MAX, cfg.acidConc, dt);
       } else {
-        // eq pH too low → need base
-        const grams = calcDoseGramsForEqPH(state.ALK, phMid, baseReagent, cfg);
+        const grams = calcDoseGrams(state, phMid, baseReagent, cfg);
         basePump = gramsToPumpPercent(grams, BASE_PUMP_MAX, cfg.baseConc, dt);
       }
       newState = 'DOSING_PH';
@@ -248,7 +230,7 @@ export function useSimulation() {
     state.dilPump = dilPump;
     state.state = newState;
 
-    // ── 4. Apply doses ──
+    // ── 3. Apply doses ──
     const acidG = pumpGrams(acidPump, ACID_PUMP_MAX, cfg.acidConc, dt);
     const baseG = pumpGrams(basePump, BASE_PUMP_MAX, cfg.baseConc, dt);
     const nutML = pumpML(nutPump, NUT_PUMP_MAX, dt);
@@ -282,10 +264,11 @@ export function useSimulation() {
       state.EC *= (1 - f);
     }
 
-    // ── 5. Recalculate pH from thermodynamics ──
-    state.DIC = Math.max(0.001, state.DIC);
+    // ── 4. Recalculate via CO₂ equilibration ──
     state.ALK = Math.max(-2.0, state.ALK);
-    state.pH = calcPhForAlkDic(state.ALK, state.DIC, cfg.tempC, cfg.salinity);
+    const eq = equilibrateCo2(state.ALK, CO2_EQ_MMOL, cfg.tempC, cfg.salinity);
+    state.DIC = eq.DIC;
+    state.pH = eq.pH;
     state.co2 = co2MmToMg(calcCo2OfDic(state.DIC, state.pH, cfg.tempC, cfg.salinity));
     state.co2Eq = co2MmToMg(CO2_EQ_MMOL);
     state.eqPH = calcEquilibriumPH(state.ALK, CO2_EQ_MMOL, cfg.tempC, cfg.salinity);
@@ -304,7 +287,7 @@ export function useSimulation() {
     historyRef.current.push({
       tick: s.tick, DIC: s.DIC, ALK: s.ALK, pH: s.pH, EC: s.EC, co2: s.co2,
       acidPump: s.acidPump, basePump: s.basePump, nutPump: s.nutPump, dilPump: s.dilPump,
-      eqPH: s.eqPH, state: s.state,
+      state: s.state,
     });
     if (historyRef.current.length > HISTORY_MAX) historyRef.current.shift();
 

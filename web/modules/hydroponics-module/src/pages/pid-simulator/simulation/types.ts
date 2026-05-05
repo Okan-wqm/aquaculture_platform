@@ -31,46 +31,9 @@ export interface SimConfig {
   freshwaterALK: number;   // meq/L - incoming water alkalinity
   freshwaterPH: number;    // pH of incoming water (determines dissolved CO2)
 
-  // Aeration
-  aerationRate: number;    // CO2 mass transfer coeff (1/min), higher = faster equilibration
 }
 
-export type SimStateName =
-  | 'IDLE'
-  | 'EC'
-  | 'EC_WAIT'
-  | 'CHEM_DT'
-  | 'PH'
-  | 'PH_WAIT'
-  | 'DOSING_EC'
-  | 'DOSING_PH'
-  | 'DILUTE'
-  | 'ALARM';
-
-/** PID controller parameters */
-export interface PIDParams {
-  Kp: number;
-  Ki: number;
-  Kd: number;
-  N: number;          // derivative filter coefficient
-  rateMax: number;    // max output change per second
-}
-
-/** Pump configuration */
-export interface PumpConfig {
-  maxFlowRate_mL_min: number;
-  concentration_g_L: number;
-}
-
-/** PID controller state */
-export interface PIDState {
-  integral: number;
-  prevError: number;
-  prevMeasurement?: number;
-  prevPV: number;
-  prevDerivative: number;
-  output: number;
-}
+export type SimStateName = 'IDLE' | 'DOSING_EC' | 'DOSING_PH' | 'DILUTE';
 
 export interface SimState {
   tick: number;
@@ -152,8 +115,7 @@ export const DEFAULT_SIM_CONFIG: SimConfig = {
   acidConc: 100,
   baseConc: 100,
   freshwaterALK: 3.0,    // typical well water
-  freshwaterPH: 7.2,     // typical well water (may have high CO2)
-  aerationRate: 0.05,    // moderate aeration (1/min)
+  freshwaterPH: 7.2,     // typical well water (may have high CO₂)
 };
 
 // Pump max flow rates (mL/min)

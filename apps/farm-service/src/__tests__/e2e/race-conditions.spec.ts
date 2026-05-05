@@ -12,16 +12,15 @@
 import { DataSource, Repository, EntityManager } from 'typeorm';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
-// Two handler families wire through different infrastructure
-// post-refactor:
-//   - RecordMortalityHandler: OutboxPublisher (phase A,
-//     transactional outbox) + BackdatePolicyService (phase 1.5)
-//   - ConsumeFeedInventoryHandler: optional NatsEventBus for
-//     fire-and-forget emission (preserved non-transactional
-//     shape; at-most-once is acceptable for inventory consumption
-//     signals)
+// Both handler families now wire through the transactional
+// outbox post-refactor:
+//   - RecordMortalityHandler: OutboxPublisher (phase A) +
+//     BackdatePolicyService (phase 1.5)
+//   - ConsumeFeedInventoryHandler: OutboxPublisher (replaced the
+//     legacy fire-and-forget NatsEventBus path so that inventory
+//     consumption signals participate in the same exactly-once
+//     emission contract as mortality)
 import type { OutboxPublisher } from '@platform/outbox';
-import type { NatsEventBus } from '@platform/event-bus';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
 
 // Handlers
@@ -92,17 +91,6 @@ function createMockOutboxPublisher(): OutboxPublisher {
   return {
     enqueue: jest.fn().mockResolvedValue(undefined),
   } as unknown as OutboxPublisher;
-}
-
-/**
- * NatsEventBus mock — sibling of the outbox for handlers that
- * emit fire-and-forget (at-most-once is fine). Used by
- * ConsumeFeedInventoryHandler.
- */
-function createMockNatsEventBus(): NatsEventBus {
-  return {
-    publish: jest.fn().mockResolvedValue(undefined),
-  } as unknown as NatsEventBus;
 }
 
 /**
@@ -406,7 +394,7 @@ describe('Race Condition Protection: ConsumeFeedInventoryHandler', () => {
     handler = new ConsumeFeedInventoryHandler(
       {} as Repository<FeedInventory>,
       mockDataSource,
-      createMockNatsEventBus(),
+      createMockOutboxPublisher(),
     );
   });
 

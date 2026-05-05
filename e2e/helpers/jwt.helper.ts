@@ -1,85 +1,59 @@
-import * as crypto from 'crypto';
+/**
+ * JWT Test Helper
+ * Generates test JWT tokens for E2E tests with tenant isolation.
+ */
 import * as jwt from 'jsonwebtoken';
 
-/**
- * JWT payload structure matching the auth-service TokenService
- */
-export interface TestJwtPayload {
+const TEST_JWT_SECRET = process.env.JWT_SECRET || 'test-secret-key-for-e2e';
+
+export interface TestTokenPayload {
   sub: string;
   email: string;
-  role: 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER';
+  tenantId: string;
   roles: string[];
-  tenantId: string | null;
-  modules?: string[];
-  resourcePermissions?: string[];
-  jti: string;
-  iat: number;
-  exp: number;
+  iat?: number;
+  exp?: number;
 }
 
 /**
- * Options for generating a test JWT token
+ * Generate a signed JWT token for test purposes.
  */
-export interface GenerateTokenOptions {
-  userId?: string;
-  email?: string;
-  role?: TestJwtPayload['role'];
-  tenantId?: string | null;
-  modules?: string[];
-  resourcePermissions?: string[];
-  expiresInSeconds?: number;
-}
-
-/**
- * Generate a test JWT token for E2E workflow tests.
- *
- * Uses the same HS256 algorithm and payload structure as the auth-service.
- * JWT_SECRET must be set in the environment (defaults to a test secret).
- */
-export function generateTestToken(options: GenerateTokenOptions = {}): string {
-  const secret = process.env['JWT_SECRET'] || 'test-jwt-secret-for-e2e-at-least-32-chars';
-  const audience = process.env['JWT_AUDIENCE'] || 'aquaculture-platform';
-
-  const now = Math.floor(Date.now() / 1000);
-  const expiresIn = options.expiresInSeconds ?? 3600;
-
-  const payload: TestJwtPayload = {
-    sub: options.userId ?? crypto.randomUUID(),
-    email: options.email ?? `test-${Date.now()}@aquaculture.test`,
-    role: options.role ?? 'TENANT_ADMIN',
-    roles: [options.role ?? 'TENANT_ADMIN'],
-    tenantId: options.tenantId !== undefined ? options.tenantId : crypto.randomUUID(),
-    modules: options.modules,
-    resourcePermissions: options.resourcePermissions,
-    jti: crypto.randomUUID(),
-    iat: now,
-    exp: now + expiresIn,
+export function generateTestToken(overrides: Partial<TestTokenPayload> = {}): string {
+  const payload: TestTokenPayload = {
+    sub: overrides.sub || 'e2e-test-user-' + Date.now(),
+    email: overrides.email || 'e2e@test.local',
+    tenantId: overrides.tenantId || 'tenant-a-' + Date.now(),
+    roles: overrides.roles || ['TENANT_ADMIN'],
+    ...overrides,
   };
 
-  return jwt.sign(payload, secret, {
-    algorithm: 'HS256',
-    audience,
-  });
+  return jwt.sign(payload, TEST_JWT_SECRET, { expiresIn: '1h' });
 }
 
 /**
- * Generate a TENANT_ADMIN token with common defaults
+ * Generate a pair of tokens for cross-tenant tests.
+ * Returns two tokens with DIFFERENT tenantIds for isolation testing.
  */
-export function generateTenantAdminToken(tenantId: string, userId?: string): string {
-  return generateTestToken({
-    userId,
-    role: 'TENANT_ADMIN',
-    tenantId,
-  });
-}
+export function generateCrossTenantTokens(): {
+  tenantA: { token: string; tenantId: string; userId: string };
+  tenantB: { token: string; tenantId: string; userId: string };
+} {
+  const suffix = Date.now();
+  const tenantAId = `tenant-a-${suffix}`;
+  const tenantBId = `tenant-b-${suffix}`;
+  const userAId = `user-a-${suffix}`;
+  const userBId = `user-b-${suffix}`;
 
-/**
- * Generate a SUPER_ADMIN token
- */
-export function generateSuperAdminToken(userId?: string): string {
-  return generateTestToken({
-    userId,
-    role: 'SUPER_ADMIN',
-    tenantId: null,
-  });
+  return {
+    tenantA: {
+      token: generateTestToken({ tenantId: tenantAId, sub: userAId }),
+      tenantId: tenantAId,
+      userId: userAId,
+    },
+    tenantB: {
+      token: generateTestToken({ tenantId: tenantBId, sub: userBId }),
+      tenantId: tenantBId,
+      userId: userBId,
+    },
+  };
 }

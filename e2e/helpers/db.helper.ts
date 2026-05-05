@@ -1,41 +1,34 @@
+/**
+ * Database Test Helper
+ * Direct PostgreSQL access for E2E test verification.
+ */
 import { Client, QueryResult } from 'pg';
 
-/**
- * Test Database Helper
- *
- * Direct database access for backend verification in E2E tests.
- * Bypasses GraphQL to verify actual database state.
- */
+const DB_CONFIG = {
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '5432', 10),
+  database: process.env.DB_NAME || 'aquaculture',
+  user: process.env.DB_USER || 'aquaculture',
+  password: process.env.DB_PASSWORD || 'aquaculture',
+};
+
 export class TestDatabase {
   private client: Client | null = null;
 
-  constructor(
-    private readonly connectionConfig?: {
-      host?: string;
-      port?: number;
-      database?: string;
-      user?: string;
-      password?: string;
-    },
-  ) {}
-
-  /**
-   * Connect to the database
-   */
   async connect(): Promise<void> {
-    this.client = new Client({
-      host: this.connectionConfig?.host ?? process.env['DB_HOST'] ?? 'localhost',
-      port: this.connectionConfig?.port ?? Number(process.env['DB_PORT'] ?? 5432),
-      database: this.connectionConfig?.database ?? process.env['DB_NAME'] ?? 'aquaculture',
-      user: this.connectionConfig?.user ?? process.env['DB_USER'] ?? 'aquaculture',
-      password: this.connectionConfig?.password ?? process.env['DB_PASSWORD'] ?? 'aquaculture',
-    });
-
+    this.client = new Client(DB_CONFIG);
     await this.client.connect();
   }
 
+  async disconnect(): Promise<void> {
+    if (this.client) {
+      await this.client.end();
+      this.client = null;
+    }
+  }
+
   /**
-   * Execute a query with parameters
+   * Execute a raw SQL query.
    */
   async query<T extends Record<string, unknown> = Record<string, unknown>>(
     sql: string,
@@ -48,68 +41,70 @@ export class TestDatabase {
   }
 
   /**
-   * Find a single row by query
+   * Find a single row by table + id + tenantId.
    */
-  async findOne<T extends Record<string, unknown> = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[],
-  ): Promise<T | null> {
-    const result = await this.query<T>(sql, params);
-    return result.rows[0] ?? null;
-  }
-
-  /**
-   * Find multiple rows
-   */
-  async findMany<T extends Record<string, unknown> = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[],
-  ): Promise<T[]> {
-    const result = await this.query<T>(sql, params);
-    return result.rows;
-  }
-
-  /**
-   * Check if a user exists and get their active status
-   */
-  async getUserStatus(userId: string): Promise<{ isActive: boolean; email: string } | null> {
-    const row = await this.findOne<{ isActive: boolean; email: string }>(
-      'SELECT "isActive", email FROM auth.users WHERE id = $1',
-      [userId],
+  async findById(
+    table: string,
+    id: string,
+    tenantId: string,
+  ): Promise<Record<string, unknown> | null> {
+    const result = await this.query(
+      `SELECT * FROM "${table}" WHERE "id" = $1 AND "tenantId" = $2`,
+      [id, tenantId],
     );
-    return row;
+    return (result.rows[0] as Record<string, unknown>) || null;
   }
 
   /**
-   * Get a tenant by ID
+   * Count rows in a table for a given tenant.
    */
-  async getTenant(tenantId: string): Promise<Record<string, unknown> | null> {
-    return this.findOne(
-      'SELECT * FROM auth.tenants WHERE id = $1',
+  async countByTenant(table: string, tenantId: string): Promise<number> {
+    const result = await this.query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM "${table}" WHERE "tenantId" = $1`,
       [tenantId],
     );
+    return parseInt(result.rows[0].count, 10);
   }
 
   /**
-   * Get audit logs for a tenant
+   * Delete test data by tenantId (cleanup).
    */
-  async getAuditLogs(
-    tenantId: string,
-    limit = 10,
-  ): Promise<Array<Record<string, unknown>>> {
-    return this.findMany(
-      'SELECT * FROM auth.audit_logs WHERE "tenantId" = $1 ORDER BY "createdAt" DESC LIMIT $2',
-      [tenantId, limit],
-    );
-  }
-
-  /**
-   * Disconnect from the database
-   */
-  async disconnect(): Promise<void> {
-    if (this.client) {
-      await this.client.end();
-      this.client = null;
+  async cleanupTenant(tenantId: string, tables: string[]): Promise<void> {
+    for (const table of tables) {
+      await this.query(`DELETE FROM "${table}" WHERE "tenantId" = $1`, [
+        tenantId,
+      ]);
     }
+  }
+
+  /**
+   * Check if a row exists.
+   */
+  async exists(
+    table: string,
+    id: string,
+    tenantId: string,
+  ): Promise<boolean> {
+    const result = await this.query<{ exists: boolean }>(
+      `SELECT EXISTS(SELECT 1 FROM "${table}" WHERE "id" = $1 AND "tenantId" = $2) as exists`,
+      [id, tenantId],
+    );
+    return result.rows[0].exists;
+  }
+
+  /**
+   * Check for soft-deleted rows.
+   */
+  async isSoftDeleted(
+    table: string,
+    id: string,
+    tenantId: string,
+  ): Promise<boolean> {
+    const result = await this.query<{ is_deleted: boolean }>(
+      `SELECT "isDeleted" as is_deleted FROM "${table}" WHERE "id" = $1 AND "tenantId" = $2`,
+      [id, tenantId],
+    );
+    if (result.rows.length === 0) return false;
+    return result.rows[0].is_deleted;
   }
 }

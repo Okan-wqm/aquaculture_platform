@@ -1,17 +1,21 @@
 {
-  "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "../dist/e2e",
-    "types": ["jest", "node"],
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+    "outDir": "./dist",
+    "rootDir": ".",
     "strict": true,
     "noImplicitAny": true,
+    "strictNullChecks": true,
     "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
     "moduleResolution": "node",
-    "target": "ES2021",
-    "module": "commonjs"
+    "types": ["jest", "node"]
   },
-  "include": [
-    "helpers/**/*.ts",
-    "tests/**/*.ts"
-  ]
+  "include": ["helpers/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

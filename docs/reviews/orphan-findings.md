@@ -2811,3 +2811,35 @@ The TTL=1h fail-safe is the load-bearing release path until one of (1)/(2)/(3) l
 5. **Update `opc_ua_subscription_freshness.rs` invariant** — add an assertion that the production code path references `SensNodeManagerNotifier` rather than `LoggingNotifier` in the boot wire, so a regression that reverts to LoggingNotifier surfaces at test time.
 
 **Closure path discipline:** this is a clean follow-on, not a yama. The Phase B-4 commit ships the primitive + the trait + the spawn + the lifecycle integration; Phase B-4.5 ships the production notifier impl. Each phase is independently testable + invariant-pinned. The only consequence of B-4 without B-4.5 is that subscription latency stays at the pre-B-4 polling-bound floor — a no-regression baseline rather than a security-active gap.
+
+
+## ORPHAN-MEDIUM-054 — `cmd_reload_config` MQTT command + SIGHUP handler deferred to Phase B-5.5; OpcUaLifecycle primitive ships in B-5 but operator surface is unreached (Phase B-5 scope decision, 2026-05-05)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-5.5 / future PR. Deadline: gated on D-5 config-integrity verify pipeline being available at the command-dispatch layer (the reload command must verify the file's ed25519 signature before applying changes).
+
+**Scope:** `sens-api-gateway/src/commands/reload_config.rs` (does not yet exist) + `sens-api-gateway/src/main.rs::SignalKind::hangup()` listener (not yet wired).
+
+**Edge-expert surfaced:** Phase B-5 ships the AGENT-SIDE primitive: `OpcUaLifecycle` with drain-rebuild-swap discipline + `ReloadOutcome` taxonomy + fail-closed config-validation. What's missing is the operator-facing surfaces — an MQTT command handler + a SIGHUP listener that drive the lifecycle's `reload(...)` method. Without them, the primitive is unreachable from operator code paths; the only consumer is the boot path (`install`) + future test fixtures.
+
+**Why this is acceptable for Phase B-5:**
+
+- **The architectural primitive is the load-bearing piece.** The drain semantics, atomic swap, fail-closed config validation, and four-state machine are the parts that actually enforce FR6 continuity + audit chain ordering. Once the primitive is correct, the operator surfaces are mechanical wiring.
+- **The operator surfaces require D-5 integration.** `cmd_reload_config` MUST verify the new config file's ed25519 signature (D-5 integrity verify per ADR-019) before driving the lifecycle. Threading that through the existing command-dispatch envelope-adapter chain is its own batch.
+- **No regression vs pre-B-5.** The agent's pre-B-5 path required restart-for-config-change; that path remains. Phase B-5 ADDS the live-reload primitive without removing the restart path. Operators use the restart-for-config-change behavior until Phase B-5.5 ships the operator surfaces.
+
+**HOW to resolve (Phase B-5.5):**
+
+1. **`commands/reload_config.rs::cmd_reload_config`** — analog of Phase 1.1.2 `cmd_update_cert_pinning`. Verify envelope signature + JTI replay defense + RBAC permission (`Permission::ReloadConfig`). Re-parse the agent's full config from disk via `AgentConfig::load_with_d5_verify` (D-5 integrity verify). Diff the parsed config against `lifecycle.last_applied_config().await`; if a delta is detected in `opc_ua_server.*`, call `lifecycle.reload(new_section, builder_fn).await`. Audit emit `ConfigReloadApplied` (success) or `ConfigReloadRejected` (fail-closed validation / build error).
+
+2. **`main.rs` SIGHUP listener** — `tokio::signal::unix::signal(SignalKind::hangup())` task that calls the same reload path on every SIGHUP. Operators triggering reload via `kill -SIGHUP $(pidof suderra-agent)` get the same behavior as `cmd_reload_config`.
+
+3. **Permission enum extension** — `Permission::ReloadConfig` (analog of `Permission::ManageCertPinning`). HSM-slot separation on the cloud-side mirrors at the RBAC layer — operators with cert-pinning authority do NOT auto-inherit config-reload authority.
+
+4. **AppState integration** — `AppState.opc_ua_lifecycle: Arc<OpcUaLifecycle>` field replaces the existing `opc_ua_server: Option<Arc<SuderraOpcUaHandle>>` field. Boot path migrates from direct-store to `lifecycle.install(handle, config).await`. Command handlers reading the running handle migrate to `lifecycle.current().await`.
+
+5. **E2E** — `tests/e2e/opc_ua_live_reload.rs`:
+   - happy: port change via SIGHUP → new config validates → drain old → rebuild → HMI reconnects to new port.
+   - adversarial: malformed config via cmd_reload_config → D-5 sig fail → old server intact + audit `ConfigReloadRejected`.
+   - drain: in-flight write completes audit emit BEFORE `ServerHandle::cancel` returns.
+
+The split is clean: B-5 ships the primitive (architecturally complete + invariant-pinned); B-5.5 ships the operator surfaces (mechanical AppState rewrite + envelope-adapter integration). No yama, no deferral-without-tracking — the gap is documented here with the resolution path.

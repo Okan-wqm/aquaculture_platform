@@ -758,3 +758,16 @@ path = "tests/invariants/opc_ua_session_quota.rs"
 [[test]]
 name = "opc_ua_subscription_freshness"
 path = "tests/invariants/opc_ua_subscription_freshness.rs"
+
+# Phase B-5 (Batches #276-#277) — OPC UA live-reload primitive closure
+# invariant. Tier-3 source-grep detector that pins OpcUaLifecycle +
+# RwLock<Option<Arc<...>>> internal shape + reload/install/current API
+# + ReloadOutcome four-state taxonomy + ReloadError fail-closed
+# contract + shutdown_full drain-before-swap discipline + lifecycle
+# submodule declaration + ADR-032 (plan-intended ID was ADR-025 —
+# renumbered). A regression that collapses the lock shape, drops the
+# drain step, or removes a state variant would silently regress the
+# FR6 continuity contract.
+[[test]]
+name = "opc_ua_reload_drains_writes"
+path = "tests/invariants/opc_ua_reload_drains_writes.rs"

@@ -69,6 +69,9 @@ pub mod session_quota;
 // Phase B-4 (Plan §B-4 Batch #273-#275) — push-subscription bridge from
 // ProcessImage::subscribe_changes broadcast → OPC UA subscription state.
 pub mod subscription_bridge;
+// Phase B-5 (Plan §B-5 Batch #276-#277) — live config reload via drain +
+// atomic swap. ADR-032 (plan-intended ID was ADR-025 — renumbered).
+pub mod lifecycle;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

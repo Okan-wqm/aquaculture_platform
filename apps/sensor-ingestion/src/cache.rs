@@ -51,18 +51,14 @@
 //!   sketch. The edge agent (`sens-api-gateway/Cargo.toml`) already
 //!   uses `moka = "0.12"`, so the supply-chain footprint is unchanged.
 //!
-//! WHY papaya for the per-tenant semaphore map:
+//! WHY papaya for the per-tenant counter map:
 //!   The plan names `papaya` as the read-heavy lock-free concurrent
 //!   map for ingestion (PLAN.md § Faz 2 — Crate Seçimleri). Per-tenant
-//!   semaphore probes happen on EVERY cache insert and the typical
+//!   counter probes happen on EVERY cache insert and the typical
 //!   pattern is many reads vs few writes per tenant id. papaya's
 //!   seqlock-based reads stay lock-free; classic `RwLock<HashMap>`
-//!   would serialise the hot path. We use
-//!   `papaya::HashMap<TenantId, Arc<tokio::sync::Semaphore>>` so the
-//!   admission-control primitive is both lock-free at the map layer
-//!   AND structurally race-free at the per-tenant layer — the
-//!   `try_acquire_owned` primitive replaces the earlier AtomicUsize
-//!   load/fetch_add window that could race past the cap.
+//!   would serialise the hot path. We use `papaya::HashMap<TenantId,
+//!   Arc<AtomicUsize>>` so the counter itself is also lock-free.
 //!
 //! WHY entries are wrapped in `Arc<SensorMeta>`:
 //!   Downstream stages (payload validator, batch aggregator) want to
@@ -100,20 +96,12 @@
 //!     subscriber code will call.
 
 use std::sync::Arc;
-// Per-tenant cap enforcement moved from an AtomicUsize counter + load/
-// fetch_add window to a tokio::sync::Semaphore permit-based admission
-// control (ADR-030 Kör Nokta 15). The semaphore's `try_acquire_owned`
-// is the atomic check-and-take primitive: a concurrent inserter that
-// would have raced past the counter's `load` now gets `NoPermits`
-// deterministically, falls into the evict-and-retry loop, and the cap
-// holds structurally. The counter race window is closed by construction.
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use moka::notification::RemovalCause;
 use moka::sync::Cache;
 use papaya::HashMap as PapayaMap;
-use serde::{Deserialize, Serialize};
 use tenant_context::TenantId;
-use tokio::sync::{Semaphore, TryAcquireError};
 use uuid::Uuid;
 
 // ---------- public bound defaults ---------------------------------------
@@ -143,39 +131,7 @@ pub const DEFAULT_TOTAL_CAPACITY: usize = 100_000;
 /// of "did the cache return a wrong-tenant value?" a one-line
 /// `assert_eq!(meta.tenant_id, expected_tenant)` rather than a key/
 /// value pairwise check at every consumer.
-///
-/// WHY `Serialize` / `Deserialize` derives:
-///   The cache-miss responder pair (Rust `sensor_lookup` ↔ NestJS
-///   `SensorLookupResponderService`) ships this struct over NATS
-///   request-reply on `sensor.lookup.by-topic`. The wire shape MUST be
-///   the camelCase JSON shape (`sensorId`, `tenantId`, `channelIds`)
-///   pinned by the `sensor_meta_wire_shape_camelCase` test below — the
-///   NestJS responder writes that shape and the Rust client decodes it
-///   directly into [`SensorMeta`]. Pinning the shape in this module
-///   keeps the wire contract co-located with the in-memory type that
-///   produces it; a refactor that renames a field surfaces in the
-///   wire-shape test before any deploy.
-///
-///   Field name mapping:
-///     * `sensor_id`   → `sensorId`   (UUID lower-case hyphenated)
-///     * `tenant_id`   → `tenantId`   (UUID lower-case hyphenated, via
-///                                     `TenantId`'s `#[serde(transparent)]`)
-///     * `channel_ids` → `channelIds` (array of UUIDs, lower-case
-///                                     hyphenated)
-///     * `farm_id`     → `farmId`     (optional UUID; key OMITTED when
-///                                     `None`, never `null`)
-///     * `pond_id`     → `pondId`     (optional UUID; key OMITTED when
-///                                     `None`, never `null`)
-///
-/// WHY `farm_id` / `pond_id` use `skip_serializing_if = "Option::is_none"`:
-///   The "no farm" sensor (e.g. an operator-owned sentinel device with
-///   no pond binding) is structurally common. Encoding that case as the
-///   ABSENCE of the JSON key (a single-byte difference vs. presence)
-///   instead of a `"farmId": null` literal keeps the wire compact AND
-///   matches the BaseEvent contract on the TS side, which omits
-///   undefined optionals rather than serialising them as `null`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SensorMeta {
     /// Unique sensor identifier (the second half of the cache key).
     pub sensor_id: Uuid,
@@ -187,21 +143,6 @@ pub struct SensorMeta {
     /// event and the cache layer invalidates the entry. The vector is
     /// short (typically 1-8 entries) and immutable after construction.
     pub channel_ids: Vec<Uuid>,
-    /// Optional farm scope. WHAT: cached at resolve time so the drain
-    /// can populate the published `SensorMetricIngestedEvent.farmId`
-    /// without a per-message DB hit. WHY optional: a sensor can be
-    /// registered without a farm binding (sentinel / unassigned /
-    /// pre-onboarding device). `skip_serializing_if = "Option::is_none"`
-    /// + `default` make the wire shape: key absent = no farm, key
-    ///   present + valid UUID = farm bound. There is no `null` middle
-    ///   state (would force every consumer to special-case a third shape).
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub farm_id: Option<Uuid>,
-    /// Optional pond scope. Mirrors [`SensorMeta::farm_id`] semantics.
-    /// A sensor with a farm but no pond is legitimate (farm-level
-    /// telemetry not tied to a specific pond).
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub pond_id: Option<Uuid>,
     // Future fields the value is reserved to carry once the upstream
     // resolution surface stabilises:
     //   * calibration: linear/2-point/poly3 coefficient struct
@@ -226,23 +167,14 @@ pub struct TopicCache {
     /// hash bucket discriminator is the pair.
     storage: Cache<(TenantId, Uuid), Arc<SensorMeta>>,
 
-    /// Per-tenant admission control — one [`Semaphore`] per tenant id,
-    /// initialised with `per_tenant_capacity` permits. Every successful
-    /// new-slot insert consumes a permit (via `permit.forget()`); every
-    /// eviction returns a permit (via `add_permits(1)` in the listener).
-    ///
-    /// The cap is structurally enforced — `Semaphore::try_acquire_owned()`
-    /// returns `NoPermits` at capacity, the insert path falls into the
-    /// evict-and-retry loop, and the storage never exceeds the cap.
-    /// Upserts (key already present) do NOT consume a permit — they
-    /// overwrite in place so no new slot is claimed.
-    ///
-    /// Read-heavy: every cache `insert` probes the tenant's semaphore.
-    /// Lock-free map layer under papaya's seqlock pattern; the permit
-    /// admission itself is a tokio `Semaphore` primitive (sync
-    /// `try_acquire_owned` — no async context required, suits the
-    /// sync `insert` API).
-    per_tenant_semaphores: Arc<PapayaMap<TenantId, Arc<Semaphore>>>,
+    /// Per-tenant entry counter. Read-heavy: every cache `insert`
+    /// probes the counter for the per-tenant cap. Lock-free under
+    /// papaya's seqlock pattern. The value is `Arc<AtomicUsize>` so
+    /// a single in-flight reader holding the counter through a
+    /// lookup→increment window cannot be racing with a concurrent
+    /// remove that would otherwise drop the slot underneath them;
+    /// `Arc` keeps the counter alive across the whole increment.
+    per_tenant_counts: Arc<PapayaMap<TenantId, Arc<AtomicUsize>>>,
 
     /// Per-tenant cap (entries-per-tenant ceiling). Stored on the
     /// struct so eviction policy + capacity audit are both readable
@@ -270,44 +202,36 @@ impl TopicCache {
     /// [`TopicCache::new`].
     #[must_use]
     pub fn new_with_caps(per_tenant_capacity: usize, total_capacity: usize) -> Self {
-        let per_tenant_semaphores: Arc<PapayaMap<TenantId, Arc<Semaphore>>> =
+        let per_tenant_counts: Arc<PapayaMap<TenantId, Arc<AtomicUsize>>> =
             Arc::new(PapayaMap::new());
-        let listener_semaphores = Arc::clone(&per_tenant_semaphores);
+        let listener_counts = Arc::clone(&per_tenant_counts);
         // moka's eviction_listener fires on size-pressure eviction,
-        // explicit invalidate, and TTL expiry (no TTL set here). Return
-        // the vacated slot's permit to the per-tenant semaphore so the
-        // next insert can take it. The closure must be
+        // explicit invalidate, and TTL expiry (we do not set a TTL).
+        // Decrement the per-tenant counter on every removal so the
+        // counter and the storage stay consistent. The closure must be
         // `Send + Sync + 'static` and the captured `Arc<PapayaMap>`
-        // satisfies both. Add_permits is infallible (the panic case is
-        // permit-count > MAX_PERMITS which cannot happen: we add at
-        // most `per_tenant_capacity` permits over the semaphore's
-        // lifetime, matching the initial count).
+        // satisfies both.
         let storage = Cache::<(TenantId, Uuid), Arc<SensorMeta>>::builder()
             .max_capacity(total_capacity as u64)
             .eviction_listener(
-                move |key: Arc<(TenantId, Uuid)>, _value, cause: RemovalCause| {
-                    // `Replaced` = upsert. The slot is not freed; the
-                    // existing key was overwritten in place so the
-                    // permit accounting must NOT treat it as an
-                    // eviction — otherwise every upsert would leak a
-                    // permit and the effective cap would grow
-                    // unboundedly. Only genuine evictions (Explicit
-                    // invalidate, Expired TTL, Size pressure) release
-                    // the slot.
-                    if matches!(cause, RemovalCause::Replaced) {
-                        return;
-                    }
+                move |key: Arc<(TenantId, Uuid)>, _value, _cause: RemovalCause| {
                     let (tenant, _sensor) = *key;
-                    let pinned = listener_semaphores.pin();
-                    if let Some(sem) = pinned.get(&tenant) {
-                        sem.add_permits(1);
+                    let pinned = listener_counts.pin();
+                    if let Some(counter) = pinned.get(&tenant) {
+                        // saturating_sub via fetch_update — `fetch_sub` would
+                        // wrap on a logic bug, which the loud underflow of
+                        // saturating logic surfaces faster.
+                        let _ =
+                            counter.fetch_update(Ordering::Release, Ordering::Acquire, |current| {
+                                Some(current.saturating_sub(1))
+                            });
                     }
                 },
             )
             .build();
         Self {
             storage,
-            per_tenant_semaphores,
+            per_tenant_counts,
             per_tenant_capacity,
         }
     }
@@ -348,78 +272,20 @@ impl TopicCache {
     pub fn insert(&self, meta: SensorMeta) {
         let tenant = meta.tenant_id;
         let sensor = meta.sensor_id;
-
-        // If the key already exists, the insert overwrites in place —
-        // no new slot is claimed, no permit is consumed. Fast-path
-        // check before touching the semaphore keeps upsert traffic
-        // free of admission-control overhead.
-        if self.storage.contains_key(&(tenant, sensor)) {
-            self.storage.insert((tenant, sensor), Arc::new(meta));
-            return;
+        let counter = self.counter_for(tenant);
+        // Probe BEFORE the insert so the over-cap eviction happens in
+        // the right window. The increment happens AFTER the moka insert
+        // so a concurrent eviction listener cannot decrement a counter
+        // that has not yet been incremented.
+        let current = counter.load(Ordering::Acquire);
+        if current >= self.per_tenant_capacity {
+            self.evict_one_for_tenant(tenant);
         }
-
-        let sem = self.semaphore_for(tenant);
-
-        // Evict-and-retry loop. Bounded by `per_tenant_capacity + 1` so
-        // a logic bug cannot spin forever: each iteration either wins
-        // a permit (succeeds, returns) or drops one storage slot (the
-        // eviction releases a permit, making the next try_acquire
-        // succeed). The ceiling is defensive — steady-state loops
-        // finish in one or two iterations.
-        let max_retries = self.per_tenant_capacity.saturating_add(1);
-        for _ in 0..=max_retries {
-            match Arc::clone(&sem).try_acquire_owned() {
-                Ok(permit) => {
-                    // Second contains_key check inside the permit-held
-                    // window: a concurrent inserter may have upserted
-                    // the same key between our fast-path check and the
-                    // acquire. If so, release the permit immediately
-                    // (drop handles the return) and just overwrite.
-                    if self.storage.contains_key(&(tenant, sensor)) {
-                        drop(permit);
-                        self.storage.insert((tenant, sensor), Arc::new(meta));
-                        return;
-                    }
-                    // New slot committed. `permit.forget()` transfers
-                    // ownership of the permit to the eviction listener,
-                    // which will call `add_permits(1)` when moka later
-                    // evicts this key. Without `forget`, dropping the
-                    // permit here would immediately return it and the
-                    // cap would stop working.
-                    self.storage.insert((tenant, sensor), Arc::new(meta));
-                    permit.forget();
-                    return;
-                }
-                Err(TryAcquireError::NoPermits) => {
-                    // At cap. Evict one entry for this tenant; the
-                    // eviction listener calls add_permits(1) which
-                    // unblocks the next try_acquire.
-                    self.evict_one_for_tenant(tenant);
-                    // run_pending_tasks is already invoked inside
-                    // evict_one_for_tenant; no extra drain needed
-                    // before the loop's next iteration.
-                }
-                Err(TryAcquireError::Closed) => {
-                    // Semaphore closed — happens only at process
-                    // shutdown in our use. Skip the insert silently;
-                    // the next boot builds a fresh cache.
-                    tracing::debug!(
-                        tenant = %tenant.as_uuid(),
-                        "per-tenant semaphore closed; cache insert skipped"
-                    );
-                    return;
-                }
-            }
+        let already_present = self.storage.contains_key(&(tenant, sensor));
+        self.storage.insert((tenant, sensor), Arc::new(meta));
+        if !already_present {
+            counter.fetch_add(1, Ordering::AcqRel);
         }
-        // Retry ceiling exhausted — a logic bug has prevented an
-        // eviction from releasing a permit. Log loud + drop the insert
-        // so the hot path does not stall. Cap invariant stays intact
-        // (we did not insert, we did not bypass admission control).
-        tracing::error!(
-            tenant = %tenant.as_uuid(),
-            retries = max_retries,
-            "per-tenant insert: evict-retry ceiling exhausted; dropping — cap invariant preserved"
-        );
     }
 
     /// Drop a single entry. Idempotent — calling on a missing key is a
@@ -444,20 +310,12 @@ impl TopicCache {
         // mutation-during-iteration territory we do not need to
         // explore. The vector is sized by the per-tenant counter so
         // allocation is bounded by the cap, not by the global storage.
-        // Pre-size the victim vector. `per_tenant_capacity - available_permits`
-        // is the current slot count for this tenant (permits start at
-        // capacity, every outstanding slot has forget()ed one). Worst
-        // case we oversize slightly; the cost is a stack-sized Vec
-        // header, not a reallocation round-trip.
-        let used_slots_hint = self
-            .per_tenant_semaphores
+        let counter_hint = self
+            .per_tenant_counts
             .pin()
             .get(&tenant)
-            .map_or(0, |sem| {
-                self.per_tenant_capacity
-                    .saturating_sub(sem.available_permits())
-            });
-        let mut victims: Vec<(TenantId, Uuid)> = Vec::with_capacity(used_slots_hint);
+            .map_or(0, |c| c.load(Ordering::Acquire));
+        let mut victims: Vec<(TenantId, Uuid)> = Vec::with_capacity(counter_hint);
         for (key, _value) in &self.storage {
             if key.0 == tenant {
                 victims.push(*key);
@@ -497,50 +355,41 @@ impl TopicCache {
 
     // ---------- internals ----------
 
-    /// Look up (or create) the per-tenant semaphore. Lock-free read
+    /// Look up (or create) the per-tenant counter slot. Lock-free read
     /// path under papaya; only the first write per tenant takes the
-    /// store-side allocation hit. The semaphore is initialised with
-    /// `per_tenant_capacity` permits so a tenant that has never
-    /// published before starts with a full slot budget.
-    fn semaphore_for(&self, tenant: TenantId) -> Arc<Semaphore> {
-        // Fast path: tenant already seen. papaya's pin() is a
-        // lock-free read; the common case (warm tenant) returns
-        // without allocation.
+    /// store-side allocation hit.
+    fn counter_for(&self, tenant: TenantId) -> Arc<AtomicUsize> {
+        // First try the read-only path — the common case is "tenant
+        // already has a counter" because the very first publish for a
+        // tenant in process-lifetime is rare relative to the steady
+        // stream that follows.
         {
-            let pinned = self.per_tenant_semaphores.pin();
+            let pinned = self.per_tenant_counts.pin();
             if let Some(existing) = pinned.get(&tenant) {
                 return Arc::clone(existing);
             }
         }
-        // Cold path: allocate + insert. `get_or_insert_with` keeps the
-        // operation race-free — concurrent callers either see the
+        // Cold path: allocate and insert. `get_or_insert_with` keeps
+        // the operation race-free — concurrent callers either see the
         // value we just wrote OR a value another thread wrote first,
-        // and both observers receive the same `Arc<Semaphore>`.
-        let pinned = self.per_tenant_semaphores.pin();
-        let entry = pinned.get_or_insert_with(tenant, || {
-            Arc::new(Semaphore::new(self.per_tenant_capacity))
-        });
+        // and both observers get the same `Arc`.
+        let pinned = self.per_tenant_counts.pin();
+        let entry = pinned.get_or_insert_with(tenant, || Arc::new(AtomicUsize::new(0)));
         Arc::clone(entry)
     }
 
-    /// Test-internals visibility for the per-tenant slot count. Used
-    /// by the self-smoke check + the multi-tenant unit tests to
-    /// assert post-teardown invariants (0 slots for a tenant whose
-    /// entries we just invalidated). Derived from the semaphore's
-    /// `available_permits()` — slots-in-use = capacity - available.
-    ///
-    /// Not on the cache's public message-path API; exposing the
-    /// semaphore state is intentional for tests only, mirroring the
-    /// pre-refactor `debug_tenant_count` accessor.
+    /// Test internals visibility for the per-tenant counter. Used by
+    /// the self-smoke check to assert post-teardown invariants
+    /// (counter must be observably 0 for a tenant whose entries we
+    /// just invalidated). Not part of the cache's public message-
+    /// path API; the function lives here because exposing the
+    /// counter atomically is intentional (test surface only).
     #[must_use]
     pub(crate) fn debug_tenant_count(&self, tenant: TenantId) -> usize {
-        self.per_tenant_semaphores
+        self.per_tenant_counts
             .pin()
             .get(&tenant)
-            .map_or(0, |sem| {
-                self.per_tenant_capacity
-                    .saturating_sub(sem.available_permits())
-            })
+            .map_or(0, |c| c.load(Ordering::Acquire))
     }
 
     /// Evict ONE entry for the named tenant, chosen as the first the
@@ -594,19 +443,11 @@ pub fn self_smoke_check(cache: &TopicCache) {
         sensor_id: sensor_a,
         tenant_id: tenant,
         channel_ids: Vec::new(),
-        // farm/pond intentionally absent for the smoke fixture — the
-        // cache surface is identical for the with-farm/without-farm
-        // case, and exercising the None branch keeps the smoke-fixture
-        // identical to its post-Faz-2 shape.
-        farm_id: None,
-        pond_id: None,
     });
     cache.insert(SensorMeta {
         sensor_id: sensor_b,
         tenant_id: tenant,
         channel_ids: Vec::new(),
-        farm_id: None,
-        pond_id: None,
     });
 
     // get → MUST hit (proves the storage round-trips).
@@ -658,13 +499,6 @@ mod tests {
             sensor_id: sensor,
             tenant_id: tenant,
             channel_ids: vec![Uuid::nil()],
-            // Default test fixture has no farm/pond binding — keeps
-            // every existing tenant-isolation / capacity test focused
-            // on the cache contract; the new wire-shape and round-trip
-            // tests below build their own SensorMeta with farm/pond
-            // populated where the test scenario calls for it.
-            farm_id: None,
-            pond_id: None,
         }
     }
 
@@ -946,366 +780,5 @@ mod tests {
         // visible in the test surface.
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<TopicCache>();
-    }
-
-    // -----------------------------------------------------------
-    // Wire-shape tests for the cache-miss responder pair.
-    //
-    // The Rust `sensor_lookup` client decodes the NestJS responder's
-    // JSON body directly into `SensorMeta`. The two tests below pin
-    // the shared wire shape so a future field rename or a derive
-    // change surfaces here BEFORE either the responder (NestJS) or
-    // the client (Rust) deploys with a mismatch.
-    // -----------------------------------------------------------
-
-    #[test]
-    fn sensor_meta_serde_round_trip() {
-        // Construct a fully-populated SensorMeta (BOTH the without-
-        // farm/pond AND the with-farm/pond cases), encode to JSON,
-        // decode back, assert structural equality. Pins that the serde
-        // derives are bidirectional and lossless on every field —
-        // including the Faz-3-follow-on `farm_id` / `pond_id` Options.
-        let tenant = fixed_tenant(0x77);
-        let sensor = fixed_sensor(0xB0, 0x01);
-
-        // Variant 1: no farm / pond binding (the sentinel-device case).
-        let meta_none = SensorMeta {
-            sensor_id: sensor,
-            tenant_id: tenant,
-            channel_ids: vec![
-                fixed_sensor(0xB0, 0xAA),
-                fixed_sensor(0xB0, 0xBB),
-                fixed_sensor(0xB0, 0xCC),
-            ],
-            farm_id: None,
-            pond_id: None,
-        };
-        let json = serde_json::to_string(&meta_none).expect("serialise (none)");
-        let back: SensorMeta = serde_json::from_str(&json).expect("deserialise (none)");
-        assert_eq!(
-            back, meta_none,
-            "SensorMeta JSON round-trip (no farm/pond) must be lossless"
-        );
-
-        // Variant 2: both farm + pond present (the steady-state case).
-        let farm_uuid = fixed_sensor(0xB0, 0xF0);
-        let pond_uuid = fixed_sensor(0xB0, 0xF1);
-        let meta_some = SensorMeta {
-            sensor_id: sensor,
-            tenant_id: tenant,
-            channel_ids: vec![fixed_sensor(0xB0, 0xAA)],
-            farm_id: Some(farm_uuid),
-            pond_id: Some(pond_uuid),
-        };
-        let json = serde_json::to_string(&meta_some).expect("serialise (some)");
-        let back: SensorMeta = serde_json::from_str(&json).expect("deserialise (some)");
-        assert_eq!(
-            back, meta_some,
-            "SensorMeta JSON round-trip (with farm/pond) must be lossless"
-        );
-        assert_eq!(back.farm_id, Some(farm_uuid));
-        assert_eq!(back.pond_id, Some(pond_uuid));
-    }
-
-    #[test]
-    #[allow(non_snake_case)]
-    fn sensor_meta_wire_shape_camelCase() {
-        // The NestJS responder writes camelCase keys
-        // (`sensorId`, `tenantId`, `channelIds`, optional `farmId` /
-        // `pondId`). Pin the exact key names + value formats so a
-        // derive rename cannot silently break the responder pair
-        // contract. Also pins UUID lower-case-hyphenated formatting
-        // for sensor / tenant / channel / farm / pond uuids.
-        //
-        // This test exercises the WITH-farm/pond shape so the wire
-        // contract pins the camelCase mapping for every field. The
-        // sibling `sensor_meta_omits_farm_pond_when_none` test pins the
-        // ABSENT-key shape for the None variant.
-        let sensor =
-            Uuid::parse_str("11111111-1111-1111-1111-111111111111").expect("parse sensor uuid");
-        let tenant_uuid =
-            Uuid::parse_str("22222222-2222-2222-2222-222222222222").expect("parse tenant uuid");
-        let channel_a =
-            Uuid::parse_str("33333333-3333-3333-3333-333333333333").expect("parse channel a");
-        let channel_b =
-            Uuid::parse_str("44444444-4444-4444-4444-444444444444").expect("parse channel b");
-        let farm_uuid =
-            Uuid::parse_str("55555555-5555-5555-5555-555555555555").expect("parse farm uuid");
-        let pond_uuid =
-            Uuid::parse_str("66666666-6666-6666-6666-666666666666").expect("parse pond uuid");
-        let meta = SensorMeta {
-            sensor_id: sensor,
-            tenant_id: TenantId::from_uuid(tenant_uuid),
-            channel_ids: vec![channel_a, channel_b],
-            farm_id: Some(farm_uuid),
-            pond_id: Some(pond_uuid),
-        };
-        let val: serde_json::Value = serde_json::to_value(&meta).expect("serialise to value");
-        let obj = val.as_object().expect("top-level must be a JSON object");
-
-        // Exactly five keys when both farm + pond are present, all
-        // camelCase. A new field added without updating both sides of
-        // the wire would fail this length check.
-        assert_eq!(
-            obj.len(),
-            5,
-            "SensorMeta wire shape with farm+pond must have exactly 5 keys; got {obj:?}"
-        );
-        assert!(obj.contains_key("sensorId"), "missing camelCase 'sensorId'");
-        assert!(obj.contains_key("tenantId"), "missing camelCase 'tenantId'");
-        assert!(
-            obj.contains_key("channelIds"),
-            "missing camelCase 'channelIds'"
-        );
-        assert!(obj.contains_key("farmId"), "missing camelCase 'farmId'");
-        assert!(obj.contains_key("pondId"), "missing camelCase 'pondId'");
-
-        // sensorId / tenantId are lower-case hyphenated UUID strings.
-        assert_eq!(
-            obj.get("sensorId").and_then(serde_json::Value::as_str),
-            Some("11111111-1111-1111-1111-111111111111")
-        );
-        assert_eq!(
-            obj.get("tenantId").and_then(serde_json::Value::as_str),
-            Some("22222222-2222-2222-2222-222222222222")
-        );
-        // farmId / pondId same UUID format. Pinning here keeps the
-        // wire format consistent with every other UUID-bearing field.
-        assert_eq!(
-            obj.get("farmId").and_then(serde_json::Value::as_str),
-            Some("55555555-5555-5555-5555-555555555555")
-        );
-        assert_eq!(
-            obj.get("pondId").and_then(serde_json::Value::as_str),
-            Some("66666666-6666-6666-6666-666666666666")
-        );
-        // channelIds is a JSON array of lower-case hyphenated UUID strings.
-        let arr = obj
-            .get("channelIds")
-            .and_then(serde_json::Value::as_array)
-            .expect("channelIds must be an array");
-        assert_eq!(arr.len(), 2, "channelIds must carry 2 elements");
-        assert_eq!(
-            arr.first().and_then(serde_json::Value::as_str),
-            Some("33333333-3333-3333-3333-333333333333")
-        );
-        assert_eq!(
-            arr.get(1).and_then(serde_json::Value::as_str),
-            Some("44444444-4444-4444-4444-444444444444")
-        );
-    }
-
-    #[test]
-    fn sensor_meta_omits_farm_pond_when_none() {
-        // WHAT this test pins:
-        //   When farm_id / pond_id are None, the wire JSON MUST NOT
-        //   include the keys at all — not even as `null`. This is the
-        //   single-byte-difference invariant: an operator's "no farm"
-        //   sensor produces a strictly smaller JSON than the
-        //   with-farm case, AND a downstream consumer that uses
-        //   `obj.contains_key("farmId")` as a presence check sees the
-        //   correct boolean instead of having to special-case `null`.
-        //
-        // WHY the explicit serde_json::Value walk:
-        //   Asserting on the rendered string would couple the test to
-        //   key ordering (serde-json preserves insertion order on
-        //   stable, but pinning that is incidental). Walking the
-        //   object map asserts the absence of keys directly, which is
-        //   the actual contract we want to pin.
-        let sensor =
-            Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").expect("parse sensor uuid");
-        let tenant_uuid =
-            Uuid::parse_str("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb").expect("parse tenant uuid");
-        let meta = SensorMeta {
-            sensor_id: sensor,
-            tenant_id: TenantId::from_uuid(tenant_uuid),
-            channel_ids: vec![],
-            farm_id: None,
-            pond_id: None,
-        };
-        let val: serde_json::Value = serde_json::to_value(&meta).expect("serialise to value");
-        let obj = val.as_object().expect("top-level must be a JSON object");
-
-        // Exactly THREE keys when neither farm nor pond is set —
-        // proves the absence is structural, not a `null` presence.
-        assert_eq!(
-            obj.len(),
-            3,
-            "SensorMeta wire shape WITHOUT farm/pond must have exactly 3 keys; got {obj:?}"
-        );
-        assert!(
-            !obj.contains_key("farmId"),
-            "farmId MUST be absent (not null) when farm_id is None"
-        );
-        assert!(
-            !obj.contains_key("pondId"),
-            "pondId MUST be absent (not null) when pond_id is None"
-        );
-        // The three required keys are still present.
-        assert!(obj.contains_key("sensorId"));
-        assert!(obj.contains_key("tenantId"));
-        assert!(obj.contains_key("channelIds"));
-
-        // Belt-and-braces: the rendered JSON string also must not
-        // contain the substrings `"farmId"` / `"pondId"` anywhere. A
-        // custom Serialize impl that smuggled a key in some other way
-        // would fail this assertion even if the Value-level walk
-        // missed it.
-        let json = serde_json::to_string(&meta).expect("serialise to string");
-        assert!(
-            !json.contains("\"farmId\""),
-            "rendered JSON must not contain farmId; got: {json}"
-        );
-        assert!(
-            !json.contains("\"pondId\""),
-            "rendered JSON must not contain pondId; got: {json}"
-        );
-    }
-
-    // ================================================================
-    // Semaphore-backed hard-cap invariants (ADR-030 Kör Nokta 15).
-    // The pre-refactor AtomicUsize counter had a load→fetch_add race
-    // window that let concurrent inserters exceed the cap transiently.
-    // The Semaphore's `try_acquire_owned` is the atomic check-and-take
-    // primitive — these tests anchor the invariant at the behaviour
-    // layer so a future regression (e.g. someone swapping back to an
-    // AtomicUsize) fails loudly.
-    // ================================================================
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn per_tenant_cap_is_never_exceeded_under_concurrent_burst() {
-        // Flood ONE tenant with many more unique sensor ids than the
-        // per-tenant cap, from 8 concurrent tasks. The invariant: at
-        // no point does the cache's view of this tenant's slot count
-        // exceed the cap. The pre-Semaphore AtomicUsize path could
-        // transiently race past the cap here — this test would have
-        // failed under that impl.
-        let cap: usize = 32;
-        let cache = Arc::new(TopicCache::new_with_caps(cap, 1024));
-        let tenant = fixed_tenant(0xAA);
-
-        let mut handles = Vec::new();
-        for w in 0_u8..8 {
-            let c = Arc::clone(&cache);
-            handles.push(tokio::spawn(async move {
-                // Each task writes 64 unique sensors for the same
-                // tenant — 8 tasks × 64 = 512 inserts against a 32-slot
-                // cap. The semaphore forces evict-and-retry so only
-                // `cap` slots are ever live; the remaining are evicted
-                // as new ones arrive.
-                for i in 0_u8..64 {
-                    let s = fixed_sensor(w, i);
-                    c.insert(meta_for(tenant, s));
-                }
-            }));
-        }
-        for h in handles {
-            h.await.expect("task join");
-        }
-
-        // Flush pending eviction-listener work so the permit counters
-        // are observable. `run_pending_tasks` is idempotent + cheap.
-        cache.storage.run_pending_tasks();
-
-        let used = cache.debug_tenant_count(tenant);
-        assert!(
-            used <= cap,
-            "per-tenant slot count MUST NOT exceed the cap; got used={used}, cap={cap}"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn cross_tenant_inserts_do_not_block_each_other_at_cap() {
-        // Tenant A floods its cap + spills; tenant B should still be
-        // able to insert freely up to its own cap. The per-tenant
-        // semaphore isolates admission control by tenant — a saturated
-        // A cannot stall B's insert path.
-        // Pick cap as u8 so the loops iterate without a fallible cast;
-        // the cache APIs take usize so the one-direction upcast is
-        // lossless.
-        let cap: u8 = 8;
-        let cap_usize = usize::from(cap);
-        let cache = Arc::new(TopicCache::new_with_caps(cap_usize, 256));
-        let tenant_a = fixed_tenant(0xA1);
-        let tenant_b = fixed_tenant(0xB2);
-
-        // Saturate A with 2× cap unique sensors. Evict-and-retry drives
-        // the storage to `cap` slots for A.
-        for i in 0_u8..(cap * 2) {
-            cache.insert(meta_for(tenant_a, fixed_sensor(0xAA, i)));
-        }
-        cache.storage.run_pending_tasks();
-        let a_used = cache.debug_tenant_count(tenant_a);
-        assert!(a_used <= cap_usize, "tenant A cap must hold: used={a_used}");
-
-        // Insert for B should succeed freely — B's semaphore starts
-        // with full permits.
-        for i in 0_u8..cap {
-            cache.insert(meta_for(tenant_b, fixed_sensor(0xBB, i)));
-        }
-        cache.storage.run_pending_tasks();
-        let b_used = cache.debug_tenant_count(tenant_b);
-        assert_eq!(
-            b_used, cap_usize,
-            "tenant B should reach its own cap unblocked by A's saturation"
-        );
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn eviction_listener_returns_permit_to_the_semaphore() {
-        // After an explicit invalidate, the eviction listener must
-        // call `add_permits(1)` so the freed slot is re-usable. Without
-        // this, a flood → invalidate cycle would permanently shrink
-        // the effective cap. `invalidate` runs pending tasks
-        // synchronously (see its doc); we rely on that here.
-        let cap: usize = 4;
-        let cache = TopicCache::new_with_caps(cap, 128);
-        let tenant = fixed_tenant(0xC3);
-        let sensor = fixed_sensor(0xCC, 0);
-
-        cache.insert(meta_for(tenant, sensor));
-        cache.storage.run_pending_tasks();
-        assert_eq!(cache.debug_tenant_count(tenant), 1);
-
-        cache.invalidate(tenant, sensor);
-        // After eviction listener fires, the semaphore's available
-        // permits are restored, which the debug accessor observes as
-        // slot count = 0.
-        assert_eq!(
-            cache.debug_tenant_count(tenant),
-            0,
-            "evicted slot must return its permit — otherwise the effective cap decays"
-        );
-
-        // Sanity: the tenant can insert a fresh sensor immediately,
-        // proving a permit is actually available.
-        cache.insert(meta_for(tenant, fixed_sensor(0xCC, 1)));
-        cache.storage.run_pending_tasks();
-        assert_eq!(cache.debug_tenant_count(tenant), 1);
-    }
-
-    #[test]
-    fn upsert_does_not_consume_a_permit() {
-        // Re-inserting the same (tenant, sensor) key overwrites in
-        // place — no new slot is claimed. The pre-fast-path
-        // contains_key check + the inside-permit contains_key probe
-        // both cooperate: under sequential access the fast path fires;
-        // under a concurrent race the in-permit check catches it. Both
-        // paths converge on "no permit leak for an upsert".
-        let cap: usize = 4;
-        let cache = TopicCache::new_with_caps(cap, 128);
-        let tenant = fixed_tenant(0xD4);
-        let sensor = fixed_sensor(0xDD, 0);
-
-        for _ in 0..20 {
-            cache.insert(meta_for(tenant, sensor));
-        }
-        cache.storage.run_pending_tasks();
-        // 20 upserts but exactly 1 slot consumed.
-        assert_eq!(
-            cache.debug_tenant_count(tenant),
-            1,
-            "20 upserts for the same key must consume exactly 1 slot; if this flips to >1 the permit accounting leaked"
-        );
     }
 }

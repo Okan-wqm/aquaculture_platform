@@ -127,12 +127,47 @@ let accessToken: string | null = null;
 let tenantId: string | null = null;
 let tokenRefreshPromise: Promise<void> | null = null;
 
+type SharedAuthState = {
+  accessToken: string | null;
+  tenantId: string | null;
+};
+
+const SHARED_AUTH_STATE_KEY = '__AQUACULTURE_AUTH_STATE_V2__';
+
+function getSharedAuthState(): SharedAuthState | null {
+  if (typeof window === 'undefined') return null;
+
+  const existing = (window as any)[SHARED_AUTH_STATE_KEY];
+  if (
+    existing &&
+    typeof existing === 'object' &&
+    'accessToken' in existing &&
+    'tenantId' in existing
+  ) {
+    return existing as SharedAuthState;
+  }
+
+  const state: SharedAuthState = { accessToken: null, tenantId: null };
+  try {
+    Object.defineProperty(window, SHARED_AUTH_STATE_KEY, {
+      value: state,
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+  } catch {
+    return null;
+  }
+
+  return state;
+}
+
 /**
  * Install a tamper-proof auth getter on window for Module Federation cross-bundle access.
  * SEC-016: Uses Object.defineProperty with writable:false + configurable:false so
  * malicious scripts cannot overwrite the getter with a token-stealing shim.
- * The frozen object always delegates to the closure-scoped getAccessToken, which
- * reads the in-memory accessToken variable — so it stays up-to-date after refresh.
+ * The frozen object delegates to a versioned shared auth state, not only to the
+ * original module closure, so HMR/test reloads/MF remotes cannot keep stale tokens.
  */
 let authGlobalInstalled = false;
 
@@ -162,6 +197,10 @@ function installAuthGlobal(): void {
  */
 export function setTokens(access: string, _refresh?: string): void {
   accessToken = access;
+  const sharedState = getSharedAuthState();
+  if (sharedState) {
+    sharedState.accessToken = access;
+  }
 
   // SECURITY: Expose frozen getter on window for Module Federation cross-bundle access
   installAuthGlobal();
@@ -178,6 +217,10 @@ export function setTokens(access: string, _refresh?: string): void {
  */
 export function clearTokens(): void {
   accessToken = null;
+  const sharedState = getSharedAuthState();
+  if (sharedState) {
+    sharedState.accessToken = null;
+  }
   // NOTE: tenantId is intentionally NOT cleared here.
   // It is only cleared on explicit logout via clearSession().
 
@@ -196,6 +239,11 @@ export function clearTokens(): void {
 export function clearSession(): void {
   accessToken = null;
   tenantId = null;
+  const sharedState = getSharedAuthState();
+  if (sharedState) {
+    sharedState.accessToken = null;
+    sharedState.tenantId = null;
+  }
 
   try {
     localStorage.removeItem('tenant_id');
@@ -326,6 +374,11 @@ export function loadTokensFromStorage(): void {
  * Access token al
  */
 export function getAccessToken(): string | null {
+  const sharedState = getSharedAuthState();
+  if (sharedState?.accessToken !== undefined) {
+    return accessToken ?? sharedState.accessToken;
+  }
+
   // Module Federation fallback: check window global if module-level var is empty
   if (!accessToken && typeof window !== 'undefined') {
     const authGlobal = (window as any).__AQUACULTURE_AUTH__;
@@ -366,6 +419,11 @@ export function onTenantChange(fn: (oldTenantId: string) => void): () => void {
 export function setTenantId(id: string | null): void {
   const previousTenantId = tenantId;
   tenantId = id;
+  const sharedState = getSharedAuthState();
+  if (sharedState) {
+    sharedState.tenantId = id;
+  }
+
   try {
     if (id) {
       localStorage.setItem('tenant_id', id);
@@ -399,6 +457,9 @@ export function setTenantId(id: string | null): void {
 export function getTenantId(): string | null {
   // Check memory first (set explicitly via setTenantId)
   if (tenantId) return tenantId;
+
+  const sharedState = getSharedAuthState();
+  if (sharedState?.tenantId) return sharedState.tenantId;
 
   // Module Federation fallback: check window global if module-level var is empty
   if (typeof window !== 'undefined') {

@@ -19,6 +19,10 @@ module.exports = {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../coverage/libs/migration-harness',
+  // 2026-05-05: Integration suites boot real PostgreSQL Testcontainers.
+  // Run them serially so CI does not start many Docker pulls/containers at
+  // once and time out before beforeAll can hand back a usable DataSource.
+  maxWorkers: 1,
   // Long timeout for tests that boot a testcontainer (Phase 1 later commits).
   // Individual tests still enforce per-test budgets; this is the safety net.
   testTimeout: 120_000,

@@ -37,6 +37,16 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit
 
+      # 2026-05-05: Lighthouse builds the affected Nx graph before serving
+      # frontend assets. If Rust crates are affected, the pinned toolchain must
+      # exist before Nx starts parallel cargo-backed targets.
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+          components: rustfmt,clippy,rust-src
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+
       - name: Determine Nx affected refs
         id: nx-refs
         run: |

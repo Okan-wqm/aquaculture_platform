@@ -1,6 +1,6 @@
 # sens-api-gateway — Feature Matrix
 
-**Version:** 1.6.0 (`Cargo.toml:6`) · **Source-of-truth commit:** `3413db47` · **Date:** 2026-04-24
+**Version:** 1.6.0 (`Cargo.toml:6`) · **Source-of-truth commit:** `3413db47` · **Date:** 2026-04-29
 **Status vocabulary:** `PRESENT` (shipping today in the named evidence file) · `ROADMAP-Q1..Q4` (2026 quarters, with ADR or finding-ID tracker) · `NOT-PLANNED` (explicit product decision, with reason) · `HARDWARE-VENDOR RESPONSIBILITY` (SBC / silicon supplier, owner+deadline per customer contract)
 
 ## How to read this table
@@ -18,14 +18,14 @@ Cross-references to deeper chapters use relative paths under `sens-api-gateway/d
 | Ethernet (cloud uplink) | PRESENT | `Cargo.toml:30` (`reqwest` rustls), `src/provisioning.rs` | → `protocols/mqtt.md` (owned by protocol-reference-writer) |
 | Cellular modem (LTE / 5G) | HARDWARE-VENDOR RESPONSIBILITY (owner: SBC supplier, deadline: per customer contract) | Not in crate graph | Customer provisions a modem + routes over the Linux interface; agent is transport-agnostic |
 | WiFi STA | HARDWARE-VENDOR RESPONSIBILITY (owner: SBC supplier, deadline: per customer contract) | Not in crate graph | Same — Linux networking layer, not agent code |
-| Offline queue (network loss) | PRESENT | `src/offline_queue.rs`, `src/mqtt_failover.rs` | SQLCipher-backed; drain on reconnect. ORPHAN-006 tracks log-message truthfulness |
-| Offline flush on shutdown | ROADMAP-Q2 + ORPHAN-006 | `src/offline_queue.rs` | Current shutdown step is a no-op; fix tracked |
+| Offline queue (network loss) | PRESENT | `src/offline_queue.rs`, `src/mqtt_failover.rs`, `src/outbound_publisher.rs` | SQLCipher-backed; drain on reconnect. |
+| Offline flush on shutdown | PRESENT | `src/offline_queue.rs`, `src/main.rs` | 2026-04-29 shutdown path stops the drain task, checkpoints the WAL, and fsyncs DB/WAL/SHM/parent paths. |
 
 ## B. Protocols — wire level
 
 | Protocol | Status | Evidence | Cross-reference |
 |----------|--------|----------|----------------|
-| Modbus-TCP | PRESENT | `Cargo.toml:70` (`rodbus = "=1.4.0"`), `src/modbus.rs` | → `protocols/modbus.md` · ORPHAN-002 (version pin) · ORPHAN-008 (write routing bug) · ORPHAN-009 (truncation on analog write) |
+| Modbus-TCP | PRESENT | `Cargo.toml:70` (`rodbus = "=1.4.0"`), `src/modbus.rs` | → `protocols/modbus.md` · ORPHAN-002 (version pin) · ORPHAN-008 FIXED-IN-CODE (write routing) · ORPHAN-009 OPEN (truncation on analog write) |
 | Modbus-RTU (serial) | PRESENT | `Cargo.toml:72` (`tokio-serial = "5.4"`), `src/modbus.rs` | → `protocols/modbus.md` |
 | Modbus TLS (server-only, no mTLS) | PRESENT | `Cargo.toml:66-69` (rodbus empty-Path pin), `src/modbus.rs` | → `protocols/modbus.md` — ORPHAN-002 |
 | Modbus TLS (full mTLS) | ROADMAP-Q2 | Tracked via ORPHAN-002 removal + rodbus upgrade plan | Not claimed as shipping |
@@ -113,14 +113,14 @@ Cross-references to deeper chapters use relative paths under `sens-api-gateway/d
 | mTLS for cloud-uplink HTTPS | PRESENT | `Cargo.toml:30` (`reqwest` rustls-tls-manual-roots), `src/mtls/` (cipher, mode, pinning, verify) | → `security/mtls.md` |
 | MQTT broker mTLS | ROADMAP-Q2 | Present crate supports it; device uplink currently user/pass per `src/mqtt.rs:203-237` | Closure = migrate broker leg to cert-is-identity per ADR-015 pattern |
 | OTA firmware update (signed manifest, A/B partition) | PRESENT | `src/updater/` (error, manifest, partition, verify, mod), ADR-019 | → `deployment/ota.md` |
-| OTA protocol documentation | ROADMAP-Q2 + ORPHAN-018 | Tracked in `docs/reviews/orphan-findings.md#ORPHAN-018` | Closure = deployment-runbook-writer delivery |
+| OTA protocol documentation | ROADMAP-Q2 + ORPHAN-018 | Tracked in `sens-api-gateway/docs/reviews/orphan-findings.md#orphan-018` | Closure = deployment-runbook-writer delivery |
 | License JWT (edge verify-only) | PRESENT (feature-gated) | `Cargo.toml:252` (`jsonwebtoken = "9"`), feature `license-enforce` (`Cargo.toml:392`), ADR-018 §2 | Algorithm pinned `EdDSA`; `default()` forbidden |
 | Zeroize-on-drop secrets | PRESENT | `Cargo.toml:47, 293-296` (`secrecy`, `zeroize`) | IEC 62443 FR4 |
 | Constant-time MIC + PIN compare | PRESENT | `Cargo.toml:291` (`subtle = "2"`) | |
-| Modbus write allow-list (per-register) | Type PRESENT / runtime ROADMAP-Q2 | Struct field present; runtime gate type-only today per `docs/reviews/edge-expert/2026-04-05-s2-high-findings.md:141-198` (S2-HIGH) | Do NOT claim defense-in-depth as live until runtime enforcement lands |
-| Modbus write routing correctness | ROADMAP-Q1 + ORPHAN-008 | `docs/reviews/orphan-findings.md#ORPHAN-008` | All writes go to first device regardless of per-tag mapping — tracked |
-| Modbus analog-write truncation | ROADMAP-Q1 + ORPHAN-009 | `docs/reviews/orphan-findings.md#ORPHAN-009` | `reverse_scale(..) as u16` silent truncation — tracked |
-| systemd hardening path divergence | ROADMAP-Q1 + ORPHAN-010 | `docs/reviews/orphan-findings.md#ORPHAN-010` | `/var/lib/suderra` vs `/var/lib/suderra-agent` |
+| Modbus write allow-list (per-register) | PRESENT | `src/config.rs` validates explicit all-address acceptance or non-empty ranges; `src/modbus.rs` enforces ranges at write time | Empty write range no longer means implicit all-address writes |
+| Modbus write routing correctness | FIXED-IN-CODE + ORPHAN-008 | `sens-api-gateway/docs/reviews/orphan-findings.md#orphan-008` | Writes route through named device lookup |
+| Modbus analog-write truncation | ROADMAP-Q1 + ORPHAN-009 | `sens-api-gateway/docs/reviews/orphan-findings.md#orphan-009` | `reverse_scale(..) as u16` silent truncation — tracked |
+| systemd hardening path divergence | ROADMAP-Q1 + ORPHAN-010 | `sens-api-gateway/docs/reviews/orphan-findings.md#orphan-010` | `/var/lib/suderra` vs `/var/lib/suderra-agent` |
 | prctl / mlock / memfd_secret in-process hardening | PRESENT | `Cargo.toml:207` (`libc`), `src/keystore/` hardening path, ADR-019 §5 | |
 | Structured journald logging (tracing layer) | PRESENT | `Cargo.toml:234` (`tracing-journald`), ADR-019 §5 | Forward-Secure Sealing-compatible |
 | Device fingerprint (MAC SHA-256 pseudonymised) | PRESENT | `Cargo.toml:130` (`sha2 = "0.10"`) | GDPR / LOW-45 closure |

@@ -44,19 +44,11 @@ const PER_DEVICE_TIMEOUT: Duration = Duration::from_secs(2);
 #[derive(Debug, Clone)]
 pub enum OutputTag {
     /// Modbus coil (digital output): device name + coil address
-    ModbusCoil {
-        device_name: String,
-        address: u16,
-    },
+    ModbusCoil { device_name: String, address: u16 },
     /// Modbus holding register (analog output): device name + register address
-    ModbusRegister {
-        device_name: String,
-        address: u16,
-    },
+    ModbusRegister { device_name: String, address: u16 },
     /// GPIO output pin
-    GpioPin {
-        pin: u8,
-    },
+    GpioPin { pin: u8 },
     /// I2C DAC or relay board: device name + register + zero-value payload
     I2cOutput {
         device_name: String,
@@ -153,10 +145,7 @@ impl SafeStateManager {
                 }
                 Ok(Err(e)) => {
                     // LIFE-SAFETY: log at error level so alerting picks it up
-                    error!(
-                        "LIFE-SAFETY: failed to safe-state {:?}: {}",
-                        tag, e
-                    );
+                    error!("LIFE-SAFETY: failed to safe-state {:?}: {}", tag, e);
                 }
                 Err(_elapsed) => {
                     error!(
@@ -245,14 +234,20 @@ impl SafeStateManager {
         i2c: Option<&I2cHandle>,
     ) -> anyhow::Result<()> {
         match tag {
-            OutputTag::ModbusCoil { device_name, address } => {
+            OutputTag::ModbusCoil {
+                device_name,
+                address,
+            } => {
                 let handle = modbus.ok_or_else(|| {
                     anyhow::anyhow!("Modbus handle unavailable for coil safe-state")
                 })?;
                 // LIFE-SAFETY: DO safe value = false (de-energise relay)
                 handle.write_coil(device_name, *address, false).await
             }
-            OutputTag::ModbusRegister { device_name, address } => {
+            OutputTag::ModbusRegister {
+                device_name,
+                address,
+            } => {
                 let handle = modbus.ok_or_else(|| {
                     anyhow::anyhow!("Modbus handle unavailable for register safe-state")
                 })?;
@@ -260,18 +255,22 @@ impl SafeStateManager {
                 handle.write_register(device_name, *address, 0).await
             }
             OutputTag::GpioPin { pin } => {
-                let handle = gpio.ok_or_else(|| {
-                    anyhow::anyhow!("GPIO handle unavailable for pin safe-state")
-                })?;
+                let handle = gpio
+                    .ok_or_else(|| anyhow::anyhow!("GPIO handle unavailable for pin safe-state"))?;
                 // LIFE-SAFETY: GPIO output safe value = false (LOW)
                 handle.write_pin(*pin, false).await
             }
-            OutputTag::I2cOutput { device_name, register, safe_value } => {
-                let handle = i2c.ok_or_else(|| {
-                    anyhow::anyhow!("I2C handle unavailable for DAC safe-state")
-                })?;
+            OutputTag::I2cOutput {
+                device_name,
+                register,
+                safe_value,
+            } => {
+                let handle = i2c
+                    .ok_or_else(|| anyhow::anyhow!("I2C handle unavailable for DAC safe-state"))?;
                 // LIFE-SAFETY: write the pre-configured zero-value payload
-                handle.write_register(device_name, *register, safe_value).await
+                handle
+                    .write_register(device_name, *register, safe_value)
+                    .await
             }
         }
     }
@@ -283,10 +282,7 @@ mod tests {
     use crate::config::{AgentConfig, GpioConfig, ModbusDeviceConfig};
 
     /// Helper: build a minimal AgentConfig with the given Modbus devices and GPIO pins.
-    fn test_config(
-        modbus: Vec<ModbusDeviceConfig>,
-        gpio: Vec<GpioConfig>,
-    ) -> AgentConfig {
+    fn test_config(modbus: Vec<ModbusDeviceConfig>, gpio: Vec<GpioConfig>) -> AgentConfig {
         let yaml = r#"
 device_id: "test-device"
 device_code: "TEST"
@@ -323,7 +319,8 @@ registers:
     data_type: u16
 "#
         );
-        let mut device: ModbusDeviceConfig = serde_yaml::from_str(&yaml).expect("parse modbus device");
+        let mut device: ModbusDeviceConfig =
+            serde_yaml::from_str(&yaml).expect("parse modbus device");
         device.security.allow_writes = true;
         device
     }
@@ -352,10 +349,7 @@ registers:
 
     #[test]
     fn test_from_config_collects_modbus_outputs() {
-        let config = test_config(
-            vec![modbus_device_with_outputs("PLC-001")],
-            vec![],
-        );
+        let config = test_config(vec![modbus_device_with_outputs("PLC-001")], vec![]);
         let mgr = SafeStateManager::from_config(&config);
 
         // coil + holding = 2 outputs (input register is skipped)

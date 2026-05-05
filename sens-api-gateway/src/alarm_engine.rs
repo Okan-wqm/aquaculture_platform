@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use std::time::Instant;
 use chrono::Utc;
-use serde::{Serialize, Deserialize};
-use tracing::{info, warn};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
+use tracing::{info, warn};
 
-use crate::scada_db::ScadaDb;
 use crate::process_image::TagValue;
+use crate::scada_db::ScadaDb;
 
 /// Alarm rule from SCADA package
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,14 +14,14 @@ use crate::process_image::TagValue;
 pub struct AlarmRule {
     pub id: String,
     pub tag: String,
-    pub condition: String,    // "<", ">", "==", "!=", "<=", ">="
+    pub condition: String, // "<", ">", "==", "!=", "<=", ">="
     pub value: f64,
     pub severity: AlarmSeverity,
     pub message: String,
     #[serde(default)]
     pub deadband: Option<f64>,
     #[serde(default)]
-    pub delay: Option<u32>,   // seconds
+    pub delay: Option<u32>, // seconds
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,15 +53,21 @@ pub struct ActiveAlarm {
 #[derive(Debug, Clone)]
 pub enum AlarmEvent {
     Triggered(ActiveAlarm),
-    Cleared { alarm_id: String, rule_id: String, tag: String },
-    Acknowledged { alarm_id: String },
+    Cleared {
+        alarm_id: String,
+        rule_id: String,
+        tag: String,
+    },
+    Acknowledged {
+        alarm_id: String,
+    },
 }
 
 /// Alarm engine
 pub struct AlarmEngine {
     rules: Vec<AlarmRule>,
-    active_alarms: HashMap<String, ActiveAlarm>,  // rule_id → ActiveAlarm
-    delay_start: HashMap<String, Instant>,         // rule_id → when condition first became true
+    active_alarms: HashMap<String, ActiveAlarm>, // rule_id → ActiveAlarm
+    delay_start: HashMap<String, Instant>,       // rule_id → when condition first became true
     db: Option<Arc<ScadaDb>>,
 }
 
@@ -79,9 +85,12 @@ impl AlarmEngine {
     pub fn update_rules(&mut self, rules: Vec<AlarmRule>) {
         info!("Alarm engine: updating {} rules", rules.len());
         // Clear alarms for rules that no longer exist
-        let new_rule_ids: std::collections::HashSet<_> = rules.iter().map(|r| r.id.clone()).collect();
-        self.active_alarms.retain(|rule_id, _| new_rule_ids.contains(rule_id));
-        self.delay_start.retain(|rule_id, _| new_rule_ids.contains(rule_id));
+        let new_rule_ids: std::collections::HashSet<_> =
+            rules.iter().map(|r| r.id.clone()).collect();
+        self.active_alarms
+            .retain(|rule_id, _| new_rule_ids.contains(rule_id));
+        self.delay_start
+            .retain(|rule_id, _| new_rule_ids.contains(rule_id));
         self.rules = rules;
     }
 
@@ -108,7 +117,10 @@ impl AlarmEngine {
 
                 // Check delay
                 if delay_secs > 0 {
-                    let start = self.delay_start.entry(rule.id.clone()).or_insert_with(Instant::now);
+                    let start = self
+                        .delay_start
+                        .entry(rule.id.clone())
+                        .or_insert_with(Instant::now);
                     if start.elapsed().as_secs() < delay_secs as u64 {
                         continue; // Not enough time elapsed
                     }
@@ -144,13 +156,14 @@ impl AlarmEngine {
                     }
                 }
 
-                info!("ALARM TRIGGERED: {} - {} (tag={}, value={:.2})",
-                    rule.id, rule.message, rule.tag, tag_value);
+                info!(
+                    "ALARM TRIGGERED: {} - {} (tag={}, value={:.2})",
+                    rule.id, rule.message, rule.tag, tag_value
+                );
 
                 self.active_alarms.insert(rule.id.clone(), alarm.clone());
                 self.delay_start.remove(&rule.id);
                 events.push(AlarmEvent::Triggered(alarm));
-
             } else if !condition_met && is_active {
                 // Check deadband for clearing: value must be beyond threshold ± deadband
                 let clear = match rule.condition.as_str() {
@@ -170,8 +183,10 @@ impl AlarmEngine {
                             }
                         }
 
-                        info!("ALARM CLEARED: {} - {} (tag={}, value={:.2})",
-                            rule.id, rule.message, rule.tag, tag_value);
+                        info!(
+                            "ALARM CLEARED: {} - {} (tag={}, value={:.2})",
+                            rule.id, rule.message, rule.tag, tag_value
+                        );
 
                         events.push(AlarmEvent::Cleared {
                             alarm_id: alarm.alarm_id,
@@ -208,7 +223,9 @@ impl AlarmEngine {
     /// Acknowledge an active alarm
     pub fn acknowledge(&mut self, alarm_id: &str, acked_by: &str) -> Result<(), String> {
         // Find the alarm by alarm_id (not rule_id)
-        let rule_id = self.active_alarms.iter()
+        let rule_id = self
+            .active_alarms
+            .iter()
             .find(|(_, a)| a.alarm_id == alarm_id)
             .map(|(rid, _)| rid.clone())
             .ok_or_else(|| format!("Alarm {} not found", alarm_id))?;
@@ -243,7 +260,8 @@ impl AlarmEngine {
 
     /// Get active alarms by severity
     pub fn critical_count(&self) -> usize {
-        self.active_alarms.values()
+        self.active_alarms
+            .values()
             .filter(|a| matches!(a.severity, AlarmSeverity::Critical))
             .count()
     }

@@ -53,6 +53,8 @@ export * from './health';
 // metadata pollution in unrelated services.
 export {
   AUDIT_LOG_SERVICE,
+  AuditMethod,
+  AuditResult,
   AuditSeverity,
 } from './audit/audit-log.tokens';
 export type {

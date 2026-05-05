@@ -9,7 +9,7 @@
  */
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository } from 'typeorm';
 import { AuditLog, AuditAction, AuditChanges, AuditMetadata } from '../entities/audit-log.entity';
 import { AuditRedactionService } from './audit-redaction.service';
 
@@ -41,7 +41,45 @@ export interface AuditLogQuery {
 @Injectable()
 export class AuditLogService {
   private readonly logger = new Logger(AuditLogService.name);
-  private readonly DEFAULT_RETENTION_DAYS = 90;
+
+  /**
+   * Default retention period for farm-side audit rows.
+   *
+   * # Why 7 years
+   *
+   * AUDITTRAIL-HIGH-007 cure (companion to AUDITTRAIL-HIGH-001 which
+   * raised auth-service to the same floor). The previous 90-day default
+   * was 30x below the SOC 2 CC4 requirement of "retain audit evidence
+   * for the duration of the audit window plus its proof preservation
+   * period". For SOC 2 Type-II annual audits with a 12-month audit
+   * window, the practical floor is 5-7 years to cover the audit +
+   * dispute + appeal cycle. The previous 90-day default silently
+   * destroyed evidence well before any audit cycle could surface a
+   * finding.
+   *
+   * 7 years also satisfies:
+   *   - SOX § 802 (auditor work-paper retention)
+   *   - PCI-DSS § 10.7 ("at least one year, with three months
+   *     immediately available for analysis"; multi-year for forensic
+   *     capability)
+   *   - GDPR Art 30 record-of-processing retention (no fixed statutory
+   *     minimum; defensible-position window aligns with general ledger /
+   *     contract retention norms)
+   *   - Mattilsynet aquaculture traceability (10y record-keeping for
+   *     batch / harvest data — covered by 7y floor when combined with
+   *     legal-hold path for active disputes)
+   *
+   * # Why a build-time constant (not env-var default)
+   *
+   * Operators CAN override via FARM_AUDIT_LOG_RETENTION_DAYS, but the
+   * floor is at the BUILD layer rather than the env layer. Previous
+   * behaviour: forgetting the env var = 90 days. New behaviour:
+   * forgetting the env var = 7 years. The legalHold trigger
+   * (AUDITTRAIL-HIGH-005 closure on farm-side) BLOCKS the cron from
+   * deleting any row that has been flagged for litigation preservation,
+   * regardless of the configured retention.
+   */
+  private static readonly DEFAULT_RETENTION_DAYS = 7 * 365;
   private readonly redactionService: AuditRedactionService;
 
   constructor(
@@ -295,20 +333,30 @@ export class AuditLogService {
   }
 
   /**
-   * Eski audit loglarını temizle (retention policy)
+   * Retention policy cleanup. Excludes legalHold rows at the WHERE level —
+   * the BEFORE DELETE trigger
+   * `trg_farm_audit_logs_prevent_legal_hold_delete` (migration
+   * 1788300000000) is defense-in-depth, not the primary filter. If we
+   * forgot the WHERE filter, ANY held row matching the cutoff would
+   * RAISE EXCEPTION and abort the entire cleanup batch — the trigger
+   * fails fast (visible) instead of silently destroying held rows.
+   * COMPLIANCE-HIGH-001 cure pattern.
    */
   async cleanupOldLogs(retentionDays?: number): Promise<number> {
-    const days = retentionDays || this.DEFAULT_RETENTION_DAYS;
+    const days = retentionDays || AuditLogService.DEFAULT_RETENTION_DAYS;
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - days);
 
     this.logger.log(`Cleaning up audit logs older than ${days} days (before ${cutoffDate.toISOString()})`);
 
-    const result = await this.auditLogRepository.delete({
-      createdAt: LessThan(cutoffDate),
-    });
+    const result = await this.auditLogRepository
+      .createQueryBuilder()
+      .delete()
+      .where('"createdAt" < :cutoff', { cutoff: cutoffDate })
+      .andWhere('"legalHold" = false')
+      .execute();
 
-    this.logger.log(`Deleted ${result.affected} audit log records`);
+    this.logger.log(`Deleted ${result.affected} audit log records (legalHold-excluded)`);
     return result.affected || 0;
   }
 

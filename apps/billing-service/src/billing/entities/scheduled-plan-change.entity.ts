@@ -5,6 +5,8 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { PlanLimits, PlanPricing } from './subscription.entity';
@@ -46,11 +48,28 @@ export class ScheduledPlanChange {
   @Column({ type: 'uuid' })
   subscriptionId!: string;
 
+  // DBR-MEDIUM-002 cure: explicit FK relation. Entity-level @ManyToOne
+  // with onDelete: 'RESTRICT' mirrors the DB-level constraint installed
+  // by migration 1788400000000-AddScheduledPlanChangeFks. RESTRICT is the
+  // right semantics — a subscription with pending plan-change rows must
+  // not be hard-deletable; soft-delete is the only allowed lifecycle.
+  @ManyToOne('Subscription', { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'subscriptionId', referencedColumnName: 'id' })
+  subscription?: import('./subscription.entity').Subscription;
+
   // ── Current plan (snapshot at scheduling time) ──────────────────────────
 
   @Field()
   @Column()
   currentPlanId!: string;
+
+  // DBR-MEDIUM-002 cure: FK to billing.plans for the snapshot at
+  // scheduling time. RESTRICT keeps audit history intact — deleting
+  // a plan referenced by a scheduled change is a data-integrity
+  // violation, not a routine operation.
+  @ManyToOne('Plan', { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'currentPlanId', referencedColumnName: 'id' })
+  currentPlan?: import('./plan.entity').Plan;
 
   @Field()
   @Column()
@@ -61,6 +80,14 @@ export class ScheduledPlanChange {
   @Field()
   @Column()
   newPlanId!: string;
+
+  // DBR-MEDIUM-002 cure: FK to billing.plans for the destination plan.
+  // RESTRICT — the scheduled change CANNOT fire against a plan that no
+  // longer exists; deletion is blocked at the DB level until the
+  // scheduled change is cancelled.
+  @ManyToOne('Plan', { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'newPlanId', referencedColumnName: 'id' })
+  newPlan?: import('./plan.entity').Plan;
 
   @Field()
   @Column()

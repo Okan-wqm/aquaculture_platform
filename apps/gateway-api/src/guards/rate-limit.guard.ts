@@ -365,16 +365,62 @@ export class RateLimitGuard implements CanActivate {
     // Otherwise, fall back to direct extraction
     const ip = this.extractClientIp(request);
 
-    // Include endpoint prefix in key so different endpoints have separate buckets
-    // This prevents dashboard polling from exhausting the same bucket as login
-    const url = request.url || '';
+    // Include endpoint prefix in key so different endpoints have separate buckets.
+    // This prevents dashboard polling from exhausting the same bucket as login.
+    //
+    // # Why exact-match (SECREV-LOW-001 cure)
+    //
+    // Pre-cure used substring matching:
+    //   url.endsWith('/auth/login')   → matches /api/auth/login but ALSO any
+    //                                    request crafted with '/auth/login'
+    //                                    suffix (e.g. /auth/login/foo  404).
+    //   url.includes('/upload')       → matches /api/files/upload AND
+    //                                    /api/v2/wrap/upload-something
+    //                                    (unrelated endpoint).
+    //
+    // The substring shape let an attacker forge URLs containing
+    // 'upload' in the path to share rate-limit buckets with
+    // legitimate uploaders, triggering bucket exhaustion / lockout.
+    //
+    // The cure normalises the URL (strip query string, trailing slash)
+    // and exact-matches against an explicit allow-list of route prefixes
+    // owned by this guard. Anything not on the list falls through to
+    // 'default' — same behaviour as pre-cure, but no more substring
+    // collisions.
+    //
+    // The longer-term cure is the @RateLimit({ bucket: 'login' })
+    // handler-decorator route the auditor recommended; tracked as
+    // the SECREV-LOW-001 follow-on. The exact-match shape here is the
+    // minimum-viable architectural correction without that decorator
+    // surface.
+    const rawUrl = request.url || '';
+    const pathname = rawUrl.split('?')[0]?.replace(/\/+$/, '') || '/';
     let endpointPrefix = 'default';
-    if (url === '/api/auth/login' || url.endsWith('/auth/login')) {
-      endpointPrefix = 'login';
-    } else if (url === '/api/auth/register' || url.endsWith('/auth/register')) {
-      endpointPrefix = 'register';
-    } else if (url.includes('/upload')) {
-      endpointPrefix = 'upload';
+    const exactMatchPrefixes: ReadonlyArray<{
+      bucket: string;
+      paths: readonly string[];
+    }> = [
+      {
+        bucket: 'login',
+        paths: ['/api/auth/login', '/auth/login'],
+      },
+      {
+        bucket: 'register',
+        paths: ['/api/auth/register', '/auth/register'],
+      },
+      {
+        bucket: 'upload',
+        // The 'upload' bucket protects the canonical file-upload
+        // endpoint family. Each path is explicit; substring shapes
+        // like 'upload-something' do NOT match.
+        paths: ['/api/files/upload', '/api/v1/files/upload'],
+      },
+    ];
+    for (const { bucket, paths } of exactMatchPrefixes) {
+      if (paths.includes(pathname)) {
+        endpointPrefix = bucket;
+        break;
+      }
     }
 
     if (userId) {

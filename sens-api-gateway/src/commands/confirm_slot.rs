@@ -40,9 +40,7 @@ use serde_json::{Value, json};
 
 use super::CommandHandler;
 use crate::security::sanitize_for_log;
-use crate::updater::{
-    parse_slot_param, perform_confirm_slot, AbPartition, ConfirmOutcome,
-};
+use crate::updater::{AbPartition, ConfirmOutcome, parse_slot_param, perform_confirm_slot};
 
 impl CommandHandler {
     /// `confirm_slot` — mark a PendingConfirm slot as Active.
@@ -62,10 +60,7 @@ impl CommandHandler {
     ///       "cleared_pending_boot": bool
     ///     }
     ///   }
-    pub(super) async fn cmd_confirm_slot(
-        &self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_confirm_slot(&self, params: &Value) -> (bool, Value, Option<String>) {
         // Batch 132 Sprint 6.5: metric-emit wrapper
         // — same post-flight pattern as cmd_apply_signed_manifest.
         let (partition_store, bootloader, health_state) = {
@@ -83,9 +78,7 @@ impl CommandHandler {
         if let Some(hs) = health_state.as_ref() {
             if out.0 {
                 hs.inc_firmware_confirm();
-                if let Some(slot) =
-                    out.1.get("confirmed_slot").and_then(|v| v.as_str())
-                {
+                if let Some(slot) = out.1.get("confirmed_slot").and_then(|v| v.as_str()) {
                     match slot {
                         "a" => hs.set_firmware_active_slot(0),
                         "b" => hs.set_firmware_active_slot(1),
@@ -103,7 +96,6 @@ impl CommandHandler {
         partition_store: Option<std::sync::Arc<crate::updater::PartitionStore>>,
         bootloader: std::sync::Arc<dyn crate::updater::BootloaderHandle>,
     ) -> (bool, Value, Option<String>) {
-
         let partition_store = match partition_store {
             Some(s) => s,
             None => {

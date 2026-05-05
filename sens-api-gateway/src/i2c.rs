@@ -19,7 +19,6 @@
 //! - Block read/write support
 //! - Device scanning
 
-
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

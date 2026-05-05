@@ -1,6 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+
+import type { IEventBus } from '@platform/event-bus';
+import {
+  createBaseEvent,
+  type ConsentRecordedEvent,
+  type ConsentWithdrawnEvent,
+} from '@platform/event-contracts';
 
 import {
   IConsentManager,
@@ -30,7 +37,40 @@ export class ConsentManagerService implements IConsentManager {
   constructor(
     @InjectRepository(UserConsent)
     private readonly consentRepository: Repository<UserConsent>,
+    // COMPLIANCE-HIGH-002 cure: GDPR Art 7(3) requires consent
+    // withdrawal to take effect "as easily as it was given" — every
+    // ConsentRecorded / ConsentWithdrawn must be emitted so downstream
+    // consumers (AI analytics, marketing automation, profiling
+    // pipelines) can pause processing within seconds. @Optional so
+    // local-dev paths without event-bus wiring still compile and
+    // record consent; production registers EVENT_BUS via
+    // EventBusModule.
+    @Optional()
+    @Inject('EVENT_BUS')
+    private readonly eventBus?: IEventBus,
   ) {}
+
+  /**
+   * COMPLIANCE-HIGH-002 cure helper: emit a consent event with
+   * defensive try/catch. The DB write is the legal record-of-truth
+   * (atomic with the Repository.save above); event emission is
+   * best-effort downstream notification — a failed publish must NOT
+   * block the consent operation itself or operators won't be able to
+   * record consent at all when the bus is down.
+   */
+  private async emitConsentEvent(
+    event: ConsentRecordedEvent | ConsentWithdrawnEvent,
+  ): Promise<void> {
+    if (!this.eventBus) return;
+    try {
+      await this.eventBus.publish(event);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown';
+      this.logger.warn(
+        `Consent event ${event.eventType} publish failed (non-fatal — DB record persisted): ${msg}`,
+      );
+    }
+  }
 
   /**
    * Record user consent
@@ -54,6 +94,26 @@ export class ConsentManagerService implements IConsentManager {
       `Consent recorded for user ${consent.userId}: ` +
       `${consent.consentType} = ${consent.granted}`,
     );
+
+    // COMPLIANCE-HIGH-002 cure: emit ConsentRecorded so downstream
+    // services (AI analytics, marketing, profiling) update their
+    // per-user processing flags within seconds. `granted=false` here
+    // would be a deny-on-grant variant (rare); the canonical
+    // withdrawal path is withdrawConsent() which emits the explicit
+    // ConsentWithdrawn event.
+    if (consent.granted) {
+      await this.emitConsentEvent({
+        ...createBaseEvent<ConsentRecordedEvent>(
+          'ConsentRecorded',
+          consent.tenantId ?? 'system',
+          { aggregateId: saved.id, aggregateType: 'UserConsent' },
+        ),
+        userId: consent.userId,
+        consentType: String(consent.consentType),
+        consentVersion: consent.version || this.currentVersion,
+        legalBasis: 'consent',
+      });
+    }
 
     return saved.id;
   }
@@ -123,11 +183,28 @@ export class ConsentManagerService implements IConsentManager {
       },
     });
 
-    await this.consentRepository.save(withdrawal);
+    const savedWithdrawal = await this.consentRepository.save(withdrawal);
 
     this.logger.log(
       `Consent withdrawn for user ${userId}: ${consentType} (reason: ${reason || 'none'})`,
     );
+
+    // COMPLIANCE-HIGH-002 cure: emit ConsentWithdrawn so AI analytics,
+    // marketing automation, and profiling pipelines pause processing
+    // within seconds. GDPR Art 7(3) instant-effect contract — without
+    // this event, the user_consents row lands but downstream services
+    // never learn of the withdrawal and continue processing as if the
+    // consent were still active.
+    await this.emitConsentEvent({
+      ...createBaseEvent<ConsentWithdrawnEvent>(
+        'ConsentWithdrawn',
+        latest.tenantId ?? 'system',
+        { aggregateId: savedWithdrawal.id, aggregateType: 'UserConsent' },
+      ),
+      userId,
+      consentType: String(consentType),
+      reason,
+    });
   }
 
   /**

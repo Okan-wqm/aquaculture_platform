@@ -51,6 +51,7 @@
  */
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -63,6 +64,9 @@ import {
   createBaseEvent,
   TenantErasedEvent,
 } from '@platform/event-contracts';
+import { LegalHoldService } from '@aquaculture/backend-common/compliance';
+
+import { TenantErasureAuditEntity } from '../entities/tenant-erasure-audit.entity';
 
 export interface ErasureTicket {
   tenantId: string;
@@ -78,6 +82,19 @@ export interface ErasureResult {
   deletedRowsByTable: Record<string, number>;
   totalDeleted: number;
   auditRowsAnonymised: number;
+  /**
+   * Lifecycle state of the erasure (COMPLIANCE-MEDIUM-004).
+   *
+   *   - 'PURGED' — this confirm() call performed the cascade.
+   *   - 'ALREADY_PURGED' — re-invocation on a tenantId that was
+   *     already erased; the cascade did NOT run a second time;
+   *     the original ErasureResult is reconstructed from the
+   *     persistent farm.tenant_erasure_audit row.
+   *
+   * HTTP filter / resolver returns 200 in both cases — the client
+   * gets the same shape for both first-call and replay-call paths.
+   */
+  state: 'PURGED' | 'ALREADY_PURGED';
 }
 
 /** 5-minute window between initiate() and confirm(). */
@@ -107,6 +124,25 @@ export class TenantErasureService {
      * event is just not fanned out.
      */
     @Optional() private readonly outboxPublisher?: OutboxPublisher,
+    /**
+     * COMPLIANCE-HIGH-004 cure: legal-hold precedence check.
+     *
+     * GDPR Art 17(3)(b) excludes erasure where processing is
+     * necessary "for compliance with a legal obligation". A
+     * tenant under active litigation hold MUST NOT have farm-side
+     * data deleted — destruction of held data is itself a
+     * sanctionable spoliation act in most jurisdictions.
+     *
+     * The service is `@Optional` so test harnesses + local-dev
+     * paths can stand TenantErasureService up without the full
+     * compliance module wiring. In production the
+     * LegalHoldModule (registered in farm-service AppModule)
+     * provides the real instance via @Global. When absent, the
+     * service treats the call as "no hold" — safe in dev where
+     * litigation holds are not a concern, fail-LOUD in prod
+     * where the absence indicates a wiring regression.
+     */
+    @Optional() private readonly legalHoldService?: LegalHoldService,
   ) {}
 
   /**
@@ -136,8 +172,53 @@ export class TenantErasureService {
    * the four rejection branches (no ticket / wrong tenant /
    * wrong token / expired) is a distinct error so logs can
    * distinguish operator confusion from a replay attack.
+   *
+   * # Idempotency (COMPLIANCE-MEDIUM-004 cure)
+   *
+   * Before validating the in-memory ticket, the service checks
+   * the persistent `farm.tenant_erasure_audit` table. If a row
+   * exists for this tenantId, the erasure already ran — return
+   * the original ErasureResult tagged `state: 'ALREADY_PURGED'`
+   * with HTTP 200. Re-invocations from operator browser
+   * back-forward, ALB retries, or double-clicks all hit this
+   * branch; no second cascade fires; no second TenantErased
+   * event is emitted.
+   *
+   * The audit row is INSERT'd inside the same transaction as
+   * the cascade (in executeErasure), so the row is durable
+   * iff the cascade committed. A partial-rollback never
+   * leaves the audit row behind without the matching erasure.
    */
   async confirm(tenantId: string, token: string): Promise<ErasureResult> {
+    // COMPLIANCE-HIGH-004 cure: legal-hold precedence check runs
+    // FIRST — before idempotency-replay lookup, before token
+    // validation, before any DB write. The check is a fast
+    // Redis-cached read; a HIT returns immediately. A MISS reads
+    // the legal-hold table; a HOLD-ACTIVE row throws Forbidden
+    // and the cascade never runs. Critical: the ticket is NOT
+    // consumed on this path — operators must explicitly cancel
+    // the legal hold before the erasure can proceed.
+    //
+    // Sibling pattern: messaging-service GdprService.processErasure
+    // wraps its cascade in `legalHoldService.assertNoHold`. Same
+    // shape applied here.
+    if (this.legalHoldService) {
+      await this.legalHoldService.assertNoHold(tenantId, 'tenant');
+    }
+
+    const replay = await this.lookupExistingErasure(tenantId);
+    if (replay) {
+      this.logger.warn(
+        `Erasure REPLAY detected for tenant ${tenantId.slice(0, 8)}... — ` +
+          `original erasure at ${replay.confirmedAt}; returning cached result.`,
+      );
+      // Drop any stale pending ticket for this tenant so a future
+      // initiate() doesn't surprise an operator with a "ticket
+      // exists" state for a tenant that's already erased.
+      this.pending.delete(tenantId);
+      return replay;
+    }
+
     const ticket = this.pending.get(tenantId);
     if (!ticket) {
       throw new NotFoundException(
@@ -240,12 +321,29 @@ export class TenantErasureService {
 
       const auditRowsAnonymised = await this.anonymiseAuditLogs(tenantId, mgr);
       const confirmedAt = new Date().toISOString();
+      const tableCount = Object.keys(deleted).length;
+
+      // COMPLIANCE-MEDIUM-004: persist the erasure audit row
+      // INSIDE the cascade transaction. If the cascade rolls back,
+      // the audit row rolls back too — there is no path to a
+      // committed audit row without a committed erasure. The
+      // INSERT will fail on the PK constraint if a row already
+      // exists (which would indicate a logic bug — the
+      // lookupExistingErasure() check at the top of confirm()
+      // should have short-circuited the call).
+      await mgr.insert(TenantErasureAuditEntity, {
+        tenantId,
+        confirmedAt: new Date(confirmedAt),
+        requestedBy,
+        totalDeleted,
+        auditRowsAnonymised,
+        tableCount,
+        deletedRowsByTable: deleted,
+      });
 
       // Emit TenantErased to the transactional outbox INSIDE the
-      // same transaction — the event is only published if the whole
-      // erasure committed. Phase 6.3.1 of the plan.
+      // same transaction — see prior block for rationale.
       if (this.outboxPublisher) {
-        const tableCount = Object.keys(deleted).length;
         const erasedEvent: TenantErasedEvent = {
           ...createBaseEvent<TenantErasedEvent>('TenantErased', tenantId, {
             aggregateId: tenantId,
@@ -268,8 +366,39 @@ export class TenantErasureService {
         deletedRowsByTable: deleted,
         totalDeleted,
         auditRowsAnonymised,
+        state: 'PURGED' as const,
       };
     });
+  }
+
+  /**
+   * Look up an existing erasure-audit row to support the
+   * idempotency contract on `confirm()`. Returns the
+   * reconstructed ErasureResult tagged `state: 'ALREADY_PURGED'`
+   * on hit, or null on miss.
+   *
+   * Reads outside the cascade transaction — a separate read-only
+   * query is fine because the audit row is immutable (the
+   * trigger forbids UPDATE/DELETE), so we can never see a
+   * mid-mutation snapshot.
+   */
+  private async lookupExistingErasure(
+    tenantId: string,
+  ): Promise<ErasureResult | null> {
+    // eslint-disable-next-line no-restricted-syntax -- TenantErasureAuditEntity lives in the `farm` schema (tenant-scoped) but the lookup is BY tenantId itself (the row is the audit record of a TENANT-WIDE erasure). Wrapping in tenantManagerRepo would be circular: the row exists precisely because the tenant context is what's been erased. The findOne uses the explicit `where: { tenantId }` filter so RLS-equivalent isolation is preserved at the query layer.
+    const repo = this.dataSource.getRepository(TenantErasureAuditEntity);
+    const row = await repo.findOne({ where: { tenantId } });
+    if (!row) {
+      return null;
+    }
+    return {
+      tenantId: row.tenantId,
+      confirmedAt: row.confirmedAt.toISOString(),
+      deletedRowsByTable: row.deletedRowsByTable,
+      totalDeleted: row.totalDeleted,
+      auditRowsAnonymised: row.auditRowsAnonymised,
+      state: 'ALREADY_PURGED' as const,
+    };
   }
 
   /**

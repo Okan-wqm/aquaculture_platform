@@ -46,7 +46,6 @@ pub enum MtlsVerifyError {
     // `verify_leaf_cert` never returned it, and a preferred-cipher-drift
     // monitor is a Sprint 6.9+ telemetry concern rather than a verifier
     // error shape. Re-add with owner + sprint when the monitor is wired.
-
     /// Clock skew — `now_unix_secs` is negative (pre-epoch).
     InvalidNow,
 
@@ -86,7 +85,9 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                MtlsVerifyError::CipherSuiteNotAllowed { negotiated_codepoint: 0x0035 }
+                MtlsVerifyError::CipherSuiteNotAllowed {
+                    negotiated_codepoint: 0x0035
+                }
             ),
             "cipher_suite_not_allowed"
         );

@@ -15,7 +15,9 @@ import { SourceSchemaBootstrapService, RlsModule, createServiceTypeOrmConfig } f
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
-import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware } from '@aquaculture/backend-common/middleware';
+import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
@@ -82,19 +84,9 @@ import { PlcConnection } from './plc-control/entities/plc-connection.entity';
 import { FeedingParameter } from './plc-control/entities/feeding-parameter.entity';
 import { PlcAlarm } from './plc-control/entities/plc-alarm.entity';
 import { PlcTelemetry } from './plc-control/entities/plc-telemetry.entity';
-import { CreateDynamicSensorTypes1740200000000 } from './database/migrations/1740200000000-CreateDynamicSensorTypes';
-import { CreateProcessesTable1740300000000 } from './database/migrations/1740300000000-CreateProcessesTable';
-import { CreateAutomationTables1740300001000 } from './database/migrations/1740300001000-CreateAutomationTables';
-import { AddEnterprisePlcConnectionFields1741100000000 } from './database/migrations/1741100000000-AddEnterprisePlcConnectionFields';
-import { EnterprisePerformanceOptimizations1741200000000 } from './database/migrations/1741200000000-EnterprisePerformanceOptimizations';
-import { AddSensorProtocolTopicIndex1781400000000 } from './database/migrations/1781400000000-AddSensorProtocolTopicIndex';
-// NEW-H1: convert audit columns from TIMESTAMP to TIMESTAMPTZ across the
-// sensor schema. Excludes sensor_audit_logs to mirror its RLS-migration
-// exclusion (deliberately cross-tenant audit table). Helper uses dynamic
-// discovery — TimescaleDB hypertables and OLTP entities are both handled.
-import { ConvertAuditColumnsToTimestamptz1781900000000 } from './database/migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
-import { MovePublicTablesToSensor1786000100000 } from './database/migrations/1786000100000-MovePublicTablesToSensor';
-import { CreateSensorEventOutbox1786000200000 } from './database/migrations/1786000200000-CreateSensorEventOutbox';
+// Migration class imports removed — TypeOrmModule now uses the glob
+// pattern '/database/migrations/*.{js,ts}' to load every migration on
+// disk. See ORPHAN-HIGH-001 cure note in migrations: array below.
 import { CredentialVaultModule } from './infrastructure/vault/credential-vault.module';
 import { AuditModule } from './infrastructure/audit/audit.module';
 import { AuditLog } from './infrastructure/audit/audit-log.entity';
@@ -111,6 +103,12 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
       envFilePath: ['.env', '.env.local'],
       cache: true,
     }),
+    // CIRCUIT-LOW-002 cure: register the canonical
+    // CircuitBreakerService at the @Global module level so the
+    // sensor-protocol HttpRestAdapter and the channel-detection
+    // service can constructor-inject it without per-feature-module
+    // re-imports. Same pattern admin-api uses for CIRCUIT-LOW-001.
+    CircuitBreakerModule,
 
     // Database connection — sensor-service owns the 'sensor' schema (over
     // TimescaleDB). Uses the platform TypeORM factory.
@@ -176,17 +174,14 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             VfdAutomationRule,
             AuditLog,
           ],
-          migrations: [
-            CreateDynamicSensorTypes1740200000000,
-            CreateProcessesTable1740300000000,
-            CreateAutomationTables1740300001000,
-            AddEnterprisePlcConnectionFields1741100000000,
-            EnterprisePerformanceOptimizations1741200000000,
-            AddSensorProtocolTopicIndex1781400000000,
-            ConvertAuditColumnsToTimestamptz1781900000000,
-            MovePublicTablesToSensor1786000100000,
-            CreateSensorEventOutbox1786000200000,
-          ],
+          // ORPHAN-HIGH-001 cure (sensor-service leg): switched to glob
+          // pattern so every migration in the directory is registered.
+          // Pre-fix the explicit array missed 6 of 15 on-disk migrations
+          // (CreateSensorMetrics, CreateContinuousAggregates,
+          // CreateReadingsAggregates, CreateEdgeDevicesTable,
+          // AddSensorMetricsCompositeIndex, CreateScadaTables) — schema
+          // state lagged the entity declarations on every fresh deploy.
+          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
           // When sync is on (initial deploy), skip migrations to avoid index conflicts.
           // When sync is off (production), run migrations for structural changes.
           migrationsRunFromEnv: (cfg) =>
@@ -283,6 +278,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     // Replaced the per-service JwtModule.registerAsync block (WS2.B,
     // 2026-04-14) — single source of truth for all consumer services.
     PlatformJwtModule,
+
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor
+    // as APP_INTERCEPTOR.
+    AuditedOperationModule.forRoot(),
 
     // Scheduler for @Interval/@Cron decorators (deployment timeout check, etc.)
     ScheduleModule.forRoot(),
@@ -417,6 +416,9 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep — strips forged internal headers when the
+        // request lacks a valid x-service-identity HMAC signature.
+        StripInternalHeadersMiddleware,
         MetricsMiddleware,        // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging

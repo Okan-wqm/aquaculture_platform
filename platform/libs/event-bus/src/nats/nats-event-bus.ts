@@ -163,18 +163,58 @@ export class NatsEventBus
     }
   }
 
+  /**
+   * Track current reconnect-attempt depth so scheduleReconnect respects
+   * `maxReconnectAttempts` (NATS_MAX_RECONNECT_ATTEMPTS, default 10).
+   *
+   * # Why this counter exists (PLAT-MEDIUM-001 closure)
+   *
+   * Pre-fix scheduleReconnect recursed infinitely on every failure
+   * without consulting maxReconnectAttempts — the field was read into
+   * the constructor but never used. A pod stuck on a permanently-broken
+   * NATS endpoint (DNS misconfiguration, certificate revoked, broker
+   * decommissioned) would log warnings forever, masking the underlying
+   * issue. The cap forces the pod into a clear non-healthy state after
+   * the configured attempts so liveness/readiness probes can intervene.
+   *
+   * Counter resets to 0 on every successful connect so legitimate
+   * cycle-out periods (e.g. broker rolling restart) do not exhaust
+   * the budget for the next outage.
+   */
+  private reconnectAttemptCount = 0;
+
   private scheduleReconnect(): void {
+    if (this.reconnectAttemptCount >= this.maxReconnectAttempts) {
+      // Cap reached. Log loud and stop scheduling. The pod's liveness
+      // probe will eventually mark the container unhealthy and the
+      // orchestrator will restart it — at which point the counter
+      // resets via fresh module init.
+      this.logger.error(
+        `NATS reconnect attempts exhausted (${this.reconnectAttemptCount}/${this.maxReconnectAttempts}). ` +
+          'Stopping reconnect loop. The pod is in a degraded state — ' +
+          'liveness probe will trigger orchestrator restart.',
+      );
+      return;
+    }
+
+    this.reconnectAttemptCount += 1;
+    const attempt = this.reconnectAttemptCount;
     setTimeout(async () => {
       if (this.connectionState === 'disconnected') {
-        this.logger.log('Attempting to reconnect to NATS...');
+        this.logger.log(
+          `Attempting to reconnect to NATS (attempt ${attempt}/${this.maxReconnectAttempts})...`,
+        );
         try {
           await this.connect();
           await this.setupStream();
           await this.activatePendingSubscriptions();
+          this.reconnectAttemptCount = 0; // reset budget on success
           this.logger.log('Successfully reconnected to NATS');
         } catch (error) {
           this.logger.warn(
-            `Reconnection attempt failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            `Reconnection attempt ${attempt}/${this.maxReconnectAttempts} failed: ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`,
           );
           this.scheduleReconnect();
         }
@@ -820,7 +860,24 @@ export class NatsEventBus
 
   /**
    * Deserialize JSON string to event.
-   * Applies upcasters to migrate legacy event schemas (v1 → v2+) transparently.
+   *
+   * WHY: Pre-fix this method applied a string→Date re-coercion on
+   * `parsed.timestamp` after upcasters ran — directly contradicting
+   * `IEvent.timestamp: string` and `BaseEvent.timestamp: string`. Every
+   * NATS consumer therefore received a Date where TypeScript said it
+   * would be a string, a kernel-level type lie (PLAT-CRITICAL-002).
+   * The wire format is JSON; JSON has no Date type; the canonical
+   * representation is ISO 8601 string. Removing the re-coercion aligns
+   * runtime with the type system. Consumers that previously relied
+   * on Date methods (e.g. `event.timestamp.getTime()`) must call
+   * `Date.parse(event.timestamp)` or `new Date(event.timestamp)` at
+   * the point of use — those callers were already incorrect under
+   * the contract.
+   *
+   * WHAT: Apply upcasters and return the parsed payload as-is. The
+   * timestamp stays a string per contract.
+   *
+   * Closes: docs/reviews/platform-kernel-expert/2026-04-28-core-platform-review.md#PLAT-CRITICAL-002
    */
   private deserializeEvent(data: string): IEvent {
     let parsed = JSON.parse(data);
@@ -830,10 +887,7 @@ export class NatsEventBus
       parsed = this.upcasterRegistry.upcast(parsed);
     }
 
-    return {
-      ...parsed,
-      timestamp: new Date(parsed.timestamp),
-    };
+    return parsed as IEvent;
   }
 
   /**

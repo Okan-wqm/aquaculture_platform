@@ -313,23 +313,48 @@ pub trait PlcProgrammer: Send + Sync {
     async fn compile(&self, program: &PlcProgram) -> Result<UploadResult>;
 
     /// Read a single variable from PLC by address
-    async fn read_variable(&self, _address: &str, _data_type: &PlcDataType, _count: u16) -> Result<Vec<u8>> {
-        Err(anyhow::anyhow!("{} does not support variable read", self.protocol_name()))
+    async fn read_variable(
+        &self,
+        _address: &str,
+        _data_type: &PlcDataType,
+        _count: u16,
+    ) -> Result<Vec<u8>> {
+        Err(anyhow::anyhow!(
+            "{} does not support variable read",
+            self.protocol_name()
+        ))
     }
 
     /// Write a single variable to PLC by address
-    async fn write_variable(&self, _address: &str, _data_type: &PlcDataType, _data: &[u8]) -> Result<()> {
-        Err(anyhow::anyhow!("{} does not support variable write", self.protocol_name()))
+    async fn write_variable(
+        &self,
+        _address: &str,
+        _data_type: &PlcDataType,
+        _data: &[u8],
+    ) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "{} does not support variable write",
+            self.protocol_name()
+        ))
     }
 
     /// Read multiple variables from PLC
-    async fn read_variables(&self, _addresses: &[(&str, &PlcDataType)]) -> Result<Vec<VariableReadResult>> {
-        Err(anyhow::anyhow!("{} does not support multi-variable read", self.protocol_name()))
+    async fn read_variables(
+        &self,
+        _addresses: &[(&str, &PlcDataType)],
+    ) -> Result<Vec<VariableReadResult>> {
+        Err(anyhow::anyhow!(
+            "{} does not support multi-variable read",
+            self.protocol_name()
+        ))
     }
 
     /// Subscribe to variable changes
     async fn subscribe_variable(&self, _address: &str, _interval_ms: u32) -> Result<u32> {
-        Err(anyhow::anyhow!("{} does not support subscriptions", self.protocol_name()))
+        Err(anyhow::anyhow!(
+            "{} does not support subscriptions",
+            self.protocol_name()
+        ))
     }
 }
 

@@ -197,6 +197,23 @@ pub struct CommandMessage {
     #[serde(default)]
     pub params: serde_json::Value,
     pub timestamp: String,
+    /// 2026-04-29 enterprise RBAC dispatch evidence:
+    /// verified operator UUID bytes from a successfully verified command
+    /// envelope.
+    ///
+    /// What it solves: legacy JSON must not be able to forge the actor that
+    /// dispatch-time RBAC authorizes. The field is Rust-internal and is
+    /// populated only by `commands::envelope_adapter` after signature
+    /// verification.
+    #[serde(default, skip_deserializing)]
+    pub verified_actor: Option<[u8; 16]>,
+    /// 2026-04-29 enterprise RBAC dispatch evidence:
+    /// policy version that was signed into the verified command envelope.
+    ///
+    /// What it solves: the policy engine can reject rollback-replay attempts
+    /// where an old envelope targets a stale RBAC manifest version.
+    #[serde(default, skip_deserializing)]
+    pub claimed_policy_version: u64,
     /// **Batch #307 Faz 6 two-person integrity flow-through.**
     /// True when envelope_adapter verified BOTH the primary
     /// signature AND the co-approver signature against the
@@ -214,6 +231,21 @@ pub struct CommandMessage {
     /// payloads default to false.
     #[serde(default, skip_deserializing)]
     pub verified_co_approver: bool,
+    /// 2026-04-29 enterprise two-person integrity evidence:
+    /// verified co-approver operator UUID bytes from the envelope.
+    ///
+    /// What it solves: the dispatch gate no longer trusts a boolean alone;
+    /// it carries the second actor into `PolicyEngine::authorize`.
+    #[serde(default, skip_deserializing)]
+    pub verified_co_approver_actor: Option<[u8; 16]>,
+    /// 2026-04-29 enterprise two-person integrity evidence:
+    /// co-approver signature over the same canonical envelope bytes.
+    ///
+    /// What it solves: the policy request can include explicit co-approval
+    /// evidence instead of reducing the second signature to an uninspectable
+    /// flag.
+    #[serde(default, skip_deserializing)]
+    pub verified_co_approver_signature: Option<crate::authz::policy::Ed25519SignatureBytes>,
 }
 
 /// Command response message
@@ -288,20 +320,12 @@ impl MqttClient {
         // that exhausts memory on the constrained edge device.
         options.set_max_packet_size(1_048_576, 1_048_576);
 
-        // Configure TLS transport if enabled (IEC 62443 SL2 FR4).
-        // Phase 1.1.4 (D-4 + D-6): configure_tls now also returns the
-        // `Arc<MtlsVerifierState>` it constructed so cmd_update_cert_pinning
-        // can drive rebuilds without reconstructing the rustls ClientConfig.
-        let mtls_verifier_state: Option<Arc<crate::mtls::MtlsVerifierState>> =
-            if config.mqtt.tls.enabled {
-                let (tls_config, mtls_state) =
-                    Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
-                options.set_transport(tls_config);
-                info!("MQTT TLS enabled");
-                Some(mtls_state)
-            } else {
-                None
-            };
+        // Configure TLS transport if enabled (IEC 62443 SL2 FR4)
+        if config.mqtt.tls.enabled {
+            let tls_config = Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
+            options.set_transport(tls_config);
+            info!("MQTT TLS enabled");
+        }
 
         // Set last will (offline status)
         let last_will_payload = serde_json::to_vec(&StatusMessage {
@@ -880,6 +904,40 @@ impl crate::outbound_publisher::MqttPublishSink for MqttPublishAdapter {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::CommandMessage;
+
+    #[test]
+    fn legacy_json_cannot_forge_rbac_dispatch_evidence() {
+        // 2026-04-29 enterprise RBAC evidence boundary:
+        // legacy JSON may include fields named like internal proof fields, but
+        // serde must ignore them.
+        //
+        // What it solves: an unsigned legacy payload cannot self-assert a
+        // verified actor or co-approver and bypass the envelope adapter.
+        let forged_signature = vec![0u8; 64];
+        let payload = serde_json::json!({
+            "commandId": "cmd-1",
+            "command": "write_gpio",
+            "params": {"pin": 17},
+            "timestamp": "2026-04-29T00:00:00Z",
+            "verifiedActor": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7],
+            "claimedPolicyVersion": 99,
+            "verifiedCoApprover": true,
+            "verifiedCoApproverActor": [8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8],
+            "verifiedCoApproverSignature": forged_signature
+        });
+
+        let parsed: CommandMessage = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.verified_actor, None);
+        assert_eq!(parsed.claimed_policy_version, 0);
+        assert!(!parsed.verified_co_approver);
+        assert_eq!(parsed.verified_co_approver_actor, None);
+        assert!(parsed.verified_co_approver_signature.is_none());
+    }
+}
+
 // Continuation of `impl MqttClient` (Batch #253 split — the
 // MqttPublishAdapter struct + its trait impl interleave between
 // MqttClient method blocks; Rust permits multiple `impl` blocks
@@ -1069,9 +1127,14 @@ impl MqttClient {
                 "Loaded {} system CA certificates for MQTT TLS",
                 root_store.len()
             );
-        } else {
-            // Custom-CA path — parse operator-supplied PEM bundle via rustls-pki-types
-            // PemObject trait (no new dependency; ships with rustls 0.23 / pki-types 1.7+).
+
+            // Batch 139 Sprint 6.6/6.8: install
+            // SuderraServerCertVerifier when configured
+            // (mtls.mode != Legacy OR pins supplied).
+            // Legacy-no-pins path returns None from
+            // build_suderra_verifier + we fall through
+            // to the rustls default webpki verifier — HC-1
+            // backward compat.
             //
             // ORPHAN-MEDIUM-036 partial fix: per-entry parse failures emit at `error!`
             // severity (not `warn!`) so structured-log subscribers treating error-level
@@ -1182,55 +1245,24 @@ impl MqttClient {
         )
         .map_err(|e| anyhow::anyhow!("WebPki fallback build failed: {e}"))?;
 
-        let delegating_verifier = std::sync::Arc::new(crate::mtls::MtlsDelegatingVerifier::new(
-            mtls_verifier_state.clone(),
-            fallback,
-        ));
-        info!(
-            "mTLS: MtlsDelegatingVerifier installed (mode={:?}, pins={}, suderra_active={})",
-            mtls_config.mode,
-            mtls_config.pinned_leaf_fingerprints_hex.len(),
-            mtls_verifier_state.has_verifier()
-        );
+            let tls = TlsConfiguration::Rustls(Arc::new(client_config));
+            return Ok(Transport::Tls(tls));
+        }
 
-        // Stage 1 — verifier slot: ALWAYS install the delegating wrapper.
-        // The provider is set BEFORE `with_protocol_versions` so the cipher
-        // allowlist applies to the chosen TLS version's suite negotiation.
-        let cfg_builder = rumqttc::tokio_rustls::rustls::ClientConfig::builder_with_provider(
-            suderra_provider,
-        )
-        .with_protocol_versions(&[&rumqttc::tokio_rustls::rustls::version::TLS13])
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "rustls ClientConfig::builder_with_provider rejected TLS 1.3 protocol pin: {:?}",
-                e
-            )
-        })?;
-        let cfg_after_verifier = cfg_builder
-            .dangerous()
-            .with_custom_certificate_verifier(delegating_verifier);
-
-        // Stage 2 — client auth slot: mutual TLS when client cert + key are configured.
-        // Honored on BOTH system-CA and custom-CA paths (Phase 0.1 unification).
-        let mut client_config = if let Some((cert_bytes, key_bytes)) = client_auth {
-            use rustls::pki_types::pem::PemObject;
-            use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-            let client_certs: Vec<CertificateDer<'static>> =
-                CertificateDer::pem_slice_iter(&cert_bytes)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| {
-                        anyhow::anyhow!("Failed to parse client certificate PEM: {:?}", e)
-                    })?;
-            if client_certs.is_empty() {
-                return Err(anyhow::anyhow!(
-                    "Client certificate file contained no CERTIFICATE blocks (check PEM format)"
-                ));
-            }
-            let client_key = PrivateKeyDer::from_pem_slice(&key_bytes)
-                .map_err(|e| anyhow::anyhow!("Failed to parse client private key PEM: {:?}", e))?;
-            info!(
-                "mTLS: client certificate ({} cert chain) + private key wired (mutual TLS active)",
-                client_certs.len()
+        // Batch 139: custom-CA branch keeps
+        // `TlsConfiguration::Simple` which rumqttc builds
+        // internally — it does NOT support custom
+        // verifiers. Surface this as a WARN log when
+        // operator has configured Suderra mTLS so they
+        // know the gates are INACTIVE on this path +
+        // migrate to system-CA mode for Suderra-policy
+        // enforcement. Strict mode + custom CA is an
+        // explicit fail-closed because Strict requires
+        // pinning which isn't reachable here.
+        if !matches!(mtls_config.mode, crate::mtls::MtlsMode::Legacy) {
+            warn!(
+                "mTLS: custom-CA TLS branch in use + mtls.mode={:?} — Suderra policy gates (fingerprint pinning, age caps) are NOT ACTIVE on this path (rumqttc::TlsConfiguration::Simple does not support custom verifiers). Migrate to system-CA TLS for Suderra mTLS enforcement.",
+                mtls_config.mode
             );
             cfg_after_verifier
                 .with_client_auth_cert(client_certs, client_key)

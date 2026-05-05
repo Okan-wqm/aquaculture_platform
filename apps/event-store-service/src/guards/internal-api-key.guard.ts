@@ -5,14 +5,9 @@ import {
   UnauthorizedException,
   Logger,
 } from '@nestjs/common';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { timingSafeEqual } from 'crypto';
 import { Request } from 'express';
-
-/**
- * Maximum allowed clock skew for service identity timestamps (5 minutes).
- * Requests older than this are rejected to prevent replay attacks.
- */
-const SERVICE_IDENTITY_MAX_AGE_MS = 5 * 60 * 1000;
+import { verifyServiceIdentityRequest } from '@aquaculture/backend-common/utils';
 
 /**
  * Guard that verifies inter-service authentication for event-store-service.
@@ -59,32 +54,52 @@ export class InternalApiKeyGuard implements CanActivate {
       return true;
     }
 
-    // ── Method 1: HMAC service identity (preferred) ──
-    const serviceName = request.headers['x-service-identity'] as string | undefined;
-    const timestamp = request.headers['x-service-timestamp'] as string | undefined;
-    const signature = request.headers['x-service-signature'] as string | undefined;
+    // ── Method 1: v2 HMAC service identity (preferred) ──
+    //
+    // Closes: SEC-CRITICAL-001 — verifyServiceIdentityRequest binds method,
+    // path, and body into the canonical input via the shared library, which
+    // also rejects v1 traffic once the W0.A-finalize commit lands. The
+    // hand-rolled HMAC implementation that lived in this guard was a
+    // duplicate of the v1 logic in libs/backend-common — collapsing into
+    // the single canonical verifier removes the drift risk.
+    const serviceIdentity = request.headers['x-service-identity'] as string | undefined;
+    const serviceTimestamp = request.headers['x-service-timestamp'] as string | undefined;
+    const serviceSignature = request.headers['x-service-signature'] as string | undefined;
 
-    if (serviceName && timestamp && signature) {
-      // SECURITY (HIGH-003): bind X-Tenant-ID into HMAC verification. A
-      // compromised caller cannot forward a valid signature with a spoofed
-      // tenant header because the signature was computed over the original
-      // tenantId. Absent header verifies with empty string (non-tenant path).
+    if (serviceIdentity && serviceTimestamp && serviceSignature) {
       const tenantHeader = (request.headers['x-tenant-id'] as string | undefined) ?? '';
-      const valid = this.verifyServiceIdentity(serviceName, timestamp, signature, secret, tenantHeader);
-      if (!valid) {
+      const observedBody = this.serializeBodyForHash((request as Request & { body?: unknown }).body);
+      const observedPath = (() => {
+        const raw = request.originalUrl ?? request.url ?? request.path ?? '/';
+        const qIdx = raw.indexOf('?');
+        return qIdx === -1 ? raw : raw.slice(0, qIdx);
+      })();
+
+      const outcome = verifyServiceIdentityRequest({
+        headers: request.headers as Record<string, string | string[] | undefined>,
+        observedMethod: request.method ?? 'POST',
+        observedPath,
+        observedBody,
+        secret,
+        expectedTenantId: tenantHeader,
+      });
+
+      if (!outcome.valid) {
         this.logger.warn(
-          `Rejected request: invalid service identity signature from "${serviceName}"` +
+          `Rejected request: ${outcome.reason} from "${serviceIdentity}"` +
             (tenantHeader ? ` (tenant=${tenantHeader})` : ''),
         );
         throw new UnauthorizedException(
-          'Invalid service identity signature. Request may be forged, expired, or the tenant header was tampered with.',
+          outcome.reason === 'missing-headers'
+            ? 'Missing service identity headers'
+            : 'Invalid service identity signature. Request may be forged, expired, or fields tampered with.',
         );
       }
 
-      // SECURITY: Audit log for tenant access via service identity
+      // Audit log for tenant access via service identity (v1 + v2 alike).
       if (tenantHeader) {
         this.logger.log(
-          `Service "${serviceName}" accessing tenant "${tenantHeader}" via ${request.method} ${request.path}`,
+          `Service "${serviceIdentity}" accessing tenant "${tenantHeader}" via ${request.method} ${request.path} (sig=${outcome.version})`,
         );
       }
 
@@ -118,40 +133,16 @@ export class InternalApiKeyGuard implements CanActivate {
   }
 
   /**
-   * Verify HMAC-signed service identity.
-   * Signature = HMAC-SHA256(timestamp:serviceName:tenantId, secret)
+   * Coerce the parsed body back into a byte-stable representation for sha256.
    *
-   * SECURITY (HIGH-003): tenantId is bound into the signature so a
-   * compromised caller cannot forward a valid signature with a spoofed
-   * X-Tenant-ID header. tenantId is '' when no tenant context applies.
+   * WHY: Express + body-parser already JSON.parse'd the body for us; we
+   * re-serialize so the hash matches what the SENDER computed before
+   * stringifying. Buffer/string passthrough is byte-exact.
    */
-  private verifyServiceIdentity(
-    serviceName: string,
-    timestamp: string,
-    signature: string,
-    secret: string,
-    tenantId: string,
-  ): boolean {
-    const ts = parseInt(timestamp, 10);
-    if (isNaN(ts)) {
-      return false;
-    }
-    const age = Math.abs(Date.now() - ts);
-    if (age > SERVICE_IDENTITY_MAX_AGE_MS) {
-      return false;
-    }
-
-    const expected = createHmac('sha256', secret)
-      .update(`${timestamp}:${serviceName}:${tenantId}`)
-      .digest('hex');
-
-    if (expected.length !== signature.length) {
-      return false;
-    }
-
-    return timingSafeEqual(
-      Buffer.from(expected, 'utf8'),
-      Buffer.from(signature, 'utf8'),
-    );
+  private serializeBodyForHash(body: unknown): string | Buffer {
+    if (body === undefined || body === null) return '';
+    if (typeof body === 'string') return body;
+    if (Buffer.isBuffer(body)) return body;
+    return JSON.stringify(body);
   }
 }

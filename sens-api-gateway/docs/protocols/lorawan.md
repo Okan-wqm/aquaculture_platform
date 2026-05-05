@@ -13,14 +13,18 @@ RFC 2119 keywords apply.
 
 ## 2. Crate + feature flag
 
-- Feature flag: `lorawan` (`Cargo.toml:341`). OFF by default.
+- Feature flags: `lorawan` enables the protocol stack. `sx1302-vendor-hal`
+  enables native Semtech HAL binding when `vendor/sx1302_hal/libloragw/src/*.c`
+  is present. Both are OFF by default.
 - Crates gated by the flag (`Cargo.toml:287-296`):
   - `aes = "0.8"` — AES-128 block cipher (ECB mode primitive).
   - `cmac = "0.7"` — AES-CMAC (RFC 4493) MIC computation.
   - `lorawan = "0.9"` — LoRa Alliance 1.0.x packet (de)serialisation helpers.
   - `subtle = "2"` — constant-time comparison for MIC (timing-side-channel defence).
   - `zeroize = "1"` — cryptographic key material zero-on-drop (promoted to required for non-LoRa builds too — see Cargo.toml comment).
-- Native library: `vendor/sx1302_hal` built via `build.rs` + `cc` + `bindgen` (build-deps `Cargo.toml:400-403`).
+- Native library: `vendor/sx1302_hal` built via `build.rs` + `cc` + `bindgen`
+  only for `sx1302-vendor-hal` hardware builds. Release/HIL builds should set
+  `SUDERRA_REQUIRE_SX1302_VENDOR_HAL=1` so missing vendor C sources fail closed.
 
 ## 3. Supported operations
 

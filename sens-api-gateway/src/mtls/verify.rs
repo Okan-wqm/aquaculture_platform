@@ -6,7 +6,7 @@
 //! — Sprint 6.8 plugs in `sha2::Sha256::digest` for the cert DER
 //! fingerprint computation.
 
-use super::cipher::{CipherSuite, CIPHER_SUITE_ALLOWLIST};
+use super::cipher::{CIPHER_SUITE_ALLOWLIST, CipherSuite};
 use super::error::MtlsVerifyError;
 use super::mode::MtlsMode;
 use super::pinning::{CertRotationStage, LeafCertFingerprint};
@@ -140,7 +140,9 @@ pub fn verify_leaf_cert(
         // Warn + Strict: return Err (Warn's caller downgrades Err → audit
         // log + accept; Strict's caller propagates Err to reject handshake).
         if mode.pinning_enforced() {
-            return Err(MtlsVerifyError::FingerprintNotPinned { actual: fingerprint });
+            return Err(MtlsVerifyError::FingerprintNotPinned {
+                actual: fingerprint,
+            });
         }
         // Legacy / Warn — fall through to Ok. The fingerprint IS returned
         // so the caller can audit the accepted-but-unpinned cert.
@@ -220,7 +222,7 @@ mod tests {
             1_000,
             9_000,
             3,
-            None, // not in allowlist
+            None,   // not in allowlist
             0x0035, // TLS_RSA_WITH_AES_256_CBC_SHA — banned
             3,
             4,
@@ -232,7 +234,9 @@ mod tests {
         .expect_err("bad cipher");
         assert_eq!(
             err,
-            MtlsVerifyError::CipherSuiteNotAllowed { negotiated_codepoint: 0x0035 }
+            MtlsVerifyError::CipherSuiteNotAllowed {
+                negotiated_codepoint: 0x0035
+            }
         );
     }
 
@@ -409,10 +413,7 @@ mod tests {
             mock_sha256_byte(0x99), // different from pinned 0x42
         )
         .expect_err("pinning");
-        assert!(matches!(
-            err,
-            MtlsVerifyError::FingerprintNotPinned { .. }
-        ));
+        assert!(matches!(err, MtlsVerifyError::FingerprintNotPinned { .. }));
     }
 
     #[test]
@@ -508,10 +509,7 @@ mod tests {
             mock_sha256_byte(0x01),
         )
         .expect_err("post-window outgoing must reject");
-        assert!(matches!(
-            err,
-            MtlsVerifyError::FingerprintNotPinned { .. }
-        ));
+        assert!(matches!(err, MtlsVerifyError::FingerprintNotPinned { .. }));
     }
 
     #[test]

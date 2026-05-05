@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { SchemaManagerService, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
+import { LegalHoldService } from '@aquaculture/backend-common/compliance';
 import { Repository, DataSource } from 'typeorm';
 
 import {
@@ -103,6 +104,14 @@ export class TenantProvisioningService {
     private readonly backupRestoreService: BackupRestoreService,
     @Optional()
     private readonly emailSenderService?: EmailSenderService,
+    // LEGAL-HIGH-006 cure: tenant deprovisioning issues DROP SCHEMA on
+    // the tenant's per-tenant schema — irreversible at the DB level.
+    // The canonical LegalHoldService is consulted as the FIRST step of
+    // deprovisionTenant so a tenant under litigation hold cannot have
+    // evidence destroyed. @Optional preserves local-dev paths where
+    // the LegalHoldModule may not be wired.
+    @Optional()
+    private readonly legalHoldService?: LegalHoldService,
   ) {
     // Initialize schema manager with dataSource
     this.schemaManager = new SchemaManagerService(this.dataSource);
@@ -445,6 +454,17 @@ export class TenantProvisioningService {
    * Deprovision a tenant and clean up resources
    */
   async deprovisionTenant(tenantId: string): Promise<ProvisioningResult> {
+    // LEGAL-HIGH-006 cure: BEFORE any deprovisioning step (backup,
+    // resource removal, schema cleanup), assert no legal hold is
+    // active. The cleanupTenantSchema step issues DROP SCHEMA which
+    // is irreversible at the DB level — once the schema is gone,
+    // legal-hold preservation has nothing to restore. Throwing here
+    // (LegalHoldActiveError) bubbles up as a 4xx to the operator
+    // with a clear "release the hold first" signal.
+    if (this.legalHoldService) {
+      await this.legalHoldService.assertNoHold(tenantId, 'tenant');
+    }
+
     const steps: ProvisioningStep[] = [
       { name: 'validate_tenant', status: 'pending' },
       { name: 'backup_data', status: 'pending' },

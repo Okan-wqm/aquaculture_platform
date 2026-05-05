@@ -44,7 +44,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::canonical::{canonical_params, CanonicalParamsError, CmdHash};
+use super::canonical::{CanonicalParamsError, CmdHash, canonical_params};
 use super::jti::{InvalidJti, Jti};
 use super::mutating::is_mutating;
 use crate::authz::policy::Ed25519SignatureBytes;
@@ -231,16 +231,11 @@ mod uuid_bytes_serde {
 mod uuid_bytes_opt_serde {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    pub fn serialize<S: Serializer>(
-        b: &Option<[u8; 16]>,
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(b: &Option<[u8; 16]>, s: S) -> Result<S::Ok, S::Error> {
         b.serialize(s)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        d: D,
-    ) -> Result<Option<[u8; 16]>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<[u8; 16]>, D::Error> {
         Option::<[u8; 16]>::deserialize(d)
     }
 }
@@ -256,9 +251,18 @@ pub enum EnvelopeVerifyError {
     InvalidJti(InvalidJti),
     NonceTooLong(usize),
     // -- Freshness --
-    InvalidFreshnessWindow { iat: i64, exp: i64 },
-    NotYetValid { now_unix_secs: i64, iat: i64 },
-    Expired { now_unix_secs: i64, exp: i64 },
+    InvalidFreshnessWindow {
+        iat: i64,
+        exp: i64,
+    },
+    NotYetValid {
+        now_unix_secs: i64,
+        iat: i64,
+    },
+    Expired {
+        now_unix_secs: i64,
+        exp: i64,
+    },
     InvalidNow,
     // -- Tenant --
     TenantMismatch,
@@ -309,15 +313,9 @@ impl std::fmt::Display for EnvelopeVerifyError {
             }
             Self::SignatureInvalid => f.write_str("signature_invalid"),
             Self::JtiReplay => f.write_str("jti_replay"),
-            Self::CoApproverSignatureMissing => {
-                f.write_str("co_approver_signature_missing")
-            }
-            Self::CoApproverSignatureInvalid => {
-                f.write_str("co_approver_signature_invalid")
-            }
-            Self::CoApproverSelfSignature => {
-                f.write_str("co_approver_self_signature")
-            }
+            Self::CoApproverSignatureMissing => f.write_str("co_approver_signature_missing"),
+            Self::CoApproverSignatureInvalid => f.write_str("co_approver_signature_invalid"),
+            Self::CoApproverSelfSignature => f.write_str("co_approver_self_signature"),
         }
     }
 }
@@ -511,8 +509,9 @@ pub(crate) fn envelope_canonical_bytes(
     env: &CommandEnvelope,
 ) -> Result<Vec<u8>, EnvelopeVerifyError> {
     let cmd_bytes = env.cmd.as_bytes();
-    let cmd_len = u32::try_from(cmd_bytes.len())
-        .map_err(|_| EnvelopeVerifyError::CanonicalParamsFailed(CanonicalParamsError::CmdNameLengthOverflow))?;
+    let cmd_len = u32::try_from(cmd_bytes.len()).map_err(|_| {
+        EnvelopeVerifyError::CanonicalParamsFailed(CanonicalParamsError::CmdNameLengthOverflow)
+    })?;
 
     let params_bytes = canonical_params(&env.cmd, &env.params)?;
     let params_len = u32::try_from(params_bytes.len()).map_err(|_| {
@@ -768,7 +767,10 @@ mod tests {
         .expect_err("inverted");
         assert_eq!(
             err,
-            EnvelopeVerifyError::InvalidFreshnessWindow { iat: 9_000, exp: 1_000 }
+            EnvelopeVerifyError::InvalidFreshnessWindow {
+                iat: 9_000,
+                exp: 1_000
+            }
         );
     }
 
@@ -914,10 +916,7 @@ mod tests {
             |_, _| true,
         )
         .expect_err("nonce too long");
-        assert_eq!(
-            err,
-            EnvelopeVerifyError::NonceTooLong(MAX_NONCE_BYTES + 1)
-        );
+        assert_eq!(err, EnvelopeVerifyError::NonceTooLong(MAX_NONCE_BYTES + 1));
     }
 
     /// WHY: SignatureMode JSON wire format is snake_case.
@@ -998,15 +997,27 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                EnvelopeVerifyError::NotYetValid { now_unix_secs: 0, iat: 1 }
+                EnvelopeVerifyError::NotYetValid {
+                    now_unix_secs: 0,
+                    iat: 1
+                }
             ),
             "not_yet_valid"
         );
         assert_eq!(
-            format!("{}", EnvelopeVerifyError::Expired { now_unix_secs: 2, exp: 1 }),
+            format!(
+                "{}",
+                EnvelopeVerifyError::Expired {
+                    now_unix_secs: 2,
+                    exp: 1
+                }
+            ),
             "expired"
         );
-        assert_eq!(format!("{}", EnvelopeVerifyError::InvalidNow), "invalid_now");
+        assert_eq!(
+            format!("{}", EnvelopeVerifyError::InvalidNow),
+            "invalid_now"
+        );
         assert_eq!(
             format!("{}", EnvelopeVerifyError::TenantMismatch),
             "tenant_mismatch"
@@ -1018,9 +1029,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                EnvelopeVerifyError::CanonicalParamsFailed(
-                    CanonicalParamsError::EmptyCmdName
-                )
+                EnvelopeVerifyError::CanonicalParamsFailed(CanonicalParamsError::EmptyCmdName)
             ),
             "canonical_params_failed"
         );
@@ -1189,8 +1198,7 @@ mod tests {
             "nonce": "v1-nonce",
             "cmd_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
         });
-        let env: CommandEnvelope =
-            serde_json::from_value(v1_wire).expect("v1 deserializes");
+        let env: CommandEnvelope = serde_json::from_value(v1_wire).expect("v1 deserializes");
         assert_eq!(
             env.claimed_policy_version, 0,
             "v1 wire (no field) MUST default to 0"
@@ -1263,8 +1271,7 @@ mod tests {
             "nonce": "v2-nonce",
             "cmd_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
         });
-        let env: CommandEnvelope =
-            serde_json::from_value(v2_wire).expect("v2 deserializes");
+        let env: CommandEnvelope = serde_json::from_value(v2_wire).expect("v2 deserializes");
         assert_eq!(
             env.co_approver_actor, None,
             "v2 wire (no co_approver field) MUST default to None"

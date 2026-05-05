@@ -15,8 +15,10 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware } from '@aquaculture/backend-common/middleware';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { ThrottlerModule } from '@aquaculture/backend-common/security';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
 
 /**
  * Extended request interface for GraphQL context
@@ -167,7 +169,22 @@ import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/17
 import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1782100000000-AddFarmOutboxNotifyTrigger';
 import { MovePublicTablesToFarm1786000000000 } from './database/migrations/1786000000000-MovePublicTablesToFarm';
 import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1786200000000-AddFarmOutboxModernColumns';
-import { AlignCodeSequencesSchema1786900000000 } from './database/migrations/1786900000000-AlignCodeSequencesSchema';
+// ORPHAN-FARM-MIGRATION-REGISTRATION cure: register every migration that
+// existed on disk but was missing from the AppModule's migrations array.
+// A fresh farm-service deploy that does not list a migration here never
+// runs it — the schema state silently lags the entity declarations. The
+// migration-registration-completeness invariant test enforces complete
+// coverage going forward.
+import { MovePublicTablesToFarm1786000000000 } from './database/migrations/1786000000000-MovePublicTablesToFarm';
+import { AddDomainRetentionFunctions1787000000000 } from './database/migrations/1787000000000-AddDomainRetentionFunctions';
+import { AddStorageInventoryReceivedDate1787100000000 } from './database/migrations/1787100000000-AddStorageInventoryReceivedDate';
+import { AddStorageLotMixesGinIndex1787200000000 } from './database/migrations/1787200000000-AddStorageLotMixesGinIndex';
+import { AddRecurringTemplateTimezone1787300000000 } from './database/migrations/1787300000000-AddRecurringTemplateTimezone';
+import { AddDailyBatchFeedingMaterializedView1787400000000 } from './database/migrations/1787400000000-AddDailyBatchFeedingMaterializedView';
+import { AddDailyTankWaterQualityMaterializedView1787500000000 } from './database/migrations/1787500000000-AddDailyTankWaterQualityMaterializedView';
+import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrations/1788100000000-WireSupplierSitesAndSiteContacts';
+import { AddFarmAuditLogsImmutability1788300000000 } from './database/migrations/1788300000000-AddFarmAuditLogsImmutability';
+import { CreateTenantErasureAudit1788500000000 } from './database/migrations/1788500000000-CreateTenantErasureAudit';
 
 @Module({
   imports: [
@@ -217,9 +234,18 @@ import { AlignCodeSequencesSchema1786900000000 } from './database/migrations/178
             ConvertAuditColumnsToTimestamptz1781900000000,
             AddFarmOutboxLeaseColumns1782000000000,
             AddFarmOutboxNotifyTrigger1782100000000,
+            // ORPHAN-FARM-MIGRATION-REGISTRATION cure (chronological):
             MovePublicTablesToFarm1786000000000,
             AddFarmOutboxModernColumns1786200000000,
-            AlignCodeSequencesSchema1786900000000,
+            AddDomainRetentionFunctions1787000000000,
+            AddStorageInventoryReceivedDate1787100000000,
+            AddStorageLotMixesGinIndex1787200000000,
+            AddRecurringTemplateTimezone1787300000000,
+            AddDailyBatchFeedingMaterializedView1787400000000,
+            AddDailyTankWaterQualityMaterializedView1787500000000,
+            WireSupplierSitesAndSiteContacts1788100000000,
+            AddFarmAuditLogsImmutability1788300000000,
+            CreateTenantErasureAudit1788500000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
@@ -409,6 +435,18 @@ import { AlignCodeSequencesSchema1786900000000 } from './database/migrations/178
 
     // CQRS Module
     CqrsModule.forRoot(),
+    // AUDITTRAIL-CRITICAL-002 sweep: registers AuditedOperationInterceptor
+    // as APP_INTERCEPTOR so any handler decorated with @AuditedOperation()
+    // in this service writes a transactional audit row.
+    AuditedOperationModule.forRoot(),
+    // COMPLIANCE-HIGH-004 cure: registers the canonical
+    // LegalHoldService as @Global so TenantErasureService can
+    // run the legal-hold precedence check before any erasure
+    // cascade. Without this module the service-level @Optional()
+    // injection falls back to no-op, which is unsafe in
+    // production — the LegalHoldModule registration here is the
+    // production wiring.
+    LegalHoldModule.forRoot(),
 
     // Event Bus Module
     EventBusModule.forRootAsync({
@@ -618,6 +656,13 @@ export class AppModule implements NestModule {
     // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep: MUST run BEFORE UserContextMiddleware so
+        // forged x-user-payload / x-tenant-id headers from a Docker-network
+        // attacker cannot survive into req.user. Verifies the request
+        // carries a valid x-service-identity + x-service-signature pair
+        // signed with INTERNAL_SERVICE_SECRET; otherwise strips the four
+        // spoofable internal headers from req.headers.
+        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

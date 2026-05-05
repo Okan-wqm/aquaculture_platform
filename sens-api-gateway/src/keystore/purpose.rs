@@ -3,7 +3,7 @@
 //! **WHY:** Every derived key must be bound to a single purpose. A key used for
 //! audit HMAC MUST NOT accidentally be passed to SQLCipher rekey. The type
 //! system enforces this by threading [`KeyPurpose`] through the HKDF `info`
-//! parameter (domain separation) AND by tagging the returned [`KeyMaterial`]
+//! parameter (domain separation) AND by tagging the returned `KeyMaterial`
 //! with its purpose at the type level (typestate pattern, Batch 5).
 //!
 //! **Architectural root cause addressed:**
@@ -135,9 +135,15 @@ mod tests {
             KeyPurpose::AuditHmacChain.hkdf_info(),
             b"suderra:audit:hmac-chain:v1"
         );
-        assert_eq!(KeyPurpose::ReplayCache.hkdf_info(), b"suderra:replay-cache:v1");
+        assert_eq!(
+            KeyPurpose::ReplayCache.hkdf_info(),
+            b"suderra:replay-cache:v1"
+        );
         assert_eq!(KeyPurpose::DekEscrow.hkdf_info(), b"suderra:dek-escrow:v1");
-        assert_eq!(KeyPurpose::ConfigVerify.hkdf_info(), b"suderra:config-verify:v1");
+        assert_eq!(
+            KeyPurpose::ConfigVerify.hkdf_info(),
+            b"suderra:config-verify:v1"
+        );
     }
 
     /// WHY: Every distinct KeyPurpose must map to a distinct info string.
@@ -154,7 +160,13 @@ mod tests {
         ];
         for (i, a) in purposes.iter().enumerate() {
             for b in &purposes[i + 1..] {
-                assert_ne!(a.hkdf_info(), b.hkdf_info(), "info collision: {:?} vs {:?}", a, b);
+                assert_ne!(
+                    a.hkdf_info(),
+                    b.hkdf_info(),
+                    "info collision: {:?} vs {:?}",
+                    a,
+                    b
+                );
             }
         }
     }

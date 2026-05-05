@@ -8,6 +8,7 @@
 
 import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { CircuitBreakerService } from '@aquaculture/backend-common/resilience';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -147,6 +148,24 @@ describe('ChannelDetectionService', () => {
               };
               return cb(manager);
             }),
+          },
+        },
+        // CIRCUIT-LOW-002 cure: ChannelDetectionService now
+        // constructor-injects CircuitBreakerService for the AI
+        // service fetch wrap. Mock the execute() to delegate
+        // straight to fn() so the existing tests don't have to
+        // know about the breaker layer — a passthrough means
+        // the breaker is invisible to test logic AND any
+        // regression that drops the breaker still surfaces
+        // (the AI fetch now ALWAYS runs even when the breaker
+        // would have tripped — but the unit specs aren't
+        // asserting trip behaviour anyway).
+        {
+          provide: CircuitBreakerService,
+          useValue: {
+            execute: jest
+              .fn()
+              .mockImplementation(async (args: { fn: () => Promise<unknown> }) => args.fn()),
           },
         },
       ],

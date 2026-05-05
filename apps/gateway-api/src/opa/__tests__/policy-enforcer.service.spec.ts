@@ -91,6 +91,69 @@ describe('PolicyEnforcerService', () => {
     await service.onModuleInit();
   });
 
+  describe('CIRCUIT-CRITICAL-002: POLICY_FAIL_OPEN production guard', () => {
+    const ORIGINAL_NODE_ENV = process.env['NODE_ENV'];
+
+    afterEach(() => {
+      if (ORIGINAL_NODE_ENV === undefined) {
+        delete process.env['NODE_ENV'];
+      } else {
+        process.env['NODE_ENV'] = ORIGINAL_NODE_ENV;
+      }
+    });
+
+    async function buildServiceWith(failOpenEnv: boolean, nodeEnv: string | undefined): Promise<PolicyEnforcerService> {
+      if (nodeEnv === undefined) {
+        delete process.env['NODE_ENV'];
+      } else {
+        process.env['NODE_ENV'] = nodeEnv;
+      }
+      const moduleLocal = await Test.createTestingModule({
+        providers: [
+          PolicyEnforcerService,
+          {
+            provide: OpaClientService,
+            useValue: { checkHealth: jest.fn().mockResolvedValue({ status: 'healthy' }), on: jest.fn() },
+          },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn((key: string, defaultValue?: unknown) => {
+                const cfg: Record<string, unknown> = { POLICY_AUDIT_LOG: true, POLICY_FAIL_OPEN: failOpenEnv };
+                return cfg[key] ?? defaultValue;
+              }),
+            },
+          },
+        ],
+      }).compile();
+      return moduleLocal.get<PolicyEnforcerService>(PolicyEnforcerService);
+    }
+
+    it('honours POLICY_FAIL_OPEN=true in development', async () => {
+      const dev = await buildServiceWith(true, 'development');
+      expect((dev as unknown as { failOpen: boolean }).failOpen).toBe(true);
+    });
+
+    it('honours POLICY_FAIL_OPEN=true in test', async () => {
+      const tst = await buildServiceWith(true, 'test');
+      expect((tst as unknown as { failOpen: boolean }).failOpen).toBe(true);
+    });
+
+    it('REJECTS POLICY_FAIL_OPEN=true in production — auth cannot silently downgrade on OPA failure', async () => {
+      const prod = await buildServiceWith(true, 'production');
+      // The failOpen flag is FALSE even when env requests true, because
+      // production hard-rejects the override.
+      expect((prod as unknown as { failOpen: boolean }).failOpen).toBe(false);
+    });
+
+    it('default POLICY_FAIL_OPEN=false stays false in every environment', async () => {
+      const prod = await buildServiceWith(false, 'production');
+      const dev = await buildServiceWith(false, 'development');
+      expect((prod as unknown as { failOpen: boolean }).failOpen).toBe(false);
+      expect((dev as unknown as { failOpen: boolean }).failOpen).toBe(false);
+    });
+  });
+
   describe('Module Initialization', () => {
     it('should check OPA health on init', () => {
       expect(opaClient.checkHealth).toHaveBeenCalled();

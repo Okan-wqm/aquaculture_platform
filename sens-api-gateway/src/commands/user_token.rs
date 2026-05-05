@@ -52,7 +52,7 @@
 //!   `required_permission::permission_for_command` table (Batch
 //!   #248) — enforced before this handler runs.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::CommandHandler;
@@ -74,9 +74,7 @@ impl CommandHandler {
         &self,
         params: &Value,
     ) -> (bool, Value, Option<String>) {
-        info!(
-            "Executing update_user_token_manifest command (Batch #249b hot-reload)"
-        );
+        info!("Executing update_user_token_manifest command (Batch #249b hot-reload)");
 
         // Extract signed_manifest param as a JSON Value (we
         // re-serialize to bytes for the verify path — keeps the
@@ -117,7 +115,11 @@ impl CommandHandler {
         let (pubkey_hex, tenant_id_str, user_token_store) = {
             let state = self.state.read().await;
             (
-                state.config.user_token_manifest.manifest_signing_pubkey_hex.clone(),
+                state
+                    .config
+                    .user_token_manifest
+                    .manifest_signing_pubkey_hex
+                    .clone(),
                 state.tenant_id.clone(),
                 state.user_token_manifest_store.clone(),
             )
@@ -181,10 +183,7 @@ impl CommandHandler {
                 (
                     false,
                     json!({ "reason": reason.clone() }),
-                    Some(format!(
-                        "User-token manifest verify failed: {}",
-                        reason
-                    )),
+                    Some(format!("User-token manifest verify failed: {}", reason)),
                 )
             }
         }

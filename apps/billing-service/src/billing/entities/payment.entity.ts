@@ -101,9 +101,16 @@ export class Payment {
   @Column({ name: 'invoice_id' })
   invoiceId!: string;
 
+  // DBR-MEDIUM-005 cure: explicit onDelete: 'RESTRICT' encodes the
+  // business intent at the FK level — a paid invoice with linked
+  // Payment rows must NOT be deletable; deletion would orphan
+  // immutable financial records that downstream reconciliation
+  // (tenant_cost_rollup, Stripe MeterEvent ledger) treats as
+  // authoritative. Migration 1788300000000 installs the matching
+  // explicit DB-level constraint.
   // Bi-directional relationship - using string-based lazy loading to avoid circular dependency
   // Invoice entity is loaded lazily by TypeORM at runtime
-  @ManyToOne('Invoice', (invoice: any) => invoice.payments)
+  @ManyToOne('Invoice', (invoice: any) => invoice.payments, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'invoice_id' })
   invoice?: any;
 

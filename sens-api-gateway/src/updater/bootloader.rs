@@ -166,10 +166,7 @@ impl BootloaderHandle for NoopBootloaderHandle {
     }
 
     fn clear_pending_boot(&self, slot: AbPartition) -> Result<(), BootloaderError> {
-        tracing::info!(
-            "NoopBootloader: clear_pending_boot({:?}) — no-op",
-            slot
-        );
+        tracing::info!("NoopBootloader: clear_pending_boot({:?}) — no-op", slot);
         Ok(())
     }
 
@@ -244,10 +241,7 @@ mod tests {
     #[test]
     fn bootloader_error_display_shapes() {
         let cases = [
-            (
-                BootloaderError::IoError("x".into()),
-                "bootloader IO: x",
-            ),
+            (BootloaderError::IoError("x".into()), "bootloader IO: x"),
             (
                 BootloaderError::BootloaderRejected("y".into()),
                 "bootloader rejected: y",

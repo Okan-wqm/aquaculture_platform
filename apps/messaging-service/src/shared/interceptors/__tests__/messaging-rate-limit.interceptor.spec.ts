@@ -8,6 +8,7 @@ import {
   MessagingRateLimitInterceptor,
   RATE_LIMIT_ACTION_KEY,
 } from '../messaging-rate-limit.interceptor';
+import { MessagingMetricsService } from '../../../metrics/messaging-metrics.service';
 import {
   createMockRedis,
   fakeUuid,
@@ -43,11 +44,16 @@ describe('MessagingRateLimitInterceptor', () => {
       getAllAndOverride: jest.fn(),
     };
 
+    const mockMetricsService = {
+      incrementRateLimitHits: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MessagingRateLimitInterceptor,
         { provide: REDIS_CLIENT, useValue: redisClient },
         { provide: Reflector, useValue: reflector },
+        { provide: MessagingMetricsService, useValue: mockMetricsService },
       ],
     }).compile();
 
@@ -203,23 +209,83 @@ describe('MessagingRateLimitInterceptor', () => {
   });
 
   // -----------------------------------------------------------------------
-  // Redis down -- graceful degradation (fail-open)
+  // CIRCUIT-MEDIUM-005 — per-action fail-mode discriminator on Redis outage
   // -----------------------------------------------------------------------
-  it('graceful degradation: allows request when Redis is down', async () => {
-    reflector.getAllAndOverride.mockReturnValue('sendMessage');
+  describe('CIRCUIT-MEDIUM-005 — per-action fail-mode on Redis outage', () => {
+    /**
+     * Helper that primes a Redis-down failure scenario.
+     */
+    const primeRedisOutage = (): void => {
+      const pipelineExec = jest
+        .fn()
+        .mockRejectedValue(new Error('ECONNREFUSED'));
+      redisClient.multi.mockReturnValue({
+        zremrangebyscore: jest.fn().mockReturnThis(),
+        zcard: jest.fn().mockReturnThis(),
+        zadd: jest.fn().mockReturnThis(),
+        expire: jest.fn().mockReturnThis(),
+        exec: pipelineExec,
+      });
+    };
 
-    const pipelineExec = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
-    redisClient.multi.mockReturnValue({
-      zremrangebyscore: jest.fn().mockReturnThis(),
-      zcard: jest.fn().mockReturnThis(),
-      zadd: jest.fn().mockReturnThis(),
-      expire: jest.fn().mockReturnThis(),
-      exec: pipelineExec,
+    it('fail-CLOSED action (sendMessage) blocks with HTTP 503 when Redis is down', async () => {
+      reflector.getAllAndOverride.mockReturnValue('sendMessage');
+      primeRedisOutage();
+      const ctx = createMockContext();
+
+      await expect(
+        interceptor.intercept(ctx, mockCallHandler),
+      ).rejects.toThrow();
+
+      // Inspect the thrown HttpException — must be 503.
+      try {
+        await interceptor.intercept(ctx, mockCallHandler);
+      } catch (err) {
+        expect(err).toBeInstanceOf(HttpException);
+        const httpError = err as HttpException;
+        expect(httpError.getStatus()).toBe(503);
+      }
+      expect(mockCallHandler.handle).not.toHaveBeenCalled();
     });
 
-    const ctx = createMockContext();
+    it('fail-CLOSED action (uploadMedia) blocks with HTTP 503 when Redis is down', async () => {
+      reflector.getAllAndOverride.mockReturnValue('uploadMedia');
+      primeRedisOutage();
+      const ctx = createMockContext();
 
-    const result$ = await interceptor.intercept(ctx, mockCallHandler);
-    expect(mockCallHandler.handle).toHaveBeenCalled();
+      await expect(
+        interceptor.intercept(ctx, mockCallHandler),
+      ).rejects.toThrow();
+      expect(mockCallHandler.handle).not.toHaveBeenCalled();
+    });
+
+    it('fail-CLOSED action (createChannel) blocks with HTTP 503 when Redis is down', async () => {
+      reflector.getAllAndOverride.mockReturnValue('createChannel');
+      primeRedisOutage();
+      const ctx = createMockContext();
+
+      await expect(
+        interceptor.intercept(ctx, mockCallHandler),
+      ).rejects.toThrow();
+      expect(mockCallHandler.handle).not.toHaveBeenCalled();
+    });
+
+    it('fail-OPEN action (editMessage) ALLOWS request when Redis is down', async () => {
+      reflector.getAllAndOverride.mockReturnValue('editMessage');
+      primeRedisOutage();
+      const ctx = createMockContext();
+
+      await interceptor.intercept(ctx, mockCallHandler);
+      expect(mockCallHandler.handle).toHaveBeenCalled();
+    });
+
+    it('fail-OPEN action (addReaction) ALLOWS request when Redis is down', async () => {
+      reflector.getAllAndOverride.mockReturnValue('addReaction');
+      primeRedisOutage();
+      const ctx = createMockContext();
+
+      await interceptor.intercept(ctx, mockCallHandler);
+      expect(mockCallHandler.handle).toHaveBeenCalled();
+    });
   });
 });

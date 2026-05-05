@@ -50,6 +50,16 @@ interface CreateLegalHoldPayload extends TenantScopedPayload {
 interface ReleaseLegalHoldPayload extends TenantScopedPayload {
   holdId: string;
   userId: string;
+  /**
+   * Required (LEGAL-MEDIUM-002): the SECOND SUPER_ADMIN that countersigned
+   * the release request. MUST differ from `userId`. Pre-cure single-identity
+   * release was the audit gap.
+   */
+  approverId: string;
+  /**
+   * Required (LEGAL-MEDIUM-002): ≥ 50 chars justification recorded on the row.
+   */
+  releaseReason: string;
 }
 
 interface GetRetentionPoliciesPayload extends TenantScopedPayload {}
@@ -186,6 +196,8 @@ export class MessagingAdminNatsHandler {
         null,
         null,
         null,
+        data.approverId,
+        data.releaseReason,
       ),
     );
   }

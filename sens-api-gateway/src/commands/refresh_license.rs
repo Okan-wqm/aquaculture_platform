@@ -45,9 +45,7 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::CommandHandler;
-use crate::license::{
-    verify_license_manifest, SignedLicenseManifest,
-};
+use crate::license::{SignedLicenseManifest, verify_license_manifest};
 use crate::security::sanitize_for_log;
 
 impl CommandHandler {
@@ -122,9 +120,7 @@ impl CommandHandler {
 
         let expected_tenant = match tenant_str {
             Some(t) => match uuid::Uuid::parse_str(&t) {
-                Ok(u) => {
-                    crate::authz::permission::TenantId::new_from_verified(*u.as_bytes())
-                }
+                Ok(u) => crate::authz::permission::TenantId::new_from_verified(*u.as_bytes()),
                 Err(e) => {
                     return (
                         false,

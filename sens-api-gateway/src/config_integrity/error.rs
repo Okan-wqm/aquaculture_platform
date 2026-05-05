@@ -102,7 +102,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                ConfigIntegrityError::StaleConfigVersion { claimed: 1, highest_seen: 2 }
+                ConfigIntegrityError::StaleConfigVersion {
+                    claimed: 1,
+                    highest_seen: 2
+                }
             ),
             "stale_config_version"
         );

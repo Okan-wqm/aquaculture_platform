@@ -19,7 +19,7 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use tracing::{debug, error, info, warn};
@@ -66,8 +66,8 @@ use tracing::{debug, error, info, warn};
 /// the env BEFORE the first call, exactly as the sandbox
 /// LazyLock in the test module does.
 pub(crate) fn derive_db_encryption_key() -> Result<String> {
-    use sha2::Sha256;
     use hmac::{Hmac, Mac};
+    use sha2::Sha256;
     use std::sync::OnceLock;
     type HmacSha256 = Hmac<Sha256>;
 
@@ -77,16 +77,18 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
         return Ok(hex.clone());
     }
 
-    let machine_id = machine_uid::get()
-        .map_err(|e| anyhow::anyhow!(
+    let machine_id = machine_uid::get().map_err(|e| {
+        anyhow::anyhow!(
             "Cannot derive database encryption key: machine-id unavailable ({}). \
-             Ensure /etc/machine-id or /var/lib/dbus/machine-id exists.", e
-        ))?;
+             Ensure /etc/machine-id or /var/lib/dbus/machine-id exists.",
+            e
+        )
+    })?;
 
     let secret_key = load_or_create_db_secret()?;
 
-    let mut mac = HmacSha256::new_from_slice(&secret_key)
-        .context("Failed to create HMAC instance")?;
+    let mut mac =
+        HmacSha256::new_from_slice(&secret_key).context("Failed to create HMAC instance")?;
     mac.update(machine_id.as_bytes());
     let result = mac.finalize().into_bytes();
     let hex: String = result.iter().map(|b| format!("{:02x}", b)).collect();
@@ -126,7 +128,10 @@ fn load_or_create_db_secret() -> Result<Vec<u8>> {
         let key = std::fs::read(secret_path)
             .context("Failed to read database secret key from /etc/suderra/db.key")?;
         if key.len() < 16 {
-            anyhow::bail!("Database secret key is too short ({} bytes), expected >= 16", key.len());
+            anyhow::bail!(
+                "Database secret key is too short ({} bytes), expected >= 16",
+                key.len()
+            );
         }
         return Ok(key);
     }
@@ -138,13 +143,12 @@ fn load_or_create_db_secret() -> Result<Vec<u8>> {
 
     // Ensure parent directory exists
     if let Some(parent) = secret_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| {
-                format!(
-                    "Failed to create secret-key parent directory {}",
-                    parent.display()
-                )
-            })?;
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "Failed to create secret-key parent directory {}",
+                parent.display()
+            )
+        })?;
     }
 
     // Write with restrictive permissions from the start (no TOCTOU race)
@@ -168,11 +172,13 @@ fn load_or_create_db_secret() -> Result<Vec<u8>> {
 
     #[cfg(not(unix))]
     {
-        std::fs::write(secret_path, &key)
-            .context("Failed to write database secret key")?;
+        std::fs::write(secret_path, &key).context("Failed to write database secret key")?;
     }
 
-    tracing::info!("Generated new database secret key at {}", secret_path.display());
+    tracing::info!(
+        "Generated new database secret key at {}",
+        secret_path.display()
+    );
     Ok(key)
 }
 
@@ -185,6 +191,31 @@ fn apply_db_encryption_key(conn: &Connection) -> Result<()> {
     conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
         .context("Failed to apply SQLCipher database encryption key")?;
     Ok(())
+}
+
+/// 2026-04-29 enterprise shutdown fsync helper.
+///
+/// What it solves: checkpoint code can explicitly sync each SQLite file that
+/// exists without treating absent WAL/SHM sidecars as an error.
+fn sync_file_if_exists(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("Failed to open {} for fsync", path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("Failed to fsync {}", path.display()))?;
+    Ok(())
+}
+
+/// 2026-04-29 enterprise SQLite sidecar path helper.
+///
+/// What it solves: WAL/SHM file names are built from the raw OS path, not
+/// `Display`, so non-UTF-8 filesystem paths are preserved.
+fn sqlite_sidecar_path(db_path: &Path, suffix: &str) -> PathBuf {
+    let mut raw = db_path.as_os_str().to_os_string();
+    raw.push(suffix);
+    PathBuf::from(raw)
 }
 
 /// Acquire mutex lock with poison recovery (v1.2.3)
@@ -368,6 +399,13 @@ const DEFAULT_MAX_DISK_BYTES: u64 = 50 * 1024 * 1024;
 pub struct OfflineQueue {
     /// Database connection (protected by mutex for sync access)
     conn: Mutex<Connection>,
+    /// 2026-04-29 enterprise shutdown durability:
+    /// filesystem path for file-backed queues.
+    ///
+    /// What it solves: graceful shutdown can fsync the SQLite DB/WAL files and
+    /// parent directory after a WAL checkpoint. In-memory test queues keep
+    /// this as None.
+    db_path: Option<PathBuf>,
     /// Maximum queue size (message count)
     max_size: usize,
     /// Maximum message age before expiration (seconds)
@@ -416,6 +454,7 @@ impl OfflineQueue {
 
         let queue = Self {
             conn: Mutex::new(conn),
+            db_path: Some(db_path.to_path_buf()),
             max_size,
             max_age_secs,
             max_disk_bytes,
@@ -439,9 +478,10 @@ impl OfflineQueue {
 
         let queue = Self {
             conn: Mutex::new(conn),
+            db_path: None,
             max_size,
-            max_age_secs: 0,             // No expiration
-            max_disk_bytes: 0,           // No disk limit for in-memory
+            max_age_secs: 0,   // No expiration
+            max_disk_bytes: 0, // No disk limit for in-memory
             poison_health_verified: AtomicBool::new(false),
         };
 
@@ -970,6 +1010,42 @@ impl OfflineQueue {
         Ok(None)
     }
 
+    /// 2026-04-29 enterprise graceful-shutdown checkpoint.
+    ///
+    /// What it solves: shutdown no longer logs an offline-queue flush while
+    /// doing no persistence work. The method forces a SQLite WAL checkpoint
+    /// and then fsyncs the DB, WAL/SHM sidecars when present, and parent
+    /// directory so queued MQTT messages survive process exit and power-loss
+    /// windows as far as the underlying filesystem allows.
+    pub fn checkpoint_and_fsync(&self) -> Result<()> {
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
+        conn.execute_batch(
+            "
+            PRAGMA synchronous=FULL;
+            PRAGMA wal_checkpoint(FULL);
+            ",
+        )
+        .context("Failed to checkpoint offline queue WAL")?;
+        drop(conn);
+
+        if let Some(db_path) = self.db_path.as_ref() {
+            sync_file_if_exists(db_path)?;
+
+            let wal_path = sqlite_sidecar_path(db_path, "-wal");
+            sync_file_if_exists(&wal_path)?;
+
+            let shm_path = sqlite_sidecar_path(db_path, "-shm");
+            sync_file_if_exists(&shm_path)?;
+
+            if let Some(parent) = db_path.parent() {
+                sync_file_if_exists(parent)?;
+            }
+        }
+
+        info!("Offline queue WAL checkpoint + fsync completed");
+        Ok(())
+    }
+
     /// Create a backup using VACUUM INTO (v1.2.4)
     ///
     /// Creates a consistent, compact backup of the database to the specified path.
@@ -1197,7 +1273,7 @@ impl AsyncOfflineQueue {
         }
     }
 
-    /// Create from an existing Arc<OfflineQueue>
+    /// Create from an existing `Arc<OfflineQueue>`
     pub fn from_arc(queue: std::sync::Arc<OfflineQueue>) -> Self {
         Self {
             inner: queue,
@@ -1345,6 +1421,18 @@ impl AsyncOfflineQueue {
             .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?
     }
 
+    /// 2026-04-29 enterprise graceful-shutdown checkpoint.
+    ///
+    /// What it solves: shutdown can run WAL checkpoint + fsync without
+    /// blocking the async runtime thread.
+    pub async fn checkpoint_and_fsync_async(&self) -> Result<()> {
+        let queue = self.inner.clone();
+
+        tokio::task::spawn_blocking(move || queue.checkpoint_and_fsync())
+            .await
+            .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?
+    }
+
     /// Async integrity check - verify database consistency
     pub async fn integrity_check_async(&self) -> Result<IntegrityCheckResult> {
         let queue = self.inner.clone();
@@ -1426,10 +1514,8 @@ mod tests {
     /// see the cached value regardless of thread interleaving.
     static TEST_KEY_PATH_INIT: std::sync::LazyLock<std::path::PathBuf> =
         std::sync::LazyLock::new(|| {
-            let dir = std::env::temp_dir().join(format!(
-                "suderra-offline-queue-test-{}",
-                std::process::id()
-            ));
+            let dir = std::env::temp_dir()
+                .join(format!("suderra-offline-queue-test-{}", std::process::id()));
             std::fs::create_dir_all(&dir).expect("mkdir test key dir");
             let path = dir.join("db.key");
             // SAFETY: set_var happens ONCE inside LazyLock::

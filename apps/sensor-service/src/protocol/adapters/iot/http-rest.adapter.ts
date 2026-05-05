@@ -14,6 +14,10 @@ import {
   ValidationResult,
   ProtocolCapabilities,
 } from '../base-protocol.adapter';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+} from '@aquaculture/backend-common/resilience';
 
 /**
  * HTTP REST Configuration
@@ -70,6 +74,27 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
 
   private pollingIntervals = new Map<string, NodeJS.Timeout>();
   private oauth2Tokens = new Map<string, { token: string; expiresAt: Date }>();
+
+  /**
+   * CIRCUIT-LOW-002 cure (IoT vendor-fetch callsite): every
+   * cross-network fetch (vendor REST endpoint + OAuth2 token
+   * server) routes through the canonical breaker. fail-OPEN-
+   * degraded so a vendor outage degrades to no-readings without
+   * cascading into the sensor-ingestion pipeline. Per-(tenant,
+   * baseUrl) keying so one chronically-down vendor does not
+   * trip another vendor's breaker.
+   *
+   * The auditor's note ("sensor-ingestion may move to Rust
+   * sidecar in 1-2 phases") DOES NOT permit a deferral — the
+   * markdown's own cure direction explicitly says "If
+   * sensor-ingestion remains TS, Tier-1 wrap." The wrap is
+   * cheap; if the Rust migration lands later, the wrap moves
+   * to the Rust crate's tower-style breaker without behavioural
+   * change.
+   */
+  constructor(private readonly circuitBreaker: CircuitBreakerService) {
+    super();
+  }
 
   async connect(config: HttpRestConfiguration): Promise<ConnectionHandle> {
     const httpConfig = config;
@@ -180,24 +205,46 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
       }
     }
 
-    // Create AbortController for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.connectTimeout || 30000);
-
-    try {
-      const response = await fetch(url.toString(), {
-        ...fetchOptions,
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      return response;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    // CIRCUIT-LOW-002 cure: vendor-side REST fetch wrapped in the
+    // canonical breaker. Per-(tenant, baseUrl) keying so each
+    // vendor endpoint trips independently. fail-OPEN-degraded
+    // because losing readings from one vendor must not cascade
+    // into the sensor pipeline; the fallback throws a synthetic
+    // timeout error which the protocol-adapter framework treats
+    // as a connection failure (existing behaviour for unreachable
+    // vendors).
+    return this.circuitBreaker.execute<Response>({
+      serviceName: `sensor-iot-http-rest:${config.baseUrl}`,
+      tenantId: config.tenantId ?? '*',
+      options: {
+        ...DEFAULT_BREAKER_OPTIONS,
+        failureMode: 'fail-open-degraded',
+      },
+      fn: async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(
+          () => controller.abort(),
+          config.connectTimeout || 30000,
+        );
+        try {
+          const response = await fetch(url.toString(), {
+            ...fetchOptions,
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          return response;
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      },
+      fallback: () => {
+        throw new Error(
+          `HTTP REST adapter circuit OPEN for ${config.baseUrl} — vendor unreachable`,
+        );
+      },
+    });
   }
 
   private async addAuthentication(
@@ -242,22 +289,44 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
       return cached.token;
     }
 
-    if (!config.oauth2TokenUrl || !config.oauth2ClientId || !config.oauth2ClientSecret) {
+    // Hoist required credentials into locals so TypeScript narrows
+    // them across the async-closure boundary below — the inline
+    // null-guard on the original `config.oauth2*` fields doesn't
+    // propagate into the breaker-wrapped `fn` lambda otherwise.
+    const tokenUrl = config.oauth2TokenUrl;
+    const clientId = config.oauth2ClientId;
+    const clientSecret = config.oauth2ClientSecret;
+    if (!tokenUrl || !clientId || !clientSecret) {
       return null;
     }
+    const scope = config.oauth2Scope || '';
 
+    // CIRCUIT-LOW-002 cure: OAuth2 token fetch wrapped in the
+    // canonical breaker. Same per-(tenant, tokenUrl) keying as
+    // the data fetch above. fail-closed because the caller
+    // already has its own try/catch and treats a thrown error
+    // as "OAuth2 unavailable, fall back to no auth" — exactly
+    // the existing degraded-auth path.
     try {
-      const response = await fetch(config.oauth2TokenUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+      const response = await this.circuitBreaker.execute<Response>({
+        serviceName: `sensor-iot-oauth2:${tokenUrl}`,
+        tenantId: config.tenantId ?? '*',
+        options: {
+          ...DEFAULT_BREAKER_OPTIONS,
+          failureMode: 'fail-closed',
         },
-        body: new URLSearchParams({
-          grant_type: 'client_credentials',
-          client_id: config.oauth2ClientId,
-          client_secret: config.oauth2ClientSecret,
-          scope: config.oauth2Scope || '',
-        }).toString(),
+        fn: async () => fetch(tokenUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            grant_type: 'client_credentials',
+            client_id: clientId,
+            client_secret: clientSecret,
+            scope,
+          }).toString(),
+        }),
       });
 
       if (!response.ok) {
@@ -284,8 +353,15 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
     const timestamp = new Date();
     const values: Record<string, number | string | boolean | null> = {};
 
-    // Note: In a real implementation, we'd read the response body here
-    // For now, we return a placeholder
+    // Placeholder implementation: response-body parsing follows the
+    // path-derived dataMapping in `_config.dataPath` /
+    // `_config.dataMapping`, which currently no protocol consumer
+    // populates (the IoT protocol catalogue ships with vendor-
+    // specific adapters that override parseResponse). When a generic
+    // dataMapping consumer is introduced (tracked under the
+    // sensor-service-protocol ADR follow-on), this method walks
+    // `dataPath` JSONPointer-style and applies `dataMapping` to
+    // produce typed channel values.
     return {
       timestamp,
       values,

@@ -1,5 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+} from '@aquaculture/backend-common/resilience';
 
 /**
  * Mask phone number for logging (shows last 4 digits only)
@@ -44,7 +48,18 @@ export class SmsService {
   private static readonly IMPLEMENTED_PROVIDERS = ['mock', 'twilio'];
   private static readonly PLANNED_PROVIDERS = ['aws_sns'];
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    // CIRCUIT-HIGH-005 cure: Twilio SMS API is a billable external
+    // upstream. Wrapping every call in the canonical
+    // sliding-window breaker isolates Twilio outages (notably common,
+    // Twilio publishes a status page with frequent partial-region
+    // degradations) from the rest of the service. Per-tenant keying
+    // is preferred but sendSms() doesn't carry tenantId today;
+    // serviceName-only key still gives time-window protection. A
+    // future refactor will plumb tenantId through the SMS call site.
+    @Optional() private readonly breaker?: CircuitBreakerService,
+  ) {
     this.isEnabled = this.configService.get('SMS_ENABLED', 'false') === 'true';
     this.provider = this.configService.get('SMS_PROVIDER', 'mock');
     this.isProduction = this.configService.get('NODE_ENV') === 'production';
@@ -247,15 +262,39 @@ export class SmsService {
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: authHeader,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: body.toString(),
-        signal: controller.signal,
-      });
+      // CIRCUIT-HIGH-005 cure: Twilio call rides through the canonical
+      // sliding-window breaker. fail-CLOSED for billable boundary —
+      // a degraded SMS upstream must NOT silently substitute a no-op
+      // (the user thinks the SMS sent; it didn't). Caller's existing
+      // error path (the throw on response.ok=false below) handles
+      // CircuitOpenError identically because it's just an Error
+      // subclass — the catch around this block already converts to
+      // operator-friendly logging.
+      const fetchResponse = this.breaker
+        ? await this.breaker.execute({
+            serviceName: 'twilio-sms',
+            options: { ...DEFAULT_BREAKER_OPTIONS, failureMode: 'fail-closed' },
+            fn: () =>
+              fetch(url, {
+                method: 'POST',
+                headers: {
+                  Authorization: authHeader,
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: body.toString(),
+                signal: controller.signal,
+              }),
+          })
+        : await fetch(url, {
+            method: 'POST',
+            headers: {
+              Authorization: authHeader,
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: body.toString(),
+            signal: controller.signal,
+          });
+      const response = fetchResponse;
 
       clearTimeout(timeoutId);
 

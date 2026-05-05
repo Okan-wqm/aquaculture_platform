@@ -152,7 +152,8 @@ fn legacy_command_message_path_defaults_to_no_coapprover() {
     // unchanged on legacy payloads — the gate doesn't fire
     // because requires_two_person_integrity() returns false
     // for those Permission variants.
-    let _contract = "Legacy CommandMessage parse → verified_co_approver=false → mandatory command rejected";
+    let _contract =
+        "Legacy CommandMessage parse → verified_co_approver=false → mandatory command rejected";
     assert!(!_contract.is_empty());
 }
 

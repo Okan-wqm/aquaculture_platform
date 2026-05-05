@@ -248,9 +248,8 @@ impl RbacManifest {
             out.push(if role.is_emergency_role { 1 } else { 0 });
             out.extend_from_slice(&u32_len(role.permissions.len())?.to_be_bytes());
             for perm in &role.permissions {
-                let perm_bytes = bincode::serialize(perm).map_err(|_| {
-                    CanonicalBytesError::PermissionEncodeFailed
-                })?;
+                let perm_bytes = bincode::serialize(perm)
+                    .map_err(|_| CanonicalBytesError::PermissionEncodeFailed)?;
                 out.extend_from_slice(&u32_len(perm_bytes.len())?.to_be_bytes());
                 out.extend_from_slice(&perm_bytes);
             }
@@ -438,8 +437,8 @@ mod tests {
     #[test]
     fn signed_manifest_accepts_64_byte_signature() {
         let m = canned_manifest();
-        let signed = SignedRbacManifest::from_body_and_signature_bytes(m, &[0u8; 64])
-            .expect("valid length");
+        let signed =
+            SignedRbacManifest::from_body_and_signature_bytes(m, &[0u8; 64]).expect("valid length");
         assert_eq!(signed.signature.as_bytes(), &[0u8; 64]);
     }
 

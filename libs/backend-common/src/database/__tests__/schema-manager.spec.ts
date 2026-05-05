@@ -8,9 +8,32 @@ describe('SchemaManagerService', () => {
   let dataSource: jest.Mocked<DataSource>;
 
   const mockQuery = jest.fn();
+  // WHY: createTenantSchema + deleteTenantSchema now pin a QueryRunner so the
+  // pg_advisory_lock + pg_advisory_unlock pair travels on the same physical
+  // connection (DATA-CRITICAL-001 fix). The mock DataSource needs a
+  // createQueryRunner that returns a runner whose .query forwards to the
+  // same mockQuery — this preserves the test's existing call-shape
+  // assertions while exercising the new lock-pinning path.
+  // WHAT: createQueryRunner returns a stub with connect/release/query.
+  const mockRunnerQuery = jest.fn();
+  const mockRunnerConnect = jest.fn();
+  const mockRunnerRelease = jest.fn();
+  const mockCreateQueryRunner = jest.fn();
 
   beforeEach(async () => {
     mockQuery.mockReset();
+    mockRunnerQuery.mockReset();
+    mockRunnerConnect.mockReset();
+    mockRunnerRelease.mockReset();
+    mockCreateQueryRunner.mockReset();
+    // The runner's query forwards to mockQuery so existing test assertions
+    // that check `dataSource.query` invocations still see lock/unlock calls.
+    mockRunnerQuery.mockImplementation((...args) => mockQuery(...args));
+    mockCreateQueryRunner.mockReturnValue({
+      connect: mockRunnerConnect.mockResolvedValue(undefined),
+      release: mockRunnerRelease.mockResolvedValue(undefined),
+      query: mockRunnerQuery,
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -19,6 +42,7 @@ describe('SchemaManagerService', () => {
           provide: DataSource,
           useValue: {
             query: mockQuery,
+            createQueryRunner: mockCreateQueryRunner,
           },
         },
       ],

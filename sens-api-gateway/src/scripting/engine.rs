@@ -545,7 +545,7 @@ impl ScriptEngine {
     /// v2.2: Now async to access shared storage
     /// v1.2.0: Use async get_active() with internal locking
     /// PERF-007: Use list_async() to avoid blocking the Tokio worker thread.
-    /// The sync list() acquires std::sync::Mutex<Connection> inline; if SQLite
+    /// The sync list() acquires `std::sync::Mutex<Connection>` inline; if SQLite
     /// is performing a WAL checkpoint or disk flush this blocks the entire thread,
     /// stalling MQTT/Modbus tasks on the 2-thread runtime.  list_async() offloads
     /// the blocking call to the spawn_blocking thread pool instead.
@@ -564,7 +564,9 @@ impl ScriptEngine {
                         let full_name = format!("{}:{}", script_id, var_name);
                         // LOW-40: Populate both maps so save_retain_variables() can
                         // use the fast retain_variables path on shutdown.
-                        self.context.retain_variables.insert(full_name.clone(), value.clone());
+                        self.context
+                            .retain_variables
+                            .insert(full_name.clone(), value.clone());
                         self.context.set_variable(&full_name, value);
                         loaded_count += 1;
                     }
@@ -1731,7 +1733,9 @@ impl ScriptEngine {
             // LOW-40: Also track in the dedicated retain_variables map so that
             // save_retain_variables() can flush only this subset on shutdown,
             // avoiding an O(n_all_vars) scan with string prefix matching.
-            self.context.retain_variables.insert(var_name.clone(), value.clone());
+            self.context
+                .retain_variables
+                .insert(var_name.clone(), value.clone());
 
             if let Some(ref persistence) = self.persistence {
                 let script_id = self.current_script_id.as_deref().unwrap_or("global");
@@ -1900,7 +1904,11 @@ impl ScriptEngine {
         let host_lower = host.to_lowercase();
 
         // Block localhost
-        if host_lower == "localhost" || host_lower == "127.0.0.1" || host_lower == "::1" || host_lower == "[::1]" {
+        if host_lower == "localhost"
+            || host_lower == "127.0.0.1"
+            || host_lower == "::1"
+            || host_lower == "[::1]"
+        {
             return ActionResult::failure(
                 ActionType::Webhook,
                 "Webhook to localhost is not allowed (SSRF protection)",

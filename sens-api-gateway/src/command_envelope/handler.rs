@@ -51,7 +51,7 @@
 //! is [`HandlerInput::authorize`] which takes an `AuthorizedContext` by
 //! value. External crates cannot construct a `HandlerInput`. Tests inside
 //! this crate that need a handler-input for isolated unit tests use
-//! [`HandlerInput::for_test`] (test-only, `#[cfg(test)]`-gated) so the seal
+//! `HandlerInput::for_test` (test-only, `#[cfg(test)]`-gated) so the seal
 //! is never weakened in production code.
 //!
 //! ## Cross-references
@@ -152,7 +152,10 @@ impl HandlerResponse {
 
     /// Distinct-shape ctor.
     pub fn new(payload: Value, audit_detail: Value) -> Self {
-        Self { payload, audit_detail }
+        Self {
+            payload,
+            audit_detail,
+        }
     }
 }
 
@@ -207,22 +210,14 @@ pub struct HandlerInput<P> {
 impl<P> HandlerInput<P> {
     /// ONLY legitimate constructor. `pub(crate)` so the seal holds;
     /// dispatcher lives in the same crate.
-    pub(crate) fn authorize(
-        ctx: AuthorizedContext,
-        payload: P,
-        meta: EnvelopeMeta,
-    ) -> Self {
+    pub(crate) fn authorize(ctx: AuthorizedContext, payload: P, meta: EnvelopeMeta) -> Self {
         Self { ctx, payload, meta }
     }
 
     /// Test-only constructor. `#[cfg(test)]` gate ensures production
     /// call graphs cannot reach it.
     #[cfg(test)]
-    pub(crate) fn for_test(
-        ctx: AuthorizedContext,
-        payload: P,
-        meta: EnvelopeMeta,
-    ) -> Self {
+    pub(crate) fn for_test(ctx: AuthorizedContext, payload: P, meta: EnvelopeMeta) -> Self {
         Self { ctx, payload, meta }
     }
 
@@ -321,8 +316,7 @@ mod tests {
 
     fn canned_meta() -> EnvelopeMeta {
         EnvelopeMeta {
-            jti: Jti::try_new("01HZAAAAAAAAAAAAAAAAAAAAAA".to_string())
-                .expect("valid jti"),
+            jti: Jti::try_new("01HZAAAAAAAAAAAAAAAAAAAAAA".to_string()).expect("valid jti"),
             cmd_name: "test_cmd".to_string(),
             iat_unix_secs: 1_699_999_000,
             exp_unix_secs: 1_700_001_000,
@@ -445,9 +439,7 @@ mod tests {
     #[tokio::test]
     async fn canned_handler_required_permission_reads_payload() {
         let h = EchoReadTagHandler;
-        let payload = EchoPayload {
-            tag: "any".into(),
-        };
+        let payload = EchoPayload { tag: "any".into() };
         let perm = h.required_permission(&payload);
         assert_eq!(perm, Permission::ReadTag);
     }
@@ -460,8 +452,7 @@ mod tests {
         // (Associated-type binding pins the Payload type per entry; the
         // dispatcher registry may carry type-erased wrappers for
         // heterogeneous payloads — Batch #237 lands that wrapper.)
-        let _h: Box<dyn EnvelopeHandler<Payload = EchoPayload>> =
-            Box::new(EchoReadTagHandler);
+        let _h: Box<dyn EnvelopeHandler<Payload = EchoPayload>> = Box::new(EchoReadTagHandler);
     }
 
     #[tokio::test]

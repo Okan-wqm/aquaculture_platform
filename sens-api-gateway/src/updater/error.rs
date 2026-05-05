@@ -63,7 +63,10 @@ pub enum ManifestVerifyError {
     NotYetValid { now_unix_secs: i64, valid_from: i64 },
 
     /// `now` after `valid_until_unix_secs` — expired manifest.
-    Expired { now_unix_secs: i64, valid_until: i64 },
+    Expired {
+        now_unix_secs: i64,
+        valid_until: i64,
+    },
 
     /// Canonical-bytes serialization failed.
     CanonicalBytesFailure(FirmwareManifestCanonicalBytesError),
@@ -130,7 +133,10 @@ mod tests {
             "empty_files_vector"
         );
         assert_eq!(
-            format!("{}", FirmwareManifestCanonicalBytesError::FilePathTooLong(513)),
+            format!(
+                "{}",
+                FirmwareManifestCanonicalBytesError::FilePathTooLong(513)
+            ),
             "file_path_too_long:513"
         );
         assert_eq!(
@@ -157,29 +163,44 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                ManifestVerifyError::StaleFirmwareVersion { claimed: 1, highest_seen: 2 }
+                ManifestVerifyError::StaleFirmwareVersion {
+                    claimed: 1,
+                    highest_seen: 2
+                }
             ),
             "stale_firmware_version"
         );
-        assert_eq!(format!("{}", ManifestVerifyError::InvalidNow), "invalid_now");
+        assert_eq!(
+            format!("{}", ManifestVerifyError::InvalidNow),
+            "invalid_now"
+        );
         assert_eq!(
             format!(
                 "{}",
-                ManifestVerifyError::InvalidValidityWindow { valid_from: 9, valid_until: 1 }
+                ManifestVerifyError::InvalidValidityWindow {
+                    valid_from: 9,
+                    valid_until: 1
+                }
             ),
             "invalid_validity_window"
         );
         assert_eq!(
             format!(
                 "{}",
-                ManifestVerifyError::NotYetValid { now_unix_secs: 1, valid_from: 2 }
+                ManifestVerifyError::NotYetValid {
+                    now_unix_secs: 1,
+                    valid_from: 2
+                }
             ),
             "not_yet_valid"
         );
         assert_eq!(
             format!(
                 "{}",
-                ManifestVerifyError::Expired { now_unix_secs: 9, valid_until: 2 }
+                ManifestVerifyError::Expired {
+                    now_unix_secs: 9,
+                    valid_until: 2
+                }
             ),
             "expired"
         );

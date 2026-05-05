@@ -34,7 +34,7 @@ Depends on: `layer-1-core.md`, `layer-1-nestjs.md`. Shared schema + tenant patte
 
 ## SchemaDriftValidator + MigrationRunner (ADR-011 + ADR-012)
 
-- **`SchemaDriftModule.forRoot({ serviceName })`** — registered in every schema-owning service's `AppModule`. 13 services per `tests/invariants/_constants.ts` (BLOCKER-8). Validator runs `OnApplicationBootstrap` and logs `schema.drift.detected` on divergence. `SCHEMA_DRIFT_FATAL=true` in production hard-fails boot on drift.
+- **`SchemaDriftModule.forRoot({ serviceName })`** — registered in every schema-owning service's `AppModule`. 14 services per `tests/invariants/_constants.ts` (BLOCKER-8). Validator runs `OnApplicationBootstrap` and logs `schema.drift.detected` on divergence. `SCHEMA_DRIFT_FATAL=true` in production hard-fails boot on drift.
 - **`createMigrationRunnerService('<schema>')`** — registered as AppModule provider. Production MUST set `DATABASE_MIGRATIONS_RUN=false`; runner owns migration execution. TypeORM's auto-run is disabled via `migrationsRun: false` in TypeOrmModule config.
 - **`config-service`** currently has `createMigrationRunnerService('public')` hardcoded at `apps/config-service/src/app.module.ts:24` — direct ADR-011 violation (PLAT-CRITICAL-002). Fix W2-W3.
 

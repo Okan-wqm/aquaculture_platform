@@ -88,12 +88,32 @@ export interface MeterReading {
 
 /**
  * Meter state for a tenant
+ *
+ * # lastTouchedAtMs (BILLING-LOW-001 cure)
+ *
+ * Wall-clock millisecond timestamp updated on every
+ * getOrCreateTenantState() call. The periodic cleanup sweep
+ * (cleanupStaleTenantStates) evicts entire entries whose
+ * lastTouchedAtMs is older than the staleness window. Without
+ * this field tenant states grew unboundedly across tenant
+ * lifetime (the original BILLING-LOW-001 finding).
+ *
+ * Why a touch timestamp instead of a tenant-cancellation hook:
+ * the cancellation path is asynchronous (NATS event from
+ * billing-service → metering subscription cancellation handler)
+ * and would miss tenants that simply went silent. The
+ * touch-timestamp approach captures both cases — explicit
+ * cancellation marks the tenant inactive (timestamp ages out);
+ * silent abandonment ages out too. Subsumed by the eventual
+ * full Redis-backed redesign in BILLING-CRITICAL-003 — this
+ * cure is the minimum-viable bound until that lands.
  */
 interface TenantMeterState {
   tenantId: string;
   meters: Map<MeterType, MeterReading>;
   processedEvents: Map<string, number>; // Idempotency key -> timestamp
   lastResetAt: Date;
+  lastTouchedAtMs: number;
 }
 
 /**
@@ -187,9 +207,14 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
       5000, // Flush every 5 seconds
     );
 
-    // Start periodic cleanup of old idempotency keys
+    // Start periodic cleanup of old idempotency keys AND stale
+    // tenant states (BILLING-LOW-001 cure). Both run on the same
+    // hourly tick because they share the in-memory walk.
     this.cleanupInterval = setInterval(
-      () => this.cleanupOldIdempotencyKeys(),
+      () => {
+        this.cleanupOldIdempotencyKeys();
+        this.cleanupStaleTenantStates();
+      },
       3600000, // Cleanup every hour
     );
 
@@ -273,6 +298,10 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
             meters,
             processedEvents,
             lastResetAt: new Date(data.lastResetAt),
+            // Recently-loaded counts as recently-touched so the
+            // cleanup sweep doesn't immediately evict tenants
+            // we just rehydrated from Redis.
+            lastTouchedAtMs: Date.now(),
           };
 
           this.tenantStates.set(tenantId, state);
@@ -608,7 +637,9 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get or create tenant state
+   * Get or create tenant state. Updates lastTouchedAtMs on every
+   * call so the BILLING-LOW-001 cleanup sweep can age out
+   * abandoned tenants.
    */
   private getOrCreateTenantState(tenantId: string): TenantMeterState {
     let state = this.tenantStates.get(tenantId);
@@ -619,8 +650,14 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
         meters: new Map(),
         processedEvents: new Map(),
         lastResetAt: new Date(),
+        lastTouchedAtMs: Date.now(),
       };
       this.tenantStates.set(tenantId, state);
+    } else {
+      // Touch the timestamp so the cleanup sweep doesn't evict
+      // an active tenant. Cheap (single Date.now() + property
+      // assignment) and runs on every metering interaction.
+      state.lastTouchedAtMs = Date.now();
     }
 
     return state;
@@ -851,6 +888,76 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
       if (evicted > 0) {
         this.logger.debug(`Evicted ${evicted} old idempotency keys for tenant: ${state.tenantId}`);
       }
+    }
+  }
+
+  /**
+   * Default staleness window for tenant-state eviction (BILLING-LOW-001).
+   *
+   * 24h is the architectural choice that:
+   *   - keeps state for the standard daily metering rollup window
+   *     (so a once-a-day usage report still finds yesterday's
+   *     state in memory),
+   *   - evicts tenants that genuinely went silent (cancellation
+   *     event lost, subscription deleted out-of-band, tenant
+   *     hibernated for the weekend) within an operationally
+   *     reasonable horizon.
+   *
+   * The metering service rehydrates from Redis on startup, so
+   * eviction does NOT lose data — it only frees memory until
+   * the tenant interacts again.
+   */
+  private static readonly TENANT_STATE_STALENESS_MS = 24 * 60 * 60 * 1000;
+
+  /**
+   * Evict tenant states whose lastTouchedAtMs is older than the
+   * staleness window (BILLING-LOW-001 cure). Also drops the
+   * companion `breachedThresholds` entries for the evicted
+   * tenant so that map doesn't outgrow tenantStates.
+   *
+   * # Why this is safe to do without coordination
+   *
+   * Eviction frees memory for tenants the in-process metering
+   * loop hasn't seen for 24h. If the tenant becomes active
+   * again, getOrCreateTenantState() rehydrates from Redis (via
+   * loadFromRedis on the next sync cycle) or creates a fresh
+   * state. The Redis-backed durability layer is the source of
+   * truth; the in-memory map is a hot-path cache.
+   *
+   * The architecturally cleaner long-term fix is the
+   * BILLING-CRITICAL-003 redesign which makes Redis the only
+   * state surface and removes the in-memory map entirely. This
+   * sweep is the minimum-viable bound until that lands.
+   */
+  private cleanupStaleTenantStates(): void {
+    const cutoff = Date.now() - UsageMeteringService.TENANT_STATE_STALENESS_MS;
+    let evicted = 0;
+    const evictedTenantIds: string[] = [];
+
+    for (const [tenantId, state] of this.tenantStates) {
+      if (state.lastTouchedAtMs < cutoff) {
+        this.tenantStates.delete(tenantId);
+        evictedTenantIds.push(tenantId);
+        evicted++;
+      }
+    }
+
+    // Drop companion breachedThresholds entries for evicted
+    // tenants. The key shape is `${tenantId}:${meterType}` so
+    // we sweep by prefix.
+    for (const evictedTenantId of evictedTenantIds) {
+      for (const key of this.breachedThresholds.keys()) {
+        if (key.startsWith(`${evictedTenantId}:`)) {
+          this.breachedThresholds.delete(key);
+        }
+      }
+    }
+
+    if (evicted > 0) {
+      this.logger.log(
+        `Evicted ${evicted} stale tenant states (idle > ${UsageMeteringService.TENANT_STATE_STALENESS_MS / 1000 / 60 / 60}h). ` +
+          `Active tenants remaining: ${this.tenantStates.size}`,
+      );
     }
   }
 

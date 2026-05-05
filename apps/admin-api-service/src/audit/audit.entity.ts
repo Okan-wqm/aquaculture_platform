@@ -109,7 +109,11 @@ export class AuditLog {
   @Column({ type: 'varchar', length: 100, nullable: true })
   performedByEmail?: string;
 
-  @Column({ type: 'varchar', length: 45, nullable: true })
+  // DBR-MEDIUM-003 cure: native Postgres inet for INSERT-time
+  // validation + efficient indexing + operator-side range queries
+  // via `<<`. Migration 1788000000000-ConvertAuditIpColumnsToInet
+  // performs the column-type rewrite.
+  @Column({ type: 'inet', nullable: true })
   ipAddress?: string;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
@@ -139,4 +143,17 @@ export class AuditLog {
 
   @CreateDateColumn({ type: 'timestamp with time zone' })
   createdAt!: Date;
+
+  /**
+   * Litigation-hold flag (AUDITTRAIL-HIGH-006 cure).
+   *
+   * Mirror of the DB-level guard installed by migration
+   * 1787800000000. When true, BEFORE DELETE trigger
+   * `trg_audit_logs_prevent_legal_hold_delete` refuses deletion at the
+   * DB level — preserves SUPER_ADMIN cross-tenant audit evidence even
+   * if a buggy retention sweep, misconfigured CASCADE, or compromised
+   * application role attempts to drop held rows.
+   */
+  @Column({ type: 'boolean', default: false })
+  legalHold!: boolean;
 }

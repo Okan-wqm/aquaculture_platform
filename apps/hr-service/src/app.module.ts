@@ -20,7 +20,8 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 
 /**
@@ -232,6 +233,8 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
       context: ({ req }: { req: Request }) => ({ req }),
     }),
     CqrsModule.forRoot(),
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    AuditedOperationModule.forRoot(),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
     // NATS Event Bus for cross-service event publishing
@@ -331,6 +334,9 @@ export class AppModule implements NestModule {
     // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep — strip forged internal headers when the
+        // request lacks a valid x-service-identity HMAC.
+        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

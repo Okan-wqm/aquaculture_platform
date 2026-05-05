@@ -360,11 +360,25 @@ export class ServiceProxyService {
           tenantId: resolveTenantIdFromRequest(req),
         }),
       };
-      const response = await fetch(targetUrl, {
-        method: 'GET',
-        headers: sseHeaders,
-        signal: controller.signal,
-      });
+
+      // CIRCUIT-MEDIUM-002 cure: route the connection-establishment
+      // fetch through the breaker. Sibling `proxy()` (line 222) does
+      // the same; SSE was the missing case. Only the initial fetch
+      // is wrapped — once the response stream is open, breaker
+      // semantics don't apply (you can't trip a breaker mid-stream;
+      // the SSE idle timeout below handles long-lived-connection
+      // health). The breaker protects against repeated 5xx /
+      // connect-timeout failures from a chronically-down upstream
+      // exhausting the gateway's connection pool.
+      const response = await this.circuitBreaker.execute(
+        serviceName,
+        () =>
+          fetch(targetUrl, {
+            method: 'GET',
+            headers: sseHeaders,
+            signal: controller.signal,
+          }),
+      );
 
       if (!response.ok) {
         throw new BadGatewayException(`SSE upstream error: ${response.status}`);

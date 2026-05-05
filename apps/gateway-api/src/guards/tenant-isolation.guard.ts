@@ -160,43 +160,45 @@ export class TenantIsolationGuard implements CanActivate {
    * SECURITY: Validates UUID format to prevent injection attacks
    */
   private extractRequestedTenantId(request: AuthenticatedRequest): string | null {
+    // SECURITY (MT-CRITICAL-001 / SECREV-CRITICAL-003 — 3rd cycle closure):
+    //
+    // Pre-fix this method accepted x-tenant-id header, URL param, query
+    // string, request body, AND GraphQL variables as authoritative
+    // sources for "which tenant does this request target". Query strings
+    // and request bodies have NO cryptographic binding — they can be
+    // freely appended/edited by any client. The cross-tenant access
+    // decision (the consequence) is correctly gated by hasCrossTenantAccess()
+    // further up, but the source list itself was over-broad: a SUPER_ADMIN
+    // user could escalate via any of those four surfaces, multiplying
+    // the audit trail's review surface.
+    //
+    // After fix: ONLY two sources are accepted —
+    //   1. x-tenant-id header (used by HMAC-signed cross-tenant admin RPC
+    //      after StripInternalHeadersMiddleware confirms the request is
+    //      from a trusted internal service).
+    //   2. URL :tenantId path parameter (RESTful routes like
+    //      /admin/tenants/:tenantId/... where the tenant is part of the
+    //      route's resource identifier — visible in route definition,
+    //      audited at the controller boundary).
+    //
+    // Query string + request body + GraphQL variables are FORBIDDEN
+    // sources. The invariant tests/invariants/no-query-param-tenant.spec.ts
+    // (W0.F-finalize) AST-scans production code for `req.query['tenantId']`
+    // / `req.body.tenantId` / `variables.tenantId` patterns and fails CI
+    // if any production callsite reintroduces them.
     let tenantId: string | null = null;
 
-    // Check header (highest priority for API clients)
+    // 1. Header (highest priority — HMAC-signed internal RPC paths)
     const headerTenantId = request.headers['x-tenant-id'];
     if (typeof headerTenantId === 'string' && headerTenantId.length > 0) {
       tenantId = headerTenantId;
     }
 
-    // Check URL parameter (for RESTful routes like /tenants/:tenantId/...)
+    // 2. URL :tenantId path param (RESTful routes; visible in route def)
     if (!tenantId) {
       const paramTenantId = request.params?.['tenantId'];
       if (typeof paramTenantId === 'string' && paramTenantId.length > 0) {
         tenantId = paramTenantId;
-      }
-    }
-
-    // Check query parameter
-    if (!tenantId) {
-      const queryTenantId = request.query?.['tenantId'];
-      if (typeof queryTenantId === 'string' && queryTenantId.length > 0) {
-        tenantId = queryTenantId;
-      }
-    }
-
-    // Check request body
-    if (!tenantId) {
-      const body = request.body as Record<string, unknown> | undefined;
-      if (body) {
-        if (typeof body['tenantId'] === 'string' && body['tenantId'].length > 0) {
-          tenantId = body['tenantId'];
-        } else {
-          // Check GraphQL variables
-          const variables = body['variables'] as Record<string, unknown> | undefined;
-          if (variables && typeof variables['tenantId'] === 'string' && variables['tenantId'].length > 0) {
-            tenantId = variables['tenantId'];
-          }
-        }
       }
     }
 

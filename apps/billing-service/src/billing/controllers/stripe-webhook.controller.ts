@@ -8,11 +8,16 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { Request, Response } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Public } from '@aquaculture/backend-common/decorators';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { AuditLogService, AuditSeverity } from '@aquaculture/backend-common/audit';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 import { StripeWebhookService } from './stripe-webhook.service';
+import { StripeWebhookEventEntity } from '../entities/stripe-webhook-event.entity';
 
 /**
  * Represents a raw-body Express request.
@@ -69,7 +74,50 @@ export class StripeWebhookController {
   constructor(
     private readonly configService: ConfigService,
     private readonly webhookService: StripeWebhookService,
-    @Optional() private readonly redisService?: RedisService,
+    /**
+     * BILLING-MEDIUM-001 cure: RedisService is REQUIRED (no
+     * @Optional). Pre-cure the dependency was @Optional() and the
+     * webhook idempotency check (lines 138-150) silently
+     * bypassed dedup if Redis was missing — a misconfigured
+     * deployment ran with no dedup, accepting every replay
+     * attempt verbatim. The webhook idempotency layer is
+     * functionally a quota gate; layer-1-nestjs requires
+     * fail-closed posture for quota gates on Redis outage.
+     *
+     * BILLING-HIGH-001 (persistent DB-side dedup) makes a
+     * Redis-miss less catastrophic but still important for
+     * rate-limit semantics, so Redis stays a hard dependency.
+     * If Redis is genuinely unreachable at boot, the service
+     * fails to start — the correct fail-closed behaviour for a
+     * billing-side webhook.
+     */
+    private readonly redisService: RedisService,
+    // AUDITTRAIL-CRITICAL-005 closure: every webhook outcome (signature
+    // failure, dedup, parse failure, success, handler error) writes a
+    // transactional audit row via recordAwait. Optional injection
+    // because the audit-log infrastructure may not be wired during
+    // local-dev-without-db scenarios; production registers it via
+    // AuditLogModule.forRoot() in app.module.ts.
+    @Optional() private readonly auditLog?: AuditLogService,
+    // BILLING-HIGH-001 cure: persistent dedup table. UNIQUE on event_id
+    // PRIMARY KEY makes INSERT-on-receive the dedup primitive — DB
+    // serialises the constraint check, so concurrent or replayed
+    // webhook deliveries are processed exactly once across the system
+    // lifetime, not the Redis instance lifetime. Repository is optional
+    // for the same reason as AuditLogService — local-dev paths without
+    // a DB still need to compile and start.
+    @Optional()
+    @InjectRepository(StripeWebhookEventEntity)
+    private readonly dedupRepo?: Repository<StripeWebhookEventEntity>,
+    // BILLING-HIGH-004 cure: signature-verification failures emit a
+    // SuspiciousActivity SecurityEvent so the platform's incident-
+    // detection pipeline (Prom alert / pager / dashboard) sees the
+    // signal in real time. Audit-log-only signal is insufficient —
+    // audit has 7y retention but no real-time alert path. @Optional
+    // because the SecurityEventService may not be wired in local-dev
+    // paths.
+    @Optional()
+    private readonly securityEventService?: SecurityEventService,
   ) {
     this.webhookSecret = this.configService.get<string>('STRIPE_WEBHOOK_SECRET', '');
     if (!this.webhookSecret) {
@@ -88,8 +136,16 @@ export class StripeWebhookController {
   ): Promise<void> {
     // 1. Extract raw body
     const rawBody = req.rawBody;
+    const sourceIp = (req.ip ?? (req.headers['x-forwarded-for'] as string | undefined) ?? 'unknown')
+      .toString()
+      .substring(0, 45);
     if (!rawBody || rawBody.length === 0) {
       this.logger.warn('Webhook request missing raw body');
+      await this.audit('stripe.webhook.rejected.missing_body', {
+        ip: sourceIp,
+        severity: AuditSeverity.WARNING,
+        metadata: { reason: 'missing-raw-body' },
+      });
       res.status(400).json({ error: 'Missing request body' });
       return;
     }
@@ -98,19 +154,59 @@ export class StripeWebhookController {
     const signatureHeader = req.headers['stripe-signature'] as string | undefined;
     if (!signatureHeader) {
       this.logger.warn('Webhook request missing stripe-signature header');
+      await this.audit('stripe.webhook.rejected.missing_signature', {
+        ip: sourceIp,
+        severity: AuditSeverity.WARNING,
+        metadata: { reason: 'missing-stripe-signature-header' },
+      });
       res.status(400).json({ error: 'Missing stripe-signature header' });
       return;
     }
 
     if (!this.webhookSecret) {
       this.logger.error('STRIPE_WEBHOOK_SECRET not configured, rejecting webhook');
+      await this.audit('stripe.webhook.rejected.secret_missing', {
+        ip: sourceIp,
+        severity: AuditSeverity.CRITICAL,
+        metadata: { reason: 'STRIPE_WEBHOOK_SECRET-env-missing' },
+      });
       res.status(500).json({ error: 'Webhook secret not configured' });
       return;
     }
 
     const verificationResult = this.verifySignature(rawBody, signatureHeader, this.webhookSecret);
     if (!verificationResult.valid) {
+      // BILLING-HIGH-004 cure: every signature failure publishes a
+      // SuspiciousActivity SecurityEvent so the platform's incident-
+      // detection pipeline (Prom alert / pager / SIEM) sees the signal
+      // in real time. Audit-log row alone is insufficient — audit has
+      // 7y retention but no real-time alert path. Per-IP rate is the
+      // natural detection signal: a single misconfiguration generates
+      // one event; a replay attack generates many on the same IP.
       this.logger.warn(`Webhook signature verification failed: ${verificationResult.reason}`);
+      await this.audit('stripe.webhook.rejected.invalid_signature', {
+        ip: sourceIp,
+        severity: AuditSeverity.CRITICAL,
+        metadata: { reason: verificationResult.reason ?? 'unknown' },
+      });
+      // SecurityEvent emission. Defensive try/catch — a downstream
+      // event-bus outage MUST NOT block the 400 response (otherwise a
+      // failed event publish becomes a Stripe retry storm). Failures
+      // here surface in logs without altering the controller's behaviour.
+      try {
+        await this.securityEventService?.publishSuspiciousActivity({
+          ip: sourceIp,
+          description: 'stripe-webhook-signature-failed',
+          reason: verificationResult.reason ?? 'unknown',
+          endpoint: '/webhooks/stripe',
+        });
+      } catch (err) {
+        this.logger.warn(
+          `SecurityEvent publish failed (non-fatal): ${
+            err instanceof Error ? err.message : 'Unknown'
+          }`,
+        );
+      }
       res.status(400).json({ error: 'Invalid signature' });
       return;
     }
@@ -121,6 +217,11 @@ export class StripeWebhookController {
       event = JSON.parse(rawBody.toString('utf8'));
     } catch {
       this.logger.warn('Failed to parse webhook payload as JSON');
+      await this.audit('stripe.webhook.rejected.parse_failure', {
+        ip: sourceIp,
+        severity: AuditSeverity.WARNING,
+        metadata: { reason: 'invalid-json-payload' },
+      });
       res.status(400).json({ error: 'Invalid JSON payload' });
       return;
     }
@@ -130,12 +231,69 @@ export class StripeWebhookController {
 
     if (!eventId || !eventType) {
       this.logger.warn('Webhook payload missing id or type');
+      await this.audit('stripe.webhook.rejected.missing_event_fields', {
+        ip: sourceIp,
+        severity: AuditSeverity.WARNING,
+        metadata: {
+          reason: 'event-missing-id-or-type',
+          hasId: !!eventId,
+          hasType: !!eventType,
+        },
+      });
       res.status(400).json({ error: 'Invalid event structure' });
       return;
     }
 
-    // 4. Idempotency check (Redis)
-    if (this.redisService) {
+    // 4a. Persistent idempotency check (DB) — BILLING-HIGH-001 cure.
+    //
+    // WHY: The DB UNIQUE constraint on event_id PRIMARY KEY IS the dedup
+    // primitive. INSERT-on-receive becomes idempotent: a duplicate
+    // webhook arrives with the same event_id, the INSERT fails on
+    // SQLSTATE 23505 (UNIQUE_VIOLATION), the controller catches and
+    // returns 200 OK without re-running the handler. No race window —
+    // the DB serialises the constraint check at the row level. Survives
+    // Redis restart / eviction / cold cache.
+    if (this.dedupRepo) {
+      try {
+        await this.dedupRepo.insert({
+          eventId,
+          eventType,
+          receivedAt: new Date(),
+          processedAt: null,
+          outcome: 'pending',
+        });
+      } catch (err) {
+        // Postgres SQLSTATE 23505 = unique_violation. TypeORM surfaces
+        // this as a QueryFailedError with `code === '23505'`. Any other
+        // error path is a real failure (DB down, schema drift) and
+        // should propagate — fail-CLOSED for billable handling.
+        const code =
+          (err as { code?: string; driverError?: { code?: string } })?.code ??
+          (err as { driverError?: { code?: string } })?.driverError?.code;
+        if (code === '23505') {
+          this.logger.log(`Duplicate webhook event ${eventId} (${eventType}), skipping (DB dedup)`);
+          await this.audit('stripe.webhook.duplicate', {
+            resourceId: eventId,
+            ip: sourceIp,
+            severity: AuditSeverity.INFO,
+            metadata: { eventType, reason: 'db-dedup-hit' },
+          });
+          res.status(200).json({ received: true, duplicate: true });
+          return;
+        }
+        throw err;
+      }
+    }
+
+    // 4b. Idempotency cache layer (Redis) — fast path that avoids
+    // hitting DB on every replay during the typical 3-day Stripe retry
+    // window. Authoritative source remains the DB; Redis is a cache.
+    //
+    // BILLING-MEDIUM-001: redisService is now REQUIRED (no @Optional).
+    // The branch is unconditional. A boot-time DI failure would have
+    // already prevented the service from starting; if we're inside
+    // this handler the dependency is live.
+    {
       const idempotencyKey = `webhook:stripe:${eventId}`;
       const isNew = await this.redisService.setNx(
         idempotencyKey,
@@ -144,7 +302,13 @@ export class StripeWebhookController {
       );
 
       if (!isNew) {
-        this.logger.log(`Duplicate webhook event ${eventId} (${eventType}), skipping`);
+        this.logger.log(`Duplicate webhook event ${eventId} (${eventType}), skipping (Redis cache)`);
+        await this.audit('stripe.webhook.duplicate', {
+          resourceId: eventId,
+          ip: sourceIp,
+          severity: AuditSeverity.INFO,
+          metadata: { eventType, reason: 'redis-dedup-hit' },
+        });
         res.status(200).json({ received: true, duplicate: true });
         return;
       }
@@ -152,26 +316,128 @@ export class StripeWebhookController {
 
     // 5. Route to handler
     this.logger.log(`Processing webhook event: ${eventType} (${eventId})`);
+    // Pre-handler audit row — captures every webhook the platform agreed
+    // to process. The post-handler row records success/failure outcome
+    // so a triage operator can pair them and see the lifecycle.
+    await this.audit('stripe.webhook.received', {
+      resourceId: eventId,
+      ip: sourceIp,
+      severity: AuditSeverity.INFO,
+      metadata: { eventType, supported: this.isSupportedEvent(eventType) },
+    });
 
     if (this.isSupportedEvent(eventType)) {
       try {
         await this.routeEvent(eventType, event);
+        await this.audit('stripe.webhook.processed', {
+          resourceId: eventId,
+          ip: sourceIp,
+          severity: AuditSeverity.INFO,
+          metadata: { eventType, outcome: 'success' },
+        });
+        await this.markDedupOutcome(eventId, 'success');
       } catch (err) {
         // CRITICAL: Always return 200 to Stripe. Log the error for investigation.
         // Returning non-200 causes Stripe to retry, which can amplify failures.
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         this.logger.error(
-          `Error processing webhook event ${eventType} (${eventId}): ${
-            err instanceof Error ? err.message : 'Unknown error'
-          }`,
+          `Error processing webhook event ${eventType} (${eventId}): ${errorMessage}`,
           err instanceof Error ? err.stack : undefined,
         );
+        await this.audit('stripe.webhook.handler_error', {
+          resourceId: eventId,
+          ip: sourceIp,
+          severity: AuditSeverity.CRITICAL,
+          metadata: {
+            eventType,
+            outcome: 'handler-error',
+            errorMessage: errorMessage.substring(0, 500),
+          },
+        });
+        await this.markDedupOutcome(eventId, 'handler-error');
       }
     } else {
       this.logger.log(`Ignoring unsupported event type: ${eventType}`);
+      await this.audit('stripe.webhook.unsupported_event', {
+        resourceId: eventId,
+        ip: sourceIp,
+        severity: AuditSeverity.INFO,
+        metadata: { eventType, reason: 'event-type-not-in-SUPPORTED_EVENTS' },
+      });
+      await this.markDedupOutcome(eventId, 'unsupported-event');
     }
 
     // 6. Always acknowledge
     res.status(200).json({ received: true });
+  }
+
+  /**
+   * Update the dedup row's outcome + processed_at when the handler
+   * settles. BILLING-HIGH-001 cure — the row is INSERTed with
+   * outcome='pending' on receive; the post-handler markDedupOutcome
+   * call lets operators query the (received_at, processed_at,
+   * outcome) tuple for triage without joining audit-log rows.
+   *
+   * Defensive try/catch — a DB write failure here MUST NOT block the
+   * 200 OK response to Stripe. The audit row + dedup row INSERT both
+   * succeeded earlier; a UPDATE failure on outcome is non-fatal (the
+   * audit log captures the actual outcome authoritatively).
+   */
+  private async markDedupOutcome(
+    eventId: string,
+    outcome: 'success' | 'handler-error' | 'unsupported-event',
+  ): Promise<void> {
+    if (!this.dedupRepo) return;
+    try {
+      await this.dedupRepo.update(
+        { eventId },
+        { processedAt: new Date(), outcome },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `markDedupOutcome failed for ${eventId} (non-fatal): ${
+          err instanceof Error ? err.message : 'Unknown error'
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Audit-row helper — wraps recordAwait with the resource constant
+   * ('stripe-webhook') and a defensive try/catch so an audit-log
+   * outage cannot block webhook acknowledgement (which would force
+   * Stripe to retry and storm the system). The catch is justified
+   * here because the controller MUST always return 200; the alternative
+   * would be a silent retry storm.
+   */
+  private async audit(
+    action: string,
+    args: {
+      resourceId?: string;
+      ip: string;
+      severity: AuditSeverity;
+      metadata: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    if (!this.auditLog) return;
+    try {
+      await this.auditLog.recordAwait({
+        action,
+        resource: 'stripe-webhook',
+        resourceId: args.resourceId,
+        severity: args.severity,
+        ip: args.ip,
+        metadata: args.metadata,
+      });
+    } catch (err) {
+      // Audit-log outage MUST NOT block the webhook ack — Stripe's retry
+      // storm would amplify the failure. We log loud and move on.
+      this.logger.error(
+        `Failed to write Stripe webhook audit row (${action}): ${
+          err instanceof Error ? err.message : 'unknown'
+        }`,
+      );
+    }
   }
 
   /**

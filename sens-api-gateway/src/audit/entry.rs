@@ -92,14 +92,18 @@ impl AuditActor {
     /// is responsible for the label being a code-constant short string with
     /// no PII. Canonical-bytes enforces a length bound.
     pub fn new(label: impl Into<String>) -> Self {
-        Self { label: label.into() }
+        Self {
+            label: label.into(),
+        }
     }
 
     /// Preferred path: project an authenticated [`crate::authz::ActorIdentity`]
     /// through its `audit_label()` redaction. Operator UUIDs become
     /// `"op:<operator>"`; machine issuers become `"svc:<cn>"`.
     pub fn from_actor_identity(actor: &crate::authz::ActorIdentity) -> Self {
-        Self { label: actor.audit_label() }
+        Self {
+            label: actor.audit_label(),
+        }
     }
 }
 
@@ -469,7 +473,9 @@ impl AuditEntry {
             ));
         }
         if self.detail.len() > MAX_DETAIL_BYTES {
-            return Err(AuditEntryCanonicalBytesError::DetailTooLong(self.detail.len()));
+            return Err(AuditEntryCanonicalBytesError::DetailTooLong(
+                self.detail.len(),
+            ));
         }
 
         let mut out = Vec::with_capacity(
@@ -493,7 +499,11 @@ impl AuditEntry {
 
         out.extend_from_slice(&self.policy_version.to_be_bytes());
 
-        out.push(if self.two_person_integrity_verified { 1 } else { 0 });
+        out.push(if self.two_person_integrity_verified {
+            1
+        } else {
+            0
+        });
 
         out.push(self.action.wire_tag());
 
@@ -532,7 +542,9 @@ mod tests {
             policy_version: 7,
             two_person_integrity_verified: false,
             action: AuditAction::TagWrite,
-            resource: AuditResource::Tag { name: "pond3_aerator".to_string() },
+            resource: AuditResource::Tag {
+                name: "pond3_aerator".to_string(),
+            },
             outcome: AuditOutcome::Success,
             detail: "".to_string(),
         }
@@ -597,7 +609,9 @@ mod tests {
         assert_ne!(base_bytes, act.canonical_bytes().expect("ok"));
 
         let mut res = base.clone();
-        res.resource = AuditResource::Tag { name: "pond3_feeder".to_string() };
+        res.resource = AuditResource::Tag {
+            name: "pond3_feeder".to_string(),
+        };
         assert_ne!(base_bytes, res.canonical_bytes().expect("ok"));
 
         let mut outcome = base.clone();
@@ -636,11 +650,15 @@ mod tests {
     #[test]
     fn canonical_bytes_framing_resists_detail_resource_collision() {
         let mut a = canned_entry();
-        a.resource = AuditResource::Tag { name: "x".to_string() };
+        a.resource = AuditResource::Tag {
+            name: "x".to_string(),
+        };
         a.detail = "y".to_string();
 
         let mut b = canned_entry();
-        b.resource = AuditResource::Tag { name: "xy".to_string() };
+        b.resource = AuditResource::Tag {
+            name: "xy".to_string(),
+        };
         b.detail = "".to_string();
 
         assert_ne!(
@@ -679,16 +697,26 @@ mod tests {
     ///      stability contract for audit-verify CLI retroactive chain walk.
     #[test]
     fn audit_resource_wire_tags_stable() {
-        let t = AuditResource::Tag { name: "x".to_string() };
+        let t = AuditResource::Tag {
+            name: "x".to_string(),
+        };
         let p = AuditResource::Permission {
             permission: Permission::ReadTag,
         };
-        let pg = AuditResource::Program { program_id: "x".to_string() };
-        let fi = AuditResource::FirmwareImage { image_digest_hex: "x".to_string() };
+        let pg = AuditResource::Program {
+            program_id: "x".to_string(),
+        };
+        let fi = AuditResource::FirmwareImage {
+            image_digest_hex: "x".to_string(),
+        };
         let pv = AuditResource::PolicyManifestVersion { version: 1 };
-        let ks = AuditResource::Keystore { purpose_label: "x".to_string() };
+        let ks = AuditResource::Keystore {
+            purpose_label: "x".to_string(),
+        };
         let tn = AuditResource::Tenant { tenant: tenant() };
-        let o = AuditResource::Other { label: "x".to_string() };
+        let o = AuditResource::Other {
+            label: "x".to_string(),
+        };
 
         assert_eq!(t.wire_tag(), 0);
         assert_eq!(p.wire_tag(), 1);
@@ -707,8 +735,12 @@ mod tests {
     ///      bytes via the wire_tag byte discriminator.
     #[test]
     fn audit_resource_canonical_bytes_distinguishes_variants_by_wire_tag() {
-        let tag = AuditResource::Tag { name: "same".to_string() };
-        let program = AuditResource::Program { program_id: "same".to_string() };
+        let tag = AuditResource::Tag {
+            name: "same".to_string(),
+        };
+        let program = AuditResource::Program {
+            program_id: "same".to_string(),
+        };
         let mut a = Vec::new();
         let mut b = Vec::new();
         tag.append_canonical_bytes(&mut a).expect("ok");
@@ -872,7 +904,7 @@ mod tests {
     ///      ActorIdentity through audit_label redaction.
     #[test]
     fn audit_actor_from_actor_identity_redacts_operator() {
-        use crate::authz::{permission::OperatorId, ActorIdentity};
+        use crate::authz::{ActorIdentity, permission::OperatorId};
         let actor = ActorIdentity::Operator(OperatorId::new_from_verified([0x07u8; 16]));
         let aa = AuditActor::from_actor_identity(&actor);
         assert_eq!(aa.label, "op:<operator>");
@@ -900,10 +932,7 @@ mod tests {
             "empty_actor_label"
         );
         assert_eq!(
-            format!(
-                "{}",
-                AuditEntryCanonicalBytesError::DetailTooLong(4097)
-            ),
+            format!("{}", AuditEntryCanonicalBytesError::DetailTooLong(4097)),
             "detail_too_long:4097"
         );
         assert_eq!(
@@ -914,10 +943,7 @@ mod tests {
             "correlation_id_too_long:129"
         );
         assert_eq!(
-            format!(
-                "{}",
-                AuditEntryCanonicalBytesError::ActorLabelTooLong(257)
-            ),
+            format!("{}", AuditEntryCanonicalBytesError::ActorLabelTooLong(257)),
             "actor_label_too_long:257"
         );
     }

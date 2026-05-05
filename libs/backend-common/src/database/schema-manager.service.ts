@@ -521,20 +521,12 @@ export function validateTenantSchemaName(schema: string): string {
   return schema;
 }
 
-/**
- * SECURITY: Validate SQL identifier (schema/table name) to prevent injection
- * Only allows alphanumeric characters and underscores
- * @throws BadRequestException if identifier contains invalid characters
- */
-function validateSqlIdentifier(identifier: string, type: 'schema' | 'table'): string {
-  const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-  if (!identifierRegex.test(identifier) || identifier.length > 63) {
-    throw new BadRequestException(
-      `SECURITY: Invalid ${type} identifier: ${identifier}. Only alphanumeric and underscore allowed.`
-    );
-  }
-  return identifier;
-}
+// Re-exported from the shared sql-identifier.util to keep one canonical
+// validator across all DDL paths (DATA-CRITICAL-002 fix). The legacy
+// private signature `(identifier, 'schema' | 'table')` is preserved by the
+// re-export — kind defaults to 'schema' in the util but every existing
+// callsite passes its own kind explicitly.
+import { validateSqlIdentifier } from './sql-identifier.util';
 
 /**
  * Schema Manager Service
@@ -700,10 +692,25 @@ export class SchemaManagerService {
 
     this.logger.log(`Acquiring advisory lock for tenant ${tenantId} (key: ${lockKey})`);
 
-    // Acquire advisory lock - blocks if another process is creating same schema
-    await this.dataSource.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
-
+    // WHY: Advisory locks are session-scoped. The original code called
+    // pg_advisory_lock() and pg_advisory_unlock() through this.dataSource.query(),
+    // which checks out a fresh connection from the pool for EACH query —
+    // the unlock therefore frequently ran on a different connection than
+    // the lock, silently no-op'ing while the actual lock leaked at the
+    // pool-conn level. Under concurrency the pool saturated and provisioning
+    // deadlocked (DATA-CRITICAL-001). Pinning a QueryRunner makes the
+    // lock+unlock pair travel on the same physical connection so the
+    // unlock cannot leak. Postgres also auto-releases the lock if the
+    // session terminates abnormally (e.g. pool eviction), giving us a
+    // belt-and-braces guarantee.
+    // WHAT: Acquire a dedicated QueryRunner, run the advisory_lock on it,
+    // execute the entire provisioning flow inside the try, run the
+    // unlock on the SAME runner, then release the runner back to the pool.
+    const lockRunner = this.dataSource.createQueryRunner();
+    await lockRunner.connect();
     try {
+      await lockRunner.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
+
       // Check if schema already exists (idempotent operation)
       const exists = await this.schemaExistsNoCache(schemaName);
       if (exists) {
@@ -914,9 +921,19 @@ export class SchemaManagerService {
         duration: Date.now() - startTime,
       };
     } finally {
-      // ALWAYS release advisory lock
-      await this.dataSource.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
-      this.logger.debug(`Released advisory lock for tenant ${tenantId}`);
+      // WHY: Unlock + runner release run on the SAME pinned connection.
+      // The unlock CANNOT silently no-op because the connection that holds
+      // the lock is the same connection that runs the unlock. If the
+      // unlock query itself fails for any reason, the runner.release()
+      // returns the conn to the pool — Postgres auto-releases the
+      // session-held advisory lock as the conn cycles, so even the
+      // catastrophic case does not leak.
+      try {
+        await lockRunner.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
+        this.logger.debug(`Released advisory lock for tenant ${tenantId}`);
+      } finally {
+        await lockRunner.release();
+      }
     }
   }
 
@@ -1070,28 +1087,44 @@ export class SchemaManagerService {
 
     this.logger.log(`Acquiring advisory lock for tenant deletion ${tenantId} (key: ${lockKey})`);
 
-    // Acquire advisory lock - blocks if another process is operating on same schema
-    await this.dataSource.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
-
+    // WHY: Same DATA-CRITICAL-001 leak applies here — pg_advisory_lock and
+    // pg_advisory_unlock issued through this.dataSource.query() ran on
+    // different connections under load. Pinning a QueryRunner closes the
+    // leak (see createTenantSchema for the full rationale).
+    // WHAT: lock + unlock + DROP SCHEMA all execute via the pinned runner.
+    const lockRunner = this.dataSource.createQueryRunner();
+    await lockRunner.connect();
     try {
-      this.logger.log(`Deleting tenant schema: ${schemaName}`);
+      await lockRunner.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
 
-      // CASCADE drops all objects in the schema
-      await this.dataSource.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+      try {
+        this.logger.log(`Deleting tenant schema: ${schemaName}`);
 
-      // Invalidate cache entry for deleted schema
-      this.schemaCache.invalidate(schemaName);
+        // CASCADE drops all objects in the schema. Runs on the SAME pinned
+        // connection so it implicitly serialises behind the lock.
+        const safeSchemaName = validateSqlIdentifier(schemaName, 'schema');
+        await lockRunner.query(`DROP SCHEMA IF EXISTS "${safeSchemaName}" CASCADE`);
 
-      this.logger.log(`Tenant schema ${schemaName} deleted successfully`);
-      return { success: true };
-    } catch (error) {
-      const errorMsg = `Failed to delete tenant schema: ${(error as Error).message}`;
-      this.logger.error(errorMsg);
-      return { success: false, error: errorMsg };
+        // Invalidate cache entry for deleted schema
+        this.schemaCache.invalidate(schemaName);
+
+        this.logger.log(`Tenant schema ${schemaName} deleted successfully`);
+        return { success: true };
+      } catch (error) {
+        const errorMsg = `Failed to delete tenant schema: ${(error as Error).message}`;
+        this.logger.error(errorMsg);
+        return { success: false, error: errorMsg };
+      } finally {
+        try {
+          await lockRunner.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
+          this.logger.debug(`Released advisory lock for tenant deletion ${tenantId}`);
+        } catch (unlockErr) {
+          // The runner.release() below cycles the conn — Postgres auto-releases.
+          this.logger.warn(`pg_advisory_unlock failed (auto-released by conn cycle): ${(unlockErr as Error).message}`);
+        }
+      }
     } finally {
-      // ALWAYS release advisory lock
-      await this.dataSource.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
-      this.logger.debug(`Released advisory lock for tenant deletion ${tenantId}`);
+      await lockRunner.release();
     }
   }
 

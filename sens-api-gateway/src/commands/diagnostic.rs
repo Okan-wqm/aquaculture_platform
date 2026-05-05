@@ -27,9 +27,9 @@
 //!   against log-injection if the whitelist is ever expanded
 //!   without re-checking).
 
+use chrono::Utc;
 use serde_json::{Value, json};
 use tracing::info;
-use chrono::Utc;
 
 use crate::security::sanitize_for_log;
 
@@ -163,10 +163,7 @@ impl CommandHandler {
     /// Current behavior: updates the CONFIG value; `restart_agent`
     /// command picks it up on next boot. The response body makes
     /// this limitation operator-visible.
-    pub(super) async fn cmd_set_log_level(
-        &self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_set_log_level(&self, params: &Value) -> (bool, Value, Option<String>) {
         let level = match params.get("level").and_then(|v| v.as_str()) {
             Some(l) => l,
             None => {

@@ -37,9 +37,10 @@
 use anyhow::Result;
 use tracing::{debug, info, warn};
 
+use crate::command_envelope::envelope::SignatureMode;
 use crate::mqtt::{CommandMessage, IncomingMessage};
 
-use super::envelope_adapter;
+use super::{envelope_adapter, required_permission};
 
 impl super::CommandHandler {
     /// Handle one incoming MQTT message — topic-dispatch + the full
@@ -50,10 +51,7 @@ impl super::CommandHandler {
     /// the caller's `error!` log should surface; rejections (retained
     /// flag, parse failure, replay, dedup hit) return `Ok(())`
     /// because they're operational events, not panics.
-    pub(super) async fn handle_message(
-        &mut self,
-        message: IncomingMessage,
-    ) -> Result<()> {
+    pub(super) async fn handle_message(&mut self, message: IncomingMessage) -> Result<()> {
         let state = self.state.read().await;
         let topics = state.mqtt_client.as_ref().map(|m| m.topics().clone());
         drop(state);
@@ -115,9 +113,8 @@ impl super::CommandHandler {
             // backward compat.
             let (signature_mode, tenant_bytes, rbac_store) = {
                 let state = self.state.read().await;
-                let tenant_bytes = envelope_adapter::tenant_id_bytes_or_none(
-                    state.tenant_id.as_deref(),
-                );
+                let tenant_bytes =
+                    envelope_adapter::tenant_id_bytes_or_none(state.tenant_id.as_deref());
                 // Batch 68 Sprint 6.1 full wire: clone Arc so
                 // the adapter can run verify_signature via
                 // RbacManifestStore::lookup_operator_pubkey
@@ -141,7 +138,10 @@ impl super::CommandHandler {
                         match serde_json::from_slice(&message.payload) {
                             Ok(cmd) => cmd,
                             Err(e) => {
-                                warn!("Failed to parse command (neither envelope nor legacy): {}", e);
+                                warn!(
+                                    "Failed to parse command (neither envelope nor legacy): {}",
+                                    e
+                                );
                                 return Ok(());
                             }
                         }
@@ -160,14 +160,15 @@ impl super::CommandHandler {
                             command: adapted.command,
                             params: adapted.params,
                             timestamp: adapted.timestamp,
+                            verified_actor: adapted.verified_actor,
+                            claimed_policy_version: adapted.claimed_policy_version,
                             verified_co_approver: adapted.verified_co_approver,
+                            verified_co_approver_actor: adapted.verified_co_approver_actor,
+                            verified_co_approver_signature: adapted.verified_co_approver_signature,
                         }
                     }
                     envelope_adapter::AdapterOutcome::VerifyFailed(err) => {
-                        warn!(
-                            "Rejecting CommandEnvelope: verify_envelope Err={:?}",
-                            err
-                        );
+                        warn!("Rejecting CommandEnvelope: verify_envelope Err={:?}", err);
                         return Ok(());
                     }
                 }
@@ -193,6 +194,27 @@ impl super::CommandHandler {
                 command.command, command.command_id
             );
 
+            // 2026-04-29 enterprise RBAC pre-dispatch identity gate:
+            // compute the canonical permission before freshness/dedup and
+            // reject every permissioned command that lacks a verified actor in
+            // signed modes.
+            //
+            // What it solves: legacy JSON can still be parsed for explicit
+            // `signature_mode=Disabled` compatibility, but it cannot bypass
+            // the signed actor evidence required by the dispatch RBAC gate.
+            let required_perm =
+                required_permission::permission_for_command(&command.command, &command.params);
+            if required_perm.is_some()
+                && !matches!(signature_mode, SignatureMode::Disabled)
+                && command.verified_actor.is_none()
+            {
+                warn!(
+                    "Rejecting unsigned permissioned command in signature mode {:?}: command='{}' id='{}' required_permission={:?}",
+                    signature_mode, command.command, command.command_id, required_perm
+                );
+                return Ok(());
+            }
+
             // IEC 62443 SL-2 FR-7: Command replay protection.
             // MQTT QoS 1 can re-deliver the same message. Reject:
             //   (1) Commands already seen (dedup by command_id)
@@ -211,16 +233,33 @@ impl super::CommandHandler {
                     state_guard.config.runtime.max_command_skew_secs as i64,
                 )
             };
-            if let Ok(cmd_time) = chrono::DateTime::parse_from_rfc3339(&command.timestamp) {
-                let age = chrono::Utc::now().signed_duration_since(cmd_time);
-                if age.num_seconds() > max_age_secs || age.num_seconds() < -max_skew_secs {
+            let cmd_time = match chrono::DateTime::parse_from_rfc3339(&command.timestamp) {
+                Ok(t) => t,
+                Err(e) => {
+                    // 2026-04-29 enterprise freshness hardening:
+                    // malformed timestamps reject instead of skipping the
+                    // replay window.
+                    //
+                    // What it solves: an attacker cannot bypass stale/future
+                    // validation by sending a syntactically invalid timestamp.
                     warn!(
-                        "Rejecting stale/future command: {} age={}s (id: {}, max_age={}s, max_skew={}s)",
-                        command.command, age.num_seconds(), command.command_id,
-                        max_age_secs, max_skew_secs
+                        "Rejecting command with malformed timestamp: command='{}' id='{}' timestamp='{}' error={}",
+                        command.command, command.command_id, command.timestamp, e
                     );
                     return Ok(());
                 }
+            };
+            let age = chrono::Utc::now().signed_duration_since(cmd_time);
+            if age.num_seconds() > max_age_secs || age.num_seconds() < -max_skew_secs {
+                warn!(
+                    "Rejecting stale/future command: {} age={}s (id: {}, max_age={}s, max_skew={}s)",
+                    command.command,
+                    age.num_seconds(),
+                    command.command_id,
+                    max_age_secs,
+                    max_skew_secs
+                );
+                return Ok(());
             }
             // Batch 60 Sprint 6.4 foundation: command_id dedup
             // UPGRADED to use MokaJtiDedupTable when available
@@ -255,12 +294,10 @@ impl super::CommandHandler {
                 // table's own bounds, approximated via a
                 // generous 3600s ceiling (Moka's internal TTL
                 // evicts earlier).
-                match crate::command_envelope::Jti::try_new(
-                    command.command_id.clone(),
-                ) {
+                match crate::command_envelope::Jti::try_new(command.command_id.clone()) {
                     Ok(jti) => {
-                        let expires_at = std::time::SystemTime::now()
-                            + std::time::Duration::from_secs(3600);
+                        let expires_at =
+                            std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
                         match dedup.check_and_mark(&jti, expires_at).await {
                             Ok(crate::command_envelope::DedupResult::Fresh) => false,
                             Ok(crate::command_envelope::DedupResult::Duplicate) => true,
@@ -274,16 +311,25 @@ impl super::CommandHandler {
                         }
                     }
                     Err(e) => {
-                        // command_id doesn't meet jti bounds
-                        // (empty / too long / non-ASCII). Fall
-                        // back to VecDeque path — Moka rejects
-                        // ill-formed jti, legacy path still
-                        // accepts anything.
-                        warn!(
-                            "command_id rejected as jti ({:?}); falling back to VecDeque dedup",
-                            e
-                        );
-                        self.executed_command_ids.contains(&command.command_id)
+                        // 2026-04-29 enterprise replay hardening:
+                        // invalid JTI is a reject in every signed mode.
+                        //
+                        // What it solves: canonical replay defense cannot be
+                        // downgraded to the weak legacy VecDeque path by
+                        // choosing an invalid command_id.
+                        if matches!(signature_mode, SignatureMode::Disabled) {
+                            warn!(
+                                "command_id rejected as jti ({:?}); signature_mode=Disabled so using VecDeque compatibility dedup",
+                                e
+                            );
+                            self.executed_command_ids.contains(&command.command_id)
+                        } else {
+                            warn!(
+                                "Rejecting command with invalid JTI in signature mode {:?}: id='{}' error={:?}",
+                                signature_mode, command.command_id, e
+                            );
+                            return Ok(());
+                        }
                     }
                 }
             } else {
@@ -310,7 +356,8 @@ impl super::CommandHandler {
             if self.executed_command_ids.len() >= 1000 {
                 self.executed_command_ids.pop_front();
             }
-            self.executed_command_ids.push_back(command.command_id.clone());
+            self.executed_command_ids
+                .push_back(command.command_id.clone());
 
             // Publish response — Batch #255 ARC-002 migration:
             // command responses persist on broker outage + replay
@@ -319,7 +366,14 @@ impl super::CommandHandler {
             // request-response loop until the cloud-side timeout
             // fires retry).
             let state = self.state.read().await;
-            crate::publish_helpers::publish_response(&state, &response).await;
+            if let Err(e) =
+                crate::publish_helpers::publish_response_checked(&state, &response).await
+            {
+                warn!(
+                    "Command response publish failed: command='{}' id='{}' error={}",
+                    command.command, command.command_id, e
+                );
+            }
         } else if message.topic == topics.config {
             debug!("Received config update");
             // Batch 25+31 plan D-14: retained-message rejection

@@ -8,6 +8,10 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, IsNull, DataSource } from 'typeorm';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+} from '@aquaculture/backend-common/resilience';
 
 import { ChannelDetectionLog, UserAction } from '../database/entities/channel-detection-log.entity';
 import {
@@ -53,6 +57,15 @@ export class ChannelDetectionService {
     @InjectRepository(SensorDataChannel)
     private readonly channelRepo: Repository<SensorDataChannel>,
     private readonly configService: ConfigService,
+    /**
+     * CIRCUIT-LOW-002 cure (channel-detection callsite): the
+     * cross-service fetch to ai-service runs through the canonical
+     * breaker. fail-OPEN-degraded so an ai-service outage degrades
+     * to the existing local-heuristics fallback (see detectChannels'
+     * try/catch) instead of cascading into the sensor-ingestion
+     * pipeline.
+     */
+    private readonly circuitBreaker: CircuitBreakerService,
   ) {
     this.aiServiceUrl = this.configService.get<string>('AI_SERVICE_URL', 'http://localhost:3008');
   }
@@ -255,18 +268,36 @@ export class ChannelDetectionService {
       'x-user-payload': JSON.stringify({ sub: 'system', roles: ['supervisor'] }),
     };
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30000),
+    // CIRCUIT-LOW-002 cure: canonical breaker wrap. Per-tenant key
+    // so a single noisy tenant cannot trip the breaker for every
+    // other tenant's channel-detection. fail-closed because the
+    // caller (detectChannels) already has its own try/catch
+    // wrapping callAiService — a closed breaker becomes a thrown
+    // error which the outer fallback path interprets as
+    // "AI unavailable, use local heuristics" — the same behaviour
+    // a 500-status response triggers.
+    const response = await this.circuitBreaker.execute<Response>({
+      serviceName: 'sensor-channel-detection-ai',
+      tenantId,
+      options: {
+        ...DEFAULT_BREAKER_OPTIONS,
+        failureMode: 'fail-closed',
+      },
+      fn: async () => {
+        const r = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!r.ok) {
+          throw new Error(
+            `AI service returned ${r.status} ${r.statusText}`,
+          );
+        }
+        return r;
+      },
     });
-
-    if (!response.ok) {
-      throw new Error(
-        `AI service returned ${response.status} ${response.statusText}`,
-      );
-    }
 
     // The chat endpoint returns SSE events; collect tool_result events
     const text = await response.text();

@@ -39,7 +39,8 @@ export interface TenantRequest extends CanonicalTenantRequest {
  */
 export interface TenantContext {
   tenantId: string;
-  source: 'header' | 'jwt' | 'query' | 'subdomain';
+  // 'query' source removed — see extractTenantContext for rationale (MT-CRITICAL-001 3rd cycle closure).
+  source: 'header' | 'jwt' | 'subdomain';
 }
 
 /**
@@ -58,8 +59,14 @@ export class UserContextMiddleware implements NestMiddleware {
       try {
         const user = JSON.parse(userPayloadHeader) as UserPayload;
         req.user = user;
+        // SEC-LOW-002 cure: log structured user identity WITHOUT the
+        // email PII. Previously this debug line printed the email
+        // address — even at DEBUG severity, structured-log
+        // aggregation pipelines may persist debug rows long enough
+        // for the PII to leak into a third-party retention. The
+        // userId (sub) is sufficient for trace correlation.
         this.logger.debug(
-          `User context set: ${user.email} (tenant: ${user.tenantId})`,
+          `User context set: userId=${user.sub} (tenant: ${user.tenantId})`,
         );
       } catch (error) {
         this.logger.warn(`Failed to parse x-user-payload header: ${error}`);
@@ -93,25 +100,40 @@ export class TenantContextMiddleware implements NestMiddleware {
   }
 
   private extractTenantContext(req: TenantRequest): TenantContext | null {
-    // SECURITY: JWT is the only cryptographically verified source — always prefer it.
-    // 1. Try from JWT (if already decoded by auth middleware)
+    // SECURITY (MT-CRITICAL-001 closure — 3rd cycle):
+    // JWT is the ONLY cryptographically verified source — always prefer it.
+    //
+    // 1. Try from JWT (if already decoded by auth middleware). The JWT
+    //    tenantId is the trust anchor: signed by auth-service, cannot be
+    //    spoofed by a Docker-network caller.
     if (req.user?.tenantId) {
       return { tenantId: req.user.tenantId, source: 'jwt' };
     }
 
-    // 2. Try from header (only reaches here for unauthenticated/pre-auth paths)
+    // 2. Header fallback — used by pre-auth paths (login, register,
+    //    password-reset, refresh-token), edge-device ingestion routes,
+    //    and the HMAC-signed cross-tenant admin RPC. Each of those
+    //    paths MUST go through StripInternalHeadersMiddleware first
+    //    (W0.I) so a forged header from an external caller has been
+    //    stripped before reaching this point. The cross-tenant access
+    //    decision still belongs to TenantIsolationGuard further down
+    //    the request lifecycle.
     const headerTenant = req.headers['x-tenant-id'] as string;
     if (headerTenant) {
       return { tenantId: headerTenant, source: 'header' };
     }
 
-    // 3. Try from query parameter
-    const queryTenant = req.query['tenantId'] as string;
-    if (queryTenant) {
-      return { tenantId: queryTenant, source: 'query' };
-    }
-
-    // 4. Try from subdomain (e.g., {uuid}.api.example.com)
+    // WHY: query-param tenant fallback REMOVED. Pre-fix the middleware
+    // accepted `?tenantId=…` as an authoritative source — the exact
+    // 3rd-cycle defect MT-CRITICAL-001 captured. Query strings are
+    // logged to access logs, propagated to bookmarks, and can be
+    // appended by any client; they have no cryptographic binding.
+    // The TenantIsolationGuard layer also drops its query/body branches
+    // so an attacker cannot escalate via either surface.
+    //
+    // 3. Subdomain fallback — strict: UUID-validated AND
+    //    ALLOWED_BASE_DOMAINS-gated. Used by per-tenant marketing /
+    //    landing pages (e.g. {uuid}.api.example.com).
     const host = req.hostname;
 
     // Skip IP addresses (IPv4 and localhost)

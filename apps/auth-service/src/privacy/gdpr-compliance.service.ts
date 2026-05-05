@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
+import { LegalHoldService, HoldScope } from '@aquaculture/backend-common/compliance';
 
 import { User } from '../modules/authentication/entities/user.entity';
 import { RefreshToken } from '../modules/authentication/entities/refresh-token.entity';
@@ -52,6 +53,13 @@ export class GdprComplianceService {
     private readonly dataSource: DataSource,
     private readonly authService: AuthenticationService,
     private readonly webAuthnService: WebAuthnService,
+    // LEGAL-HIGH-005 cure: GDPR right-to-erasure is a destructive op
+    // that MUST consult the canonical legal-hold registry before
+    // proceeding. @Optional because the legal-hold infrastructure may
+    // not be wired during local-dev-without-DB scenarios — production
+    // registers it via LegalHoldModule.forRoot() in app.module.ts.
+    @Optional()
+    private readonly legalHoldService?: LegalHoldService,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -76,6 +84,18 @@ export class GdprComplianceService {
 
     if (!user) {
       throw new NotFoundException(`User ${userId} not found in tenant ${tenantId}`);
+    }
+
+    // LEGAL-HIGH-005 cure: BEFORE any destructive op, consult the
+    // canonical legal-hold registry. A tenant-wide hold blocks ALL
+    // erasure under that tenant; a user-scoped hold blocks just this
+    // user. If the legal-hold infrastructure isn't wired (local-dev
+    // path), the optional dependency is undefined and the check is
+    // skipped — production has the module registered and the assert
+    // throws LegalHoldActiveError on hit.
+    if (this.legalHoldService) {
+      await this.legalHoldService.assertNoHold(tenantId, 'tenant');
+      await this.legalHoldService.assertNoHold(tenantId, 'user', userId);
     }
 
     // Revoke all sessions and tokens first — prevents further authentication

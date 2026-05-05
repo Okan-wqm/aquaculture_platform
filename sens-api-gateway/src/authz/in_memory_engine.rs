@@ -41,14 +41,13 @@
 //! 4. **Manifest-validity window** — `received_at` outside
 //!    `[valid_from, valid_until]` → `Deny(RoleExpired)`.
 //!    Whole-manifest boundary regardless of per-role window.
-//! 5. **Two-person-integrity presence** — requested
-//!    permission is in the TPI set (ForceValue, DeployProgram,
-//!    SafeStateTrigger, ManagePolicy) AND `co_approver =
-//!    None` → `Deny(TwoPersonIntegrityMissing)`. Co-approver
-//!    SIGNATURE verify is out-of-scope for Batch 223 (Batch
-//!    224 primitive); presence-only gate satisfies the
-//!    structural contract without claiming positive
-//!    co-approval capability.
+//! 5. **Two-person integrity** — requested permission is in the
+//!    code-level TPI set (`Permission::requires_two_person_integrity`)
+//!    and therefore requires a co-approver that is distinct from the
+//!    primary actor, enrolled in the same manifest, inside its role validity
+//!    window, and granted the same requested permission. 2026-04-29 update:
+//!    signature verification happens at the envelope adapter, and this engine
+//!    enforces the role graph.
 //! 6. **Operator binding lookup** — `ActorIdentity::Operator(id)`
 //!    → match on `manifest.operator_bindings`. Missing
 //!    operator → `Deny(PermissionNotGranted)`. Machine
@@ -64,8 +63,9 @@
 //!
 //! ## What's NOT in Batch 223 (explicit)
 //!
-//! - **Co-approver signature verify** (Batch 224 primitive +
-//!   224 wire). Presence-only gate here.
+//! - **Co-approver role graph** is enforced here as of 2026-04-29.
+//!   Signature verification remains at the envelope adapter because that
+//!   layer owns canonical envelope bytes and operator pubkey verification.
 //! - **Emergency-role escalation** (`is_emergency_role` +
 //!   EmergencyOverrideRequired reason). Returns
 //!   PermissionNotGranted until Batch 225 lands the
@@ -91,36 +91,17 @@ use super::manifest_runtime::RbacManifestStore;
 use super::permission::Permission;
 use super::policy::{AuthorizationRequest, PolicyEngine, PolicyEngineError};
 
-/// Permissions that require two-person integrity per
-/// ADR-018 §8. Batch 223 implements the PRESENCE gate (is
-/// co_approver Some?); Batch 224 implements the positive
-/// verify path (co-approver signature over canonical bytes +
-/// binding in manifest).
-const TPI_PERMISSIONS: &[&str] = &[
-    // We match on the variant discriminant via the
-    // `Permission::to_audit_tag` style; plan `Permission`
-    // enum doesn't yet expose a `tag()` so we pattern-match
-    // below. The const is kept as documentation of the
-    // authoritative set.
-    "ForceValue",
-    "DeployProgram",
-    "SafeStateTrigger",
-    "ManagePolicy",
-    "UpdateFirmware",
-];
-
 /// True when `perm` is in the two-person-integrity set.
 /// Pure fn on the permission variants so it's unit-tested in
 /// isolation of manifest plumbing.
 pub(crate) fn requires_two_person_integrity(perm: &Permission) -> bool {
-    matches!(
-        perm,
-        Permission::ForceValue
-            | Permission::DeployProgram
-            | Permission::SafeStateTrigger
-            | Permission::ManagePolicy
-            | Permission::UpdateFirmware
-    )
+    // 2026-04-29 enterprise policy SSoT:
+    // delegate to the Permission method instead of maintaining a parallel
+    // variant list in the policy engine.
+    //
+    // What it solves: adding or moving a two-person-integrity permission in
+    // `permission.rs` can no longer drift from the actual authorization gate.
+    perm.requires_two_person_integrity()
 }
 
 /// PolicyEngine impl backed by a shared `RbacManifestStore`.
@@ -180,13 +161,56 @@ impl PolicyEngine for InMemoryPolicyEngine {
                 ));
             }
 
-            // Gate 5: two-person integrity presence check.
-            if requires_two_person_integrity(&request.requested_permission)
-                && request.co_approver.is_none()
-            {
-                return Ok(AuthorizationDecision::Deny(
-                    AuthorizationDenyReason::TwoPersonIntegrityMissing,
-                ));
+            // 2026-04-29 enterprise two-person integrity gate:
+            // enforce a distinct enrolled co-approver with the same requested
+            // permission in the active manifest.
+            //
+            // What it solves: co-approval is no longer a boolean/presence
+            // check. The adapter verifies the second signature over canonical
+            // bytes; the engine verifies that the second actor is distinct,
+            // enrolled, in-window and authorized for the same high-risk
+            // operation.
+            if requires_two_person_integrity(&request.requested_permission) {
+                let co_approver = match request.co_approver.as_ref() {
+                    Some(co) => co,
+                    None => {
+                        return Ok(AuthorizationDecision::Deny(
+                            AuthorizationDenyReason::TwoPersonIntegrityMissing,
+                        ));
+                    }
+                };
+                let primary_operator = match &request.actor {
+                    ActorIdentity::Operator(id) => id,
+                    ActorIdentity::MachineIssuer { .. } => {
+                        return Ok(AuthorizationDecision::Deny(
+                            AuthorizationDenyReason::PermissionNotGranted,
+                        ));
+                    }
+                };
+                let co_operator = match &co_approver.actor {
+                    ActorIdentity::Operator(id) => id,
+                    ActorIdentity::MachineIssuer { .. } => {
+                        return Ok(AuthorizationDecision::Deny(
+                            AuthorizationDenyReason::TwoPersonIntegrityMissing,
+                        ));
+                    }
+                };
+                if primary_operator.as_bytes() == co_operator.as_bytes() {
+                    return Ok(AuthorizationDecision::Deny(
+                        AuthorizationDenyReason::TwoPersonIntegrityMissing,
+                    ));
+                }
+                let _verified_signature_bytes = co_approver.signature.as_bytes();
+                if !operator_has_permission(
+                    manifest,
+                    co_operator,
+                    &request.requested_permission,
+                    now_secs,
+                ) {
+                    return Ok(AuthorizationDecision::Deny(
+                        AuthorizationDenyReason::PermissionNotGranted,
+                    ));
+                }
             }
 
             // Gate 6: operator binding lookup.
@@ -231,9 +255,7 @@ impl PolicyEngine for InMemoryPolicyEngine {
                     None => continue,
                 };
                 // Role validity window.
-                if now_secs < role.valid_from_unix_secs
-                    || now_secs > role.valid_until_unix_secs
-                {
+                if now_secs < role.valid_from_unix_secs || now_secs > role.valid_until_unix_secs {
                     continue;
                 }
                 if role
@@ -279,6 +301,39 @@ impl PolicyEngine for InMemoryPolicyEngine {
     }
 }
 
+/// 2026-04-29 enterprise policy graph helper.
+///
+/// What it solves: primary and co-approver role checks use the same manifest
+/// traversal semantics, avoiding drift between first-person and second-person
+/// authorization.
+fn operator_has_permission(
+    manifest: &crate::authz::manifest::RbacManifest,
+    operator_id: &crate::authz::permission::OperatorId,
+    permission: &Permission,
+    now_secs: i64,
+) -> bool {
+    let Some(binding) = manifest
+        .operator_bindings
+        .iter()
+        .find(|b| b.operator_id.as_bytes() == operator_id.as_bytes())
+    else {
+        return false;
+    };
+
+    binding.role_names.iter().any(|role_name| {
+        manifest
+            .roles
+            .iter()
+            .find(|r| &r.name == role_name)
+            .map(|role| {
+                now_secs >= role.valid_from_unix_secs
+                    && now_secs <= role.valid_until_unix_secs
+                    && role.permissions.iter().any(|p| p == permission)
+            })
+            .unwrap_or(false)
+    })
+}
+
 /// Convert a `SystemTime` to UNIX seconds (signed, to match
 /// manifest fields' `i64` shape). Before-epoch times clamp
 /// to `i64::MIN` so a misconfigured clock cannot slip past
@@ -298,9 +353,7 @@ mod tests {
         CustomRole, Ed25519PublicKeyBytes, OperatorBinding, RbacManifest,
     };
     use crate::authz::permission::{OperatorId, TagId, TenantId};
-    use crate::authz::policy::{
-        AuthorizationRequest, PolicyEngine, PolicyEngineError,
-    };
+    use crate::authz::policy::{AuthorizationRequest, PolicyEngine, PolicyEngineError};
     use std::sync::RwLock;
 
     fn canned_tenant() -> TenantId {
@@ -387,13 +440,7 @@ mod tests {
         } else {
             UNIX_EPOCH
         };
-        AuthorizationRequest::new(
-            actor,
-            Permission::ReadTag,
-            tenant,
-            claimed_version,
-            rx_at,
-        )
+        AuthorizationRequest::new(actor, Permission::ReadTag, tenant, claimed_version, rx_at)
     }
 
     #[tokio::test]
@@ -414,9 +461,8 @@ mod tests {
 
     #[tokio::test]
     async fn authorize_denies_on_tenant_mismatch() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         let wrong_tenant = TenantId::new_from_verified([0x99u8; 16]);
         let req = request_read_tag(
             ActorIdentity::Operator(canned_operator()),
@@ -432,9 +478,8 @@ mod tests {
 
     #[tokio::test]
     async fn authorize_denies_on_stale_policy_version() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         // claimed < current (10).
         let req = request_read_tag(
             ActorIdentity::Operator(canned_operator()),
@@ -443,9 +488,10 @@ mod tests {
             1_500_000_000,
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::StalePolicyVersion { claimed, highest_seen },
-            ) => {
+            AuthorizationDecision::Deny(AuthorizationDenyReason::StalePolicyVersion {
+                claimed,
+                highest_seen,
+            }) => {
                 assert_eq!(claimed, 5);
                 assert_eq!(highest_seen, 10);
             }
@@ -455,9 +501,8 @@ mod tests {
 
     #[tokio::test]
     async fn authorize_denies_outside_manifest_validity_window() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         // Before valid_from.
         let req = request_read_tag(
             ActorIdentity::Operator(canned_operator()),
@@ -473,9 +518,8 @@ mod tests {
 
     #[tokio::test]
     async fn authorize_denies_tpi_without_co_approver() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ForceValue,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ForceValue])));
         use std::time::{Duration, UNIX_EPOCH};
         let req = AuthorizationRequest::new(
             ActorIdentity::Operator(canned_operator()),
@@ -485,18 +529,15 @@ mod tests {
             UNIX_EPOCH + Duration::from_secs(1_500_000_000),
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::TwoPersonIntegrityMissing,
-            ) => {}
+            AuthorizationDecision::Deny(AuthorizationDenyReason::TwoPersonIntegrityMissing) => {}
             other => panic!("expected TwoPersonIntegrityMissing, got {:?}", other),
         }
     }
 
     #[tokio::test]
     async fn authorize_denies_machine_issuer_no_binding() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         let req = request_read_tag(
             ActorIdentity::MachineIssuer {
                 subject_cn: "auth-service".into(),
@@ -506,18 +547,15 @@ mod tests {
             1_500_000_000,
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::PermissionNotGranted,
-            ) => {}
+            AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted) => {}
             other => panic!("expected PermissionNotGranted, got {:?}", other),
         }
     }
 
     #[tokio::test]
     async fn authorize_denies_unknown_operator() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         let stranger = OperatorId::new_from_verified([0xDEu8; 16]);
         let req = request_read_tag(
             ActorIdentity::Operator(stranger),
@@ -526,9 +564,7 @@ mod tests {
             1_500_000_000,
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::PermissionNotGranted,
-            ) => {}
+            AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted) => {}
             other => panic!("expected PermissionNotGranted, got {:?}", other),
         }
     }
@@ -537,9 +573,8 @@ mod tests {
     async fn authorize_denies_operator_with_no_matching_permission() {
         // Operator has the "operator" role but that role
         // only has ReadTag, requested WriteTag.
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         use std::time::{Duration, UNIX_EPOCH};
         let req = AuthorizationRequest::new(
             ActorIdentity::Operator(canned_operator()),
@@ -551,9 +586,7 @@ mod tests {
             UNIX_EPOCH + Duration::from_secs(1_500_000_000),
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::PermissionNotGranted,
-            ) => {}
+            AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted) => {}
             other => panic!("expected PermissionNotGranted, got {:?}", other),
         }
     }
@@ -561,20 +594,26 @@ mod tests {
     #[tokio::test]
     async fn authorize_allows_when_role_has_requested_permission() {
         let tag = TagId::new("do_pump".into());
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::WriteTag { tag_id: tag.clone() },
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::WriteTag {
+                tag_id: tag.clone(),
+            }])));
         use std::time::{Duration, UNIX_EPOCH};
         let req = AuthorizationRequest::new(
             ActorIdentity::Operator(canned_operator()),
-            Permission::WriteTag { tag_id: tag.clone() },
+            Permission::WriteTag {
+                tag_id: tag.clone(),
+            },
             canned_tenant(),
             10,
             UNIX_EPOCH + Duration::from_secs(1_500_000_000),
         );
         match engine.authorize(req).await.unwrap() {
             AuthorizationDecision::Allow(ctx) => {
-                assert_eq!(ctx.granted_permission(), &Permission::WriteTag { tag_id: tag });
+                assert_eq!(
+                    ctx.granted_permission(),
+                    &Permission::WriteTag { tag_id: tag }
+                );
                 assert_eq!(ctx.policy_version(), 10);
             }
             other => panic!("expected Allow, got {:?}", other),
@@ -595,15 +634,15 @@ mod tests {
         use std::time::{Duration, UNIX_EPOCH};
         let req = AuthorizationRequest::new(
             ActorIdentity::Operator(canned_operator()),
-            Permission::WriteTag { tag_id: tag.clone() },
+            Permission::WriteTag {
+                tag_id: tag.clone(),
+            },
             canned_tenant(),
             10,
             UNIX_EPOCH + Duration::from_secs(1_500_000_000),
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::PermissionNotGranted,
-            ) => {}
+            AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted) => {}
             other => panic!(
                 "expected PermissionNotGranted for expired role, got {:?}",
                 other
@@ -616,9 +655,8 @@ mod tests {
         let engine_empty = InMemoryPolicyEngine::new(Arc::new(RbacManifestStore::new()));
         assert_eq!(engine_empty.current_policy_version(), 0);
 
-        let engine_loaded = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine_loaded =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         assert_eq!(engine_loaded.current_policy_version(), 10);
     }
 
@@ -627,11 +665,17 @@ mod tests {
         assert!(requires_two_person_integrity(&Permission::ForceValue));
         assert!(requires_two_person_integrity(&Permission::DeployProgram));
         assert!(requires_two_person_integrity(&Permission::SafeStateTrigger));
-        assert!(requires_two_person_integrity(&Permission::ManagePolicy));
         assert!(requires_two_person_integrity(&Permission::UpdateFirmware));
+        assert!(requires_two_person_integrity(&Permission::OpcUaWrite {
+            tag_id: TagId::new("ns=2;s=pump.setpoint".into())
+        }));
+        assert!(requires_two_person_integrity(&Permission::S7Write {
+            address: TagId::new("DB1.DBW0".into())
+        }));
         assert!(!requires_two_person_integrity(&Permission::ReadTag));
         assert!(!requires_two_person_integrity(&Permission::WriteTag {
             tag_id: TagId::new("x".into())
         }));
+        assert!(!requires_two_person_integrity(&Permission::ManagePolicy));
     }
 }

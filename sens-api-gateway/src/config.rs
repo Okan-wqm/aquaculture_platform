@@ -18,15 +18,16 @@ use std::str::FromStr;
 use tracing::{debug, info, warn};
 
 use crate::i2c::I2cDeviceConfig;
+use crate::plc_programming::PlcProgrammingConfig;
 
 // ============================================================================
-// Secret<String> Serialization Helpers (v1.2.2)
+// `Secret<String>` Serialization Helpers (v1.2.2)
 // ============================================================================
 
 /// Prefix used to identify base64-encoded credential fields in config.yaml
 const B64_PREFIX: &str = "b64:";
 
-/// Serialize Option<Secret<String>> — stores the value as base64 to avoid
+/// Serialize `Option<Secret<String>>` — stores the value as base64 to avoid
 /// accidental cleartext credential exposure via grep, diff, or backup tools.
 ///
 /// The `b64:` prefix allows the deserializer to distinguish encoded values
@@ -51,7 +52,7 @@ where
     }
 }
 
-/// Deserialize Option<Secret<String>> — handles both the new `b64:` encoded
+/// Deserialize `Option<Secret<String>>` — handles both the new `b64:` encoded
 /// form and any legacy cleartext values for backward compatibility.
 fn deserialize_secret_option<'de, D>(deserializer: D) -> Result<Option<Secret<String>>, D::Error>
 where
@@ -150,7 +151,7 @@ pub struct AgentConfig {
     /// Human-readable device code (e.g., "RPI-A1B2C3D4")
     pub device_code: String,
 
-    /// Provisioning token — zeroized on drop via Secret<String> (IEC 62443 FR4 / MED-30).
+    /// Provisioning token — zeroized on drop via `Secret<String>` (IEC 62443 FR4 / MED-30).
     /// Cleared from config after successful activation.
     #[serde(
         default,
@@ -381,6 +382,14 @@ pub struct AgentConfig {
     /// agent configs.
     #[serde(default)]
     pub opc_ua_server: OpcUaServerConfig,
+
+    /// PLC programming client connection inventory.
+    ///
+    /// 2026-04-29: Direct MQTT PLC write commands resolve only configured
+    /// connection names from this inventory. They do not accept endpoint URLs,
+    /// ports, usernames, passwords or certificate paths from command payloads.
+    #[serde(default)]
+    pub plc_programming: PlcProgrammingConfig,
 }
 
 /// MQTT TLS configuration (IEC 62443 SL2 FR4: Data Confidentiality)
@@ -416,7 +425,8 @@ impl MqttTlsConfig {
         #[cfg(not(debug_assertions))]
         if self.insecure_skip_verify {
             return Err(crate::error::AgentError::Config(
-                "MQTT TLS insecure_skip_verify is not allowed in release builds (IEC 62443 FR4)".into(),
+                "MQTT TLS insecure_skip_verify is not allowed in release builds (IEC 62443 FR4)"
+                    .into(),
             ));
         }
         Ok(())
@@ -1461,10 +1471,46 @@ pub struct ModbusSecurityConfig {
     /// When non-empty, write_register/write_coil must target an address within
     /// one of these ranges. Prevents a compromised cloud credential from writing
     /// to arbitrary holding registers (pump relays, dosing actuators, VFD frequency).
-    /// Format: [(start, end)] inclusive ranges. Empty = all addresses allowed when
-    /// allow_writes=true (backward compat).
+    /// Format: [(start, end)] inclusive ranges.
     #[serde(default)]
     pub allowed_write_ranges: Vec<(u16, u16)>,
+
+    /// Explicitly allow every write address when allow_writes=true.
+    ///
+    /// 2026-04-29: Empty `allowed_write_ranges` used to mean "all addresses",
+    /// which made broad write authority easy to enable accidentally. This flag
+    /// turns that posture into a named, auditable operator decision.
+    #[serde(default)]
+    pub allow_all_write_addresses: bool,
+
+    /// Verify FC6 register writes by reading the holding register back.
+    ///
+    /// 2026-04-29: A protocol ACK only proves the device accepted the request.
+    /// Readback verifies the physical/logical register reached the requested
+    /// value and catches PLC-side clamps, rejected writes hidden behind ACKs, or
+    /// wrong-address configuration.
+    #[serde(default = "default_modbus_write_readback")]
+    pub verify_write_readback: bool,
+
+    /// Number of extra readback attempts after the first read.
+    #[serde(default = "default_modbus_write_readback_retries")]
+    pub write_readback_retries: u8,
+
+    /// Delay before each readback attempt.
+    #[serde(default = "default_modbus_write_readback_settle_ms")]
+    pub write_readback_settle_ms: u64,
+}
+
+fn default_modbus_write_readback() -> bool {
+    true
+}
+
+fn default_modbus_write_readback_retries() -> u8 {
+    1
+}
+
+fn default_modbus_write_readback_settle_ms() -> u64 {
+    25
 }
 
 impl Default for ModbusSecurityConfig {
@@ -1477,6 +1523,10 @@ impl Default for ModbusSecurityConfig {
             max_register_count: default_max_register_count(),
             allow_writes: false,
             allowed_write_ranges: Vec::new(),
+            allow_all_write_addresses: false,
+            verify_write_readback: default_modbus_write_readback(),
+            write_readback_retries: default_modbus_write_readback_retries(),
+            write_readback_settle_ms: default_modbus_write_readback_settle_ms(),
         }
     }
 }
@@ -2418,8 +2468,7 @@ impl OpcUaServerConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.bind.trim().is_empty() {
             return Err(
-                "opc_ua_server.bind must be a non-empty IP address (e.g. 0.0.0.0)"
-                    .to_string(),
+                "opc_ua_server.bind must be a non-empty IP address (e.g. 0.0.0.0)".to_string(),
             );
         }
         if std::net::IpAddr::from_str(self.bind.trim()).is_err() {
@@ -2429,10 +2478,7 @@ impl OpcUaServerConfig {
             ));
         }
         if self.port == 0 {
-            return Err(
-                "opc_ua_server.port must be non-zero (standard 4840)"
-                    .to_string(),
-            );
+            return Err("opc_ua_server.port must be non-zero (standard 4840)".to_string());
         }
         if self.max_sessions == 0 {
             return Err(
@@ -2456,15 +2502,11 @@ impl OpcUaServerConfig {
             ));
         }
         if self.own_pki_dir.trim().is_empty() {
-            return Err(
-                "opc_ua_server.own_pki_dir must be a non-empty directory path"
-                    .to_string(),
-            );
+            return Err("opc_ua_server.own_pki_dir must be a non-empty directory path".to_string());
         }
         if self.trusted_certs_dir.trim().is_empty() {
             return Err(
-                "opc_ua_server.trusted_certs_dir must be a non-empty directory path"
-                    .to_string(),
+                "opc_ua_server.trusted_certs_dir must be a non-empty directory path".to_string(),
             );
         }
         Ok(())
@@ -3090,7 +3132,9 @@ impl AgentConfig {
     pub fn validate(&self) -> Result<()> {
         // Validate device_id - can be empty if tenant_token is set (self-registration mode)
         if self.device_id.trim().is_empty() && self.tenant_token.is_none() {
-            anyhow::bail!("device_id cannot be empty (unless tenant_token is set for self-registration)");
+            anyhow::bail!(
+                "device_id cannot be empty (unless tenant_token is set for self-registration)"
+            );
         }
 
         // v1.2.5: Validate device_id looks like a UUID format (basic check)
@@ -3112,7 +3156,9 @@ impl AgentConfig {
 
         // Validate device_code - can be empty if tenant_token is set (self-registration mode)
         if self.device_code.trim().is_empty() && self.tenant_token.is_none() {
-            anyhow::bail!("device_code cannot be empty (unless tenant_token is set for self-registration)");
+            anyhow::bail!(
+                "device_code cannot be empty (unless tenant_token is set for self-registration)"
+            );
         }
 
         // Validate API URL format
@@ -3221,6 +3267,40 @@ impl AgentConfig {
             }
         }
 
+        // 2026-04-29 PLC command endpoint inventory validation:
+        // Direct PLC write commands use connection names as stable
+        // authorization/audit targets. Duplicate names would make the command
+        // target ambiguous, so config load fails before any command can run.
+        let mut plc_names = std::collections::HashSet::new();
+        for cfg in &self.plc_programming.opcua {
+            if cfg.name.trim().is_empty() {
+                anyhow::bail!("OPC UA PLC connection name cannot be empty");
+            }
+            if !plc_names.insert(format!("opcua:{}", cfg.name)) {
+                anyhow::bail!("Duplicate OPC UA PLC connection name '{}'", cfg.name);
+            }
+            if cfg.endpoint_url.trim().is_empty() {
+                anyhow::bail!(
+                    "OPC UA PLC connection '{}' endpoint_url cannot be empty",
+                    cfg.name
+                );
+            }
+        }
+        for cfg in &self.plc_programming.s7 {
+            if cfg.name.trim().is_empty() {
+                anyhow::bail!("S7 PLC connection name cannot be empty");
+            }
+            if !plc_names.insert(format!("s7:{}", cfg.name)) {
+                anyhow::bail!("Duplicate S7 PLC connection name '{}'", cfg.name);
+            }
+            if cfg.address.trim().is_empty() {
+                anyhow::bail!("S7 PLC connection '{}' address cannot be empty", cfg.name);
+            }
+            if cfg.port == 0 {
+                anyhow::bail!("S7 PLC connection '{}' port cannot be 0", cfg.name);
+            }
+        }
+
         // Validate Modbus devices
         for device in &self.modbus {
             // Validate slave_id (Modbus uses 1-247, 0 is broadcast)
@@ -3245,6 +3325,46 @@ impl AgentConfig {
             // Validate address is not empty
             if device.address.trim().is_empty() {
                 anyhow::bail!("Modbus device '{}' has empty address", device.name);
+            }
+
+            // 2026-04-29 enterprise Modbus write policy:
+            // Write-enabled devices must either declare bounded address ranges
+            // or explicitly opt into all-address writes. This removes the
+            // legacy accidental "empty whitelist means all registers" posture.
+            if device.security.enabled && device.security.allow_writes {
+                if device.security.allowed_write_ranges.is_empty()
+                    && !device.security.allow_all_write_addresses
+                {
+                    anyhow::bail!(
+                        "Modbus device '{}': allow_writes=true requires non-empty allowed_write_ranges or explicit allow_all_write_addresses=true",
+                        device.name
+                    );
+                }
+
+                let mut ranges = device.security.allowed_write_ranges.clone();
+                ranges.sort_unstable_by_key(|(start, end)| (*start, *end));
+                let mut previous_end: Option<u16> = None;
+                for (start, end) in ranges {
+                    if start > end {
+                        anyhow::bail!(
+                            "Modbus device '{}': invalid allowed_write_ranges entry {}..{} (start must be <= end)",
+                            device.name,
+                            start,
+                            end
+                        );
+                    }
+                    if let Some(prev_end) = previous_end {
+                        if start <= prev_end {
+                            anyhow::bail!(
+                                "Modbus device '{}': overlapping allowed_write_ranges around {}..{}",
+                                device.name,
+                                start,
+                                end
+                            );
+                        }
+                    }
+                    previous_end = Some(end);
+                }
             }
 
             // Validate Modbus TLS configuration (v1.2.0 - IEC 62443 SL2 FR4)
@@ -3343,12 +3463,19 @@ impl AgentConfig {
             );
         }
 
-        // Warn if TLS is disabled in release builds
+        // 2026-04-29 enterprise transport hardening:
+        // MQTT TLS disabled in a release build is a configuration error, not
+        // an operator warning.
+        //
+        // What it solves: the edge command/control channel carries mutating
+        // commands. Release builds must not boot with plaintext MQTT because
+        // that turns a production misconfiguration into a supported runtime
+        // posture.
         #[cfg(not(debug_assertions))]
         if !self.mqtt.tls.enabled {
-            warn!(
-                "MQTT TLS is disabled in a release build. This is insecure for production deployments. \
-                 Set mqtt.tls.enabled: true in config.yaml."
+            anyhow::bail!(
+                "Config coherence: mqtt.tls.enabled=false is not allowed in release builds. \
+                 Enable MQTT TLS for production command/control traffic."
             );
         }
 
@@ -3393,16 +3520,22 @@ impl AgentConfig {
         if let Some(ref lora) = self.lorawan {
             if lora.enabled {
                 // Bolge gecerli mi?
-                let valid_regions = ["EU868", "US915", "CN470", "AU915", "AS923", "KR920", "IN865"];
+                let valid_regions = [
+                    "EU868", "US915", "CN470", "AU915", "AS923", "KR920", "IN865",
+                ];
                 if !valid_regions.contains(&lora.region.to_uppercase().as_str()) {
                     anyhow::bail!(
                         "Gecersiz LoRa bolgesi '{}': gecerli bolgeler: {:?}",
-                        lora.region, valid_regions
+                        lora.region,
+                        valid_regions
                     );
                 }
 
                 // net_id 6 hex karakter mi?
-                let net_id_clean = lora.net_id.trim_start_matches("0x").trim_start_matches("0X");
+                let net_id_clean = lora
+                    .net_id
+                    .trim_start_matches("0x")
+                    .trim_start_matches("0X");
                 if net_id_clean.len() != 6 || !net_id_clean.chars().all(|c| c.is_ascii_hexdigit()) {
                     anyhow::bail!(
                         "LoRa net_id '{}' gecersiz: 6 hex karakter olmali (orn: '000001')",
@@ -3421,21 +3554,29 @@ impl AgentConfig {
                 // Her cihaz config'inde dev_eui, app_eui, app_key format kontrolu
                 for (i, device) in lora.devices.iter().enumerate() {
                     // dev_eui: 16 hex karakter
-                    if device.dev_eui.len() != 16 || !device.dev_eui.chars().all(|c| c.is_ascii_hexdigit()) {
+                    if device.dev_eui.len() != 16
+                        || !device.dev_eui.chars().all(|c| c.is_ascii_hexdigit())
+                    {
                         anyhow::bail!(
                             "LoRa cihaz [{}] dev_eui '{}' gecersiz: 16 hex karakter olmali",
-                            i, device.dev_eui
+                            i,
+                            device.dev_eui
                         );
                     }
                     // app_eui: 16 hex karakter
-                    if device.app_eui.len() != 16 || !device.app_eui.chars().all(|c| c.is_ascii_hexdigit()) {
+                    if device.app_eui.len() != 16
+                        || !device.app_eui.chars().all(|c| c.is_ascii_hexdigit())
+                    {
                         anyhow::bail!(
                             "LoRa cihaz [{}] app_eui '{}' gecersiz: 16 hex karakter olmali",
-                            i, device.app_eui
+                            i,
+                            device.app_eui
                         );
                     }
                     // app_key: 32 hex karakter
-                    if device.app_key.len() != 32 || !device.app_key.chars().all(|c| c.is_ascii_hexdigit()) {
+                    if device.app_key.len() != 32
+                        || !device.app_key.chars().all(|c| c.is_ascii_hexdigit())
+                    {
                         anyhow::bail!(
                             "LoRa cihaz [{}] app_key gecersiz: 32 hex karakter olmali",
                             i
@@ -3537,6 +3678,22 @@ impl AgentConfig {
             );
         }
 
+        // 2026-04-29 enterprise config-integrity hardening:
+        // release builds require enforcing config signature verification.
+        //
+        // What it solves: Disabled/Permissive modes are rollout tools. Leaving
+        // them production-compatible would let config tamper or rollback become
+        // log-only behavior on the same device that accepts signed mutating
+        // commands.
+        #[cfg(not(debug_assertions))]
+        if !matches!(self.config_integrity.mode, ConfigIntegrityMode::Enforcing) {
+            anyhow::bail!(
+                "Config coherence: config_integrity.mode={:?} is not allowed in release builds. \
+                 Set config_integrity.mode=enforcing for production.",
+                self.config_integrity.mode
+            );
+        }
+
         // Rule 5: factory_pubkey_hex if present MUST be a
         // 64-char lowercase hex string (32 bytes ed25519
         // public key). Prevents operator typos from getting
@@ -3620,6 +3777,24 @@ impl AgentConfig {
             );
         }
 
+        // 2026-04-29 enterprise command-signature hardening:
+        // release builds require fully enforcing command signatures.
+        //
+        // What it solves: RBAC dispatch authorization depends on verified
+        // actor evidence from the signed envelope. Disabled/Permissive modes
+        // are rollout tools and must not become production posture.
+        #[cfg(not(debug_assertions))]
+        if !matches!(
+            self.signature_mode,
+            crate::command_envelope::envelope::SignatureMode::Enforcing
+        ) {
+            anyhow::bail!(
+                "Config coherence: signature_mode={:?} is not allowed in release builds. \
+                 Set signature_mode=enforcing for production command authorization.",
+                self.signature_mode
+            );
+        }
+
         // Rule 11 (Batch 58): envelope_dedup.moka_ttl_secs
         // must be in the sane range [30, 3600]. Below 30s:
         // TTL shorter than MQTT broker redelivery window,
@@ -3627,9 +3802,7 @@ impl AgentConfig {
         // the SQLCipher tier's territory (Sprint 6.4 covers
         // 72-hour window) — operator likely confused about
         // which tier is which.
-        if self.envelope_dedup.moka_ttl_secs < 30
-            || self.envelope_dedup.moka_ttl_secs > 3600
-        {
+        if self.envelope_dedup.moka_ttl_secs < 30 || self.envelope_dedup.moka_ttl_secs > 3600 {
             anyhow::bail!(
                 "Config coherence: envelope_dedup.moka_ttl_secs ({}) must be in [30, 3600] seconds — hot-window tier bounds",
                 self.envelope_dedup.moka_ttl_secs
@@ -3647,6 +3820,22 @@ impl AgentConfig {
         {
             anyhow::bail!(
                 "Config coherence: rbac_manifest.mode={:?} requires rbac_manifest.manifest_signing_pubkey_hex (pre-Sprint-6.1 firmware key bundle). Set manifest_signing_pubkey_hex to a 64-char hex string OR set mode=disabled",
+                self.rbac_manifest.mode
+            );
+        }
+
+        // 2026-04-29 enterprise authorization hardening:
+        // release builds require RBAC manifest enforcing mode.
+        //
+        // What it solves: command dispatch now depends on policy-engine
+        // authorization. Allowing a production binary to run with
+        // rbac_manifest disabled/permissive would reduce the dispatch gate to
+        // compatibility behavior instead of enterprise access control.
+        #[cfg(not(debug_assertions))]
+        if !matches!(self.rbac_manifest.mode, RbacManifestMode::Enforcing) {
+            anyhow::bail!(
+                "Config coherence: rbac_manifest.mode={:?} is not allowed in release builds. \
+                 Set rbac_manifest.mode=enforcing for production command authorization.",
                 self.rbac_manifest.mode
             );
         }
@@ -3687,7 +3876,11 @@ impl AgentConfig {
                      provide a valid filesystem path."
                 );
             }
-            if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
+            if path
+                .parent()
+                .map(|p| p.as_os_str().is_empty())
+                .unwrap_or(true)
+            {
                 anyhow::bail!(
                     "Config coherence: rbac_manifest.version_store_path={} has no parent directory. \
                      Provide an absolute path with a parent dir (e.g. /var/lib/suderra/rbac_version.sqlite).",
@@ -3713,6 +3906,40 @@ impl AgentConfig {
             );
         }
 
+        // 2026-04-29 enterprise audit hardening:
+        // release builds must not run with audit disabled.
+        //
+        // What it solves: mutating command authorization and OPC UA writes are
+        // only reviewable when the HMAC-chained audit sink exists. Keeping
+        // audit.mode=Disabled production-compatible creates a forensic blind
+        // spot, so Disabled remains a debug/rollout-only mode.
+        #[cfg(not(debug_assertions))]
+        if matches!(self.audit.mode, AuditMode::Disabled) {
+            anyhow::bail!(
+                "Config coherence: audit.mode=disabled is not allowed in release builds. \
+                 Set audit.mode=enabled with a keystore-derived or configured HMAC key."
+            );
+        }
+
+        // 2026-04-29 enterprise keystore hardening:
+        // release builds must use an explicit keystore backend.
+        //
+        // What it solves: KeystoreMode::Auto currently falls back to
+        // FileBacked until TPM/systemd-creds probing is fully wired. Production
+        // must not silently downgrade from the label "Auto" to a weaker
+        // backend; operators must choose FileBacked explicitly with an
+        // acceptance token until TPM/systemd modes are first-class config
+        // variants.
+        #[cfg(not(debug_assertions))]
+        if !matches!(self.keystore.mode, KeystoreMode::FileBacked) {
+            anyhow::bail!(
+                "Config coherence: keystore.mode={:?} is not allowed in release builds. \
+                 Use keystore.mode=file_backed with a valid acceptance token until TPM/systemd-creds \
+                 are first-class production modes.",
+                self.keystore.mode
+            );
+        }
+
         // Rule 16 (Batch 78): audit.hmac_key_hex if present
         // MUST be 64-char lowercase hex. Matches Rule 13
         // discipline for manifest_signing_pubkey_hex.
@@ -3724,9 +3951,7 @@ impl AgentConfig {
                 );
             }
             if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-                anyhow::bail!(
-                    "Config coherence: audit.hmac_key_hex contains non-hex characters"
-                );
+                anyhow::bail!("Config coherence: audit.hmac_key_hex contains non-hex characters");
             }
         }
 
@@ -3741,7 +3966,11 @@ impl AgentConfig {
                      provide a valid filesystem path."
                 );
             }
-            if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
+            if path
+                .parent()
+                .map(|p| p.as_os_str().is_empty())
+                .unwrap_or(true)
+            {
                 anyhow::bail!(
                     "Config coherence: audit.log_path={} has no parent directory. \
                      Provide an absolute path with a parent dir.",
@@ -3774,9 +4003,7 @@ impl AgentConfig {
                 );
             }
             if self.keystore.argon2_parallelism == 0 {
-                anyhow::bail!(
-                    "Config coherence: keystore.argon2_parallelism must be >= 1, got 0."
-                );
+                anyhow::bail!("Config coherence: keystore.argon2_parallelism must be >= 1, got 0.");
             }
         }
 
@@ -3851,7 +4078,8 @@ impl AgentConfig {
                  AND slot_b_mount set, or BOTH unset. Half-configured A/B mounts \
                  (slot_a_mount.is_some={}, slot_b_mount.is_some={}) would leave \
                  cmd_apply_signed_manifest unable to determine the target standby slot.",
-                a_set, b_set
+                a_set,
+                b_set
             );
         }
 
@@ -3958,21 +4186,31 @@ impl AgentConfig {
                 .truncate(true)
                 .mode(0o600)
                 .open(&tmp_path)
-                .with_context(|| format!("Failed to create temp config file: {}", tmp_path.display()))?;
-            std::io::Write::write_all(&mut file, content.as_bytes())
-                .with_context(|| format!("Failed to write temp config file: {}", tmp_path.display()))?;
-            file.sync_all()
-                .with_context(|| format!("Failed to sync temp config file: {}", tmp_path.display()))?;
+                .with_context(|| {
+                    format!("Failed to create temp config file: {}", tmp_path.display())
+                })?;
+            std::io::Write::write_all(&mut file, content.as_bytes()).with_context(|| {
+                format!("Failed to write temp config file: {}", tmp_path.display())
+            })?;
+            file.sync_all().with_context(|| {
+                format!("Failed to sync temp config file: {}", tmp_path.display())
+            })?;
         }
 
         #[cfg(not(unix))]
         {
-            fs::write(&tmp_path, &content)
-                .with_context(|| format!("Failed to write temp config file: {}", tmp_path.display()))?;
+            fs::write(&tmp_path, &content).with_context(|| {
+                format!("Failed to write temp config file: {}", tmp_path.display())
+            })?;
         }
 
-        fs::rename(&tmp_path, &path)
-            .with_context(|| format!("Failed to rename config file: {} -> {}", tmp_path.display(), path.display()))?;
+        fs::rename(&tmp_path, &path).with_context(|| {
+            format!(
+                "Failed to rename config file: {} -> {}",
+                tmp_path.display(),
+                path.display()
+            )
+        })?;
 
         info!("Configuration saved to {}", path.display());
         Ok(())
@@ -4065,10 +4303,7 @@ tasks:
         assert_eq!(cfg.tasks[0].name, "safety_alarms");
         assert_eq!(cfg.tasks[0].slo_tier, SloTier::SafetyCritical);
         assert_eq!(cfg.tasks[0].programs, vec!["o2_guard", "ph_guard"]);
-        assert_eq!(
-            cfg.tasks[0].kind,
-            TaskKind::Cyclic { period_ms: 500 }
-        );
+        assert_eq!(cfg.tasks[0].kind, TaskKind::Cyclic { period_ms: 500 });
 
         assert_eq!(cfg.tasks[1].name, "feed_schedule");
         assert_eq!(cfg.tasks[1].slo_tier, SloTier::Routine);
@@ -4287,8 +4522,8 @@ modbus: []
 gpio: []
 "#;
 
-        let config: AgentConfig = serde_yaml::from_str(yaml)
-            .expect("Failed to parse installer-generated config");
+        let config: AgentConfig =
+            serde_yaml::from_str(yaml).expect("Failed to parse installer-generated config");
 
         assert_eq!(config.device_id, "fd23af6b-167f-4afd-a62a-ceace2a4046b");
         assert_eq!(config.device_code, "PI-32F7A01B");
@@ -4388,8 +4623,14 @@ slot_a_mount: /mnt/slot-a
 slot_b_mount: /mnt/slot-b
 "#;
         let c: AbPartitionMountConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(c.slot_a_mount, Some(std::path::PathBuf::from("/mnt/slot-a")));
-        assert_eq!(c.slot_b_mount, Some(std::path::PathBuf::from("/mnt/slot-b")));
+        assert_eq!(
+            c.slot_a_mount,
+            Some(std::path::PathBuf::from("/mnt/slot-a"))
+        );
+        assert_eq!(
+            c.slot_b_mount,
+            Some(std::path::PathBuf::from("/mnt/slot-b"))
+        );
         assert!(c.is_fully_configured());
     }
 

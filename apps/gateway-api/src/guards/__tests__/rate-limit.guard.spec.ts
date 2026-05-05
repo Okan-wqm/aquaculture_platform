@@ -66,6 +66,11 @@ describe('RateLimitGuard', () => {
       ip,
       user,
       path,
+      // The guard reads `request.url` for endpoint-prefix bucket
+      // detection (rate-limit.guard.ts:396) — mirror the path so
+      // bucket-classification tests work consistently with the
+      // existing limit-enforcement tests.
+      url: path,
       method,
       headers,
       params: {},
@@ -285,6 +290,84 @@ describe('RateLimitGuard', () => {
       }
 
       expect(() => guard.canActivate(context)).toThrow();
+    });
+  });
+
+  /**
+   * SECREV-LOW-001 — endpoint-prefix substring collision regression.
+   *
+   * Pre-cure used `url.endsWith('/auth/login')` /
+   * `url.includes('/upload')` so an attacker could forge URLs
+   * containing 'upload' or '/auth/login' suffixes to share
+   * rate-limit buckets with legitimate users. Cure exact-matches
+   * against an explicit allow-list of canonical paths.
+   *
+   * The specs probe `generateKey` indirectly via
+   * `getRateLimitInfo` (private) — we use the public
+   * `canActivate` path and observe the bucket via the response
+   * headers' rate-limit reset / remaining values which are
+   * keyed.
+   */
+  describe('SECREV-LOW-001 endpoint-prefix exact-match', () => {
+    /**
+     * Helper that probes the bucket key directly via the
+     * private generateKey. We bracket-cast to access the
+     * private; cleaner than asserting on response headers
+     * which involve a pile of orthogonal book-keeping.
+     */
+    const generateKey = (
+      ip: string,
+      user: Record<string, unknown> | null,
+      path: string,
+    ): string => {
+      const fakeReq = { ip, user, url: path } as unknown as Parameters<
+        (typeof guard)['generateKey']
+      >[0];
+      return (guard as unknown as {
+        generateKey: (r: unknown) => string;
+      }).generateKey(fakeReq);
+    };
+
+    it('exact-matches /api/auth/login → login bucket', () => {
+      expect(generateKey('1.1.1.1', null, '/api/auth/login')).toContain(
+        ':login:',
+      );
+    });
+
+    it('exact-matches /auth/login (no /api prefix) → login bucket', () => {
+      expect(generateKey('1.1.1.1', null, '/auth/login')).toContain(':login:');
+    });
+
+    it('does NOT bucket /api/auth/login/foo as login (404 + suffix attack)', () => {
+      const key = generateKey('1.1.1.1', null, '/api/auth/login/foo');
+      expect(key).not.toContain(':login:');
+      expect(key).toContain(':default:');
+    });
+
+    it('does NOT bucket /api/v2/wrap/upload-something as upload (substring-attack)', () => {
+      const key = generateKey('1.1.1.1', null, '/api/v2/wrap/upload-something');
+      expect(key).not.toContain(':upload:');
+      expect(key).toContain(':default:');
+    });
+
+    it('strips query-string + trailing slash before exact-match', () => {
+      // /api/auth/login?next=/foo → still login bucket
+      expect(
+        generateKey('1.1.1.1', null, '/api/auth/login?next=/foo'),
+      ).toContain(':login:');
+      // /api/auth/login/ (trailing slash) → still login bucket
+      expect(generateKey('1.1.1.1', null, '/api/auth/login/')).toContain(
+        ':login:',
+      );
+    });
+
+    it('canonical /api/files/upload → upload bucket; suffix variants do not', () => {
+      expect(generateKey('1.1.1.1', null, '/api/files/upload')).toContain(
+        ':upload:',
+      );
+      expect(
+        generateKey('1.1.1.1', null, '/api/files/upload-extra'),
+      ).toContain(':default:');
     });
   });
 

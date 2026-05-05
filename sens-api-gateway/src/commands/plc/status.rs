@@ -44,13 +44,15 @@ use std::time::Duration;
 use tracing::{error, info};
 
 use crate::plc_programming::{
-    AdsClient, CodesysClient, EtherNetIpClient, OpcUaClient, PlcProgram, PlcProgrammer,
-    S7Client,
+    AdsClient, CodesysClient, EtherNetIpClient, OpcUaClient, PlcProgram, PlcProgrammer, S7Client,
 };
 
 impl super::super::CommandHandler {
     /// Get PLC status
-    pub(in crate::commands) async fn cmd_plc_status(&self, params: &Value) -> (bool, Value, Option<String>) {
+    pub(in crate::commands) async fn cmd_plc_status(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing plc_status command");
 
         let protocol = match params.get("protocol").and_then(|v| v.as_str()) {
@@ -210,5 +212,4 @@ impl super::super::CommandHandler {
         let _ = client.disconnect().await;
         status
     }
-
 }

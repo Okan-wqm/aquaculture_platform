@@ -111,9 +111,8 @@ mod tests {
     fn rejects_device_mismatch() {
         let m = canned_meta(5);
         let s = signed(m);
-        let err =
-            verify_config_integrity(&s, &other_device(), 4, &config_sha256(), |_, _| true)
-                .expect_err("device");
+        let err = verify_config_integrity(&s, &other_device(), 4, &config_sha256(), |_, _| true)
+            .expect_err("device");
         assert_eq!(err, ConfigIntegrityError::DeviceMismatch);
     }
 
@@ -125,7 +124,10 @@ mod tests {
             .expect_err("equal version");
         assert_eq!(
             err,
-            ConfigIntegrityError::StaleConfigVersion { claimed: 5, highest_seen: 5 }
+            ConfigIntegrityError::StaleConfigVersion {
+                claimed: 5,
+                highest_seen: 5
+            }
         );
     }
 
@@ -137,7 +139,10 @@ mod tests {
             .expect_err("lower version");
         assert_eq!(
             err,
-            ConfigIntegrityError::StaleConfigVersion { claimed: 3, highest_seen: 10 }
+            ConfigIntegrityError::StaleConfigVersion {
+                claimed: 3,
+                highest_seen: 10
+            }
         );
     }
 
@@ -146,8 +151,8 @@ mod tests {
         let m = canned_meta(5);
         let s = signed(m);
         let wrong = Sha256Digest::from_bytes([0xffu8; 32]);
-        let err = verify_config_integrity(&s, &device(), 4, &wrong, |_, _| true)
-            .expect_err("digest");
+        let err =
+            verify_config_integrity(&s, &device(), 4, &wrong, |_, _| true).expect_err("digest");
         assert_eq!(err, ConfigIntegrityError::ConfigDigestMismatch);
     }
 
@@ -167,7 +172,10 @@ mod tests {
         let s = signed(m);
         let err = verify_config_integrity(&s, &device(), 4, &config_sha256(), |_, _| true)
             .expect_err("empty tag");
-        assert!(matches!(err, ConfigIntegrityError::CanonicalBytesFailure(_)));
+        assert!(matches!(
+            err,
+            ConfigIntegrityError::CanonicalBytesFailure(_)
+        ));
     }
 
     #[test]
@@ -196,7 +204,10 @@ mod tests {
         })
         .expect_err("device");
         assert_eq!(err, ConfigIntegrityError::DeviceMismatch);
-        assert!(!verify_called, "signature verify must not run after device mismatch");
+        assert!(
+            !verify_called,
+            "signature verify must not run after device mismatch"
+        );
     }
 
     /// WHY: Gate ordering check — digest mismatch fires BEFORE signature
@@ -213,6 +224,9 @@ mod tests {
         })
         .expect_err("digest");
         assert_eq!(err, ConfigIntegrityError::ConfigDigestMismatch);
-        assert!(!verify_called, "signature verify must not run after digest mismatch");
+        assert!(
+            !verify_called,
+            "signature verify must not run after digest mismatch"
+        );
     }
 }

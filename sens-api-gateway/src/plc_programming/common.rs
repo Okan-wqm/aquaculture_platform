@@ -2,8 +2,8 @@
 //!
 //! Shared functionality across all PLC programming implementations.
 
-use anyhow::{Result, anyhow};
 use super::{PlcDataType, PlcVariableValue, VariableScope};
+use anyhow::{Result, anyhow};
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{info, warn};
@@ -115,7 +115,11 @@ pub fn parse_st_variables(source: &str) -> Vec<ParsedStVariable> {
                     let after_assign = &rest[assign_pos + 2..];
                     let val_end = after_assign.find(';').unwrap_or(after_assign.len());
                     let val = after_assign[..val_end].trim();
-                    if val.is_empty() { None } else { Some(val.to_string()) }
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val.to_string())
+                    }
                 } else {
                     None
                 };
@@ -159,64 +163,98 @@ pub fn variable_value_to_bytes(value: &PlcVariableValue) -> Vec<u8> {
 pub fn bytes_to_variable_value(bytes: &[u8], data_type: &PlcDataType) -> Result<PlcVariableValue> {
     match data_type {
         PlcDataType::Bool => {
-            if bytes.is_empty() { return Err(anyhow!("Not enough bytes for BOOL")); }
+            if bytes.is_empty() {
+                return Err(anyhow!("Not enough bytes for BOOL"));
+            }
             Ok(PlcVariableValue::Bool(bytes[0] != 0))
         }
-        PlcDataType::Sint | PlcDataType::Byte => {
-            if bytes.is_empty() { return Err(anyhow!("Not enough bytes for SINT")); }
+        // 2026-04-29 PLC readback correctness:
+        // Keep signed IEC types and unsigned WORD/BYTE/DWORD/LWORD types distinct
+        // so write-command readback comparison does not reinterpret values above
+        // signed max as negative numbers.
+        PlcDataType::Sint => {
+            if bytes.is_empty() {
+                return Err(anyhow!("Not enough bytes for SINT"));
+            }
             Ok(PlcVariableValue::Sint(bytes[0] as i8))
         }
-        PlcDataType::Int | PlcDataType::Word => {
-            if bytes.len() < 2 { return Err(anyhow!("Not enough bytes for INT")); }
-            Ok(PlcVariableValue::Int(i16::from_le_bytes([bytes[0], bytes[1]])))
-        }
-        PlcDataType::Dint | PlcDataType::Dword | PlcDataType::Time => {
-            if bytes.len() < 4 { return Err(anyhow!("Not enough bytes for DINT")); }
-            Ok(PlcVariableValue::Dint(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])))
-        }
-        PlcDataType::Lint | PlcDataType::Lword => {
-            if bytes.len() < 8 { return Err(anyhow!("Not enough bytes for LINT")); }
-            Ok(PlcVariableValue::Lint(i64::from_le_bytes([
-                bytes[0], bytes[1], bytes[2], bytes[3],
-                bytes[4], bytes[5], bytes[6], bytes[7],
+        PlcDataType::Int => {
+            if bytes.len() < 2 {
+                return Err(anyhow!("Not enough bytes for INT"));
+            }
+            Ok(PlcVariableValue::Int(i16::from_le_bytes([
+                bytes[0], bytes[1],
             ])))
         }
-        PlcDataType::Usint => {
-            if bytes.is_empty() { return Err(anyhow!("Not enough bytes for USINT")); }
+        PlcDataType::Dint | PlcDataType::Time => {
+            if bytes.len() < 4 {
+                return Err(anyhow!("Not enough bytes for DINT"));
+            }
+            Ok(PlcVariableValue::Dint(i32::from_le_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3],
+            ])))
+        }
+        PlcDataType::Lint => {
+            if bytes.len() < 8 {
+                return Err(anyhow!("Not enough bytes for LINT"));
+            }
+            Ok(PlcVariableValue::Lint(i64::from_le_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            ])))
+        }
+        PlcDataType::Usint | PlcDataType::Byte => {
+            if bytes.is_empty() {
+                return Err(anyhow!("Not enough bytes for USINT"));
+            }
             Ok(PlcVariableValue::Usint(bytes[0]))
         }
-        PlcDataType::Uint => {
-            if bytes.len() < 2 { return Err(anyhow!("Not enough bytes for UINT")); }
-            Ok(PlcVariableValue::Uint(u16::from_le_bytes([bytes[0], bytes[1]])))
+        PlcDataType::Uint | PlcDataType::Word => {
+            if bytes.len() < 2 {
+                return Err(anyhow!("Not enough bytes for UINT"));
+            }
+            Ok(PlcVariableValue::Uint(u16::from_le_bytes([
+                bytes[0], bytes[1],
+            ])))
         }
-        PlcDataType::Udint => {
-            if bytes.len() < 4 { return Err(anyhow!("Not enough bytes for UDINT")); }
-            Ok(PlcVariableValue::Udint(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])))
-        }
-        PlcDataType::Ulint => {
-            if bytes.len() < 8 { return Err(anyhow!("Not enough bytes for ULINT")); }
-            Ok(PlcVariableValue::Ulint(u64::from_le_bytes([
+        PlcDataType::Udint | PlcDataType::Dword => {
+            if bytes.len() < 4 {
+                return Err(anyhow!("Not enough bytes for UDINT"));
+            }
+            Ok(PlcVariableValue::Udint(u32::from_le_bytes([
                 bytes[0], bytes[1], bytes[2], bytes[3],
-                bytes[4], bytes[5], bytes[6], bytes[7],
+            ])))
+        }
+        PlcDataType::Ulint | PlcDataType::Lword => {
+            if bytes.len() < 8 {
+                return Err(anyhow!("Not enough bytes for ULINT"));
+            }
+            Ok(PlcVariableValue::Ulint(u64::from_le_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
             ])))
         }
         PlcDataType::Real => {
-            if bytes.len() < 4 { return Err(anyhow!("Not enough bytes for REAL")); }
-            Ok(PlcVariableValue::Real(f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])))
-        }
-        PlcDataType::Lreal => {
-            if bytes.len() < 8 { return Err(anyhow!("Not enough bytes for LREAL")); }
-            Ok(PlcVariableValue::Lreal(f64::from_le_bytes([
+            if bytes.len() < 4 {
+                return Err(anyhow!("Not enough bytes for REAL"));
+            }
+            Ok(PlcVariableValue::Real(f32::from_le_bytes([
                 bytes[0], bytes[1], bytes[2], bytes[3],
-                bytes[4], bytes[5], bytes[6], bytes[7],
             ])))
         }
-        PlcDataType::String => {
-            Ok(PlcVariableValue::String(String::from_utf8_lossy(bytes).to_string()))
+        PlcDataType::Lreal => {
+            if bytes.len() < 8 {
+                return Err(anyhow!("Not enough bytes for LREAL"));
+            }
+            Ok(PlcVariableValue::Lreal(f64::from_le_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            ])))
         }
+        PlcDataType::String => Ok(PlcVariableValue::String(
+            String::from_utf8_lossy(bytes).to_string(),
+        )),
         PlcDataType::Wstring => {
             // UTF-16 LE decoding
-            let chars: Vec<u16> = bytes.chunks(2)
+            let chars: Vec<u16> = bytes
+                .chunks(2)
                 .filter(|c| c.len() == 2)
                 .map(|c| u16::from_le_bytes([c[0], c[1]]))
                 .collect();
@@ -444,7 +482,10 @@ mod tests {
             (PlcVariableValue::Udint(3000000000), PlcDataType::Udint),
             (PlcVariableValue::Ulint(10000000000), PlcDataType::Ulint),
             (PlcVariableValue::Real(3.14), PlcDataType::Real),
-            (PlcVariableValue::Lreal(3.14159265358979), PlcDataType::Lreal),
+            (
+                PlcVariableValue::Lreal(3.14159265358979),
+                PlcDataType::Lreal,
+            ),
         ];
 
         for (value, dt) in &test_cases {

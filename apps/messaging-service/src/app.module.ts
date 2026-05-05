@@ -32,7 +32,8 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, createMigrationRunnerService, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { RolesGuard, TenantGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { ThrottlerModule, ThrottlerGuard, SlidingWindowStrategy } from '@aquaculture/backend-common/security';
 
 // Tenant infrastructure — 'messaging' source schema for template tables
@@ -102,7 +103,8 @@ import { AddTenantIdToMessageChildren1782300000000 } from './migrations/17823000
 // via TenantRlsSyncService (wired by RlsModule.forPoolService syncTenantSchemas: true).
 import { EnableRowLevelSecurity1782400000000 } from './migrations/1782400000000-EnableRowLevelSecurity';
 import { AlignMessagingEntityDrift1782600000000 } from './migrations/1782600000000-AlignMessagingEntityDrift';
-import { AlignAiConsentColumns1782700000000 } from './migrations/1782700000000-AlignAiConsentColumns';
+import { AddLegalHoldDualApprover1782700000000 } from './migrations/1782700000000-AddLegalHoldDualApprover';
+import { AddMessageAttachmentIsDeletedIndex1782800000000 } from './migrations/1782800000000-AddMessageAttachmentIsDeletedIndex';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -187,7 +189,8 @@ const complexityCache = new Map<string, number>();
             AddTenantIdToMessageChildren1782300000000,
             EnableRowLevelSecurity1782400000000,
             AlignMessagingEntityDrift1782600000000,
-            AlignAiConsentColumns1782700000000,
+            AddLegalHoldDualApprover1782700000000,
+            AddMessageAttachmentIsDeletedIndex1782800000000,
           ],
         }),
     }),
@@ -267,6 +270,8 @@ const complexityCache = new Map<string, number>();
 
     // CQRS for command/query separation
     CqrsModule.forRoot(),
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    AuditedOperationModule.forRoot(),
 
     // Scheduled tasks (partition manager, outbox cleanup)
     ScheduleModule.forRoot(),
@@ -365,6 +370,8 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep — strip forged internal headers.
+        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware,
         UserContextMiddleware,

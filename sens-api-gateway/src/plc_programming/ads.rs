@@ -30,8 +30,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 // WHY: tokio::sync::Mutex — held across .await (ADS/AMS TCP read/write is async I/O)
-use tokio::sync::Mutex;
 use std::time::Duration;
+use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
@@ -251,12 +251,23 @@ impl AmsNetId {
         // Parse IPv4 address and append .1.1
         let parts: Vec<&str> = ip.split('.').collect();
         if parts.len() != 4 {
-            return Err(anyhow!("Invalid IPv4 address for AMS Net ID derivation: {}", ip));
+            return Err(anyhow!(
+                "Invalid IPv4 address for AMS Net ID derivation: {}",
+                ip
+            ));
         }
-        let a: u8 = parts[0].parse().map_err(|_| anyhow!("Invalid IP octet: {}", parts[0]))?;
-        let b: u8 = parts[1].parse().map_err(|_| anyhow!("Invalid IP octet: {}", parts[1]))?;
-        let c: u8 = parts[2].parse().map_err(|_| anyhow!("Invalid IP octet: {}", parts[2]))?;
-        let d: u8 = parts[3].parse().map_err(|_| anyhow!("Invalid IP octet: {}", parts[3]))?;
+        let a: u8 = parts[0]
+            .parse()
+            .map_err(|_| anyhow!("Invalid IP octet: {}", parts[0]))?;
+        let b: u8 = parts[1]
+            .parse()
+            .map_err(|_| anyhow!("Invalid IP octet: {}", parts[1]))?;
+        let c: u8 = parts[2]
+            .parse()
+            .map_err(|_| anyhow!("Invalid IP octet: {}", parts[2]))?;
+        let d: u8 = parts[3]
+            .parse()
+            .map_err(|_| anyhow!("Invalid IP octet: {}", parts[3]))?;
         Ok(Self::new(a, b, c, d, 1, 1))
     }
 
@@ -388,8 +399,7 @@ impl AdsClient {
             AmsNetId::parse(s)?
         } else {
             // Derive from target IP address, fall back to hardcoded local
-            AmsNetId::derive_from_ip(&config.address)
-                .unwrap_or_else(|_| AmsNetId::local())
+            AmsNetId::derive_from_ip(&config.address).unwrap_or_else(|_| AmsNetId::local())
         };
 
         Ok(Self {
@@ -595,7 +605,10 @@ impl AdsClient {
         }
         let result = u32::from_le_bytes([response[0], response[1], response[2], response[3]]);
         if result != 0 {
-            return Err(anyhow!("Get symbol handle failed: {}", ads_error_message(result)));
+            return Err(anyhow!(
+                "Get symbol handle failed: {}",
+                ads_error_message(result)
+            ));
         }
         let handle = u32::from_le_bytes([response[8], response[9], response[10], response[11]]);
         Ok(handle)
@@ -616,9 +629,13 @@ impl AdsClient {
         }
         let result = u32::from_le_bytes([response[0], response[1], response[2], response[3]]);
         if result != 0 {
-            return Err(anyhow!("Read by handle failed: {}", ads_error_message(result)));
+            return Err(anyhow!(
+                "Read by handle failed: {}",
+                ads_error_message(result)
+            ));
         }
-        let length = u32::from_le_bytes([response[4], response[5], response[6], response[7]]) as usize;
+        let length =
+            u32::from_le_bytes([response[4], response[5], response[6], response[7]]) as usize;
         if response.len() < 8 + length {
             return Err(anyhow!("Read-by-handle response data truncated"));
         }
@@ -638,7 +655,10 @@ impl AdsClient {
         if response.len() >= 4 {
             let result = u32::from_le_bytes([response[0], response[1], response[2], response[3]]);
             if result != 0 {
-                return Err(anyhow!("Write by handle failed: {}", ads_error_message(result)));
+                return Err(anyhow!(
+                    "Write by handle failed: {}",
+                    ads_error_message(result)
+                ));
             }
         }
         Ok(())
@@ -657,7 +677,10 @@ impl AdsClient {
         if response.len() >= 4 {
             let result = u32::from_le_bytes([response[0], response[1], response[2], response[3]]);
             if result != 0 {
-                debug!("Release symbol handle warning: {}", ads_error_message(result));
+                debug!(
+                    "Release symbol handle warning: {}",
+                    ads_error_message(result)
+                );
             }
         }
         Ok(())
@@ -893,7 +916,12 @@ impl PlcProgrammer for AdsClient {
         })
     }
 
-    async fn read_variable(&self, address: &str, _data_type: &super::PlcDataType, count: u16) -> Result<Vec<u8>> {
+    async fn read_variable(
+        &self,
+        address: &str,
+        _data_type: &super::PlcDataType,
+        count: u16,
+    ) -> Result<Vec<u8>> {
         // Symbolic access: get handle → read → release
         let handle = self.get_symbol_handle(address).await?;
         let read_len = if count == 0 { 4 } else { count as u32 }; // Default to 4 bytes
@@ -903,7 +931,12 @@ impl PlcProgrammer for AdsClient {
         result
     }
 
-    async fn write_variable(&self, address: &str, _data_type: &super::PlcDataType, data: &[u8]) -> Result<()> {
+    async fn write_variable(
+        &self,
+        address: &str,
+        _data_type: &super::PlcDataType,
+        data: &[u8],
+    ) -> Result<()> {
         // Symbolic access: get handle → write → release
         let handle = self.get_symbol_handle(address).await?;
         let result = self.write_by_handle(handle, data).await;

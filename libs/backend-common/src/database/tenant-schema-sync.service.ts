@@ -2,26 +2,91 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { MODULE_SCHEMAS } from './schema-manager.service';
 import { listTenantSchemas } from './tenant-schema.utils';
+import { validateSqlIdentifier } from './sql-identifier.util';
 
 export interface SyncReport {
-  tablesCreated: number;
-  columnsAdded: number;
+  /**
+   * Number of tables present in the source schema but missing in a tenant
+   * schema. The detector NEVER creates them — operators must author a
+   * tenant fan-out migration.
+   */
+  tablesMissing: number;
+  /**
+   * Number of columns present on a source-schema table but missing from
+   * the same table in a tenant schema. The detector NEVER adds them —
+   * operators must author a tenant fan-out migration.
+   */
+  columnsMissing: number;
+  /**
+   * Detailed per-(tenant,table) drift entries — fed to logs + metrics so
+   * operators can act before a request hits the missing column path.
+   */
+  drift: Array<{
+    tenantSchema: string;
+    table: string;
+    kind: 'table-missing' | 'column-missing';
+    column?: string;
+  }>;
   errors: string[];
 }
 
 /**
- * Synchronizes all tenant schemas with their source schemas at application bootstrap.
+ * TenantSchemaSyncService — DRIFT DETECTOR (read-only)
+ * ============================================================================
  *
- * Runs AFTER SourceSchemaBootstrapService (which uses OnModuleInit) because
- * OnApplicationBootstrap fires after all OnModuleInit hooks complete.
+ * # Why this service exists in this shape
  *
- * For each tenant schema, this service:
- * - Creates missing tables (via CREATE TABLE ... LIKE source INCLUDING ALL)
- * - Adds missing columns to existing tables (via ALTER TABLE ADD COLUMN)
+ * Pre-2026-04-28 this service ran `CREATE TABLE ... LIKE source INCLUDING ALL`
+ * and `ALTER TABLE ... ADD COLUMN ...` from `OnApplicationBootstrap` for every
+ * tenant schema where source-schema entities had drifted past tenant tables.
+ * Two compounding architectural defects:
  *
- * This ensures that when new tables or columns are added to a module's entities,
- * existing tenant schemas are automatically brought up to date without requiring
- * manual migration scripts.
+ *   1. ADR-011 + ADR-012 violation — DDL was applied OUTSIDE the migration
+ *      ledger. No version row was written, no rollback was possible, and the
+ *      change never appeared in `git log` or `pg_migrations`. The pattern is
+ *      the `synchronize: true` antipattern under a different name. (Captured
+ *      as DATA-CRITICAL-002.)
+ *
+ *   2. Legal-hold registry bypass — every destructive or schema-changing
+ *      operation against a tenant schema MUST consult the canonical legal-
+ *      hold registry before proceeding. Boot-time DDL bypassed it entirely;
+ *      a tenant under litigation hold would silently get DDL applied
+ *      regardless. (Captured as LEGAL-HIGH-004.)
+ *
+ * # How this version fixes both
+ *
+ * The DDL-applying code paths are GONE. This service now does ONE thing
+ * only: detect drift between source and tenant schemas and report it loudly.
+ *
+ *   - `OnApplicationBootstrap` runs the detector, logs WARN-level structured
+ *     diagnostics, and (when STRICT_TENANT_SCHEMA_DRIFT=true) refuses to
+ *     boot. Defaults to non-strict so existing dev / CI flows are unaffected
+ *     by the regime change; production overrides via env.
+ *   - There is no path through this class that issues CREATE TABLE, ALTER
+ *     TABLE, DROP TABLE, or any other DDL statement. Eliminating the path
+ *     architecturally is the make-impossible cure (Tier-1) for both findings —
+ *     legal hold cannot be bypassed by a code path that does not exist.
+ *
+ * # How to apply the change the detector reports
+ *
+ * Author a per-tenant migration in the owning service's `migrations/`
+ * directory. The migration body fans out across `listTenantSchemas()` and
+ * runs the desired DDL inside a transaction (so the lock auto-releases
+ * on commit/rollback). Consult the legal-hold registry per-tenant before
+ * issuing the DDL — see the W0.G runbook in
+ * `docs/runbooks/tenant-schema-drift-response.md`.
+ *
+ * # Backwards compat
+ *
+ * The class name + DI token stay the same so the 7 service AppModules that
+ * register this service in their `providers` array do not need any change.
+ * The `SyncReport` shape changes: `tablesCreated`/`columnsAdded` become
+ * `tablesMissing`/`columnsMissing` (numbers reflect detection, not
+ * application). Test sites that asserted the old shape get updated in the
+ * same PR.
+ *
+ * Closes: docs/reviews/data-expert/2026-04-28-core-platform-review.md#DATA-CRITICAL-002
+ * Closes: docs/reviews/legal-hold-auditor/2026-04-28-core-platform-review.md#LEGAL-HIGH-004
  */
 @Injectable()
 export class TenantSchemaSyncService implements OnApplicationBootstrap {
@@ -32,97 +97,117 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
   async onApplicationBootstrap(): Promise<void> {
     const strictMode = this.isStrictMode();
     try {
-      const report = await this.syncAllTenantSchemas();
-      if (report.tablesCreated > 0 || report.columnsAdded > 0) {
-        this.logger.warn(
-          `Tenant schema sync complete: ${report.tablesCreated} tables created, ${report.columnsAdded} columns added` +
-          (report.errors.length > 0 ? `, ${report.errors.length} errors` : ''),
+      const report = await this.detectAllTenantSchemas();
+      this.emitReport(report);
+      if (report.tablesMissing + report.columnsMissing > 0 && this.isStrictMode()) {
+        // WHY: STRICT_TENANT_SCHEMA_DRIFT=true causes the service to fail
+        // boot when drift is present. Operators opt in by setting the env
+        // var on environments where drift signals an unrun migration AND
+        // a request to the missing-column path would surface as a 500 to
+        // tenants. Default off so dev/CI are unaffected.
+        // WHAT: throw so the Nest bootstrap fails — Docker restarts the
+        // container, operator sees the same WARN logs at the next boot.
+        throw new Error(
+          'TenantSchemaSyncService: tenant-schema drift detected and ' +
+            'STRICT_TENANT_SCHEMA_DRIFT=true. Author a per-tenant ' +
+            'migration before booting (runbook: ' +
+            'docs/runbooks/tenant-schema-drift-response.md).',
         );
-      } else {
-        this.logger.log('Tenant schema sync: all schemas up to date');
-      }
-      if (report.errors.length > 0) {
-        this.logger.error(`Sync errors: ${report.errors.join('; ')}`);
-        if (strictMode) {
-          throw new Error(
-            `Tenant schema sync failed in strict mode: ${report.errors.join('; ')}`,
-          );
-        }
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (strictMode) {
-        this.logger.error(`Tenant schema sync failed (fatal): ${msg}`);
-        throw error;
-      }
-      this.logger.error(`Tenant schema sync failed (non-fatal): ${msg}`);
+      // Strict-mode rethrow propagates; non-strict surface still logs.
+      if (this.isStrictMode()) throw error;
+      this.logger.error(`Tenant schema drift detection failed (non-fatal): ${msg}`);
     }
   }
 
-  async syncAllTenantSchemas(): Promise<SyncReport> {
+  /**
+   * Read-only drift scan — never modifies any schema.
+   *
+   * Kept on the public API so test sites and operator tooling can invoke
+   * the detector explicitly (e.g. a CI gate or a runbook diagnostic).
+   */
+  async detectAllTenantSchemas(): Promise<SyncReport> {
     const tenantSchemas = await listTenantSchemas(this.dataSource);
-    const report: SyncReport = { tablesCreated: 0, columnsAdded: 0, errors: [] };
+    const report: SyncReport = {
+      tablesMissing: 0,
+      columnsMissing: 0,
+      drift: [],
+      errors: [],
+    };
 
     if (tenantSchemas.length === 0) {
-      this.logger.debug('No tenant schemas found — nothing to sync');
+      this.logger.debug('No tenant schemas found — drift scan complete');
       return report;
     }
 
-    // Determine which source schema this service manages (from connection search_path)
     const sourceSchema = await this.detectSourceSchema();
     if (!sourceSchema) {
-      this.logger.warn('Could not detect source schema from connection — skipping tenant sync');
+      this.logger.warn('Could not detect source schema from connection — skipping drift scan');
       return report;
     }
 
-    const mod = MODULE_SCHEMAS.find(m => m.sourceSchema === sourceSchema);
+    const mod = MODULE_SCHEMAS.find((m) => m.sourceSchema === sourceSchema);
     if (!mod) {
-      this.logger.warn(`No MODULE_SCHEMAS entry for source schema "${sourceSchema}" — skipping tenant sync`);
+      this.logger.warn(
+        `No MODULE_SCHEMAS entry for source schema "${sourceSchema}" — skipping drift scan`,
+      );
       return report;
     }
 
-    this.logger.log(`Syncing ${tenantSchemas.length} tenant schemas against source "${sourceSchema}" (${mod.tables.length} tables)`);
+    this.logger.log(
+      `Scanning ${tenantSchemas.length} tenant schemas against source "${sourceSchema}" (${mod.tables.length} tables) — read-only`,
+    );
 
     for (const tenantSchema of tenantSchemas) {
-      await this.syncTenantSchema(tenantSchema, mod, report);
+      await this.detectTenantDrift(tenantSchema, mod, report);
     }
 
     return report;
   }
 
-  private async syncTenantSchema(
+  private async detectTenantDrift(
     tenantSchema: string,
     mod: { sourceSchema: string; tables: string[] },
     report: SyncReport,
   ): Promise<void> {
+    // WHY: Identifiers from listTenantSchemas + MODULE_SCHEMAS are
+    // structurally trusted (regex-bound + hard-coded), but defense-in-depth
+    // requires the same validator at every interpolation point so that a
+    // future change of source for either input cannot silently inherit an
+    // injection surface (DATA-CRITICAL-002 (1) hardening).
+    const safeTenantSchema = validateSqlIdentifier(tenantSchema, 'schema');
+    const safeSourceSchema = validateSqlIdentifier(mod.sourceSchema, 'schema');
+
     for (const tableName of mod.tables) {
       try {
-        const sourceExists = await this.tableExists(mod.sourceSchema, tableName);
+        const safeTableName = validateSqlIdentifier(tableName, 'table');
+        const sourceExists = await this.tableExists(safeSourceSchema, safeTableName);
         if (!sourceExists) continue;
 
-        const tenantExists = await this.tableExists(tenantSchema, tableName);
+        const tenantExists = await this.tableExists(safeTenantSchema, safeTableName);
 
         if (!tenantExists) {
-          // Create missing table from source schema template
-          await this.dataSource.query(`
-            CREATE TABLE IF NOT EXISTS "${tenantSchema}"."${tableName}"
-            (LIKE "${mod.sourceSchema}"."${tableName}" INCLUDING ALL)
-          `);
-          report.tablesCreated++;
-          this.logger.log(`Created missing table: ${tenantSchema}.${tableName}`);
-        } else {
-          // Table exists — check for missing columns
-          await this.syncColumns(mod.sourceSchema, tenantSchema, tableName, report);
+          report.tablesMissing++;
+          report.drift.push({
+            tenantSchema: safeTenantSchema,
+            table: safeTableName,
+            kind: 'table-missing',
+          });
+          continue;
         }
+
+        await this.detectColumnDrift(safeSourceSchema, safeTenantSchema, safeTableName, report);
       } catch (error) {
         const msg = `${tenantSchema}.${tableName}: ${error instanceof Error ? error.message : String(error)}`;
         report.errors.push(msg);
-        this.logger.error(`Sync error: ${msg}`);
+        this.logger.error(`Drift scan error: ${msg}`);
       }
     }
   }
 
-  private async syncColumns(
+  private async detectColumnDrift(
     sourceSchema: string,
     tenantSchema: string,
     tableName: string,
@@ -130,32 +215,17 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
   ): Promise<void> {
     const sourceColumns = await this.getColumns(sourceSchema, tableName);
     const tenantColumns = await this.getColumns(tenantSchema, tableName);
-    const tenantColumnNames = new Set(tenantColumns.map((c: any) => c.column_name));
+    const tenantColumnNames = new Set(tenantColumns.map((c: { column_name: string }) => c.column_name));
 
     for (const col of sourceColumns) {
       if (!tenantColumnNames.has(col.column_name)) {
-        try {
-          const dataType = col.full_data_type;
-          const nullClause = col.is_nullable === 'NO' ? 'NOT NULL' : '';
-          // Skip schema-qualified defaults (sequences etc.) — they reference source schema
-          const hasSchemaDefault = col.column_default && col.column_default.includes(`${sourceSchema}.`);
-          const defaultClause = col.column_default && !hasSchemaDefault
-            ? `DEFAULT ${col.column_default}`
-            : '';
-          // For NOT NULL without default, use a permissive approach
-          const effectiveNull = (nullClause === 'NOT NULL' && !defaultClause) ? '' : nullClause;
-
-          await this.dataSource.query(`
-            ALTER TABLE "${tenantSchema}"."${tableName}"
-            ADD COLUMN IF NOT EXISTS "${col.column_name}" ${dataType} ${effectiveNull} ${defaultClause}
-          `);
-          report.columnsAdded++;
-          this.logger.log(`Added missing column: ${tenantSchema}.${tableName}.${col.column_name}`);
-        } catch (error) {
-          const msg = `Column ${tenantSchema}.${tableName}.${col.column_name}: ${error instanceof Error ? error.message : String(error)}`;
-          report.errors.push(msg);
-          this.logger.warn(`Sync column error (non-fatal): ${msg}`);
-        }
+        report.columnsMissing++;
+        report.drift.push({
+          tenantSchema,
+          table: tableName,
+          kind: 'column-missing',
+          column: col.column_name,
+        });
       }
     }
   }
@@ -168,19 +238,17 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
     return rows.length > 0;
   }
 
-  private async getColumns(schema: string, table: string): Promise<any[]> {
+  private async getColumns(
+    schema: string,
+    table: string,
+  ): Promise<Array<{ column_name: string }>> {
     return this.dataSource.query(
-      `SELECT
-        a.attname AS column_name,
-        format_type(a.atttypid, a.atttypmod) AS full_data_type,
-        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
-        pg_get_expr(d.adbin, d.adrelid) AS column_default
-      FROM pg_attribute a
-      LEFT JOIN pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
-      WHERE a.attrelid = ($1 || '.' || $2)::regclass
-        AND a.attnum > 0
-        AND NOT a.attisdropped
-      ORDER BY a.attnum`,
+      `SELECT a.attname AS column_name
+       FROM pg_attribute a
+       WHERE a.attrelid = ($1 || '.' || $2)::regclass
+         AND a.attnum > 0
+         AND NOT a.attisdropped
+       ORDER BY a.attnum`,
       [schema, table],
     );
   }
@@ -196,9 +264,37 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
   }
 
   private isStrictMode(): boolean {
-    // WHY 2026-04-29: schema-per-tenant services must not start after a failed
-    // tenant DDL sync in deploy/test gates. Leaving strict mode env-driven keeps
-    // local legacy environments observable without hiding production drift.
-    return process.env['TENANT_SCHEMA_SYNC_STRICT'] === 'true';
+    // WHY: env-driven so production can opt in without code change.
+    // Strict mode fails boot when drift is present — escalates to Docker's
+    // restart loop and the deploy asserter, surfacing the missing migration
+    // before tenant requests start hitting the column path.
+    return process.env.STRICT_TENANT_SCHEMA_DRIFT === 'true';
+  }
+
+  private emitReport(report: SyncReport): void {
+    if (report.tablesMissing === 0 && report.columnsMissing === 0) {
+      this.logger.log('Tenant schema drift scan: all schemas up to date');
+      return;
+    }
+    // Structured WARN so log aggregators trip an alert. Per-(tenant,table)
+    // drift is dumped at DEBUG so operators can pinpoint without flooding
+    // the WARN stream.
+    this.logger.warn(
+      `Tenant schema drift detected: ${report.tablesMissing} table(s) missing, ${report.columnsMissing} column(s) missing across ${this.distinctTenants(report)} tenant(s). Author a per-tenant migration — see docs/runbooks/tenant-schema-drift-response.md`,
+    );
+    for (const entry of report.drift) {
+      this.logger.debug(
+        entry.kind === 'table-missing'
+          ? `drift: ${entry.tenantSchema}.${entry.table} — table missing`
+          : `drift: ${entry.tenantSchema}.${entry.table}.${entry.column} — column missing`,
+      );
+    }
+    if (report.errors.length > 0) {
+      this.logger.error(`Drift scan errors: ${report.errors.join('; ')}`);
+    }
+  }
+
+  private distinctTenants(report: SyncReport): number {
+    return new Set(report.drift.map((d) => d.tenantSchema)).size;
   }
 }

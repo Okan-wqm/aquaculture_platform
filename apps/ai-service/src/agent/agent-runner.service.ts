@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+} from '@aquaculture/backend-common/resilience';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { ToolExecutorService } from '../tools/core/tool-executor.service';
 import { AgentProfileService, ResolvedProfile } from './agent-profile.service';
@@ -22,6 +26,33 @@ export interface ChatRequest {
   correlationId: string;
 }
 
+/**
+ * Per-class token usage breakdown.
+ *
+ * TENANTCOST-HIGH-002 cure: Anthropic returns four distinct token
+ * classes — each priced differently. Summing only input+output drops
+ * the cache deltas, producing a tenant-cost figure that diverges from
+ * Stripe's metering by a model-specific factor.
+ *
+ *   - input               — fresh prompt tokens read from the request
+ *   - output              — generation tokens written by the model
+ *   - cacheRead           — prompt tokens served from prompt cache
+ *                           (pricing typically ~10% of input)
+ *   - cacheCreation       — prompt tokens written into the cache on
+ *                           first use (pricing typically ~125% of input)
+ *
+ * `total` is the cost-weighted-equivalent count for back-compat
+ * downstream consumers; the per-class fields drive the cost rollup
+ * with the model-specific multiplier from cost_catalog.
+ */
+export interface TokenUsageBreakdown {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+  total: number;
+}
+
 export interface ChatResponse {
   conversationId: string;
   message: string;
@@ -30,7 +61,7 @@ export interface ChatResponse {
     input: Record<string, unknown>;
     result: unknown;
   }>;
-  tokenUsage: { input: number; output: number; total: number };
+  tokenUsage: TokenUsageBreakdown;
 }
 
 @Injectable()
@@ -49,6 +80,7 @@ export class AgentRunnerService {
     private readonly rateLimit: RateLimitService,
     private readonly agentConfig: AgentConfigService,
     private readonly aiSafety: AiSafetyMiddleware,
+    private readonly breaker: CircuitBreakerService,
   ) {
     this.anthropic = new Anthropic({
       apiKey: this.configService.get<string>('ANTHROPIC_API_KEY'),
@@ -174,7 +206,13 @@ export class AgentRunnerService {
 
     // 9. Run agent loop
     const toolCalls: ChatResponse['toolCalls'] = [];
-    const totalTokens = { input: 0, output: 0, total: 0 };
+    const totalTokens: TokenUsageBreakdown = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheCreation: 0,
+      total: 0,
+    };
     let finalMessage = '';
 
     const toolContext: ToolExecutionContext = {
@@ -192,17 +230,45 @@ export class AgentRunnerService {
     while (loopCount < this.maxToolLoops) {
       loopCount++;
 
-      const response = await this.anthropic.messages.create({
-        model: profile.persona.model,
-        max_tokens: profile.persona.maxTokensPerTurn,
-        system: effectiveSystemPrompt,
-        tools: toolDefinitions as Anthropic.Tool[],
-        messages: currentMessages,
+      // CIRCUIT-CRITICAL-001 cure: every Anthropic API call rides through
+      // the canonical sliding-window breaker, scoped per (serviceName,
+      // tenantId). fail-CLOSED is mandatory for billable upstreams — a
+      // degraded response from the AI must NOT silently substitute a free
+      // fallback that the user thinks is the real answer. Per-tenant key
+      // isolates noisy-neighbor: one tenant's runaway agent loop cannot
+      // trip the breaker for everyone.
+      const response = await this.breaker.execute({
+        serviceName: 'anthropic-api',
+        tenantId: request.tenantId,
+        options: { ...DEFAULT_BREAKER_OPTIONS, failureMode: 'fail-closed' },
+        fn: () =>
+          this.anthropic.messages.create({
+            model: profile.persona.model,
+            max_tokens: profile.persona.maxTokensPerTurn,
+            system: effectiveSystemPrompt,
+            tools: toolDefinitions as Anthropic.Tool[],
+            messages: currentMessages,
+          }),
       });
 
-      // Track token usage
+      // TENANTCOST-HIGH-002 cure: track every Anthropic token class.
+      // The Anthropic SDK types these as optional (older API versions
+      // didn't surface cache_*); coalesce to 0 so downstream rollup
+      // gets explicit zeros instead of NaN.
       totalTokens.input += response.usage.input_tokens;
       totalTokens.output += response.usage.output_tokens;
+      const cacheRead =
+        (response.usage as { cache_read_input_tokens?: number })
+          .cache_read_input_tokens ?? 0;
+      const cacheCreation =
+        (response.usage as { cache_creation_input_tokens?: number })
+          .cache_creation_input_tokens ?? 0;
+      totalTokens.cacheRead += cacheRead;
+      totalTokens.cacheCreation += cacheCreation;
+      // `total` keeps the legacy semantics (input + output sum) because
+      // downstream TokenBudgetService consumes it as a single counter.
+      // Cost-weighted accounting that uses the per-class breakdown
+      // happens in the W4 cost-rollup pipeline, NOT here.
       totalTokens.total +=
         response.usage.input_tokens + response.usage.output_tokens;
 

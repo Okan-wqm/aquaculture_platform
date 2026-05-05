@@ -23,7 +23,7 @@
 //!   source, stage at `root/.staging/<path>`, fsync,
 //!   rename into `root/<path>`, run per-file verifier.
 //! - TOCTOU discipline: the rename happens INSIDE
-//!   root/.staging then moves to root/<path>; the verify
+//!   `root/.staging` then moves to `root/<path>`; the verify
 //!   runs on the FINAL path after rename so any swap-
 //!   between-rename-and-verify is caught.
 //! - Mode bits: after rename, chmod to
@@ -57,7 +57,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use super::file_verify::{verify_file_against_entry, FileVerifyError};
+use super::file_verify::{FileVerifyError, verify_file_against_entry};
 use super::manifest::FirmwareManifest;
 
 /// File-source abstraction — produces the bytes of a
@@ -307,9 +307,7 @@ fn stream_one_file(
         });
     }
 
-    let bytes = source
-        .read_file(&entry.path)
-        .map_err(StreamError::Source)?;
+    let bytes = source.read_file(&entry.path).map_err(StreamError::Source)?;
 
     let staging_path: PathBuf = staging_root.join(&entry.path);
     if let Some(parent) = staging_path.parent() {
@@ -372,8 +370,10 @@ fn stream_one_file(
 
 #[cfg(test)]
 mod tests {
+    use super::super::manifest::{
+        FileDigest, FileEntry, FirmwareManifest, Sha256Digest, TargetArch,
+    };
     use super::*;
-    use super::super::manifest::{FileDigest, FileEntry, FirmwareManifest, Sha256Digest, TargetArch};
     use crate::authz::permission::TenantId;
     use sha2::{Digest, Sha256};
 
@@ -463,10 +463,17 @@ mod tests {
         source.insert("lib/c.so", c.clone());
 
         let report = stream_files_to_standby(&source, &manifest, &root);
-        assert!(report.all_ok(), "multi-file stream failed: {:?}", report.failed);
+        assert!(
+            report.all_ok(),
+            "multi-file stream failed: {:?}",
+            report.failed
+        );
         assert_eq!(report.verified_count, 3);
         assert_eq!(std::fs::read(root.join("bin/a")).unwrap(), a);
-        assert_eq!(std::fs::read(root.join("etc/suderra/b.service")).unwrap(), b);
+        assert_eq!(
+            std::fs::read(root.join("etc/suderra/b.service")).unwrap(),
+            b
+        );
         assert_eq!(std::fs::read(root.join("lib/c.so")).unwrap(), c);
 
         std::fs::remove_dir_all(&root).ok();
@@ -542,10 +549,7 @@ mod tests {
 
         let report = stream_files_to_standby(&source, &manifest, &root);
         assert_eq!(report.failed.len(), 1);
-        assert!(matches!(
-            report.failed[0].1,
-            StreamError::UnsafePath { .. }
-        ));
+        assert!(matches!(report.failed[0].1, StreamError::UnsafePath { .. }));
 
         std::fs::remove_dir_all(&root).ok();
     }

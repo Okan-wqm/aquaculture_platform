@@ -266,15 +266,52 @@ export class Money {
   /**
    * Converts to integer minor units for payment processors (e.g. Stripe).
    *
+   * # Why this method returns `number` (NOT bigint)
+   *
+   * BACKWARD COMPATIBILITY ONLY. New code should use
+   * `toMinorUnitsBigInt()` which returns `bigint` and is precision-
+   * safe across the full Decimal range. PLAT-LOW-001 captured the
+   * gap: Number.MAX_SAFE_INTEGER is 2^53-1 (~9 quadrillion); for
+   * low-denominator currencies (JPY, INR, KRW, IDR — no minor units
+   * means the integer is the full amount) a tenant invoicing in JPY
+   * for ~9 quadrillion yen would silently lose precision at this
+   * conversion. The same case for high-volume metered billing
+   * (millions of API calls × fractions of a cent) accumulates large
+   * minor-unit totals.
+   *
    * Rounds to the currency's minor-unit scale using banker's rounding,
    * then converts to a plain integer.
    *
-   * @returns Integer minor units (e.g. 9999 for $99.99 USD)
+   * @returns Integer minor units as `number` — may lose precision above 2^53-1
+   * @deprecated Use {@link toMinorUnitsBigInt} for precision-safe conversion
    */
   toMinorUnits(): number {
     const scale = getCurrencyScale(this._currency);
     const shifted = this._amount.times(new Decimal(10).pow(scale));
     return shifted.toDecimalPlaces(0, Decimal.ROUND_HALF_EVEN).toNumber();
+  }
+
+  /**
+   * Converts to integer minor units as a `bigint` — precision-safe
+   * across the full Decimal range.
+   *
+   * Use this method for any code path that touches:
+   *   - Payment-processor SDKs that accept bigint (Stripe MeterEvent
+   *     `value` field; Stripe Refund `amount` in some SDK versions)
+   *   - Internal Money pipelines (Stripe outbound at libs/backend-common/
+   *     src/billing/stripe-api.types.ts uses bigint everywhere)
+   *   - Aggregations (sum-of-charges over a long period easily exceeds
+   *     Number.MAX_SAFE_INTEGER for low-denominator currencies)
+   *
+   * @returns Integer minor units as `bigint`
+   */
+  toMinorUnitsBigInt(): bigint {
+    const scale = getCurrencyScale(this._currency);
+    const shifted = this._amount.times(new Decimal(10).pow(scale));
+    // Decimal.js → bigint: round first, then format as a base-10 string,
+    // then construct bigint. This avoids any intermediate float coercion.
+    const rounded = shifted.toDecimalPlaces(0, Decimal.ROUND_HALF_EVEN);
+    return BigInt(rounded.toFixed(0));
   }
 
   /**

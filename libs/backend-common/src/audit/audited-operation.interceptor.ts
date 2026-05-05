@@ -17,26 +17,40 @@ import {
   AuditedOperationOptions,
   AuditedOperationStatus,
 } from './audited-operation.decorator';
-import { AuditLogEntity, AuditSeverity } from './audit-log.entity';
+import {
+  AuditLogEntity,
+  AuditMethod,
+  AuditResult,
+  AuditSeverity,
+} from './audit-log.entity';
+import { getRequestContext } from '../logging/request-context';
+import {
+  hashIpForGdpr,
+  readIpHashingPolicyFromEnv,
+  shouldHashIp,
+} from './ip-hash.util';
+import { SENSITIVE_FIELDS_SET } from '../security/security-constants';
 
 /**
- * Keys that must never appear in audit log metadata.
- * Prevents accidental leakage of secrets into the audit trail.
+ * AUDITTRAIL-LOW-001 cure: re-export the canonical SENSITIVE_FIELDS_SET
+ * under the local SENSITIVE_KEYS name so the interceptor's redaction loop
+ * consumes the single source of truth from
+ * `libs/backend-common/src/security/security-constants.ts` (alongside the
+ * structured logger). Pre-fix this file declared its own 12-entry Set
+ * that diverged from the logger's 11-entry regex, leaving keys like
+ * 'access_token' (underscore) redacted in logs but written verbatim to
+ * audit metadata, and keys like 'cvv' redacted in audit but logged
+ * verbatim. Using the canonical SET means a new sensitive key added
+ * to security-constants.ts is automatically picked up here.
+ *
+ * The Set is keyed by lowercase forms — the existing
+ * `SENSITIVE_KEYS.has(key.toLowerCase())` lookup at line ~440 still
+ * works because the canonical Set normalises every spelling to lower-
+ * case before insertion (see security-constants.ts SENSITIVE_FIELDS_SET).
  */
-const SENSITIVE_KEYS = new Set([
-  'password',
-  'token',
-  'secret',
-  'accesstoken',
-  'refreshtoken',
-  'authorization',
-  'creditcard',
-  'ssn',
-  'cvv',
-  'pin',
-  'apikey',
-  'privatekey',
-]);
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set(
+  Array.from(SENSITIVE_FIELDS_SET).map((k) => k.toLowerCase()),
+);
 
 /**
  * Maximum depth for sanitizing nested objects
@@ -231,12 +245,42 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       tenantId: ctx.tenantId,
       schemaName: ctx.schemaName,
       metadata: Object.keys(metadata).length > 0 ? metadata : null,
-      ip: ctx.ipAddress,
+      // AUDITTRAIL-LOW-002 cure: route the IP through the
+      // canonical region-gated hashing decision. ctx.region is
+      // populated from the JWT residency claim (when present) by
+      // buildContextFromRequest below. The deployment-wide
+      // policy comes from env vars (AUDIT_FORCE_IP_HASH +
+      // AUDIT_HASH_UNKNOWN_REGIONS) so non-EU deployments keep
+      // plaintext behaviour until they explicitly opt in. The
+      // helper centralizes the matrix; future per-tenant
+      // residency lookups become a one-line change to ctx.region
+      // population.
+      ip: shouldHashIp(ctx.region, readIpHashingPolicyFromEnv())
+        ? hashIpForGdpr(ctx.ipAddress)
+        : ctx.ipAddress,
       userAgent: ctx.userAgent,
       severity: status === AuditedOperationStatus.FAILED
         ? AuditSeverity.ERROR
         : AuditSeverity.INFO,
       correlationId: ctx.correlationId,
+
+      // ── AUDITTRAIL-CRITICAL-004 mandatory-shape population ──
+      // These four fields the interceptor knows from request context and
+      // execution status. The remaining four (preStateHash, postStateHash,
+      // justification, relatedAuditIds) are caller-domain knowledge — they
+      // travel with the AuditedOperationOptions metadata extracted by the
+      // decorator, or are emitted by callers writing directly via
+      // auditLogService.recordAwait. Leaving them undefined here is the
+      // architecturally correct default — the interceptor neither has nor
+      // should fabricate the entity-state hashes or override-justification.
+      actorHomeTenantId: ctx.tenantId,
+      actedOnTenantId: ctx.tenantId,
+      method: ctx.method,
+      mfaVerified: ctx.mfaVerified,
+      result:
+        status === AuditedOperationStatus.SUCCESS
+          ? AuditResult.SUCCESS
+          : AuditResult.FAILED,
     };
 
     // ── Transaction-aware write ──
@@ -257,20 +301,27 @@ export class AuditedOperationInterceptor implements NestInterceptor {
   /**
    * Extract request context from the execution context.
    * Supports HTTP, GraphQL, and RPC (CQRS) execution contexts.
+   *
+   * # Method derivation (AUDITTRAIL-CRITICAL-004)
+   *
+   * The Nest contextType drives the audit `method` field directly.
+   * Anchoring it here means a future ContextType (e.g. websocket) only
+   * needs a single mapping update rather than a sweep across every
+   * audit caller.
    */
   private extractRequestContext(context: ExecutionContext): RequestContext {
     const contextType = context.getType<string>();
 
     if (contextType === 'graphql') {
-      return this.extractFromGraphQL(context);
+      return { ...this.extractFromGraphQL(context), method: AuditMethod.GRAPHQL };
     }
 
     if (contextType === 'http') {
-      return this.extractFromHttp(context);
+      return { ...this.extractFromHttp(context), method: AuditMethod.HTTP };
     }
 
-    // RPC / CQRS context — try to extract from handler arguments
-    return this.extractFromRpc(context);
+    // RPC / CQRS context — bus-driven (NATS in this platform).
+    return { ...this.extractFromRpc(context), method: AuditMethod.NATS };
   }
 
   /**
@@ -292,21 +343,78 @@ export class AuditedOperationInterceptor implements NestInterceptor {
 
   /**
    * Extract context from an RPC/CQRS execution context.
-   * CQRS commands often carry tenantId and userId as properties.
+   *
+   * # Trust-anchor priority (AUDITTRAIL-MEDIUM-002 cure)
+   *
+   * Pre-cure this method read tenantId / userId / correlationId / etc.
+   * exclusively from the command object. If the command author
+   * forgot to populate `tenantId` on the DTO, the audit row's
+   * `tenantId` was null even though the upstream HTTP middleware
+   * had resolved a tenant context and run the entire CQRS chain
+   * inside a `requestContextStorage.run({ tenantId, ... }, fn)`.
+   *
+   * The cure walks two trust anchors in order:
+   *
+   *   1. `requestContextStorage` (AsyncLocalStorage). This is the
+   *      canonical SSoT for tenant + user identity once
+   *      TenantContextMiddleware has run on the request. It
+   *      survives across every async boundary including CQRS
+   *      command-bus dispatch.
+   *   2. The command object itself, as a secondary signal for the
+   *      cron / event-bus / worker entry-points where no upstream
+   *      HTTP middleware ran. Those callers MUST wrap their dispatch
+   *      in `withTenantContext(...)` (see
+   *      libs/backend-common/src/context/with-tenant-context.ts) —
+   *      but until that migration is universal, command-property
+   *      fallback keeps the audit row tenantId-attributed instead
+   *      of nullifying it on a regression class that's still being
+   *      swept.
+   *
+   * Why the ALS context is the trust anchor: it was populated by
+   * TenantContextMiddleware which read the JWT (or the cron-side
+   * `withTenantContext()` wrapper which validates the UUID), so the
+   * value cannot be tampered with by a forgotten or maliciously-
+   * crafted command DTO. The command-property fallback is a Tier-2
+   * (make-automatic) compatibility shim, not a Tier-1 trust anchor.
    */
   private extractFromRpc(context: ExecutionContext): RequestContext {
     const args = context.getArgs<unknown[]>();
     const command = args[0] as Record<string, unknown> | undefined;
+    const ctx = getRequestContext();
 
     return {
-      userId: (command?.['userId'] as string) ?? null,
+      userId:
+        ctx.userId ??
+        (command?.['userId'] as string | undefined) ??
+        null,
       userEmail: (command?.['userEmail'] as string) ?? null,
-      tenantId: (command?.['tenantId'] as string) ?? null,
-      schemaName: (command?.['schemaName'] as string) ?? null,
-      ipAddress: (command?.['ipAddress'] as string) ?? null,
+      tenantId:
+        ctx.tenantId ??
+        (command?.['tenantId'] as string | undefined) ??
+        null,
+      schemaName:
+        ctx.schemaName ??
+        (command?.['schemaName'] as string | undefined) ??
+        null,
+      ipAddress:
+        ctx.ip ??
+        (command?.['ipAddress'] as string | undefined) ??
+        null,
       userAgent: null,
-      correlationId: (command?.['correlationId'] as string) ?? null,
+      correlationId:
+        ctx.correlationId ??
+        (command?.['correlationId'] as string | undefined) ??
+        null,
       queryRunner: (command?.['queryRunner'] as QueryRunner) ?? null,
+      // method is set by extractRequestContext after this returns;
+      // a non-null override at this layer would be ignored by the spread.
+      method: null,
+      mfaVerified: command?.['mfaVerified'] === true,
+      // AUDITTRAIL-LOW-002: residency claim on the command DTO
+      // (when present) drives the IP-hashing decision. CQRS
+      // command authors include `region` for compliance-sensitive
+      // commands. Absent → null → policy fallback.
+      region: (command?.['region'] as string | undefined) ?? null,
     };
   }
 
@@ -324,6 +432,9 @@ export class AuditedOperationInterceptor implements NestInterceptor {
         userAgent: null,
         correlationId: null,
         queryRunner: null,
+        method: null,
+        mfaVerified: false,
+        region: null,
       };
     }
 
@@ -333,12 +444,27 @@ export class AuditedOperationInterceptor implements NestInterceptor {
     return {
       userId: user?.sub ?? user?.id ?? null,
       userEmail: user?.email ?? null,
-      tenantId: user?.tenantId ?? (headers['x-tenant-id'] as string) ?? null,
+      // AUDITTRAIL-MEDIUM-003 cure (canonical interceptor sibling):
+      // tenantId comes ONLY from the JWT trust anchor. Header
+      // fallback removed for the same confused-deputy reason
+      // documented on the legacy AuditLogInterceptor. Pre-auth /
+      // cross-tenant-admin / edge-device flows do not run through
+      // this interceptor (it fires on @AuditedOperation handlers,
+      // all of which sit behind authentication). Truthful null is
+      // better than an attacker-controllable header value.
+      tenantId: user?.tenantId ?? null,
       schemaName: (headers['x-schema-name'] as string) ?? null,
       ipAddress: this.extractIp(request),
       userAgent: (headers['user-agent'] as string) ?? null,
       correlationId: (headers['x-correlation-id'] as string) ?? null,
       queryRunner: (request as Record<string, unknown>)['queryRunner'] as QueryRunner ?? null,
+      // method is overwritten by extractRequestContext after this returns.
+      method: null,
+      mfaVerified: user?.['mfaVerified'] === true,
+      // AUDITTRAIL-LOW-002: residency from JWT claim. Null when
+      // the deployment doesn't propagate region on the token,
+      // letting the policy fallback decide hashing.
+      region: (user?.['region'] as string | undefined) ?? null,
     };
   }
 
@@ -476,6 +602,22 @@ interface RequestLike {
 /**
  * Extracted request context for audited operations.
  * Includes QueryRunner reference for transaction-aware writes.
+ *
+ * # method (AUDITTRAIL-CRITICAL-004)
+ *
+ * Channel through which the audited action arrived. Derived once at
+ * extraction time (HTTP context → HTTP, GraphQL context → GRAPHQL,
+ * RPC/CQRS context → NATS — the bus carrying CQRS commands across
+ * services in this platform). CRON / CLI flows do not pass through
+ * this interceptor, so those values are emitted by callers writing
+ * directly via `auditLogService.recordAwait`.
+ *
+ * # mfaVerified (AUDITTRAIL-CRITICAL-004)
+ *
+ * Derived from the JWT claim `mfaVerified` if the auth pipeline placed
+ * it on `request.user`. Defaults to false when absent — semantically
+ * safe (a missing claim is treated as not-stepped-up; SOC 2 step-up
+ * evidence reports filter on TRUE only).
  */
 interface RequestContext {
   userId: string | null;
@@ -486,4 +628,16 @@ interface RequestContext {
   userAgent: string | null;
   correlationId: string | null;
   queryRunner: QueryRunner | null;
+  method: AuditMethod | null;
+  mfaVerified: boolean;
+  /**
+   * Tenant residency region marker (AUDITTRAIL-LOW-002).
+   *
+   * Derived from the JWT claim `region` (when minted with one)
+   * or from the upstream OPA decision attribute. Null when the
+   * deployment doesn't propagate residency on the JWT — in that
+   * case `shouldHashIp` falls back to the deployment-level
+   * `AUDIT_HASH_UNKNOWN_REGIONS` policy switch.
+   */
+  region: string | null;
 }

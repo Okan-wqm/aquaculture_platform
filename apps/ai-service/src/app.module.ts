@@ -12,13 +12,14 @@ import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, AuditColumnsModule, RlsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { RolesGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { ThrottlerModule, ThrottlerGuard, SlidingWindowStrategy } from '@aquaculture/backend-common/security';
-import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
+import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
 
@@ -59,6 +60,13 @@ const complexityCache = new Map<string, number>();
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
+    // CIRCUIT-CRITICAL-001 cure: register the @Global canonical
+    // CircuitBreakerService so feature modules (AgentRunnerService at
+    // ai-service/src/agent/...) can constructor-inject it without
+    // per-module re-import. Wraps the Anthropic API call (and any
+    // future external IO) in a sliding-window breaker with fail-CLOSED
+    // semantics and per-tenant keying.
+    CircuitBreakerModule,
     // Database connection — uses the platform TypeORM factory.
     // INTENTIONAL: no `schema:` — TenantConnectionBootstrap manages
     // search_path per request. AiMigrationRunnerService (provider above)
@@ -196,6 +204,8 @@ const complexityCache = new Map<string, number>();
     ChatModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    AuditedOperationModule.forRoot(),
     /**
      * SECURITY (HIGH-004): Tenant RLS (schema-per-tenant ai).
      * Conversations and tool executions carry user context — RLS prevents
@@ -265,6 +275,8 @@ export class AppModule implements NestModule {
     // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep — strip forged internal headers.
+        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

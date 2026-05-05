@@ -179,6 +179,55 @@ export interface InvoiceOverdueEvent extends BaseEvent {
   daysOverdue: number;
 }
 
+/**
+ * Subscription Past Due Event
+ *
+ * Published by billing-scheduler when a subscription's current cycle
+ * has been unpaid past the grace window. Consumers (gateway-api,
+ * notification-service) downgrade access tier and notify the tenant
+ * admin.
+ *
+ * WHY: Pre-fix `BillingScheduler` emitted this via
+ * `createBaseEvent('SubscriptionPastDue', …)` with NO interface in
+ * billing-events.ts and no entry in `BillingEvent` union — DATA-HIGH-004
+ * + CONTRACT-CRITICAL-002. A producer-side bump to add a new field
+ * would not have surfaced as a consumer compile break, inviting
+ * silent consumer crashes.
+ */
+export interface SubscriptionPastDueEvent extends BaseEvent {
+  eventType: 'SubscriptionPastDue';
+  subscriptionId: string;
+  /** Number of days past due as of emission. */
+  daysPastDue: number;
+  /** Total outstanding amount in subunits (cents). */
+  outstandingAmountMinorUnits: number;
+  /** ISO 4217 currency code matching the subscription. */
+  currency: string;
+  /** When the grace period expires and access is suspended. ISO 8601 per BaseEvent contract. */
+  gracePeriodExpiresAtIso: string;
+}
+
+/**
+ * Subscription Expired Event
+ *
+ * Published when a subscription's grace window has elapsed without
+ * payment. Consumers fully suspend tenant access and queue a final-
+ * notice email. Distinct from SubscriptionCancelled (intentional
+ * cancellation by tenant); Expired is involuntary.
+ */
+export interface SubscriptionExpiredEvent extends BaseEvent {
+  eventType: 'SubscriptionExpired';
+  subscriptionId: string;
+  /** Final unpaid total at expiry, in minor units. */
+  outstandingAmountMinorUnits: number;
+  /** ISO 4217 currency code. */
+  currency: string;
+  /** When the subscription expired. ISO 8601 per BaseEvent contract. */
+  expiredAtIso: string;
+  /** Whether the tenant retains read-only access for export (typical: 30 days). */
+  readOnlyAccessGranted: boolean;
+}
+
 // ==================== Type Union ====================
 
 /**
@@ -194,4 +243,6 @@ export type BillingEvent =
   | PaymentReceivedEvent
   | PaymentFailedEvent
   | PaymentRefundedEvent
-  | InvoiceOverdueEvent;
+  | InvoiceOverdueEvent
+  | SubscriptionPastDueEvent
+  | SubscriptionExpiredEvent;

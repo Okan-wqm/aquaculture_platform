@@ -42,7 +42,7 @@ use crate::AppState;
 use crate::scripting::watch_sessions::WatchPublishSink;
 
 /// MqttClient-backed sink. Cheap to clone (just an
-/// Arc<RwLock<AppState>> clone).
+/// `Arc<RwLock<AppState>>` clone).
 pub struct MqttWatchPublishSink {
     state: Arc<RwLock<AppState>>,
 }
@@ -55,22 +55,16 @@ impl MqttWatchPublishSink {
 
 #[async_trait::async_trait]
 impl WatchPublishSink for MqttWatchPublishSink {
-    async fn publish(
-        &self,
-        topic: &str,
-        payload: Vec<u8>,
-    ) -> Result<(), String> {
+    async fn publish(&self, topic: &str, payload: Vec<u8>) -> Result<(), String> {
         let s = self.state.read().await;
         match s.mqtt_client.as_ref() {
             Some(client) => client
                 .publish_raw(topic, &payload)
                 .await
                 .map_err(|e| e.to_string()),
-            None => Err(
-                "mqtt client unavailable — agent booted without MQTT \
+            None => Err("mqtt client unavailable — agent booted without MQTT \
                  (dev mode) so watch payloads cannot publish"
-                    .to_string(),
-            ),
+                .to_string()),
         }
     }
 }

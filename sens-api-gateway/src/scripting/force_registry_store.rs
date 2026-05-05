@@ -112,32 +112,18 @@ impl ForceRegistryStore {
         if let Some(parent) = db_path.as_ref().parent() {
             if !parent.exists() {
                 std::fs::create_dir_all(parent).map_err(|e| {
-                    StoreError::ConnectionFailed(format!(
-                        "create parent dir: {}",
-                        e
-                    ))
+                    StoreError::ConnectionFailed(format!("create parent dir: {}", e))
                 })?;
             }
         }
 
-        let conn = Connection::open(&db_path).map_err(|e| {
-            StoreError::ConnectionFailed(format!("open: {}", e))
-        })?;
+        let conn = Connection::open(&db_path)
+            .map_err(|e| StoreError::ConnectionFailed(format!("open: {}", e)))?;
 
         let hex_key = crate::offline_queue::derive_db_encryption_key()
-            .map_err(|e| {
-                StoreError::ConnectionFailed(format!(
-                    "derive encryption key: {}",
-                    e
-                ))
-            })?;
+            .map_err(|e| StoreError::ConnectionFailed(format!("derive encryption key: {}", e)))?;
         conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .map_err(|e| {
-                StoreError::ConnectionFailed(format!(
-                    "apply encryption key: {}",
-                    e
-                ))
-            })?;
+            .map_err(|e| StoreError::ConnectionFailed(format!("apply encryption key: {}", e)))?;
 
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
@@ -171,10 +157,7 @@ impl ForceRegistryStore {
     }
 
     fn run_migrations(&self) -> Result<(), StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS force_entries (
@@ -201,10 +184,7 @@ impl ForceRegistryStore {
     /// equivalent bug that still writes the row; the
     /// caller's contract is the gate.
     pub fn save(&self, entry: &ForceEntry) -> Result<(), StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         let quality_json = serde_json::to_string(&entry.quality)
             .map_err(|e| StoreError::Encoding(e.to_string()))?;
         conn.execute(
@@ -240,10 +220,7 @@ impl ForceRegistryStore {
     /// Delete one entry by tag name. Idempotent —
     /// deleting a row that doesn't exist returns Ok.
     pub fn delete(&self, tag_name: &str) -> Result<(), StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         conn.execute(
             "DELETE FROM force_entries WHERE tag_name = ?1",
             params![tag_name],
@@ -255,10 +232,7 @@ impl ForceRegistryStore {
     /// Load every persisted entry. Used at boot
     /// via `load_into_registry`.
     pub fn load_all(&self) -> Result<Vec<ForceEntry>, StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         let mut stmt = conn
             .prepare(
                 r#"SELECT tag_name, force_id, value, quality, actor, reason,
@@ -308,17 +282,9 @@ impl ForceRegistryStore {
             ) = row.map_err(|e| StoreError::Sql(e.to_string()))?;
 
             let force_id = Uuid::parse_str(&force_id_str)
-                .map_err(|e| StoreError::Encoding(format!(
-                    "force_id for `{}`: {}",
-                    tag_name, e
-                )))?;
-            let quality: crate::process_image::TagQuality =
-                serde_json::from_str(&quality_json).map_err(|e| {
-                    StoreError::Encoding(format!(
-                        "quality for `{}`: {}",
-                        tag_name, e
-                    ))
-                })?;
+                .map_err(|e| StoreError::Encoding(format!("force_id for `{}`: {}", tag_name, e)))?;
+            let quality: crate::process_image::TagQuality = serde_json::from_str(&quality_json)
+                .map_err(|e| StoreError::Encoding(format!("quality for `{}`: {}", tag_name, e)))?;
             let applied_at: DateTime<Utc> = Utc
                 .timestamp_opt(applied_at_secs, 0)
                 .single()
@@ -349,16 +315,9 @@ impl ForceRegistryStore {
     }
 
     pub fn count(&self) -> Result<u64, StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM force_entries",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM force_entries", [], |row| row.get(0))
             .map_err(|e| StoreError::Sql(e.to_string()))?;
         Ok(count as u64)
     }

@@ -53,11 +53,9 @@ impl std::fmt::Display for SigningKeyHexError {
             Self::WrongLength { got } => {
                 write!(f, "ed25519 pubkey hex must be 64 chars, got {}", got)
             }
-            Self::InvalidHexAt { byte_index, reason } => write!(
-                f,
-                "invalid hex at byte {}: {}",
-                byte_index, reason
-            ),
+            Self::InvalidHexAt { byte_index, reason } => {
+                write!(f, "invalid hex at byte {}: {}", byte_index, reason)
+            }
             Self::InvalidCurvePoint { reason } => {
                 write!(f, "ed25519 key construction failed: {}", reason)
             }
@@ -70,32 +68,26 @@ impl std::error::Error for SigningKeyHexError {}
 /// Parse a 64-char hex string into an ed25519 [`VerifyingKey`].
 /// Used at the wire-ingress boundary for every signed-manifest
 /// verifier (RBAC + user-token + future signed-config streams).
-pub fn parse_ed25519_pubkey_hex(
-    hex: &str,
-) -> Result<VerifyingKey, SigningKeyHexError> {
+pub fn parse_ed25519_pubkey_hex(hex: &str) -> Result<VerifyingKey, SigningKeyHexError> {
     if hex.len() != 64 {
         return Err(SigningKeyHexError::WrongLength { got: hex.len() });
     }
     let mut bytes = [0u8; 32];
     for (i, b) in bytes.iter_mut().enumerate() {
         let byte_idx = i * 2;
-        let hex_byte = hex.get(byte_idx..byte_idx + 2).ok_or_else(|| {
-            SigningKeyHexError::InvalidHexAt {
-                byte_index: byte_idx,
-                reason: "hex slice out of bounds".to_string(),
-            }
-        })?;
-        *b = u8::from_str_radix(hex_byte, 16).map_err(|e| {
-            SigningKeyHexError::InvalidHexAt {
-                byte_index: i,
-                reason: e.to_string(),
-            }
+        let hex_byte =
+            hex.get(byte_idx..byte_idx + 2)
+                .ok_or_else(|| SigningKeyHexError::InvalidHexAt {
+                    byte_index: byte_idx,
+                    reason: "hex slice out of bounds".to_string(),
+                })?;
+        *b = u8::from_str_radix(hex_byte, 16).map_err(|e| SigningKeyHexError::InvalidHexAt {
+            byte_index: i,
+            reason: e.to_string(),
         })?;
     }
-    VerifyingKey::from_bytes(&bytes).map_err(|e| {
-        SigningKeyHexError::InvalidCurvePoint {
-            reason: e.to_string(),
-        }
+    VerifyingKey::from_bytes(&bytes).map_err(|e| SigningKeyHexError::InvalidCurvePoint {
+        reason: e.to_string(),
     })
 }
 
@@ -110,13 +102,10 @@ mod tests {
         // real test pubkey instead by signing-key derivation below.
         // Here we just assert SOME 64-char hex parses; concrete
         // cryptographic validity is caller responsibility.
-        use ed25519_dalek::{SigningKey, SECRET_KEY_LENGTH};
+        use ed25519_dalek::{SECRET_KEY_LENGTH, SigningKey};
         let sk = SigningKey::from_bytes(&[7u8; SECRET_KEY_LENGTH]);
         let pk_bytes = sk.verifying_key().to_bytes();
-        let hex: String = pk_bytes
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect();
+        let hex: String = pk_bytes.iter().map(|b| format!("{:02x}", b)).collect();
         assert_eq!(hex.len(), 64);
         let parsed = parse_ed25519_pubkey_hex(&hex).unwrap();
         assert_eq!(parsed.to_bytes(), pk_bytes);
@@ -162,7 +151,7 @@ mod tests {
         // the all-zeros identity; newer versions accept it and
         // reject at verify-time instead — we do not gate on which
         // library version is linked).
-        use ed25519_dalek::{SigningKey, SECRET_KEY_LENGTH};
+        use ed25519_dalek::{SECRET_KEY_LENGTH, SigningKey};
         let sk = SigningKey::from_bytes(&[13u8; SECRET_KEY_LENGTH]);
         let hex: String = sk
             .verifying_key()

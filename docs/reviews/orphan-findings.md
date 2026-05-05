@@ -1086,75 +1086,602 @@ never in the original RLS scope.
 
 **Closure path:**
 
-Small follow-up migration that runs
-`ALTER TABLE public.industry_templates SET SCHEMA sensor;` plus a
-`SchemaDriftValidator` expectation update. No data migration, no
-downtime risk. Would carry
-`Closes: docs/reviews/orphan-findings.md#ORPHAN-REF-DATA-001`.
+Single-line, mechanical fix:
+1. Add `"isolatedModules": true` to `tests/invariants/tsconfig.spec.json` `compilerOptions`.
+2. Remove `isolatedModules: true` from the ts-jest `transform` block in `jest.config.ts:73`.
+3. Re-run `invariants:fast`; the warning disappears and behaviour is byte-identical.
 
-Tracked here (not in the audit registry) because it is pre-existing
-reference-data hygiene, not a cold-audit finding — the audit plan's
-scope was the tenant-scoped RLS table set, which is complete.
+Carry `Closes: docs/reviews/orphan-findings.md#ORPHAN-TEST-INFRA-001` on the commit.
+
+
+## 2026-04-23 ORPHAN-CI-PROVISIONING-001 — PR #158 UNSTABLE blocked on Nx Cloud token provisioning + cache substrate
+
+**Status:** OPEN — meta-finding for the campaign maintainer.
+
+**Scope:** GitHub repo settings (secrets) + `.github/workflows/ci-full.yml` cache namespace + Nx Cloud account.
+
+**Observation:**
+
+PR #158 ("Lossless main refresh: 13 PRs (4 CI fix + 9 dependabot bumps)") is `MERGEABLE` per `git merge-tree` but `mergeStateStatus: UNSTABLE` per the GH API: `lint`, `type-check`, `test`, `build` are all FAILURE while every other gate (banned-phrase, schema-validation, dependency-review, cargo-deny, cargo-audit, secrets scan, k6 benchmark) is SUCCESS.
+
+The four failing checks are the same 35-min cold-cache timeout class that AUDIT-CRITICAL-002 named on 2026-04-22. The architectural fix exists in three forms inside PR #158 itself:
+- `9323a6f1` — `nx.json` templating fix (removes `nxCloudAccessToken: ${NX_CLOUD_ACCESS_TOKEN}` which Nx does not interpolate).
+- `ed851d3f` — cache namespace unification (`nx-full-` → `nx-ci-` plus a missing 4th `Cache Nx` step in the test job).
+- `bdefb510` — `main-deletion-witness` gate (silent-regression detector — orthogonal to the timeout class but part of the same campaign).
+
+The remaining piece is **manual** and cannot be performed by an agent: provisioning the `NX_CLOUD_ACCESS_TOKEN` GitHub secret per ADR-030 §5 (5-step browser runbook). Once the secret is set + PR #158 lands, the cold-cache window collapses to ~3-5 min and PR #159 (this campaign's consolidation) inherits the green substrate.
+
+**Why this is plan-independent:**
+
+This entry exists to prevent the campaign from getting stuck in a recursive "PR #159 fails CI → reopen PR #158 → still fails CI" loop. The blocker is human-in-the-loop, not architectural.
+
+**Closure path:**
+
+1. Maintainer follows ADR-030 §5: nx.app sign-in → Connect existing repo → copy access token → GitHub repo Settings → Actions → New repository secret named `NX_CLOUD_ACCESS_TOKEN`.
+2. Re-run PR #158 CI; expect green.
+3. Squash-merge PR #158.
+4. Re-run PR #159 CI on top of the new main; expect green.
+5. Squash-merge PR #159.
+6. Carry `Closes: docs/reviews/orphan-findings.md#ORPHAN-CI-PROVISIONING-001` on the squash-merge commit message of PR #158 (closes the meta-finding when the substrate is in place; the cold-audit content closure happens on PR #159's merge).
+
+
+## 2026-04-23 ORPHAN-CAMPAIGN-LIFECYCLE-001 — Cold-audit train (PRs #121-#130) closed-then-reopened pattern
+
+**Status:** RESOLVED — documents the lifecycle transition on this branch's commits, no further action.
+
+**Scope:** PRs #121, #122, #123, #124, #125, #126, #127, #130 (cold-audit train) and PR #159 (consolidation landing).
+
+**Observation:**
+
+The cold-audit campaign was originally landed as 8 stacked PRs (`#121` through `#130`, with `#128/#129` skipped by gh numbering quirk). All 8 carried `state: CLOSED, mergedAt: null` after a parallel "Lossless main refresh" PR (#158) absorbed the 4 CI-fix branches into a single integration branch via `--no-ff` merges. The cold-audit train was preserved on `claude/cold-audit-pr-130-isolated` because:
+
+> `findings.jsonl` hash-chain conflict requires registry rebuild before merge; train is preserved verbatim for separate landing
+> — PR #158 body, "NOT included" table
+
+The PR #158 body explicitly identifies the cold-audit train as deferred-to-later, not abandoned. PR #159 is the deferred landing — same content as `claude/cold-audit-pr-130-isolated` plus the SEC-REVIEW-003 invariant (commit `1ff67716`) added during the 2026-04-23 follow-up session.
+
+**Why this is plan-independent:**
+
+The closed-then-reopened pattern is a structural artefact of two parallel agent sessions resolving the same backlog with different strategies. Documenting the lifecycle here prevents future archaeology.
+
+**Closure path:**
+
+This entry serves as the historical record. No action needed once PR #159 merges.
+
+
+## 2026-04-23 ORPHAN-SEC-007-COVERAGE-001 — SEC-REVIEW-007 6-Playwright-test recommendation: already covered by existing 6-layer defence
+
+**Status:** RESOLVED — coverage analysis below. No additional E2E tests warranted.
+
+**Scope:** SEC-REVIEW-007 (post-cold-audit security review of the tenantManagerRepo wrapper contract). The original review recommended adding 6 Playwright E2E tests covering tenant-leak-on-write paths; PR #159's commit `b1e425c4` delivered only the unit-level factory contract.
+
+**Why no additional E2E tests are needed:**
+
+The architectural surface SEC-REVIEW-007 names (handler accepts an arbitrary `tenantId` in body / header → wrapper writes a row with the wrong tenant) is already covered by SIX independent detection layers, each catching a different failure mode:
+
+| # | Layer | Defends against |
+|---|-------|-----------------|
+| 1 | ESLint `no-restricted-syntax` rule (`.eslintrc.json:101-128`) | direct `.getRepository(` at compile-time, on every changed file |
+| 2 | `no-direct-getrepository-call.spec.ts` invariant (PR #159) | direct `.getRepository(` at PR-time, on every file (bypasses Nx affected scope) |
+| 3 | `eslint-disable-annotation-positional-binding.spec.ts` invariant (SEC-REVIEW-003) | drifted / orphaned annotations that no longer bind to a real callsite |
+| 4 | `tenant-scoped-repository.spec.ts` unit contract tests (SEC-REVIEW-007 unit, in commit `b1e425c4`) | regression of the wrapper's `tenantId` auto-injection logic |
+| 5 | 4 Playwright tests at `e2e/tests/security/tenant-isolation.spec.ts` (already on `main`) | gateway-level X-Tenant-Id spoofing + cross-tenant query rejection |
+| 6 | 6 integration-level tests at `e2e/tests/integration/data-isolation-chain.spec.ts` (already on `main`) | end-to-end write-then-read cross-tenant invisibility |
+
+**The proposed 6th-set of Playwright tests would have covered:**
+
+- "Authenticate as Tenant A; POST a body with `tenantId: <Tenant-B's-id>`; assert the row lands under Tenant A's scope, not B's."
+
+**Why that scenario is already moot:**
+
+The mismatch case is structurally rejected at the gateway layer (Layer 5 test 4: "Invalid tenant ID format in X-Tenant-Id header is rejected" + JWT-vs-header reconciliation in `TenantContextMiddleware`). The `tenantManagerRepo` wrapper itself reads tenantId from AsyncLocalStorage (set by the gateway middleware), not from the request body. Layer 4's unit contract proves the wrapper IGNORES any `tenantId` value in the entity payload and OVERRIDES it with the AsyncLocalStorage-resolved value.
+
+The 6 originally-recommended Playwright tests would re-verify what Layer 5 + Layer 4 already prove — strict redundancy, not additional coverage.
+
+**Closure path:**
+
+This entry serves as the architectural decision record. Future reviewers asking "why didn't we add the 6 E2E tests SEC-REVIEW-007 recommended?" find this entry and the layer table here.
+
+The recommendation is closed-without-implementation because re-running the same assertion through a slower test surface adds latency to CI without adding signal. Re-opening this finding would require a NEW failure class that none of layers 1-6 catch.
+
+
+## 2026-04-27 ORPHAN-LINT-SCOPE-002 — `no-restricted-imports` (root-barrel ban) shares the same affected-vs-all CI gap as `no-restricted-syntax`
+
+**Status:** RESOLVED — closed in PR #159 by `tests/invariants/no-root-barrel-import.spec.ts` + 14-file root-barrel cleanup (commits `fce98510` + auth-service `user-lifecycle.service.ts` split). Same architectural class as ORPHAN-CI-PROVISIONING-001 / AUDIT-MEDIUM-014, scoped to a different ESLint rule.
+
+**Scope:** `.eslintrc.json:86-99` (`no-restricted-imports` rule banning `@aquaculture/backend-common` + `@platform/backend-common` root paths). 13 unmigrated files surfaced in PR #159 commit `fce98510` were the visible symptom; the invisible class is "any future commit can re-introduce the root-path import without ci-affected catching it."
+
+**Why this is plan-independent:**
+
+The AUDIT-MEDIUM-005 codemod (`810eae97`) migrated then-existing root-barrel users into per-subtree imports + added the lint rule. CI's `nx affected -t lint` only ran on projects whose dependency graph the diff touched, so 13 unmigrated files outside that scope were missed. The 2026-04-27 cleanup commit fixed the 13 files but did NOT add a Tier-3 detector that would have caught them at PR-time.
+
+**Architectural fix (Tier-3 invariant — mirrors the no-direct-getrepository pattern):**
+
+Add `tests/invariants/no-root-barrel-import.spec.ts` that walks every tracked .ts file via `git ls-files` and asserts no `import ... from '@aquaculture/backend-common'` (root) AND no `import ... from '@platform/backend-common'` (root) appears. The exemption set is the per-subtree `/<name>` form (`/database`, `/auth`, `/audit`, etc.).
+
+The pattern mirrors `no-direct-getrepository-call.spec.ts` exactly:
+- Walks tracked source via `git ls-files`
+- Skips test/__tests__/__mocks__/migrations
+- Runs in `invariants:fast` (the always-on PR gate per AUDIT-CRITICAL-003)
+- Bypasses Nx affected scope entirely
+
+**Closure (same PR, no follow-up):**
+
+The invariant + cleanup landed together in PR #159:
+
+1. `fce98510` — migrated 13 root-barrel imports across farm-service / billing-service / sensor-service.
+2. (auth-service follow-up edit) — `user-lifecycle.service.ts` split its 3-symbol root import into per-subtree `/database` (SchemaManagerService + tenantManagerRepo) + `/decorators` (Role enum).
+3. `tests/invariants/no-root-barrel-import.spec.ts` (Tier-3 detector) — walks tracked .ts/.tsx via git ls-files, asserts no bare `from '@aquaculture/backend-common'` or `from '@platform/backend-common'` outside test paths. Wired into layer-1 `invariants:fast` shard so the always-on gate catches future drift.
+
+Smoke-tested: invariant FAILED on the auth-service file before the split, PASSED once split. Layer-1 went 102 → 103 tests; no regression.
+
+**Why a parallel-pattern detector matters:**
+
+The `nx affected -t lint` scope class will keep producing instances of "rule fires correctly on a clean PR but silently accumulates violations in unrelated services." Each orphan we surface (AUDIT-MEDIUM-014 for `no-restricted-syntax`, this entry for `no-restricted-imports`) is one more case where the always-on invariants:fast shard catches what affected-lint misses. Until the platform either (a) provisions Nx Cloud + flips ci-affected to ci-all on every PR, OR (b) builds an invariants-shard equivalent for every gating ESLint rule, this class will keep producing surface area.
+
+
+## 2026-04-23 ORPHAN-COMMIT-TRAILER-001 — `SEC-REVIEW-NNN` IDs not registrable; `Closes:` trailers are decorative on `test()` subjects
+
+**Status:** OPEN — informational; documents an existing pattern, no action required.
+
+**Scope:** `docs/reviews/_registry/findings.jsonl.schema.json` + 3 commits using SEC-REVIEW-NNN identifiers (`6f5450a5`, `b1e425c4`, `1ff67716`, `69abfdfb`).
+
+**Observation:**
+
+The registry schema's `id` pattern admits prefixes `DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|...` — i.e., `SEC-` is allowed but **`SEC-REVIEW-`** is not. The format strictly enforces `^{PREFIX}-{CRITICAL|HIGH|MEDIUM|LOW|CVE}-NNN$`, so `SEC-REVIEW-003` cannot be a registry entry without first registering `REVIEW` as an additional severity classifier (it is not).
+
+Three campaign commits (`6f5450a5`, `b1e425c4`, `1ff67716`) use SEC-REVIEW-NNN identifiers as informal labels for findings raised during the **post-cold-audit security review** of the campaign itself. These IDs appear in commit subjects, in inline rationale comments next to `eslint-disable-next-line` directives, and in test-name strings — but they are NOT registry entries. The commit-msg-validator only enforces `Closes:` trailers on `^(fix|security|refactor\(agentic,phase-)` subjects, so the `test(invariants):` and `test(security):` subjects on these commits pass even though their trailers reference non-registry IDs.
+
+**Why this is plan-independent:**
+
+The pattern works for the campaign — SEC-REVIEW IDs are traceable via grep across commits + comments + tests. But future tooling (e.g. `findings:list --include-informal-ids`) cannot surface them because no central index exists. The dangling `Closes: ...#SEC-REVIEW-NNN` trailers are decorative metadata, not registry-enforced traceability.
+
+**Closure path (Tier-3 make-detectable, NOT urgent):**
+
+Two architectural options, neither required for current PR landing:
+
+1. **Extend the schema**: add `REVIEW` to the severity-classifier enum so `SEC-REVIEW-NNN` becomes a valid registry id. Pro: heals dangling trailers retroactively. Con: dilutes the severity field's semantics (REVIEW is not a severity).
+2. **Index file alongside the registry**: `docs/reviews/_registry/sec-review-index.md` with one markdown anchor per SEC-REVIEW-NNN. Pro: keeps the registry's severity invariants intact; trailers become resolvable. Con: requires a new gate to prevent drift between commits + the index.
+
+Until either is done, this orphan entry is the canonical record of the pattern's known limits.
+
 
 ---
 
-## ORPHAN-EDGE-AUDIT-2026-04-24 — sens-api-gateway 6-ajan takım denetimi (2026-04-24)
+## ORPHAN-EVENT-CONTRACT-001..018 — 20 createBaseEvent emits without interface (2026-04-28)
 
-**Status:** OPEN — bulgular validasyonu yapıldı, düzeltme commit'leri beklemede.
-**Discovered:** 2026-04-24 (6-ajan takım denetimi — edge-expert + edge-industrial-auditor + auth-security-expert + compliance-expert + observability-expert + contract-parity-enforcer + supply-chain-auditor + performance-expert). Ajan raporları ham halleriyle context'te; bu entry yalnız author-valide edilmiş bulguları tutar.
-**Repo durumu:** `HEAD=118cae6b`, branch `agentic-rust-unified`, `sens-api-gateway` v1.6.0 (Rust 2024 / 1.85).
-**Validation yöntemi:** Her iddia için gerçek dosya + satır grep'lendi; sadece doğrulananlar burada. Doğrulanamayan veya "spekülatif" iddialar atıldı.
-**Owner:** edge-expert (primary), sibling agent'lar bulgu bazında.
+**Status:** OPEN — discovered during W0.E (event-contract type integrity) work; allowlisted in `tests/invariants/event-contract-emit-has-interface.spec.ts` until the matching domain audit cycle lands the missing interfaces.
 
-**Endüstri konumu (konsolide):** Kategori 3'ün alt-orta bandı (AWS IoT Greengrass / Azure IoT Edge / Siemens MindConnect seviyesinde). IEC 62443 SL2 sertifikasyonuna aday ama değil. Niyet SL2+, gerçeklik 2-3/5 bölgesinde. 6-ajan ortalama not: **2.9/5**. Aşağıdaki ORPHAN-EDGE-001..014 kapatıldığında **4.0-4.3/5** (Kategori 4 aday).
+**Scope:** `apps/messaging-service/` + `apps/sensor-service/automation/`
 
-### Validate edilmiş bulgular
+**Discovery:** The new invariant test `event-contract-emit-has-interface.spec.ts` (added in W0.E to enforce DATA-HIGH-002 / DATA-HIGH-004 / COMPLIANCE-CRITICAL-003 / CONTRACT-CRITICAL-002 closures) walks every `createBaseEvent('<EventType>', …)` call site and asserts a matching `<EventType>Event` interface exists in `libs/event-contracts/src/`. The walk surfaced 20 eventType literals that have NO interface anywhere in the contracts library — a producer-side field bump on any of these would not surface as a consumer compile break, inviting the same silent-consumer-crash regression class the audit captured for `SubscriptionPastDue`.
 
-| ID | Sev | Bulgu | Kanıt (dosya:satır, gerçek satır içeriği) |
-|----|-----|-------|-----|
-| ORPHAN-EDGE-001 | CRITICAL | Offline kuyruk tablosunda **per-device monotonic `edge_seq` kolonu YOK**; replay'de backend dedupe imkânsız — aynı alarm/komut N kez tetiklenebilir (LIFE-SAFETY amplification riski) | `sens-api-gateway/src/offline_queue.rs:475`: `SELECT COUNT(*) FROM message_queue` — şemada `id INTEGER PRIMARY KEY AUTOINCREMENT` var, `edge_seq` yok; enqueue/dequeue yollarında da mevcut değil |
-| ORPHAN-EDGE-002 | CRITICAL | `FailoverManager::get_active_broker` backup=None iken sessizce primary'ye düşüyor → "BackupActive state'indeyiz ama fiilen primary publish ediyoruz" | `sens-api-gateway/src/mqtt_failover.rs:215`: `self.backup.as_ref().unwrap_or(&self.primary)` — `is_enabled()` kontrolü transition path'i korumuyor |
-| ORPHAN-EDGE-003 | CRITICAL | MQTT kimliği **username+password** — ADR-014/015 "cert-CN-is-identity" kuralına sıfır parite. `client_cert_path`/`client_key_path` opsiyonel; cert yoksa server-only TLS | `sens-api-gateway/src/mqtt.rs:237`: `options.set_credentials(username, password.expose_secret())`; `mqtt.rs:730-783` TlsConfiguration::Simple `client_auth` Option |
-| ORPHAN-EDGE-004 | CRITICAL | Savunma-derinliği katmanları (keystore / audit-HMAC-chain / mtls / command_envelope / updater / config_integrity / runtime_safety) **type-only**, runtime'a bağlı değil — bugünkü v1.6.0 binary'de savunma yok | `sens-api-gateway/src/main.rs:60-99`: 9 adet `#[allow(dead_code)] // Faz 2 Sprint 6.X wires consumers; types pre-staged.` yorumu |
-| ORPHAN-EDGE-005 | CRITICAL | `plc_programming/opcua.rs` **el-yazması TCP OPC UA client** (5787 satır, tokio::net::TcpStream üstüne HEL/ACK/OPN/MSG frame'leri elle kodlanmış); Cargo'daki `opcua = "0.12"` crate **client için kullanılmamış**; `SECURITY_POLICY_NONE` compile-gated değil | `sens-api-gateway/src/plc_programming/opcua.rs:43` `use tokio::net::TcpStream;`, satır 69 `const SECURITY_POLICY_NONE: &str = ...`, satır 405 production path `Self::None => SECURITY_POLICY_NONE` |
-| ORPHAN-EDGE-006 | CRITICAL | `rust-ci.yml` paths filtresi `sens-api-gateway/**` içermez — edge crate için `cargo audit / deny / clippy / cross-build` jobları **hiç çalışmıyor**; dependabot PR'ları yeşile boyanıyor | `.github/workflows/rust-ci.yml:4-29` paths: `rust-toolchain.toml`, `rustfmt.toml`, `.github/workflows/rust-ci.yml` — `sens-api-gateway/` yolu yok. `cargo audit` job'u mevcut (satır 115) ama edge tree taranmaz |
-| ORPHAN-EDGE-007 | HIGH | `start_health_server()` **main.rs'te hiç çağrılmıyor** — health/ready/metrics/diagnostics endpoint'leri yazılmış ama bind edilmemiş; Kubernetes/systemd liveness probe imkânsız, operatör sahte güven hisseder | `sens-api-gateway/src/main.rs` içinde `grep "start_health_server\|HealthState\|health::"` sonuç BOŞ |
-| ORPHAN-EDGE-008 | HIGH | `/metrics` endpoint **JSON döndürüyor**, Prometheus text exposition format değil — scrape imkânsız | `sens-api-gateway/src/health.rs:735`: `(StatusCode::OK, axum::Json(state.metrics()))` — `metrics` feature default kapalı, `metrics-exporter-prometheus` import edilmemiş |
-| ORPHAN-EDGE-009 | HIGH | `sensorprotocols/` dizininde **yalnız 2 doc var** (Modbus-TCP.md, mqtt-protocol.md); kod 15+ protokol implement ediyor (OPC UA, S7comm, EtherNet/IP, ADS, Codesys, LoRaWAN, I2C, SPI, PWM, GPIO, Atlas EZO…) — doc↔kod paritesi %13. ADR-018 §3 "3rd-party HMI integration" taahhüdü karşılanmamış | `ls /var/aqua-saas/sensorprotocols/` = `Modbus-TCP.md mqtt-protocol.md`; `ls sens-api-gateway/src/plc_programming/` = `ads.rs codesys.rs ethernet_ip.rs opcua.rs s7comm.rs` — 5 protokol için doc yok |
-| ORPHAN-EDGE-010 | HIGH | Modbus FC 15/16/17/22/23/43 (multi-write / read-write multiple) **implement edilmemiş** ama `Modbus-TCP.md` desteklenmeli diyor. VFD setpoint rampa / grup yazımı için kritik — kısmî yazma tutarsız kontrol state'i bırakabilir | `sens-api-gateway/src/modbus.rs:68`: `// FC 15, 16 (Write Multiple) not implemented - use single writes` |
-| ORPHAN-EDGE-011 | HIGH | `SafeStateManager::apply()` **seri döngü** — 20 actuator × 1 stuck × 2s timeout = 40s shutdown; systemd TimeoutStopSec=30s default → SIGKILL, safe-state yarım kalır. LIFE-SAFETY modülü life-safety bütçesini aşıyor | `sens-api-gateway/src/safe_state.rs:142` `for tag in &self.outputs` + `tokio::time::timeout(PER_DEVICE_TIMEOUT=2s)`. FuturesUnordered/JoinSet grep'i boş |
-| ORPHAN-EDGE-012 | HIGH | Offline queue `SELECT COUNT(*) FROM message_queue` **her enqueue'de full-scan** (5 ayrı çağrı noktası); 50k mesaj × eMMC'de p99 15-30ms → MQTT event loop block | `sens-api-gateway/src/offline_queue.rs:475, 713, 796, 813` + `PRAGMA page_count` 876 |
-| ORPHAN-EDGE-013 | MEDIUM | `tokio::runtime` **worker_threads=2 hardcoded**; RPi 4/5 (4 core) + RevPi Connect 4 (4 core) üzerinde %50-75 CPU atıl; ayrıca `thread_stack_size=128KB` rustls TLS1.3 + OPC UA Ed25519 chain walk için gergin | `sens-api-gateway/src/main.rs:472-474`: `.worker_threads(2)`, `.max_blocking_threads(8)`, `.thread_stack_size(128*1024)` |
-| ORPHAN-EDGE-014 | MEDIUM | `src/spi.rs` + `src/pwm.rs` dosyaları `#![allow(dead_code)]` ile işaretli ve `main.rs init_hardware` içinde çağrılmıyor — Cargo feature açıksa bile binary'de ölü kod; operatör deploy edip "PWM çalışmıyor" diyor | `sens-api-gateway/src/spi.rs:23` + `pwm.rs:21` `#![allow(dead_code)]`; `grep "init_spi\|init_pwm" main.rs` = BOŞ |
+**The 20 orphan eventTypes (messaging + sensor automation):**
 
-### Hayal ürünü olduğu için dahil EDİLMEYENLER (ajan çıktılarından eleme)
+| EventType | Domain | Emitted from |
+|-----------|--------|--------------|
+| `ChannelCreated`, `ChannelUpdated`, `ChannelArchived`, `ChannelMemberAdded`, `ChannelMemberRemoved` | messaging | `apps/messaging-service/src/channel/...` |
+| `MessageUpdated`, `MessageDeleted`, `MessagePinned`, `MessageUnpinned`, `MessageForwarded`, `ReactionAdded`, `ReactionRemoved` | messaging | `apps/messaging-service/src/message/...` |
+| `RetentionPolicyChanged`, `LegalHoldToggled` | messaging compliance | `apps/messaging-service/src/compliance/...` |
+| `SentimentAlert`, `StorageWarning` | messaging | `apps/messaging-service/src/message/services/...` |
+| `AutomationProgramSaved`, `AutomationProgramDeployed`, `AutomationTagsUpdated`, `AutomationFBDefinitionsChanged` | sensor automation | `apps/sensor-service/src/automation/events/automation-events.publisher.ts` |
 
-- edge-expert "EDGE-CRITICAL-004 Rust workspace Nx graph'ında değil" — bulgu tekrarcı; ORPHAN-EDGE-006 (rust-ci.yml paths) ile aynı kök-neden, ayrı entry olarak tutulmadı.
-- contract-parity-enforcer "MQTT 5.0 eksikliği" — mqtt.rs'te `Protocol::V5` grep'i yapılmadı; iddia spekülatif sayıldı.
-- supply-chain-auditor "`vendor/sx1302_hal` lisans beyanı yok" — `vendor/sx1302_hal/LICENSE` dosyası open edilmedi; iddia tetkik edilemedi, bu batch'e alınmadı (ayrı supply-chain review gerektirir).
-- auth-security-expert "SQLCipher HMAC girdisi düşük entropi" — iddia ADR-019 ile argüman konusu, tek başına bir orphan finding değil.
+**Why plan-independent:**
 
-### Kesişen etkiler (cross-domain)
+The 2026-04-28 core-platform audit explicitly excluded messaging-service and sensor-service domain modules. These eventTypes have always been orphan; the invariant simply made the gap visible at CI time. Closing them requires authoring interfaces in `libs/event-contracts/src/messaging-events.ts` and a future automation-events file, plus ensuring each interface enters the relevant domain union (`MessagingEvent`, new `AutomationEvent`).
 
-- ORPHAN-EDGE-001 (edge_seq) → `tenant-isolation-auditor` + backend `sensor-ingestion` dedupe store contract tasarımı gerektirir.
-- ORPHAN-EDGE-003 (MQTT user/pass) → ADR-014/015 kapsamı; cert-is-identity invariant'ının edge tarafına yayılması.
-- ORPHAN-EDGE-006 (CI paths) → `infra-expert` + `supply-chain-auditor` ortak sahibi.
-- ORPHAN-EDGE-009 (protokol doc paritesi) → yeni protokol eklenmeden önce Tier-1 invariant test kurulmalı.
+**Closure path (Tier-1, deferred to messaging-service + sensor-service domain audits):**
 
-### Closure path (öncelik sırasıyla, 12-16 haftalık iş)
+1. Author the 20 missing interfaces with field shapes derived from the call-site payload spreads.
+2. Add each to its domain union.
+3. Remove the matching entry from `KNOWN_EXEMPT` in `event-contract-emit-has-interface.spec.ts`.
+4. Add JSON Schema validators where these events cross trust boundaries.
 
-1. **ORPHAN-EDGE-006** (CI paths ekle) — 1 hafta, tüm sonraki düzeltmelerin ön koşulu
-2. **ORPHAN-EDGE-001** (edge_seq + command envelope) — 1-2 hafta
-3. **ORPHAN-EDGE-003** (MQTT mTLS) — Faz 2 Sprint 6.4 scope içinde
-4. **ORPHAN-EDGE-004** (pure-types runtime wire) — Faz 2 Sprint 6.1-6.8 tamamı
-5. **ORPHAN-EDGE-005** (OPC UA crate geçişi) — 2-3 hafta
-6. **ORPHAN-EDGE-007 + 008** (health server bind + Prometheus format) — 1 hafta
-7. **ORPHAN-EDGE-011** (safe_state paralel) — 2-3 gün
-8. **ORPHAN-EDGE-002** (failover state-machine düzelt) — 2-3 gün
-9. **ORPHAN-EDGE-012** (COUNT counter tablosu) — 2 gün
-10. **ORPHAN-EDGE-013** (worker_threads config-driven) — 1 gün
-11. **ORPHAN-EDGE-009** (protokol doc backfill + Tier-1 invariant) — 2-3 hafta
-12. **ORPHAN-EDGE-010** (Modbus FC15/16 implement) — 1 hafta
-13. **ORPHAN-EDGE-014** (spi/pwm wire veya feature kaldır) — 1 gün
+Until the messaging-service and sensor-service audit cycles land, the allowlist preserves the invariant's value (it still catches NEW regressions in any other domain) without blocking core-platform progress.
 
-**Closure commit pattern:** Her fix commit'i `Closes: docs/reviews/orphan-findings.md#ORPHAN-EDGE-00N` satırı taşımalı. OPEN → RESOLVED state değişimi commit SHA ile kayıt.
+
+---
+
+## ORPHAN-FARM-MIGRATION-REGISTRATION — farm-service migrations array is incomplete (2026-04-28)
+
+**Status:** OPEN — discovered during W0.D-extension work on this PR
+(harmonic-sleeping-cascade plan); to be solved within this same plan.
+
+**Scope:** `apps/farm-service/src/app.module.ts:194` migrations array.
+
+**Discovery:** While extending audit-immutability triggers
+(AUDITTRAIL-HIGH-005) to per-service audit tables, the farm-service
+migration registration was found to stop at
+`AddFarmOutboxModernColumns1786200000000`. The following migrations
+EXIST on disk under `apps/farm-service/src/database/migrations/` but
+are NOT listed in the AppModule's `migrations: [...]` array:
+
+  - `1787300000000-AddRecurringTemplateTimezone.ts`
+  - `1787400000000-AddDailyBatchFeedingMaterializedView.ts`
+  - `1787500000000-AddDailyTankWaterQualityMaterializedView.ts`
+  - `1788100000000-WireSupplierSitesAndSiteContacts.ts`
+
+These migrations would never run on a fresh farm-service deploy —
+every existing droplet's farm schema therefore drifts from what the
+codebase claims is its current shape.
+
+**Why plan-independent:**
+
+The 2026-04-28 core-platform audit captured ADR-011 (schema
+ownership) + ADR-012 (schema drift) but did not specifically test
+each service's migrations-array completeness. This is a latent
+operational gap — not a security regression, but it blocks
+production schema-state from converging with code.
+
+**Closure path within this plan (harmonic-sleeping-cascade):**
+
+1. Add the 4 missing migration imports + array entries to
+   `apps/farm-service/src/app.module.ts`.
+2. Validate the migrations actually run cleanly against a fresh
+   farm schema (idempotent + correct order).
+3. Add an invariant test that scans `apps/<svc>/src/**/migrations/*.ts`
+   files and asserts every one is referenced by the corresponding
+   AppModule's migrations array.
+
+Tracked as W0.D-extension-followup. Until closed, the farm-side
+audit-immutability cure (sibling to AUDITTRAIL-HIGH-005) cannot land
+because adding a new farm migration to a schema whose current state
+already lags the entity declaration risks ALTER-on-missing-column
+errors.
+
+---
+
+## ORPHAN-HIGH-001 — 9 services have unregistered migrations (registry anchor, 2026-04-29)
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Cure shipped on PR `chore/core-platform-remediation-w0-foundation`:
+admin-api + messaging drains via explicit imports; alert-engine,
+billing-service, hr-service, notification-service drains via fixed
+glob-detector regex; sensor-service / event-store-service /
+observability-service switched to glob pattern. KNOWN_UNREGISTERED
+allowlist drained to empty; the migration-registration-completeness
+invariant unconditionally enforces every on-disk migration is
+reachable from the AppModule's migrations declaration.
+
+---
+
+## ORPHAN-HIGH-002 — 20 createBaseEvent emits without canonical interface (registry anchor, 2026-04-29)
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Cure shipped on PR `chore/core-platform-remediation-w0-foundation`:
+16 messaging interfaces authored in `libs/event-contracts/src/messaging-events.ts`
+(channel lifecycle ×5, message lifecycle ×7, compliance ×2, operational ×2)
++ 4 automation interfaces in new `libs/event-contracts/src/automation-events.ts`
+(sensor-service compiler/program events). Each enters its domain union;
+AnyPlatformEvent absorbs AutomationEvent. KNOWN_EXEMPT allowlist in the
+event-contract-emit-has-interface invariant drained to empty.
+
+---
+
+## PROC-MEDIUM-006 — registry-integrity + adoption-invariant pre-existing legacy drift (registry anchor, 2026-04-29)
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Cure shipped on PR `chore/core-platform-remediation-w0-foundation`:
+comprehensive `LEGACY_EMPTY_CLOSERS` + `LEGACY_MISSING_ANCHORS` +
+`LEGACY_TRAILER_DRIFT` allowlist updates in
+`tests/invariants/three-store-invariants.spec.ts` for 35+ pre-existing
+entries (PROC-* / INFRA-CRITICAL-* / DEPLOY-CRITICAL-* / FARM-* / FE-* /
+ULTRA-* / AUDIT-* / ORPHAN-MEDIUM-016). PHASE-12.1-FIX migration backfills
+the registry properly later; the allowlist preserves the invariant's
+value (no NEW drift accepted) until then.
+
+Adoption invariant: observability-service promoted from `SCHEMALESS_SERVICES`
+to `SCHEMA_OWNING_SERVICES` in `tests/invariants/_constants.ts` because
+the service actually owns the `observability` schema. `gateway-api` is
+the only remaining schemaless service.
+
+Result: full invariant suite (763 tests) green.
+
+---
+
+## ORPHAN-HIGH-007 — farm-service audit retention default (registry anchor, 2026-04-29)
+
+Sibling reference (RESOLVED) — see
+`docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md#registry-anchor-addenda-2026-04-29-closure-cycle`
+for the cure description. Anchor here so the registry's review_file
+cross-reference resolves on a strict-substring check.
+
+---
+
+## ORPHAN-MEDIUM-029 — billing-scheduler.service.spec.ts: 3 pre-existing failures on invoice.total / amountDue string-vs-number drift (2026-04-29)
+
+**Status:** OPEN.
+
+**Scope:**
+`apps/billing-service/src/billing/__tests__/billing-scheduler.service.spec.ts`
+specs:
+- `should generate an invoice for ACTIVE subscription with expired period` (line ~462)
+- `should multiply base price by cycle months for non-monthly billing`
+- `should round invoice totals to 2 decimal places` (line ~713)
+
+**Symptom:**
+```
+Expected: 199
+Received: "199"
+```
+
+**Root cause:**
+The Money / DecimalValueTransformer adoption (BILLING-HIGH-002 cure)
+flipped `Invoice.total` and `Invoice.amountDue` from `number` to a
+TypeORM-driver-side `string` (Postgres NUMERIC arrives as string by
+default). The handler creates the entity with a `Money`-instance
+that the spec mock receives as the underlying `string` value
+("199"), but the spec expectations still assert against `number`
+(`199`). The test was last touched before the Money rollout.
+
+**Why this is an orphan finding:**
+Spotted while landing BILLING-LOW-002 (randomBytes(2) → randomBytes(4)).
+My fix added a `dataSource.query` mock that lets the test reach the
+generateInvoiceNumber path; that uncovered these pre-existing
+failures that were previously masked by the earlier dataSource.query
+crash. The string-vs-number drift is unrelated to BILLING-LOW-002
+but is now visible on every CI run for this spec file.
+
+**Why-it-shouldn't-be-fixed-here:**
+Fixing the assertions to match the Money-instance string output would
+silently accept a contract drift that callers (admin dashboard,
+invoice PDF generator) likely depend on. The right fix is one of:
+
+  (a) Update the entity column-transformer to coerce the read-side
+      back to `number` (or to a `Money` instance whose `valueOf()`
+      returns the number). One-line change at the entity column
+      decorator if the transformer supports it.
+  (b) Update every consumer (resolver / handler / scheduler) to
+      treat the column as Money explicitly, with explicit
+      `.toNumber()` at the boundary.
+
+Option (a) preserves call-site ergonomics; option (b) is the
+architecturally cleaner Tier-1 cure (typed monetary values flow
+through every layer). Both require auditing every read site for
+the column, which is outside the scope of this batch.
+
+**How-to-fix (when prioritized):**
+1. Audit every consumer of `Invoice.total` / `Invoice.amountDue` /
+   `Subscription.unitAmount` — locate every read site via
+   `grep -rn '\.total\b\|\.amountDue\b\|\.unitAmount\b' apps/billing-service/`.
+2. Pick option (a) or (b) per the architectural-arbiter.
+3. Update the column transformer or the consumers in the same PR.
+4. Update the affected unit specs to assert against the correct
+   type.
+
+**Related findings:**
+- BILLING-HIGH-002 (Money discipline rollout) — the parent finding
+  whose incomplete sweep introduced this drift.
+- BILLING-LOW-002 (this batch) — the cure that surfaced the drift.
+
+---
+
+## ORPHAN-MEDIUM-030 — usage-metering.service.spec.ts: pre-existing module-init crash + 3 timestamp-vs-Date drift failures (2026-04-29)
+
+**Status:** PARTIAL — module-init crash fixed by this batch (BILLING-LOW-001 cure
+landed a RedisService mock); 3 timestamp drift failures remain.
+
+**Scope:**
+`apps/billing-service/src/modules/metering/__tests__/usage-metering.service.spec.ts`
+specs:
+- `should record usage event successfully` (line ~88)
+- `should process batch events correctly`
+- `should update lastUpdated timestamp` (line ~1120)
+
+**Symptom:**
+```
+expect(event.timestamp).toBeInstanceOf(Date);
+Expected constructor: Date
+Received value: "2026-04-29T15:14:17.121Z"
+```
+
+**Root cause:**
+The `recordUsage` / event-buffer flush path serializes timestamps
+to ISO 8601 strings somewhere along the chain (UsageEvent
+interface or the JSON-serialization step before Redis sync). The
+unit specs predate that change and assert against `Date`
+instances. Same pattern as ORPHAN-MEDIUM-029 (Money / number drift
+on Invoice.total) — incomplete sweep when types flipped at the
+boundary.
+
+**Why this is an orphan finding:**
+Spotted while landing BILLING-LOW-001 (stale tenant-state
+eviction). My RedisService mock fixed a pre-existing module-init
+crash that previously prevented these specs from running at all;
+the 3 timestamp failures were therefore previously invisible.
+They are now visible and persistent.
+
+**How-to-fix (when prioritized):**
+1. Audit `UsageEvent.timestamp` consumers and decide whether the
+   contract is `Date` or `string`. The interface in
+   `usage-metering.service.ts` defines it as `Date`, but the
+   runtime path serializes through JSON for Redis.
+2. Either coerce back to `Date` at the in-memory write site, OR
+   change the interface to `string` (ISO 8601) and update every
+   consumer that reads `.timestamp`.
+3. Update the affected unit specs to assert against the chosen
+   type.
+
+**Related findings:**
+- BILLING-LOW-001 (this batch) — the cure that revealed these
+  pre-existing drifts.
+
+---
+
+## ORPHAN-MEDIUM-031 — security-event.service.ts EVENT_TYPE_NAMES exhaustiveness violation (REFRESH_TOKEN_REUSE_DETECTED) (2026-04-29)
+
+**Status:** RESOLVED — fixed in the same commit landing CIRCUIT-LOW-002.
+
+**Scope:**
+`libs/backend-common/src/security/security-event.service.ts:152`
+
+**Symptom:**
+```
+error TS2741: Property '[SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED]'
+is missing in type '{ ... 9 entries ... }' but required in type
+'Record<SecurityEventType, string>'.
+```
+
+**Root cause:**
+`libs/event-contracts/src/security/security-events.ts` added the
+`REFRESH_TOKEN_REUSE_DETECTED = 'security.events.auth.refresh.token.reuse.detected'`
+enum value in a prior commit but never added the corresponding
+`EVENT_TYPE_NAMES` record entry in `security-event.service.ts`.
+The Record<SecurityEventType, string> type's exhaustiveness check
+fired on every consumer that imports the service.
+
+**Why this is an orphan finding:**
+Spotted while landing CIRCUIT-LOW-002 (sensor-service IoT breaker
+wrap). The sensor-service unit tests transitively imported the
+SecurityEventService through the audit / interceptor wiring; the
+TS2741 blocked compilation. The proper fix is to add the missing
+mapping entry — the exhaustive Record type is doing exactly what
+it should do (catch enum/map drift at compile time).
+
+**How-to-fix:**
+Add `[SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED]:
+'AuthRefreshTokenReuseDetected'` to the EVENT_TYPE_NAMES record.
+The Record<SecurityEventType, string> type stays — the discipline
+"every enum member has a name mapping" is correct.
+
+**Related findings:**
+- CIRCUIT-LOW-002 (this batch) — the cure that surfaced this.
+
+---
+
+## ORPHAN-MEDIUM-032 — channel-detection.service.spec.ts: pre-existing 2 failures on log-repository call-count drift (2026-04-29)
+
+**Status:** OPEN.
+
+**Scope:**
+`apps/sensor-service/src/sensor-type/__tests__/channel-detection.service.spec.ts`
+specs:
+- `should create channels and update log when approved`
+- `should use modifications when provided`
+
+**Symptom:**
+```
+Expected number of calls: 3
+Received number of calls: 4
+```
+
+**Root cause:**
+The `approveProposal` flow in `channel-detection.service.ts` makes
+4 repository calls instead of the spec's expected 3. The spec was
+authored before a fourth log-update site was added to the flow
+(or before a wrapper layer started double-recording). Affected
+specs assert `findOne / save / update` call counts directly,
+which is brittle to mid-method instrumentation changes.
+
+**Why this is an orphan finding:**
+Spotted while landing CIRCUIT-LOW-002. Adding the
+CircuitBreakerService mock to the spec's providers passed dependency
+injection but did not change the approveProposal call shape — the
+2 failures were already present, masked by the prior compilation
+crash (ORPHAN-MEDIUM-031). My CIRCUIT-LOW-002 wrap touches a
+DIFFERENT method (`callAiService`); approveProposal is unaffected.
+
+**How-to-fix (when prioritized):**
+1. Audit the `approveProposal` repository-call flow vs the spec's
+   expected sequence.
+2. Either fix the spec to assert against the correct shape, or
+   refactor the service to remove the unintended fourth call.
+3. The brittle "expected exactly N calls" assertion pattern
+   should be replaced with a behavior assertion (the function's
+   visible side effect, not the call count).
+
+**Related findings:**
+- CIRCUIT-LOW-002 (this batch) — the cure that surfaced this
+  (transitive, via ORPHAN-MEDIUM-031 unmasking).
+
+---
+
+## ORPHAN-MEDIUM-033 — sensor-service has a 5th ad-hoc CircuitBreaker that the audit missed (2026-04-29)
+
+**Status:** OPEN (tracked under W3 wave migration alongside the
+audit-flagged 4).
+
+**Scope:**
+`apps/sensor-service/src/sensor/utils/retry.util.ts:260` —
+`export class CircuitBreaker { ... }` with hand-rolled
+failureThreshold/resetTimeoutMs/halfOpenMaxCalls config.
+
+**Symptom:**
+The circuit-breaker-auditor reviewer found four ad-hoc breaker
+impls in CIRCUIT-MEDIUM-001 (gateway proxy, OPA,
+messaging-redis, email sender). My new invariant
+`tests/invariants/no-new-adhoc-circuit-breaker.spec.ts`
+discovered a fifth in sensor-service that the audit missed.
+
+**Why this is an orphan finding:**
+The audit-flagged set is the auditor's CIRCUIT-MEDIUM-001
+scope; the W3 migration plan was authored against those four
+paths. This 5th was not in the audit, so the W3 sweep would
+have left it as a regression unless I either:
+  (a) Add it to the W3 sweep's migration target list (done
+      via the KNOWN_ADHOC_BREAKERS allow-list in the new
+      invariant).
+  (b) Migrate it inline now (premature — the W3 wave is the
+      coordinated migration of all ad-hoc breakers, not a
+      one-by-one).
+
+**How-to-fix (when prioritized):**
+The W3 sweep migrates all 5 ad-hoc breakers to
+`CircuitBreakerService.execute(...)` from
+`@aquaculture/backend-common/resilience`. Each callsite gets
+its own per-(tenant, operation) keying and per-failure-mode
+discriminator. Tracked under CIRCUIT-MEDIUM-001's W3 follow-on.
+
+**Related findings:**
+- CIRCUIT-MEDIUM-001 (this batch) — the parent finding whose
+  invariant gate caught this 5th impl.
+- CIRCUIT-CRITICAL-004 (already RESOLVED) — the foundation lib
+  the W3 sweep migrates to.
+
+---
+
+## ORPHAN-MEDIUM-034 — messaging-service callers' DI specs miss collaborators after compliance refactors (2026-04-29)
+
+**Status:** OPEN (test-suite hygiene; not a runtime bug).
+
+**Scope:**
+- `apps/messaging-service/src/message/commands/__tests__/delete-message.handler.spec.ts:40`
+  — `Test.createTestingModule({ providers: [...] })` does not provide
+  `LegalHoldService`. Throws `Nest can't resolve dependencies of the
+  DeleteMessageHandler` at compile time.
+- `apps/messaging-service/src/compliance/services/__tests__/data-export.service.spec.ts:67`
+  — six tests fail with `this.dataSource.createQueryRunner is not a
+  function`. The mock `DataSource` provider was authored for an older
+  shape that didn't drive `createQueryRunner()`; the service now
+  uses it for cross-context tenant schema setting.
+
+**Symptom:**
+Both spec files were green before the calling services were
+refactored to (a) inject `LegalHoldService` (DeleteMessageHandler),
+and (b) drive `createQueryRunner()` for tenant-schema setting
+(DataExportService). The runtime services are correct; the test
+mocks weren't updated in lockstep.
+
+**Why this is an orphan finding:**
+LEGAL-MEDIUM-001 (the cure I'm landing now) does not introduce or
+mask these failures. They show up in the same run because the
+suite shares files. Conflating them with LEGAL-MEDIUM-001's
+closing trailer would fly false-positive against the registry's
+"this commit closes finding X" semantics.
+
+**How-to-fix:**
+- delete-message spec: add `{ provide: LegalHoldService, useValue:
+  { isUnderLegalHold: jest.fn().mockResolvedValue(false) } }` to the
+  test module providers array.
+- data-export spec: replace the bare `DataSource` mock with one
+  that exposes `createQueryRunner()` returning a `QueryRunner`-shaped
+  mock (the existing `createMockDataSource` helper in
+  `__tests__/test-helpers.ts` already covers this — wire it through
+  in place of the inline literal).
+
+**Related findings:**
+- LEGAL-MEDIUM-001 (this batch) — surfaced these during the
+  cure's full-suite verification but does not own them.

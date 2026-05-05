@@ -419,12 +419,16 @@ metrics = ["dep:metrics", "metrics-exporter-prometheus"]
 strict-security = []
 # SCADA display server (embedded web UI for local HMI/kiosk)
 scada-display = ["axum", "tower-http"]
-# LoRaWAN protocol support is pure Rust and portable across CI, simulators, and
-# edge hosts that do not ship the Semtech concentrator HAL.
+# LoRaWAN protocol support. This intentionally excludes the Semtech SX1302
+# vendor HAL so CI can compile protocol/security paths without hardware C
+# sources. Real concentrator builds must enable `sx1302-vendor-hal` explicitly.
+# EDGE-MEDIUM-003: dep:zeroize removed — zeroize is now a required dependency
 lorawan = ["dep:aes", "dep:cmac", "dep:lorawan"]
-# 2026-04-30: SX1302 vendor HAL is a separate hardware contract so protocol
-# crypto can be verified without silently compiling a simulated concentrator
-# path in production hardware builds.
+
+# 2026-04-30: Enterprise feature split for Semtech SX1302 hardware builds.
+# WHAT: enables bindgen/cc against vendor/sx1302_hal C sources.
+# WHY: keeps protocol-level LoRaWAN CI deterministic while preserving a
+# fail-closed hardware build when real concentrator support is requested.
 sx1302-vendor-hal = ["lorawan", "dep:cc", "dep:bindgen", "dep:glob"]
 
 # =============================================================================
@@ -484,7 +488,7 @@ license-enforce = ["dep:jsonwebtoken"]
 kani = []
 
 [build-dependencies]
-# SX1302 HAL derleme araclari (sadece `lorawan` feature ile aktif)
+# SX1302 HAL derleme araclari (sadece `sx1302-vendor-hal` feature ile aktif)
 cc = { version = "1.0", optional = true }
 bindgen = { version = "0.70", optional = true }
 glob = { version = "0.3", optional = true }

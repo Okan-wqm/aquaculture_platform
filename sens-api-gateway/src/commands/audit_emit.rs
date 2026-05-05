@@ -33,8 +33,60 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use crate::audit::{AuditAction, AuditActor, AuditEntry, AuditOutcome, AuditPhase, AuditResource, AuditSink};
-use crate::authz::permission::TenantId;
+use crate::audit::{
+    AuditAction, AuditActor, AuditEntry, AuditOutcome, AuditPhase, AuditResource, AuditSink,
+};
+use crate::authz::context::AuthorizedContext;
+use crate::authz::permission::{Permission, TenantId};
+
+#[derive(Debug, Clone)]
+pub(super) struct CommandAuditContext {
+    actor_label: String,
+    policy_version: u64,
+    two_person_integrity_verified: bool,
+    resource: AuditResource,
+}
+
+impl CommandAuditContext {
+    pub(super) fn from_authorized(ctx: &AuthorizedContext) -> Self {
+        Self {
+            actor_label: ctx.actor_audit_label(),
+            policy_version: ctx.policy_version(),
+            two_person_integrity_verified: ctx.two_person_integrity_verified(),
+            resource: resource_for_permission(ctx.granted_permission()),
+        }
+    }
+
+    pub(super) fn from_permission(permission: &Permission) -> Self {
+        Self {
+            actor_label: "unknown".to_string(),
+            policy_version: 0,
+            two_person_integrity_verified: false,
+            resource: resource_for_permission(permission),
+        }
+    }
+}
+
+fn resource_for_permission(permission: &Permission) -> AuditResource {
+    match permission {
+        Permission::WriteTag { tag_id } | Permission::OpcUaWrite { tag_id } => AuditResource::Tag {
+            name: tag_id.as_str().to_string(),
+        },
+        Permission::S7Write { address } => AuditResource::Tag {
+            name: address.as_str().to_string(),
+        },
+        Permission::DeployProgram => AuditResource::Program {
+            program_id: "command".to_string(),
+        },
+        Permission::UpdateFirmware => AuditResource::FirmwareImage {
+            image_digest_hex: "command".to_string(),
+        },
+        Permission::ManagePolicy => AuditResource::PolicyManifestVersion { version: 0 },
+        _ => AuditResource::Permission {
+            permission: permission.clone(),
+        },
+    }
+}
 
 /// Map a command name to its semantic AuditAction. Unknown /
 /// non-matching commands fall back to `CommandExecuted` /
@@ -120,11 +172,12 @@ pub(super) fn action_for_command(cmd: &str, outcome: AuditOutcome) -> AuditActio
         },
 
         // Program deploy
-        "deploy_program" | "plc_upload" | "deploy_to_codesys" | "deploy_auto"
-        | "deploy_script" => match outcome {
-            AuditOutcome::Success => AuditAction::ProgramDeployApplied,
-            _ => AuditAction::ProgramDeployRequested,
-        },
+        "deploy_program" | "plc_upload" | "deploy_to_codesys" | "deploy_auto" | "deploy_script" => {
+            match outcome {
+                AuditOutcome::Success => AuditAction::ProgramDeployApplied,
+                _ => AuditAction::ProgramDeployRequested,
+            }
+        }
         "rollback_program" => AuditAction::ProgramDeployRollback,
 
         // Safety
@@ -136,8 +189,8 @@ pub(super) fn action_for_command(cmd: &str, outcome: AuditOutcome) -> AuditActio
         }
 
         // Reads
-        "read_modbus" | "read_gpio" | "get_hardware" | "scan_hardware"
-        | "get_info" | "get_config" | "ping" => AuditAction::TagRead,
+        "read_modbus" | "read_gpio" | "get_hardware" | "scan_hardware" | "get_info"
+        | "get_config" | "ping" => AuditAction::TagRead,
 
         // Everything else: catch-all. Both phases use this
         // same fallback regardless of outcome.
@@ -161,6 +214,21 @@ pub(super) fn build_entry(
     outcome: AuditOutcome,
     detail: &str,
 ) -> AuditEntry {
+    build_entry_with_context(
+        phase, cmd, command_id, device_id, tenant, outcome, detail, None,
+    )
+}
+
+fn build_entry_with_context(
+    phase: AuditPhase,
+    cmd: &str,
+    command_id: &str,
+    device_id: &str,
+    tenant: TenantId,
+    outcome: AuditOutcome,
+    detail: &str,
+    context: Option<&CommandAuditContext>,
+) -> AuditEntry {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or(std::time::Duration::ZERO);
@@ -182,29 +250,26 @@ pub(super) fn build_entry(
         timestamp_nanos: now.subsec_nanos(),
         correlation_id: command_id.to_string(),
         phase,
-        // Operator identity comes from the Batch 68 envelope
-        // adapter path; pre-adapter-integration it's a
-        // placeholder label. Phase 2 / Batch 81 wires real
-        // operator identity from AuthorizedContext when
-        // Sprint 6.4 RBAC gate activates.
-        actor: AuditActor::new(format!("device:{}", device_id)),
+        // 2026-04-29: Authorized command paths project the sealed
+        // AuthorizedContext into audit. Compatibility or pre-auth paths still
+        // use the device fallback, but RBAC allow/deny records no longer carry
+        // placeholder actor/policy/TPI fields.
+        actor: AuditActor::new(
+            context
+                .map(|ctx| ctx.actor_label.clone())
+                .unwrap_or_else(|| format!("device:{}", device_id)),
+        ),
         tenant,
-        // Sprint 6.1 populated: default policy_version=0
-        // when the manifest isn't loaded (Disabled mode).
-        // Sprint 6.4 RBAC-gate-activation populates from
-        // AuthorizedContext.
-        policy_version: 0,
-        // Sprint 6.4 co-approval gate populates this;
-        // pre-activation always false.
-        two_person_integrity_verified: false,
+        policy_version: context.map(|ctx| ctx.policy_version).unwrap_or(0),
+        two_person_integrity_verified: context
+            .map(|ctx| ctx.two_person_integrity_verified)
+            .unwrap_or(false),
         action: action_for_command(cmd, outcome),
-        // Resource defaults to a free-form label; commands
-        // that manipulate specific resources (tags, programs)
-        // will override this via a future expansion of the
-        // emit API. Pre-Batch-80 the cmd name is the resource.
-        resource: AuditResource::Other {
-            label: cmd.to_string(),
-        },
+        resource: context
+            .map(|ctx| ctx.resource.clone())
+            .unwrap_or_else(|| AuditResource::Other {
+                label: cmd.to_string(),
+            }),
         outcome,
         detail: truncated_detail,
     }
@@ -254,7 +319,7 @@ pub(super) fn emit_post_event(
     detail: &str,
 ) {
     let Some(sink) = sink else { return };
-    let entry = build_entry(
+    let entry = build_entry_with_context(
         AuditPhase::Post,
         cmd,
         command_id,
@@ -262,6 +327,36 @@ pub(super) fn emit_post_event(
         tenant,
         outcome,
         detail,
+        None,
+    );
+    if let Err(e) = sink.append(entry) {
+        warn!(
+            "Audit post-event append failed (non-fatal — result returned, Phase 2 / Batch 80 flips to fail-closed): cmd={} err={}",
+            cmd, e
+        );
+    }
+}
+
+pub(super) fn emit_post_event_with_context(
+    sink: Option<&Arc<AuditSink>>,
+    cmd: &str,
+    command_id: &str,
+    device_id: &str,
+    tenant: TenantId,
+    outcome: AuditOutcome,
+    detail: &str,
+    context: Option<&CommandAuditContext>,
+) {
+    let Some(sink) = sink else { return };
+    let entry = build_entry_with_context(
+        AuditPhase::Post,
+        cmd,
+        command_id,
+        device_id,
+        tenant,
+        outcome,
+        detail,
+        context,
     );
     if let Err(e) = sink.append(entry) {
         warn!(
@@ -531,10 +626,7 @@ mod tests {
             }
         });
         let summary = summarize_result("confirm_slot", &result);
-        assert_eq!(
-            summary,
-            "confirmed_slot=a bootloader_clear=ok backend=noop"
-        );
+        assert_eq!(summary, "confirmed_slot=a bootloader_clear=ok backend=noop");
     }
 
     #[test]
@@ -687,10 +779,7 @@ mod tests {
             AuditAction::FirmwareDeployRequested
         ));
         assert!(matches!(
-            action_for_command(
-                "verify_signed_manifest",
-                AuditOutcome::AuthorizationDenied
-            ),
+            action_for_command("verify_signed_manifest", AuditOutcome::AuthorizationDenied),
             AuditAction::FirmwareDeployRequested
         ));
     }
@@ -706,10 +795,7 @@ mod tests {
             AuditAction::FirmwareDeployRequested
         ));
         assert!(matches!(
-            action_for_command(
-                "apply_signed_manifest",
-                AuditOutcome::AuthorizationDenied
-            ),
+            action_for_command("apply_signed_manifest", AuditOutcome::AuthorizationDenied),
             AuditAction::FirmwareDeployRequested
         ));
     }
@@ -746,8 +832,7 @@ mod tests {
             assert!(
                 matches!(
                     action,
-                    AuditAction::FirmwareDeployApplied
-                        | AuditAction::FirmwareDeployRequested
+                    AuditAction::FirmwareDeployApplied | AuditAction::FirmwareDeployRequested
                 ),
                 "command '{}' fell outside FirmwareDeploy* taxonomy: {:?}",
                 cmd,
@@ -764,10 +849,7 @@ mod tests {
         // detail field remains parseable.
         let result = serde_json::json!({});
         let s = summarize_result("confirm_slot", &result);
-        assert_eq!(
-            s,
-            "confirmed_slot=? bootloader_clear=unknown backend=?"
-        );
+        assert_eq!(s, "confirmed_slot=? bootloader_clear=unknown backend=?");
         let s = summarize_result("verify_signed_manifest", &result);
         assert_eq!(s, "verified=false gate=unknown");
         let s = summarize_result("apply_signed_manifest", &result);

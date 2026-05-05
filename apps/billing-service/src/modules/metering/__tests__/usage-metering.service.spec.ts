@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import {
   UsageMeteringService,
   MeterType,
@@ -23,12 +24,31 @@ describe('UsageMeteringService', () => {
   beforeEach(async () => {
     jest.useFakeTimers();
 
+    // RedisService mock — UsageMeteringService throws on missing
+    // Redis at onModuleInit (HIGH-04 cure: no degraded-redis-less
+    // boot allowed). Provide a minimal stub that no-ops every
+    // method the service calls; the unit tests don't exercise
+    // the persistence path so deep behaviour isn't required.
+    const mockRedisService = {
+      keys: jest.fn().mockResolvedValue([]),
+      getJson: jest.fn().mockResolvedValue(null),
+      setJson: jest.fn().mockResolvedValue('OK'),
+      del: jest.fn().mockResolvedValue(0),
+      get: jest.fn().mockResolvedValue(null),
+      set: jest.fn().mockResolvedValue('OK'),
+      isHealthy: jest.fn().mockReturnValue(true),
+    } as unknown as RedisService;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsageMeteringService,
         {
           provide: EventEmitter2,
           useValue: mockEventEmitter,
+        },
+        {
+          provide: RedisService,
+          useValue: mockRedisService,
         },
       ],
     }).compile();
@@ -37,7 +57,7 @@ describe('UsageMeteringService', () => {
     eventEmitter = module.get(EventEmitter2);
 
     // Initialize service
-    service.onModuleInit();
+    await service.onModuleInit();
   });
 
   afterEach(() => {
@@ -1098,6 +1118,96 @@ describe('UsageMeteringService', () => {
 
       const reading = service.getMeterReading('tenant-1', MeterType.API_CALLS);
       expect(reading?.lastUpdated).toBeInstanceOf(Date);
+    });
+  });
+
+  /**
+   * BILLING-LOW-001 — periodic eviction of stale tenant states
+   *
+   * Pre-cure the in-memory tenantStates / breachedThresholds maps
+   * grew unboundedly. The cure adds a lastTouchedAtMs touch
+   * timestamp + a periodic cleanupStaleTenantStates() sweep tied
+   * to the existing hourly cleanup interval. These specs pin
+   * the eviction contract so a future "tidy" can't silently
+   * regress the fix.
+   */
+  describe('BILLING-LOW-001 — stale tenant-state eviction', () => {
+    it('evicts tenant states whose lastTouchedAtMs is older than 24h', () => {
+      // Active tenant — record now, lastTouchedAtMs ≈ Date.now().
+      service.recordUsage({
+        tenantId: 'tenant-active',
+        meterType: MeterType.API_CALLS,
+        quantity: 1,
+        unit: 'calls',
+      });
+      jest.advanceTimersByTime(5000);
+      expect(service.getMeterReading('tenant-active', MeterType.API_CALLS))
+        .not.toBeNull();
+
+      // Idle tenant — record now, then advance time by > 24h
+      // BEFORE the hourly cleanup fires.
+      service.recordUsage({
+        tenantId: 'tenant-idle',
+        meterType: MeterType.API_CALLS,
+        quantity: 1,
+        unit: 'calls',
+      });
+      jest.advanceTimersByTime(5000);
+
+      // Advance 25 hours total. The cleanup interval is 1h so
+      // it fires 25 times during this advance — each tick will
+      // re-touch the active tenant if we record on it. We
+      // re-touch every hour to keep tenant-active hot.
+      for (let h = 0; h < 25; h++) {
+        // Each loop step advances 1 hour. Record on the active
+        // tenant FIRST so its lastTouchedAtMs updates BEFORE
+        // the hourly sweep fires.
+        service.recordUsage({
+          tenantId: 'tenant-active',
+          meterType: MeterType.API_CALLS,
+          quantity: 1,
+          unit: 'calls',
+        });
+        jest.advanceTimersByTime(60 * 60 * 1000); // 1 hour
+        // Flush the recordUsage push — the periodic flush is
+        // every 5s so it has fired many times during the
+        // 1-hour advance.
+      }
+
+      // Active tenant survives: most-recent recordUsage was
+      // less than 24h ago.
+      expect(service.getMeterReading('tenant-active', MeterType.API_CALLS))
+        .not.toBeNull();
+
+      // Idle tenant is evicted (last touched ~25h ago).
+      // getMeterReading returns null after eviction because the
+      // service builds it lazily from the in-memory state map.
+      // After eviction the tenant has no in-memory state; the
+      // meter-reading lookup returns undefined (Map.get on a
+      // missing key). Both null and undefined are acceptable
+      // "not present" sentinels — we assert on falsy here so a
+      // future change of the lookup contract doesn't surprise
+      // the spec.
+      expect(
+        service.getMeterReading('tenant-idle', MeterType.API_CALLS),
+      ).toBeFalsy();
+    });
+
+    it('preserves tenant states when within the staleness window', () => {
+      service.recordUsage({
+        tenantId: 'tenant-recent',
+        meterType: MeterType.API_CALLS,
+        quantity: 1,
+        unit: 'calls',
+      });
+      jest.advanceTimersByTime(5000);
+
+      // Advance 23 hours — under the 24h staleness threshold.
+      // The cleanup sweep fires 23 times during this advance.
+      jest.advanceTimersByTime(23 * 60 * 60 * 1000);
+
+      expect(service.getMeterReading('tenant-recent', MeterType.API_CALLS))
+        .not.toBeNull();
     });
   });
 });

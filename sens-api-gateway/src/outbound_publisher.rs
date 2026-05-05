@@ -185,11 +185,7 @@ where
     /// can coexist (e.g., one per service-group with distinct
     /// queue tuning) — though current production wires exactly
     /// one.
-    pub fn new(
-        sink: Arc<S>,
-        connectivity: Arc<C>,
-        queue: Arc<OfflineQueue>,
-    ) -> Self {
+    pub fn new(sink: Arc<S>, connectivity: Arc<C>, queue: Arc<OfflineQueue>) -> Self {
         Self {
             sink,
             connectivity,
@@ -239,8 +235,8 @@ where
         qos: u8,
         retain: bool,
     ) -> Result<PublishOutcome, OutboundError> {
-        let payload_str = std::str::from_utf8(payload)
-            .map_err(|_| OutboundError::PayloadNotUtf8)?;
+        let payload_str =
+            std::str::from_utf8(payload).map_err(|_| OutboundError::PayloadNotUtf8)?;
         let message_id = self
             .queue
             .enqueue(topic, payload_str, priority, qos, retain)
@@ -317,11 +313,7 @@ where
     S: MqttPublishSink + 'static,
     C: BrokerConnectivity + 'static,
 {
-    pub fn new(
-        sink: Arc<S>,
-        connectivity: Arc<C>,
-        queue: Arc<OfflineQueue>,
-    ) -> Self {
+    pub fn new(sink: Arc<S>, connectivity: Arc<C>, queue: Arc<OfflineQueue>) -> Self {
         Self {
             sink,
             connectivity,
@@ -366,12 +358,7 @@ where
         for msg in batch {
             match self
                 .sink
-                .publish_to_broker(
-                    &msg.topic,
-                    msg.payload.as_bytes(),
-                    msg.qos,
-                    msg.retain,
-                )
+                .publish_to_broker(&msg.topic, msg.payload.as_bytes(), msg.qos, msg.retain)
                 .await
             {
                 Ok(()) => to_ack.push(msg.id),
@@ -400,11 +387,7 @@ where
                 // Idempotent at the broker side (QoS-1 dedup) for
                 // typical brokers; QoS-0 sees a dup but no
                 // correctness issue.
-                tracing::warn!(
-                    "drain ack_batch failed for {} messages: {}",
-                    sent,
-                    e
-                );
+                tracing::warn!("drain ack_batch failed for {} messages: {}", sent, e);
             }
         }
 
@@ -507,9 +490,7 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        Arc::new(
-            OfflineQueue::new(&path, 1000, 3600).expect("queue open"),
-        )
+        Arc::new(OfflineQueue::new(&path, 1000, 3600).expect("queue open"))
     }
 
     #[tokio::test]
@@ -604,9 +585,7 @@ mod tests {
         // candidate — payload was rejected by the broker, not
         // dropped by transport.
         let sink = Arc::new(MockSink::new());
-        sink.arm_error(PublishSinkError::Transport(
-            "topic acl denied".to_string(),
-        ));
+        sink.arm_error(PublishSinkError::Transport("topic acl denied".to_string()));
         let conn = Arc::new(MockConnectivity::new(true));
         let queue = tmp_queue();
         let pub_ = OutboundPublisher::new(sink.clone(), conn, queue.clone());
@@ -647,8 +626,7 @@ mod tests {
             (MessagePriority::High, "high"),
             (MessagePriority::Critical, "crit"),
         ] {
-            pub_
-                .publish(topic, b"x", priority, 1, false)
+            pub_.publish(topic, b"x", priority, 1, false)
                 .await
                 .expect("publish");
         }
@@ -719,11 +697,7 @@ mod tests {
         }
     }
 
-    fn enqueue_n(
-        queue: &Arc<OfflineQueue>,
-        count: usize,
-        priority: MessagePriority,
-    ) {
+    fn enqueue_n(queue: &Arc<OfflineQueue>, count: usize, priority: MessagePriority) {
         for i in 0..count {
             queue
                 .enqueue(
@@ -774,8 +748,7 @@ mod tests {
         let queue = tmp_queue();
         enqueue_n(&queue, 5, MessagePriority::Normal);
 
-        let task = DrainTask::new(sink.clone(), conn, queue.clone())
-            .with_batch_size(10);
+        let task = DrainTask::new(sink.clone(), conn, queue.clone()).with_batch_size(10);
 
         match task.drain_once().await {
             DrainOutcome::Drained { sent, remaining } => {
@@ -796,8 +769,7 @@ mod tests {
         enqueue_n(&queue, 10, MessagePriority::Normal);
 
         // Drain 3 at a time.
-        let task = DrainTask::new(sink.clone(), conn, queue.clone())
-            .with_batch_size(3);
+        let task = DrainTask::new(sink.clone(), conn, queue.clone()).with_batch_size(3);
 
         match task.drain_once().await {
             DrainOutcome::Drained { sent, remaining } => {
@@ -823,8 +795,7 @@ mod tests {
         let queue = tmp_queue();
         enqueue_n(&queue, 5, MessagePriority::Normal);
 
-        let task = DrainTask::new(sink, conn, queue.clone())
-            .with_batch_size(5);
+        let task = DrainTask::new(sink, conn, queue.clone()).with_batch_size(5);
 
         match task.drain_once().await {
             DrainOutcome::Drained { sent, remaining } => {
@@ -861,8 +832,7 @@ mod tests {
             .unwrap();
 
         // Drain only 2 (smallest batch that proves ordering).
-        let task = DrainTask::new(sink.clone(), conn, queue.clone())
-            .with_batch_size(2);
+        let task = DrainTask::new(sink.clone(), conn, queue.clone()).with_batch_size(2);
 
         let _ = task.drain_once().await;
 
@@ -873,10 +843,7 @@ mod tests {
         let remaining = queue.peek_batch(10).unwrap();
         for msg in &remaining {
             assert!(
-                matches!(
-                    msg.priority,
-                    MessagePriority::Normal | MessagePriority::Low
-                ),
+                matches!(msg.priority, MessagePriority::Normal | MessagePriority::Low),
                 "Expected Normal/Low to remain, got {:?}",
                 msg.priority
             );
@@ -888,8 +855,7 @@ mod tests {
         let sink = Arc::new(MockSink::new());
         let conn = Arc::new(MockConnectivity::new(true));
         let queue = tmp_queue();
-        let task = DrainTask::new(sink, conn, queue)
-            .with_interval(Duration::from_millis(50));
+        let task = DrainTask::new(sink, conn, queue).with_interval(Duration::from_millis(50));
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         let handle = tokio::spawn(task.run(rx));
@@ -916,8 +882,7 @@ mod tests {
         let sink = Arc::new(MockSink::new());
         let conn = Arc::new(MockConnectivity::new(true));
         let queue = tmp_queue();
-        let task = DrainTask::new(sink, conn, queue)
-            .with_interval(Duration::from_millis(50));
+        let task = DrainTask::new(sink, conn, queue).with_interval(Duration::from_millis(50));
 
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let handle = tokio::spawn(task.run(rx));
@@ -941,19 +906,12 @@ mod tests {
         let conn = Arc::new(MockConnectivity::new(false)); // start down
         let queue = tmp_queue();
 
-        let publisher =
-            OutboundPublisher::new(sink.clone(), conn.clone(), queue.clone());
+        let publisher = OutboundPublisher::new(sink.clone(), conn.clone(), queue.clone());
 
         // Publish 4 messages while broker is down — all queue.
         for i in 0..4 {
             publisher
-                .publish(
-                    &format!("t/{}", i),
-                    b"x",
-                    MessagePriority::Normal,
-                    1,
-                    false,
-                )
+                .publish(&format!("t/{}", i), b"x", MessagePriority::Normal, 1, false)
                 .await
                 .unwrap();
         }
@@ -964,8 +922,7 @@ mod tests {
         conn.set(true);
 
         // Drain.
-        let drain = DrainTask::new(sink.clone(), conn.clone(), queue.clone())
-            .with_batch_size(10);
+        let drain = DrainTask::new(sink.clone(), conn.clone(), queue.clone()).with_batch_size(10);
         match drain.drain_once().await {
             DrainOutcome::Drained { sent, remaining } => {
                 assert_eq!(sent, 4);
@@ -989,8 +946,7 @@ mod tests {
         let queue = tmp_queue();
         let pub_ = OutboundPublisher::new(sink.clone(), conn.clone(), queue.clone());
 
-        pub_
-            .publish("t1", b"first", MessagePriority::Normal, 1, false)
+        pub_.publish("t1", b"first", MessagePriority::Normal, 1, false)
             .await
             .expect("first publish");
         assert_eq!(sink.publish_count(), 1);
@@ -998,8 +954,7 @@ mod tests {
         // Flip connectivity to down.
         conn.set(false);
 
-        pub_
-            .publish("t2", b"second", MessagePriority::Normal, 1, false)
+        pub_.publish("t2", b"second", MessagePriority::Normal, 1, false)
             .await
             .expect("second publish");
         // Sink still at 1 — second publish skipped the broker.

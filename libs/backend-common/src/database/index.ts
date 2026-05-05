@@ -1,6 +1,11 @@
 // Schema Manager
 export * from './schema-manager.service';
 
+// SQL identifier validator — single canonical helper for identifier
+// interpolation (DDL paths use it instead of inlining a private regex).
+export { validateSqlIdentifier } from './sql-identifier.util';
+export type { SqlIdentifierKind } from './sql-identifier.util';
+
 // Source Schema Bootstrap
 export * from './source-schema-bootstrap.service';
 
@@ -341,3 +346,9 @@ export type {
 export * from './convert-audit-columns-to-timestamptz.helper';
 export * from './audit-columns-bootstrap.service';
 export * from './audit-columns.module';
+
+// DATA-LOW-001 cure: typed pg.Pool extractor that hides the
+// single `as any` driver-shape bridge in one canonical adapter.
+// Connection-bootstrap services import this instead of casting
+// dataSource.driver inline.
+export * from './pg-pool-from-data-source.util';

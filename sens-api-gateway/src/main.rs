@@ -13,7 +13,10 @@
 // SECURITY: Clippy safety lints are set to `deny` in Cargo.toml to prevent
 // panic-prone code (unwrap/expect/indexing) from reaching production.
 // Test code is exempt — panicking on assertion failure is idiomatic in tests.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
+#![cfg_attr(
+    test,
+    allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
 
 // Batch 24 plan §5 Faz 2 Step 2 partial: boot-time process
 // hardening primitives (prctl PR_SET_DUMPABLE=0 + panic-abort
@@ -33,40 +36,40 @@ mod alarms; // v1.2.4: Alarm management (IEC 62682)
 // Batch 2 — ADR-018 §1 + ADR-024 §1 Permission enum + ActuatorClass taxonomy.
 // Pure types, zero runtime behavior in this batch; AuthorizedContext sealed type
 // + manifest verifier land in Faz 2 Sprint 6.1 (ADR-018 §11).
+mod atlas_ezo;
 #[allow(dead_code)] // Faz 2 wires consumers; enum + newtypes pre-staged for reference stability.
 mod authz;
 mod backup; // v1.2.4: Backup and restore functionality
 mod bounded;
 mod commands;
 mod config;
+mod deploy_orchestrator; // v2.2: Unified deploy orchestrator (Rust/Codesys/Setpoint)
 mod error;
 mod gpio;
+mod hardware_scanner; // v2.3: Platform-aware I/O auto-detection (RevPi/RPi/Generic)
 mod health;
+mod i2c; // v1.2.4: I2C support for sensor communication
+mod interning;
+mod io_poll;
+mod license; // Batch 140 Faz 7: edge license tier enforcement (plan R-10)
+mod license_cache; // Batch 144 Faz 7: SQLCipher persistence + monotonic floor
 #[cfg(feature = "health")]
 mod lifecycle; // Batch 122 Sprint 6.5: HTTP lifecycle endpoint (confirm-active)
 #[cfg(feature = "health")]
 mod lifecycle_auth; // Batch 129 Sprint 6.6: HMAC auth for lifecycle endpoint
-mod license; // Batch 140 Faz 7: edge license tier enforcement (plan R-10)
-mod license_cache; // Batch 144 Faz 7: SQLCipher persistence + monotonic floor
-mod i2c; // v1.2.4: I2C support for sensor communication
-mod interning;
 mod modbus;
 mod mqtt;
 mod mqtt_failover; // v1.3.4: MQTT broker failover for high availability
 mod offline_queue;
 mod plc_programming; // v1.3.0: PLC programming protocols (ST upload)
+mod process_image;
 mod provisioning;
 mod pwm; // v1.2.4: PWM support for motor/servo control
 mod resilience;
+mod safe_state;
 mod scripting;
-mod deploy_orchestrator; // v2.2: Unified deploy orchestrator (Rust/Codesys/Setpoint)
-mod hardware_scanner; // v2.3: Platform-aware I/O auto-detection (RevPi/RPi/Generic)
-mod process_image;
-mod atlas_ezo;
-mod io_poll;
 mod security; // v1.2.2: Security hardening utilities
-mod st_validator; // v2.2: IEC 61131-3 Structured Text parser and validator
-mod safe_state; // LIFE-SAFETY: actuator safe-state on shutdown (v1 schema)
+mod st_validator; // v2.2: IEC 61131-3 Structured Text parser and validator // LIFE-SAFETY: actuator safe-state on shutdown (v1 schema)
 // Batch 3 — ADR-024 §3 §4 FailSafe enum + OutputTag v2 + DiversityClass +
 // HardwiredSafetyOverride + ProcessAware dependencies. Pure types, zero runtime
 // behavior in this batch; v1 SafeStateManager remains the runtime owner.
@@ -119,7 +122,8 @@ mod config_integrity;
 // sequence for operator-observable phase logging. Other sub-modules
 // (ClockAuthority trait, retained_msg predicate) remain un-wired
 // pending Sprint 6.7 supervisor integration.
-#[allow(dead_code)] // Faz 2 Sprint 6.7 wires remaining consumers; ShutdownPhase used by main.rs log.
+#[allow(dead_code)]
+// Faz 2 Sprint 6.7 wires remaining consumers; ShutdownPhase used by main.rs log.
 mod runtime_safety;
 // Batch 11 — plan §5 Faz 2 item 7 + D-6 mTLS 3-stage rollout + leaf cert
 // pinning + 2-phase rotation + TLS 1.3 cipher-suite allowlist + 6-gate
@@ -132,38 +136,38 @@ mod runtime_safety;
 // cipher, error) remain dead-code pending Sprint 6.8 rustls wire —
 // the allow stays at mod-level until Sprint 6.8 flips the whole
 // subtree on at once.
-#[allow(dead_code)] // mode.rs consumed; verify/pinning/cipher/error pending Sprint 6.8.
-mod mtls;
-mod shutdown;
-mod spi;
-mod telemetry; // v1.2.4: SPI support for high-speed peripherals
+#[cfg(feature = "scada-display")]
+mod alarm_engine;
+#[cfg(feature = "scada-display")]
+mod calibration_engine;
 #[cfg(feature = "lorawan")]
 mod lora; // v1.5.0: LoRaWAN SX1302 gateway support
+#[allow(dead_code)] // mode.rs consumed; verify/pinning/cipher/error pending Sprint 6.8.
+mod mtls;
+#[cfg(feature = "opc-ua-server")]
+mod opc_ua_sens_auth_manager; // Batch #266 A-2b part 4: AuthManager binding UserTokenValidator to session-establish
+#[cfg(feature = "opc-ua-server")]
+mod opc_ua_sens_node_manager; // Batch #263 A-2b part 1: custom NodeManager skeleton (ORPHAN-CRITICAL-021 fix path)
+mod opc_ua_server; // Batch 208 Faz 5: OPC UA address-space registry primitive
+#[cfg(feature = "opc-ua-server")]
+mod opc_ua_server_runtime;
+mod opc_ua_server_session; // Batch #239 Faz 5 A-2a: typed session principal (sealed newtype)
+mod opc_ua_server_typed_authz; // Batch #241 Faz 5: typed authz port composing resolver + PolicyEngine
+mod opc_ua_server_user_token_validator; // Batch #245 Faz 5 A-3b: hot-reload validator composing store + enrollment
+mod opc_ua_server_user_tokens; // Batch #242 Faz 5 A-3a: UserTokenEnrollment primitive (UserName/Password + X.509)
+mod outbound_publisher; // Batch #251 ARC-002: broker-aware MQTT publish dispatcher (direct + queue-on-disk)
+mod publish_helpers; // Batch #255 ARC-002: centralized publish-routing helpers (Outbound vs. legacy direct)
+#[cfg(feature = "scada-display")]
+mod scada_db;
 #[cfg(feature = "scada-display")]
 mod scada_server; // v1.6.0: SCADA display server for local HMI
 #[cfg(feature = "scada-display")]
 mod scada_types;
+mod shutdown;
+mod spi;
+mod telemetry; // v1.2.4: SPI support for high-speed peripherals
 #[cfg(feature = "scada-display")]
-mod scada_db;
-#[cfg(feature = "scada-display")]
-mod alarm_engine;
-#[cfg(feature = "scada-display")]
-mod trend_engine;
-#[cfg(feature = "scada-display")]
-mod calibration_engine;
-mod opc_ua_server; // Batch 208 Faz 5: OPC UA address-space registry primitive
-mod opc_ua_server_session; // Batch #239 Faz 5 A-2a: typed session principal (sealed newtype)
-mod opc_ua_server_typed_authz; // Batch #241 Faz 5: typed authz port composing resolver + PolicyEngine
-mod opc_ua_server_user_tokens; // Batch #242 Faz 5 A-3a: UserTokenEnrollment primitive (UserName/Password + X.509)
-mod opc_ua_server_user_token_validator; // Batch #245 Faz 5 A-3b: hot-reload validator composing store + enrollment
-mod outbound_publisher; // Batch #251 ARC-002: broker-aware MQTT publish dispatcher (direct + queue-on-disk)
-mod publish_helpers; // Batch #255 ARC-002: centralized publish-routing helpers (Outbound vs. legacy direct)
-#[cfg(feature = "opc-ua-server")]
-mod opc_ua_sens_node_manager; // Batch #263 A-2b part 1: custom NodeManager skeleton (ORPHAN-CRITICAL-021 fix path)
-#[cfg(feature = "opc-ua-server")]
-mod opc_ua_sens_auth_manager; // Batch #266 A-2b part 4: AuthManager binding UserTokenValidator to session-establish
-#[cfg(feature = "opc-ua-server")]
-mod opc_ua_server_runtime; // Batch 216 Faz 5: async-opcua 0.18 ServerBuilder wire (feature-gated)
+mod trend_engine; // Batch 216 Faz 5: async-opcua 0.18 ServerBuilder wire (feature-gated)
 
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -520,8 +524,7 @@ pub struct AppState {
     /// NONE when signature_mode=Disabled (no replay defense
     /// needed for legacy-compat deployments) — zero-cost-
     /// when-unused pattern.
-    pub jti_dedup_table:
-        Option<std::sync::Arc<dyn crate::command_envelope::JtiDedupTable>>,
+    pub jti_dedup_table: Option<std::sync::Arc<dyn crate::command_envelope::JtiDedupTable>>,
 
     /// RBAC manifest store for operator→pubkey lookup
     /// (Batch 68, Sprint 6.1 full wire).
@@ -593,9 +596,15 @@ pub struct AppState {
     /// task at the next tick boundary. Held as Option so the
     /// shutdown handler can `take()` (oneshot Senders are not
     /// reusable).
-    pub outbound_publisher_drain_shutdown: Option<
-        tokio::sync::oneshot::Sender<()>,
-    >,
+    pub outbound_publisher_drain_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+
+    /// 2026-04-29 enterprise shutdown durability:
+    /// task handle for the outbound queue drain loop.
+    ///
+    /// What it solves: graceful shutdown can stop and await the drain task
+    /// before forcing the offline queue WAL checkpoint, instead of relying on
+    /// process exit to tear the task down.
+    pub outbound_publisher_drain_handle: Option<tokio::task::JoinHandle<()>>,
 
     /// Audit sink for HMAC-chained event log (Batch 78
     /// Sprint 6.2 Phase 2).
@@ -628,8 +637,7 @@ pub struct AppState {
     /// shape) because consumers depend on a clock being
     /// present; Disabled fallback is just the trusting
     /// System impl rather than None.
-    pub clock_authority:
-        std::sync::Arc<dyn crate::runtime_safety::ClockAuthority>,
+    pub clock_authority: std::sync::Arc<dyn crate::runtime_safety::ClockAuthority>,
 
     /// Master-key keystore for HKDF-derived per-purpose keys
     /// (Batch 83 Sprint 6.3).
@@ -640,7 +648,7 @@ pub struct AppState {
     /// AppState construction. Downstream consumers
     /// (Phase 2 / Batch 84 audit-hmac-from-keystore,
     /// Phase 2 / Batch 85 SQLCipher-key-from-keystore)
-    /// clone the Arc<dyn Keystore> for per-purpose
+    /// clone the `Arc<dyn Keystore>` for per-purpose
     /// derivation via KeyPurpose::*.
     ///
     /// WHAT: `Option<Arc<dyn Keystore>>` — trait-object
@@ -677,8 +685,7 @@ pub struct AppState {
     /// `init_lifecycle_cell()` after
     /// `init_lifecycle_auth_key()` runs.
     #[cfg(feature = "health")]
-    pub lifecycle_auth_key:
-        Option<std::sync::Arc<crate::lifecycle_auth::LifecycleAuthKey>>,
+    pub lifecycle_auth_key: Option<std::sync::Arc<crate::lifecycle_auth::LifecycleAuthKey>>,
 
     /// Lifecycle HTTP endpoint cell (Batch 122 Sprint 6.5).
     ///
@@ -773,8 +780,7 @@ pub struct AppState {
     /// Permissive/Enforcing + the boot-time parse succeeds.
     /// Parse failure at boot is fail-closed via
     /// init_firmware_signing_pubkey (exit 1).
-    pub firmware_signing_pubkey:
-        Option<std::sync::Arc<ed25519_dalek::VerifyingKey>>,
+    pub firmware_signing_pubkey: Option<std::sync::Arc<ed25519_dalek::VerifyingKey>>,
 
     /// Bytecode program registry — Batch 167 Faz 3 wire.
     /// Populated at AppState::new with an empty registry;
@@ -794,11 +800,8 @@ pub struct AppState {
     /// `cmd_deploy_bytecode_program` persists to this
     /// store AFTER the registry insert succeeds so a
     /// successful deploy survives reboot.
-    pub bytecode_registry_store: Option<
-        std::sync::Arc<
-            crate::scripting::bytecode_registry_store::BytecodeRegistryStore,
-        >,
-    >,
+    pub bytecode_registry_store:
+        Option<std::sync::Arc<crate::scripting::bytecode_registry_store::BytecodeRegistryStore>>,
 
     /// RETAIN variable SQLCipher store — Batch 177 Faz 3
     /// wire. Shared between the legacy ScriptEngine
@@ -808,8 +811,7 @@ pub struct AppState {
     /// SQLCipher permission issue); agent continues
     /// with RETAIN disabled + operator gets a loud
     /// boot warning.
-    pub retain_persistence:
-        Option<std::sync::Arc<crate::scripting::SqlitePersistence>>,
+    pub retain_persistence: Option<std::sync::Arc<crate::scripting::SqlitePersistence>>,
 
     /// Live-debug force registry — Batch 196 Faz 6 wire.
     /// Always present (constructed empty at
@@ -819,8 +821,7 @@ pub struct AppState {
     /// tick to skip refreshes for forced tags. The
     /// 1-Hz sweep task (Batch 198) drops expired
     /// entries automatically.
-    pub force_registry:
-        std::sync::Arc<crate::scripting::force_registry::ForceRegistry>,
+    pub force_registry: std::sync::Arc<crate::scripting::force_registry::ForceRegistry>,
 
     /// Force registry SQLCipher store — Batch 202 Faz 6
     /// wire. None when `scripting.force_store_path`
@@ -833,11 +834,8 @@ pub struct AppState {
     /// apply when persist=true. cmd_unforce_value /
     /// cmd_unforce_all delete from it. Sweep task
     /// purges expired rows on shutdown.
-    pub force_registry_store: Option<
-        std::sync::Arc<
-            crate::scripting::force_registry_store::ForceRegistryStore,
-        >,
-    >,
+    pub force_registry_store:
+        Option<std::sync::Arc<crate::scripting::force_registry_store::ForceRegistryStore>>,
 
     /// Live-watch session registry — Batch 205 Faz 6.
     /// Always present (empty at AppState::new).
@@ -847,8 +845,7 @@ pub struct AppState {
     /// sweep task drops expired entries. Never
     /// persisted to disk — watch sessions are live-
     /// only per plan R-9.
-    pub watch_sessions:
-        std::sync::Arc<crate::scripting::watch_sessions::WatchSessionRegistry>,
+    pub watch_sessions: std::sync::Arc<crate::scripting::watch_sessions::WatchSessionRegistry>,
 }
 
 impl AppState {
@@ -863,9 +860,7 @@ impl AppState {
 
         Self {
             config,
-            is_shutting_down: std::sync::Arc::new(
-                std::sync::atomic::AtomicBool::new(false),
-            ),
+            is_shutting_down: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             mqtt_client: None,
             modbus_handle: None,
             gpio_handle: None,
@@ -943,6 +938,7 @@ impl AppState {
             // direct MqttClient path (HC-1 backward compat).
             outbound_publisher: None,
             outbound_publisher_drain_shutdown: None,
+            outbound_publisher_drain_handle: None,
             // Batch 78 Sprint 6.2 Phase 2: None-init;
             // `init_audit_sink()` below constructs AuditSink
             // iff audit.mode=Enabled. None → Batch 79
@@ -962,9 +958,7 @@ impl AppState {
             // `init_clock_authority()` below swaps to
             // ChronyNtsClockAuthority when
             // `clock.enable_chrony_query = true`.
-            clock_authority: std::sync::Arc::new(
-                crate::runtime_safety::SystemClockAuthority::new(),
-            ),
+            clock_authority: std::sync::Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
             // Batch 108 Sprint 6.5 wire: None-init.
             // init_partition_store() opens the state file
             // (default /var/lib/suderra/partition.json);
@@ -977,9 +971,7 @@ impl AppState {
             // init_bootloader() call after the real-RPi impl
             // lands (needs hardware for signed autoboot.txt
             // verification).
-            bootloader: std::sync::Arc::new(
-                crate::updater::NoopBootloaderHandle,
-            ),
+            bootloader: std::sync::Arc::new(crate::updater::NoopBootloaderHandle),
             // Batch 145 Faz 7 wire: None until
             // init_license_cache() succeeds. Boot-time
             // open failure leaves this None; the agent
@@ -994,9 +986,7 @@ impl AppState {
             // enforcement sites routing through
             // is_expired() treat it as "re-verify
             // required" until real license lands.
-            license: std::sync::Arc::new(
-                crate::license::EdgeLicenseLimits::conservative(),
-            ),
+            license: std::sync::Arc::new(crate::license::EdgeLicenseLimits::conservative()),
             // Batch 114 Sprint 6.5 wire: None-init.
             // `init_firmware_signing_pubkey()` parses the
             // config hex + populates this field. Disabled
@@ -1162,7 +1152,9 @@ impl AppState {
     /// counter-update paths NOT wired in this batch. Counters read 0
     /// until Sprint 6.2.
     #[cfg(feature = "health")]
-    pub async fn init_health_server(&mut self) -> Result<Option<tokio::task::JoinHandle<()>>, String> {
+    pub async fn init_health_server(
+        &mut self,
+    ) -> Result<Option<tokio::task::JoinHandle<()>>, String> {
         if !self.config.health.enabled {
             return Ok(None);
         }
@@ -1205,12 +1197,9 @@ impl AppState {
         // Clone for the server task; keep the original on AppState so
         // downstream subsystems can push counter updates to the SAME
         // Arc<HealthStateInner> (HealthState::Clone is Arc-cheap).
-        let server_handle = crate::health::start_health_server(
-            addr,
-            health_state.clone(),
-            Some(lifecycle_cell),
-        )
-        .await;
+        let server_handle =
+            crate::health::start_health_server(addr, health_state.clone(), Some(lifecycle_cell))
+                .await;
         self.health_state = Some(health_state);
 
         info!("HealthServer wired: bind={}", addr);
@@ -1251,16 +1240,15 @@ impl AppState {
             .as_deref()
             .unwrap_or(crate::lifecycle_auth::DEFAULT_CREDENTIAL_NAME);
 
-        let key = crate::lifecycle_auth::LifecycleAuthKey::load_from_credentials_dir(
-            credential_name,
-        )
-        .map_err(|e| {
-            format!(
-                "Lifecycle auth: HmacToken mode configured but credential load failed: {}. \
+        let key =
+            crate::lifecycle_auth::LifecycleAuthKey::load_from_credentials_dir(credential_name)
+                .map_err(|e| {
+                    format!(
+                        "Lifecycle auth: HmacToken mode configured but credential load failed: {}. \
                  Ensure the systemd unit has LoadCredential=<name>:<file> set and the file exists.",
-                e
-            )
-        })?;
+                        e
+                    )
+                })?;
 
         info!(
             "Lifecycle auth: HmacToken mode active (credential_name={} loaded successfully)",
@@ -1291,7 +1279,9 @@ impl AppState {
             return;
         };
         let Some(partition_store) = self.partition_store.as_ref() else {
-            warn!("init_lifecycle_cell: partition_store is None — confirm-active HTTP endpoint will return 503");
+            warn!(
+                "init_lifecycle_cell: partition_store is None — confirm-active HTTP endpoint will return 503"
+            );
             return;
         };
 
@@ -1318,9 +1308,7 @@ impl AppState {
         };
 
         if cell.set(handles).is_err() {
-            warn!(
-                "init_lifecycle_cell: cell already populated (re-init attempted) — ignoring"
-            );
+            warn!("init_lifecycle_cell: cell already populated (re-init attempted) — ignoring");
         } else {
             info!(
                 "Lifecycle cell populated: POST /lifecycle/confirm-active now live (audit_enabled={})",
@@ -1536,14 +1524,11 @@ impl AppState {
     pub fn init_jti_dedup_table(&mut self) {
         use crate::command_envelope::envelope::SignatureMode;
         use crate::command_envelope::{
-            JtiDedupTable, LayeredJtiDedupTable, MokaJtiDedupTable,
-            SqlCipherJtiDedupTable,
+            JtiDedupTable, LayeredJtiDedupTable, MokaJtiDedupTable, SqlCipherJtiDedupTable,
         };
 
         if matches!(self.config.signature_mode, SignatureMode::Disabled) {
-            info!(
-                "JTI dedup table skipped: signature_mode=Disabled (HC-1 backward compat)"
-            );
+            info!("JTI dedup table skipped: signature_mode=Disabled (HC-1 backward compat)");
             return;
         }
 
@@ -1565,9 +1550,7 @@ impl AppState {
                 .envelope_dedup
                 .sqlcipher_path
                 .clone()
-                .unwrap_or_else(|| {
-                    std::path::PathBuf::from("/var/lib/suderra/jti_dedup.sqlite")
-                });
+                .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/suderra/jti_dedup.sqlite"));
             match SqlCipherJtiDedupTable::open(&sqlcipher_path) {
                 Ok(sql) => {
                     info!(
@@ -1579,8 +1562,7 @@ impl AppState {
                     let moka: std::sync::Arc<dyn JtiDedupTable> = std::sync::Arc::new(
                         MokaJtiDedupTable::with_capacity_and_ttl(capacity, ttl),
                     );
-                    let sql_arc: std::sync::Arc<dyn JtiDedupTable> =
-                        std::sync::Arc::new(sql);
+                    let sql_arc: std::sync::Arc<dyn JtiDedupTable> = std::sync::Arc::new(sql);
                     std::sync::Arc::new(LayeredJtiDedupTable::new(moka, sql_arc))
                 }
                 Err(e) => {
@@ -1592,9 +1574,7 @@ impl AppState {
                         "JTI dedup: SQLCipher persist tier open FAILED: {}. Falling back to Moka-only (reboot-survive replay protection DEGRADED; fix sqlcipher_path permissions or reset sqlcipher_path config to defaults)",
                         e
                     );
-                    std::sync::Arc::new(
-                        MokaJtiDedupTable::with_capacity_and_ttl(capacity, ttl),
-                    )
+                    std::sync::Arc::new(MokaJtiDedupTable::with_capacity_and_ttl(capacity, ttl))
                 }
             }
         } else {
@@ -1602,9 +1582,7 @@ impl AppState {
                 "JTI dedup table: Moka-only signature_mode={:?} moka_capacity={} moka_ttl_secs={} (set envelope_dedup.enable_sqlcipher_persist=true for reboot-survive 72h replay defense)",
                 self.config.signature_mode, capacity, ttl_secs
             );
-            std::sync::Arc::new(MokaJtiDedupTable::with_capacity_and_ttl(
-                capacity, ttl,
-            ))
+            std::sync::Arc::new(MokaJtiDedupTable::with_capacity_and_ttl(capacity, ttl))
         };
 
         self.jti_dedup_table = Some(table);
@@ -1681,7 +1659,11 @@ impl AppState {
         let expected_tenant = TenantId::new_from_verified(*uuid.as_bytes());
 
         let mode = self.config.rbac_manifest.mode;
-        let pubkey_hex = self.config.rbac_manifest.manifest_signing_pubkey_hex.as_deref();
+        let pubkey_hex = self
+            .config
+            .rbac_manifest
+            .manifest_signing_pubkey_hex
+            .as_deref();
         let path_override = self.config.rbac_manifest.manifest_path.as_deref();
 
         // Batch 71: open persistent version-floor store BEFORE
@@ -1694,9 +1676,7 @@ impl AppState {
             .rbac_manifest
             .version_store_path
             .clone()
-            .unwrap_or_else(|| {
-                std::path::PathBuf::from("/var/lib/suderra/rbac_version.sqlite")
-            });
+            .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/suderra/rbac_version.sqlite"));
 
         match ManifestVersionStore::open(&version_store_path) {
             Ok(vs) => {
@@ -1766,16 +1746,13 @@ impl AppState {
         use crate::outbound_publisher::{DrainTask, OutboundPublisher};
 
         let mqtt = self.mqtt_client.as_ref().ok_or_else(|| {
-            "init_outbound_publisher: mqtt_client must be initialized first"
-                .to_string()
+            "init_outbound_publisher: mqtt_client must be initialized first".to_string()
         })?;
         let hs = self.health_state.as_ref().ok_or_else(|| {
-            "init_outbound_publisher: health_state must be initialized first"
-                .to_string()
+            "init_outbound_publisher: health_state must be initialized first".to_string()
         })?;
         let queue_async = self.offline_queue.as_ref().ok_or_else(|| {
-            "init_outbound_publisher: offline_queue must be initialized first"
-                .to_string()
+            "init_outbound_publisher: offline_queue must be initialized first".to_string()
         })?;
 
         let adapter = std::sync::Arc::new(mqtt.publish_adapter());
@@ -1795,15 +1772,13 @@ impl AppState {
         // wire lands (follow-up batch), the task exits when the
         // process exits — same observable behavior, just no
         // mid-drain "stop after current message" semantic.
-        let (shutdown_tx, shutdown_rx) =
-            tokio::sync::oneshot::channel::<()>();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
         let drain = DrainTask::new(adapter, connectivity, queue);
-        tokio::spawn(drain.run(shutdown_rx));
+        let drain_handle = tokio::spawn(drain.run(shutdown_rx));
         self.outbound_publisher_drain_shutdown = Some(shutdown_tx);
+        self.outbound_publisher_drain_handle = Some(drain_handle);
 
-        info!(
-            "Outbound publisher initialized + drain task spawned (Batch #253 ARC-002)"
-        );
+        info!("Outbound publisher initialized + drain task spawned (Batch #253 ARC-002)");
         Ok(())
     }
 
@@ -1831,9 +1806,7 @@ impl AppState {
     /// reachable code path that silently runs without persistent
     /// floor opens the cross-reboot replay window.
     pub fn init_user_token_manifest_store(&mut self) -> Result<(), String> {
-        use crate::authz::manifest_version_store::{
-            ManifestVersionStore, STREAM_ID_USER_TOKEN,
-        };
+        use crate::authz::manifest_version_store::{ManifestVersionStore, STREAM_ID_USER_TOKEN};
         use crate::authz::user_token_manifest_runtime::UserTokenManifestStore;
 
         let version_store_path = self
@@ -1842,23 +1815,17 @@ impl AppState {
             .version_store_path
             .clone()
             .unwrap_or_else(|| {
-                std::path::PathBuf::from(
-                    "/var/lib/suderra/user_token_version.sqlite",
-                )
+                std::path::PathBuf::from("/var/lib/suderra/user_token_version.sqlite")
             });
 
-        match ManifestVersionStore::open_for_stream(
-            &version_store_path,
-            STREAM_ID_USER_TOKEN,
-        ) {
+        match ManifestVersionStore::open_for_stream(&version_store_path, STREAM_ID_USER_TOKEN) {
             Ok(vs) => {
                 info!(
                     "User-token manifest version store opened: path={}",
                     version_store_path.display()
                 );
                 self.user_token_manifest_store = std::sync::Arc::new(
-                    UserTokenManifestStore::new()
-                        .with_version_store(std::sync::Arc::new(vs)),
+                    UserTokenManifestStore::new().with_version_store(std::sync::Arc::new(vs)),
                 );
                 Ok(())
             }
@@ -1920,9 +1887,8 @@ impl AppState {
             // derive_key is async; block on it here rather
             // than propagating async up through init_* which
             // are otherwise sync.
-            let derived = tokio::runtime::Handle::current().block_on(async move {
-                ks.derive_key(KeyPurpose::AuditHmacChain, b"").await
-            });
+            let derived = tokio::runtime::Handle::current()
+                .block_on(async move { ks.derive_key(KeyPurpose::AuditHmacChain, b"").await });
             let material = derived.map_err(|e| {
                 format!(
                     "Audit sink key derivation failed: keystore.derive_key(AuditHmacChain): {}",
@@ -1938,12 +1904,11 @@ impl AppState {
         } else if let Some(key_hex) = self.config.audit.hmac_key_hex.as_deref() {
             // Rollout-stage: config hex fallback.
             for (i, b) in key_bytes.iter_mut().enumerate() {
-                let pair = key_hex.get(i * 2..i * 2 + 2).ok_or_else(|| {
-                    format!("audit.hmac_key_hex: hex slice error at byte {}", i)
-                })?;
-                *b = u8::from_str_radix(pair, 16).map_err(|e| {
-                    format!("audit.hmac_key_hex: hex parse at byte {}: {}", i, e)
-                })?;
+                let pair = key_hex
+                    .get(i * 2..i * 2 + 2)
+                    .ok_or_else(|| format!("audit.hmac_key_hex: hex slice error at byte {}", i))?;
+                *b = u8::from_str_radix(pair, 16)
+                    .map_err(|e| format!("audit.hmac_key_hex: hex parse at byte {}: {}", i, e))?;
             }
             key_source_label = "config(audit.hmac_key_hex)";
             warn!(
@@ -2066,20 +2031,19 @@ impl AppState {
             .keystore
             .passphrase_path
             .clone()
-            .unwrap_or_else(|| {
-                std::path::PathBuf::from("/etc/suderra/keystore.passphrase")
-            });
-        let salt_path = self.config.keystore.salt_path.clone().unwrap_or_else(|| {
-            std::path::PathBuf::from("/etc/suderra/keystore.salt")
-        });
+            .unwrap_or_else(|| std::path::PathBuf::from("/etc/suderra/keystore.passphrase"));
+        let salt_path = self
+            .config
+            .keystore
+            .salt_path
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from("/etc/suderra/keystore.salt"));
         let acceptance_path = self
             .config
             .keystore
             .acceptance_path
             .clone()
-            .unwrap_or_else(|| {
-                std::path::PathBuf::from("/etc/suderra/keystore.acceptance.json")
-            });
+            .unwrap_or_else(|| std::path::PathBuf::from("/etc/suderra/keystore.acceptance.json"));
 
         // Read + parse acceptance token (operator-signed).
         let acceptance_bytes = std::fs::read(&acceptance_path).map_err(|e| {
@@ -2089,14 +2053,13 @@ impl AppState {
                 e
             )
         })?;
-        let token: AcceptanceToken = serde_json::from_slice(&acceptance_bytes)
-            .map_err(|e| {
-                format!(
-                    "Keystore init: parse acceptance JSON {}: {}",
-                    acceptance_path.display(),
-                    e
-                )
-            })?;
+        let token: AcceptanceToken = serde_json::from_slice(&acceptance_bytes).map_err(|e| {
+            format!(
+                "Keystore init: parse acceptance JSON {}: {}",
+                acceptance_path.display(),
+                e
+            )
+        })?;
 
         // Device identity for binding. Device code is the
         // stable acceptance-token field; operator_id comes
@@ -2187,16 +2150,14 @@ impl AppState {
                 "Clock authority: ChronyNtsClockAuthority threshold={}s (Sprint 6.7 real NTS query)",
                 threshold
             );
-            self.clock_authority =
-                std::sync::Arc::new(ChronyNtsClockAuthority::new(threshold));
+            self.clock_authority = std::sync::Arc::new(ChronyNtsClockAuthority::new(threshold));
         } else {
             info!(
                 "Clock authority: SystemClockAuthority threshold={}s (HC-1 trusting-0-age baseline; set clock.enable_chrony_query=true for real NTS age)",
                 threshold
             );
-            self.clock_authority = std::sync::Arc::new(
-                SystemClockAuthority::with_nts_threshold(threshold),
-            );
+            self.clock_authority =
+                std::sync::Arc::new(SystemClockAuthority::with_nts_threshold(threshold));
         }
     }
 
@@ -2220,9 +2181,9 @@ impl AppState {
             )
         })?;
 
-        let snap = store.snapshot().map_err(|e| {
-            format!("PartitionStore snapshot failed post-open: {}", e)
-        })?;
+        let snap = store
+            .snapshot()
+            .map_err(|e| format!("PartitionStore snapshot failed post-open: {}", e))?;
 
         info!(
             "PartitionStore opened: active={:?} slot_a={:?} slot_b={:?} pending_deadline={:?}",
@@ -2257,7 +2218,10 @@ impl AppState {
     pub fn init_firmware_signing_pubkey(&mut self) -> Result<(), String> {
         use crate::config::FirmwareUpdateMode;
 
-        if matches!(self.config.firmware_update.mode, FirmwareUpdateMode::Disabled) {
+        if matches!(
+            self.config.firmware_update.mode,
+            FirmwareUpdateMode::Disabled
+        ) {
             info!(
                 "FirmwareUpdateConfig: mode=Disabled — SignedFirmwareManifest verify not wired (legacy tarball OTA remains available)"
             );
@@ -2279,22 +2243,29 @@ impl AppState {
         for (i, b) in bytes.iter_mut().enumerate() {
             let byte_idx = i * 2;
             let hex_byte = hex.get(byte_idx..byte_idx + 2).ok_or_else(|| {
-                format!("firmware signing pubkey hex slice error at index {}", byte_idx)
+                format!(
+                    "firmware signing pubkey hex slice error at index {}",
+                    byte_idx
+                )
             })?;
-            *b = u8::from_str_radix(hex_byte, 16).map_err(|e| {
-                format!("firmware signing pubkey invalid hex at byte {}: {}", i, e)
-            })?;
+            *b = u8::from_str_radix(hex_byte, 16)
+                .map_err(|e| format!("firmware signing pubkey invalid hex at byte {}: {}", i, e))?;
         }
 
-        let key = ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(|e| {
-            format!("firmware signing pubkey ed25519 construction failed: {}", e)
-        })?;
+        let key = ed25519_dalek::VerifyingKey::from_bytes(&bytes)
+            .map_err(|e| format!("firmware signing pubkey ed25519 construction failed: {}", e))?;
 
         info!(
             "FirmwareUpdateConfig: mode={:?} firmware_signing_pubkey parsed (key fingerprint sha256 first 8 bytes={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x})",
             self.config.firmware_update.mode,
-            bytes[0], bytes[1], bytes[2], bytes[3],
-            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[0],
+            bytes[1],
+            bytes[2],
+            bytes[3],
+            bytes[4],
+            bytes[5],
+            bytes[6],
+            bytes[7],
         );
         self.firmware_signing_pubkey = Some(std::sync::Arc::new(key));
         Ok(())
@@ -2380,9 +2351,7 @@ impl AppState {
 
         let tenant = match self.tenant_id.as_deref() {
             Some(t) => match uuid::Uuid::parse_str(t) {
-                Ok(u) => {
-                    crate::authz::permission::TenantId::new_from_verified(*u.as_bytes())
-                }
+                Ok(u) => crate::authz::permission::TenantId::new_from_verified(*u.as_bytes()),
                 Err(e) => {
                     warn!(
                         "License cache: tenant_id is not a valid UUID: {}. Staying at conservative().",
@@ -2499,13 +2468,14 @@ impl AppState {
             return;
         }
 
-        let store = match crate::scripting::bytecode_registry_store::BytecodeRegistryStore::new(&path) {
+        let store = match crate::scripting::bytecode_registry_store::BytecodeRegistryStore::new(
+            &path,
+        ) {
             Ok(s) => std::sync::Arc::new(s),
             Err(e) => {
                 error!(
                     "Bytecode registry store open failed at {}: {}. Agent boots with in-memory registry only — deploys will NOT persist until SQLCipher recovers.",
-                    path,
-                    e
+                    path, e
                 );
                 return;
             }
@@ -2528,10 +2498,7 @@ impl AppState {
             match r {
                 Ok(program_id) => {
                     loaded += 1;
-                    info!(
-                        "Bytecode registry rehydrated: program_id={}",
-                        program_id
-                    );
+                    info!("Bytecode registry rehydrated: program_id={}", program_id);
                 }
                 Err((program_id, e)) => {
                     failed += 1;
@@ -2560,12 +2527,7 @@ impl AppState {
     /// value { persist_across_reboot: true }` still
     /// succeeds but its row never reaches disk.
     pub async fn init_force_registry_store(&mut self) {
-        let path = self
-            .config
-            .scripting
-            .force_store_path
-            .trim()
-            .to_string();
+        let path = self.config.scripting.force_store_path.trim().to_string();
         if path.is_empty() {
             info!(
                 "Force-registry store disabled (scripting.force_store_path is empty). Persistent forces will not survive reboot."
@@ -2640,10 +2602,7 @@ impl AppState {
 
         match crate::scripting::SqlitePersistence::new(&db_path) {
             Ok(p) => {
-                info!(
-                    "Shared RETAIN persistence initialized: {}",
-                    db_path_str
-                );
+                info!("Shared RETAIN persistence initialized: {}", db_path_str);
                 self.retain_persistence = Some(std::sync::Arc::new(p));
             }
             Err(e) => {
@@ -2666,12 +2625,7 @@ impl AppState {
                 );
             }
             BootloaderBackend::Tryboot => {
-                let handle = match self
-                    .config
-                    .firmware_update
-                    .tryboot_autoboot_path
-                    .clone()
-                {
+                let handle = match self.config.firmware_update.tryboot_autoboot_path.clone() {
                     Some(p) => {
                         info!(
                             "Bootloader backend: Tryboot (autoboot.txt override path={})",
@@ -2757,7 +2711,9 @@ fn main() {
         #[allow(clippy::print_stderr)]
         {
             eprintln!("WARNING: process hardening failed: {}", e);
-            eprintln!("Boot continuing without coredump-disable; future keystore wire-up will require this.");
+            eprintln!(
+                "Boot continuing without coredump-disable; future keystore wire-up will require this."
+            );
         }
     }
 
@@ -2817,12 +2773,8 @@ fn main() {
                         // Pre-tracing bootstrap
                         #[allow(clippy::print_stderr)]
                         {
-                            eprintln!(
-                                "Error: --audit-verify requires a log file path"
-                            );
-                            eprintln!(
-                                "Usage: suderra-agent --audit-verify <log-path>"
-                            );
+                            eprintln!("Error: --audit-verify requires a log file path");
+                            eprintln!("Usage: suderra-agent --audit-verify <log-path>");
                         }
                         std::process::exit(1);
                     }
@@ -2839,7 +2791,9 @@ fn main() {
                 println!("OPTIONS:");
                 println!("    --init                    Generate default configuration file");
                 println!("    --audit-verify <path>     Verify NDJSON audit log chain (Batch 77)");
-                println!("    --confirm-active          Confirm the currently-active A/B slot (Batch 110)");
+                println!(
+                    "    --confirm-active          Confirm the currently-active A/B slot (Batch 110)"
+                );
                 println!("    --version                 Print version information");
                 println!("    --help                    Print this help message");
                 println!();
@@ -2847,9 +2801,7 @@ fn main() {
                 println!(
                     "    SUDERRA_CONFIG              Path to config file (default: /etc/suderra/config.yaml)"
                 );
-                println!(
-                    "    SUDERRA_AUDIT_KEY_HEX       64-char hex HMAC key for --audit-verify"
-                );
+                println!("    SUDERRA_AUDIT_KEY_HEX       64-char hex HMAC key for --audit-verify");
                 println!(
                     "    RUST_LOG                    Log level filter (e.g., debug, info, warn)"
                 );
@@ -2923,9 +2875,7 @@ async fn async_main() -> Result<()> {
             //   Strict → reject handshake on any mismatch.
             info!(
                 "  mTLS mode: {:?} (fingerprint_pinning={}, min_tls={})",
-                cfg.mtls.mode,
-                cfg.mtls.enforce_fingerprint_pinning,
-                cfg.mtls.min_tls_version
+                cfg.mtls.mode, cfg.mtls.enforce_fingerprint_pinning, cfg.mtls.min_tls_version
             );
             if matches!(cfg.mtls.mode, crate::mtls::MtlsMode::Legacy)
                 && cfg.mtls.enforce_fingerprint_pinning
@@ -2950,24 +2900,18 @@ async fn async_main() -> Result<()> {
             // tunable security thresholds — no runtime query
             // needed to verify a config rollout landed correctly.
             info!("Faz 2 security posture (Batch 31-37 foundations):");
-            info!(
-                "  RBAC gate: preview-logging active (Sprint 6.4 wires enforcement)"
-            );
+            info!("  RBAC gate: preview-logging active (Sprint 6.4 wires enforcement)");
             info!(
                 "  Two-person integrity: preview-logging active for UpdateFirmware/DeployProgram/ForceValue/SafeStateTrigger/Reboot"
             );
-            info!(
-                "  Retained-msg rejection: active on commands + config topics (plan D-14)"
-            );
+            info!("  Retained-msg rejection: active on commands + config topics (plan D-14)");
             info!(
                 "  Shutdown drain: command handler drain-aware; timeout={}s drain_budget={}ms (plan D-15)",
-                cfg.runtime.shutdown_timeout_secs,
-                cfg.runtime.drain_timeout_ms
+                cfg.runtime.shutdown_timeout_secs, cfg.runtime.drain_timeout_ms
             );
             info!(
                 "  Replay window: max_age={}s max_skew={}s (IEC 62443 SL-2 FR-7)",
-                cfg.runtime.max_command_age_secs,
-                cfg.runtime.max_command_skew_secs
+                cfg.runtime.max_command_age_secs, cfg.runtime.max_command_skew_secs
             );
             info!(
                 "  Process hardening: prctl(PR_SET_DUMPABLE=0) + panic-abort hook active (Sprint 6.3 partial)"
@@ -2990,8 +2934,7 @@ async fn async_main() -> Result<()> {
             // Batch 58: envelope dedup (Moka hot-window tier).
             info!(
                 "  Envelope dedup: moka_capacity={}, moka_ttl_secs={} (SQLCipher tier wires in Sprint 6.4; plan §4.10)",
-                cfg.envelope_dedup.moka_capacity,
-                cfg.envelope_dedup.moka_ttl_secs
+                cfg.envelope_dedup.moka_capacity, cfg.envelope_dedup.moka_ttl_secs
             );
             // Batch 65: CommandEnvelope parse-and-verify path
             // active status. After Batches 57-63 Sprint 6.4
@@ -3333,10 +3276,8 @@ async fn async_main() -> Result<()> {
     {
         let state_guard = state.read().await;
         let signature_mode = state_guard.config.signature_mode;
-        let result = crate::license::check_signature_mode_consistency(
-            &state_guard.license,
-            signature_mode,
-        );
+        let result =
+            crate::license::check_signature_mode_consistency(&state_guard.license, signature_mode);
         match result {
             crate::license::SignatureModeConsistency::LicenseDoesNotRequireSignedDeploy => {
                 // Most common — conservative() + STARTER
@@ -3407,10 +3348,7 @@ async fn async_main() -> Result<()> {
         // via the trustworthy wallclock at boot.
         let mut state_guard = state.write().await;
         if let Err(msg) = state_guard.init_keystore().await {
-            error!(
-                "Keystore init failed (fail-closed boot): {}",
-                msg
-            );
+            error!("Keystore init failed (fail-closed boot): {}", msg);
             std::process::exit(1);
         }
     }
@@ -3568,8 +3506,7 @@ fn run_confirm_active() -> i32 {
         return 0;
     }
 
-    let cold_boot_budget_secs =
-        crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
+    let cold_boot_budget_secs = crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
 
     match store.apply_roll(
         crate::updater::PartitionRoll::Confirm { slot: active },
@@ -3682,8 +3619,7 @@ fn run_audit_verify(log_path: &str) -> i32 {
             last_sequence,
             last_hmac,
         } => {
-            let hmac_hex: String =
-                last_hmac.iter().map(|b| format!("{:02x}", b)).collect();
+            let hmac_hex: String = last_hmac.iter().map(|b| format!("{:02x}", b)).collect();
             println!("audit-verify: OK");
             println!("  path:           {}", path.display());
             println!("  verified_count: {}", verified_count);
@@ -3731,7 +3667,6 @@ fn init_logging() {
 fn init_opentelemetry(
     config: &config::AgentConfig,
 ) -> Option<opentelemetry_sdk::trace::TracerProvider> {
-    use opentelemetry::trace::TracerProvider;
     use opentelemetry_otlp::WithExportConfig;
     use opentelemetry_sdk::trace::Sampler;
 
@@ -3739,15 +3674,19 @@ fn init_opentelemetry(
 
     info!("Initializing OpenTelemetry OTLP export to {}", endpoint);
 
-    let exporter = opentelemetry_otlp::new_exporter()
-        .tonic()
-        .with_endpoint(endpoint);
+    // 2026-04-30: opentelemetry-otlp 0.27 removed the old
+    // `new_exporter()/new_pipeline()` API. Build the OTLP exporter and SDK
+    // provider explicitly so the `telemetry` feature compiles and registers the
+    // provider as the process-wide tracer source.
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(endpoint)
+        .build();
 
-    match opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(exporter)
-        .with_trace_config(
-            opentelemetry_sdk::trace::Config::default()
+    match exporter {
+        Ok(exporter) => {
+            let provider = opentelemetry_sdk::trace::TracerProvider::builder()
+                .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
                 .with_sampler(Sampler::TraceIdRatioBased(
                     config.telemetry.otlp.sample_ratio,
                 ))
@@ -3758,11 +3697,11 @@ fn init_opentelemetry(
                     ),
                     opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
                     opentelemetry::KeyValue::new("device.id", config.device_id.clone()),
-                ])),
-        )
-        .install_batch(opentelemetry_sdk::runtime::Tokio)
-    {
-        Ok(provider) => {
+                ]))
+                .build();
+
+            opentelemetry::global::set_tracer_provider(provider.clone());
+
             info!(
                 "OpenTelemetry OTLP enabled: endpoint={}, service={}, sample_ratio={}",
                 endpoint, config.telemetry.otlp.service_name, config.telemetry.otlp.sample_ratio
@@ -3831,8 +3770,10 @@ fn notify_systemd_ready() -> Result<()> {
             match watchdog_handle.await {
                 Ok(_) => {
                     // Infinite loop exited normally — should never happen
-                    error!("LIFE-SAFETY: Watchdog heartbeat task exited unexpectedly. \
-                            systemd will restart the agent after WatchdogSec timeout.");
+                    error!(
+                        "LIFE-SAFETY: Watchdog heartbeat task exited unexpectedly. \
+                            systemd will restart the agent after WatchdogSec timeout."
+                    );
                 }
                 Err(join_err) => {
                     // Task panicked — log the panic info for diagnostics
@@ -4158,13 +4099,20 @@ async fn run_agent(
 
                         // Validate that the device_id received from the server is a valid UUID
                         // before saving to disk (MED-33).
-                        state_guard.config.validate()
-                            .context("Self-registration response contained invalid config — aborting save")?;
+                        state_guard.config.validate().context(
+                            "Self-registration response contained invalid config — aborting save",
+                        )?;
 
                         // Save updated config to disk
                         if let Err(e) = state_guard.config.save() {
-                            error!("CRITICAL: Failed to save config after self-registration: {}. Device may re-register on restart!", e);
-                            return Err(anyhow::anyhow!("Failed to persist self-registration config: {}", e));
+                            error!(
+                                "CRITICAL: Failed to save config after self-registration: {}. Device may re-register on restart!",
+                                e
+                            );
+                            return Err(anyhow::anyhow!(
+                                "Failed to persist self-registration config: {}",
+                                e
+                            ));
                         }
 
                         last_error = None;
@@ -4218,7 +4166,10 @@ async fn run_agent(
                         state_guard.config.mqtt.password =
                             Some(secrecy::Secret::new(response.mqtt_password));
                         // Enable TLS if the server indicated it (port 8883)
-                        if response.mqtt_tls_enabled.unwrap_or(response.mqtt_port == 8883) {
+                        if response
+                            .mqtt_tls_enabled
+                            .unwrap_or(response.mqtt_port == 8883)
+                        {
                             state_guard.config.mqtt.tls.enabled = true;
                         }
                         state_guard.tenant_id = Some(response.tenant_id.clone());
@@ -4303,10 +4254,7 @@ async fn run_agent(
     {
         let mut state_guard = state.write().await;
         if let Err(msg) = state_guard.init_outbound_publisher() {
-            error!(
-                "OutboundPublisher init failed (fail-closed boot): {}",
-                msg
-            );
+            error!("OutboundPublisher init failed (fail-closed boot): {}", msg);
             std::process::exit(1);
         }
     }
@@ -4345,12 +4293,21 @@ async fn run_agent(
                 "agent_version": env!("CARGO_PKG_VERSION"),
                 "uptime_seconds": 0,
             });
-            crate::publish_helpers::publish_status(
-                &state_guard,
-                &payload,
-            )
-            .await;
-            info!("Initial Online status published via OutboundPublisher (Batch #268 wire — ORPHAN-MEDIUM-022 closure)");
+            // 2026-04-29 enterprise publish reliability:
+            // initial Online status uses checked outbound routing.
+            //
+            // What it solves: boot no longer claims successful Online publish
+            // when the queue/broker path rejected the message.
+            match crate::publish_helpers::publish_status_checked(&state_guard, &payload).await {
+                Ok(()) => {
+                    info!(
+                        "Initial Online status published via OutboundPublisher (Batch #268 wire — ORPHAN-MEDIUM-022 closure)"
+                    );
+                }
+                Err(e) => {
+                    warn!("Initial Online status publish failed: {}", e);
+                }
+            }
         }
     }
 
@@ -4385,9 +4342,10 @@ async fn run_agent(
             .apply(modbus_ref, gpio_ref, i2c_ref)
             .await;
 
-        if safe_count == 0 && (!state_guard.config.gpio.is_empty()
-            || !state_guard.config.modbus.is_empty()
-            || !state_guard.config.i2c.is_empty())
+        if safe_count == 0
+            && (!state_guard.config.gpio.is_empty()
+                || !state_guard.config.modbus.is_empty()
+                || !state_guard.config.i2c.is_empty())
         {
             // LIFE-SAFETY: Hardware is configured but no outputs reached safe-state.
             // Enter degraded mode — do NOT proceed to normal runtime.
@@ -4455,20 +4413,15 @@ async fn run_agent(
         };
         match tenant_str_opt {
             Some(tenant_str) => {
-                let topic_base = format!(
-                    "tenants/{}/devices/{}/watch",
-                    tenant_str, device_code
-                );
-                let sink: std::sync::Arc<
-                    dyn crate::scripting::watch_sessions::WatchPublishSink,
-                > = std::sync::Arc::new(
-                    crate::scripting::watch_publisher_wire::MqttWatchPublishSink::new(
-                        state.clone(),
-                    ),
-                );
+                let topic_base = format!("tenants/{}/devices/{}/watch", tenant_str, device_code);
+                let sink: std::sync::Arc<dyn crate::scripting::watch_sessions::WatchPublishSink> =
+                    std::sync::Arc::new(
+                        crate::scripting::watch_publisher_wire::MqttWatchPublishSink::new(
+                            state.clone(),
+                        ),
+                    );
 
-                let (watch_watch_tx, watch_watch_rx) =
-                    tokio::sync::watch::channel(false);
+                let (watch_watch_tx, watch_watch_rx) = tokio::sync::watch::channel(false);
                 let mut watch_broadcast_rx = shutdown_coordinator.subscribe();
                 tokio::spawn(async move {
                     let _ = watch_broadcast_rx.recv().await;
@@ -4476,28 +4429,22 @@ async fn run_agent(
                 });
 
                 let publisher_handle = tokio::spawn(async move {
-                    let summary =
-                        crate::scripting::watch_sessions::run_watch_publisher_task(
-                            watch_sessions,
-                            process_image,
-                            sink,
-                            topic_base,
-                            100,
-                            watch_watch_rx,
-                        )
-                        .await;
+                    let summary = crate::scripting::watch_sessions::run_watch_publisher_task(
+                        watch_sessions,
+                        process_image,
+                        sink,
+                        topic_base,
+                        100,
+                        watch_watch_rx,
+                    )
+                    .await;
                     info!(
                         "watch_publisher exit: ticks={} published={} errors={}",
-                        summary.ticks_executed,
-                        summary.sessions_published,
-                        summary.publish_errors,
+                        summary.ticks_executed, summary.sessions_published, summary.publish_errors,
                     );
                 });
-                shutdown_coordinator
-                    .register_task("watch_publisher", publisher_handle);
-                info!(
-                    "Watch-session publisher task spawned (cadence=100ms, tenant=resolved)"
-                );
+                shutdown_coordinator.register_task("watch_publisher", publisher_handle);
+                info!("Watch-session publisher task spawned (cadence=100ms, tenant=resolved)");
             }
             None => {
                 // Pre-provisioning boot — tenant not yet
@@ -4529,29 +4476,26 @@ async fn run_agent(
             let s = state.read().await;
             (s.force_registry.clone(), s.clock_authority.clone())
         };
-        let (force_sweep_watch_tx, force_sweep_watch_rx) =
-            tokio::sync::watch::channel(false);
+        let (force_sweep_watch_tx, force_sweep_watch_rx) = tokio::sync::watch::channel(false);
         let mut force_broadcast_rx = shutdown_coordinator.subscribe();
         tokio::spawn(async move {
             let _ = force_broadcast_rx.recv().await;
             let _ = force_sweep_watch_tx.send(true);
         });
         let sweep_handle = tokio::spawn(async move {
-            let summary =
-                crate::scripting::force_registry::run_sweep_task_with_clock(
-                    force_registry,
-                    clock_authority,
-                    std::time::Duration::from_secs(1),
-                    force_sweep_watch_rx,
-                )
-                .await;
+            let summary = crate::scripting::force_registry::run_sweep_task_with_clock(
+                force_registry,
+                clock_authority,
+                std::time::Duration::from_secs(1),
+                force_sweep_watch_rx,
+            )
+            .await;
             info!(
                 "force_registry_sweep exit: ticks={} total_expired={}",
                 summary.ticks_executed, summary.total_expired
             );
         });
-        shutdown_coordinator
-            .register_task("force_registry_sweep", sweep_handle);
+        shutdown_coordinator.register_task("force_registry_sweep", sweep_handle);
         info!("Force-registry sweep task spawned (1 Hz)");
     }
 
@@ -4581,10 +4525,8 @@ async fn run_agent(
             let s = state.read().await;
             s.clock_authority.clone()
         };
-        let marker_path = data_dir::data_dir()
-            .join(crate::keystore::ROTATION_MARKER_FILENAME);
-        let (alarm_watch_tx, alarm_watch_rx) =
-            tokio::sync::watch::channel(false);
+        let marker_path = data_dir::data_dir().join(crate::keystore::ROTATION_MARKER_FILENAME);
+        let (alarm_watch_tx, alarm_watch_rx) = tokio::sync::watch::channel(false);
         let mut alarm_broadcast_rx = shutdown_coordinator.subscribe();
         tokio::spawn(async move {
             let _ = alarm_broadcast_rx.recv().await;
@@ -4592,16 +4534,13 @@ async fn run_agent(
         });
         let alarm_marker_path = marker_path.clone();
         let alarm_handle = tokio::spawn(async move {
-            let summary =
-                crate::keystore::run_keystore_rotation_alarm_task(
-                    alarm_marker_path,
-                    clock_for_alarm,
-                    std::time::Duration::from_secs(
-                        crate::keystore::DEFAULT_ALARM_INTERVAL_SECS,
-                    ),
-                    alarm_watch_rx,
-                )
-                .await;
+            let summary = crate::keystore::run_keystore_rotation_alarm_task(
+                alarm_marker_path,
+                clock_for_alarm,
+                std::time::Duration::from_secs(crate::keystore::DEFAULT_ALARM_INTERVAL_SECS),
+                alarm_watch_rx,
+            )
+            .await;
             info!(
                 "keystore_rotation_alarm exit: ticks={} lead_time_alarms={} \
                  overdue_alarms={} marker_missing={} clock_unhealthy={}",
@@ -4612,8 +4551,7 @@ async fn run_agent(
                 summary.clock_unhealthy_ticks,
             );
         });
-        shutdown_coordinator
-            .register_task("keystore_rotation_alarm", alarm_handle);
+        shutdown_coordinator.register_task("keystore_rotation_alarm", alarm_handle);
         info!(
             "Keystore rotation alarm runner spawned (interval={}s, marker={})",
             crate::keystore::DEFAULT_ALARM_INTERVAL_SECS,
@@ -4678,15 +4616,9 @@ async fn run_agent(
         let license_permits_scheduler = if tasks_config.is_empty() {
             true
         } else {
-            match crate::license::check_task_scheduler_budget(
-                tasks_config.len(),
-                &license,
-            ) {
+            match crate::license::check_task_scheduler_budget(tasks_config.len(), &license) {
                 crate::license::TaskSchedulerBudget::WithinBudget { .. } => true,
-                crate::license::TaskSchedulerBudget::Exceeded {
-                    configured,
-                    cap,
-                } => {
+                crate::license::TaskSchedulerBudget::Exceeded { configured, cap } => {
                     warn!(
                         "multi-task scheduler NOT started: license cap hit (configured={} cap={} tier={}) — reduce tasks or upgrade tier",
                         configured,
@@ -4704,10 +4636,7 @@ async fn run_agent(
             // Int tags round-trip through the VM with
             // their declared type.
             let declared_types =
-                crate::scripting::process_image_tagio::declared_types_from_process_image(
-                    &pi,
-                )
-                .await;
+                crate::scripting::process_image_tagio::declared_types_from_process_image(&pi).await;
             info!(
                 "Bytecode scan-cycle declared-types catalog: {} tag(s) mapped",
                 declared_types.len()
@@ -4748,22 +4677,17 @@ async fn run_agent(
                         summary.overrun_count
                     );
                 });
-                shutdown_coordinator
-                    .register_task("bytecode_scan_cycle", scan_cycle_handle);
+                shutdown_coordinator.register_task("bytecode_scan_cycle", scan_cycle_handle);
                 info!(
                     "Bytecode scan-cycle driver spawned (scan_cycle_ms={}, single-cadence)",
                     scan_cycle_ms
                 );
             } else {
                 // Multi-task scheduler branch (Batch 193).
-                match crate::scripting::task_scheduler::TaskScheduler::new(
-                    tasks_config,
-                ) {
+                match crate::scripting::task_scheduler::TaskScheduler::new(tasks_config) {
                     Ok(scheduler) => {
                         let task_count = scheduler.task_count();
-                        let scheduler_arc = std::sync::Arc::new(
-                            tokio::sync::Mutex::new(scheduler),
-                        );
+                        let scheduler_arc = std::sync::Arc::new(tokio::sync::Mutex::new(scheduler));
 
                         // Shared shutdown watch for the
                         // cadence loop + the event listener +
@@ -4789,18 +4713,15 @@ async fn run_agent(
                         let sched_listener = scheduler_arc.clone();
                         let sched_stats = scheduler_arc.clone();
                         let listener_handle = tokio::spawn(async move {
-                            let summary =
-                                crate::scripting::task_scheduler::run_event_listener(
-                                    &pi_listener,
-                                    sched_listener,
-                                    listener_rx,
-                                )
-                                .await;
+                            let summary = crate::scripting::task_scheduler::run_event_listener(
+                                &pi_listener,
+                                sched_listener,
+                                listener_rx,
+                            )
+                            .await;
                             info!(
                                 "scheduler_event_listener exit: received={} matched={} lag={}",
-                                summary.events_received,
-                                summary.events_matched,
-                                summary.lag_events
+                                summary.events_received, summary.events_matched, summary.lag_events
                             );
                         });
                         shutdown_coordinator
@@ -4833,8 +4754,7 @@ async fn run_agent(
                                 summary.watchdog_trips,
                             );
                         });
-                        shutdown_coordinator
-                            .register_task("scheduler_cadence", cadence_handle);
+                        shutdown_coordinator.register_task("scheduler_cadence", cadence_handle);
 
                         // Batch #302 Faz 4 step 5: per-task
                         // stats MQTT publisher loop. Spawns
@@ -4853,17 +4773,15 @@ async fn run_agent(
                         let stats_interval = stats_interval.clamp(5, 3600);
                         let stats_state = state.clone();
                         let stats_handle = tokio::spawn(async move {
-                            crate::scripting::task_stats_publisher
-                                ::run_task_stats_publisher_loop(
-                                    stats_state,
-                                    sched_stats,
-                                    stats_interval,
-                                    stats_rx,
-                                )
-                                .await;
+                            crate::scripting::task_stats_publisher::run_task_stats_publisher_loop(
+                                stats_state,
+                                sched_stats,
+                                stats_interval,
+                                stats_rx,
+                            )
+                            .await;
                         });
-                        shutdown_coordinator
-                            .register_task("task_stats_publisher", stats_handle);
+                        shutdown_coordinator.register_task("task_stats_publisher", stats_handle);
 
                         info!(
                             "Bytecode multi-task scheduler spawned (tasks={}, quantum_ms={}, task_stats_interval={}s)",
@@ -4879,9 +4797,7 @@ async fn run_agent(
                 }
             }
         } else {
-            info!(
-                "Bytecode scan-cycle driver NOT spawned: config.scripting.enabled=false"
-            );
+            info!("Bytecode scan-cycle driver NOT spawned: config.scripting.enabled=false");
         }
     }
 
@@ -4929,18 +4845,16 @@ async fn run_agent(
                 .ok()
                 .map(|u| crate::authz::permission::TenantId::new_from_verified(*u.as_bytes()))
         });
-        match opc_ua_server_runtime::init_opc_ua_server(
-            opc_ua_server_runtime::OpcUaInitDeps {
-                config: &opc_ua_cfg,
-                process_image: &pi_for_opcua,
-                force_registry: force_registry_for_opcua,
-                audit_sink: audit_sink_for_opcua,
-                tenant: tenant_opt,
-                rbac_manifest_store: rbac_store_for_opcua,
-                user_token_manifest_store: user_token_store_for_opcua,
-                license: &license_for_opcua,
-            },
-        )
+        match opc_ua_server_runtime::init_opc_ua_server(opc_ua_server_runtime::OpcUaInitDeps {
+            config: &opc_ua_cfg,
+            process_image: &pi_for_opcua,
+            force_registry: force_registry_for_opcua,
+            audit_sink: audit_sink_for_opcua,
+            tenant: tenant_opt,
+            rbac_manifest_store: rbac_store_for_opcua,
+            user_token_manifest_store: user_token_store_for_opcua,
+            license: &license_for_opcua,
+        })
         .await
         {
             Ok(Some(handle)) => {
@@ -4952,20 +4866,19 @@ async fn run_agent(
                 let bridge_handle = tokio::spawn(async move {
                     let _ = broadcast_rx.recv().await;
                     handle_for_bridge.cancel();
-                    info!(
-                        "opc_ua_server: cancel signal forwarded from ShutdownCoordinator"
-                    );
+                    info!("opc_ua_server: cancel signal forwarded from ShutdownCoordinator");
                 });
-                shutdown_coordinator
-                    .register_task("opc_ua_cancel_bridge", bridge_handle);
+                shutdown_coordinator.register_task("opc_ua_cancel_bridge", bridge_handle);
 
                 let summary_pop = handle
                     .population()
                     .cloned()
-                    .map(|s| format!(
-                        "variables={} writable={}",
-                        s.variable_nodes_added, s.writable_nodes,
-                    ))
+                    .map(|s| {
+                        format!(
+                            "variables={} writable={}",
+                            s.variable_nodes_added, s.writable_nodes,
+                        )
+                    })
                     .unwrap_or_else(|| "(no summary)".to_string());
                 info!(
                     "opc_ua_server boot OK: ns_index={:?} {}",
@@ -5005,8 +4918,7 @@ async fn run_agent(
         };
         if let Some(partition_store) = partition_store {
             let watchdog_shutdown = shutdown_coordinator.subscribe();
-            let cold_boot_budget_secs =
-                crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
+            let cold_boot_budget_secs = crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
             // Batch 112 Sprint 6.5: clone the bootloader
             // handle from AppState so the watchdog can call
             // rollback_next_boot after software Rollback
@@ -5034,9 +4946,7 @@ async fn run_agent(
                 let ctx = crate::updater::WatchdogAuditCtx {
                     sink: s.audit_sink.clone(),
                     device_id: s.config.device_id.clone(),
-                    tenant: crate::authz::permission::TenantId::new_from_verified(
-                        tenant_bytes,
-                    ),
+                    tenant: crate::authz::permission::TenantId::new_from_verified(tenant_bytes),
                 };
                 (
                     s.bootloader.clone(),
@@ -5062,8 +4972,7 @@ async fn run_agent(
                 )
                 .await;
             });
-            shutdown_coordinator
-                .register_task("cold_boot_watchdog", watchdog_handle);
+            shutdown_coordinator.register_task("cold_boot_watchdog", watchdog_handle);
             info!(
                 "cold-boot watchdog task registered (poll={}s budget={}s)",
                 crate::updater::DEFAULT_WATCHDOG_POLL_INTERVAL_SECS,
@@ -5095,8 +5004,7 @@ async fn run_agent(
             let sweep_shutdown = shutdown_coordinator.subscribe();
             let sweep_handle = tokio::spawn(async move {
                 let mut shutdown = sweep_shutdown;
-                let mut interval =
-                    tokio::time::interval(std::time::Duration::from_secs(300));
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
                 // Skip the immediate first tick (would fire
                 // right at boot when the table is empty).
                 interval.tick().await;
@@ -5149,7 +5057,10 @@ async fn run_agent(
                 Some(Arc::new(db))
             }
             Err(e) => {
-                warn!("Failed to initialize SCADA database: {}. Runtime features degraded.", e);
+                warn!(
+                    "Failed to initialize SCADA database: {}. Runtime features degraded.",
+                    e
+                );
                 None
             }
         };
@@ -5165,11 +5076,7 @@ async fn run_agent(
 
         // Create SCADA state with full runtime (only if DB is available)
         if let Some(db) = scada_db.clone() {
-            let scada_state = scada_server::ScadaState::new_with_runtime(
-                process_image,
-                db,
-                cmd_tx,
-            );
+            let scada_state = scada_server::ScadaState::new_with_runtime(process_image, db, cmd_tx);
             let _scada_handle = scada_server::start_scada_server(scada_state.clone()).await;
 
             // Store in app state
@@ -5179,7 +5086,9 @@ async fn run_agent(
                 state_guard.scada_db = scada_db;
             }
         } else {
-            warn!("SCADA database unavailable — SCADA display server will NOT start. Device operates in sensor-only mode.");
+            warn!(
+                "SCADA database unavailable — SCADA display server will NOT start. Device operates in sensor-only mode."
+            );
             let mut state_guard = state.write().await;
             state_guard.scada_db = None;
         }
@@ -5192,13 +5101,18 @@ async fn run_agent(
             while let Some(cmd) = cmd_rx.recv().await {
                 let result = async {
                     let s = cmd_state.read().await;
-                    let config = s.process_image.get_config(&cmd.tag).await
+                    let config = s
+                        .process_image
+                        .get_config(&cmd.tag)
+                        .await
                         .ok_or_else(|| format!("Tag '{}' not found", cmd.tag))?;
 
                     let write_result = match &config.protocol_config {
                         ProtocolConfig::Gpio { pin, .. } => {
                             if let Some(ref handle) = s.gpio_handle {
-                                handle.write_pin(*pin, cmd.value != 0.0).await
+                                handle
+                                    .write_pin(*pin, cmd.value != 0.0)
+                                    .await
                                     .map_err(|e| format!("GPIO: {}", e))
                             } else {
                                 Err("GPIO unavailable".to_string())
@@ -5209,12 +5123,20 @@ async fn run_agent(
                                 if let Some(device) = s.config.modbus.first() {
                                     // Determine write type based on IoType
                                     if matches!(config.io_type, crate::process_image::IoType::DO) {
-                                        handle.write_coil(&device.name, *register, cmd.value != 0.0).await
+                                        handle
+                                            .write_coil(&device.name, *register, cmd.value != 0.0)
+                                            .await
                                             .map_err(|e| format!("Modbus coil: {}", e))
                                     } else {
                                         // Analog output: reverse-scale and write register
                                         let raw_value = reverse_scale(cmd.value, &config);
-                                        handle.write_register(&device.name, *register, raw_value as u16).await
+                                        handle
+                                            .write_register(
+                                                &device.name,
+                                                *register,
+                                                raw_value as u16,
+                                            )
+                                            .await
                                             .map_err(|e| format!("Modbus register: {}", e))
                                     }
                                 } else {
@@ -5227,18 +5149,25 @@ async fn run_agent(
                         ProtocolConfig::I2c { .. } => {
                             if let Some(ref handle) = s.i2c_handle {
                                 let data = (cmd.value as u32).to_be_bytes().to_vec();
-                                handle.write_direct(&cmd.tag, &data).await
+                                handle
+                                    .write_direct(&cmd.tag, &data)
+                                    .await
                                     .map_err(|e| format!("I2C: {}", e))
                             } else {
                                 Err("I2C unavailable".to_string())
                             }
                         }
-                        _ => Err(format!("Write unsupported for {:?}", config.protocol_config)),
+                        _ => Err(format!(
+                            "Write unsupported for {:?}",
+                            config.protocol_config
+                        )),
                     };
 
                     match write_result {
                         Ok(()) => {
-                            s.process_image.update_tag(&cmd.tag, cmd.value, TagQuality::Good, config.source).await;
+                            s.process_image
+                                .update_tag(&cmd.tag, cmd.value, TagQuality::Good, config.source)
+                                .await;
                             info!("SCADA command executed: {} = {}", cmd.tag, cmd.value);
                             Ok(cmd.value)
                         }
@@ -5247,7 +5176,8 @@ async fn run_agent(
                             Err(e)
                         }
                     }
-                }.await;
+                }
+                .await;
 
                 let _ = cmd.response_tx.send(result);
             }
@@ -5470,19 +5400,52 @@ async fn run_agent(
     );
     // ── (4) Flush offline queue to disk (WAL checkpoint + fsync) ──
     // Ensures no telemetry is lost if the process is about to exit.
-    {
-        let state_guard = state.read().await;
-        // WHY: The offline queue uses SQLite WAL mode. A WAL checkpoint
-        // forces all pending writes into the main database file before we
-        // lose the process.  This is a best-effort step; failure is logged
-        // but does not block shutdown.
-        if let Some(ref modbus_handle) = state_guard.modbus_handle {
-            // Offline queue is not stored in AppState directly; if we have
-            // a reference we checkpoint it here.  Currently the queue is
-            // module-level so this is a placeholder for future refactor.
-            let _ = modbus_handle; // suppress unused warning
+    let (offline_queue, drain_shutdown, drain_handle) = {
+        let mut state_guard = state.write().await;
+        (
+            state_guard.offline_queue.clone(),
+            state_guard.outbound_publisher_drain_shutdown.take(),
+            state_guard.outbound_publisher_drain_handle.take(),
+        )
+    };
+    // 2026-04-29 enterprise offline queue shutdown:
+    // stop the drain task, await its exit, then force SQLite checkpoint/fsync.
+    //
+    // What it solves: the shutdown "flush" phase is no longer a placeholder;
+    // it coordinates the live drain loop and durable queue storage in a
+    // deterministic order.
+    if let Some(tx) = drain_shutdown {
+        if tx.send(()).is_err() {
+            warn!("Offline queue drain task was already stopped before shutdown signal");
         }
-        info!("Offline queue flush step complete");
+    }
+    if let Some(mut handle) = drain_handle {
+        match tokio::time::timeout(Duration::from_millis(drain_timeout_ms), &mut handle).await {
+            Ok(Ok(())) => info!("Offline queue drain task stopped cleanly"),
+            Ok(Err(e)) => warn!("Offline queue drain task join failed: {}", e),
+            Err(_) => {
+                warn!(
+                    "Offline queue drain task did not stop within {}ms; aborting before checkpoint",
+                    drain_timeout_ms
+                );
+                handle.abort();
+                match handle.await {
+                    Ok(()) => info!("Offline queue drain task stopped after abort"),
+                    Err(e) if e.is_cancelled() => {
+                        info!("Offline queue drain task aborted before checkpoint")
+                    }
+                    Err(e) => warn!("Offline queue drain task abort join failed: {}", e),
+                }
+            }
+        }
+    }
+    if let Some(queue) = offline_queue {
+        match queue.checkpoint_and_fsync_async().await {
+            Ok(()) => info!("Offline queue flush step complete"),
+            Err(e) => error!("Offline queue checkpoint/fsync failed: {:#}", e),
+        }
+    } else {
+        info!("Offline queue flush skipped: queue not initialized");
     }
 
     // ── (5) Disconnect hardware interfaces ──
@@ -5528,10 +5491,7 @@ async fn run_agent(
                 "safe_state_applied": true,
             });
             if let Ok(payload_bytes) = serde_json::to_vec(&status_payload) {
-                let topic = format!(
-                    "suderra/{}/status",
-                    state_guard.config.device_id
-                );
+                let topic = format!("suderra/{}/status", state_guard.config.device_id);
                 if let Err(e) = mqtt.publish_raw(&topic, &payload_bytes).await {
                     warn!("Failed to publish offline status: {}", e);
                 } else {
@@ -5667,17 +5627,22 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
     {
         let should_init = {
             let state_guard = state.read().await;
-            state_guard.config.lorawan.as_ref().map_or(false, |c| c.enabled)
+            state_guard
+                .config
+                .lorawan
+                .as_ref()
+                .map_or(false, |c| c.enabled)
         };
 
         if should_init {
             let lora_handle = {
                 let state_guard = state.read().await;
-                let lora_cfg = state_guard.config.lorawan.as_ref()
-                    .ok_or_else(|| anyhow::anyhow!(
-                        "LoRaWAN config was Some when should_init was computed but is now None — \
-                         concurrent config update between lock acquisitions"
-                    ))?;
+                let Some(lora_cfg) = state_guard.config.lorawan.as_ref() else {
+                    error!(
+                        "LoRaWAN init skipped: config disappeared between readiness check and handle creation"
+                    );
+                    return;
+                };
                 crate::lora::LoRaHandle::new(lora_cfg, state.clone())
             };
 
@@ -5742,7 +5707,11 @@ async fn publish_capabilities(state: &AppState) {
     };
 
     // Use resolved topics for consistency and placeholder validation
-    let resolved = state.config.mqtt.topics.resolve(tenant_id, &state.config.device_id);
+    let resolved = state
+        .config
+        .mqtt
+        .topics
+        .resolve(tenant_id, &state.config.device_id);
     let topic = &resolved.capabilities;
 
     match serde_json::to_vec(&capabilities) {
@@ -5767,7 +5736,12 @@ async fn publish_capabilities(state: &AppState) {
 /// Reverse-scale an engineering value back to raw for Modbus AO writes
 #[cfg(feature = "scada-display")]
 fn reverse_scale(eng_value: f64, config: &crate::process_image::TagConfig) -> f64 {
-    match (config.raw_min, config.raw_max, config.eng_min, config.eng_max) {
+    match (
+        config.raw_min,
+        config.raw_max,
+        config.eng_min,
+        config.eng_max,
+    ) {
         (Some(raw_min), Some(raw_max), Some(eng_min), Some(eng_max)) => {
             let eng_range = eng_max - eng_min;
             if eng_range.abs() < f64::EPSILON {

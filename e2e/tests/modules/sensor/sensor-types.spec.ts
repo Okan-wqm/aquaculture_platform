@@ -256,9 +256,7 @@ describe('Sensor Type Definitions', () => {
         return;
       }
 
-      const [template] = templates;
-      if (!template) throw new Error('Expected template after non-empty check');
-      const templateKey = template.templateKey as string;
+      const templateKey = templates[0].templateKey as string;
 
       const res = await gql(APPLY_INDUSTRY_TEMPLATE, { templateKey });
 

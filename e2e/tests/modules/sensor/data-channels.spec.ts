@@ -330,13 +330,10 @@ describe('Data Channels', () => {
         expect(ch).toBeDefined();
         const thresholds = ch!.alertThresholds as Record<string, Record<string, number>>;
         expect(thresholds).toBeDefined();
-        const warning = thresholds.warning;
-        const critical = thresholds.critical;
-        if (!warning || !critical) throw new Error('Expected warning and critical thresholds');
-        expect(warning.low).toBe(5.0);
-        expect(warning.high).toBe(30.0);
-        expect(critical.low).toBe(2.0);
-        expect(critical.high).toBe(40.0);
+        expect(thresholds.warning.low).toBe(5.0);
+        expect(thresholds.warning.high).toBe(30.0);
+        expect(thresholds.critical.low).toBe(2.0);
+        expect(thresholds.critical.high).toBe(40.0);
       }
     });
   });
@@ -658,11 +655,8 @@ describe('Data Channels', () => {
       expect(updateRes.errors).toBeUndefined();
       const ch = updateRes.data!.updateDataChannel as Record<string, unknown>;
       const thresholds = ch.alertThresholds as Record<string, Record<string, number>>;
-      const warning = thresholds.warning;
-      const critical = thresholds.critical;
-      if (!warning || !critical) throw new Error('Expected warning and critical thresholds');
-      expect(warning.low).toBe(20.0);
-      expect(critical.high).toBe(33.0);
+      expect(thresholds.warning.low).toBe(20.0);
+      expect(thresholds.critical.high).toBe(33.0);
     });
   });
 

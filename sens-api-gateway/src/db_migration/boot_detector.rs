@@ -141,19 +141,36 @@ pub struct DbMigrationDetectionFailure {
 /// The full migration-backlog report returned by
 /// `detect_db_migration_backlog`.
 ///
-/// Three populations live in the report:
+/// Five populations live in the report (Batch #5 of
+/// PR-195 extended the original 3 → 5 to close audit
+/// HIGH-002 — sidecar tamper signal):
 ///
 ///   1. `backlog`: DBs that need migration (v1 + missing-
-///      manifest treated as v1).
-///   2. `up_to_date`: DBs already at the current target
-///      version (v2 today). Counted, but not
+///      manifest treated as v1, file present).
+///   2. `up_to_date_count`: DBs already at the current
+///      target version (v2 today). Counted only — not
 ///      individually listed (operators don't need a
 ///      per-DB list of healthy DBs).
-///   3. `detection_failures`: DBs whose manifest could
-///      not be classified — operator triage required.
+///   3. `detection_failures`: DBs whose manifest exists
+///      but cannot be classified (corrupt /
+///      envelope-mismatch / IO error / orphan sidecar).
+///      Operator triage required.
+///   4. `nonexistent_dbs_count`: paths in the input list
+///      where neither the DB file nor the sidecar
+///      exists. Counted only. This is the
+///      pre-installation case — no migration needed.
+///   5. `orphan_sidecar_count`: tracked via
+///      `detection_failures` with reason
+///      `orphan_sidecar` (sidecar exists, DB file
+///      doesn't). Operator-actionable: investigate
+///      whether the DB was deleted manually OR if a
+///      partial-restore landed the sidecar without
+///      the DB. The dedicated reason string lets log
+///      aggregators distinguish from the corrupt /
+///      envelope-mismatch failure modes.
 ///
-/// All four counters are exposed as named getters so the
-/// Prometheus emission point can read them without
+/// All counter fields are exposed as named getters so
+/// the Prometheus emission point can read them without
 /// pattern-matching.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DbMigrationBacklogReport {
@@ -166,6 +183,17 @@ pub struct DbMigrationBacklogReport {
     /// DBs the detector observed but couldn't classify.
     /// Operator triage needed.
     pub detection_failures: Vec<DbMigrationDetectionFailure>,
+    /// Paths in the input list where NEITHER the DB
+    /// file NOR the sidecar manifest exists. This is
+    /// the pre-installation case (consumer hasn't
+    /// created its DB yet, or the data dir was wiped).
+    /// Counted only — no operator action required;
+    /// surfaced separately so the migration backlog
+    /// counter doesn't conflate "no DB to migrate" with
+    /// "legacy DB needs migration".
+    ///
+    /// Added Batch #5 of PR-195 (closes audit HIGH-002).
+    pub nonexistent_dbs_count: usize,
 }
 
 impl DbMigrationBacklogReport {
@@ -282,9 +310,56 @@ pub fn detect_db_migration_backlog(
     let mut backlog = Vec::new();
     let mut up_to_date_count: usize = 0;
     let mut detection_failures = Vec::new();
+    let mut nonexistent_dbs_count: usize = 0;
 
     for db_path in db_paths {
         let manifest_path = manifest_path_for_db(db_path);
+        // Batch #5 of PR-195 (closes audit HIGH-002):
+        // stat BOTH the DB file AND the sidecar manifest
+        // so we can distinguish (a) "no DB to migrate"
+        // (both missing — pre-installation), (b)
+        // "legacy DB needing migration" (DB present,
+        // sidecar missing — pre-D-3 default), and (c)
+        // "orphan sidecar" (DB missing, sidecar
+        // present — operator-suspect: DB was deleted
+        // manually OR partial restore).
+        let db_exists = db_path.exists();
+        let sidecar_exists = manifest_path.exists();
+
+        match (db_exists, sidecar_exists) {
+            (false, false) => {
+                // Pre-installation — neither file present.
+                // No migration needed; counter only.
+                nonexistent_dbs_count += 1;
+                continue;
+            }
+            (false, true) => {
+                // Orphan sidecar — DB file is gone but
+                // its manifest survives. Operator-
+                // suspect: manual delete? partial
+                // restore? Tamper signal candidate.
+                // Surface as detection_failure with a
+                // dedicated reason string so log
+                // aggregators distinguish from corrupt /
+                // envelope-mismatch / IO-error reasons.
+                detection_failures.push(
+                    DbMigrationDetectionFailure {
+                        db_path: db_path.to_path_buf(),
+                        reason: format!(
+                            "orphan_sidecar: manifest exists at {} but DB file is missing — operator investigate (manual delete? partial restore?)",
+                            manifest_path.display(),
+                        ),
+                    },
+                );
+                continue;
+            }
+            (true, _) => {
+                // DB present — proceed with the original
+                // 3-arm classification (v1/v2/missing-as-v1
+                // / corrupt / envelope-mismatch / IO error).
+            }
+        }
+
         match read_manifest(&manifest_path) {
             Ok(Some(manifest)) => {
                 if manifest
@@ -304,8 +379,13 @@ pub fn detect_db_migration_backlog(
                 }
             }
             Ok(None) => {
-                // Missing-manifest = legacy v1 default.
-                // Documented in the module-level doc.
+                // DB present + sidecar missing = legacy
+                // v1 default (the historical pre-D-3
+                // state). Documented in the module-level
+                // doc. The DB-existence stat above
+                // already filtered out the (no DB, no
+                // sidecar) and (no DB, sidecar) cases;
+                // reaching here means DB present.
                 backlog.push(DbMigrationBacklogEntry {
                     db_path: db_path.to_path_buf(),
                     current_version: DbKeySchemaVersion::V1MachineIdDerived,
@@ -317,7 +397,7 @@ pub fn detect_db_migration_backlog(
                 // Corrupt / envelope-mismatch / IO error.
                 // Not a migration candidate — operator
                 // triage path. Track separately so the
-                // metric + WARN log distinguish the two
+                // metric + WARN log distinguish the
                 // operator-actionable populations.
                 detection_failures.push(
                     DbMigrationDetectionFailure {
@@ -333,6 +413,7 @@ pub fn detect_db_migration_backlog(
         backlog,
         up_to_date_count,
         detection_failures,
+        nonexistent_dbs_count,
     }
 }
 
@@ -377,6 +458,15 @@ mod tests {
         tempfile::tempdir().expect("tempdir")
     }
 
+    /// Create an empty DB file at the given path so the
+    /// detector's (db_exists, sidecar_exists) classification
+    /// (Batch #5 of PR-195) treats this entry as "real DB
+    /// present". Tests that want the orphan-sidecar arm
+    /// (sidecar exists, DB missing) skip this helper.
+    fn touch_db(path: &std::path::Path) {
+        std::fs::write(path, b"").expect("touch db file");
+    }
+
     /// Empty input → empty report. Detector must NOT
     /// panic or error on the no-DB case (clean install
     /// before any consumer creates its DB).
@@ -395,6 +485,7 @@ mod tests {
     fn detect_single_v1_manifest_classifies_as_backlog() {
         let dir = tempdir();
         let db = dir.path().join("offline_queue.db");
+        touch_db(&db); // Batch #5: DB-present state for the (true,true) classification arm.
         let manifest = manifest_path_for_db(&db);
         write_manifest(
             &manifest,
@@ -433,6 +524,7 @@ mod tests {
     fn detect_single_v2_manifest_counted_up_to_date() {
         let dir = tempdir();
         let db = dir.path().join("license_cache.db");
+        touch_db(&db);
         let manifest = manifest_path_for_db(&db);
         write_manifest(
             &manifest,
@@ -457,6 +549,7 @@ mod tests {
     fn detect_missing_manifest_treated_as_legacy_v1() {
         let dir = tempdir();
         let db = dir.path().join("legacy.db");
+        touch_db(&db); // DB present, no sidecar = legacy v1 default.
         // No manifest written — pre-D-3 historical state.
 
         let report = detect_db_migration_backlog(&[db.as_path()]);
@@ -485,6 +578,7 @@ mod tests {
     fn detect_corrupt_manifest_routed_to_detection_failures() {
         let dir = tempdir();
         let db = dir.path().join("broken.db");
+        touch_db(&db);
         let manifest = manifest_path_for_db(&db);
         fs::write(&manifest, b"not valid JSON {").expect("seed");
 
@@ -509,6 +603,7 @@ mod tests {
     fn detect_envelope_version_mismatch_routed_to_detection_failures() {
         let dir = tempdir();
         let db = dir.path().join("future.db");
+        touch_db(&db);
         let manifest = manifest_path_for_db(&db);
         let bogus = r#"{"manifest_envelope_version": 999, "schema_version": "v2-keystore-derived", "last_updated_at_unix_secs": 1700000000}"#;
         fs::write(&manifest, bogus).expect("seed");
@@ -529,6 +624,7 @@ mod tests {
 
         // v1 manifest.
         let v1_db = dir.path().join("v1.db");
+        touch_db(&v1_db);
         write_manifest(
             &manifest_path_for_db(&v1_db),
             &DbKeySourceManifest {
@@ -540,6 +636,7 @@ mod tests {
 
         // v2 manifest.
         let v2_db = dir.path().join("v2.db");
+        touch_db(&v2_db);
         write_manifest(
             &manifest_path_for_db(&v2_db),
             &DbKeySourceManifest {
@@ -551,9 +648,11 @@ mod tests {
 
         // Missing manifest (legacy v1 default).
         let missing_db = dir.path().join("missing.db");
+        touch_db(&missing_db);
 
         // Corrupt manifest.
         let corrupt_db = dir.path().join("corrupt.db");
+        touch_db(&corrupt_db);
         fs::write(
             manifest_path_for_db(&corrupt_db),
             b"not valid JSON",
@@ -598,6 +697,7 @@ mod tests {
         let dir = tempdir();
 
         let corrupt_db = dir.path().join("corrupt.db");
+        touch_db(&corrupt_db);
         fs::write(
             manifest_path_for_db(&corrupt_db),
             b"junk",
@@ -605,6 +705,7 @@ mod tests {
         .expect("seed");
 
         let v1_db = dir.path().join("v1.db");
+        touch_db(&v1_db);
         write_manifest(
             &manifest_path_for_db(&v1_db),
             &DbKeySourceManifest {
@@ -620,6 +721,59 @@ mod tests {
         ]);
         assert_eq!(report.backlog_count(), 1);
         assert_eq!(report.detection_failure_count(), 1);
+    }
+
+    /// **HIGH-002 closure (Batch #5):** input path where
+    /// neither the DB file nor the sidecar exists →
+    /// classified as `nonexistent_dbs_count++`. Pre-
+    /// installation case. NOT a backlog entry; NOT a
+    /// detection_failure. Documented architectural
+    /// distinction.
+    #[test]
+    fn detect_nonexistent_db_classified_as_nonexistent_count() {
+        let dir = tempdir();
+        let db = dir.path().join("never-installed.db");
+        // Neither db nor sidecar created.
+        let report = detect_db_migration_backlog(&[db.as_path()]);
+        assert_eq!(report.backlog_count(), 0);
+        assert_eq!(report.up_to_date_count, 0);
+        assert_eq!(report.detection_failure_count(), 0);
+        assert_eq!(report.nonexistent_dbs_count, 1);
+        assert!(!report.has_backlog());
+    }
+
+    /// **HIGH-002 closure (Batch #5):** input path where
+    /// the sidecar exists but the DB file does NOT.
+    /// Operator-suspect: manual delete? partial restore?
+    /// Tamper signal candidate. Routed to
+    /// detection_failures with a dedicated `orphan_sidecar`
+    /// reason so log aggregators distinguish from
+    /// corrupt / envelope-mismatch / IO-error reasons.
+    #[test]
+    fn detect_orphan_sidecar_classified_as_detection_failure() {
+        let dir = tempdir();
+        let db = dir.path().join("orphan.db");
+        // Write the manifest WITHOUT touching the DB file.
+        write_manifest(
+            &manifest_path_for_db(&db),
+            &DbKeySourceManifest {
+                schema_version: DbKeySchemaVersion::V2KeystoreDerived,
+                last_updated_at_unix_secs: 1_700_000_000,
+            },
+        )
+        .expect("seed manifest");
+        let report = detect_db_migration_backlog(&[db.as_path()]);
+        assert_eq!(report.backlog_count(), 0);
+        assert_eq!(report.up_to_date_count, 0);
+        assert_eq!(report.detection_failure_count(), 1);
+        assert_eq!(report.nonexistent_dbs_count, 0);
+        let failure = &report.detection_failures[0];
+        assert_eq!(failure.db_path, db);
+        assert!(
+            failure.reason.contains("orphan_sidecar"),
+            "expected orphan_sidecar reason, got: {}",
+            failure.reason,
+        );
     }
 
     /// `log_structured_warn` is idempotent — calling it
@@ -639,6 +793,7 @@ mod tests {
             }],
             up_to_date_count: 0,
             detection_failures: vec![],
+            nonexistent_dbs_count: 0,
         };
         report.log_structured_warn();
         report.log_structured_warn();
@@ -655,6 +810,7 @@ mod tests {
             backlog: vec![],
             up_to_date_count: 5,
             detection_failures: vec![],
+            nonexistent_dbs_count: 0,
         };
         report.log_structured_warn();
         assert!(!report.has_backlog());

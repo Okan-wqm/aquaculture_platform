@@ -121,7 +121,14 @@
 //! the NEW manifest is fully written; never a partial.
 
 pub mod boot_detector;
+pub mod cli;
+pub mod cli_executor;
+pub mod cli_runtime;
+pub mod consumer_context;
+pub mod consumer_key_resolver;
 pub mod manifest;
+pub mod rekey;
+pub mod rekey_swap;
 pub mod schema_version;
 pub mod v1_legacy_key;
 pub mod v2_keystore_key;
@@ -157,6 +164,13 @@ pub use v1_legacy_key::{
 pub use v2_keystore_key::{
     derive_v2_sqlcipher_key, derive_v2_sqlcipher_pragma_key_hex,
     V2DerivationError,
+};
+#[allow(unused_imports)]
+pub use rekey::{pragma_rekey, RekeyError};
+#[allow(unused_imports)]
+pub use rekey_swap::{
+    rekey_with_manifest_swap, rekey_with_manifest_swap_inner,
+    RekeyManifestError,
 };
 
 /// Batch #340 — closes audit MEDIUM-003.

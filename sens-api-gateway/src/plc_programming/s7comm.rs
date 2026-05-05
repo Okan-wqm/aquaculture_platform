@@ -337,11 +337,10 @@ impl S7Address {
             return Self::parse_db_address(&addr);
         }
 
-        // Timer
-        if addr.starts_with('T') {
-            let num: u16 = addr[1..]
-                .parse()
-                .map_err(|_| anyhow!("Invalid timer number: {}", address))?;
+        // Timer (Batch #25 clippy::manual_strip cleanup —
+        // strip_prefix replaces hardcoded slice indices).
+        if let Some(rest) = addr.strip_prefix('T') {
+            let num: u16 = rest.parse().map_err(|_| anyhow!("Invalid timer number: {}", address))?;
             return Ok(Self {
                 area_code: S7_AREA_TM,
                 db_number: 0,
@@ -353,10 +352,8 @@ impl S7Address {
         }
 
         // Counter
-        if addr.starts_with('C') {
-            let num: u16 = addr[1..]
-                .parse()
-                .map_err(|_| anyhow!("Invalid counter number: {}", address))?;
+        if let Some(rest) = addr.strip_prefix('C') {
+            let num: u16 = rest.parse().map_err(|_| anyhow!("Invalid counter number: {}", address))?;
             return Ok(Self {
                 area_code: S7_AREA_CT,
                 db_number: 0,
@@ -368,12 +365,12 @@ impl S7Address {
         }
 
         // Determine area from first character(s)
-        let (area, rest) = if addr.starts_with('M') {
-            (S7_AREA_MK, &addr[1..])
-        } else if addr.starts_with('I') || addr.starts_with('E') {
-            (S7_AREA_PE, &addr[1..])
-        } else if addr.starts_with('Q') || addr.starts_with('A') {
-            (S7_AREA_PA, &addr[1..])
+        let (area, rest) = if let Some(rest) = addr.strip_prefix('M') {
+            (S7_AREA_MK, rest)
+        } else if let Some(rest) = addr.strip_prefix('I').or_else(|| addr.strip_prefix('E')) {
+            (S7_AREA_PE, rest)
+        } else if let Some(rest) = addr.strip_prefix('Q').or_else(|| addr.strip_prefix('A')) {
+            (S7_AREA_PA, rest)
         } else {
             return Err(anyhow!("Unknown S7 address area: {}", address));
         };
@@ -883,7 +880,10 @@ impl S7Client {
             return Err(anyhow!("Negotiated PDU too small for data transfer"));
         }
 
-        let total_chunks = (data.len() + max_chunk - 1) / max_chunk;
+        // usize::div_ceil (stable) — handles edge cases at
+        // usize::MAX correctly vs the manual (a+b-1)/b form
+        // which can overflow (Batch #25 clippy::manual_div_ceil).
+        let total_chunks = data.len().div_ceil(max_chunk);
         debug!(
             "Sending {} bytes in {} chunks (max {} bytes/chunk)",
             data.len(),
@@ -1577,7 +1577,10 @@ impl PlcProgrammer for S7Client {
         let data_byte_len = if transport_size == S7_TS_DATA_BIT {
             data_bit_len
         } else {
-            (data_bit_len + 7) / 8
+            // usize::div_ceil (Batch #25 clippy::manual_div_ceil
+            // cleanup) — converts bits-to-bytes with correct
+            // ceiling rounding without (a+b-1)/b overflow risk.
+            data_bit_len.div_ceil(8)
         };
 
         let data_offset = data_start + 4;

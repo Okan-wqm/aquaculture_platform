@@ -88,7 +88,6 @@
 //! orchestration lands when the db-migrate-cli binary
 //! lands in PR-195.
 
-use async_trait::async_trait;
 use zeroize::Zeroizing;
 
 use super::v1_legacy_key::format_sqlcipher_pragma_key_hex;
@@ -252,6 +251,7 @@ pub async fn derive_v2_sqlcipher_pragma_key_hex(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
     use crate::keystore::error::{KeystoreError, KeystoreErrorKind};
     use crate::keystore::purpose::DerivedKeyId;
     use crate::keystore::{KeyBackend, RotationSource};

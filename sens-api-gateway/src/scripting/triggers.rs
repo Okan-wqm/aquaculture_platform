@@ -276,9 +276,11 @@ impl TriggerManager {
             return true;
         }
 
-        // Handle */N (every N)
-        if pattern.starts_with("*/") {
-            if let Ok(n) = pattern[2..].parse::<u32>() {
+        // Handle */N (every N) — strip_prefix returns the
+        // suffix after "*/" without hardcoding the literal's
+        // length (Batch #25 clippy::manual_strip cleanup).
+        if let Some(suffix) = pattern.strip_prefix("*/") {
+            if let Ok(n) = suffix.parse::<u32>() {
                 // Guard against division by zero - */0 is invalid cron syntax
                 if n == 0 {
                     return false;

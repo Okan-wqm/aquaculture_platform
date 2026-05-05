@@ -72,7 +72,12 @@ impl CommandHandler {
         {
             info!("Scheduling reboot in {} seconds", delay_secs);
 
-            let _ = tokio::spawn(async move {
+            // Fire-and-forget: the JoinHandle is bound (not
+            // `let _ = `) so clippy::let_underscore_future
+            // doesn't flag a forgotten-await false positive;
+            // the binding is intentionally _-prefixed since
+            // we never .abort() the reboot scheduler.
+            let _handle = tokio::spawn(async move {
                 tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
 
                 let status = std::process::Command::new("shutdown")
@@ -127,7 +132,9 @@ impl CommandHandler {
 
         #[cfg(target_os = "linux")]
         {
-            let _ = tokio::spawn(async {
+            // Fire-and-forget — see cmd_reboot_device above
+            // for the let _handle = ... rationale.
+            let _handle = tokio::spawn(async {
                 tokio::time::sleep(tokio::time::Duration::from_secs(DEFAULT_RESTART_DELAY_SECS))
                     .await;
 

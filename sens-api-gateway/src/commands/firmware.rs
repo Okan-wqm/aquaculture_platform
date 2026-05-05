@@ -214,7 +214,11 @@ impl CommandHandler {
         let target_version_ack = target_version.clone();
         let current_version_ack = current_version.clone();
 
-        let _ = tokio::spawn(async move {
+        // Fire-and-forget — bind to _handle so
+        // clippy::let_underscore_future doesn't flag a
+        // forgotten-await false positive (firmware progress
+        // task lifetime is task-bound, not awaited here).
+        let _handle = tokio::spawn(async move {
             let send_progress = |stage: &str, detail: Value| {
                 let state = state.clone();
                 let command_id = command_id.clone();

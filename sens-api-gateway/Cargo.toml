@@ -796,3 +796,15 @@ path = "tests/invariants/audit_pipeline.rs"
 [[test]]
 name = "authenticated_user_sealed"
 path = "tests/invariants/authenticated_user_sealed.rs"
+
+# PR-195 Batch #17 — D-3 boot-order wire-status invariant.
+# Closes ORPHAN-D3-BOOT-ORDER-001. Pins the architectural
+# prerequisite that init_keystore runs BEFORE every
+# SQLCipher consumer init in main.rs's boot sequence
+# (init_offline_queue, init_license_cache,
+# init_bytecode_registry_store, init_retain_persistence).
+# Grep-based detector — fails CI if a future refactor
+# mis-orders the boot sequence.
+[[test]]
+name = "d3_boot_order"
+path = "tests/invariants/d3_boot_order.rs"

@@ -120,6 +120,11 @@ mod shared_io;
 // CI sandboxes can now inject machine-id alongside the secret-key path.
 // offline_queue's derive_db_encryption_key delegates to this wrapper.
 mod machine_id;
+// PR-195 Batch #14 — v1 SQLCipher secret-key SSoT extraction. Pre-extraction
+// the read-or-create logic lived inside offline_queue.rs; license_cache +
+// retain_persistence + bytecode_retain consumers now share this single read
+// path without duplicating env-override + permissions-mode discipline.
+mod db_secret;
 // Batch 6 — ADR-020 audit log AuditEntry + HMAC chain. Pure types + closure-
 // injected HMAC append function; runtime sink + cloud relay + audit-verify CLI
 // land in Faz 2 Sprint 6.2.
@@ -1455,19 +1460,54 @@ impl AppState {
             }
         }
 
-        let queue = match crate::offline_queue::OfflineQueue::with_disk_limit(
-            &db_path,
-            self.config.offline_queue.max_size,
-            self.config.offline_queue.max_age_secs,
-            self.config.offline_queue.max_disk_bytes,
-        ) {
-            Ok(q) => q,
-            Err(e) => {
-                return Err(format!(
-                    "offline_queue DB open at `{}` failed: {:#}",
-                    db_path.display(),
-                    e
-                ));
+        // PR-195 Batch #17 — adopt the manifest-aware
+        // constructor (Batch #13). Reads the per-DB
+        // sidecar manifest, derives the SQLCipher PRAGMA
+        // key via consumer_key_resolver — works on BOTH
+        // pre-migration hosts (manifest missing → v1
+        // fallback per Batch #330) and post-migration
+        // hosts (manifest declares v2 → keystore-derived
+        // key). Falls back to legacy v1-only constructor
+        // when keystore.mode = Disabled (HC-1 backward
+        // compat — operator hasn't enabled the keystore
+        // subsystem; v2 migration is unavailable; v1
+        // path is the only valid derivation).
+        let queue = if let Some(ref keystore) = self.keystore {
+            let deployment_uuid = self.config.device_id.clone().into_bytes();
+            match crate::offline_queue::OfflineQueue::with_keystore_derivation(
+                &db_path,
+                self.config.offline_queue.max_size,
+                self.config.offline_queue.max_age_secs,
+                self.config.offline_queue.max_disk_bytes,
+                keystore.clone(),
+                deployment_uuid,
+            )
+            .await
+            {
+                Ok(q) => q,
+                Err(e) => {
+                    return Err(format!(
+                        "offline_queue DB open (manifest-aware) at `{}` failed: {:#}",
+                        db_path.display(),
+                        e
+                    ));
+                }
+            }
+        } else {
+            match crate::offline_queue::OfflineQueue::with_disk_limit(
+                &db_path,
+                self.config.offline_queue.max_size,
+                self.config.offline_queue.max_age_secs,
+                self.config.offline_queue.max_disk_bytes,
+            ) {
+                Ok(q) => q,
+                Err(e) => {
+                    return Err(format!(
+                        "offline_queue DB open (legacy v1, keystore disabled) at `{}` failed: {:#}",
+                        db_path.display(),
+                        e
+                    ));
+                }
             }
         };
 
@@ -2106,129 +2146,28 @@ impl AppState {
     /// rotation tracker: TPM-mode (future batch) handles
     /// rotation via NV counter, not this marker.
     pub async fn init_keystore(&mut self) -> Result<(), String> {
-        use crate::config::KeystoreMode;
-        use crate::keystore::{
-            AcceptanceToken, Argon2idParams, FileBackedAcceptance, FileBackedKeystore,
-            ROTATION_MARKER_FILENAME,
-        };
-
-        if matches!(self.config.keystore.mode, KeystoreMode::Disabled) {
-            info!("Keystore init skipped: keystore.mode=Disabled (HC-1 backward compat)");
-            return Ok(());
-        }
-
-        // Auto + FileBacked both converge on FileBacked for
-        // this batch (TPM + systemd-creds probe land in
-        // follow-up batches). Log the downgrade in Auto
-        // mode so operators know which backend actually
-        // activated.
-        if matches!(self.config.keystore.mode, KeystoreMode::Auto) {
-            warn!(
-                "Keystore.mode=Auto: TPM + systemd-creds probes land in Phase 2 / Batches 83a+83b. \
-                 Falling through to FileBacked for this boot. Provision a TPM (or systemd-creds namespace) \
-                 to promote to a hardware-backed tier when those batches ship."
-            );
-        }
-
-        let pass_path = self
-            .config
-            .keystore
-            .passphrase_path
-            .clone()
-            .unwrap_or_else(|| {
-                std::path::PathBuf::from("/etc/suderra/keystore.passphrase")
-            });
-        let salt_path = self.config.keystore.salt_path.clone().unwrap_or_else(|| {
-            std::path::PathBuf::from("/etc/suderra/keystore.salt")
-        });
-        let acceptance_path = self
-            .config
-            .keystore
-            .acceptance_path
-            .clone()
-            .unwrap_or_else(|| {
-                std::path::PathBuf::from("/etc/suderra/keystore.acceptance.json")
-            });
-
-        // Read + parse acceptance token (operator-signed).
-        let acceptance_bytes = std::fs::read(&acceptance_path).map_err(|e| {
-            format!(
-                "Keystore init: read acceptance {}: {}",
-                acceptance_path.display(),
-                e
-            )
-        })?;
-        let token: AcceptanceToken = serde_json::from_slice(&acceptance_bytes)
-            .map_err(|e| {
-                format!(
-                    "Keystore init: parse acceptance JSON {}: {}",
-                    acceptance_path.display(),
-                    e
-                )
-            })?;
-
-        // Device identity for binding. Device code is the
-        // stable acceptance-token field; operator_id comes
-        // from the token itself.
-        let device_id = self.config.device_code.clone();
-        let acceptance = FileBackedAcceptance::try_from_parts(
-            &token,
-            &token.operator_id,
-            &device_id,
-            std::time::SystemTime::now(),
-            // Pre-Batch-84 signature-verify wiring: accept
-            // operator-supplied token without crypto verify.
-            // Batch 84 introduces operator-pubkey config
-            // knob + real ed25519 verify here. Current
-            // discipline: acceptance_path file perms 0400
-            // owner:suderra + audit-log every load.
-            |_, _| true,
+        // PR-195 Batch #16: keystore construction
+        // extracted to crate::keystore::bootstrap so the
+        // same production path is reachable from BOTH
+        // this AppState boot path AND the future
+        // --migrate-db CLI dispatch (which runs
+        // PRE-AppState). The extracted function is
+        // byte-for-byte equivalent to the pre-extraction
+        // inline body — same Argon2id params, same
+        // acceptance-token verification stance, same
+        // rotation-marker wire.
+        let keystore_opt = crate::keystore::bootstrap::build_production_keystore_from_config(
+            &self.config,
+            self.clock_authority.clone(),
+            data_dir::data_dir(),
         )
-        .map_err(|e| format!("Keystore init: acceptance token invalid: {:?}", e))?;
+        .await?;
 
-        let params = Argon2idParams {
-            memory_kib: self.config.keystore.argon2_memory_kib,
-            iterations: self.config.keystore.argon2_iterations,
-            parallelism: self.config.keystore.argon2_parallelism,
-        };
-
-        // Batch #320 D-1b CLOSURE: production cold-boot uses
-        // the rotation-tracker-aware ctor. The marker lives at
-        // a stable path under data_dir (operator-readable JSON
-        // for incident-response cat); the alarm runner task
-        // (spawned later in main()) reads the SAME path on
-        // each tick. clock_authority is the AppState field
-        // that ALL TTL/rotation primitives share — keystore
-        // alarm + force_registry sweep + future D-9 consumers
-        // all converge on this single Arc<dyn ClockAuthority>.
-        let marker_path = data_dir::data_dir().join(ROTATION_MARKER_FILENAME);
-        let clock_for_keystore = self.clock_authority.clone();
-        let ks = FileBackedKeystore::open_with_rotation_tracker(
-            &pass_path,
-            &salt_path,
-            params,
-            acceptance,
-            marker_path.clone(),
-            clock_for_keystore,
-        )
-        .await
-        .map_err(|e| {
-            format!(
-                "Keystore init: FileBacked open_with_rotation_tracker failed (fail-closed boot): {}",
-                e
-            )
-        })?;
-
-        info!(
-            "Keystore opened: backend=FileBacked argon2id m={}KiB t={} p={} \
-             rotation_marker={}",
-            params.memory_kib,
-            params.iterations,
-            params.parallelism,
-            marker_path.display(),
-        );
-
-        self.keystore = Some(std::sync::Arc::new(ks));
+        // None = keystore.mode = Disabled (HC-1 backward
+        // compat). Caller's downstream consumers handle
+        // self.keystore = None as the "no keystore"
+        // case.
+        self.keystore = keystore_opt;
         Ok(())
     }
 
@@ -2397,19 +2336,46 @@ impl AppState {
     /// (needs the cached pubkey) + AFTER
     /// `init_partition_store` (tenant_id available via
     /// config).
-    pub fn init_license_cache(&mut self) {
+    pub async fn init_license_cache(&mut self) {
         use std::path::PathBuf;
         let path = PathBuf::from(crate::license_cache::DEFAULT_CACHE_PATH);
 
-        let store = match crate::license_cache::LicenseCacheStore::open(&path) {
-            Ok(s) => std::sync::Arc::new(s),
-            Err(e) => {
-                error!(
-                    "License cache open failed at {}: {}. Agent boots under conservative() STARTER fallback; operator must investigate SQLCipher permissions + /etc/suderra/db.key.",
-                    path.display(),
-                    e
-                );
-                return;
+        // PR-195 Batch #17 — adopt the manifest-aware
+        // constructor (Batch #14). Same shape as
+        // init_offline_queue's adoption: prefer the
+        // keystore-aware path when keystore is wired;
+        // fall back to legacy v1-only when
+        // keystore.mode = Disabled (HC-1 backward compat).
+        let store = if let Some(ref keystore) = self.keystore {
+            let deployment_uuid = self.config.device_id.clone().into_bytes();
+            match crate::license_cache::LicenseCacheStore::open_with_keystore_derivation(
+                &path,
+                keystore.clone(),
+                deployment_uuid,
+            )
+            .await
+            {
+                Ok(s) => std::sync::Arc::new(s),
+                Err(e) => {
+                    error!(
+                        "License cache (manifest-aware) open failed at {}: {}. Agent boots under conservative() STARTER fallback; operator must investigate SQLCipher permissions + /etc/suderra/db.key + manifest sidecar.",
+                        path.display(),
+                        e
+                    );
+                    return;
+                }
+            }
+        } else {
+            match crate::license_cache::LicenseCacheStore::open(&path) {
+                Ok(s) => std::sync::Arc::new(s),
+                Err(e) => {
+                    error!(
+                        "License cache (legacy v1, keystore disabled) open failed at {}: {}. Agent boots under conservative() STARTER fallback; operator must investigate SQLCipher permissions + /etc/suderra/db.key.",
+                        path.display(),
+                        e
+                    );
+                    return;
+                }
             }
         };
 
@@ -2568,11 +2534,35 @@ impl AppState {
             return;
         }
 
-        let store = match crate::scripting::bytecode_registry_store::BytecodeRegistryStore::new(&path) {
+        // PR-195 Batch #19 (closes
+        // ORPHAN-D3-BOOT-ORDER-002 partial — boot-time
+        // graceful degradation half). Adopt the
+        // manifest-aware constructor (Batch #15).
+        // Empty program_sha at boot per the same
+        // option-3 first-program-deploy migration
+        // discipline as init_retain_persistence; v2
+        // manifests degrade gracefully (warn +
+        // self.bytecode_registry_store = None) until
+        // the next program-deploy recreates the DB.
+        // HC-1 backward compat: legacy v1-only path
+        // when keystore.mode = Disabled.
+        let store_result: Result<crate::scripting::bytecode_registry_store::BytecodeRegistryStore, _> =
+            if let Some(ref keystore) = self.keystore {
+                crate::scripting::bytecode_registry_store::BytecodeRegistryStore::new_with_keystore_derivation(
+                    &path,
+                    keystore.clone(),
+                    Vec::new(),
+                )
+                .await
+            } else {
+                crate::scripting::bytecode_registry_store::BytecodeRegistryStore::new(&path)
+            };
+
+        let store = match store_result {
             Ok(s) => std::sync::Arc::new(s),
             Err(e) => {
                 error!(
-                    "Bytecode registry store open failed at {}: {}. Agent boots with in-memory registry only — deploys will NOT persist until SQLCipher recovers.",
+                    "Bytecode registry store open failed at {}: {}. Agent boots with in-memory registry only — deploys will NOT persist until SQLCipher recovers OR (for v2 manifest hosts) until next program-deploy recreates the DB under v2 keystore-derived key per option-3 first-program-deploy migration discipline.",
                     path,
                     e
                 );
@@ -2703,11 +2693,48 @@ impl AppState {
     /// successfully — RETAIN programs run without
     /// persistence, matching the pre-Batch-176
     /// behavior.
-    pub fn init_retain_persistence(&mut self) {
+    pub async fn init_retain_persistence(&mut self) {
         let db_path = crate::data_dir::data_dir().join("retain.db");
         let db_path_str = db_path.to_string_lossy().to_string();
 
-        match crate::scripting::SqlitePersistence::new(&db_path) {
+        // PR-195 Batch #19 (closes
+        // ORPHAN-D3-BOOT-ORDER-002 partial — boot-time
+        // graceful degradation half) — adopt the
+        // manifest-aware constructor (Batch #15). Pass
+        // empty Vec for program_artifact_sha256 because
+        // no program is loaded at boot (programs deploy
+        // via MQTT post-boot per ADR-031 program-bound
+        // consumer lifecycle). Behavior:
+        //
+        //   - v1 manifest / missing manifest → v1
+        //     fallback path; resolver doesn't read
+        //     program_sha → opens fine.
+        //   - v2 manifest → resolver returns
+        //     ProgramSha256Required → constructor
+        //     errors → graceful degradation (warn +
+        //     self.retain_persistence = None);
+        //     post-boot program-deploy command handler
+        //     is responsible for recreating the DB
+        //     under v2 keystore-derived key with the
+        //     deploy's program_sha (option-3 first-
+        //     program-deploy migration discipline).
+        //
+        // HC-1 backward compat: when keystore.mode =
+        // Disabled (no keystore), fall back to the
+        // legacy v1-only constructor.
+        let result: Result<crate::scripting::SqlitePersistence, _> =
+            if let Some(ref keystore) = self.keystore {
+                crate::scripting::SqlitePersistence::new_with_keystore_derivation(
+                    &db_path,
+                    keystore.clone(),
+                    Vec::new(),
+                )
+                .await
+            } else {
+                crate::scripting::SqlitePersistence::new(&db_path)
+            };
+
+        match result {
             Ok(p) => {
                 info!(
                     "Shared RETAIN persistence initialized: {}",
@@ -2717,9 +2744,148 @@ impl AppState {
             }
             Err(e) => {
                 warn!(
-                    "Failed to initialize RETAIN persistence at {} ({}). RETAIN variables + bytecode RETAIN will not survive reboot until SQLCipher recovers.",
+                    "Failed to initialize RETAIN persistence at {} ({}). RETAIN variables + bytecode RETAIN will not survive reboot until SQLCipher recovers OR (for v2 manifest hosts) until next program-deploy recreates the DB under v2 keystore-derived key per option-3 first-program-deploy migration discipline.",
                     db_path_str, e
                 );
+            }
+        }
+    }
+
+    /// PR-195 Batch #20 (closes ORPHAN-D3-BOOT-ORDER-002
+    /// second half — post-boot program-deploy DB
+    /// recreation hook).
+    ///
+    /// Option-3 first-program-deploy migration
+    /// discipline (per ADR-031): program-bound consumer
+    /// DBs (`SqlitePersistence` for RETAIN, persistence;
+    /// `BytecodeRegistryStore` for bytecode programs)
+    /// are bound to a specific program's
+    /// `program_artifact_sha256` for v2 keystore-derived
+    /// key derivation. At boot, the program SHA is
+    /// unavailable (no program loaded yet); init_X
+    /// gracefully degrades to `self.X = None` for v2
+    /// manifest hosts (Batch #19).
+    ///
+    /// This method is the "post-deploy open" hook that
+    /// closes the gap: when a program deploys, the
+    /// deploy handler has the program's SHA and calls
+    /// this method. The method:
+    ///
+    ///   - For each program-bound consumer that's
+    ///     currently `None`, calls the manifest-aware
+    ///     constructor with the deploy's program_sha.
+    ///   - Stores the constructed handle on AppState if
+    ///     successful; logs a warning (does NOT fail
+    ///     the deploy) if open fails.
+    ///   - For consumers that are already `Some`, this
+    ///     method is a no-op — the existing handle was
+    ///     opened either at boot (v1 fallback path) or
+    ///     by an earlier deploy, and is already serving
+    ///     the runtime.
+    ///
+    /// **Why warn-not-fail:** the deploy itself doesn't
+    /// fundamentally depend on persistence. RETAIN
+    /// programs run without persistence per the
+    /// pre-Batch-176 fail-tolerant pattern; bytecode
+    /// programs work in-memory per the pre-Batch-169
+    /// fail-tolerant pattern. A v2 DB that can't be
+    /// opened with the new program's SHA is an
+    /// operator-investigation concern (DB content was
+    /// derived from a DIFFERENT program — operator
+    /// must decide whether to recover or recreate).
+    /// Failing the deploy would block the agent from
+    /// running the new program at all; warning lets the
+    /// deploy succeed + surfaces the DB state as a
+    /// persistence problem.
+    ///
+    /// **Caller contract:** the deploy handler MUST
+    /// pass the canonical bytecode SHA-256 — same value
+    /// that the migration ceremony would have used for
+    /// the v2 derivation (so the keystore yields the
+    /// same key). For source-deploy paths, the SHA is
+    /// computed over the COMPILED bytecode bytes (not
+    /// the source bytes) — this matches `ADR-031`
+    /// program-bound consumer context discipline.
+    ///
+    /// **Idempotency:** calling this method multiple
+    /// times with the same program_sha is a no-op
+    /// after the first successful open (each consumer
+    /// becomes `Some` and stays so). Calling with a
+    /// DIFFERENT program_sha after the first open is
+    /// a no-op for ALREADY-Some consumers; the new
+    /// SHA does not re-key existing handles. Operator
+    /// runs `--migrate-db` ceremony again to rekey
+    /// under the new SHA, OR (for v1-host first
+    /// deploy where DB doesn't exist yet) the
+    /// constructor creates it fresh.
+    pub async fn try_open_program_bound_dbs_under_program_sha(
+        &mut self,
+        program_artifact_sha256: Vec<u8>,
+    ) {
+        let Some(keystore) = self.keystore.clone() else {
+            // Keystore disabled (HC-1 backward compat).
+            // No v2 derivation; legacy v1 path was
+            // already attempted at boot.
+            return;
+        };
+
+        // RETAIN persistence (program-bound).
+        if self.retain_persistence.is_none() {
+            let db_path = crate::data_dir::data_dir().join("retain.db");
+            let db_path_str = db_path.to_string_lossy().to_string();
+            match crate::scripting::SqlitePersistence::new_with_keystore_derivation(
+                &db_path,
+                keystore.clone(),
+                program_artifact_sha256.clone(),
+            )
+            .await
+            {
+                Ok(p) => {
+                    info!(
+                        "PR-195 Batch #20 post-deploy-open: RETAIN persistence opened under deploy's program_sha at {} (option-3 first-program-deploy migration discipline complete for this consumer)",
+                        db_path_str
+                    );
+                    self.retain_persistence = Some(std::sync::Arc::new(p));
+                }
+                Err(e) => {
+                    warn!(
+                        "PR-195 Batch #20 post-deploy-open FAILED for RETAIN persistence at {}: {}. The DB content was derived from a different program_sha than the current deploy. Operator must investigate (recover via --migrate-db ceremony with matching program OR delete the DB to recreate fresh under the new program). RETAIN programs run without persistence in the meantime.",
+                        db_path_str, e
+                    );
+                }
+            }
+        }
+
+        // Bytecode registry store (program-bound).
+        if self.bytecode_registry_store.is_none() {
+            let path = self
+                .config
+                .scripting
+                .bytecode_store_path
+                .trim()
+                .to_string();
+            if !path.is_empty() {
+                match crate::scripting::bytecode_registry_store::BytecodeRegistryStore::new_with_keystore_derivation(
+                    &path,
+                    keystore,
+                    program_artifact_sha256,
+                )
+                .await
+                {
+                    Ok(s) => {
+                        info!(
+                            "PR-195 Batch #20 post-deploy-open: bytecode registry store opened under deploy's program_sha at {} (option-3 first-program-deploy migration discipline complete for this consumer)",
+                            path
+                        );
+                        self.bytecode_registry_store = Some(std::sync::Arc::new(s));
+                    }
+                    Err(e) => {
+                        warn!(
+                            "PR-195 Batch #20 post-deploy-open FAILED for bytecode registry store at {}: {}. The DB content was derived from a different program_sha than the current deploy. Operator must investigate (recover via --migrate-db ceremony with matching program OR delete the DB to recreate fresh under the new program). Bytecode registry runs in-memory only in the meantime.",
+                            path, e
+                        );
+                    }
+                }
             }
         }
     }
@@ -2863,6 +3029,38 @@ fn main() {
                 let code = run_confirm_active();
                 std::process::exit(code);
             }
+            "--migrate-db" => {
+                // PR-195 Batch #6: D-3 SQLCipher v1->v2
+                // migration ceremony subcommand. The
+                // architectural contract is documented
+                // in docs/runbooks/db-migration-rekey-
+                // ceremony.md (Batch #4); the
+                // implementation lives in
+                // db_migration::cli (this module).
+                //
+                // PR-195 Batch #18 (closes
+                // ORPHAN-D3-CLI-DISPATCH-001): wire the
+                // execute path. Pre-Batch-#18 the arm
+                // called the legacy no-context entry
+                // (run_migration_ceremony) which refused
+                // execute mode at runtime — operators
+                // could only --dry-run. This batch
+                // delegates to
+                // run_migrate_db_subcommand_with_context
+                // which loads the agent config, builds
+                // the keystore via the SSoT helper
+                // (Batch #16), constructs MigrationContext,
+                // and invokes
+                // run_migration_ceremony_with_context.
+                let sub_argv_owned: Vec<String> = args
+                    .get(2..)
+                    .unwrap_or(&[])
+                    .to_vec();
+                let exit_code = run_migrate_db_subcommand_with_context(
+                    sub_argv_owned,
+                );
+                std::process::exit(exit_code);
+            }
             "--audit-verify" => {
                 // Batch 77 Sprint 6.2 Phase 2: offline audit
                 // log verification CLI path.
@@ -2909,6 +3107,19 @@ fn main() {
                 println!("    --init                    Generate default configuration file");
                 println!("    --audit-verify <path>     Verify NDJSON audit log chain (Batch 77)");
                 println!("    --confirm-active          Confirm the currently-active A/B slot (Batch 110)");
+                // print_stdout is denied at the crate
+                // level for production hot paths; the
+                // --help block is the canonical exception
+                // (operator-facing CLI output). Pre-Batch-#6
+                // help lines pre-dated the gate; my new
+                // line is on a changed line so the per-LINE
+                // filter catches it. Allow + document the
+                // exemption — same architectural shape as
+                // db_migration::cli's JSONL emission allow.
+                #[allow(clippy::print_stdout)]
+                {
+                    println!("    --migrate-db [args...]    SQLCipher v1->v2 migration ceremony (PR-195 Batch #6)");
+                }
                 println!("    --version                 Print version information");
                 println!("    --help                    Print this help message");
                 println!();
@@ -3181,6 +3392,50 @@ async fn async_main() -> Result<()> {
         }
     };
 
+    // Initialize keystore (Batch 83 Sprint 6.3, relocated PR-195 Batch #17).
+    //
+    // WHY: Plan §5 Faz 2 item 1 + ADR-018 §4 mandate a
+    // 3-backend master-key keystore. Batch 82 shipped the
+    // FileBacked runtime; Batch 83 wires AppState +
+    // boot-time open. Subsequent ADR-031 + PR-195 D-3
+    // SQLCipher consumer migration arc requires the
+    // keystore to be initialised BEFORE any SQLCipher
+    // consumer's `init_X` runs — the manifest-aware
+    // constructors landed in Batches #13-#15
+    // (`OfflineQueue::with_keystore_derivation`,
+    // `LicenseCacheStore::open_with_keystore_derivation`,
+    // `SqlitePersistence::new_with_keystore_derivation`,
+    // `BytecodeRegistryStore::new_with_keystore_derivation`)
+    // each take `Arc<dyn Keystore>` as a required arg.
+    //
+    // PR-195 Batch #17 (closes ORPHAN-D3-BOOT-ORDER-001):
+    // relocated from the post-init block (line ~3391)
+    // to BEFORE `init_offline_queue` here. Pre-relocation
+    // the keystore was opened AFTER all SQLCipher
+    // consumers had already run their v1-only key
+    // derivation; that ordering was safe because the
+    // legacy constructors didn't depend on the keystore.
+    // The new manifest-aware constructors do — relocating
+    // is the architectural prerequisite for the init_X
+    // callsite switches in Batch #18.
+    //
+    // FAIL-CLOSED: keystore.mode != Disabled + open failure
+    // -> exit(1). The keystore is the trust anchor; weaker
+    // fallback would violate ADR-018 §4 invariants.
+    {
+        // Batch #320 D-1b CLOSURE: init_keystore is async
+        // since it now reads/initializes the rotation marker
+        // via the trustworthy wallclock at boot.
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_keystore().await {
+            error!(
+                "Keystore init failed (fail-closed boot): {}",
+                msg
+            );
+            std::process::exit(1);
+        }
+    }
+
     // Initialize OfflineQueue (Faz 1 Step 1.3 / ARC-002 / Batch 15).
     //
     // WHY: Pre-Batch-15, MQTT publish dropped telemetry when broker
@@ -3354,7 +3609,10 @@ async fn async_main() -> Result<()> {
     // agent refusing to boot.
     {
         let mut state_guard = state.write().await;
-        state_guard.init_license_cache();
+        // PR-195 Batch #17: init_license_cache is async
+        // since it now reads the per-DB sidecar manifest
+        // + may await the keystore's TPM-derived key.
+        state_guard.init_license_cache().await;
     }
 
     // Batch 169 Faz 3 wire: bytecode registry SQLCipher
@@ -3377,7 +3635,11 @@ async fn async_main() -> Result<()> {
     // so this call MUST precede the spawn.
     {
         let mut state_guard = state.write().await;
-        state_guard.init_retain_persistence();
+        // PR-195 Batch #19: init_retain_persistence
+        // became async since it now reads the per-DB
+        // sidecar manifest + may await the keystore's
+        // TPM-derived key.
+        state_guard.init_retain_persistence().await;
     }
 
     // Batch 202 Faz 6 wire: force-registry SQLCipher
@@ -3455,34 +3717,13 @@ async fn async_main() -> Result<()> {
         state_guard.init_clock_authority();
     }
 
-    // Initialize keystore (Batch 83 Sprint 6.3).
-    //
-    // WHY: Plan §5 Faz 2 item 1 + ADR-018 §4 mandate a
-    // 3-backend master-key keystore. Batch 82 shipped the
-    // FileBacked runtime; Batch 83 wires AppState +
-    // boot-time open. Pre-Batch-84 the keystore is NOT YET
-    // consumed by audit or SQLCipher (those migrate in
-    // Batches 84+85). Opening it at boot proves the
-    // acceptance-token + Argon2id pipeline works and makes
-    // KeyPurpose-derived keys available for the downstream
-    // migration batches.
-    //
-    // FAIL-CLOSED: keystore.mode != Disabled + open failure
-    // -> exit(1). The keystore is the trust anchor; weaker
-    // fallback would violate ADR-018 §4 invariants.
-    {
-        // Batch #320 D-1b CLOSURE: init_keystore is async
-        // since it now reads/initializes the rotation marker
-        // via the trustworthy wallclock at boot.
-        let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_keystore().await {
-            error!(
-                "Keystore init failed (fail-closed boot): {}",
-                msg
-            );
-            std::process::exit(1);
-        }
-    }
+    // PR-195 Batch #17: keystore init relocated to
+    // BEFORE init_offline_queue (closes
+    // ORPHAN-D3-BOOT-ORDER-001) — see the relocated
+    // block above (~line 3097). The original position
+    // here was safe pre-D-3 because no consumer needed
+    // the keystore at construction time; Batches
+    // #13-#15 changed that contract.
 
     // Initialize audit sink (Batch 78 Sprint 6.2 Phase 2).
     //
@@ -3598,6 +3839,161 @@ async fn async_main() -> Result<()> {
 /// Flow:
 /// 1. Open PartitionStore at default path.
 /// 2. Snapshot; resolve active slot.
+/// PR-195 Batch #18 — `--migrate-db` subcommand entry
+/// (closes ORPHAN-D3-CLI-DISPATCH-001).
+///
+/// Composes:
+///   1. `AgentConfig::load()` — loads the same config
+///      file the agent's normal boot path reads.
+///   2. `crate::keystore::bootstrap::
+///      build_production_keystore_from_config(...)` —
+///      the SSoT helper from Batch #16.
+///   3. `MigrationContext` construction with
+///      `device_id` from config, `now_unix` from
+///      `chrono::Utc::now().timestamp()`,
+///      `program_artifact_sha256: None` (no program is
+///      loaded at migration ceremony time —
+///      program-bound DBs that exist will surface as
+///      `ConsumerOutcome::Failed::Context::ProgramSha256Required`
+///      in the orchestrator's outcome JSONL; the
+///      operator's runbook documents that program-
+///      bound DBs are migrated by re-deploying the
+///      program post-ceremony per ADR-031 +
+///      ORPHAN-D3-BOOT-ORDER-002 option-3 discipline).
+///   4. `run_migration_ceremony_with_context(...)` —
+///      the execute-capable CLI entry from Batch #12.
+///
+/// **Why a per-call tokio runtime:** the dispatch arm
+/// runs PRE-AppState — no shared async runtime is in
+/// scope. Building a fresh `current_thread` runtime is
+/// the lightest-weight option that doesn't require
+/// hoisting tokio orchestration into the synchronous
+/// dispatch chain.
+///
+/// **Why `SystemClockAuthority` (not chrony):** the
+/// migration ceremony's keystore-build needs a clock
+/// for the rotation-marker read; `SystemClockAuthority`
+/// is the trusting-zero-age baseline that doesn't
+/// depend on chronyd being reachable. The migration
+/// ceremony runs at operator command — a chrony
+/// failure shouldn't block the migration.
+///
+/// **Pre-tracing:** same `println`/`eprintln` pattern
+/// as `--init` / `--audit-verify` / `--confirm-active`
+/// per the existing CLI convention. The dispatch arm
+/// runs BEFORE `init_logging`.
+#[allow(clippy::print_stderr)]
+fn run_migrate_db_subcommand_with_context(sub_argv_owned: Vec<String>) -> i32 {
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("db-migrate-cli: failed to build tokio runtime: {}", e);
+            return 1;
+        }
+    };
+
+    runtime.block_on(async move {
+        // Load the agent config from the canonical
+        // path. Same call shape main()'s normal boot
+        // path uses — single SSoT for config-load.
+        let config = match AgentConfig::load() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("db-migrate-cli: config load failed: {:#}", e);
+                return 1;
+            }
+        };
+
+        if config.device_id.is_empty()
+            || config.device_id == "00000000-0000-0000-0000-000000000000"
+        {
+            eprintln!(
+                "db-migrate-cli: config.device_id is empty or unprovisioned ({}). \
+                 Run --init + provisioning before migrating SQLCipher consumers; \
+                 the v2 keystore-derived key requires a real device UUID for the \
+                 device-bound consumer context (ADR-031).",
+                config.device_id,
+            );
+            return 1;
+        }
+
+        // Build a SystemClockAuthority for the
+        // keystore's rotation-marker read. The migration
+        // ceremony is operator-invoked; chrony NTS
+        // dependency is unnecessary for this one-shot
+        // path.
+        let clock: std::sync::Arc<dyn crate::runtime_safety::ClockAuthority> =
+            std::sync::Arc::new(
+                crate::runtime_safety::system_clock::SystemClockAuthority::new(),
+            );
+
+        // Build the keystore via the SSoT (Batch #16
+        // extraction). Same construction path as the
+        // agent's normal boot — ensures the migration
+        // tool derives the SAME v2 key the agent will
+        // see at next boot.
+        let keystore = match crate::keystore::bootstrap::
+            build_production_keystore_from_config(
+                &config,
+                clock,
+                data_dir::data_dir(),
+            )
+            .await
+        {
+            Ok(Some(ks)) => ks,
+            Ok(None) => {
+                eprintln!(
+                    "db-migrate-cli: keystore.mode = Disabled in config; \
+                     cannot run migration ceremony without keystore enabled. \
+                     Enable keystore.mode = Auto or FileBacked + provision \
+                     /etc/suderra/keystore.{{passphrase,salt,acceptance.json}} \
+                     before re-running --migrate-db."
+                );
+                return 1;
+            }
+            Err(e) => {
+                eprintln!(
+                    "db-migrate-cli: keystore build failed: {}",
+                    e
+                );
+                return 1;
+            }
+        };
+
+        let sub_argv: Vec<&str> =
+            sub_argv_owned.iter().map(|s| s.as_str()).collect();
+        let ctx = crate::db_migration::cli::MigrationContext {
+            device_id: config.device_id.clone(),
+            // Program-bound consumers (RetainPersistence +
+            // BytecodeRetain) need program_artifact_sha256
+            // for v2 derivation, but no program is loaded
+            // at ceremony time. The orchestrator records
+            // ConsumerOutcome::Failed::Context::ProgramSha256Required
+            // for any program-bound DB that exists; the
+            // runbook documents that those consumers are
+            // migrated naturally on the next program
+            // deploy (option-3 first-program-deploy
+            // migration discipline per
+            // ORPHAN-D3-BOOT-ORDER-002).
+            program_artifact_sha256: None,
+            keystore,
+            now_unix: chrono::Utc::now().timestamp(),
+        };
+
+        let exit_code =
+            crate::db_migration::cli::run_migration_ceremony_with_context(
+                &sub_argv, ctx,
+            );
+        match format!("{exit_code:?}").as_str() {
+            s if s.contains("status(0)") => 0,
+            _ => 1,
+        }
+    })
+}
+
 /// 3. Apply `PartitionRoll::Confirm { slot: active }`.
 /// 4. Exit 0 on success (new state Active) + pretty-print
 ///    the transition; exit 1 on any error.

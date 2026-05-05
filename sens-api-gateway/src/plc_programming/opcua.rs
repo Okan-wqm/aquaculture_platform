@@ -1660,10 +1660,12 @@ impl OpcUaClient {
             if let Some(bracket_end) = host_port.find(']') {
                 let host = &host_port[1..bracket_end]; // Remove brackets
                 let after_bracket = &host_port[bracket_end + 1..];
-                let port = if after_bracket.starts_with(':') {
-                    after_bracket[1..].parse().unwrap_or(DEFAULT_OPCUA_PORT)
-                } else {
-                    DEFAULT_OPCUA_PORT
+                // strip_prefix returns Some(&str) past ":" or
+                // None if no port — replaces hardcoded `[1..]`
+                // slice (Batch #25 clippy::manual_strip cleanup).
+                let port = match after_bracket.strip_prefix(':') {
+                    Some(port_str) => port_str.parse().unwrap_or(DEFAULT_OPCUA_PORT),
+                    None => DEFAULT_OPCUA_PORT,
                 };
                 Ok((host.to_string(), port))
             } else {

@@ -600,7 +600,148 @@ impl SqlitePersistence {
                 ))
             })?;
 
-        // Enable WAL mode for better concurrent access
+        Self::finalize_open(conn, path_str)
+    }
+
+    /// Manifest-aware constructor (PR-195 Batch #15 —
+    /// third per-consumer adoption of
+    /// `consumer_key_resolver` SSoT; SqlitePersistence
+    /// is consumer 3 of 4 per ADR-031).
+    ///
+    /// Reads the per-DB sidecar manifest (Batch #329)
+    /// and derives the SQLCipher PRAGMA key via
+    /// `db_migration::consumer_key_resolver` (Batch #8).
+    /// Missing manifest = legacy v1 default per Batch
+    /// #330; v1 manifest = HMAC-SHA256 kernel; v2
+    /// manifest = keystore-derived key.
+    ///
+    /// **Why `program_artifact_sha256` is required (not
+    /// optional):** SqlitePersistence is a PROGRAM-BOUND
+    /// consumer per ADR-031 (covers
+    /// `scripting/persistence.rs` SCADA-program runtime
+    /// state — distinct programs produce distinct
+    /// keystore-derived keys, which is the tenant-
+    /// isolation invariant). For the v2 path the
+    /// resolver requires the program SHA bytes.
+    /// For the v1 fallback path the SHA is unused but
+    /// the caller still provides it — empty/dummy bytes
+    /// are acceptable for v1-only hosts. main.rs's
+    /// `init_retain_persistence` plumbs the SHA from
+    /// the bytecode loader.
+    ///
+    /// **Why `deployment_uuid` is omitted:**
+    /// program-bound consumers don't use the
+    /// deployment-instance UUID per ADR-031. The
+    /// resolver internally constructs a
+    /// `ConsumerContext` with empty
+    /// `deployment_uuid`; the resolver's branch on
+    /// `purpose` ignores it for program-bound purposes.
+    ///
+    /// **Async:** `Keystore::derive_key` is async;
+    /// caller awaits at boot time. Hot-path methods
+    /// remain sync.
+    pub async fn new_with_keystore_derivation<P: AsRef<Path>>(
+        db_path: P,
+        keystore: std::sync::Arc<dyn crate::keystore::Keystore>,
+        program_artifact_sha256: Vec<u8>,
+    ) -> Result<Self, PersistenceError> {
+        let path_str = db_path.as_ref().to_string_lossy().to_string();
+        info!(
+            db_path = %path_str,
+            "Initializing SQLite persistence (manifest-aware)"
+        );
+
+        if let Some(parent) = db_path.as_ref().parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    PersistenceError::ConnectionFailed(format!(
+                        "Cannot create directory: {}",
+                        e
+                    ))
+                })?;
+            }
+        }
+
+        // Pull v1 inputs — the resolver only USES them
+        // on the v1 / missing-manifest path; v2 path
+        // ignores. SSoT module
+        // `crate::db_secret::read_or_create_v1_secret`
+        // (Batch #14 extraction) is the single read
+        // point.
+        let machine_id = crate::machine_id::read().map_err(|e| {
+            PersistenceError::ConnectionFailed(format!(
+                "machine_id read: {}",
+                e
+            ))
+        })?;
+        let secret_key = crate::db_secret::read_or_create_v1_secret()
+            .map_err(|e| {
+                PersistenceError::ConnectionFailed(format!(
+                    "secret_key read: {}",
+                    e
+                ))
+            })?;
+        let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
+            machine_id: machine_id.into_bytes(),
+            secret_key,
+        };
+
+        // Program-bound ConsumerContext per ADR-031:
+        // deployment_uuid empty; program_artifact_sha256
+        // carries the binding bytes.
+        let ctx = crate::db_migration::consumer_context::ConsumerContext {
+            deployment_uuid: Vec::new(),
+            program_artifact_sha256: Some(program_artifact_sha256),
+        };
+
+        let resolved =
+            crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+                db_path.as_ref(),
+                crate::keystore::purpose::KeyPurpose::SqlCipherRetainPersistence,
+                &ctx,
+                keystore.as_ref(),
+                &v1_inputs,
+            )
+            .await
+            .map_err(|e| {
+                PersistenceError::ConnectionFailed(format!(
+                    "resolver: {}",
+                    e
+                ))
+            })?;
+
+        let conn = Connection::open(&db_path).map_err(|e| {
+            PersistenceError::ConnectionFailed(format!(
+                "Cannot open database: {}",
+                e
+            ))
+        })?;
+        conn.execute_batch(&format!(
+            "PRAGMA key = \"x'{}'\";",
+            resolved.pragma_key_hex.as_str()
+        ))
+        .map_err(|e| {
+            PersistenceError::ConnectionFailed(format!(
+                "Failed to apply database encryption key: {}",
+                e
+            ))
+        })?;
+
+        Self::finalize_open(conn, path_str)
+    }
+
+    /// Shared post-PRAGMA-key initialization — emits
+    /// the WAL/synchronous/busy_timeout/cache/temp
+    /// PRAGMAs + runs migrations + returns the
+    /// constructed `Self`. Extracted so both the
+    /// legacy `new` and the manifest-aware
+    /// `new_with_keystore_derivation` share the SAME
+    /// post-key sequence (no drift in WAL mode or
+    /// migration discipline between the two callers).
+    fn finalize_open(
+        conn: Connection,
+        path_str: String,
+    ) -> Result<Self, PersistenceError> {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
@@ -1249,5 +1390,205 @@ mod tests {
 
         let stats = db.get_stats().unwrap();
         assert_eq!(stats.execution_history_count, 2);
+    }
+
+    // -------- Batch #15 — manifest-aware constructor tests --------
+
+    use crate::db_migration::manifest::{
+        manifest_path_for_db, write_manifest as write_db_manifest,
+        DbKeySourceManifest,
+    };
+    use crate::db_migration::schema_version::DbKeySchemaVersion;
+    use crate::keystore::error::{
+        KeyDerivationError as KsKeyDerivationError, KeystoreError, KeystoreErrorKind,
+    };
+    use crate::keystore::purpose::{DerivedKeyId, KeyPurpose};
+    use crate::keystore::secret::KeyMaterial;
+    use crate::keystore::{KeyBackend, RotationSource};
+    use async_trait::async_trait;
+    use std::sync::Mutex as StdMutex;
+
+    static PERSISTENCE_ENV_MUTEX: StdMutex<()> = StdMutex::new(());
+
+    struct PersistenceStubKeystore;
+
+    #[async_trait]
+    impl crate::keystore::Keystore for PersistenceStubKeystore {
+        fn backend(&self) -> KeyBackend {
+            KeyBackend::FileBacked
+        }
+
+        async fn derive_key(
+            &self,
+            purpose: KeyPurpose,
+            _context: &[u8],
+        ) -> std::result::Result<KeyMaterial, KsKeyDerivationError> {
+            let mut bytes = [0u8; 32];
+            bytes[0] = match purpose {
+                KeyPurpose::SqlCipherRetainPersistence => 0xb2,
+                _ => 0xff,
+            };
+            Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
+        }
+
+        fn derived_key_id(
+            &self,
+            _purpose: KeyPurpose,
+            _context: &[u8],
+        ) -> DerivedKeyId {
+            DerivedKeyId([0u8; 16])
+        }
+
+        async fn rotate_master(
+            &self,
+        ) -> std::result::Result<(), KeystoreError> {
+            Err(KeystoreError::new(
+                KeystoreErrorKind::NotImplemented,
+                String::from("stub"),
+            ))
+        }
+
+        async fn rotate_master_with_source(
+            &self,
+            _source: RotationSource<'_>,
+        ) -> std::result::Result<(), KeystoreError> {
+            Err(KeystoreError::new(
+                KeystoreErrorKind::NotImplemented,
+                String::from("stub"),
+            ))
+        }
+    }
+
+    fn ensure_persistence_secret(dir: &std::path::Path) {
+        let secret = dir.join("db.key");
+        if !secret.exists() {
+            std::fs::write(&secret, vec![0xCDu8; 32]).expect("seed secret");
+        }
+    }
+
+    #[tokio::test]
+    async fn new_with_keystore_derivation_no_manifest_uses_v1_legacy_default() {
+        let _guard = PERSISTENCE_ENV_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        ensure_persistence_secret(dir.path());
+        let secret = dir.path().join("db.key");
+        let db_path = dir.path().join("retain_persistence.db");
+
+        // SAFETY: env-mutation serialized.
+        unsafe {
+            std::env::set_var("SUDERRA_DB_KEY_PATH", &secret);
+        }
+        let result = SqlitePersistence::new_with_keystore_derivation(
+            &db_path,
+            std::sync::Arc::new(PersistenceStubKeystore),
+            vec![0xAB; 32], // dummy program SHA — unused on v1 path
+        )
+        .await;
+        unsafe {
+            std::env::remove_var("SUDERRA_DB_KEY_PATH");
+        }
+
+        let _store = result.expect("open with v1 fallback");
+    }
+
+    #[tokio::test]
+    async fn new_with_keystore_derivation_v2_manifest_opens_with_keystore_key() {
+        let _guard = PERSISTENCE_ENV_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        ensure_persistence_secret(dir.path());
+        let secret = dir.path().join("db.key");
+        let db_path = dir.path().join("retain_persistence.db");
+
+        // Compute v2 key: StubKeystore returns 0xb2-prefix
+        // for SqlCipherRetainPersistence.
+        let mut v2_bytes = [0u8; 32];
+        v2_bytes[0] = 0xb2;
+        let v2_hex =
+            crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(
+                &v2_bytes,
+            );
+
+        // Pre-seed DB encrypted under v2.
+        {
+            let conn = Connection::open(&db_path).expect("seed");
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", v2_hex))
+                .expect("apply v2");
+            conn.execute_batch(
+                "CREATE TABLE seed (id INTEGER PRIMARY KEY); \
+                 INSERT INTO seed VALUES (1);",
+            )
+            .expect("seed table");
+        }
+
+        write_db_manifest(
+            &manifest_path_for_db(&db_path),
+            &DbKeySourceManifest {
+                schema_version: DbKeySchemaVersion::V2KeystoreDerived,
+                last_updated_at_unix_secs: 1_700_000_000,
+            },
+        )
+        .expect("seed v2 manifest");
+
+        // SAFETY: env-mutation serialized.
+        unsafe {
+            std::env::set_var("SUDERRA_DB_KEY_PATH", &secret);
+        }
+        let result = SqlitePersistence::new_with_keystore_derivation(
+            &db_path,
+            std::sync::Arc::new(PersistenceStubKeystore),
+            vec![0xCC; 32], // program SHA used by v2 path
+        )
+        .await;
+        unsafe {
+            std::env::remove_var("SUDERRA_DB_KEY_PATH");
+        }
+
+        let _store = result.expect("open with v2 keystore key");
+    }
+
+    #[tokio::test]
+    async fn new_with_keystore_derivation_corrupt_manifest_fails_closed() {
+        let _guard = PERSISTENCE_ENV_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        ensure_persistence_secret(dir.path());
+        let secret = dir.path().join("db.key");
+        let db_path = dir.path().join("retain_persistence.db");
+
+        std::fs::write(manifest_path_for_db(&db_path), b"not valid json")
+            .expect("seed corrupt");
+
+        // SAFETY: env-mutation serialized.
+        unsafe {
+            std::env::set_var("SUDERRA_DB_KEY_PATH", &secret);
+        }
+        let result = SqlitePersistence::new_with_keystore_derivation(
+            &db_path,
+            std::sync::Arc::new(PersistenceStubKeystore),
+            vec![0xAB; 32],
+        )
+        .await;
+        unsafe {
+            std::env::remove_var("SUDERRA_DB_KEY_PATH");
+        }
+
+        let err = match result {
+            Ok(_) => panic!("expected error"),
+            Err(e) => e,
+        };
+        match err {
+            PersistenceError::ConnectionFailed(msg) => {
+                assert!(
+                    msg.contains("resolver"),
+                    "expected resolver-failed message, got: {msg}"
+                );
+            }
+            other => panic!("expected ConnectionFailed, got {other:?}"),
+        }
     }
 }

@@ -3,7 +3,9 @@ import { relative } from 'node:path';
 import ts from 'typescript';
 import {
   collectFiles,
+  filterFilesBySnapshot,
   normalizeWorkspacePath,
+  pathAllowedBySnapshot,
   readWorkspaceFile,
   readWorkspaceJson,
   resolveInsideWorkspace as resolveAdapterPath,
@@ -29,6 +31,7 @@ interface AdapterInput {
   readonly allowlist?: readonly string[];
   readonly dbSnapshotPath?: string;
   readonly moduleTableAllowlist?: readonly string[];
+  readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
 }
 
 interface EvidenceRef {
@@ -166,14 +169,14 @@ export function analyzeTypeOrmEntities(
 
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const moduleTableAllowlist = new Set((input.moduleTableAllowlist ?? []).map(String));
-  const files = collectEntityFiles(scanRoot);
+  const files = filterFilesBySnapshot(collectEntityFiles(scanRoot), workspaceRoot, input);
   const result = analyzeFiles(files, workspaceRoot, allowlist, checks);
 
   if (checks.has('module_schema')) {
-    analyzeModuleSchema(workspaceRoot, serviceName, result, moduleTableAllowlist);
+    analyzeModuleSchema(workspaceRoot, serviceName, result, moduleTableAllowlist, input);
   }
   if (checks.has('migration_registry')) {
-    analyzeMigrationRegistry(workspaceRoot, result);
+    analyzeMigrationRegistry(workspaceRoot, result, input);
   }
   if (checks.has('db_snapshot')) {
     analyzeDbSnapshot(input, workspaceRoot, serviceName, result);
@@ -317,9 +320,10 @@ function analyzeModuleSchema(
   serviceName: string,
   result: AnalysisResult,
   tableAllowlist: ReadonlySet<string>,
+  input: AdapterInput,
 ): void {
   const modulePath = resolveInsideWorkspace(workspaceRoot, MODULE_SCHEMA_PATH);
-  if (!workspacePathExists(modulePath)) {
+  if (!workspacePathExists(modulePath) || !pathAllowedBySnapshot(workspaceRoot, MODULE_SCHEMA_PATH, input)) {
     result.observations.push({
       id: 'module-schema:missing-source-file',
       type: 'module_schema_unavailable',
@@ -395,10 +399,10 @@ function analyzeModuleSchema(
   });
 }
 
-function analyzeMigrationRegistry(workspaceRoot: string, result: AnalysisResult): void {
+function analyzeMigrationRegistry(workspaceRoot: string, result: AnalysisResult, input: AdapterInput): void {
   const appModulePath = resolveInsideWorkspace(workspaceRoot, APP_MODULE_PATH);
   const migrationsDir = resolveInsideWorkspace(workspaceRoot, MIGRATIONS_DIR);
-  if (!workspacePathExists(appModulePath) || !workspacePathExists(migrationsDir)) {
+  if (!workspacePathExists(appModulePath) || !workspacePathExists(migrationsDir) || !pathAllowedBySnapshot(workspaceRoot, APP_MODULE_PATH, input)) {
     result.observations.push({
       id: 'migration-registry:unavailable',
       type: 'migration_registry_unavailable',
@@ -407,7 +411,7 @@ function analyzeMigrationRegistry(workspaceRoot: string, result: AnalysisResult)
     return;
   }
   addReadPath(result, workspaceRoot, appModulePath);
-  const files = collectMigrationFiles(migrationsDir);
+  const files = filterFilesBySnapshot(collectMigrationFiles(migrationsDir), workspaceRoot, input);
   for (const file of files) {
     addReadPath(result, workspaceRoot, file);
   }

@@ -3,6 +3,7 @@ import { relative } from 'node:path';
 import ts from 'typescript';
 import {
   collectFiles,
+  filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
   resolveInsideWorkspace as resolveAdapterPath,
@@ -19,6 +20,7 @@ type FindingRule =
 interface AdapterInput {
   readonly roots?: readonly string[];
   readonly allowlist?: readonly string[];
+  readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
 }
 
 interface EvidenceRef {
@@ -97,7 +99,8 @@ export function analyzeSecurityBoundaries(input: AdapterInput, workspaceRoot = p
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
     .filter((root) => workspacePathExists(root))
     .flatMap((root) => collectSourceFiles(root));
-  const units = files.map((file) => readSourceUnit(file, workspaceRoot));
+  const snapshotFiles = filterFilesBySnapshot(files, workspaceRoot, input);
+  const units = snapshotFiles.map((file) => readSourceUnit(file, workspaceRoot));
   const result: AnalysisResult = {
     observations: [],
     findings: [],
@@ -136,7 +139,7 @@ export function analyzeSecurityBoundaries(input: AdapterInput, workspaceRoot = p
     metadata: {
       adapter: 'security-boundary-adapter',
       roots: roots.map(String).sort(),
-      files_scanned: files.length,
+      files_scanned: snapshotFiles.length,
       findings_count: result.findings.length,
       allowlist_count: allowlist.size,
     },

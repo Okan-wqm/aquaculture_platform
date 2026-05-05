@@ -3,6 +3,7 @@ import { relative } from 'node:path';
 import ts from 'typescript';
 import {
   collectFiles,
+  filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
   resolveInsideWorkspace as resolveAdapterPath,
@@ -18,6 +19,7 @@ interface AdapterInput {
   readonly roots?: readonly string[];
   readonly allowlist?: readonly string[];
   readonly includeRepositoryReadFindings?: boolean;
+  readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
 }
 
 interface EvidenceRef {
@@ -42,6 +44,9 @@ interface AdapterFinding {
   readonly line?: number;
   readonly message: string;
   readonly evidence: readonly EvidenceRef[];
+  readonly confidence?: number;
+  readonly actionability?: 'actionable' | 'review_required';
+  readonly review_reason?: string;
   readonly details?: Record<string, unknown>;
 }
 
@@ -102,8 +107,9 @@ export function analyzeTenantScoping(input: AdapterInput, workspaceRoot = proces
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
     .filter((root) => workspacePathExists(root))
     .flatMap((root) => collectTypeScriptFiles(root));
-  const program = createAnalysisProgram(files);
-  const units = files.map((file) => readSourceUnit(file, workspaceRoot, program));
+  const snapshotFiles = filterFilesBySnapshot(files, workspaceRoot, input);
+  const program = createAnalysisProgram(snapshotFiles);
+  const units = snapshotFiles.map((file) => readSourceUnit(file, workspaceRoot, program));
   const tenantEntities = collectTenantEntities(units);
   const context: AnalysisContext = {
     checker: program.getTypeChecker(),
@@ -147,7 +153,7 @@ export function analyzeTenantScoping(input: AdapterInput, workspaceRoot = proces
     metadata: {
       adapter: 'tenant-scoping-adapter',
       roots: roots.map(String).sort(),
-      files_scanned: files.length,
+      files_scanned: snapshotFiles.length,
       findings_count: result.findings.length,
       allowlist_count: allowlist.size,
       tenant_owned_entity_count: tenantEntities.size,
@@ -192,13 +198,14 @@ function analyzeTenantUnit(
     const enclosing = enclosingFunctionLike(node);
     const scopeText = enclosing?.getText(unit.sourceFile) ?? unit.sourceFile.getText();
     const callText = node.getText(unit.sourceFile);
+    const statementText = enclosingStatementText(node, unit.sourceFile);
     const receiverText = node.expression.expression.getText(unit.sourceFile);
     const boundary = classifyTenantBoundaryCall(node, unit, context);
     if (!boundary.isBoundary) {
       return;
     }
     const scopedByTenantManager = /tenantManagerRepo|tenantAware|tenantScoped|withTenant/i.test(receiverText + scopeText);
-    const callHasTenantPredicate = /\btenantId\b|tenant_id|current_tenant|set_config\(['"]app\.current_tenant/.test(callText);
+    const callHasTenantPredicate = /\btenantId\b|tenant_id|current_tenant|set_config\(['"]app\.current_tenant/.test(callText + statementText);
     const scopeHasTenant = /\btenantId\b|@Tenant\b|TenantContext|tenantManagerRepo/.test(scopeText);
     const explicitCrossTenant = hasCrossTenantComment(unit.text, node.getFullStart(), node.getStart(unit.sourceFile));
 
@@ -241,6 +248,9 @@ function analyzeTenantUnit(
         line,
         message: 'Raw tenant-bound query is executed in a tenant-aware scope without an explicit tenant predicate.',
         evidence: [{ path: unit.relativePath, line }],
+        confidence: isSeedOrBootstrapContext(unit.relativePath, scopeText) ? 0.55 : 0.9,
+        actionability: isSeedOrBootstrapContext(unit.relativePath, scopeText) ? 'review_required' : 'actionable',
+        review_reason: isSeedOrBootstrapContext(unit.relativePath, scopeText) ? 'seed_or_bootstrap_context' : undefined,
         details: { method, receiver: receiverText, entityName: boundary.entityName ?? null },
       });
       return;
@@ -256,9 +266,23 @@ function analyzeTenantUnit(
       line,
       message: 'Repository call is made in a tenant-aware scope without an explicit tenant predicate or tenant-scoped repository helper.',
       evidence: [{ path: unit.relativePath, line }],
+      confidence: 0.82,
+      actionability: 'actionable',
       details: { method, receiver: receiverText, entityName: boundary.entityName ?? null },
     });
   });
+}
+
+function enclosingStatementText(node: ts.Node, sourceFile: ts.SourceFile): string {
+  let current: ts.Node | undefined = node;
+  while (current && !ts.isStatement(current)) {
+    current = current.parent;
+  }
+  return current?.getText(sourceFile) ?? node.getText(sourceFile);
+}
+
+function isSeedOrBootstrapContext(path: string, text: string): boolean {
+  return /seed|bootstrap|fixture/i.test(path) || /\b(seed|bootstrap|fixture)\b/i.test(text.slice(0, 4000));
 }
 
 function inputAllowsRepositoryReadFinding(context: AnalysisContext, method: string): boolean {

@@ -3,6 +3,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 import {
   collectFiles,
+  filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
   resolveInsideWorkspace as resolveAdapterPath,
@@ -18,6 +19,7 @@ interface AdapterInput {
   readonly roots?: readonly string[];
   readonly allowlist?: readonly string[];
   readonly includeWriteBoundaryFindings?: boolean;
+  readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
 }
 
 interface EvidenceRef {
@@ -42,6 +44,9 @@ interface AdapterFinding {
   readonly line?: number;
   readonly message: string;
   readonly evidence: readonly EvidenceRef[];
+  readonly confidence?: number;
+  readonly actionability?: 'actionable' | 'review_required';
+  readonly review_reason?: string;
   readonly details?: Record<string, unknown>;
 }
 
@@ -100,7 +105,8 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
     .filter((root) => workspacePathExists(root))
     .flatMap((root) => collectSourceAndTestFiles(root));
-  const units = files.map((file) => readFileUnit(file, workspaceRoot));
+  const snapshotFiles = filterFilesBySnapshot(files, workspaceRoot, input);
+  const units = snapshotFiles.map((file) => readFileUnit(file, workspaceRoot));
   const tests = units.filter((unit) => unit.isTest);
   const sources = units.filter((unit) => !unit.isTest);
   const sourcePaths = new Set(sources.map((source) => source.relativePath));
@@ -168,7 +174,10 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
         path: source.relativePath,
         message: 'Hazardous migration has no adjacent or importing test coverage signal.',
         evidence: [{ path: source.relativePath }],
-        details: { riskClass: risk.riskClass },
+        confidence: weakMatchedTests.length > 0 ? 0.55 : 0.88,
+        actionability: weakMatchedTests.length > 0 ? 'review_required' : 'actionable',
+        review_reason: weakMatchedTests.length > 0 ? 'weak_symbol_test_match' : undefined,
+        details: { riskClass: risk.riskClass, weakMatchedTests: weakMatchedTests.map((test) => test.relativePath).sort() },
       });
       continue;
     }
@@ -181,7 +190,10 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
         path: source.relativePath,
         message: 'Security-sensitive source file has no adjacent or importing test coverage signal.',
         evidence: [{ path: source.relativePath }],
-        details: { riskClass: risk.riskClass },
+        confidence: weakMatchedTests.length > 0 ? 0.55 : 0.86,
+        actionability: weakMatchedTests.length > 0 ? 'review_required' : 'actionable',
+        review_reason: weakMatchedTests.length > 0 ? 'weak_symbol_test_match' : undefined,
+        details: { riskClass: risk.riskClass, weakMatchedTests: weakMatchedTests.map((test) => test.relativePath).sort() },
       });
       continue;
     }
@@ -194,7 +206,10 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
         path: source.relativePath,
         message: 'High-risk source file has no adjacent, sibling __tests__, or importing test coverage signal.',
         evidence: [{ path: source.relativePath }],
-        details: { riskClass: risk.riskClass },
+        confidence: weakMatchedTests.length > 0 ? 0.5 : 0.75,
+        actionability: weakMatchedTests.length > 0 ? 'review_required' : 'actionable',
+        review_reason: weakMatchedTests.length > 0 ? 'weak_symbol_test_match' : undefined,
+        details: { riskClass: risk.riskClass, weakMatchedTests: weakMatchedTests.map((test) => test.relativePath).sort() },
       });
     }
   }
@@ -238,7 +253,7 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
     metadata: {
       adapter: 'test-gap-adapter',
       roots: roots.map(String).sort(),
-      files_scanned: files.length,
+      files_scanned: snapshotFiles.length,
       findings_count: result.findings.length,
       allowlist_count: allowlist.size,
     },

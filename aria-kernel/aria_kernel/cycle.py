@@ -126,6 +126,7 @@ def _run_cycle_body(
             "cycle_id": cycle_id,
             "workspace_root": root.as_posix(),
             "pressure_summary": pressure.get("summary", {}),
+            "repo_snapshot": discovery.get("snapshot", {}),
         }
         try:
             decision = run_tool(

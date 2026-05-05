@@ -270,7 +270,7 @@ export class SensorTopicCacheService implements OnModuleInit {
           `);
 
           for (const sensor of sensors) {
-            const topic = (sensor.protocolConfiguration as Record<string, unknown>)?.topic as string;
+            const topic = (sensor.protocolConfiguration as Record<string, unknown>)?.['topic'] as string;
             if (topic) {
               const cachedInfo: CachedSensorInfo = {
                 id: sensor.id,

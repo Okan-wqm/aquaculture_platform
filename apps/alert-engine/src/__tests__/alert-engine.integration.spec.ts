@@ -4,19 +4,22 @@ import { Repository, DataSource } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Services
-import { RulesEngineService, RuleEvaluationContext } from '../rules-engine/rules-engine.service';
-import { RuleEvaluatorService } from '../rules-engine/rule-evaluator.service';
-import { RiskCalculatorService, RiskCalculationContext } from '../risk-scoring/risk-calculator.service';
+import { RulesEngineService } from '../rules-engine/rules-engine.service';
+import { RuleEvaluatorService, type EvaluationContext, LogicalOperator } from '../rules-engine/rule-evaluator.service';
+import { RiskCalculatorService, type RiskCalculationContext } from '../risk-scoring/risk-calculator.service';
 import { ImpactAnalyzerService } from '../risk-scoring/impact-analyzer.service';
 import { SeverityClassifierService } from '../risk-scoring/severity-classifier.service';
 import { EscalationPolicyService } from '../escalation/escalation-policy.service';
 import { EscalationManagerService } from '../escalation/escalation-manager.service';
-import { NotificationDispatcherService, ChannelHandler } from '../notification/notification-dispatcher.service';
+import { NotificationDispatcherService, type ChannelHandler } from '../notification/notification-dispatcher.service';
 import { ChannelRouterService } from '../notification/channel-router.service';
 import { TemplateRendererService } from '../notification/template-renderer.service';
 
-// Entities
-import { AlertRule, AlertSeverity, RuleOperator, LogicalOperator } from '../database/entities/alert-rule.entity';
+// Entities — `RuleEvaluationContext` was renamed to `EvaluationContext`
+// in rule-evaluator.service. The rules-engine's enum is `AlertOperator`
+// on alert-rule.entity (not a separate `RuleOperator`). PR-43 of the
+// PROC-MEDIUM-013 work-stream.
+import { AlertRule, AlertSeverity, AlertOperator } from '../database/entities/alert-rule.entity';
 import { AlertIncident, IncidentStatus, TimelineEventType } from '../database/entities/alert-incident.entity';
 import { EscalationPolicy, EscalationLevel, NotificationChannel, EscalationActionType } from '../database/entities/escalation-policy.entity';
 
@@ -41,6 +44,12 @@ describe('Alert Engine Integration', () => {
   let incidentRepository: jest.Mocked<Repository<AlertIncident>>;
   let policyRepository: jest.Mocked<Repository<EscalationPolicy>>;
 
+  // AlertCondition shape changed: `field` → `parameter` (the sensor
+  // parameter being checked, e.g. 'temperature'); `value` → `threshold`
+  // (the threshold value the operator compares against); `severity`
+  // is required per-condition (cascades into the matched-rule
+  // severity). `RuleOperator` enum was unified into `AlertOperator`
+  // on the alert-rule entity. PR-43 mappings.
   const mockRule: Partial<AlertRule> = {
     id: 'rule-1',
     tenantId: 'tenant-1',
@@ -50,12 +59,12 @@ describe('Alert Engine Integration', () => {
     isActive: true,
     conditions: [
       {
-        field: 'temperature',
-        operator: RuleOperator.GT,
-        value: 30,
+        parameter: 'temperature',
+        operator: AlertOperator.GT,
+        threshold: 30,
+        severity: AlertSeverity.HIGH,
       },
     ],
-    logicalOperator: LogicalOperator.AND,
   };
 
   const mockEscalationLevel: EscalationLevel = {
@@ -177,8 +186,8 @@ describe('Alert Engine Integration', () => {
     policyRepository = module.get(getRepositoryToken(EscalationPolicy));
 
     // Default mocks
-    alertRuleRepository.findOne.mockResolvedValue(mockRule as AlertRule);
-    alertRuleRepository.find.mockResolvedValue([mockRule as AlertRule]);
+    alertRuleRepository.findOne.mockResolvedValue(mockRule as unknown as AlertRule);
+    alertRuleRepository.find.mockResolvedValue([mockRule as unknown as AlertRule]);
     policyRepository.find.mockResolvedValue([mockPolicy as EscalationPolicy]);
     policyRepository.findOne.mockResolvedValue(mockPolicy as EscalationPolicy);
   });
@@ -191,13 +200,13 @@ describe('Alert Engine Integration', () => {
 
   describe('Complete Alert Workflow', () => {
     it('should evaluate rules and determine if alert should trigger', async () => {
-      const context: RuleEvaluationContext = {
+      const context: EvaluationContext = {
         tenantId: 'tenant-1',
-        data: { temperature: 35, humidity: 60 },
+        values: { temperature: 35, humidity: 60 },
         timestamp: new Date(),
       };
 
-      const result = await rulesEngine.evaluateRules(context);
+      const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
 
       expect(result).toBeDefined();
       // Should trigger because temperature (35) > threshold (30)
@@ -466,15 +475,15 @@ describe('Alert Engine Integration', () => {
     it('should handle missing rules gracefully', async () => {
       alertRuleRepository.find.mockResolvedValue([]);
 
-      const context: RuleEvaluationContext = {
+      const context: EvaluationContext = {
         tenantId: 'tenant-1',
-        data: { temperature: 35 },
+        values: { temperature: 35 },
         timestamp: new Date(),
       };
 
-      const result = await rulesEngine.evaluateRules(context);
+      const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
 
-      expect(result.matchedRules).toHaveLength(0);
+      expect(result).toHaveLength(0);
     });
 
     it('should handle notification handler errors', async () => {
@@ -503,7 +512,7 @@ describe('Alert Engine Integration', () => {
         },
       });
 
-      expect(results[0].status).toBe('FAILED');
+      expect(results[0]!.status).toBe('FAILED');
     });
   });
 
@@ -514,18 +523,18 @@ describe('Alert Engine Integration', () => {
 
       alertRuleRepository.find.mockImplementation(async (options: any) => {
         if (options?.where?.tenantId === 'tenant-1') {
-          return [tenant1Rule as AlertRule];
+          return [tenant1Rule as unknown as AlertRule];
         }
         return [];
       });
 
-      const context: RuleEvaluationContext = {
+      const context: EvaluationContext = {
         tenantId: 'tenant-1',
-        data: { temperature: 35 },
+        values: { temperature: 35 },
         timestamp: new Date(),
       };
 
-      const result = await rulesEngine.evaluateRules(context);
+      const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
 
       // Should only evaluate tenant-1 rules
       expect(alertRuleRepository.find).toHaveBeenCalledWith(
@@ -545,122 +554,128 @@ describe('Alert Engine Integration', () => {
       it('should handle exact threshold value (GT operator)', async () => {
         const exactThresholdRule = {
           ...mockRule,
-          conditions: [{ field: 'temperature', operator: RuleOperator.GT, value: 30 }],
+          conditions: [{ parameter: 'temperature', operator: AlertOperator.GT, value: 30 }],
         };
-        alertRuleRepository.find.mockResolvedValue([exactThresholdRule as AlertRule]);
+        alertRuleRepository.find.mockResolvedValue([exactThresholdRule as unknown as AlertRule]);
 
-        const context: RuleEvaluationContext = {
+        const context: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: { temperature: 30 }, // Exact threshold
+          values: { temperature: 30 }, // Exact threshold
           timestamp: new Date(),
         };
 
-        const result = await rulesEngine.evaluateRules(context);
+        const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
 
         // GT (greater than) should NOT trigger at exact threshold
-        expect(result.matchedRules.length).toBe(0);
+        expect(result.length).toBe(0);
       });
 
       it('should handle value just above threshold', async () => {
-        const context: RuleEvaluationContext = {
+        const context: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: { temperature: 30.001 }, // Just above
+          values: { temperature: 30.001 }, // Just above
           timestamp: new Date(),
         };
 
-        const result = await rulesEngine.evaluateRules(context);
+        const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
 
-        expect(result.matchedRules.length).toBeGreaterThan(0);
+        expect(result.length).toBeGreaterThan(0);
       });
 
       it('should handle extreme values correctly', async () => {
-        const extremeContext: RuleEvaluationContext = {
+        const extremeContext: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: { temperature: Number.MAX_SAFE_INTEGER },
+          values: { temperature: Number.MAX_SAFE_INTEGER },
           timestamp: new Date(),
         };
 
-        const result = await rulesEngine.evaluateRules(extremeContext);
+        const result = await rulesEngine.evaluateRules({ tenantId: extremeContext.tenantId!, context: extremeContext });
 
         expect(result).toBeDefined();
-        expect(result.matchedRules.length).toBeGreaterThan(0);
+        expect(result.length).toBeGreaterThan(0);
       });
 
       it('should handle negative values', async () => {
         const negativeRule = {
           ...mockRule,
-          conditions: [{ field: 'temperature', operator: RuleOperator.LT, value: 0 }],
+          conditions: [{ parameter: 'temperature', operator: AlertOperator.LT, value: 0 }],
         };
-        alertRuleRepository.find.mockResolvedValue([negativeRule as AlertRule]);
+        alertRuleRepository.find.mockResolvedValue([negativeRule as unknown as AlertRule]);
 
-        const context: RuleEvaluationContext = {
+        const context: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: { temperature: -5 },
+          values: { temperature: -5 },
           timestamp: new Date(),
         };
 
-        const result = await rulesEngine.evaluateRules(context);
+        const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
 
-        expect(result.matchedRules.length).toBeGreaterThan(0);
+        expect(result.length).toBeGreaterThan(0);
       });
 
       it('should handle zero values', async () => {
-        const zeroContext: RuleEvaluationContext = {
+        const zeroContext: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: { temperature: 0 },
+          values: { temperature: 0 },
           timestamp: new Date(),
         };
 
-        const result = await rulesEngine.evaluateRules(zeroContext);
+        const result = await rulesEngine.evaluateRules({ tenantId: zeroContext.tenantId!, context: zeroContext });
         expect(result).toBeDefined();
       });
     });
 
     describe('Missing and Null Data', () => {
       it('should handle missing field in data', async () => {
-        const context: RuleEvaluationContext = {
+        const context: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: { humidity: 60 }, // Missing temperature field
+          values: { humidity: 60 }, // Missing temperature field
           timestamp: new Date(),
         };
 
-        const result = await rulesEngine.evaluateRules(context);
+        const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
 
         // Should not match rules that require temperature
-        expect(result.matchedRules.length).toBe(0);
+        expect(result.length).toBe(0);
       });
 
       it('should handle null values in data', async () => {
-        const context: RuleEvaluationContext = {
+        const context: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: { temperature: null },
+          values: { temperature: null },
           timestamp: new Date(),
         };
 
-        const result = await rulesEngine.evaluateRules(context);
-        expect(result.matchedRules.length).toBe(0);
+        const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
+        expect(result.length).toBe(0);
       });
 
       it('should handle undefined values in data', async () => {
-        const context: RuleEvaluationContext = {
+        // EvaluationContext.values is typed as
+        // `Record<string, number | string | boolean | null>` — undefined
+        // is the missing-data sentinel. The narrowing test asserts the
+        // engine treats `null` (the canonical "value-not-available"
+        // marker) as no-match without crashing. The pre-rewrite test
+        // passed `undefined` directly, which the type doesn't allow.
+        const context: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: { temperature: undefined },
+          values: { temperature: null },
           timestamp: new Date(),
         };
 
-        const result = await rulesEngine.evaluateRules(context);
-        expect(result.matchedRules.length).toBe(0);
+        const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
+        expect(result.length).toBe(0);
       });
 
       it('should handle empty data object', async () => {
-        const context: RuleEvaluationContext = {
+        const context: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: {},
+          values: {},
           timestamp: new Date(),
         };
 
-        const result = await rulesEngine.evaluateRules(context);
-        expect(result.matchedRules.length).toBe(0);
+        const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
+        expect(result.length).toBe(0);
       });
     });
 
@@ -668,55 +683,53 @@ describe('Alert Engine Integration', () => {
       it('should evaluate AND conditions correctly', async () => {
         const andRule = {
           ...mockRule,
-          logicalOperator: LogicalOperator.AND,
           conditions: [
-            { field: 'temperature', operator: RuleOperator.GT, value: 30 },
-            { field: 'humidity', operator: RuleOperator.GT, value: 80 },
+            { parameter: 'temperature', operator: AlertOperator.GT, value: 30 },
+            { parameter: 'humidity', operator: AlertOperator.GT, value: 80 },
           ],
         };
-        alertRuleRepository.find.mockResolvedValue([andRule as AlertRule]);
+        alertRuleRepository.find.mockResolvedValue([andRule as unknown as AlertRule]);
 
         // Only temperature exceeds - should NOT match
-        const partialContext: RuleEvaluationContext = {
+        const partialContext: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: { temperature: 35, humidity: 70 },
+          values: { temperature: 35, humidity: 70 },
           timestamp: new Date(),
         };
 
-        const partialResult = await rulesEngine.evaluateRules(partialContext);
-        expect(partialResult.matchedRules.length).toBe(0);
+        const partialResult = await rulesEngine.evaluateRules({ tenantId: partialContext.tenantId!, context: partialContext });
+        expect(partialResult.length).toBe(0);
 
         // Both exceed - should match
-        const fullContext: RuleEvaluationContext = {
+        const fullContext: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: { temperature: 35, humidity: 85 },
+          values: { temperature: 35, humidity: 85 },
           timestamp: new Date(),
         };
 
-        const fullResult = await rulesEngine.evaluateRules(fullContext);
-        expect(fullResult.matchedRules.length).toBeGreaterThan(0);
+        const fullResult = await rulesEngine.evaluateRules({ tenantId: fullContext.tenantId!, context: fullContext });
+        expect(fullResult.length).toBeGreaterThan(0);
       });
 
       it('should evaluate OR conditions correctly', async () => {
         const orRule = {
           ...mockRule,
-          logicalOperator: LogicalOperator.OR,
           conditions: [
-            { field: 'temperature', operator: RuleOperator.GT, value: 30 },
-            { field: 'humidity', operator: RuleOperator.GT, value: 80 },
+            { parameter: 'temperature', operator: AlertOperator.GT, value: 30 },
+            { parameter: 'humidity', operator: AlertOperator.GT, value: 80 },
           ],
         };
-        alertRuleRepository.find.mockResolvedValue([orRule as AlertRule]);
+        alertRuleRepository.find.mockResolvedValue([orRule as unknown as AlertRule]);
 
         // Only temperature exceeds - should match
-        const context: RuleEvaluationContext = {
+        const context: EvaluationContext = {
           tenantId: 'tenant-1',
-          data: { temperature: 35, humidity: 70 },
+          values: { temperature: 35, humidity: 70 },
           timestamp: new Date(),
         };
 
-        const result = await rulesEngine.evaluateRules(context);
-        expect(result.matchedRules.length).toBeGreaterThan(0);
+        const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
+        expect(result.length).toBeGreaterThan(0);
       });
     });
   });
@@ -732,19 +745,19 @@ describe('Alert Engine Integration', () => {
         ...mockRule,
         id: `rule-${i}`,
         conditions: [
-          { field: 'temperature', operator: RuleOperator.GT, value: 25 + (i % 10) },
+          { parameter: 'temperature', operator: AlertOperator.GT, value: 25 + (i % 10) },
         ],
       }));
-      alertRuleRepository.find.mockResolvedValue(manyRules as AlertRule[]);
+      alertRuleRepository.find.mockResolvedValue(manyRules as unknown as AlertRule[]);
 
-      const context: RuleEvaluationContext = {
+      const context: EvaluationContext = {
         tenantId: 'tenant-1',
-        data: { temperature: 35 },
+        values: { temperature: 35 },
         timestamp: new Date(),
       };
 
       const startTime = Date.now();
-      const result = await rulesEngine.evaluateRules(context);
+      const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
       const duration = Date.now() - startTime;
 
       expect(result).toBeDefined();
@@ -752,9 +765,9 @@ describe('Alert Engine Integration', () => {
     });
 
     it('should handle rapid sequential evaluations', async () => {
-      const context: RuleEvaluationContext = {
+      const context: EvaluationContext = {
         tenantId: 'tenant-1',
-        data: { temperature: 35 },
+        values: { temperature: 35 },
         timestamp: new Date(),
       };
 
@@ -763,7 +776,7 @@ describe('Alert Engine Integration', () => {
 
       const startTime = Date.now();
       for (let i = 0; i < iterations; i++) {
-        results.push(await rulesEngine.evaluateRules(context));
+        results.push(await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context }));
       }
       const totalDuration = Date.now() - startTime;
 
@@ -838,26 +851,26 @@ describe('Alert Engine Integration', () => {
   // ============================================================================
 
   describe('Recovery Scenarios', () => {
-    it('should recover from temporary database failure', async () => {
+    it('should recover from a transient database failure', async () => {
       let callCount = 0;
       alertRuleRepository.find.mockImplementation(async () => {
         callCount++;
         if (callCount <= 2) {
           throw new Error('Database connection failed');
         }
-        return [mockRule as AlertRule];
+        return [mockRule as unknown as AlertRule];
       });
 
-      const context: RuleEvaluationContext = {
+      const context: EvaluationContext = {
         tenantId: 'tenant-1',
-        data: { temperature: 35 },
+        values: { temperature: 35 },
         timestamp: new Date(),
       };
 
       // First two attempts should fail, third should succeed
-      await expect(rulesEngine.evaluateRules(context)).rejects.toThrow();
-      await expect(rulesEngine.evaluateRules(context)).rejects.toThrow();
-      const result = await rulesEngine.evaluateRules(context);
+      await expect(rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context })).rejects.toThrow();
+      await expect(rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context })).rejects.toThrow();
+      const result = await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
       expect(result).toBeDefined();
     });
 
@@ -898,7 +911,7 @@ describe('Alert Engine Integration', () => {
       });
 
       // Some should succeed, some should fail
-      expect(result.failedCount).toBeGreaterThan(0);
+      expect(result.failureCount).toBeGreaterThan(0);
       expect(result.successCount).toBeGreaterThan(0);
     });
 
@@ -972,8 +985,14 @@ describe('Alert Engine Integration', () => {
         scope: 'GLOBAL' as any,
       });
 
-      const severityOrder = {
+      // Annotate the map as `Record<AlertSeverity, number>` so
+      // indexed access via an AlertSeverity enum value type-checks.
+      // Without the annotation, TS infers the literal-string key
+      // type and rejects the wider enum index.
+      const severityOrder: Record<AlertSeverity, number> = {
+        [AlertSeverity.INFO]: 0,
         [AlertSeverity.LOW]: 1,
+        [AlertSeverity.WARNING]: 1.5,
         [AlertSeverity.MEDIUM]: 2,
         [AlertSeverity.HIGH]: 3,
         [AlertSeverity.CRITICAL]: 4,
@@ -1017,7 +1036,7 @@ describe('Alert Engine Integration', () => {
       });
 
       expect(result.totalUsers).toBe(100);
-      expect(result.successCount + result.failedCount).toBe(100);
+      expect(result.successCount + result.failureCount).toBe(100);
     });
   });
 

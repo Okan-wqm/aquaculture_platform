@@ -4,6 +4,13 @@
  * exercises the violation detector against synthetic inputs via
  * the exported runCheck() / main() entry points.
  */
+// `export {}` keeps strict-tsc treating this file as a MODULE (so its
+// top-level `const runCheck = require(...)` is module-scoped, not
+// global). Without it, this file and npm-audit-gate.spec.ts would
+// both declare `runCheck` in the global scope and collide. Surfaced
+// by PR-29 (PROC-MEDIUM-007 ratchet) — ts-jest's permissive
+// transform was hiding the script-vs-module ambiguity.
+export {};
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const {
   main: ghaShaPinMain,

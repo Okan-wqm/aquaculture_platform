@@ -823,6 +823,7 @@ describe('VfdChangeSetService', () => {
         'cs-001',
         'parameter drift',
         USER_MAKER,
+        TENANT_ID,
       );
 
       expect(changeSetRepo.create).toHaveBeenCalledWith(
@@ -877,7 +878,7 @@ describe('VfdChangeSetService', () => {
         .mockResolvedValueOnce(null);          // ensureNoActiveChangeSet
       changeSetRepo.save!.mockResolvedValue(pending);
 
-      const submitted = await service.submitForApproval('cs-001', USER_MAKER);
+      const submitted = await service.submitForApproval('cs-001', USER_MAKER, TENANT_ID);
       expect(submitted.status).toBe(VfdChangeSetStatus.PENDING_APPROVAL);
 
       // 4. Approve
@@ -893,7 +894,7 @@ describe('VfdChangeSetService', () => {
         (cs: VfdChangeSet) => Promise.resolve(cs),
       );
 
-      const approved = await service.approveChangeSet('cs-001', USER_CHECKER);
+      const approved = await service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID);
       expect(approved.status).toBe(VfdChangeSetStatus.APPROVED);
       expect(approved.approvedBy).toBe(USER_CHECKER);
     });
@@ -906,12 +907,12 @@ describe('VfdChangeSetService', () => {
       const cs = createMockChangeSet({ items: [createMockItem()] });
       changeSetRepo.findOne!.mockResolvedValue(cs);
 
-      const result = await service.findById('cs-001');
+      const result = await service.findById('cs-001', TENANT_ID);
 
       expect(result).toBeDefined();
       expect(result!.items.length).toBe(1);
       expect(changeSetRepo.findOne).toHaveBeenCalledWith({
-        where: { id: 'cs-001' },
+        where: { id: 'cs-001', tenantId: TENANT_ID },
         relations: ['items'],
       });
     });
@@ -919,7 +920,7 @@ describe('VfdChangeSetService', () => {
     it('should return null for non-existent id', async () => {
       changeSetRepo.findOne!.mockResolvedValue(null);
 
-      const result = await service.findById('non-existent');
+      const result = await service.findById('non-existent', TENANT_ID);
       expect(result).toBeNull();
     });
   });
@@ -994,7 +995,7 @@ describe('VfdChangeSetService', () => {
       changeSetRepo.findOne!.mockResolvedValue(null);
 
       await expect(
-        service.approveChangeSet('non-existent', USER_CHECKER),
+        service.approveChangeSet('non-existent', USER_CHECKER, TENANT_ID),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -1002,7 +1003,7 @@ describe('VfdChangeSetService', () => {
       changeSetRepo.findOne!.mockResolvedValue(null);
 
       await expect(
-        service.submitForApproval('non-existent', USER_MAKER),
+        service.submitForApproval('non-existent', USER_MAKER, TENANT_ID),
       ).rejects.toThrow(NotFoundException);
     });
   });

@@ -85,7 +85,7 @@ export class SystemSettingService {
     private readonly settingRepository: Repository<SystemSetting>,
   ) {
     // SECURITY: Fail fast in production if encryption key is not configured
-    const key = process.env.ENCRYPTION_KEY;
+    const key = process.env['ENCRYPTION_KEY'];
     if (!key && process.env['NODE_ENV'] === 'production') {
       throw new Error('SECURITY: ENCRYPTION_KEY environment variable must be set in production');
     }

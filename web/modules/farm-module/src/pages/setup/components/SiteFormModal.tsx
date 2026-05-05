@@ -3,6 +3,7 @@
  * Modal for creating and editing sites
  */
 import React, { useState, useEffect } from 'react';
+import SiteContactsSection from './SiteContactsSection';
 
 interface SiteFormData {
   name: string;
@@ -499,6 +500,23 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                       />
                     </div>
                   </div>
+
+                  {/*
+                    Structured contact people (Scope A 4.4.3 — wires the
+                    upsertSiteContacts mutation backend shipped in
+                    PR #149). Distinct from the site-level contactEmail
+                    /contactPhone above: those are a single fallback
+                    contact captured on the site row itself; this
+                    section maintains the multi-row site_contacts
+                    table with name+role+email+phone+isPrimary per
+                    person.
+
+                    Hidden in CREATE mode (no siteId yet) — operator
+                    saves the site first, reopens, then edits
+                    contacts. The section component renders its own
+                    explanatory placeholder in that mode.
+                  */}
+                  <SiteContactsSection siteId={site?.id} />
                 </div>
               )}
             </div>

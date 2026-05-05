@@ -165,19 +165,19 @@ describe('DeployCleanerFishHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('CleanerFishDeployed');
-    expect(event.cleanerBatchId).toBe('cleaner-batch-1');
-    expect(event.targetTankId).toBe('tank-1');
-    expect(event.tenantId).toBe('tenant-1');
-    expect(event.speciesName).toBe('Lumpfish');
-    expect(event.quantity).toBe(30);
+    expect(event['eventType']).toBe('CleanerFishDeployed');
+    expect(event['cleanerBatchId']).toBe('cleaner-batch-1');
+    expect(event['targetTankId']).toBe('tank-1');
+    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['speciesName']).toBe('Lumpfish');
+    expect(event['quantity']).toBe(30);
     // 30 × 50 g / 1000 = 1.5 kg
-    expect(event.biomassKg).toBeCloseTo(1.5, 5);
+    expect(event['biomassKg']).toBeCloseTo(1.5, 5);
     // 100 - 30 = 70 remaining in the cleaner batch
-    expect(event.newCleanerBatchCurrentQuantity).toBe(70);
+    expect(event['newCleanerBatchCurrentQuantity']).toBe(70);
     // Fresh tankBatch starts at 0 + 30 = 30
-    expect(event.newTankCleanerFishQuantity).toBe(30);
-    expect(event.isOverCapacity).toBe(false);
+    expect(event['newTankCleanerFishQuantity']).toBe(30);
+    expect(event['isOverCapacity']).toBe(false);
 
     expect(commit).toHaveBeenCalledTimes(1);
   });

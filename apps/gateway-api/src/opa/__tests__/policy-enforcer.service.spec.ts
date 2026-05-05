@@ -158,7 +158,7 @@ describe('PolicyEnforcerService', () => {
       const decision = await service.isAuthorized(createContext());
 
       expect(decision.obligations).toHaveLength(2);
-      expect(decision.obligations?.[0].type).toBe('log');
+      expect(decision.obligations?.[0]!.type).toBe('log');
     });
   });
 
@@ -275,7 +275,7 @@ describe('PolicyEnforcerService', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(ForbiddenException);
         const response = (error as ForbiddenException).getResponse() as Record<string, unknown>;
-        expect(response.reason).toBe('Custom denial reason');
+        expect(response['reason']).toBe('Custom denial reason');
       }
     });
 

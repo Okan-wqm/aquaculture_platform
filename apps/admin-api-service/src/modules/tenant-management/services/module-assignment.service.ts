@@ -360,19 +360,19 @@ export class ModuleAssignmentService {
     );
 
     return results.map((row: Record<string, unknown>) => ({
-      id: row.id as string,
-      tenantId: row.tenantId as string,
-      moduleId: row.moduleId as string,
-      moduleCode: row.moduleCode as string,
-      moduleName: row.moduleName as string,
-      moduleDescription: row.moduleDescription as string | undefined,
-      moduleIcon: row.moduleIcon as string | undefined,
-      isActive: row.isActive as boolean,
-      assignedAt: row.assignedAt as Date,
-      expiresAt: row.expiresAt as Date | undefined,
-      quantities: row.quantities as ModuleQuantities,
-      monthlyPrice: parseFloat(row.monthlyPrice as string) || 0,
-      configuration: row.configuration as Record<string, unknown>,
+      id: row['id'] as string,
+      tenantId: row['tenantId'] as string,
+      moduleId: row['moduleId'] as string,
+      moduleCode: row['moduleCode'] as string,
+      moduleName: row['moduleName'] as string,
+      moduleDescription: row['moduleDescription'] as string | undefined,
+      moduleIcon: row['moduleIcon'] as string | undefined,
+      isActive: row['isActive'] as boolean,
+      assignedAt: row['assignedAt'] as Date,
+      expiresAt: row['expiresAt'] as Date | undefined,
+      quantities: row['quantities'] as ModuleQuantities,
+      monthlyPrice: parseFloat(row['monthlyPrice'] as string) || 0,
+      configuration: row['configuration'] as Record<string, unknown>,
     }));
   }
 

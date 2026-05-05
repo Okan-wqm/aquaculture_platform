@@ -2,6 +2,69 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { EventStoreController } from '../event-store.controller';
 import { EventStoreService } from '../services/event-store.service';
+import { EventStream } from '../entities/event-stream.entity';
+import { Snapshot } from '../entities/snapshot.entity';
+import { PersistedEvent } from '../interfaces/event-store.interfaces';
+
+/**
+ * Mock factories for the event-store controller's collaborator return shapes.
+ *
+ * These exist because controller-spec mocks were originally minimal POJOs
+ * and drifted out of sync with the EventStream / Snapshot entity contracts
+ * (PR-27 of the PROC-MEDIUM-007 ratchet). Service-method return types are
+ * the source of truth — factories cast to the right shape and let each
+ * spec spread overrides, keeping mocks aligned without per-test
+ * boilerplate or `as any`.
+ */
+function makeStream(overrides: Partial<EventStream> = {}): EventStream {
+  return {
+    id: '00000000-0000-0000-0000-000000000001',
+    streamName: 'Order-123e4567-e89b-12d3-a456-426614174000',
+    aggregateType: 'Order',
+    aggregateId: '123e4567-e89b-12d3-a456-426614174000',
+    currentVersion: 0,
+    eventCount: 0,
+    tenantId: '123e4567-e89b-42d3-a456-426614174000',
+    isDeleted: false,
+    createdAt: new Date('2026-04-01T00:00:00Z'),
+    updatedAt: new Date('2026-04-01T00:00:00Z'),
+    lastEventAt: undefined,
+    ...overrides,
+  };
+}
+
+function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
+  return {
+    id: '00000000-0000-0000-0000-000000000002',
+    aggregateType: 'Order',
+    aggregateId: '123e4567-e89b-12d3-a456-426614174000',
+    version: 5,
+    state: { status: 'confirmed' },
+    tenantId: '123e4567-e89b-42d3-a456-426614174000',
+    createdAt: new Date('2026-04-01T00:00:00Z'),
+    schemaVersion: 1,
+    ...overrides,
+  };
+}
+
+function makeEvent(overrides: Partial<PersistedEvent> = {}): PersistedEvent {
+  return {
+    id: '00000000-0000-0000-0000-000000000010',
+    streamName: 'Order-123e4567-e89b-12d3-a456-426614174000',
+    globalPosition: 1,
+    streamPosition: 1,
+    aggregateType: 'Order',
+    aggregateId: '123e4567-e89b-12d3-a456-426614174000',
+    version: 1,
+    tenantId: '123e4567-e89b-42d3-a456-426614174000',
+    eventType: 'OrderCreated',
+    payload: {},
+    occurredAt: new Date('2026-04-01T00:00:00Z'),
+    storedAt: new Date('2026-04-01T00:00:00Z'),
+    schemaVersion: 1,
+    ...overrides,
+  };
+}
 
 /**
  * Tests for EventStoreController
@@ -81,15 +144,14 @@ describe('EventStoreController', () => {
     const aggregateId = '123e4567-e89b-12d3-a456-426614174000';
 
     it('should return stream info with HTTP 200 when stream exists', async () => {
-      const mockStreamInfo = {
+      const mockStreamInfo = makeStream({
         streamName: `${aggregateType}-${aggregateId}`,
         aggregateType,
         aggregateId,
         currentVersion: 5,
         eventCount: 5,
-        createdAt: new Date(),
         lastEventAt: new Date(),
-      };
+      });
 
       mockEventStoreService.getStreamInfo.mockResolvedValue(mockStreamInfo);
       mockEventStoreService.getSnapshot.mockResolvedValue(null);
@@ -102,25 +164,22 @@ describe('EventStoreController', () => {
     });
 
     it('should return stream info with snapshot data when snapshot exists', async () => {
-      const mockStreamInfo = {
+      const mockStreamInfo = makeStream({
         streamName: `${aggregateType}-${aggregateId}`,
         aggregateType,
         aggregateId,
         currentVersion: 10,
         eventCount: 10,
-        createdAt: new Date(),
         lastEventAt: new Date(),
-      };
+      });
 
-      const mockSnapshot = {
+      const mockSnapshot = makeSnapshot({
         aggregateType,
         aggregateId,
         version: 5,
         state: { status: 'confirmed' },
         tenantId: validTenantId,
-        createdAt: new Date(),
-        schemaVersion: 1,
-      };
+      });
 
       mockEventStoreService.getStreamInfo.mockResolvedValue(mockStreamInfo);
       mockEventStoreService.getSnapshot.mockResolvedValue(mockSnapshot);
@@ -238,15 +297,13 @@ describe('EventStoreController', () => {
 
   describe('createSnapshot', () => {
     it('should create snapshot and return HTTP 201 Created', async () => {
-      const mockSnapshot = {
+      const mockSnapshot = makeSnapshot({
         aggregateType: 'Order',
         aggregateId: '123e4567-e89b-12d3-a456-426614174000',
         version: 5,
         state: { status: 'confirmed' },
         tenantId: validTenantId,
-        createdAt: new Date(),
-        schemaVersion: 1,
-      };
+      });
 
       mockEventStoreService.createSnapshot.mockResolvedValue(mockSnapshot);
 
@@ -265,22 +322,23 @@ describe('EventStoreController', () => {
   describe('loadAggregate', () => {
     it('should load aggregate with snapshot and events', async () => {
       const mockData = {
-        snapshot: {
+        // loadAggregate returns SnapshotData (interface), not the entity —
+        // makeSnapshot()'s shape is a superset (has id/etc.) which structurally
+        // satisfies SnapshotData via excess-property check on object literal.
+        snapshot: makeSnapshot({
           aggregateType: 'Order',
           aggregateId: '123e4567-e89b-12d3-a456-426614174000',
           version: 5,
           state: { status: 'confirmed' },
           tenantId: validTenantId,
-          createdAt: new Date(),
-          schemaVersion: 1,
-        },
+        }),
         events: [
-          {
+          makeEvent({
             id: 'event-1',
             eventType: 'OrderUpdated',
             version: 6,
             payload: { status: 'shipped' },
-          },
+          }),
         ],
         currentVersion: 6,
       };

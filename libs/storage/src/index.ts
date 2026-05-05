@@ -20,8 +20,8 @@ export {
   type OrphanCleanupResult,
 } from './orphan-cleanup.service';
 
-// Interfaces
-export {
+// Interfaces — type-only re-exports under isolatedModules.
+export type {
   StorageConfig,
   UploadResult,
   FileMetadata,

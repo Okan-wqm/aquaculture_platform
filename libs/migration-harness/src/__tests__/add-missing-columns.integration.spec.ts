@@ -198,7 +198,9 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
             { name: 'c', type: 'boolean', nullable: true },
           ],
         });
-        expect(result.added.sort()).toEqual(['a', 'b', 'c']);
+        // result.added is `readonly string[]`; .sort() mutates so it
+        // can't be called on readonly arrays. Copy first.
+        expect([...result.added].sort()).toEqual(['a', 'b', 'c']);
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS addcol_test CASCADE`);
       }

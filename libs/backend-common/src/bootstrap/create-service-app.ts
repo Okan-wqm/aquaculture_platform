@@ -607,8 +607,8 @@ export async function createServiceApp(
   //
   // Production deployments MUST use migrations: `npm run migration:run`.
   // -----------------------------------------------------------------------
-  const databaseSync = process.env.DATABASE_SYNC;
-  const nodeEnv = process.env.NODE_ENV;
+  const databaseSync = process.env['DATABASE_SYNC'];
+  const nodeEnv = process.env['NODE_ENV'];
   if (databaseSync === 'true' && nodeEnv === 'production') {
     throw new Error(
       'FATAL: DATABASE_SYNC=true is not allowed in production. ' +

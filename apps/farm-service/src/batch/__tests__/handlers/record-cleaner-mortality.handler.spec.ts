@@ -191,22 +191,22 @@ describe('RecordCleanerMortalityHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('CleanerFishMortalityRecorded');
-    expect(event.cleanerBatchId).toBe('cleaner-batch-1');
-    expect(event.tankId).toBe('tank-1');
-    expect(event.tenantId).toBe('tenant-1');
-    expect(event.quantity).toBe(10);
-    expect(event.speciesName).toBe('Lumpfish');
+    expect(event['eventType']).toBe('CleanerFishMortalityRecorded');
+    expect(event['cleanerBatchId']).toBe('cleaner-batch-1');
+    expect(event['tankId']).toBe('tank-1');
+    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['quantity']).toBe(10);
+    expect(event['speciesName']).toBe('Lumpfish');
     // 10 * 50 / 1000 = 0.5 kg
-    expect(event.biomassKg).toBeCloseTo(0.5, 5);
+    expect(event['biomassKg']).toBeCloseTo(0.5, 5);
     // Lowercase 'disease' → contract's uppercase 'DISEASE'
-    expect(event.reason).toBe('DISEASE');
+    expect(event['reason']).toBe('DISEASE');
     // Tank had 60 cleaner fish; 10 died → 50 left
-    expect(event.newTankCleanerFishQuantity).toBe(50);
+    expect(event['newTankCleanerFishQuantity']).toBe(50);
     // Cleaner batch: 100 previous mortality + 10 = 110 cumulative
-    expect(event.newCleanerBatchTotalMortality).toBe(110);
+    expect(event['newCleanerBatchTotalMortality']).toBe(110);
     // initialQuantity 1000 → 110 / 1000 * 100 = 11%
-    expect(event.newCleanerBatchMortalityRate).toBeCloseTo(11, 5);
+    expect(event['newCleanerBatchMortalityRate']).toBeCloseTo(11, 5);
 
     expect(commit).toHaveBeenCalledTimes(1);
   });
@@ -227,7 +227,7 @@ describe('RecordCleanerMortalityHandler — transactional outbox', () => {
       await handler.execute(makeCommand({ reason: input, quantity: 1 }));
       expect(enqueue).toHaveBeenCalledTimes(1);
       const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-      expect(event.reason).toBe(expected);
+      expect(event['reason']).toBe(expected);
     }
   });
 
@@ -239,7 +239,7 @@ describe('RecordCleanerMortalityHandler — transactional outbox', () => {
     );
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.reason).toBe('UNKNOWN');
+    expect(event['reason']).toBe('UNKNOWN');
   });
 
   it('outbox enqueue failure rolls back every domain write', async () => {

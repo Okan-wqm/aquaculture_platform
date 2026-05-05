@@ -62,7 +62,9 @@ import ResultsPanel from './components/ResultsPanel';
 import OnDemandPanel from './components/OnDemandPanel';
 import { HistoryTab } from './components/HistoryTab';
 import { RecordTab } from './components/RecordTab';
+import { BulkRecordTab } from './components/BulkRecordTab';
 import { ParameterConfigManager } from './components/ParameterConfigManager';
+import { useCanMutate } from '@aquaculture/shared-ui';
 // ============================================================================
 // CHART CARD WRAPPER
 // ============================================================================
@@ -604,12 +606,14 @@ const OverviewContent: React.FC = () => {
 // MAIN COMPONENT
 // ============================================================================
 
-type TabId = 'calculator' | 'record' | 'history' | 'parameters';
+type TabId = 'calculator' | 'record' | 'bulk' | 'history' | 'parameters';
 
 const WaterChemistryPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
+  const canBulk = useCanMutate('createBatchWaterQualityMeasurements');
   const activeTab: TabId = (tabParam === 'record') ? 'record'
+    : (tabParam === 'bulk' && canBulk) ? 'bulk'
     : (tabParam === 'history') ? 'history'
     : (tabParam === 'parameters') ? 'parameters'
     : 'calculator';
@@ -620,6 +624,14 @@ const WaterChemistryPage: React.FC = () => {
       return prev;
     });
   };
+
+  const tabs: { id: TabId; name: string }[] = [
+    { id: 'calculator', name: 'Calculator' },
+    { id: 'record', name: 'Record' },
+    ...(canBulk ? [{ id: 'bulk' as TabId, name: 'Bulk' }] : []),
+    { id: 'history', name: 'History' },
+    { id: 'parameters', name: 'Parameters' },
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -635,12 +647,7 @@ const WaterChemistryPage: React.FC = () => {
       <div className="px-4 sm:px-6">
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-            {[
-              { id: 'calculator' as TabId, name: 'Calculator' },
-              { id: 'record' as TabId, name: 'Record' },
-              { id: 'history' as TabId, name: 'History' },
-              { id: 'parameters' as TabId, name: 'Parameters' },
-            ].map((tab) => (
+            {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => handleTabChange(tab.id)}
@@ -661,6 +668,7 @@ const WaterChemistryPage: React.FC = () => {
       <div className="px-4 sm:px-6 py-6">
         {activeTab === 'calculator' && <OverviewContent />}
         {activeTab === 'record' && <RecordTab />}
+        {activeTab === 'bulk' && canBulk && <BulkRecordTab />}
         {activeTab === 'history' && <HistoryTab />}
         {activeTab === 'parameters' && <ParameterConfigManager />}
       </div>

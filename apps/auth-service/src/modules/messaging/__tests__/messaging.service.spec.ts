@@ -174,7 +174,7 @@ describe('MessagingService', () => {
       const result = await service.getThreads(tenantAdmin.id);
 
       expect(result).toHaveLength(2);
-      expect(result[0].tenantId).toBe('tenant-1');
+      expect(result[0]!.tenantId).toBe('tenant-1');
     });
 
     it('should return all threads for SuperAdmin', async () => {
@@ -308,7 +308,7 @@ describe('MessagingService', () => {
     it('should send message from TenantAdmin', async () => {
       const tenantAdmin = createMockUser({ tenantId: 'tenant-1' });
       const thread = createMockThread({ tenantId: 'tenant-1' });
-      const input = { threadId: thread.id, content: 'My message' };
+      const input = { threadId: thread.id, content: 'My message', isInternal: false };
 
       userRepository.findOne.mockResolvedValue(tenantAdmin);
       threadRepository.findOne.mockResolvedValue(thread);
@@ -329,7 +329,7 @@ describe('MessagingService', () => {
     it('should send message from SuperAdmin', async () => {
       const superAdmin = createMockUser({ role: Role.SUPER_ADMIN, tenantId: undefined });
       const thread = createMockThread();
-      const input = { threadId: thread.id, content: 'Admin response' };
+      const input = { threadId: thread.id, content: 'Admin response', isInternal: false };
 
       userRepository.findOne.mockResolvedValue(superAdmin);
       threadRepository.findOne.mockResolvedValue(thread);
@@ -380,7 +380,7 @@ describe('MessagingService', () => {
     it('should throw BadRequestException when thread is closed', async () => {
       const user = createMockUser({ tenantId: 'tenant-1' });
       const closedThread = createMockThread({ status: ThreadStatus.CLOSED, tenantId: 'tenant-1' });
-      const input = { threadId: closedThread.id, content: 'Message' };
+      const input = { threadId: closedThread.id, content: 'Message', isInternal: false };
 
       userRepository.findOne.mockResolvedValue(user);
       threadRepository.findOne.mockResolvedValue(closedThread);
@@ -399,7 +399,7 @@ describe('MessagingService', () => {
       threadRepository.save.mockImplementation((t) => Promise.resolve(t as MessageThread));
       messageRepository.save.mockResolvedValue(createMockMessage());
 
-      await service.sendMessage(tenantAdmin.id, { threadId: thread.id, content: 'Hello' });
+      await service.sendMessage(tenantAdmin.id, { threadId: thread.id, content: 'Hello', isInternal: false });
 
       expect(threadRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -644,6 +644,7 @@ describe('SuperAdmin-TenantAdmin Communication Integration', () => {
       await service.sendMessage(superAdmin.id, {
         threadId: newThread.id,
         content: 'I can help you with that...',
+        isInternal: false,
       });
 
       expect(messageRepository.create).toHaveBeenCalledWith(
@@ -732,6 +733,7 @@ describe('SuperAdmin-TenantAdmin Communication Integration', () => {
       await service.sendMessage(superAdmin.id, {
         threadId: thread.id,
         content: 'Reply',
+        isInternal: false,
       });
 
       expect(threadRepository.save).toHaveBeenCalledWith(

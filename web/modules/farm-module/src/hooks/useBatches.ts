@@ -918,6 +918,77 @@ export interface CloseBatchInput {
   acknowledgeActiveTreatments?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// updateBatch — Tier 2 #1 (Scope C PR-2)
+// Mirrors the backend `UpdateBatchInput` (apps/farm-service/src/batch/dto/
+// batch-resolver.dto.ts:53). Backend's input set is exactly four fields:
+//   id (required), name?, expectedHarvestDate?, targetFCR?, notes?.
+// status changes go through `useUpdateBatchStatus`; full lifecycle
+// transitions through `useCloseBatch`.
+// ---------------------------------------------------------------------------
+
+const UPDATE_BATCH_MUTATION = `
+  mutation UpdateBatch($input: UpdateBatchInput!) {
+    updateBatch(input: $input) {
+      id
+      batchNumber
+      name
+      expectedHarvestDate
+      fcr {
+        target
+        actual
+      }
+      notes
+      updatedAt
+    }
+  }
+`;
+
+export interface UpdateBatchInput {
+  id: string;
+  name?: string;
+  /** ISO-8601 date string (YYYY-MM-DD or full ISO with TZ). */
+  expectedHarvestDate?: string;
+  targetFCR?: number;
+  notes?: string;
+}
+
+/**
+ * Hook to update batch metadata (name, expected harvest date,
+ * target FCR, notes). Status / quantity / biomass changes go
+ * through the dedicated lifecycle mutations.
+ */
+export function useUpdateBatch() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: UpdateBatchInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ updateBatch: Batch }>(
+        UPDATE_BATCH_MUTATION,
+        { input },
+      );
+      return data.updateBatch;
+    },
+    onSuccess: (updatedBatch) => {
+      // Invalidate the list AND the specific detail key so the
+      // BatchDetailPage re-renders with the new values immediately.
+      queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'batches'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'batches', 'detail', updatedBatch.id),
+      });
+    },
+  });
+}
+
 /**
  * Hook to transition a batch to a new status (QUARANTINE → ACTIVE,
  * GROWING → PRE_HARVEST, etc.). The backend `updateBatchStatus`

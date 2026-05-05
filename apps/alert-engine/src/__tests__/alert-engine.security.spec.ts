@@ -3,17 +3,20 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { RulesEngineService, RuleEvaluationContext } from '../rules-engine/rules-engine.service';
-import { RuleEvaluatorService } from '../rules-engine/rule-evaluator.service';
-import { RiskCalculatorService, RiskCalculationContext } from '../risk-scoring/risk-calculator.service';
+import { RulesEngineService } from '../rules-engine/rules-engine.service';
+import { RuleEvaluatorService, type EvaluationContext } from '../rules-engine/rule-evaluator.service';
+import { RiskCalculatorService, type RiskCalculationContext } from '../risk-scoring/risk-calculator.service';
 import { ImpactAnalyzerService } from '../risk-scoring/impact-analyzer.service';
 import { SeverityClassifierService } from '../risk-scoring/severity-classifier.service';
-import { EscalationPolicyService, CreatePolicyDto } from '../escalation/escalation-policy.service';
-import { NotificationDispatcherService, ChannelHandler } from '../notification/notification-dispatcher.service';
+import { EscalationPolicyService, type CreatePolicyDto } from '../escalation/escalation-policy.service';
+import { NotificationDispatcherService, type ChannelHandler } from '../notification/notification-dispatcher.service';
 import { ChannelRouterService } from '../notification/channel-router.service';
-import { TemplateRendererService, NotificationTemplate, TemplateContext } from '../notification/template-renderer.service';
+import { TemplateRendererService, type NotificationTemplate, type TemplateContext } from '../notification/template-renderer.service';
 
-import { AlertRule, AlertSeverity, RuleOperator, LogicalOperator } from '../database/entities/alert-rule.entity';
+// Same import-path migration as the integration spec — see PR-43.
+// `LogicalOperator` was removed from alert-rule.entity (rules-engine
+// concern, not entity).
+import { AlertRule, AlertSeverity, AlertOperator } from '../database/entities/alert-rule.entity';
 import { AlertIncident, IncidentStatus } from '../database/entities/alert-incident.entity';
 import { EscalationPolicy, EscalationLevel, NotificationChannel, EscalationActionType } from '../database/entities/escalation-policy.entity';
 
@@ -109,28 +112,28 @@ describe('Alert Engine Security', () => {
 
       alertRuleRepository.find.mockImplementation(async (options: any) => {
         if (options?.where?.tenantId === 'tenant-1') {
-          return tenant1Rules as AlertRule[];
+          return tenant1Rules as unknown as AlertRule[];
         }
         if (options?.where?.tenantId === 'tenant-2') {
-          return tenant2Rules as AlertRule[];
+          return tenant2Rules as unknown as AlertRule[];
         }
         return [];
       });
 
-      const context1: RuleEvaluationContext = {
+      const context1: EvaluationContext = {
         tenantId: 'tenant-1',
-        data: { value: 50 },
+        values: { value: 50 },
         timestamp: new Date(),
       };
 
-      const context2: RuleEvaluationContext = {
+      const context2: EvaluationContext = {
         tenantId: 'tenant-2',
-        data: { value: 50 },
+        values: { value: 50 },
         timestamp: new Date(),
       };
 
-      await rulesEngine.evaluateRules(context1);
-      await rulesEngine.evaluateRules(context2);
+      await rulesEngine.evaluateRules({ tenantId: context1.tenantId!, context: context1 });
+      await rulesEngine.evaluateRules({ tenantId: context2.tenantId!, context: context2 });
 
       // Verify each tenant only sees their own rules
       expect(alertRuleRepository.find).toHaveBeenCalledWith(
@@ -567,19 +570,25 @@ describe('Alert Engine Security', () => {
     });
 
     it('should handle malformed rule conditions gracefully', async () => {
+      // The malformed inputs intentionally violate the strict
+      // AlertCondition shape (`parameter`/`threshold`/`severity`) —
+      // the cast through `unknown as AlertCondition[]` preserves the
+      // negative-test intent (the evaluator must fail closed on
+      // bad data, not propagate the type-system blockage).
       const malformedRule: Partial<AlertRule> = {
         id: 'rule-1',
         tenantId: 'tenant-1',
         name: 'Malformed Rule',
         isActive: true,
         conditions: [
-          { field: '', operator: 'INVALID' as any, value: null },
+          { parameter: '', operator: 'INVALID' as unknown as AlertOperator, threshold: 0, severity: AlertSeverity.LOW },
         ],
-        logicalOperator: LogicalOperator.AND,
       };
 
-      // Should not throw, should return false
-      const result = ruleEvaluator.evaluate(malformedRule as AlertRule, { value: 50 });
+      // Should not throw, should return false. The evaluator's
+      // contract: missing `values` map equals "no value to compare"
+      // — return false rather than crash.
+      const result = ruleEvaluator.evaluate(malformedRule as unknown as AlertRule, { values: { value: 50 } });
 
       expect(typeof result).toBe('boolean');
     });

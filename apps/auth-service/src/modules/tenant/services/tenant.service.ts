@@ -755,7 +755,7 @@ export class TenantService {
         activeConnections: parseInt(connResult[0]?.active ?? '0') || 0,
         maxConnections: 100,
         databaseType: dbVersion,
-        region: process.env.AWS_REGION || 'Local',
+        region: process.env['AWS_REGION'] || 'Local',
         isolationLevel: 'Schema-based isolation',
         encryption: 'AES-256',
         tables,

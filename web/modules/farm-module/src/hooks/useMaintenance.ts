@@ -1122,6 +1122,22 @@ export interface CreateMaintenanceScheduleInput {
   notes?: string;
 }
 
+/**
+ * Input for `completeMaintenance` — closes a maintenance schedule cycle
+ * (sets lastExecutedDate, increments executionCount, recomputes nextDueDate
+ * via markCompleted on the entity). `workOrderId` is optional — pass it
+ * when the close was triggered from the context of an open work order so
+ * the audit trail can correlate, even though this mutation does NOT close
+ * the work order itself (use `completeWorkOrder` for that, but never
+ * both — it would double-count).
+ */
+export interface CompleteMaintenanceInput {
+  scheduleId: string;
+  workOrderId?: string;
+  meterReading?: number;
+  notes?: string;
+}
+
 export interface UpdateMaintenanceScheduleInput {
   id: string;
   name?: string;
@@ -1299,6 +1315,196 @@ export function useResumeMaintenanceSchedule() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
+    },
+  });
+}
+
+/**
+ * Mark a maintenance schedule cycle as completed (without going through a
+ * WorkOrder). Use cases:
+ *   - Operator closed the cycle off-system (paper inspection, ad-hoc check)
+ *     and wants the schedule's lastExecutedDate / executionCount /
+ *     nextDueDate to reflect reality.
+ *   - METER_BASED schedules where a fresh meter reading needs to land on
+ *     the schedule alongside completion.
+ *
+ * Backend resolver: `completeMaintenance(input: CompleteMaintenanceInput!): MaintenanceSchedule`
+ * (apps/farm-service/src/maintenance/resolvers/maintenance-schedule.resolver.ts:304).
+ *
+ * IMPORTANT: do NOT chain this with `useCompleteWorkOrder` for the same
+ * cycle — `completeWorkOrder` already calls `schedule.markCompleted()` in
+ * a transaction, so calling both would double-count `executionCount` and
+ * `metrics.totalExecutions`. This hook is for the schedule-only path.
+ */
+export function useCompleteMaintenance() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
+
+  return useMutation({
+    mutationFn: async (input: CompleteMaintenanceInput) => {
+      const mutation = `
+        mutation CompleteMaintenance($input: CompleteMaintenanceInput!) {
+          completeMaintenance(input: $input) {
+            ${MAINTENANCE_SCHEDULE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ completeMaintenance: MaintenanceSchedule }>(
+        mutation,
+        { input }
+      );
+
+      return result.completeMaintenance;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+    },
+  });
+}
+
+/**
+ * Sweep all ACTIVE schedules with `autoGenerateWorkOrder=true` and
+ * generate WorkOrders for any whose `nextDueDate` falls within each
+ * schedule's `generateDaysBefore` window AND don't already have an
+ * open WO for that due date.
+ *
+ * Backend resolver: `processAutoGenerateWorkOrders(): [WorkOrder!]!`
+ * (apps/farm-service/src/maintenance/resolvers/maintenance-schedule.resolver.ts:344).
+ * The service is idempotent — repeat calls within the same window
+ * won't create duplicates because it compares (scheduleId, dueDate)
+ * against existing work orders.
+ *
+ * Returns the array of NEWLY created work orders (possibly empty).
+ *
+ * Permission: TENANT_ADMIN only. The UI gates this behind a typed-
+ * confirmation modal because one click can fan out into dozens of
+ * work orders, each triggering assignments + alerts. The backend
+ * `@Roles` decorator is the authoritative gate; the typed-confirm is
+ * a UX guard against fat-finger clicks (the operator must literally
+ * type "OLUŞTUR" before the action fires).
+ */
+export function useProcessAutoGenerateWorkOrders() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
+
+  return useMutation({
+    mutationFn: async () => {
+      const mutation = `
+        mutation ProcessAutoGenerateWorkOrders {
+          processAutoGenerateWorkOrders {
+            ${WORK_ORDER_FIELDS}
+          }
+        }
+      `;
+      const result = await graphqlClient.request<{
+        processAutoGenerateWorkOrders: WorkOrder[];
+      }>(mutation, {});
+      return result.processAutoGenerateWorkOrders;
+    },
+    onSuccess: (data) => {
+      // Skip the cache invalidation if the sweep created nothing — no
+      // server-side state changed.
+      if (data.length === 0) return;
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+    },
+  });
+}
+
+/**
+ * Generate a one-off WorkOrder from an ACTIVE MaintenanceSchedule.
+ *
+ * Backend resolver: `generateWorkOrderFromSchedule(scheduleId: ID!): WorkOrder`
+ * (apps/farm-service/src/maintenance/resolvers/maintenance-schedule.resolver.ts).
+ * The service rejects non-ACTIVE schedules with a 400 — UI also pre-checks
+ * via `useCanMutate('generateWorkOrderFromSchedule')` and a status guard.
+ *
+ * Cache invalidation:
+ *   - Work order list / statistics (new row appears)
+ *   - Schedule list + detail (lastGeneratedAt / nextDueDate may shift)
+ */
+export function useGenerateWorkOrderFromSchedule() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
+
+  return useMutation({
+    mutationFn: async (scheduleId: string) => {
+      const mutation = `
+        mutation GenerateWorkOrderFromSchedule($scheduleId: ID!) {
+          generateWorkOrderFromSchedule(scheduleId: $scheduleId) {
+            ${WORK_ORDER_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ generateWorkOrderFromSchedule: WorkOrder }>(
+        mutation,
+        { scheduleId }
+      );
+
+      return result.generateWorkOrderFromSchedule;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      if (data.maintenanceScheduleId) {
+        queryClient.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.maintenanceScheduleId),
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+    },
+  });
+}
+
+/**
+ * Update the current meter reading on a METER_BASED maintenance
+ * schedule. Used between maintenance events for walk-around meter
+ * captures — distinct from `useCompleteMaintenance`, which uses the
+ * meter reading as part of closing a cycle.
+ *
+ * Backend resolver: `updateMeterReading(input: UpdateMeterReadingInput!): MaintenanceSchedule`
+ * (apps/farm-service/src/maintenance/resolvers/maintenance-schedule.resolver.ts:319).
+ * The service rejects non-METER_BASED schedules with a 400 — UI also
+ * pre-checks via the row's `recurrenceRule.type`.
+ */
+export interface UpdateMeterReadingInput {
+  id: string;
+  meterReading: number;
+}
+
+export function useUpdateMeterReading() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
+
+  return useMutation({
+    mutationFn: async (input: UpdateMeterReadingInput) => {
+      const mutation = `
+        mutation UpdateMeterReading($input: UpdateMeterReadingInput!) {
+          updateMeterReading(input: $input) {
+            ${MAINTENANCE_SCHEDULE_FIELDS}
+          }
+        }
+      `;
+      const result = await graphqlClient.request<{
+        updateMeterReading: MaintenanceSchedule;
+      }>(mutation, { input });
+      return result.updateMeterReading;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }

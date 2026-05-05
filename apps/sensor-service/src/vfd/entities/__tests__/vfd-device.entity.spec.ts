@@ -2,7 +2,13 @@
  * VFD Device Entity Unit Tests
  */
 
-import { VfdDevice, VfdConnectionStatus, ModbusRtuConfiguration, ModbusTcpConfiguration } from '../vfd-device.entity';
+import {
+  VfdDevice,
+  VfdConnectionStatus,
+  ModbusRtuConfiguration,
+  ModbusTcpConfiguration,
+  VfdProtocolConfiguration,
+} from '../vfd-device.entity';
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../vfd.enums';
 
 describe('VfdDevice Entity', () => {
@@ -63,12 +69,20 @@ describe('VfdDevice Entity', () => {
       };
 
       device.protocol = VfdProtocol.MODBUS_RTU;
-      device.protocolConfiguration = config;
+      // The entity column type is `VfdProtocolConfiguration &
+      // Record<string, unknown>` — the index-signature intersection
+      // accommodates protocol-specific fields not in the static
+      // union. The strict ModbusRtuConfiguration value satisfies
+      // VfdProtocolConfiguration but lacks the index signature; a
+      // single-line cast at the assignment boundary is the right
+      // place to paper over the JSON column's looser shape vs the
+      // discriminated-union runtime contract.
+      device.protocolConfiguration = config as VfdProtocolConfiguration & Record<string, unknown>;
 
       expect(device.protocol).toBe(VfdProtocol.MODBUS_RTU);
       expect(device.protocolConfiguration).toEqual(config);
-      expect((device.protocolConfiguration).serialPort).toBe('COM1');
-      expect((device.protocolConfiguration).slaveId).toBe(1);
+      expect((device.protocolConfiguration as ModbusRtuConfiguration).serialPort).toBe('COM1');
+      expect((device.protocolConfiguration as ModbusRtuConfiguration).slaveId).toBe(1);
     });
 
     it('should set Modbus TCP configuration', () => {
@@ -81,11 +95,11 @@ describe('VfdDevice Entity', () => {
       };
 
       device.protocol = VfdProtocol.MODBUS_TCP;
-      device.protocolConfiguration = config;
+      device.protocolConfiguration = config as VfdProtocolConfiguration & Record<string, unknown>;
 
       expect(device.protocol).toBe(VfdProtocol.MODBUS_TCP);
-      expect((device.protocolConfiguration).host).toBe('192.168.1.100');
-      expect((device.protocolConfiguration).port).toBe(502);
+      expect((device.protocolConfiguration as ModbusTcpConfiguration).host).toBe('192.168.1.100');
+      expect((device.protocolConfiguration as ModbusTcpConfiguration).port).toBe(502);
     });
 
     it('should support all protocol types', () => {
@@ -222,8 +236,11 @@ describe('VfdDevice Entity', () => {
       device.customRegisterMappings = customMappings;
 
       expect(device.customRegisterMappings).toHaveLength(1);
-      expect(device.customRegisterMappings[0].parameterName).toBe('custom_param');
-      expect(device.customRegisterMappings[0].registerAddress).toBe(1000);
+      // strictNullChecks: array index returns `T | undefined`; the
+      // toHaveLength assertion above narrows logically. `!` is safe
+      // because the length expectation guarantees the index.
+      expect(device.customRegisterMappings![0]!.parameterName).toBe('custom_param');
+      expect(device.customRegisterMappings![0]!.registerAddress).toBe(1000);
     });
   });
 
@@ -235,8 +252,8 @@ describe('VfdDevice Entity', () => {
         technician: 'John Doe',
       };
 
-      expect(device.metadata.installDate).toBe('2024-01-15');
-      expect(device.metadata.technician).toBe('John Doe');
+      expect(device.metadata['installDate']).toBe('2024-01-15');
+      expect(device.metadata['technician']).toBe('John Doe');
     });
   });
 

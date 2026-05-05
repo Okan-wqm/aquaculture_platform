@@ -107,11 +107,11 @@ describe('SpeciesSeederService', () => {
       const row = call[0] as Species;
       byCode[row.code] = row;
     }
-    expect(byCode.ATLANTIC_SALMON!.isCleanerFish).toBe(false);
-    expect(byCode.ATLANTIC_SALMON!.cleanerFishType).toBeUndefined();
-    expect(byCode.LUMPFISH!.isCleanerFish).toBe(true);
-    expect(byCode.LUMPFISH!.cleanerFishType).toBe('lumpfish');
-    expect(byCode.BALLAN_WRASSE!.isCleanerFish).toBe(true);
-    expect(byCode.BALLAN_WRASSE!.cleanerFishType).toBe('wrasse');
+    expect(byCode['ATLANTIC_SALMON']!.isCleanerFish).toBe(false);
+    expect(byCode['ATLANTIC_SALMON']!.cleanerFishType).toBeUndefined();
+    expect(byCode['LUMPFISH']!.isCleanerFish).toBe(true);
+    expect(byCode['LUMPFISH']!.cleanerFishType).toBe('lumpfish');
+    expect(byCode['BALLAN_WRASSE']!.isCleanerFish).toBe(true);
+    expect(byCode['BALLAN_WRASSE']!.cleanerFishType).toBe('wrasse');
   });
 });

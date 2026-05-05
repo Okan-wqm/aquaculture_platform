@@ -66,9 +66,12 @@ describe('ProvisioningSagaService', () => {
 
       expect(result.success).toBe(true);
       expect(result.steps).toHaveLength(1);
-      expect(result.steps[0].name).toBe('fast_step');
-      expect(result.steps[0].status).toBe('completed');
-      expect(result.steps[0].duration).toBeGreaterThanOrEqual(0);
+      // `!` is safe after toHaveLength(1) narrows the array — but
+      // strict-tsc with noUncheckedIndexedAccess can't follow the
+      // narrowing through the matcher boundary.
+      expect(result.steps[0]!.name).toBe('fast_step');
+      expect(result.steps[0]!.status).toBe('completed');
+      expect(result.steps[0]!.duration).toBeGreaterThanOrEqual(0);
     });
 
     it('should return success when no steps are added', async () => {
@@ -158,10 +161,10 @@ describe('ProvisioningSagaService', () => {
       const result = await saga.run();
 
       expect(result.steps).toHaveLength(2);
-      expect(result.steps[0].status).toBe('compensated');
-      expect(result.steps[1].name).toBe('failing_step');
-      expect(result.steps[1].status).toBe('failed');
-      expect(result.steps[1].error).toBe('boom');
+      expect(result.steps[0]!.status).toBe('compensated');
+      expect(result.steps[1]!.name).toBe('failing_step');
+      expect(result.steps[1]!.status).toBe('failed');
+      expect(result.steps[1]!.error).toBe('boom');
     });
   });
 
@@ -235,7 +238,7 @@ describe('ProvisioningSagaService', () => {
         'compensate_1',
       ]);
       expect(result.compensationErrors).toHaveLength(1);
-      expect(result.compensationErrors[0].step).toBe('step_2');
+      expect(result.compensationErrors[0]!.step).toBe('step_2');
     });
 
     it('should mark steps with failed compensation as "compensation_failed"', async () => {
@@ -252,8 +255,8 @@ describe('ProvisioningSagaService', () => {
 
       const result = await saga.run();
 
-      expect(result.steps[0].status).toBe('compensation_failed');
-      expect(result.steps[1].status).toBe('failed');
+      expect(result.steps[0]!.status).toBe('compensation_failed');
+      expect(result.steps[1]!.status).toBe('failed');
     });
   });
 

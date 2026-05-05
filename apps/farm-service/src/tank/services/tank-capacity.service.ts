@@ -172,15 +172,15 @@ export class TankCapacityService {
     const specs = (equipment.specifications ?? {}) as Record<string, unknown>;
 
     const tankVolumeM3 = Number(
-      specs.waterVolume ||
-        specs.effectiveVolume ||
-        specs.volume ||
+      specs['waterVolume'] ||
+        specs['effectiveVolume'] ||
+        specs['volume'] ||
         equipment.volume ||
         0,
     );
-    const maxBiomassKg = Number(specs.maxBiomass || 0);
+    const maxBiomassKg = Number(specs['maxBiomass'] || 0);
     const maxDensityKgM3 = Number(
-      specs.maxDensity || DEFAULT_MAX_DENSITY_KG_M3,
+      specs['maxDensity'] || DEFAULT_MAX_DENSITY_KG_M3,
     );
 
     const currentBiomassKg =
@@ -201,7 +201,7 @@ export class TankCapacityService {
     // - status must be in the stocking-allowed set
     const hasTankShape =
       equipment.isTank ||
-      Boolean(specs.maxBiomass || specs.maxDensity || specs.volume);
+      Boolean(specs['maxBiomass'] || specs['maxDensity'] || specs['volume']);
     const statusOk = STATUSES_ALLOWED_FOR_STOCKING.has(equipment.status);
     const isStatusBlocked = !hasTankShape || !statusOk;
 

@@ -52,7 +52,23 @@ None for PR-A. Pending decisions are tracked in `PLAN.md` § Açık Karar.
 
 ### PR-B: Baseline Ölçüm (BLOCKING for Faz 2)
 
-Not started yet. Will create a separate branch `agentic-rust-faz0-baseline` once PR-A is merged. Output lands at `docs/perf/baseline-2026-04.md`.
+In flight on branch `agentic-rust-faz0b-baseline` (stacked on `agentic-rust-faz0`).
+
+| Stage | Commit | Status | Notes |
+|---|---|---|---|
+| 1. `tools/scripts/perf-baseline.ts` load generator | _this commit_ | 🔄 in progress | Single-process Node 22 type-stripping MQTT publisher. Paced via `process.hrtime.bigint()` — no `setInterval` drift. Synthesises 50 tenants × 200 sensors × 10 channels (configurable). Embeds `producerTs` so latency is measurable from the DB. Optional Prometheus snapshot before/after. Outputs JSON report under `docs/perf/runs/` (gitignored — markdown summary is the durable artefact). |
+| 2. `docs/perf/baseline-2026-04.md` runbook + result template | _this commit_ | 🔄 in progress | Locks the measurement protocol (rig, knobs, run order, latency SQL, GC capture, container-stats capture). Result table is **TBD** until first execution; karar-gate verdict matrix is wired in so the operator pastes numbers and the doc tells them whether Faz 2 priority changes. |
+| 3. `.gitignore` entry for `docs/perf/runs/` | _this commit_ | 🔄 in progress | Per-run JSON reports must not pollute git history. |
+
+#### Gate Check (Faz 0 PR-B done = all of)
+- [x] `tools/scripts/perf-baseline.ts` exists and runs end-to-end against a localhost broker (smoke verified at write-time; full integration run is operator-side once the stack is up)
+- [x] `docs/perf/baseline-2026-04.md` documents the protocol so any operator can reproduce a run from a clean checkout
+- [ ] At least one full run captured for each of 1K / 5K / 10K / 15K msg/s tiers (BLOCKING for Faz 2 — operator-side; PR-B can merge before this row is checked, but Faz 2 cannot start)
+- [ ] Karar-gate verdict recorded in `baseline-2026-04.md` § Karar gate verdict (BLOCKING — same reason)
+
+> Stages 1-3 land the **tooling**. The numbered tier runs and the verdict
+> are operator deliverables that follow merge — they are tracked here so
+> nothing slips.
 
 ---
 

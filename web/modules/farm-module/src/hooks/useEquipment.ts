@@ -329,6 +329,7 @@ const EQUIPMENT_DELETE_PREVIEW_QUERY = `
 export function useEquipmentList(filter?: {
   departmentId?: string;
   siteId?: string;
+  systemId?: string;
   equipmentTypeId?: string;
   status?: string;
   isActive?: boolean;

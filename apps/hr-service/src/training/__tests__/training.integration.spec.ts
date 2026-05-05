@@ -79,7 +79,7 @@ describe('Training Module Integration Tests', () => {
     requiresAssessment: false,
     passingScore: 70,
     maxAttempts: 3,
-    durationHours: 8,
+    durationMinutes: 480,
     isDeleted: false,
     ...overrides,
   });
@@ -103,7 +103,7 @@ describe('Training Module Integration Tests', () => {
     name: 'Aquaculture Safety Certification',
     code: 'ASC-001',
     issuingAuthority: 'Aquaculture Standards Board',
-    validityPeriodMonths: 24,
+    validityMonths: 24,
     renewalReminderDays: 60,
     isActive: true,
     isDeleted: false,
@@ -376,7 +376,7 @@ describe('Training Module Integration Tests', () => {
         expect(result.finalScore).toBe(85);
         expect(result.attemptCount).toBe(1);
         expect(result.assessmentAttempts).toHaveLength(1);
-        expect(result.assessmentAttempts![0].passed).toBe(true);
+        expect(result.assessmentAttempts![0]!.passed).toBe(true);
         expect(eventBus.publish).toHaveBeenCalled();
       });
 

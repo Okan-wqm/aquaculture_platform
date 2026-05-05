@@ -38,7 +38,13 @@ describe('VfdCommandService', () => {
     name: 'Test VFD',
     brand: VfdBrand.DANFOSS,
     protocol: VfdProtocol.MODBUS_TCP,
-    protocolConfiguration: { host: '192.168.1.100', port: 502, unitId: 1 },
+    protocolConfiguration: {
+      host: '192.168.1.100',
+      port: 502,
+      unitId: 1,
+      connectionTimeout: 3000,
+      responseTimeout: 1000,
+    },
     status: VfdDeviceStatus.ACTIVE,
     tenantId,
     connectionStatus: { isConnected: true },
@@ -256,18 +262,26 @@ describe('VfdCommandService', () => {
   });
 
   describe('brand-specific commands', () => {
-    it('should use Danfoss-specific command values', async () => {
+    // The previous API exposed a `getCommandValue(brand, commandType)`
+    // method on VfdRegisterMappingService that derived the wire value
+    // for a given brand+command pair. That method was removed when
+    // VfdCommandService inlined the derivation — see
+    // vfd-command.service.ts:169 (`getControlWordMapping(brand)` is
+    // the surviving brand-aware call). The brand-aware behaviour is
+    // now exercised through `getControlWordMapping` which is what
+    // the command path actually calls.
+
+    it('should use Danfoss-specific control-word mapping', async () => {
       const command: VfdCommandInput = { command: VfdCommandType.START };
 
       await service.executeCommand('device-123', tenantId, command);
 
-      expect(registerMappingService.getCommandValue).toHaveBeenCalledWith(
+      expect(registerMappingService.getControlWordMapping).toHaveBeenCalledWith(
         VfdBrand.DANFOSS,
-        VfdCommandType.START
       );
     });
 
-    it('should handle different brand command mappings', async () => {
+    it('should use ABB-specific control-word mapping for ABB device', async () => {
       const abbDevice = { ...mockDevice, brand: VfdBrand.ABB };
       deviceService.findById.mockResolvedValueOnce(abbDevice as VfdDevice);
 
@@ -275,9 +289,8 @@ describe('VfdCommandService', () => {
 
       await service.executeCommand('device-123', tenantId, command);
 
-      expect(registerMappingService.getCommandValue).toHaveBeenCalledWith(
+      expect(registerMappingService.getControlWordMapping).toHaveBeenCalledWith(
         VfdBrand.ABB,
-        VfdCommandType.START
       );
     });
   });

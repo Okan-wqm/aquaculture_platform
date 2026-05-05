@@ -2,6 +2,10 @@
  * Unit tests for tools/aqua-ctl/aqua-ctl.ts. Exercises the parser +
  * in-memory runDriftBypass path — no real DB connection, no pg driver.
  */
+
+// `export {}` keeps strict-tsc treating this file as a MODULE so its
+// top-level declarations stay file-scoped (PROC-MEDIUM-010 invariant).
+export {};
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const {
   parseTtl,

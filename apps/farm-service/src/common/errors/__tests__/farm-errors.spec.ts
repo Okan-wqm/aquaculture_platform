@@ -170,13 +170,13 @@ describe('FarmAppErrorFilter', () => {
     const out = filter.catch(err, makeGqlHost({ correlationId: 'corr-123' }));
     expect(out).toBeInstanceOf(GraphQLError);
     expect(out.message).toBe('Active withdrawal');
-    expect(out.extensions?.code).toBe('BATCH_WITHDRAWAL_BLOCKED');
-    expect(out.extensions?.userMessage).toBe('Active withdrawal');
-    expect(out.extensions?.fieldPath).toEqual(['closeBatch', 'id']);
-    expect(out.extensions?.retryable).toBe(false);
-    expect(out.extensions?.statusCode).toBe(HttpStatus.BAD_REQUEST);
-    expect(out.extensions?.correlationId).toBe('corr-123');
-    expect(out.extensions?.context).toEqual({
+    expect(out.extensions?.['code']).toBe('BATCH_WITHDRAWAL_BLOCKED');
+    expect(out.extensions?.['userMessage']).toBe('Active withdrawal');
+    expect(out.extensions?.['fieldPath']).toEqual(['closeBatch', 'id']);
+    expect(out.extensions?.['retryable']).toBe(false);
+    expect(out.extensions?.['statusCode']).toBe(HttpStatus.BAD_REQUEST);
+    expect(out.extensions?.['correlationId']).toBe('corr-123');
+    expect(out.extensions?.['context']).toEqual({
       activeTreatments: [
         {
           eventCode: 'HE-1',
@@ -195,7 +195,7 @@ describe('FarmAppErrorFilter', () => {
       backdateContext: 'feeding',
     });
     const out = filter.catch(err, makeGqlHost({}));
-    expect(out.extensions?.correlationId).toBeUndefined();
+    expect(out.extensions?.['correlationId']).toBeUndefined();
   });
 
   it('re-throws for non-graphql context so HTTP chain is preserved', () => {

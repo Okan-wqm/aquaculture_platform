@@ -1,10 +1,14 @@
-export { EventUpcaster, EventUpcasterRegistry } from './event-upcaster';
+export { EventUpcasterRegistry } from './event-upcaster';
+// EventUpcaster is an interface — `export type` under isolatedModules.
+export type { EventUpcaster } from './event-upcaster';
 export { sensorReadingUpcaster } from './sensor-reading.upcaster';
+export { sensorReadingV2ToV3Upcaster } from './sensor-reading-v2-to-v3.upcaster';
 export { alertTriggeredUpcaster } from './alert-triggered.upcaster';
 export { createTimestampUpcaster } from './timestamp-to-string.upcaster';
 
 import { EventUpcasterRegistry } from './event-upcaster';
 import { sensorReadingUpcaster } from './sensor-reading.upcaster';
+import { sensorReadingV2ToV3Upcaster } from './sensor-reading-v2-to-v3.upcaster';
 import { alertTriggeredUpcaster } from './alert-triggered.upcaster';
 import { createTimestampUpcaster } from './timestamp-to-string.upcaster';
 
@@ -37,6 +41,11 @@ export function createDefaultRegistry(): EventUpcasterRegistry {
 
   // Existing structural upcasters (nested → flat)
   registry.register(sensorReadingUpcaster);
+  // Scope B Phase S1.1 — additive optional federation correlation
+  // axes (tankId, parameter, unit, relatedWaterQualityMeasurementId).
+  // Pure version bump; chains after the v1→v2 rename so v1 events pick
+  // up both transforms.
+  registry.register(sensorReadingV2ToV3Upcaster);
   registry.register(alertTriggeredUpcaster);
 
   // Timestamp + aggregateId version bump upcasters (v1→v2)

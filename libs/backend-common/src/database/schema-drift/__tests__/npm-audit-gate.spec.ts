@@ -3,6 +3,10 @@
  * parseArgs + summarize + runCheck entry points with synthetic
  * NpmAuditReport fixtures — no real `npm audit` subprocess.
  */
+// `export {}` keeps strict-tsc treating this file as a MODULE (see
+// gha-sha-pin-gate.spec.ts header for the rationale). Surfaced by
+// PR-29 (PROC-MEDIUM-007 ratchet).
+export {};
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const {
   parseArgs,

@@ -13,8 +13,9 @@ import { GraphQLJSON } from 'graphql-scalars';
 import { VfdBrand, VfdParameterCategory, VfdDataType, ByteOrder } from './vfd.enums';
 import { BitDefinition } from './vfd.types';
 
-// Re-export types for backwards compatibility
-export { BitDefinition, VfdRegisterMappingInput } from './vfd.types';
+// Re-export types for backwards compatibility (isolatedModules requires
+// the `type` modifier on type-only re-exports).
+export type { BitDefinition, VfdRegisterMappingInput } from './vfd.types';
 
 /**
  * VFD Register Mapping Entity

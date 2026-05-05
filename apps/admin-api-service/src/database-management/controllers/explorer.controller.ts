@@ -1031,14 +1031,14 @@ export class DatabaseExplorerController {
     `, [schema, table]);
 
     return columns.map((col: Record<string, unknown>) => ({
-      columnName: col.column_name as string,
-      dataType: col.data_type as string,
-      isNullable: col.is_nullable as boolean,
-      columnDefault: col.column_default as string | null,
-      isPrimaryKey: col.is_primary_key as boolean,
-      isForeignKey: col.is_foreign_key as boolean,
-      foreignKeyTable: col.foreign_table_name as string | undefined,
-      foreignKeyColumn: col.foreign_column_name as string | undefined,
+      columnName: col['column_name'] as string,
+      dataType: col['data_type'] as string,
+      isNullable: col['is_nullable'] as boolean,
+      columnDefault: col['column_default'] as string | null,
+      isPrimaryKey: col['is_primary_key'] as boolean,
+      isForeignKey: col['is_foreign_key'] as boolean,
+      foreignKeyTable: col['foreign_table_name'] as string | undefined,
+      foreignKeyColumn: col['foreign_column_name'] as string | undefined,
     }));
   }
 

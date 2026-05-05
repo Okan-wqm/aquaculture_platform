@@ -141,15 +141,15 @@ describe('Error Response Format Consistency', () => {
   ) {
     expect(body).toHaveProperty('statusCode', expectedStatus);
     expect(body).toHaveProperty('message');
-    expect(typeof body.message).toBe('string');
+    expect(typeof body['message']).toBe('string');
     expect(body).toHaveProperty('error');
-    expect(typeof body.error).toBe('string');
+    expect(typeof body['error']).toBe('string');
     expect(body).toHaveProperty('timestamp');
-    expect(typeof body.timestamp).toBe('string');
+    expect(typeof body['timestamp']).toBe('string');
     // Timestamp should be ISO 8601
-    expect(new Date(body.timestamp as string).toISOString()).toBe(body.timestamp);
+    expect(new Date(body['timestamp'] as string).toISOString()).toBe(body['timestamp']);
     expect(body).toHaveProperty('path');
-    expect(typeof body.path).toBe('string');
+    expect(typeof body['path']).toBe('string');
   }
 
   describe('Standard HTTP exception responses', () => {

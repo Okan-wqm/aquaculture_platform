@@ -113,7 +113,7 @@ export interface HealthControllerOptions {
 @SkipThrottle()
 export class StandardHealthController {
   protected serviceName = 'service';
-  protected version: string = process.env.APP_VERSION || '0.0.0';
+  protected version: string = process.env['APP_VERSION'] || '0.0.0';
 
   private _logger?: Logger;
 

@@ -9,8 +9,13 @@
  * allow employees to approve their own salary records.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { EventBus } from '@nestjs/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, QueryRunner, EntityManager, Repository } from 'typeorm';
+// CRITICAL-002 fix migrated approve-payroll from EventBus.publish() (post-
+// commit, fire-and-forget) to OutboxPublisher.enqueue() (transactional
+// outbox INSERT joining the same transaction as the domain write). Spec
+// was still mocking EventBus.publish — strict-tsc surfaced the contract
+// drift in PR-34 of the PROC-MEDIUM-007 ratchet.
 
 import { ApprovePayrollCommand } from '../../commands/approve-payroll.command';
 import { ApprovePayrollHandler } from '../../handlers/approve-payroll.handler';
@@ -70,14 +75,14 @@ const buildMockQueryRunner = (overrides?: {
 describe('ApprovePayrollHandler', () => {
   let handler: ApprovePayrollHandler;
   let mockDataSource: Partial<DataSource>;
-  let mockEventBus: Partial<EventBus>;
+  let mockOutboxPublisher: Partial<OutboxPublisher>;
 
   const tenantId = 'tenant-uuid-001';
   const approverId = 'approver-user-001'; // different from createdBy
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockEventBus = { publish: jest.fn().mockResolvedValue(undefined) };
+    mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
   });
 
   it('approves payroll, commits transaction, and publishes PayrollProcessedEvent', async () => {
@@ -85,12 +90,12 @@ describe('ApprovePayrollHandler', () => {
     const { mockQR } = buildMockQueryRunner({ findOneResult: payroll });
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new ApprovePayrollCommand(tenantId, 'payroll-uuid-001', approverId);
     const result = await handler.execute(command);
 
     expect(mockQR.commitTransaction).toHaveBeenCalled();
-    expect(mockEventBus.publish).toHaveBeenCalled();
+    expect(mockOutboxPublisher.enqueue).toHaveBeenCalled();
   });
 
   it('throws BadRequestException when approver is the creator (self-approval prevention)', async () => {
@@ -100,13 +105,13 @@ describe('ApprovePayrollHandler', () => {
     const { mockQR } = buildMockQueryRunner({ findOneResult: payroll });
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new ApprovePayrollCommand(tenantId, 'payroll-uuid-001', creatorId);
 
     await expect(handler.execute(command)).rejects.toThrow(BadRequestException);
     expect(mockQR.rollbackTransaction).toHaveBeenCalled();
     // No event when self-approval was blocked
-    expect(mockEventBus.publish).not.toHaveBeenCalled();
+    expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
   });
 
   it('throws BadRequestException when payroll status is APPROVED (already processed)', async () => {
@@ -114,7 +119,7 @@ describe('ApprovePayrollHandler', () => {
     const { mockQR } = buildMockQueryRunner({ findOneResult: payroll });
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new ApprovePayrollCommand(tenantId, 'payroll-uuid-001', approverId);
 
     await expect(handler.execute(command)).rejects.toThrow(BadRequestException);
@@ -125,7 +130,7 @@ describe('ApprovePayrollHandler', () => {
     const { mockQR } = buildMockQueryRunner({ findOneResult: payroll });
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new ApprovePayrollCommand(tenantId, 'payroll-uuid-001', approverId);
 
     await expect(handler.execute(command)).rejects.toThrow(BadRequestException);
@@ -135,7 +140,7 @@ describe('ApprovePayrollHandler', () => {
     const { mockQR } = buildMockQueryRunner({ findOneResult: null });
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new ApprovePayrollCommand(tenantId, 'non-existent-id', approverId);
 
     await expect(handler.execute(command)).rejects.toThrow(NotFoundException);
@@ -146,7 +151,7 @@ describe('ApprovePayrollHandler', () => {
     const { mockQR } = buildMockQueryRunner({ findOneResult: payroll });
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new ApprovePayrollCommand(tenantId, 'payroll-uuid-001', approverId);
 
     await expect(handler.execute(command)).resolves.toBeDefined();
@@ -156,7 +161,7 @@ describe('ApprovePayrollHandler', () => {
     const { mockQR } = buildMockQueryRunner({ findOneResult: null });
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new ApprovePayrollHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new ApprovePayrollCommand(tenantId, 'non-existent-id', approverId);
 
     await expect(handler.execute(command)).rejects.toThrow();

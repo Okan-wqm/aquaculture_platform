@@ -103,15 +103,15 @@ describe('UpdateHarvestRecordHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('HarvestRecordUpdated');
-    expect(event.harvestRecordId).toBe('hr-1');
-    expect(event.batchId).toBe('batch-1');
-    expect(event.changedFields).toEqual(
+    expect(event['eventType']).toBe('HarvestRecordUpdated');
+    expect(event['harvestRecordId']).toBe('hr-1');
+    expect(event['batchId']).toBe('batch-1');
+    expect(event['changedFields']).toEqual(
       expect.arrayContaining(['status', 'quantityHarvested', 'totalBiomass']),
     );
-    expect(event.newQuantityHarvested).toBe(600);
-    expect(event.newTotalBiomass).toBe(1800);
-    expect(event.newStatus).toBe(HarvestRecordStatus.COMPLETED);
+    expect(event['newQuantityHarvested']).toBe(600);
+    expect(event['newTotalBiomass']).toBe(1800);
+    expect(event['newStatus']).toBe(HarvestRecordStatus.COMPLETED);
 
     expect(commit).toHaveBeenCalledTimes(1);
   });
@@ -122,9 +122,9 @@ describe('UpdateHarvestRecordHandler — transactional outbox', () => {
     await handler.execute(makeCommand({ notes: 'reviewed by supervisor' }));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.changedFields).toEqual(['notes']);
-    expect(event.newQuantityHarvested).toBe(500);
-    expect(event.newTotalBiomass).toBe(1500);
+    expect(event['changedFields']).toEqual(['notes']);
+    expect(event['newQuantityHarvested']).toBe(500);
+    expect(event['newTotalBiomass']).toBe(1500);
   });
 
   it('no fields supplied: changedFields is empty but event still fires (audit)', async () => {
@@ -134,7 +134,7 @@ describe('UpdateHarvestRecordHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.changedFields).toEqual([]);
+    expect(event['changedFields']).toEqual([]);
   });
 
   it('outbox enqueue failure rolls back the row save', async () => {

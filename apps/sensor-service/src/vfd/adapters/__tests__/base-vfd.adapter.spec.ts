@@ -3,6 +3,7 @@
  */
 
 import { VfdRegisterMapping } from '../../entities/vfd-register-mapping.entity';
+import type { VfdParameters } from '../../entities/vfd-reading.entity';
 import { VfdProtocol, VfdDataType, ByteOrder } from '../../entities/vfd.enums';
 import {
   BaseVfdAdapter,
@@ -22,8 +23,14 @@ class TestVfdAdapter extends BaseVfdAdapter {
     super('TestVfdAdapter');
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async connect(): Promise<VfdConnectionHandle> {
+  // Test overrides match the base class signatures (config: Record<string, unknown>)
+  // even though the bodies don't use the config — keeping the
+  // signatures aligned lets call sites pass the same args they
+  // would in production AND surfaces base-class signature drift
+  // here at type-check time.
+
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async connect(_config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     return {
       id: this.generateConnectionId(),
       protocol: this.protocolCode,
@@ -32,13 +39,13 @@ class TestVfdAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async disconnect(): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async disconnect(_handle: VfdConnectionHandle): Promise<void> {
     // No-op for tests
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async testConnection(): Promise<ConnectionTestResult> {
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> {
     return { success: true, latencyMs: 10 };
   }
 
@@ -73,7 +80,8 @@ class TestVfdAdapter extends BaseVfdAdapter {
     return { success: true };
   }
 
-  validateConfiguration(): ValidationResult {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  validateConfiguration(_config: unknown): ValidationResult {
     return { valid: true, errors: [] };
   }
 
@@ -131,7 +139,12 @@ class TestVfdAdapter extends BaseVfdAdapter {
     return this.extractValueFromBuffer(buffer, batchStartAddress, mapping);
   }
 
-  public testMapParameterName(parameterName: string): string | null {
+  public testMapParameterName(parameterName: string): keyof VfdParameters | null {
+    // The protected method's actual return type evolved to
+    // `keyof VfdParameters | null` (narrower than `string | null`).
+    // Test exposes the ACTUAL contract so a future contract drift
+    // surfaces here at type-check time, not at the mocked test
+    // assertion.
     return this.mapParameterName(parameterName);
   }
 
@@ -361,8 +374,12 @@ describe('BaseVfdAdapter', () => {
       const result = adapter.testGroupRegistersForBatchRead(mappings as VfdRegisterMapping[]);
 
       expect(result).toHaveLength(1);
-      expect(result[0].startAddress).toBe(100);
-      expect(result[0].count).toBe(3);
+      // strictNullChecks treats result[N] as `T | undefined`; the
+      // toHaveLength assertion narrows logically not at the type
+      // level. The `!` non-null assertion is safe here because the
+      // length expectation immediately above guarantees the index.
+      expect(result[0]!.startAddress).toBe(100);
+      expect(result[0]!.count).toBe(3);
     });
 
     it('should create multiple batches for large gaps', () => {
@@ -374,8 +391,8 @@ describe('BaseVfdAdapter', () => {
       const result = adapter.testGroupRegistersForBatchRead(mappings as VfdRegisterMapping[], 10);
 
       expect(result).toHaveLength(2);
-      expect(result[0].startAddress).toBe(100);
-      expect(result[1].startAddress).toBe(200);
+      expect(result[0]!.startAddress).toBe(100);
+      expect(result[1]!.startAddress).toBe(200);
     });
 
     it('should separate batches by function code', () => {
@@ -387,8 +404,8 @@ describe('BaseVfdAdapter', () => {
       const result = adapter.testGroupRegistersForBatchRead(mappings as VfdRegisterMapping[]);
 
       expect(result).toHaveLength(2);
-      expect(result[0].functionCode).toBe(3);
-      expect(result[1].functionCode).toBe(4);
+      expect(result[0]!.functionCode).toBe(3);
+      expect(result[1]!.functionCode).toBe(4);
     });
 
     it('should respect max batch size', () => {
@@ -566,7 +583,7 @@ describe('BaseVfdAdapter', () => {
       const config = adapter.getDefaultConfiguration();
 
       expect(config).toBeDefined();
-      expect(config.port).toBe(502);
+      expect(config['port']).toBe(502);
     });
   });
 });

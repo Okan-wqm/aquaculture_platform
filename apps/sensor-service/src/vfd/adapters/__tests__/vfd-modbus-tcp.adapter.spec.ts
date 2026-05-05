@@ -140,9 +140,9 @@ describe('VfdModbusTcpAdapter', () => {
       const schema = adapter.getConfigurationSchema();
 
       expect(schema).toBeDefined();
-      expect(schema.type).toBe('object');
-      expect(schema.required).toContain('host');
-      expect(schema.properties).toBeDefined();
+      expect(schema['type']).toBe('object');
+      expect(schema['required']).toContain('host');
+      expect(schema['properties']).toBeDefined();
     });
 
     it('should include all configuration properties', () => {
@@ -150,11 +150,11 @@ describe('VfdModbusTcpAdapter', () => {
         properties: Record<string, unknown>;
       };
 
-      expect(schema.properties.host).toBeDefined();
-      expect(schema.properties.port).toBeDefined();
-      expect(schema.properties.unitId).toBeDefined();
-      expect(schema.properties.connectionTimeout).toBeDefined();
-      expect(schema.properties.responseTimeout).toBeDefined();
+      expect(schema.properties['host']).toBeDefined();
+      expect(schema.properties['port']).toBeDefined();
+      expect(schema.properties['unitId']).toBeDefined();
+      expect(schema.properties['connectionTimeout']).toBeDefined();
+      expect(schema.properties['responseTimeout']).toBeDefined();
     });
   });
 
@@ -162,10 +162,10 @@ describe('VfdModbusTcpAdapter', () => {
     it('should return default values', () => {
       const defaults = adapter.getDefaultConfiguration();
 
-      expect(defaults.port).toBe(502);
-      expect(defaults.unitId).toBe(1);
-      expect(defaults.connectionTimeout).toBeDefined();
-      expect(defaults.responseTimeout).toBeDefined();
+      expect(defaults['port']).toBe(502);
+      expect(defaults['unitId']).toBe(1);
+      expect(defaults['connectionTimeout']).toBeDefined();
+      expect(defaults['responseTimeout']).toBeDefined();
     });
   });
 
@@ -195,7 +195,7 @@ describe('VfdModbusTcpAdapter', () => {
       const handle = await adapter.connect(config);
 
       expect(handle.metadata).toBeDefined();
-      expect(handle.metadata?.host).toBe('192.168.1.100');
+      expect(handle.metadata?.['host']).toBe('192.168.1.100');
     });
 
     it('should handle connection error', async () => {

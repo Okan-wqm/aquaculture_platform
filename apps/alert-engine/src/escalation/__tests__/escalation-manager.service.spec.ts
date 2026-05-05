@@ -581,9 +581,9 @@ describe('EscalationManagerService', () => {
       const metrics = await service.getEscalationMetrics('incident-1');
 
       expect(metrics).toBeDefined();
-      expect(metrics?.incidentId).toBe('incident-1');
-      expect(metrics?.currentLevel).toBe(1);
-      expect(metrics?.notifications).toBeDefined();
+      expect(metrics?.['incidentId']).toBe('incident-1');
+      expect(metrics?.['currentLevel']).toBe(1);
+      expect(metrics?.['notifications']).toBeDefined();
     });
 
     it('should return null for non-existent incident', async () => {
@@ -604,7 +604,7 @@ describe('EscalationManagerService', () => {
 
       const metrics = await service.getEscalationMetrics('incident-1');
 
-      expect((metrics?.notifications as any).total).toBe(1);
+      expect((metrics?.['notifications'] as any).total).toBe(1);
     });
   });
 
@@ -669,9 +669,9 @@ describe('EscalationManagerService', () => {
 
       const stats = await service.getStatistics();
 
-      expect(stats.total).toBe(1);
-      expect(stats.active).toBe(1);
-      expect(stats.completed).toBe(0);
+      expect(stats['total']).toBe(1);
+      expect(stats['active']).toBe(1);
+      expect(stats['completed']).toBe(0);
     });
 
     it('should track acknowledged escalations', async () => {
@@ -680,7 +680,7 @@ describe('EscalationManagerService', () => {
 
       const stats = await service.getStatistics();
 
-      expect(stats.acknowledged).toBe(1);
+      expect(stats['acknowledged']).toBe(1);
     });
 
     it('should track completed escalations', async () => {
@@ -689,8 +689,8 @@ describe('EscalationManagerService', () => {
 
       const stats = await service.getStatistics();
 
-      expect(stats.completed).toBe(1);
-      expect(stats.active).toBe(0);
+      expect(stats['completed']).toBe(1);
+      expect(stats['active']).toBe(0);
     });
   });
 

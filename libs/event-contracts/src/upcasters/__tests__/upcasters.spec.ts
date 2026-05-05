@@ -16,7 +16,10 @@ describe('EventUpcasterRegistry', () => {
   });
 
   it('should pass through events already at latest version', () => {
-    const event = { eventType: 'SensorReading', version: 2, sensorId: 's1', readingTemperature: 25 };
+    // v3 is the current SensorReading schema (Scope B Phase S1.1
+    // added optional federation correlation fields). A v3 event
+    // round-trips unchanged through the registry.
+    const event = { eventType: 'SensorReading', version: 3, sensorId: 's1', readingTemperature: 25 };
     expect(registry.upcast(event)).toEqual(event);
   });
 
@@ -83,7 +86,12 @@ describe('SensorReading v1→v2 upcaster', () => {
     expect(v2['version']).toBe(2);
   });
 
-  it('should round-trip through registry', () => {
+  it('should round-trip through registry to the LATEST version (v3)', () => {
+    // Round-trip through the registry walks the full chain
+    // (v1→v2→v3 — Scope B Phase S1.1 added v2→v3). A legacy v1
+    // event from JetStream lands as v3 after a single
+    // registry.upcast() call. The flattening (v1→v2) and the
+    // identity bump (v2→v3) are both applied.
     const registry = createDefaultRegistry();
     const v1 = {
       eventType: 'SensorReading',
@@ -94,7 +102,7 @@ describe('SensorReading v1→v2 upcaster', () => {
 
     const result = registry.upcast(v1);
 
-    expect(result['version']).toBe(2);
+    expect(result['version']).toBe(3);
     expect(result['readingTemperature']).toBe(22);
     expect(result['readingNitrate']).toBe(0.5);
     expect(result['readings']).toBeUndefined();
@@ -108,7 +116,11 @@ describe('SensorReading upcaster edge cases', () => {
     registry = createDefaultRegistry();
   });
 
-  it('should not re-upcast an event already at version 2', () => {
+  it('should bump v2 → v3 (Scope B Phase S1.1 federation correlation fields)', () => {
+    // v2 → v3 is an identity transform on payload — only `version`
+    // increments. The new optional fields (tankId, parameter, unit,
+    // relatedWaterQualityMeasurementId) are absent on legacy v2
+    // events; consumers tolerate their absence.
     const v2 = {
       eventType: 'SensorReading',
       version: 2,
@@ -118,10 +130,85 @@ describe('SensorReading upcaster edge cases', () => {
 
     const result = registry.upcast(v2);
 
-    expect(result['version']).toBe(2);
+    expect(result['version']).toBe(3);
     expect(result['readingTemperature']).toBe(25);
-    // Ensure no double-processing artifacts
+    expect(result['sensorId']).toBe('s1');
+    // No double-processing artefacts from the v1→v2 stage
     expect(result['readings']).toBeUndefined();
+    // No spurious v3 fields injected
+    expect(result['tankId']).toBeUndefined();
+    expect(result['parameter']).toBeUndefined();
+    expect(result['unit']).toBeUndefined();
+    expect(result['relatedWaterQualityMeasurementId']).toBeUndefined();
+  });
+
+  it('should not re-upcast an event already at version 3 (latest)', () => {
+    const v3 = {
+      eventType: 'SensorReading',
+      version: 3,
+      sensorId: 's1',
+      readingTemperature: 25,
+      tankId: 'tank-1',
+      parameter: 'temperature',
+      unit: '°C',
+    };
+
+    const result = registry.upcast(v3);
+
+    expect(result).toEqual(v3);
+  });
+
+  it('should chain v1 → v2 → v3 in one upcast call', () => {
+    // A legacy v1 event from JetStream must reach the latest v3
+    // shape after a SINGLE registry.upcast() call — the chained
+    // upcaster registry handles the multi-step walk.
+    const v1 = {
+      eventType: 'SensorReading',
+      version: 1,
+      sensorId: 's-legacy',
+      farmId: 'f-legacy',
+      readings: { temperature: 18.5, ph: 7.0 },
+    };
+
+    const result = registry.upcast(v1);
+
+    expect(result['version']).toBe(3);
+    // v1→v2: nested readings flattened
+    expect(result['readingTemperature']).toBe(18.5);
+    expect(result['readingPh']).toBe(7.0);
+    expect(result['readings']).toBeUndefined();
+    // v2→v3: identity (no spurious fields)
+    expect(result['tankId']).toBeUndefined();
+    // Surrounding fields preserved through both steps
+    expect(result['sensorId']).toBe('s-legacy');
+    expect(result['farmId']).toBe('f-legacy');
+  });
+
+  it('preserves the new v3 federation fields when present at v2 reception', () => {
+    // Edge case: a v3 producer's payload arrives stamped as
+    // `version: 2` (a misconfigured-producer scenario). The v2→v3
+    // upcaster bumps the version but DOES NOT strip the v3 fields
+    // already populated — additive optional semantics. This test
+    // pins the "no-op identity" property of the v2→v3 upcaster
+    // beyond the version bump.
+    const partial = {
+      eventType: 'SensorReading',
+      version: 2,
+      sensorId: 's1',
+      readingTemperature: 25,
+      tankId: 'tank-1',
+      parameter: 'temperature',
+      unit: '°C',
+      relatedWaterQualityMeasurementId: 'wq-1',
+    };
+
+    const result = registry.upcast(partial);
+
+    expect(result['version']).toBe(3);
+    expect(result['tankId']).toBe('tank-1');
+    expect(result['parameter']).toBe('temperature');
+    expect(result['unit']).toBe('°C');
+    expect(result['relatedWaterQualityMeasurementId']).toBe('wq-1');
   });
 
   it('should handle an unexpected version number higher than target', () => {
@@ -270,7 +357,10 @@ describe('EventUpcasterRegistry edge cases', () => {
     expect(result['version']).toBe(-1);
   });
 
-  it('should handle event with missing version field (defaults to 1)', () => {
+  it('should handle event with missing version field (defaults to 1, walks chain to v3)', () => {
+    // Missing `version` defaults to 1 in the registry, which lights
+    // up the v1→v2 upcaster; the v2→v3 (Scope B Phase S1.1) then
+    // bumps it the rest of the way.
     const registry = createDefaultRegistry();
     const event: Record<string, unknown> = {
       eventType: 'SensorReading',
@@ -280,8 +370,7 @@ describe('EventUpcasterRegistry edge cases', () => {
 
     const result = registry.upcast(event);
 
-    // Missing version defaults to 1 in the registry, which matches the v1->v2 upcaster
-    expect(result['version']).toBe(2);
+    expect(result['version']).toBe(3);
     expect(result['readingTemperature']).toBe(22);
   });
 });

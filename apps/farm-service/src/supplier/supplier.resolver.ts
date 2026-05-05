@@ -1,7 +1,7 @@
 /**
  * Supplier GraphQL Resolver
  */
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -17,8 +17,11 @@ import { PaginationInput } from '../site/dto/site-filter.input';
 import { CreateSupplierCommand } from './commands/create-supplier.command';
 import { UpdateSupplierCommand } from './commands/update-supplier.command';
 import { DeleteSupplierCommand } from './commands/delete-supplier.command';
+import { SetSupplierApprovedSitesCommand } from './commands/set-supplier-approved-sites.command';
 import { GetSupplierQuery } from './queries/get-supplier.query';
 import { ListSuppliersQuery } from './queries/list-suppliers.query';
+import { ListSupplierSitesQuery } from './queries/list-supplier-sites.query';
+import { SupplierSiteResponse } from './dto/supplier-site.response';
 import { Supplier, SupplierType } from './entities/supplier.entity';
 import { SupplierType as SupplierTypeEntity } from './entities/supplier-type.entity';
 import { RestoreService } from '../common/services/restore.service';
@@ -197,5 +200,65 @@ export class SupplierResolver {
       where: { isActive: true },
       order: { sortOrder: 'ASC', name: 'ASC' },
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // SUPPLIER ↔ SITE APPROVALS (Scope A Phase 4.4.2)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Replace the FULL set of sites a supplier is approved to deliver
+   * to. Pass an empty `siteIds` array to clear all approvals.
+   * `preferredSiteId` MUST be one of `siteIds` (or null) — orphan
+   * preferences are rejected at the handler level.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => [SupplierSiteResponse])
+  async setSupplierApprovedSites(
+    @Args('supplierId', { type: () => ID }) supplierId: string,
+    @Args('siteIds', { type: () => [ID] }) siteIds: string[],
+    @Args('preferredSiteId', { type: () => ID, nullable: true })
+    preferredSiteId: string | null,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+  ): Promise<SupplierSiteResponse[]> {
+    this.logger.log(
+      `Setting approved sites for supplier ${supplierId} (${siteIds.length} site(s))`,
+    );
+    const command = new SetSupplierApprovedSitesCommand(
+      supplierId,
+      siteIds,
+      preferredSiteId ?? null,
+      tenantId,
+      user.sub,
+    );
+    return this.commandBus.execute(command);
+  }
+
+  /**
+   * List the supplier-site approval rows for one supplier.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => [SupplierSiteResponse])
+  async supplierSites(
+    @Args('supplierId', { type: () => ID }) supplierId: string,
+    @CurrentTenant() tenantId: string,
+  ): Promise<SupplierSiteResponse[]> {
+    return this.queryBus.execute(new ListSupplierSitesQuery(supplierId, tenantId));
+  }
+
+  /**
+   * Field resolver — exposes `Supplier.approvedSites` directly on the
+   * SupplierResponse type so a single GraphQL query against
+   * `supplier(id)` can return both the supplier and its approval
+   * rows. Per-row supplier/site joins are NOT done here; clients
+   * fetch the joined Site object via the existing `site(id)` query.
+   */
+  @ResolveField(() => [SupplierSiteResponse])
+  async approvedSites(
+    @Parent() parent: SupplierResponse,
+    @CurrentTenant() tenantId: string,
+  ): Promise<SupplierSiteResponse[]> {
+    return this.queryBus.execute(new ListSupplierSitesQuery(parent.id, tenantId));
   }
 }

@@ -142,7 +142,7 @@ describe('Watchdog Integration Tests', () => {
                 table: scannerTestTable,
                 details: `Test: source contamination detected with ${count} rows`,
                 rowCount: count,
-                timestamp: new Date(),
+                timestamp: new Date().toISOString(),
               });
             }
           } catch {

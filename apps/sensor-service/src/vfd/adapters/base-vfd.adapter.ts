@@ -271,15 +271,15 @@ export abstract class BaseVfdAdapter {
   protected buildControlWord(bits: Record<string, boolean>): number {
     let controlWord = 0;
 
-    if (bits.switchOn) controlWord |= 0x0001;      // Bit 0
-    if (bits.enableVoltage) controlWord |= 0x0002; // Bit 1
-    if (bits.quickStop) controlWord |= 0x0004;     // Bit 2 (inverted logic)
-    if (bits.enableOperation) controlWord |= 0x0008; // Bit 3
-    if (bits.rampOutZero) controlWord |= 0x0010;   // Bit 4
-    if (bits.rampHold) controlWord |= 0x0020;      // Bit 5
-    if (bits.rampInZero) controlWord |= 0x0040;    // Bit 6
-    if (bits.faultReset) controlWord |= 0x0080;    // Bit 7
-    if (bits.reverse) controlWord |= 0x0800;       // Bit 11 - Direction
+    if (bits['switchOn']) controlWord |= 0x0001;      // Bit 0
+    if (bits['enableVoltage']) controlWord |= 0x0002; // Bit 1
+    if (bits['quickStop']) controlWord |= 0x0004;     // Bit 2 (inverted logic)
+    if (bits['enableOperation']) controlWord |= 0x0008; // Bit 3
+    if (bits['rampOutZero']) controlWord |= 0x0010;   // Bit 4
+    if (bits['rampHold']) controlWord |= 0x0020;      // Bit 5
+    if (bits['rampInZero']) controlWord |= 0x0040;    // Bit 6
+    if (bits['faultReset']) controlWord |= 0x0080;    // Bit 7
+    if (bits['reverse']) controlWord |= 0x0800;       // Bit 11 - Direction
 
     return controlWord;
   }

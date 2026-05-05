@@ -134,7 +134,7 @@ export class TenantContactDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^\+?[1-9]\d{1,14}$|^(\+?\d{1,4}[-.\s]?)?(\(?\d{1,4}\)?[-.\s]?)?\d{1,4}[-.\s]?\d{1,9}$/, {
+  @Matches(/^\+?[1-9]\d{1,14}$|^(\+?\d{1,4}[-.\s]?)?(\(?\d{1,4}\)?.[-.\s]?)?\d{1,4}[-.\s]?\d{1,9}$/, {
     message: 'Phone must be in E.164 format (e.g., +1234567890) or common phone format',
   })
   @MaxLength(30)

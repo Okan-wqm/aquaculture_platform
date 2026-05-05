@@ -7,6 +7,7 @@ import { Sensor } from '../database/entities/sensor.entity';
 import { SensorTypeModule } from '../sensor-type/sensor-type.module';
 
 import { SensorResolver } from './resolvers/sensor.resolver';
+import { SensorReadingResolver } from './resolvers/sensor-reading.resolver';
 import { CalibrationService } from './services/calibration.service';
 import { DataQualityService } from './services/data-quality.service';
 import { ReadingMapperRegistry } from './services/reading-mapper.service';
@@ -36,6 +37,12 @@ import { SensorQueryService } from './services/sensor-query.service';
   providers: [
     // Resolvers
     SensorResolver,
+    // Federation entity owner for SensorReading (Scope B Phase S1.2).
+    // Hosts the `__resolveReference` callback the gateway invokes when
+    // farm-service's `Tank.sensorReadings` returns `{ __typename, id }`
+    // stubs. See sensor-reading.resolver.ts docblock for tenant-isolation
+    // discipline notes.
+    SensorReadingResolver,
 
     // Core Services
     SensorIngestionService,

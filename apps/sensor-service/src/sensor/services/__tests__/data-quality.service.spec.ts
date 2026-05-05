@@ -51,8 +51,15 @@ describe('DataQualityService', () => {
       const assessment = service.assess(readings);
 
       expect(assessment.issues.length).toBeGreaterThan(0);
-      expect(assessment.issues[0].type).toBe('out_of_range');
-      expect(assessment.issues[0].metric).toBe('temperature');
+      const firstIssue = assessment.issues[0];
+      // strictNullChecks: array index returns `T | undefined`; the
+      // length assertion above narrows logically but not at the type
+      // level. Pull the element into a typed local so the rest of
+      // the test reads clean without `!` non-null assertions.
+      expect(firstIssue).toBeDefined();
+      if (!firstIssue) return;
+      expect(firstIssue.type).toBe('out_of_range');
+      expect(firstIssue.metric).toBe('temperature');
     });
 
     it('should identify missing readings', () => {
@@ -87,6 +94,8 @@ describe('DataQualityService', () => {
       };
       const assessment = service.assess(readings);
       const issue = assessment.issues[0];
+      expect(issue).toBeDefined();
+      if (!issue) return;
       expect(issue.expectedRange).toEqual({ min: -10, max: 50 });
     });
   });

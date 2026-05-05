@@ -111,7 +111,7 @@ export class DeploymentLogService {
     limit = 20,
   ): Promise<IStandardPaginatedResult<DeploymentLog>> {
     const where: Record<string, unknown> = { tenantId };
-    if (deviceId) where.deviceId = deviceId;
+    if (deviceId) where['deviceId'] = deviceId;
 
     const [items, total] = await this.deploymentLogRepo.findAndCount({
       where,

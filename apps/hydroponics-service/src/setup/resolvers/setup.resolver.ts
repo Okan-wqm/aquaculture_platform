@@ -55,7 +55,7 @@ export class SetupResolver {
 
     const where: Record<string, unknown> = { tenantId };
     if (type) {
-      where.configName = type;
+      where['configName'] = type;
     }
 
     return this.configRepository.find({

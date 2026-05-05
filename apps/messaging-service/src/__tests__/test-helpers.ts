@@ -41,12 +41,15 @@ export const TENANT_B = 'tenant-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 export function createMockChannel(overrides: Partial<Channel> = {}): Channel {
   return {
     id: fakeUuid('ch'),
+    tenantId: TENANT_A,
     type: ChannelType.GROUP,
     name: 'General',
     description: null,
     avatarUrl: null,
     createdBy: fakeUuid('usr'),
     isArchived: false,
+    aiPersona: null,
+    aiServiceUrl: null,
     createdAt: new Date('2026-03-01T00:00:00Z'),
     updatedAt: new Date('2026-03-01T00:00:00Z'),
     dmPairKey: null,
@@ -60,6 +63,7 @@ export function createMockChannelMember(
 ): ChannelMember {
   return {
     id: fakeUuid('cm'),
+    tenantId: TENANT_A,
     channelId: fakeUuid('ch'),
     userId: fakeUuid('usr'),
     role: ChannelMemberRole.MEMBER,
@@ -75,6 +79,7 @@ export function createMockChannelMember(
 export function createMockMessage(overrides: Partial<Message> = {}): Message {
   return {
     id: fakeUuid('msg'),
+    tenantId: TENANT_A,
     channelId: fakeUuid('ch'),
     senderId: fakeUuid('usr'),
     content: 'Hello world',
@@ -83,6 +88,8 @@ export function createMockMessage(overrides: Partial<Message> = {}): Message {
     forwardedFrom: null,
     idempotencyKey: fakeUuid('idem'),
     isDeleted: false,
+    updatedBy: null,
+    isAiGenerated: false,
     createdAt: new Date('2026-03-10T12:00:00Z'),
     editedAt: null,
     metadata: null,
@@ -98,6 +105,7 @@ export function createMockAttachment(
 ): MessageAttachment {
   return {
     id: fakeUuid('att'),
+    tenantId: TENANT_A,
     messageId: fakeUuid('msg'),
     messageCreatedAt: new Date('2026-03-10T12:00:00Z'),
     storageKey: 'uploads/file.pdf',
@@ -108,8 +116,15 @@ export function createMockAttachment(
     height: null,
     durationSeconds: null,
     thumbnailKey: null,
+    isDeleted: false,
+    deletedAt: null,
     createdAt: new Date('2026-03-10T12:00:00Z'),
     message: undefined as unknown as Message,
+    softDelete(): void {
+      // No-op for tests; the real entity method flips isDeleted +
+      // deletedAt. Tests that exercise soft-delete behaviour should
+      // override this in the spec.
+    },
     ...overrides,
   };
 }
@@ -117,16 +132,35 @@ export function createMockAttachment(
 export function createMockOutboxEvent(
   overrides: Partial<MessagingOutbox> = {},
 ): MessagingOutbox {
+  // payload must conform to IEvent (eventId / eventType / timestamp /
+  // optional tenantId), not a free-form bag with channelId. The
+  // domain-specific channelId belongs in IEvent.metadata or in a
+  // typed extension; tests that assert on channelId should pull it
+  // from there. PR-28 of the PROC-MEDIUM-007 ratchet.
+  const channelId = fakeUuid('ch');
   return {
     id: '1',
+    tenantId: TENANT_A,
+    aggregateId: channelId,
+    aggregateType: 'Channel',
     eventType: 'ChannelCreated',
-    payload: { channelId: fakeUuid('ch') },
+    payload: {
+      eventId: fakeUuid('evt'),
+      eventType: 'ChannelCreated',
+      timestamp: new Date('2026-03-10T12:00:00Z').toISOString(),
+      tenantId: TENANT_A,
+      metadata: { channelId },
+    },
     createdAt: new Date('2026-03-10T12:00:00Z'),
     publishedAt: null,
     retryCount: 0,
     lastError: null,
+    nextAttemptAt: new Date('2026-03-10T12:00:00Z'),
+    isDeadLettered: false,
+    deadLetteredAt: null,
+    idempotencyKey: null,
     ...overrides,
-  };
+  } as MessagingOutbox;
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +365,7 @@ export function createMockAnalysis(
   };
   return {
     id: fakeUuid('anl'),
+    tenantId: TENANT_A,
     messageId: fakeUuid('msg'),
     messageCreatedAt: new Date('2026-03-10T12:00:00Z'),
     analysisType: AnalysisType.SENTIMENT,

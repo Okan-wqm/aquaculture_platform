@@ -12,7 +12,6 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { v4 as uuidv4 } from 'uuid';
 import * as turf from '@turf/turf';
 import type { Layer } from 'leaflet';
 import { useAuth } from '@aquaculture/shared-ui';
@@ -235,7 +234,7 @@ export function useAOIDrawing(): UseAOIDrawingReturn {
     (aoiData: Omit<AOI, 'id' | 'createdAt'>): AOI => {
       const newAOI: AOI = {
         ...aoiData,
-        id: uuidv4(),
+        id: crypto.randomUUID(),
         createdAt: new Date(),
         color: aoiData.color || getNextColor(),
       };

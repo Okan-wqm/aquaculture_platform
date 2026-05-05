@@ -231,7 +231,7 @@ describe('AuthGuard', () => {
         expect(result).toBe(true);
         const request = getRequest(context);
         expect(request.user).toBeDefined();
-        expect(request.user.sub).toBe('user-123');
+        expect(request.user!.sub).toBe('user-123');
         expect(request.authMethod).toBe('jwt');
       });
 
@@ -249,8 +249,8 @@ describe('AuthGuard', () => {
 
         expect(result).toBe(true);
         const request = getRequest(context);
-        expect(request.user.email).toBe('test@example.com');
-        expect(request.user.permissions).toEqual(['read', 'write']);
+        expect(request.user!.email).toBe('test@example.com');
+        expect(request.user!.permissions).toEqual(['read', 'write']);
       });
 
       it('should accept token with multiple roles', () => {
@@ -265,7 +265,7 @@ describe('AuthGuard', () => {
 
         expect(result).toBe(true);
         const request = getRequest(context);
-        expect(request.user.roles).toEqual(['admin', 'manager', 'operator']);
+        expect(request.user!.roles).toEqual(['admin', 'manager', 'operator']);
       });
     });
 
@@ -502,7 +502,7 @@ describe('AuthGuard', () => {
       expect(result).toBe(true);
       const request = getRequest(context);
       expect(request.authMethod).toBe('api_key');
-      expect(request.user.sub).toBe('api-user-1');
+      expect(request.user!.sub).toBe('api-user-1');
     });
 
     it('should accept valid API key in query parameter', () => {
@@ -568,7 +568,7 @@ describe('AuthGuard', () => {
       expect(result).toBe(true);
       const request = getRequest(context);
       expect(request.authMethod).toBe('basic');
-      expect(request.user.sub).toBe('admin');
+      expect(request.user!.sub).toBe('admin');
     });
 
     it('should accept service account credentials', () => {

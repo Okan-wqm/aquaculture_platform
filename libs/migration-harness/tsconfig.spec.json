@@ -1,11 +1,16 @@
 {
+  // PROC-MEDIUM-011 closed in PR-42 — `isolatedModules` and
+  // `noPropertyAccessFromIndexSignature` both live in
+  // tsconfig.base.json now; cross-lib production sources were
+  // rewritten to bracket access via the programmatic fixer at
+  // tools/scripts/fix-no-property-access-from-index-signature.mjs.
+  // No per-spec overrides needed.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "../../dist/out-tsc",
     "module": "commonjs",
     "moduleResolution": "node10",
-    "types": ["jest", "node"],
-    "isolatedModules": true
+    "types": ["jest", "node"]
   },
   "include": [
     "jest.config.ts",

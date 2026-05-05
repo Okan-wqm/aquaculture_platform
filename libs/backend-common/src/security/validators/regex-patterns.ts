@@ -47,7 +47,7 @@ export const UUID_ANY_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
  * Phone number - International format, ReDoS safe
  * Allows: +1234567890, +1-234-567-8900, +1 234 567 8900
  */
-export const PHONE_REGEX = /^\+?[1-9]\d{0,2}[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{1,4}[\s.-]?\d{1,9}$/;
+export const PHONE_REGEX = /^\+?[1-9]\d{0,2}[\s.-]?\(?\d{1,4}\)?.[\s.-]?\d{1,4}[\s.-]?\d{1,9}$/;
 
 /**
  * Username - Alphanumeric with underscores, ReDoS safe
@@ -62,7 +62,7 @@ export const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /**
  * IPv4 address - ReDoS safe
  */
-export const IPV4_REGEX = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$/;
+export const IPV4_REGEX = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?.[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?.[0-9])$/;
 
 /**
  * IPv6 address - ReDoS safe (simplified)

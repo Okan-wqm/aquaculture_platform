@@ -223,8 +223,9 @@ describe('AnnouncementService', () => {
 
       const result = await service.getAnnouncements(tenantAdmin.id);
 
-      expect(result[0].hasViewed).toBe(true);
-      expect(result[0].hasAcknowledged).toBe(true);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.hasViewed).toBe(true);
+      expect(result[0]!.hasAcknowledged).toBe(true);
     });
   });
 
@@ -681,7 +682,7 @@ describe('SuperAdmin-TenantAdmin Announcement Integration', () => {
       // Step 2: SuperAdmin publishes the announcement
       userRepository.findOne.mockResolvedValueOnce(superAdmin);
       announcementRepository.findOne.mockResolvedValueOnce(draftAnnouncement);
-      announcementRepository.save.mockImplementation((a) => Promise.resolve(a));
+      announcementRepository.save.mockImplementation((a: unknown) => Promise.resolve(a));
 
       await service.publishAnnouncement(superAdmin.id, draftAnnouncement.id);
 
@@ -730,7 +731,7 @@ describe('SuperAdmin-TenantAdmin Announcement Integration', () => {
       userRepository.findOne.mockResolvedValueOnce(tenantAdmin);
       announcementRepository.findOne.mockResolvedValueOnce(publishedAnnouncement);
       acknowledgmentRepository.findOne.mockResolvedValueOnce(viewAck);
-      acknowledgmentRepository.save.mockImplementation((a) => Promise.resolve(a));
+      acknowledgmentRepository.save.mockImplementation((a: unknown) => Promise.resolve(a));
       announcementRepository.increment.mockResolvedValue({ affected: 1 });
 
       await service.acknowledgeAnnouncement(tenantAdmin.id, publishedAnnouncement.id);

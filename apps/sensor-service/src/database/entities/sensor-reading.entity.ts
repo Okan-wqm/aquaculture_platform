@@ -1,4 +1,4 @@
-import { ObjectType, Field, ID, Float, GraphQLISODateTime } from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Directive, GraphQLISODateTime } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -45,8 +45,30 @@ export class SensorReadings {
  * Sensor Reading Entity
  * Designed for TimescaleDB hypertable - high-performance time-series storage
  * Optimized for ingestion rates of 10K+ readings per second across all tenants
+ *
+ * Apollo Federation v2 entity (Scope B Phase S1.2): the
+ * `@key(fields: "id")` directive lets farm-service's upcoming
+ * `Tank.sensorReadings` field resolver (S1.3) return reference
+ * stubs `{ __typename: 'SensorReading', id }`, which the gateway
+ * then resolves by calling
+ * `SensorReadingResolver.resolveReference` in this service.
+ *
+ * Why this entity needed federation but Sensor was already there:
+ *   - Sensor was wired (mostly) in an earlier phase — the
+ *     resolveReference at sensor.resolver.ts:58 existed but the
+ *     `@Directive('@key…')` was missing, meaning the supergraph
+ *     could not actually compose extensions to it.
+ *   - SensorReading had NO entity-level resolver class at all —
+ *     queries like `latestReading` lived inside SensorResolver as
+ *     operation-level handlers, not as a type owner. This PR adds
+ *     the dedicated `SensorReadingResolver` class so the type has
+ *     a proper home.
+ *
+ * Why `id`-only key (not `id + tenantId`): same rationale as the
+ * Sensor entity — see that docblock for the architectural note.
  */
 @ObjectType()
+@Directive('@key(fields: "id")')
 @Entity('sensor_readings', { schema: 'sensor' })
 @Index(['sensorId', 'timestamp'])
 @Index(['tenantId', 'timestamp'])

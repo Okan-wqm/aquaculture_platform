@@ -14,7 +14,12 @@
  * Exercises the compliance gate from phase 1.4.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  Button,
+  useToast,
+  parseGraphQLError,
+} from '@aquaculture/shared-ui';
 
 import {
   ActiveTreatmentInfo,
@@ -48,32 +53,27 @@ interface WithdrawalBlock {
 /**
  * Parse an error thrown by the closeBatch mutation into a structured
  * withdrawal-block payload when the backend indicates active
- * treatments. The backend's `BatchWithdrawalBlockedError` carries the
- * list in `extensions.activeTreatments`; if the graphql-request
- * client has stashed it somewhere else, fall back to the raw
- * message.
+ * treatments. Delegates to the shared `parseGraphQLError` primitive
+ * (web/shared-ui/src/hooks/useErrorMessage.ts) so the inline
+ * extension-spelunking logic lives in ONE place across the
+ * farm-module — every Tier 2/3 modal that reads structured server
+ * errors uses the same parser.
+ *
+ * The withdrawal-specific shape (treatments + message) is the only
+ * piece left here; everything else is a thin adapter on top of
+ * `extensions.activeTreatments`.
  */
 function parseWithdrawalBlock(error: unknown): WithdrawalBlock | null {
-  if (!error || typeof error !== 'object') return null;
-  const maybe = error as {
-    response?: {
-      errors?: Array<{
-        extensions?: {
-          code?: string;
-          activeTreatments?: ActiveTreatmentInfo[];
-        };
-        message?: string;
-      }>;
-    };
+  const parsed = parseGraphQLError(error);
+  if (parsed.code !== 'BATCH_WITHDRAWAL_BLOCKED') return null;
+  const treatments =
+    (parsed.extensions?.activeTreatments as
+      | ActiveTreatmentInfo[]
+      | undefined) ?? [];
+  return {
+    treatments,
+    message: parsed.message,
   };
-  const first = maybe.response?.errors?.[0];
-  if (first?.extensions?.code === 'BATCH_WITHDRAWAL_BLOCKED') {
-    return {
-      treatments: first.extensions.activeTreatments ?? [],
-      message: first.message ?? 'Active withdrawal period prevents closing.',
-    };
-  }
-  return null;
 }
 
 export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({

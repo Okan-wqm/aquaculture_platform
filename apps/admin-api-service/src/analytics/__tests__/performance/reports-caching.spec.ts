@@ -169,7 +169,7 @@ describe('ReportsService - Caching', () => {
       });
 
       // DB should NOT be hit when cache returns data
-      expect(mockTenantRepo.find).not.toHaveBeenCalled();
+      expect(mockTenantRepo['find']).not.toHaveBeenCalled();
       expect(result.title).toBe('Tenant Overview Report');
     });
 
@@ -269,7 +269,7 @@ describe('ReportsService - Caching', () => {
       });
 
       expect(result.type).toBe('tenant_overview');
-      expect(mockTenantRepo.find).toHaveBeenCalled();
+      expect(mockTenantRepo['find']).toHaveBeenCalled();
     });
 
     it('should not throw when cache write fails after computation', async () => {
@@ -421,21 +421,21 @@ describe('ReportsService - Caching', () => {
     it('should default to page 1, limit 20', async () => {
       await service.getDefinitions();
 
-      expect(mockDefQueryBuilder.skip).toHaveBeenCalledWith(0);
-      expect(mockDefQueryBuilder.take).toHaveBeenCalledWith(20);
+      expect(mockDefQueryBuilder['skip']).toHaveBeenCalledWith(0);
+      expect(mockDefQueryBuilder['take']).toHaveBeenCalledWith(20);
     });
 
     it('should apply custom page and limit', async () => {
       await service.getDefinitions({ page: 3, limit: 10 });
 
-      expect(mockDefQueryBuilder.skip).toHaveBeenCalledWith(20); // (3-1)*10
-      expect(mockDefQueryBuilder.take).toHaveBeenCalledWith(10);
+      expect(mockDefQueryBuilder['skip']).toHaveBeenCalledWith(20); // (3-1)*10
+      expect(mockDefQueryBuilder['take']).toHaveBeenCalledWith(10);
     });
 
     it('should filter by status', async () => {
       await service.getDefinitions({ status: 'active' as any });
 
-      expect(mockDefQueryBuilder.andWhere).toHaveBeenCalledWith(
+      expect(mockDefQueryBuilder['andWhere']).toHaveBeenCalledWith(
         'def.status = :status',
         { status: 'active' },
       );
@@ -444,14 +444,14 @@ describe('ReportsService - Caching', () => {
     it('should filter by type', async () => {
       await service.getDefinitions({ type: 'tenant_overview' as any });
 
-      expect(mockDefQueryBuilder.andWhere).toHaveBeenCalledWith(
+      expect(mockDefQueryBuilder['andWhere']).toHaveBeenCalledWith(
         'def.type = :type',
         { type: 'tenant_overview' },
       );
     });
 
     it('should return correct pagination metadata', async () => {
-      mockDefQueryBuilder.getManyAndCount = jest.fn().mockResolvedValue([
+      mockDefQueryBuilder['getManyAndCount'] = jest.fn().mockResolvedValue([
         [{ id: '1', name: 'Report 1' }],
         15,
       ]);

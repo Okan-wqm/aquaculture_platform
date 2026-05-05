@@ -768,29 +768,29 @@ export class ProvisioningService {
    */
   private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {
     const device = new EdgeDevice();
-    device.id = row.id;
-    device.tenantId = row.tenant_id;
-    device.deviceCode = row.device_code;
-    device.deviceName = row.device_name;
-    device.deviceModel = row.device_model;
-    device.serialNumber = row.serial_number;
-    device.description = row.description;
-    device.siteId = row.site_id;
-    device.lifecycleState = row.lifecycle_state;
-    device.provisioningToken = row.provisioning_token;
-    device.tokenExpiresAt = row.token_expires_at ? new Date(row.token_expires_at) : undefined;
-    device.tokenUsedAt = row.token_used_at ? new Date(row.token_used_at) : null;
-    device.mqttClientId = row.mqtt_client_id;
-    device.mqttPasswordHash = row.mqtt_password_hash;
-    device.fingerprint = row.fingerprint;
-    device.agentVersion = row.agent_version;
-    device.isOnline = row.is_online;
-    device.lastSeenAt = row.last_seen_at ? new Date(row.last_seen_at) : undefined;
-    device.config = row.config;
-    device.securityLevel = row.security_level;
-    device.createdBy = row.created_by;
-    device.createdAt = new Date(row.created_at);
-    device.updatedAt = new Date(row.updated_at);
+    device.id = row['id'];
+    device.tenantId = row['tenant_id'];
+    device.deviceCode = row['device_code'];
+    device.deviceName = row['device_name'];
+    device.deviceModel = row['device_model'];
+    device.serialNumber = row['serial_number'];
+    device.description = row['description'];
+    device.siteId = row['site_id'];
+    device.lifecycleState = row['lifecycle_state'];
+    device.provisioningToken = row['provisioning_token'];
+    device.tokenExpiresAt = row['token_expires_at'] ? new Date(row['token_expires_at']) : undefined;
+    device.tokenUsedAt = row['token_used_at'] ? new Date(row['token_used_at']) : null;
+    device.mqttClientId = row['mqtt_client_id'];
+    device.mqttPasswordHash = row['mqtt_password_hash'];
+    device.fingerprint = row['fingerprint'];
+    device.agentVersion = row['agent_version'];
+    device.isOnline = row['is_online'];
+    device.lastSeenAt = row['last_seen_at'] ? new Date(row['last_seen_at']) : undefined;
+    device.config = row['config'];
+    device.securityLevel = row['security_level'];
+    device.createdBy = row['created_by'];
+    device.createdAt = new Date(row['created_at']);
+    device.updatedAt = new Date(row['updated_at']);
     return device;
   }
 

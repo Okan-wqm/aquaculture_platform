@@ -383,37 +383,37 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     const cfg = config as Record<string, unknown>;
 
     // Required fields
-    if (!cfg.host || typeof cfg.host !== 'string') {
+    if (!cfg['host'] || typeof cfg['host'] !== 'string') {
       errors.push('host is required and must be a string');
     } else {
       // Basic IP/hostname validation
       const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
       const hostnameRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9](?:\.[a-zA-Z]{2,})+$/;
-      if (!ipRegex.test(cfg.host) && !hostnameRegex.test(cfg.host) && cfg.host !== 'localhost') {
+      if (!ipRegex.test(cfg['host']) && !hostnameRegex.test(cfg['host']) && cfg['host'] !== 'localhost') {
         errors.push('host must be a valid IP address or hostname');
       }
     }
 
-    if (cfg.port !== undefined) {
-      if (typeof cfg.port !== 'number' || cfg.port < 1 || cfg.port > 65535) {
+    if (cfg['port'] !== undefined) {
+      if (typeof cfg['port'] !== 'number' || cfg['port'] < 1 || cfg['port'] > 65535) {
         errors.push('port must be between 1 and 65535');
       }
     }
 
-    if (cfg.unitId !== undefined) {
-      if (typeof cfg.unitId !== 'number' || cfg.unitId < 0 || cfg.unitId > 255) {
+    if (cfg['unitId'] !== undefined) {
+      if (typeof cfg['unitId'] !== 'number' || cfg['unitId'] < 0 || cfg['unitId'] > 255) {
         errors.push('unitId must be between 0 and 255');
       }
     }
 
-    if (cfg.connectionTimeout !== undefined) {
-      if (typeof cfg.connectionTimeout !== 'number' || cfg.connectionTimeout < 100 || cfg.connectionTimeout > 60000) {
+    if (cfg['connectionTimeout'] !== undefined) {
+      if (typeof cfg['connectionTimeout'] !== 'number' || cfg['connectionTimeout'] < 100 || cfg['connectionTimeout'] > 60000) {
         errors.push('connectionTimeout must be between 100 and 60000 ms');
       }
     }
 
-    if (cfg.responseTimeout !== undefined) {
-      if (typeof cfg.responseTimeout !== 'number' || cfg.responseTimeout < 100 || cfg.responseTimeout > 30000) {
+    if (cfg['responseTimeout'] !== undefined) {
+      if (typeof cfg['responseTimeout'] !== 'number' || cfg['responseTimeout'] < 100 || cfg['responseTimeout'] > 30000) {
         errors.push('responseTimeout must be between 100 and 30000 ms');
       }
     }
@@ -503,13 +503,13 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     }
 
     return {
-      host: config.host as string,
-      port: (config.port as number) || 502,
-      unitId: (config.unitId as number) ?? 1,
-      connectionTimeout: (config.connectionTimeout as number) || 5000,
-      responseTimeout: (config.responseTimeout as number) || 1000,
-      keepAlive: (config.keepAlive as boolean) ?? true,
-      reconnectInterval: (config.reconnectInterval as number) || 5000,
+      host: config['host'] as string,
+      port: (config['port'] as number) || 502,
+      unitId: (config['unitId'] as number) ?? 1,
+      connectionTimeout: (config['connectionTimeout'] as number) || 5000,
+      responseTimeout: (config['responseTimeout'] as number) || 1000,
+      keepAlive: (config['keepAlive'] as boolean) ?? true,
+      reconnectInterval: (config['reconnectInterval'] as number) || 5000,
     };
   }
 

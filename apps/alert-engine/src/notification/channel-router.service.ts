@@ -15,7 +15,16 @@ export interface UserNotificationPreferences {
     end: string;
     timezone: string;
   };
-  channelConfigs?: Record<NotificationChannel, ChannelConfig>;
+  // Was Record<NotificationChannel, ChannelConfig> requiring all 7
+  // channel keys be present. Production code at lines 389 / 422 reads
+  // via `prefs.channelConfigs?.[channel]` — i.e. it already treats
+  // the map as PARTIAL at the access site. Aligning the type with the
+  // actual runtime contract closes the surface where every spec /
+  // caller had to fill 5 dummy `enabled: false` entries to satisfy
+  // the over-strict declared shape (PROC-MEDIUM-014, see observations
+  // §38). Callers / specs that only configure SMS+EMAIL now type-check
+  // without a synthetic helper.
+  channelConfigs?: Partial<Record<NotificationChannel, ChannelConfig>>;
 }
 
 /**

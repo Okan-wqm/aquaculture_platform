@@ -9,19 +9,19 @@ export const initTelemetry = (serviceName: string) => {
   const logger = new Logger('OpenTelemetry');
 
   // Only enable if explicitly configured
-  if (process.env.ENABLE_TRACING !== 'true') {
+  if (process.env['ENABLE_TRACING'] !== 'true') {
     logger.log('Tracing disabled (ENABLE_TRACING!=true)');
     return;
   }
 
   const traceExporter = new OTLPTraceExporter({
-    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318/v1/traces',
+    url: process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] || 'http://localhost:4318/v1/traces',
   });
 
   const sdk = new NodeSDK({
     resource: new Resource({
       [SemanticResourceAttributes.SERVICE_NAME]: serviceName,
-      [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',
+      [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env['NODE_ENV'] || 'development',
     }),
     traceExporter,
     instrumentations: [

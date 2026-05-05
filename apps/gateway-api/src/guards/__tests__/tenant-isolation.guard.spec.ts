@@ -283,7 +283,7 @@ describe('TenantIsolationGuard', () => {
       guard.canActivate(context);
 
       // Tenant context should be attached
-      expect(request.tenantId || request.user?.tenantId).toBeDefined();
+      expect(request.tenantId || request.user?.['tenantId']).toBeDefined();
     });
   });
 
@@ -328,7 +328,7 @@ describe('TenantIsolationGuard', () => {
       guard.canActivate(context);
 
       // Tenant database should be set
-      expect(request.tenantId || request.user?.tenantId).toBe('tenant-db-1');
+      expect(request.tenantId || request.user?.['tenantId']).toBe('tenant-db-1');
     });
   });
 

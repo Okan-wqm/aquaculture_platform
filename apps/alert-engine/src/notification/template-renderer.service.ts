@@ -388,11 +388,11 @@ export class TemplateRendererService {
 
     // Flatten incident if present
     if (context.incident) {
-      enriched.incident = context.incident;
+      enriched['incident'] = context.incident;
     }
 
     // Add a safe, restricted JSON export for webhooks — never the full internal context.
-    enriched.json = JSON.stringify(this.buildWebhookExport(context), null, 2);
+    enriched['json'] = JSON.stringify(this.buildWebhookExport(context), null, 2);
 
     return enriched;
   }

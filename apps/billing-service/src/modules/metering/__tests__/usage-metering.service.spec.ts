@@ -96,8 +96,11 @@ describe('UsageMeteringService', () => {
         });
         const afterRecord = new Date();
 
-        expect(event.timestamp.getTime()).toBeGreaterThanOrEqual(beforeRecord.getTime());
-        expect(event.timestamp.getTime()).toBeLessThanOrEqual(afterRecord.getTime());
+        // event.timestamp is ISO 8601 string per UsageEvent contract;
+        // wrap in `new Date()` to compare against the bracketing
+        // Date instances captured before/after the call.
+        expect(new Date(event.timestamp).getTime()).toBeGreaterThanOrEqual(beforeRecord.getTime());
+        expect(new Date(event.timestamp).getTime()).toBeLessThanOrEqual(afterRecord.getTime());
       });
 
       it('should associate tenant ID correctly', () => {

@@ -1,7 +1,7 @@
 /**
  * Site GraphQL Resolver
  */
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
@@ -9,15 +9,19 @@ import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { SiteResponse, PaginatedSitesResponse } from './dto/site.response';
 import { SiteDeletePreviewResponse } from './dto/site-delete-preview.response';
+import { SiteContactResponse } from './dto/site-contact.response';
 import { CreateSiteInput } from './dto/create-site.input';
 import { UpdateSiteInput } from './dto/update-site.input';
+import { SiteContactInput } from './dto/site-contact.input';
 import { SiteFilterInput, PaginationInput } from './dto/site-filter.input';
 import { CreateSiteCommand } from './commands/create-site.command';
 import { UpdateSiteCommand } from './commands/update-site.command';
 import { DeleteSiteCommand } from './commands/delete-site.command';
+import { UpsertSiteContactsCommand } from './commands/upsert-site-contacts.command';
 import { GetSiteQuery } from './queries/get-site.query';
 import { ListSitesQuery } from './queries/list-sites.query';
 import { GetSiteDeletePreviewQuery } from './queries/get-site-delete-preview.query';
+import { ListSiteContactsQuery } from './queries/list-site-contacts.query';
 
 @Resolver(() => SiteResponse)
 @UseGuards(TenantGuard)
@@ -133,5 +137,55 @@ export class SiteResolver {
     const query = new ListSitesQuery(tenantId, { isActive: true }, { limit: 1000 });
     const result = await this.queryBus.execute(query) as PaginatedQueryResult<SiteResponse>;
     return fromCqrsPaginated(result).items;
+  }
+
+  // -------------------------------------------------------------------------
+  // SITE CONTACTS (Scope A Phase 4.4.3)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Replace the FULL contact list for a site. Pass an empty
+   * `contacts` array to clear all contacts. At most one entry may
+   * carry `isPrimary: true` (DB partial unique index also enforces;
+   * the handler pre-checks for clearer error messages).
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => [SiteContactResponse])
+  async upsertSiteContacts(
+    @Args('siteId', { type: () => ID }) siteId: string,
+    @Args('contacts', { type: () => [SiteContactInput] }) contacts: SiteContactInput[],
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+  ): Promise<SiteContactResponse[]> {
+    this.logger.log(
+      `Upserting ${contacts.length} contact(s) for site ${siteId}`,
+    );
+    return this.commandBus.execute(
+      new UpsertSiteContactsCommand(siteId, contacts, tenantId, user.sub),
+    );
+  }
+
+  /**
+   * List the contact rows for one site.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => [SiteContactResponse])
+  async siteContacts(
+    @Args('siteId', { type: () => ID }) siteId: string,
+    @CurrentTenant() tenantId: string,
+  ): Promise<SiteContactResponse[]> {
+    return this.queryBus.execute(new ListSiteContactsQuery(siteId, tenantId));
+  }
+
+  /**
+   * Field resolver — exposes `Site.contacts` directly so a single
+   * GraphQL query against `site(id)` returns both site + contacts.
+   */
+  @ResolveField(() => [SiteContactResponse])
+  async contacts(
+    @Parent() parent: SiteResponse,
+    @CurrentTenant() tenantId: string,
+  ): Promise<SiteContactResponse[]> {
+    return this.queryBus.execute(new ListSiteContactsQuery(parent.id, tenantId));
   }
 }

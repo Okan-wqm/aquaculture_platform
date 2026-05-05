@@ -468,7 +468,7 @@ export class VfdChangeSetService {
   ): Promise<{ items: VfdChangeSet[]; total: number }> {
     const where: Record<string, unknown> = { tenantId, vfdDeviceId };
     if (status) {
-      where.status = status;
+      where['status'] = status;
     }
 
     const [items, total] = await this.changeSetRepository.findAndCount({
@@ -569,7 +569,7 @@ export class VfdChangeSetService {
     };
 
     if (excludeId) {
-      where.id = Not(excludeId);
+      where['id'] = Not(excludeId);
     }
 
     const existing = await this.changeSetRepository.findOne({ where });

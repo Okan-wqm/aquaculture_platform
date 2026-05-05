@@ -683,9 +683,13 @@ describe('ServiceProxyService', () => {
       };
       mockFetch.mockResolvedValueOnce(mockResponse);
 
+      // ProxyRequestConfig now REQUIRES `tenantId` (HMAC binding —
+      // see service-proxy.service.ts:48). Tests pass empty string
+      // for non-tenant paths, matching the docstring's recommendation.
       const response = await service.proxy({
         serviceName: 'json-service',
         path: '/api/json',
+        tenantId: '',
       });
 
       expect(response.body).toEqual({ data: 'json' });
@@ -704,6 +708,7 @@ describe('ServiceProxyService', () => {
       const response = await service.proxy({
         serviceName: 'text-service',
         path: '/api/text',
+        tenantId: '',
       });
 
       expect(response.body).toBe('plain text response');
@@ -724,6 +729,7 @@ describe('ServiceProxyService', () => {
       const response = await service.proxy({
         serviceName: 'binary-service',
         path: '/api/binary',
+        tenantId: '',
       });
 
       expect(response.body).toBe(mockBuffer);

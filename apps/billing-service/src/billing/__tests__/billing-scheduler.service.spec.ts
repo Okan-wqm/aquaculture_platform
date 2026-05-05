@@ -122,7 +122,17 @@ describe('BillingSchedulerService', () => {
     invRepo = createMockInvoiceRepo();
     mockEventBus = { publish: jest.fn().mockResolvedValue(undefined) };
 
+    // BillingSchedulerService gained a DataSource constructor param
+    // (currently used by the auto-invoice transaction in
+    // generateScheduledInvoices). Provide a minimal mock; tests in
+    // this file don't exercise the transactional code path so a
+    // bare double is enough.
+    const mockDataSource = {
+      transaction: jest.fn(),
+      createQueryRunner: jest.fn(),
+    } as unknown as import('typeorm').DataSource;
     service = new BillingSchedulerService(
+      mockDataSource,
       subRepo as unknown as Repository<Subscription>,
       invRepo as unknown as Repository<Invoice>,
       mockEventBus as any,

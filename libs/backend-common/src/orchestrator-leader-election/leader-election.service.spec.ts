@@ -16,15 +16,22 @@
 import type Redis from 'ioredis';
 import { LeaderElectionService } from './leader-election.service';
 
-type RedisLike = Pick<Redis, 'set' | 'get' | 'pttl' | 'eval'>;
-
 /**
  * Minimal in-memory mock of the ioredis API surface used by
  * LeaderElectionService. Not a full Redis — only the commands the
  * service issues. Time-dependent behaviour (PX expiry) is jest-
  * timer driven.
+ *
+ * The class does NOT `implements` a structural Pick<Redis, ...> type
+ * because ioredis declares set / eval with complex overloaded
+ * signatures (16+ overloads each) that an in-memory test mock can't
+ * narrow to. The downstream `r as unknown as Redis` cast at the
+ * service-construction site (line ~109) is the boundary; everything
+ * inside FakeRedis stays a simple test double. Surfaced by PR-29
+ * (PROC-MEDIUM-007 ratchet) — the previous `implements RedisLike`
+ * declaration tripped strict-tsc on overload incompatibility.
  */
-class FakeRedis implements RedisLike {
+class FakeRedis {
   private store = new Map<string, { value: string; expiresAt: number | null }>();
   private outage = false;
 

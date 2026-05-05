@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entity
 import { Site } from './entities/site.entity';
+import { SiteContact } from './entities/site-contact.entity';
 import { Department } from '../department/entities/department.entity';
 import { System } from '../system/entities/system.entity';
 import { Equipment } from '../equipment/entities/equipment.entity';
@@ -19,27 +20,31 @@ import { SiteResolver } from './site.resolver';
 import { CreateSiteHandler } from './handlers/create-site.handler';
 import { UpdateSiteHandler } from './handlers/update-site.handler';
 import { DeleteSiteHandler } from './handlers/delete-site.handler';
+import { UpsertSiteContactsHandler } from './handlers/upsert-site-contacts.handler';
 
 // Query Handlers
 import { GetSiteHandler } from './handlers/get-site.handler';
 import { ListSitesHandler } from './handlers/list-sites.handler';
 import { GetSiteDeletePreviewHandler } from './handlers/get-site-delete-preview.handler';
+import { ListSiteContactsHandler } from './handlers/list-site-contacts.handler';
 
 const CommandHandlers = [
   CreateSiteHandler,
   UpdateSiteHandler,
   DeleteSiteHandler,
+  UpsertSiteContactsHandler,
 ];
 
 const QueryHandlers = [
   GetSiteHandler,
   ListSitesHandler,
   GetSiteDeletePreviewHandler,
+  ListSiteContactsHandler,
 ];
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Site, Department, System, Equipment, EquipmentSystem, Tank]),
+    TypeOrmModule.forFeature([Site, SiteContact, Department, System, Equipment, EquipmentSystem, Tank]),
   ],
   providers: [
     SiteResolver,

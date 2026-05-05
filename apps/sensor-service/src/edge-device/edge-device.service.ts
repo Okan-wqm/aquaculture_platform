@@ -1041,7 +1041,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
    * Called by MqttListenerService when response is received
    */
   handlePingResponse(deviceCode: string, payload: Record<string, unknown>): void {
-    const commandId = payload.commandId as string;
+    const commandId = payload['commandId'] as string;
     if (!commandId) {
       this.logger.warn(`Ping response without commandId from ${deviceCode}`);
       return;
@@ -1704,7 +1704,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     deviceCode: string,
     payload: Record<string, unknown>,
   ): void {
-    const commandId = payload.commandId as string;
+    const commandId = payload['commandId'] as string;
     if (!commandId) {
       this.logger.warn(`Scan response without commandId from ${deviceCode}`);
       return;
@@ -1732,13 +1732,13 @@ export class EdgeDeviceService implements OnModuleDestroy {
     this.logger.log(`Scan response from ${deviceCode} in ${elapsed}ms`);
 
     // Extract result from agent response
-    const result = (payload.result ?? payload.data ?? payload) as Record<string, unknown>;
-    const success = (payload.success as boolean) ?? true;
+    const result = (payload['result'] ?? payload['data'] ?? payload) as Record<string, unknown>;
+    const success = (payload['success'] as boolean) ?? true;
 
     if (!success) {
       pending.resolve({
         success: false,
-        error: (payload.error as string) ?? 'Scan failed on device',
+        error: (payload['error'] as string) ?? 'Scan failed on device',
         platform: 'Unknown',
         discoveredChannels: [],
         totalFound: 0,
@@ -1747,53 +1747,53 @@ export class EdgeDeviceService implements OnModuleDestroy {
     }
 
     // Map agent's DiscoveredIo[] to backend DTO
-    const discoveredIos = (result.discovered_ios as Array<Record<string, unknown>>) ?? [];
+    const discoveredIos = (result['discovered_ios'] as Array<Record<string, unknown>>) ?? [];
     const discoveredChannels = discoveredIos.map((io) => ({
-      tagName: (io.tag_name as string) ?? '',
-      ioType: (io.io_type as string) ?? 'DI',
-      dataType: (io.data_type as string) ?? 'BOOL',
-      moduleAddress: (io.module_address as number) ?? 0,
-      channel: (io.channel as number) ?? 0,
-      description: (io.description as string) ?? '',
-      gpioPin: (io.gpio_pin as number | undefined) ?? undefined,
-      source: (io.source as string) ?? 'unknown',
-      busType: (io.bus_type as string | undefined) ?? undefined,
-      i2cBus: (io.i2c_bus as number | undefined) ?? undefined,
-      i2cAddress: (io.i2c_address as number | undefined) ?? undefined,
-      i2cDeviceName: (io.i2c_device_name as string | undefined) ?? undefined,
-      spiBus: (io.spi_bus as number | undefined) ?? undefined,
-      spiCs: (io.spi_cs as number | undefined) ?? undefined,
-      uartPort: (io.uart_port as string | undefined) ?? undefined,
+      tagName: (io['tag_name'] as string) ?? '',
+      ioType: (io['io_type'] as string) ?? 'DI',
+      dataType: (io['data_type'] as string) ?? 'BOOL',
+      moduleAddress: (io['module_address'] as number) ?? 0,
+      channel: (io['channel'] as number) ?? 0,
+      description: (io['description'] as string) ?? '',
+      gpioPin: (io['gpio_pin'] as number | undefined) ?? undefined,
+      source: (io['source'] as string) ?? 'unknown',
+      busType: (io['bus_type'] as string | undefined) ?? undefined,
+      i2cBus: (io['i2c_bus'] as number | undefined) ?? undefined,
+      i2cAddress: (io['i2c_address'] as number | undefined) ?? undefined,
+      i2cDeviceName: (io['i2c_device_name'] as string | undefined) ?? undefined,
+      spiBus: (io['spi_bus'] as number | undefined) ?? undefined,
+      spiCs: (io['spi_cs'] as number | undefined) ?? undefined,
+      uartPort: (io['uart_port'] as string | undefined) ?? undefined,
     }));
 
     // Map I2C bus info
-    const i2cBuses = ((result.i2c_buses as Array<Record<string, unknown>>) ?? []).map((bus) => ({
-      bus: (bus.bus as number) ?? 0,
-      deviceCount: (bus.device_count as number) ?? 0,
-      devices: ((bus.devices as Array<Record<string, unknown>>) ?? []).map((dev) => ({
-        address: (dev.address as number) ?? 0,
-        addressHex: (dev.address_hex as string) ?? '0x00',
-        deviceName: (dev.device_name as string | undefined) ?? undefined,
-        deviceDescription: (dev.device_description as string | undefined) ?? undefined,
+    const i2cBuses = ((result['i2c_buses'] as Array<Record<string, unknown>>) ?? []).map((bus) => ({
+      bus: (bus['bus'] as number) ?? 0,
+      deviceCount: (bus['device_count'] as number) ?? 0,
+      devices: ((bus['devices'] as Array<Record<string, unknown>>) ?? []).map((dev) => ({
+        address: (dev['address'] as number) ?? 0,
+        addressHex: (dev['address_hex'] as string) ?? '0x00',
+        deviceName: (dev['device_name'] as string | undefined) ?? undefined,
+        deviceDescription: (dev['device_description'] as string | undefined) ?? undefined,
       })),
     }));
 
     // Map SPI bus info
-    const spiBuses = ((result.spi_buses as Array<Record<string, unknown>>) ?? []).map((spi) => ({
-      devicePath: (spi.device_path as string) ?? '',
-      bus: (spi.bus as number) ?? 0,
-      chipSelect: (spi.chip_select as number) ?? 0,
+    const spiBuses = ((result['spi_buses'] as Array<Record<string, unknown>>) ?? []).map((spi) => ({
+      devicePath: (spi['device_path'] as string) ?? '',
+      bus: (spi['bus'] as number) ?? 0,
+      chipSelect: (spi['chip_select'] as number) ?? 0,
     }));
 
     // Map UART port info
-    const uartPorts = ((result.uart_ports as Array<Record<string, unknown>>) ?? []).map((uart) => ({
-      devicePath: (uart.device_path as string) ?? '',
-      portType: (uart.port_type as string) ?? 'unknown',
+    const uartPorts = ((result['uart_ports'] as Array<Record<string, unknown>>) ?? []).map((uart) => ({
+      devicePath: (uart['device_path'] as string) ?? '',
+      portType: (uart['port_type'] as string) ?? 'unknown',
     }));
 
     pending.resolve({
       success: true,
-      platform: (result.platform as string) ?? 'Unknown',
+      platform: (result['platform'] as string) ?? 'Unknown',
       discoveredChannels,
       totalFound: discoveredChannels.length,
       i2cBuses: i2cBuses.length > 0 ? i2cBuses : undefined,
@@ -2400,31 +2400,31 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
   private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {
     const device = new EdgeDevice();
-    device.id = row.id;
-    device.tenantId = row.tenant_id;
-    device.deviceCode = row.device_code;
-    device.deviceName = row.device_name;
-    device.deviceModel = row.device_model;
-    device.serialNumber = row.serial_number;
-    device.description = row.description;
-    device.siteId = row.site_id;
-    device.lifecycleState = row.lifecycle_state;
-    device.mqttClientId = row.mqtt_client_id;
-    device.mqttPasswordHash = row.mqtt_password_hash;
-    device.isOnline = row.is_online;
-    device.lastSeenAt = row.last_seen_at ? new Date(row.last_seen_at) : undefined;
-    device.cpuUsage = row.cpu_usage;
-    device.memoryUsage = row.memory_usage;
-    device.storageUsage = row.storage_usage;
-    device.temperatureCelsius = row.temperature_celsius;
-    device.uptimeSeconds = row.uptime_seconds;
-    device.firmwareVersion = row.firmware_version;
-    device.targetFirmwareVersion = row.target_firmware_version;
-    device.ipAddress = row.ip_address;
-    device.connectionQuality = row.connection_quality;
-    device.fingerprint = row.fingerprint;
-    device.agentVersion = row.agent_version;
-    device.config = row.config;
+    device.id = row['id'];
+    device.tenantId = row['tenant_id'];
+    device.deviceCode = row['device_code'];
+    device.deviceName = row['device_name'];
+    device.deviceModel = row['device_model'];
+    device.serialNumber = row['serial_number'];
+    device.description = row['description'];
+    device.siteId = row['site_id'];
+    device.lifecycleState = row['lifecycle_state'];
+    device.mqttClientId = row['mqtt_client_id'];
+    device.mqttPasswordHash = row['mqtt_password_hash'];
+    device.isOnline = row['is_online'];
+    device.lastSeenAt = row['last_seen_at'] ? new Date(row['last_seen_at']) : undefined;
+    device.cpuUsage = row['cpu_usage'];
+    device.memoryUsage = row['memory_usage'];
+    device.storageUsage = row['storage_usage'];
+    device.temperatureCelsius = row['temperature_celsius'];
+    device.uptimeSeconds = row['uptime_seconds'];
+    device.firmwareVersion = row['firmware_version'];
+    device.targetFirmwareVersion = row['target_firmware_version'];
+    device.ipAddress = row['ip_address'];
+    device.connectionQuality = row['connection_quality'];
+    device.fingerprint = row['fingerprint'];
+    device.agentVersion = row['agent_version'];
+    device.config = row['config'];
     return device;
   }
 }

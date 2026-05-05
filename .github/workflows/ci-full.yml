@@ -72,6 +72,14 @@ jobs:
       - name: Run type check
         run: npm run type-check
 
+      - name: Run type-check-spec gate (baseline-aware)
+        # TYPE-CHECK-SPEC-RATCHET-001: blocks any PR that regresses spec
+        # error counts above the per-project baseline at
+        # tools/gates/type-check-spec-baseline.json. See PR #165 history.
+        run: npm run gates:type-check-spec
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
       - name: Check formatting
         run: npm run format:check
 

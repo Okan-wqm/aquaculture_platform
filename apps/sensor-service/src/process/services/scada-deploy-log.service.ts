@@ -68,7 +68,7 @@ export class ScadaDeployLogService {
   ): Promise<ScadaDeployLog | null> {
     const where: Record<string, string> = { commandId };
     if (tenantId) {
-      where.tenantId = tenantId;
+      where['tenantId'] = tenantId;
     }
     const log = await this.deployLogRepo.findOne({ where });
     if (!log) {

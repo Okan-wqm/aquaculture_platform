@@ -133,8 +133,8 @@ describe('RecordMigrationEventHandler', () => {
     const call = repo.insert.mock.calls[0]![0]!;
     expect(call.errorDetail).not.toBeNull();
     const detail = call.errorDetail as Record<string, unknown>;
-    expect(detail.sqlState).toBe('23505');
-    expect(detail.constraintName).toBe('pk_employees');
+    expect(detail['sqlState']).toBe('23505');
+    expect(detail['constraintName']).toBe('pk_employees');
     // Raw SSN must NOT appear anywhere in the persisted record
     const serialized = JSON.stringify(detail);
     expect(serialized).not.toContain('123-45-6789');

@@ -27,6 +27,11 @@ import {
   MaintenanceScheduleFilter,
   CreateMaintenanceScheduleInput,
 } from '../../hooks/useMaintenance';
+import GenerateWorkOrderButton from './components/GenerateWorkOrderButton';
+import CompleteMaintenanceModal from './components/CompleteMaintenanceModal';
+import ProcessAutoGenerateButton from './components/ProcessAutoGenerateButton';
+import UpdateMeterReadingButton from './components/UpdateMeterReadingButton';
+import { useCanMutate } from '@aquaculture/shared-ui';
 
 // Status colors
 const statusColors: Record<MaintenanceScheduleStatus, string> = {
@@ -115,6 +120,12 @@ export const MaintenanceSchedulesPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState<ScheduleFormData>(defaultFormData);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Bakım Kapanışı (completeMaintenance) modal state — separate from the
+  // edit modal because the surfaces don't overlap in semantics.
+  const [completingSchedule, setCompletingSchedule] =
+    useState<MaintenanceSchedule | null>(null);
+  const canCompleteMaintenance = useCanMutate('completeMaintenance');
 
   // API hooks
   const { data, isLoading, error, refetch } = useMaintenanceSchedules(filter, page, 20);
@@ -288,7 +299,10 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             Önleyici bakım planlarını görüntüleyin ve yönetin
           </p>
         </div>
-        <Button onClick={handleOpenCreate}>Yeni Bakım Planı</Button>
+        <div className="flex items-center gap-2">
+          <ProcessAutoGenerateButton />
+          <Button onClick={handleOpenCreate}>Yeni Bakım Planı</Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -399,34 +413,47 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                         {item.executionCount} kez
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => handleOpenEdit(item)}
-                          className="text-indigo-600 hover:text-indigo-900 mr-3"
-                        >
-                          Düzenle
-                        </button>
-                        {item.status === 'ACTIVE' && (
+                        <div className="flex items-center justify-end gap-2">
                           <button
-                            onClick={() => handlePause(item.id)}
-                            className="text-yellow-600 hover:text-yellow-900 mr-3"
+                            onClick={() => handleOpenEdit(item)}
+                            className="text-indigo-600 hover:text-indigo-900"
                           >
-                            Duraklat
+                            Düzenle
                           </button>
-                        )}
-                        {item.status === 'PAUSED' && (
+                          {item.status === 'ACTIVE' && (
+                            <button
+                              onClick={() => handlePause(item.id)}
+                              className="text-yellow-600 hover:text-yellow-900"
+                            >
+                              Duraklat
+                            </button>
+                          )}
+                          {item.status === 'PAUSED' && (
+                            <button
+                              onClick={() => handleResume(item.id)}
+                              className="text-green-600 hover:text-green-900"
+                            >
+                              Devam Et
+                            </button>
+                          )}
+                          <GenerateWorkOrderButton schedule={item} />
+                          <UpdateMeterReadingButton schedule={item} />
+                          {canCompleteMaintenance && item.status === 'ACTIVE' && (
+                            <button
+                              onClick={() => setCompletingSchedule(item)}
+                              className="text-emerald-700 hover:text-emerald-900"
+                              title="Bu plan döngüsünü kapat (sayaç + notlar)"
+                            >
+                              Bakımı Kapat
+                            </button>
+                          )}
                           <button
-                            onClick={() => handleResume(item.id)}
-                            className="text-green-600 hover:text-green-900 mr-3"
+                            onClick={() => handleDelete(item.id)}
+                            className="text-red-600 hover:text-red-900"
                           >
-                            Devam Et
+                            Sil
                           </button>
-                        )}
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Sil
-                        </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -598,6 +625,15 @@ export const MaintenanceSchedulesPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {completingSchedule && (
+        <CompleteMaintenanceModal
+          isOpen={!!completingSchedule}
+          onClose={() => setCompletingSchedule(null)}
+          schedule={completingSchedule}
+          onSuccess={() => refetch()}
+        />
+      )}
     </div>
   );
 };

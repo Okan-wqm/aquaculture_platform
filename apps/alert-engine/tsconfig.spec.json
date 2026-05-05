@@ -1,4 +1,11 @@
 {
+  // PROC-MEDIUM-013 closed by PR-43 — the exclude block (added in
+  // PR-36 to keep the integration/performance/security suites out
+  // of the unit-test gate while their domain-model drift was
+  // unaddressed) has been removed now that all three suites are
+  // re-derived against the current rules-engine + alert-rule
+  // contracts. The auxiliary suites are back in the strict-tsc gate
+  // along with the rest of the alert-engine spec sources.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "../../dist/out-tsc",

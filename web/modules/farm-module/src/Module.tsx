@@ -24,6 +24,7 @@ import TasksPage from './pages/tasks/TasksPage';
 import CompanyPage from './pages/company/CompanyPage';
 import WaterChemistryPage from './pages/water-chemistry/WaterChemistryPage';
 import AnalyticsPage from './pages/analytics/AnalyticsPage';
+import BatchDetailPage from './pages/production/BatchDetailPage';
 
 // ============================================================================
 // Sites Module
@@ -63,6 +64,15 @@ const FarmModule: React.FC = () => {
 
       {/* Tanks & Ponds Listesi */}
       <Route path="tanks" element={<TanksPage />} />
+
+      {/* Batch Detail — closes FE-HIGH-002 (BatchInputTab.tsx:218 navigated
+          to /sites/batch/:id with no Route in place; clicks silently
+          landed on the catch-all /sites/map). The page hosts three tabs
+          (Overview / Tanks / Feeding) that wire the four orphan Tier 1
+          modals (Close / UpdateStatus / AllocateToTank / AssignFeeds —
+          FE-MEDIUM-001). Trailing /* lets the tab routes handle their
+          own sub-paths. */}
+      <Route path="batch/:batchId/*" element={<BatchDetailPage />} />
 
       {/* Cleaner Fish - redirect to Tanks page Cleaner Fish tab */}
       <Route path="cleaner-fish/*" element={<Navigate to="/sites/tanks?tab=cleanerFish" replace />} />

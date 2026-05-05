@@ -206,9 +206,9 @@ describe('VfdReading Entity', () => {
         reg_16139: 1250,
       };
 
-      expect(reading.rawValues.reg_16029).toBe(0x0277);
-      expect(reading.rawValues.reg_16129).toBe(500);
-      expect(reading.rawValues.reg_16139).toBe(1250);
+      expect(reading.rawValues['reg_16029']).toBe(0x0277);
+      expect(reading.rawValues['reg_16129']).toBe(500);
+      expect(reading.rawValues['reg_16139']).toBe(1250);
     });
   });
 
@@ -268,8 +268,8 @@ describe('VfdReading Entity', () => {
         custom_flow_rate: 100.0,
       };
 
-      expect(reading.parameters.custom_pressure).toBe(2.5);
-      expect(reading.parameters.custom_flow_rate).toBe(100.0);
+      expect(reading.parameters['custom_pressure']).toBe(2.5);
+      expect(reading.parameters['custom_flow_rate']).toBe(100.0);
     });
   });
 
@@ -319,7 +319,7 @@ describe('VfdReading Entity', () => {
       expect(reading.isValid).toBe(true);
       expect(reading.parameters.outputFrequency).toBe(50.0);
       expect(reading.statusBits.running).toBe(true);
-      expect(reading.rawValues.status_word).toBe(0x0277);
+      expect(reading.rawValues['status_word']).toBe(0x0277);
     });
   });
 });

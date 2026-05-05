@@ -90,8 +90,8 @@ describe('Tenant Isolation', () => {
     it('channel members from different tenants cannot be mixed', async () => {
       memberRepo.findOne.mockImplementation(async (options) => {
         const opts = options as Record<string, unknown>;
-        const where = opts?.where as Record<string, unknown> | undefined;
-        if (where?.userId === tenantBUserId) {
+        const where = opts?.['where'] as Record<string, unknown> | undefined;
+        if (where?.['userId'] === tenantBUserId) {
           return null; // tenant B user not found in tenant A scope
         }
         return createMockChannelMember({

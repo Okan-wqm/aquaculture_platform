@@ -121,7 +121,7 @@ describe('NotificationDispatcherService', () => {
       const results = await service.send(mockRequest);
 
       expect(results).toHaveLength(1);
-      expect(results[0].status).toBe(NotificationStatus.SKIPPED);
+      expect(results[0]!.status).toBe(NotificationStatus.SKIPPED);
     });
 
     it('should emit sent event on successful send', async () => {
@@ -353,7 +353,7 @@ describe('NotificationDispatcherService', () => {
       const results = await resultPromise;
 
       expect(mockHandler.send).toHaveBeenCalledTimes(2);
-      expect(results[0].status).toBe(NotificationStatus.SENT);
+      expect(results[0]!.status).toBe(NotificationStatus.SENT);
     });
 
     it('should emit failed event after max retries', async () => {
@@ -378,7 +378,7 @@ describe('NotificationDispatcherService', () => {
 
       const results = await resultPromise;
 
-      expect(results[0].status).toBe(NotificationStatus.FAILED);
+      expect(results[0]!.status).toBe(NotificationStatus.FAILED);
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         NOTIFICATION_EVENTS.FAILED,
         expect.any(Object),
@@ -509,8 +509,8 @@ describe('NotificationDispatcherService', () => {
 
       const stats = service.getStatistics();
 
-      expect(stats.registeredHandlers).toBe(1);
-      expect(stats.queuedNotifications).toBe(1);
+      expect(stats['registeredHandlers']).toBe(1);
+      expect(stats['queuedNotifications']).toBe(1);
     });
   });
 
@@ -564,8 +564,8 @@ describe('NotificationDispatcherService', () => {
 
       const results = await service.send(mockRequest);
 
-      expect(results[0].status).toBe(NotificationStatus.FAILED);
-      expect(results[0].error).toBe('Handler crashed');
+      expect(results[0]!.status).toBe(NotificationStatus.FAILED);
+      expect(results[0]!.error).toBe('Handler crashed');
     });
 
     it('should include retry count in result', async () => {
@@ -589,7 +589,7 @@ describe('NotificationDispatcherService', () => {
 
       const results = await resultPromise;
 
-      expect(results[0].retryCount).toBe(2);
+      expect(results[0]!.retryCount).toBe(2);
     });
   });
 });

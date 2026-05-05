@@ -105,7 +105,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     // Redact phone numbers (various formats)
     sanitized = sanitized.replace(
-      /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{2,4}/g,
+      /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?.[-.\s]?\d{3}[-.\s]?\d{2,4}/g,
       '[REDACTED_PHONE]',
     );
 

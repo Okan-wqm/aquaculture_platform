@@ -384,3 +384,142 @@ export function useSupplierTypes() {
     enabled: !!token,
   });
 }
+
+// =============================================================================
+// SUPPLIER ↔ SITE APPROVALS (Scope A 4.4.2 frontend)
+// =============================================================================
+//
+// Backend (PR #148):
+//   query    supplierSites(supplierId: ID!): [SupplierSiteResponse!]!
+//   mutation setSupplierApprovedSites(
+//     supplierId: ID!,
+//     siteIds: [ID!]!,
+//     preferredSiteId: ID
+//   ): [SupplierSiteResponse!]!
+//
+// Mutation semantics: REPLACE the full approved-sites list for a
+// supplier (DELETE+INSERT in one transaction + outbox event). Empty
+// `siteIds` clears all approvals. `preferredSiteId` MUST be in
+// `siteIds` (or null) — orphan preferences are rejected by the
+// handler before the transaction starts.
+
+export interface SupplierSite {
+  id: string;
+  tenantId: string;
+  supplierId: string;
+  siteId: string;
+  isPreferred: boolean;
+  notes?: string;
+  createdAt: string;
+  createdBy?: string;
+}
+
+const SUPPLIER_SITES_QUERY = `
+  query SupplierSites($supplierId: ID!) {
+    supplierSites(supplierId: $supplierId) {
+      id
+      tenantId
+      supplierId
+      siteId
+      isPreferred
+      notes
+      createdAt
+      createdBy
+    }
+  }
+`;
+
+const SET_SUPPLIER_APPROVED_SITES_MUTATION = `
+  mutation SetSupplierApprovedSites(
+    $supplierId: ID!,
+    $siteIds: [ID!]!,
+    $preferredSiteId: ID
+  ) {
+    setSupplierApprovedSites(
+      supplierId: $supplierId,
+      siteIds: $siteIds,
+      preferredSiteId: $preferredSiteId
+    ) {
+      id
+      tenantId
+      supplierId
+      siteId
+      isPreferred
+      notes
+      createdAt
+      createdBy
+    }
+  }
+`;
+
+/**
+ * Fetch the supplier-site approval rows for a supplier. Preferred row
+ * first, then chronological (server-side ordering — see
+ * `apps/farm-service/src/supplier/handlers/list-supplier-sites.handler.ts`).
+ *
+ * Query is gated on `supplierId` presence — SuppliersTab CREATE mode
+ * has no supplierId yet, so the query is skipped.
+ */
+export function useSupplierSites(supplierId: string | undefined) {
+  const { token, tenantId } = useAuth();
+  return useQuery({
+    queryKey: createTenantQueryKey(
+      tenantId,
+      'suppliers',
+      'sites',
+      supplierId ?? '',
+    ),
+    queryFn: async () => {
+      if (!supplierId) return [] as SupplierSite[];
+      const data = await graphqlClient.request<{ supplierSites: SupplierSite[] }>(
+        SUPPLIER_SITES_QUERY,
+        { supplierId },
+      );
+      return data.supplierSites;
+    },
+    enabled: !!token && !!tenantId && !!supplierId,
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Replace the FULL approved-sites set for one supplier. Server-side
+ * this is one transactional swap + a `SupplierApprovedSitesChanged`
+ * outbox event.
+ */
+export function useSetSupplierApprovedSites() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (vars: {
+      supplierId: string;
+      siteIds: string[];
+      preferredSiteId: string | null;
+    }) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{
+        setSupplierApprovedSites: SupplierSite[];
+      }>(SET_SUPPLIER_APPROVED_SITES_MUTATION, vars);
+      return data.setSupplierApprovedSites;
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(
+          tenantId,
+          'suppliers',
+          'sites',
+          vars.supplierId,
+        ),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'suppliers', 'list'),
+      });
+    },
+  });
+}

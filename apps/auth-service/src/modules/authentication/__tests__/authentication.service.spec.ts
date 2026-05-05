@@ -16,7 +16,17 @@
  * login code path in isolation.
  */
 
-import * as bcrypt from 'bcrypt';
+// Production uses bcryptjs (see authentication.service.ts:2,
+// token.service.ts:2). The spec was importing 'bcrypt' (without
+// @types/bcrypt declared), so jest.spyOn(bcrypt, 'compare') was
+// patching a DIFFERENT module than the one the SUT actually
+// invokes — every "should reject password X" assertion was
+// passing because the SUT called the real, un-mocked bcryptjs
+// while the test mocked an unrelated bcrypt instance.
+// Aligning to bcryptjs makes the spies intercept the real call
+// path AND silences the missing-types error. Surfaced by PR-31
+// (PROC-MEDIUM-007 ratchet).
+import * as bcrypt from 'bcryptjs';
 import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -32,7 +42,7 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
-import { Tenant } from '../../tenant/entities/tenant.entity';
+import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { AuthenticationService } from '../services/authentication.service';
 
 // ============================================================================
@@ -86,6 +96,13 @@ const mockRefreshTokenRepository = {
   create: jest.fn(),
   save: jest.fn(),
   update: jest.fn(),
+  // findOne was added when refreshToken() flow grew lookup-by-token
+  // semantics. Per-test bodies (lines ~356, 369, 382) re-mock with
+  // `mockRefreshTokenRepository.findOne = jest.fn().mockResolvedValue(...)`,
+  // which strict-tsc rejected because the literal was the type
+  // anchor and didn't carry the property. Declared here so per-test
+  // assignments are property updates, not new-property additions.
+  findOne: jest.fn(),
   find: jest.fn(),
   count: jest.fn(),
   delete: jest.fn(),
@@ -280,7 +297,7 @@ describe('AuthenticationService', () => {
 
     it('throws ForbiddenException or UnauthorizedException when tenant is suspended', async () => {
       const user = createMockUser();
-      const suspendedTenant = createMockTenant({ status: 'suspended' });
+      const suspendedTenant = createMockTenant({ status: TenantStatus.SUSPENDED });
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(suspendedTenant);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);

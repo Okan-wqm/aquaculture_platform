@@ -1390,7 +1390,7 @@ export class AutomationService {
         deviceId,
         commandId,
         version: program.version,
-        edgeScript: deployCommand.params as Record<string, unknown>,
+        edgeScript: deployCommand['params'] as Record<string, unknown>,
         deployedBy,
       });
     }
@@ -1804,7 +1804,7 @@ export class AutomationService {
       if (fbMap.has(fbId)) continue;
 
       const rawParams = (action.params ?? {}) as Record<string, unknown>;
-      const fbType = String(rawParams.fbType ?? 'TON').toUpperCase();
+      const fbType = String(rawParams['fbType'] ?? 'TON').toUpperCase();
 
       if (!AutomationService.SUPPORTED_FB_TYPES.test(fbType)) {
         this.logger.warn(
@@ -1815,8 +1815,8 @@ export class AutomationService {
 
       // Resolve input/output wiring through the variable → source map
       // so the engine's wire_fb_inputs/outputs can find the right values.
-      const inputs  = this.resolveWiringMap(rawParams.inputs, varSourceMap);
-      const outputs = this.resolveWiringMap(rawParams.outputs, varSourceMap);
+      const inputs  = this.resolveWiringMap(rawParams['inputs'], varSourceMap);
+      const outputs = this.resolveWiringMap(rawParams['outputs'], varSourceMap);
 
       // Copy only known FB parameters to prevent unexpected keys from
       // reaching the agent's serde deserialiser.
@@ -2161,10 +2161,10 @@ export class AutomationService {
       const params = (sa.params ?? {}) as Record<string, unknown>;
       return {
         type: 'write_modbus',
-        device: String(params.device ?? tagName),
+        device: String(params['device'] ?? tagName),
         // Modbus register address — required for write_modbus.
         // If not specified in StepAction params, default to 0 and log a warning.
-        address: params.address != null ? Number(params.address) : this.warnMissingAddress(sa),
+        address: params['address'] != null ? Number(params['address']) : this.warnMissingAddress(sa),
         value,
       };
     }
@@ -2203,8 +2203,8 @@ export class AutomationService {
     }
 
     const params = (sa.params ?? {}) as Record<string, unknown>;
-    const inputName = String(params.triggerInput ?? 'IN');
-    const value = params.triggerValue ?? true;
+    const inputName = String(params['triggerInput'] ?? 'IN');
+    const value = params['triggerValue'] ?? true;
 
     return {
       type: 'set_variable',
@@ -2241,7 +2241,7 @@ export class AutomationService {
    */
   private translateAlarm(sa: StepAction): Record<string, unknown> {
     const params = (sa.params ?? {}) as Record<string, unknown>;
-    const level = String(params.level ?? 'warning');
+    const level = String(params['level'] ?? 'warning');
     return {
       type: 'alert',
       level,
@@ -2278,8 +2278,8 @@ export class AutomationService {
     const params = (sa.params ?? {}) as Record<string, unknown>;
 
     // Explicit value in params takes priority
-    if (params.value != null) {
-      return this.coerceLiteralValue(params.value);
+    if (params['value'] != null) {
+      return this.coerceLiteralValue(params['value']);
     }
 
     // Parse from ST assignment syntax: "var := value;"

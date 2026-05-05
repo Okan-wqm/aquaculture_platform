@@ -122,9 +122,9 @@ describe('ThrottlerGuard', () => {
         fail('Should have thrown');
       } catch (e) {
         const response = (e as HttpException).getResponse() as Record<string, unknown>;
-        expect(response.statusCode).toBe(429);
-        expect(response.retryAfter).toBeDefined();
-        expect(typeof response.retryAfter).toBe('number');
+        expect(response['statusCode']).toBe(429);
+        expect(response['retryAfter']).toBeDefined();
+        expect(typeof response['retryAfter']).toBe('number');
       }
     });
   });
@@ -309,7 +309,7 @@ describe('ThrottlerGuard', () => {
         fail('Should have thrown');
       } catch (e) {
         const response = (e as HttpException).getResponse() as Record<string, unknown>;
-        expect(response.message).toBe('Custom: Too many login attempts');
+        expect(response['message']).toBe('Custom: Too many login attempts');
       }
     });
   });

@@ -131,8 +131,8 @@ function interpolateKey(pattern: string, args: unknown[]): string {
     if (typeof arg === 'object') {
       const obj = arg as Record<string, unknown>;
       // Try common ID fields first
-      if (obj.id) return String(obj.id);
-      if (obj.tenantId) return String(obj.tenantId);
+      if (obj['id']) return String(obj['id']);
+      if (obj['tenantId']) return String(obj['tenantId']);
       // Fallback to JSON hash (first 16 chars)
       return JSON.stringify(arg).substring(0, 16);
     }

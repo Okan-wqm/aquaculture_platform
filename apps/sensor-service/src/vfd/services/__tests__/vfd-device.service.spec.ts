@@ -26,7 +26,13 @@ describe('VfdDeviceService', () => {
     brand: VfdBrand.DANFOSS,
     model: 'FC302',
     protocol: VfdProtocol.MODBUS_TCP,
-    protocolConfiguration: { host: '192.168.1.100', port: 502, unitId: 1 },
+    protocolConfiguration: {
+      host: '192.168.1.100',
+      port: 502,
+      unitId: 1,
+      connectionTimeout: 3000,
+      responseTimeout: 1000,
+    },
     status: VfdDeviceStatus.DRAFT,
     tenantId,
     connectionStatus: { isConnected: false },
@@ -99,7 +105,10 @@ describe('VfdDeviceService', () => {
       const result = await service.create(createInput, tenantId);
 
       expect(result.connectionStatus).toBeDefined();
-      expect(result.connectionStatus.isConnected).toBe(false);
+      // `connectionStatus` is the JSON column's optional shape;
+      // `toBeDefined()` narrows logically not at the type level.
+      // `!` is safe because the assertion above guarantees presence.
+      expect(result.connectionStatus!.isConnected).toBe(false);
     });
 
     it('should validate Modbus RTU configuration', async () => {
@@ -254,7 +263,7 @@ describe('VfdDeviceService', () => {
       });
 
       expect(repository.save).toHaveBeenCalled();
-      expect(result.connectionStatus.isConnected).toBe(true);
+      expect(result.connectionStatus!.isConnected).toBe(true);
     });
   });
 

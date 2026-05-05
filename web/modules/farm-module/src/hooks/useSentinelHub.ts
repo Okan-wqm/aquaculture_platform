@@ -10,6 +10,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
 import {
   getSatelliteImage,
@@ -264,3 +265,52 @@ export function useSentinelHub(): UseSentinelHubReturn {
 }
 
 export default useSentinelHub;
+
+/**
+ * Update only the Sentinel Hub Instance ID for the current tenant —
+ * without re-entering Client ID / Client Secret.
+ *
+ * Backend resolver: `updateSentinelHubInstanceId(instanceId: String!): Boolean`
+ * (apps/farm-service/src/sentinel-hub/sentinel-hub.resolver.ts:125)
+ * Permission: TENANT_ADMIN only.
+ *
+ * The backend rejects with "Önce Sentinel Hub kimlik bilgilerini
+ * yapılandırın" when no settings row exists yet — UI must precheck
+ * `status.isConfigured` so the operator never sees that error.
+ *
+ * This hook follows the canonical React Query + `graphqlClient.request`
+ * pattern (see `useSubEquipment.ts`) — distinct from the
+ * `useSentinelHub()` default export, which is a hand-rolled callback
+ * hook from before farm-module standardised on TanStack. Both
+ * patterns sit in this file alongside each other; new hooks use the
+ * canonical shape (FE-MEDIUM-004, larger refactor tracked separately).
+ */
+const UPDATE_SENTINEL_HUB_INSTANCE_ID_MUTATION = `
+  mutation UpdateSentinelHubInstanceId($instanceId: String!) {
+    updateSentinelHubInstanceId(instanceId: $instanceId)
+  }
+`;
+
+export function useUpdateSentinelHubInstanceId() {
+  const { tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (instanceId: string) => {
+      const data = await graphqlClient.request<{
+        updateSentinelHubInstanceId: boolean;
+      }>(UPDATE_SENTINEL_HUB_INSTANCE_ID_MUTATION, { instanceId });
+      return data.updateSentinelHubInstanceId;
+    },
+    onSuccess: () => {
+      // Status query is owned by the legacy `useSentinelHub` callback
+      // hook (which holds React state, not TanStack cache). The
+      // SettingsPage refetches its own copy on success, so we don't
+      // need a queryClient.invalidate here. Future refactor (when
+      // the status query also moves to TanStack) will benefit from a
+      // single invalidate call here — left as a no-op intentionally
+      // rather than fan-out to keys that don't exist yet.
+      void queryClient;
+    },
+  });
+}

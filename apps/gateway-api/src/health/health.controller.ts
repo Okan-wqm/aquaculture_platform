@@ -109,7 +109,7 @@ export class HealthController {
       status: 'ok',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      version: process.env.APP_VERSION || '0.0.0',
+      version: process.env['APP_VERSION'] || '0.0.0',
       service: 'gateway-api',
       framework: {
         nestjs: safeRequireVersion('@nestjs/core/package.json'),

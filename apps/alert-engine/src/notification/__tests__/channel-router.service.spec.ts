@@ -8,6 +8,12 @@ import { NotificationChannel } from '../../database/entities/escalation-policy.e
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { RedisService } from '@aquaculture/backend-common/redis';
 
+// PROC-MEDIUM-014 closed by PR-38: UserNotificationPreferences.channelConfigs
+// is now Partial<Record<NotificationChannel, ChannelConfig>>, so each test
+// passes only the channel subset it cares about as a plain literal. The
+// makeChannelConfigs() helper that PR-36 added is no longer needed for
+// type safety.
+
 const mockRedisService = {
   get: jest.fn().mockResolvedValue(null),
   set: jest.fn().mockResolvedValue(undefined),
@@ -369,8 +375,8 @@ describe('ChannelRouterService', () => {
 
       const rules = service.getRoutingRules();
 
-      expect(rules[0].id).toBe('high-priority');
-      expect(rules[1].id).toBe('low-priority');
+      expect(rules[0]!.id).toBe('high-priority');
+      expect(rules[1]!.id).toBe('low-priority');
     });
 
     it('should evaluate rule conditions correctly', () => {
@@ -568,9 +574,9 @@ describe('ChannelRouterService', () => {
 
       const stats = service.getStatistics();
 
-      expect(stats.usersWithPreferences).toBe(1);
-      expect(stats.routingRules).toBe(1);
-      expect((stats.totalChannels as number)).toBeGreaterThan(0);
+      expect(stats['usersWithPreferences']).toBe(1);
+      expect(stats['routingRules']).toBe(1);
+      expect((stats['totalChannels'] as number)).toBeGreaterThan(0);
     });
   });
 });

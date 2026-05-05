@@ -30,17 +30,7 @@ interface GraphQLContextRequest extends Request {
   user?: {
     sub: string;
     roles: string[];
-    /**
-     * 2026-04-30: tenant-aware DataLoader creation must use the authenticated
-     * gateway-normalized tenant, not a spoofable raw header.
-     */
-    tenantId?: string;
   };
-  /**
-   * 2026-04-30: TenantContextMiddleware normalizes the request tenant here;
-   * keeping it in the contract prevents unsafe casts around tenant routing.
-   */
-  tenantId?: string;
 }
 import { createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
@@ -172,22 +162,16 @@ import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/17
 import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1782100000000-AddFarmOutboxNotifyTrigger';
 import { MovePublicTablesToFarm1786000000000 } from './database/migrations/1786000000000-MovePublicTablesToFarm';
 import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1786200000000-AddFarmOutboxModernColumns';
-// ORPHAN-FARM-MIGRATION-REGISTRATION cure: register every migration that
-// existed on disk but was missing from the AppModule's migrations array.
-// A fresh farm-service deploy that does not list a migration here never
-// runs it — the schema state silently lags the entity declarations. The
-// migration-registration-completeness invariant test enforces complete
-// coverage going forward.
-import { MovePublicTablesToFarm1786000000000 } from './database/migrations/1786000000000-MovePublicTablesToFarm';
 import { AddDomainRetentionFunctions1787000000000 } from './database/migrations/1787000000000-AddDomainRetentionFunctions';
 import { AddStorageInventoryReceivedDate1787100000000 } from './database/migrations/1787100000000-AddStorageInventoryReceivedDate';
+import { CreateStorageLotMixes1787150000000 } from './database/migrations/1787150000000-CreateStorageLotMixes';
 import { AddStorageLotMixesGinIndex1787200000000 } from './database/migrations/1787200000000-AddStorageLotMixesGinIndex';
 import { AddRecurringTemplateTimezone1787300000000 } from './database/migrations/1787300000000-AddRecurringTemplateTimezone';
 import { AddDailyBatchFeedingMaterializedView1787400000000 } from './database/migrations/1787400000000-AddDailyBatchFeedingMaterializedView';
 import { AddDailyTankWaterQualityMaterializedView1787500000000 } from './database/migrations/1787500000000-AddDailyTankWaterQualityMaterializedView';
 import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrations/1788100000000-WireSupplierSitesAndSiteContacts';
-import { AddFarmAuditLogsImmutability1788300000000 } from './database/migrations/1788300000000-AddFarmAuditLogsImmutability';
-import { CreateTenantErasureAudit1788500000000 } from './database/migrations/1788500000000-CreateTenantErasureAudit';
+import { DedupeEquipmentTypesByCode1788200000000 } from './database/migrations/1788200000000-DedupeEquipmentTypesByCode';
+import { AddBiomassReports1788300000000 } from './database/migrations/1788300000000-AddBiomassReports';
 
 @Module({
   imports: [
@@ -237,18 +221,18 @@ import { CreateTenantErasureAudit1788500000000 } from './database/migrations/178
             ConvertAuditColumnsToTimestamptz1781900000000,
             AddFarmOutboxLeaseColumns1782000000000,
             AddFarmOutboxNotifyTrigger1782100000000,
-            // ORPHAN-FARM-MIGRATION-REGISTRATION cure (chronological):
             MovePublicTablesToFarm1786000000000,
             AddFarmOutboxModernColumns1786200000000,
             AddDomainRetentionFunctions1787000000000,
             AddStorageInventoryReceivedDate1787100000000,
+            CreateStorageLotMixes1787150000000,
             AddStorageLotMixesGinIndex1787200000000,
             AddRecurringTemplateTimezone1787300000000,
             AddDailyBatchFeedingMaterializedView1787400000000,
             AddDailyTankWaterQualityMaterializedView1787500000000,
             WireSupplierSitesAndSiteContacts1788100000000,
-            AddFarmAuditLogsImmutability1788300000000,
-            CreateTenantErasureAudit1788500000000,
+            DedupeEquipmentTypesByCode1788200000000,
+            AddBiomassReports1788300000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
@@ -278,20 +262,11 @@ import { CreateTenantErasureAudit1788500000000 } from './database/migrations/178
          *  defense-in-depth in case a subgraph becomes directly accessible. */
         allowBatchedHttpRequests: false,
         /**
-         * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
-         * migration is blocked by the Nest/Apollo peer graph.
-         * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
-         * class protections must be fail-closed at runtime.
-         */
-        csrfPrevention: true,
-        /**
          * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
          * Without depth limiting, an attacker can craft a deeply nested GraphQL query
          * that causes exponential resource consumption on the server.
          */
         validationRules: [depthLimit(10)],
-        // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
-        // WHY: farm subgraph developer UI must not rely on deprecated Apollo Playground behavior.
         /**
          * Phase 5.4 of the "Farm modülü kalan kör noktalar" plan.
          * depthLimit rejects queries that NEST too deeply but does
@@ -355,6 +330,7 @@ import { CreateTenantErasureAudit1788500000000 } from './database/migrations/178
             }),
           },
         ],
+        playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
         context: ({ req }: { req: GraphQLContextRequest }) => {
@@ -387,15 +363,9 @@ import { CreateTenantErasureAudit1788500000000 } from './database/migrations/178
             };
           }
 
-          // Create per-request DataLoaders for equipment batch metrics (N+1 → bulk).
-          // SECURITY: loader tenant must come from authenticated/normalized request
-          // context, never directly from spoofable client headers.
-          const tenantId =
-            typeof req.user?.tenantId === 'string'
-              ? req.user.tenantId
-              : typeof req.tenantId === 'string'
-                ? req.tenantId
-                : undefined;
+          // Create per-request DataLoaders for equipment batch metrics (N+1 → bulk)
+          const tenantHeader = req.headers['x-tenant-id'];
+          const tenantId = typeof tenantHeader === 'string' ? tenantHeader : undefined;
           let loaders;
           if (tenantId) {
             const schema = getTenantSchemaName(tenantId);
@@ -438,18 +408,6 @@ import { CreateTenantErasureAudit1788500000000 } from './database/migrations/178
 
     // CQRS Module
     CqrsModule.forRoot(),
-    // AUDITTRAIL-CRITICAL-002 sweep: registers AuditedOperationInterceptor
-    // as APP_INTERCEPTOR so any handler decorated with @AuditedOperation()
-    // in this service writes a transactional audit row.
-    AuditedOperationModule.forRoot(),
-    // COMPLIANCE-HIGH-004 cure: registers the canonical
-    // LegalHoldService as @Global so TenantErasureService can
-    // run the legal-hold precedence check before any erasure
-    // cascade. Without this module the service-level @Optional()
-    // injection falls back to no-op, which is unsafe in
-    // production — the LegalHoldModule registration here is the
-    // production wiring.
-    LegalHoldModule.forRoot(),
 
     // Event Bus Module
     EventBusModule.forRootAsync({
@@ -659,13 +617,6 @@ export class AppModule implements NestModule {
     // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
-        // SEC-CRITICAL-002 sweep: MUST run BEFORE UserContextMiddleware so
-        // forged x-user-payload / x-tenant-id headers from a Docker-network
-        // attacker cannot survive into req.user. Verifies the request
-        // carries a valid x-service-identity + x-service-signature pair
-        // signed with INTERNAL_SERVICE_SECRET; otherwise strips the four
-        // spoofable internal headers from req.headers.
-        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

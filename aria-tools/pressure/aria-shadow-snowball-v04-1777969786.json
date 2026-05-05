@@ -1,0 +1,38 @@
+{
+  "cycle_id": "aria-shadow-snowball-v04-1777969786",
+  "generated_at": "2026-05-05T08:29:54+00:00",
+  "pressures": [
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [
+        "typeorm-entity-schema-adapter"
+      ],
+      "cycle_id": "aria-shadow-snowball-v04-1777969786",
+      "evidence": [
+        "apps/*/src/database/migrations/*.ts"
+      ],
+      "pressure_id": "pressure:migration-surface-repeat:repetition",
+      "reason": "repository has repeated TypeORM migration surfaces",
+      "recommended_action": "continue TypeORM schema drift checks",
+      "schema_version": 1,
+      "score": 86.424,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 76,
+        "recency_decay": 1.0,
+        "source_weight": 30
+      },
+      "severity": "medium",
+      "source": "migration_surface_repeat",
+      "tool_id": null,
+      "type": "REPETITION"
+    }
+  ],
+  "schema_version": 1,
+  "summary": {
+    "contradiction": 0,
+    "repetition": 1,
+    "unknown": 0
+  }
+}

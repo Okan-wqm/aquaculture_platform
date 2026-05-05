@@ -394,10 +394,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     moduleName: 'messaging',
     sourceSchema: 'messaging',
     referenceDataTables: [],
-    infrastructureTables: [
-      'messaging_outbox',
-      'embeddings_metadata',
-    ],
     tables: [
       // Core messaging tables (migration 1711800000000)
       'channels',
@@ -407,10 +403,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'message_receipts',
       'message_reactions',
       'pinned_messages',
+      'messaging_outbox',
       // AI tables (migration 1711800000001)
       'message_analysis',
       'message_entity_references',
       'knowledge_entries',
+      'embeddings_metadata',
       // Compliance tables (migration 1711800000003)
       'retention_policies',
       'legal_holds',
@@ -521,12 +519,20 @@ export function validateTenantSchemaName(schema: string): string {
   return schema;
 }
 
-// Re-exported from the shared sql-identifier.util to keep one canonical
-// validator across all DDL paths (DATA-CRITICAL-002 fix). The legacy
-// private signature `(identifier, 'schema' | 'table')` is preserved by the
-// re-export — kind defaults to 'schema' in the util but every existing
-// callsite passes its own kind explicitly.
-import { validateSqlIdentifier } from './sql-identifier.util';
+/**
+ * SECURITY: Validate SQL identifier (schema/table name) to prevent injection
+ * Only allows alphanumeric characters and underscores
+ * @throws BadRequestException if identifier contains invalid characters
+ */
+function validateSqlIdentifier(identifier: string, type: 'schema' | 'table'): string {
+  const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+  if (!identifierRegex.test(identifier) || identifier.length > 63) {
+    throw new BadRequestException(
+      `SECURITY: Invalid ${type} identifier: ${identifier}. Only alphanumeric and underscore allowed.`
+    );
+  }
+  return identifier;
+}
 
 /**
  * Schema Manager Service
@@ -657,25 +663,6 @@ export class SchemaManagerService {
     const tablesCreated: string[] = [];
     const referenceDataCopied: { table: string; rows: number }[] = [];
     const errors: string[] = [];
-    const unknownModules = modules.filter((moduleName) =>
-      !MODULE_SCHEMAS.some((schema) => schema.moduleName === moduleName),
-    );
-
-    if (modules.length === 0 || unknownModules.length > 0) {
-      return {
-        success: false,
-        status: ProvisioningStatus.FAILED,
-        schemaName,
-        tablesCreated: [],
-        referenceDataCopied: [],
-        errors: [
-          modules.length === 0
-            ? 'No tenant modules requested for schema provisioning'
-            : `Unknown tenant module(s): ${unknownModules.join(', ')}`,
-        ],
-        duration: Date.now() - startTime,
-      };
-    }
 
     // Validate schema name as additional safety
     if (!this.isValidSchemaName(schemaName)) {
@@ -692,25 +679,10 @@ export class SchemaManagerService {
 
     this.logger.log(`Acquiring advisory lock for tenant ${tenantId} (key: ${lockKey})`);
 
-    // WHY: Advisory locks are session-scoped. The original code called
-    // pg_advisory_lock() and pg_advisory_unlock() through this.dataSource.query(),
-    // which checks out a fresh connection from the pool for EACH query —
-    // the unlock therefore frequently ran on a different connection than
-    // the lock, silently no-op'ing while the actual lock leaked at the
-    // pool-conn level. Under concurrency the pool saturated and provisioning
-    // deadlocked (DATA-CRITICAL-001). Pinning a QueryRunner makes the
-    // lock+unlock pair travel on the same physical connection so the
-    // unlock cannot leak. Postgres also auto-releases the lock if the
-    // session terminates abnormally (e.g. pool eviction), giving us a
-    // belt-and-braces guarantee.
-    // WHAT: Acquire a dedicated QueryRunner, run the advisory_lock on it,
-    // execute the entire provisioning flow inside the try, run the
-    // unlock on the SAME runner, then release the runner back to the pool.
-    const lockRunner = this.dataSource.createQueryRunner();
-    await lockRunner.connect();
-    try {
-      await lockRunner.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
+    // Acquire advisory lock - blocks if another process is creating same schema
+    await this.dataSource.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
 
+    try {
       // Check if schema already exists (idempotent operation)
       const exists = await this.schemaExistsNoCache(schemaName);
       if (exists) {
@@ -787,13 +759,6 @@ export class SchemaManagerService {
         }
       }
 
-      if (errors.length > 0) {
-        // A tenant schema is an isolation boundary. Leaving it partially built
-        // makes later reads/writes nondeterministic, so table DDL drift must
-        // fail the whole provisioning transaction and trigger cleanup below.
-        throw new Error(`Tenant schema table provisioning failed: ${errors.join('; ')}`);
-      }
-
       // 3. Copy reference data for requested modules
       for (const moduleName of modules) {
         const refTables = REFERENCE_DATA_TABLES[moduleName];
@@ -818,12 +783,6 @@ export class SchemaManagerService {
             this.logger.warn(errorMsg);
           }
         }
-      }
-
-      if (errors.length > 0) {
-        // Reference data is part of the tenant's initial consistency contract;
-        // silently continuing would create tenants that differ by creation time.
-        throw new Error(`Tenant schema reference data provisioning failed: ${errors.join('; ')}`);
       }
 
       // 4. Grant permissions to the application role (or current user as fallback)
@@ -871,12 +830,6 @@ export class SchemaManagerService {
         }
       }
 
-      if (errors.length > 0) {
-        // Migration history is required so service boot does not replay old
-        // migrations into cloned tenant tables and break startup later.
-        throw new Error(`Tenant schema migration history provisioning failed: ${errors.join('; ')}`);
-      }
-
       // Update cache
       this.schemaCache.set(schemaName, true);
 
@@ -921,19 +874,9 @@ export class SchemaManagerService {
         duration: Date.now() - startTime,
       };
     } finally {
-      // WHY: Unlock + runner release run on the SAME pinned connection.
-      // The unlock CANNOT silently no-op because the connection that holds
-      // the lock is the same connection that runs the unlock. If the
-      // unlock query itself fails for any reason, the runner.release()
-      // returns the conn to the pool — Postgres auto-releases the
-      // session-held advisory lock as the conn cycles, so even the
-      // catastrophic case does not leak.
-      try {
-        await lockRunner.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
-        this.logger.debug(`Released advisory lock for tenant ${tenantId}`);
-      } finally {
-        await lockRunner.release();
-      }
+      // ALWAYS release advisory lock
+      await this.dataSource.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
+      this.logger.debug(`Released advisory lock for tenant ${tenantId}`);
     }
   }
 
@@ -1087,44 +1030,28 @@ export class SchemaManagerService {
 
     this.logger.log(`Acquiring advisory lock for tenant deletion ${tenantId} (key: ${lockKey})`);
 
-    // WHY: Same DATA-CRITICAL-001 leak applies here — pg_advisory_lock and
-    // pg_advisory_unlock issued through this.dataSource.query() ran on
-    // different connections under load. Pinning a QueryRunner closes the
-    // leak (see createTenantSchema for the full rationale).
-    // WHAT: lock + unlock + DROP SCHEMA all execute via the pinned runner.
-    const lockRunner = this.dataSource.createQueryRunner();
-    await lockRunner.connect();
+    // Acquire advisory lock - blocks if another process is operating on same schema
+    await this.dataSource.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
+
     try {
-      await lockRunner.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
+      this.logger.log(`Deleting tenant schema: ${schemaName}`);
 
-      try {
-        this.logger.log(`Deleting tenant schema: ${schemaName}`);
+      // CASCADE drops all objects in the schema
+      await this.dataSource.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
 
-        // CASCADE drops all objects in the schema. Runs on the SAME pinned
-        // connection so it implicitly serialises behind the lock.
-        const safeSchemaName = validateSqlIdentifier(schemaName, 'schema');
-        await lockRunner.query(`DROP SCHEMA IF EXISTS "${safeSchemaName}" CASCADE`);
+      // Invalidate cache entry for deleted schema
+      this.schemaCache.invalidate(schemaName);
 
-        // Invalidate cache entry for deleted schema
-        this.schemaCache.invalidate(schemaName);
-
-        this.logger.log(`Tenant schema ${schemaName} deleted successfully`);
-        return { success: true };
-      } catch (error) {
-        const errorMsg = `Failed to delete tenant schema: ${(error as Error).message}`;
-        this.logger.error(errorMsg);
-        return { success: false, error: errorMsg };
-      } finally {
-        try {
-          await lockRunner.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
-          this.logger.debug(`Released advisory lock for tenant deletion ${tenantId}`);
-        } catch (unlockErr) {
-          // The runner.release() below cycles the conn — Postgres auto-releases.
-          this.logger.warn(`pg_advisory_unlock failed (auto-released by conn cycle): ${(unlockErr as Error).message}`);
-        }
-      }
+      this.logger.log(`Tenant schema ${schemaName} deleted successfully`);
+      return { success: true };
+    } catch (error) {
+      const errorMsg = `Failed to delete tenant schema: ${(error as Error).message}`;
+      this.logger.error(errorMsg);
+      return { success: false, error: errorMsg };
     } finally {
-      await lockRunner.release();
+      // ALWAYS release advisory lock
+      await this.dataSource.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
+      this.logger.debug(`Released advisory lock for tenant deletion ${tenantId}`);
     }
   }
 
@@ -1456,11 +1383,7 @@ export class SchemaManagerService {
           WHERE tenant_id = $1
           ON CONFLICT DO NOTHING
         `, [tenantId]);
-      } catch (snakeCaseError) {
-        if (!this.isUndefinedColumnError(snakeCaseError)) {
-          throw snakeCaseError;
-        }
-
+      } catch {
         await this.dataSource.query(`
           INSERT INTO "${safeSchemaName}"."${safeTableName}"
           SELECT * FROM "${safeSourceSchema}"."${safeTableName}"
@@ -1484,11 +1407,6 @@ export class SchemaManagerService {
       this.logger.error(errorMsg);
       return { rowsMigrated: 0, error: errorMsg };
     }
-  }
-
-  private isUndefinedColumnError(error: unknown): boolean {
-    const dbError = error as { code?: string; message?: string };
-    return dbError.code === '42703' || dbError.message?.includes('column "tenant_id" does not exist') === true;
   }
 
   /**

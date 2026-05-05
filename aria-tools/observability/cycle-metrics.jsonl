@@ -1,0 +1,1 @@
+{"artifact_count": 21, "cost_units": 0.0, "cycle_id": "aria-shadow-snowball-v04-1777969786", "ledger_hash": "sha256:d368a42a567c3f30104b60a266e4386b738e43671de98d142920f07e97bcbdae", "ledger_prev_hash": "GENESIS", "phase_durations_ms": {"cycle_total": 7368}, "recorded_at": "2026-05-05T08:29:54+00:00", "schema_version": 1, "status": "ok", "total_duration_ms": 7368}

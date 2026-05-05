@@ -1,0 +1,302 @@
+{
+  "schema_version": 1,
+  "tools": [
+    {
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "libs/**/*.ts"
+      ],
+      "claim_types": [
+        "tenant_scoping"
+      ],
+      "created_at": "2026-05-05T08:29:32+00:00",
+      "declared_scope": [
+        "apps/**/*.ts",
+        "libs/**/*.ts"
+      ],
+      "default_input": {
+        "roots": [
+          "apps",
+          "libs"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/tenant-scoping",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "tenant-scoping-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "tenant-scoping-adapter",
+      "updated_at": "2026-05-05T08:29:32+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "libs/**/*.ts"
+      ],
+      "claim_types": [
+        "schema_drift"
+      ],
+      "created_at": "2026-05-05T08:29:32+00:00",
+      "declared_scope": [
+        "apps/**/entities/**/*.ts",
+        "libs/backend-common/**/*.ts"
+      ],
+      "default_input": {
+        "roots": [
+          "apps"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/schema-drift",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "schema-drift-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "schema-drift-adapter",
+      "updated_at": "2026-05-05T08:29:32+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "libs/**/*.ts",
+        "platform/libs/**/*.ts"
+      ],
+      "claim_types": [
+        "event_contracts"
+      ],
+      "created_at": "2026-05-05T08:29:32+00:00",
+      "declared_scope": [
+        "libs/event-contracts/**/*.ts",
+        "platform/libs/event-bus/**/*.ts"
+      ],
+      "default_input": {
+        "roots": [
+          "libs",
+          "platform/libs"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/event-contracts",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "event-contracts-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "event-contracts-adapter",
+      "updated_at": "2026-05-05T08:29:32+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "infrastructure/**",
+        "libs/**/*.ts"
+      ],
+      "claim_types": [
+        "nats_cert_identity"
+      ],
+      "created_at": "2026-05-05T08:29:32+00:00",
+      "declared_scope": [
+        "infrastructure/nats/**",
+        "libs/backend-common/src/nats/**"
+      ],
+      "default_input": {
+        "roots": [
+          "infrastructure/nats"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/nats-cert-identity",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "nats-cert-identity-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "nats-cert-identity-adapter",
+      "updated_at": "2026-05-05T08:29:32+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "libs/**/*.ts"
+      ],
+      "claim_types": [
+        "migration_runner"
+      ],
+      "created_at": "2026-05-05T08:29:32+00:00",
+      "declared_scope": [
+        "apps/*/src/database/migrations/**/*.ts",
+        "libs/backend-common/src/database/**/*.ts"
+      ],
+      "default_input": {
+        "roots": [
+          "apps"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/migration-runner",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "migration-runner-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "migration-runner-adapter",
+      "updated_at": "2026-05-05T08:29:32+00:00",
+      "version": "0.1.0"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+{"ts":"2026-04-30T16:06:39.624Z","session_id":"1a9376b2-7344-4d06-b640-0e884ad913e4","cwd":"/var/aqua-saas/sens-api-gateway","agent":"edge-expert","cycle_id":"1a9376b2-7344-4d06-b640-0e884ad913e4","approved":false,"reason":"agent-not-in-roster"}
+{"ts":"2026-04-30T16:07:20.260Z","session_id":"1a9376b2-7344-4d06-b640-0e884ad913e4","cwd":"/var/aqua-saas/sens-api-gateway","agent":"security-reviewer","cycle_id":"1a9376b2-7344-4d06-b640-0e884ad913e4","approved":false,"reason":"agent-not-in-roster"}
+{"ts":"2026-04-30T16:08:01.249Z","session_id":"1a9376b2-7344-4d06-b640-0e884ad913e4","cwd":"/var/aqua-saas/sens-api-gateway","agent":"root-cause-auditor","cycle_id":"1a9376b2-7344-4d06-b640-0e884ad913e4","approved":false,"reason":"agent-not-in-roster"}

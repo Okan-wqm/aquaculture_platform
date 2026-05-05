@@ -1,0 +1,25 @@
+{
+  "base_commit_sha": "aa71b23c455a5cbccf60bac2428193526054ffcd",
+  "complete": true,
+  "cycle_id": "aria-shadow-snowball-v04-1777969786",
+  "dirty_path_count": 36,
+  "dirty_snapshot": true,
+  "fated_file_count": 7203,
+  "file_counts": {
+    "allowed": 7175,
+    "fated": 7203,
+    "generated": 28,
+    "git_tracked": 7121,
+    "unknown": 0,
+    "working_tree": 7203
+  },
+  "generated_at": "2026-05-05T08:29:48+00:00",
+  "legacy_tracked_file_count": 7175,
+  "missing_fates": [],
+  "repo_state_id": "repo-state:9d3c1a6548b601d7155255ca603e0a5f9c6b016e29e083e1032d5806fae4d59b",
+  "schema_version": 1,
+  "snapshot_hash": "sha256:28901cde520a3e16f9cf3d5dced5dde4905dff2aa3e42b3ce1f3eaf771996b1e",
+  "snapshot_mode": "working-tree",
+  "tracked_file_count": 7175,
+  "unknown_count": 0
+}

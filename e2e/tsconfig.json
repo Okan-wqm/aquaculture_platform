@@ -7,7 +7,6 @@
     "esModuleInterop": true
   },
   "include": [
-    "jest.config.ts",
-    "tests/**/*.ts"
+    "**/*.ts"
   ]
 }

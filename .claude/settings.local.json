@@ -539,11 +539,7 @@
       "Bash(sed -n '180,190p' /var/aqua-saas/apps/messaging-service/src/gdpr/gdpr.service.ts)",
       "Bash(awk '{print $1}')",
       "Bash(docker manifest:*)",
-      "Bash(bash -n infrastructure/docker/scripts/generate-internal-certs.sh)",
-      "Bash(awk -F: '{print $1}')",
-      "Bash(awk -F/ '{for\\(i=1;i<=NF;i++\\) if\\($i==\"apps\" || $i==\"libs\" || $i==\"platform\"\\) print $i\"/\"$\\(i+1\\)}' /tmp/raw_sql_files.txt)",
-      "Bash(awk -F: '{print $1}' /tmp/raw_sql_all.txt)",
-      "Bash(awk -F/ '{for\\(i=1;i<=NF;i++\\) if\\($i==\"apps\" || $i==\"libs\" || $i==\"platform\"\\) print $i\"/\"$\\(i+1\\)}')"
+      "Bash(bash -n infrastructure/docker/scripts/generate-internal-certs.sh)"
     ],
     "deny": [],
     "ask": []

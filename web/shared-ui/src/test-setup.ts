@@ -11,6 +11,11 @@ import { vi, beforeEach, afterEach } from 'vitest';
 
 beforeEach(() => {
   localStorage.clear();
+  const authState = (window as any).__AQUACULTURE_AUTH_STATE_V2__;
+  if (authState && typeof authState === 'object') {
+    authState.accessToken = null;
+    authState.tenantId = null;
+  }
 });
 
 // ============================================================================

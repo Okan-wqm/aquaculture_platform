@@ -2,6 +2,7 @@
 
 ## Affected Area
 - `.github/workflows/ci-affected.yml`
+- `.github/workflows/performance-benchmark.yml`
 - `crates/event-contracts-rs/project.json`
 - `crates/protocol-codec/project.json`
 
@@ -9,14 +10,14 @@
 GitHub Actions `build` failed when Nx ran Rust crate builds in parallel. One crate reported that `cargo` was not applicable to the pinned toolchain, while another reported rustup rename/download state errors under `~/.rustup`.
 
 ## Root Cause
-Nx can start multiple cargo-backed build targets concurrently. If the pinned Rust toolchain from `rust-toolchain.toml` is not installed before that parallel execution starts, multiple cargo/rustup processes can attempt to install or mutate the same toolchain directory at the same time.
+Nx can start multiple cargo-backed build targets concurrently. If the pinned Rust toolchain from `rust-toolchain.toml` is not installed before that parallel execution starts, multiple cargo/rustup processes can attempt to install or mutate the same toolchain directory at the same time. The same invariant applies to any workflow that builds the affected Nx graph, including the Lighthouse workflow before it serves frontend assets.
 
 ## Architectural Fix
-Install the pinned Rust toolchain once in the CI build job before `npx nx affected -t build` starts. This creates a single deterministic toolchain preparation boundary and keeps Nx parallelism for actual build work.
+Install the pinned Rust toolchain once in each CI job that can build Rust-backed Nx targets before `npx nx affected -t build` or `npm run build -- --base ... --head ...` starts. The action must declare the same `toolchain`, `components`, and `targets` as `rust-toolchain.toml`; otherwise the later `cargo` process still triggers rustup installation inside the parallel Nx build. This creates a single deterministic toolchain preparation boundary and keeps Nx parallelism for actual build work.
 
 ## Verification
 - Local `npx nx run event-contracts-rs:build` could not complete because this server does not have `cargo` on `PATH`.
 - Full validation must run in GitHub Actions where the workflow installs the pinned toolchain before Nx build.
 
 ## Status
-Fixed in CI workflow on 2026-05-05; pending GitHub Actions confirmation.
+Fixed in CI affected and Lighthouse workflows on 2026-05-05; pending GitHub Actions confirmation.

@@ -41,7 +41,7 @@
         "plugin:@typescript-eslint/strict"
       ],
       "parserOptions": {
-        "project": ["tsconfig.base.json", "apps/*/tsconfig.json", "libs/*/tsconfig.json", "platform/libs/*/tsconfig.json", "web/*/tsconfig.json", "web/modules/*/tsconfig.json"]
+        "project": ["tsconfig.base.json", "apps/*/tsconfig.json", "libs/*/tsconfig.json", "platform/libs/*/tsconfig.json", "web/*/tsconfig.json", "web/modules/*/tsconfig.json", "e2e/tsconfig.json"]
       },
       "rules": {
         "@typescript-eslint/no-explicit-any": "error",

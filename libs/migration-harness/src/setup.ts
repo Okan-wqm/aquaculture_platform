@@ -78,7 +78,7 @@ export interface HarnessContext {
 export interface BootOptions {
   /** Override image (default: pinned TimescaleDB matching prod droplet). */
   readonly image?: string;
-  /** Container start timeout (ms). Default 60s covers cold image pull. */
+  /** Container start timeout (ms). CI pre-pulls the default image before Jest. */
   readonly startTimeoutMs?: number;
   /** PG test-only optimisations (fsync off, etc.). Default true. */
   readonly testOptimisations?: boolean;
@@ -90,8 +90,9 @@ export interface BootOptions {
  * create a new container, do not share.
  *
  * Explicit Jest timeout recommended: `beforeAll(async () => { ... }, 60_000)`.
- * Cold image pull on a fresh CI runner can take 30-45s; subsequent
- * warm-cache boots are 5-15s.
+ * Fresh CI runners must pull the canonical image before invoking Jest; this
+ * function's timeout is for container readiness and DataSource boot, not
+ * dependency acquisition.
  *
  * NOTE: this function dynamically imports `@testcontainers/postgresql`
  * + `typeorm` so the mere act of importing the harness barrel doesn't

@@ -166,9 +166,8 @@ function getSharedAuthState(): SharedAuthState | null {
  * Install a tamper-proof auth getter on window for Module Federation cross-bundle access.
  * SEC-016: Uses Object.defineProperty with writable:false + configurable:false so
  * malicious scripts cannot overwrite the getter with a token-stealing shim.
- * The frozen object delegates to shared auth state, not a specific module
- * instance closure, so HMR/test reloads and Module Federation remotes cannot
- * keep reading stale tokens from an older bundle instance.
+ * The frozen object delegates to a versioned shared auth state, not only to the
+ * original module closure, so HMR/test reloads/MF remotes cannot keep stale tokens.
  */
 let authGlobalInstalled = false;
 
@@ -424,6 +423,7 @@ export function setTenantId(id: string | null): void {
   if (sharedState) {
     sharedState.tenantId = id;
   }
+
   try {
     if (id) {
       localStorage.setItem('tenant_id', id);

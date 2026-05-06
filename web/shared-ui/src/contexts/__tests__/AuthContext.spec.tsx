@@ -744,7 +744,6 @@ describe('AuthContext', () => {
         wrapper: createWrapper(false),
       });
 
-      // Trigger error
       let thrown: unknown;
       await act(async () => {
         try {

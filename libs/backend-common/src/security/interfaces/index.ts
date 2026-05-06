@@ -390,6 +390,22 @@ export interface SecurityEventFilters {
 
 // Injection Tokens
 export const RATE_LIMITER_STRATEGY = 'RATE_LIMITER_STRATEGY';
+
+/**
+ * Canonical platform-wide token-blacklist DI symbol.
+ *
+ * # SEC-LOW-001 cross-reference
+ *
+ * apps/gateway-api/src/guards/redis-token-blacklist.store.ts has a
+ * gateway-local `TOKEN_BLACKLIST_STORE` symbol that pre-dates this
+ * canonical declaration. The two surfaces differ structurally
+ * (gateway uses `exp: number`/Unix-seconds + composite
+ * isValidToken check; canonical uses `exp: Date` + simpler
+ * isBlacklisted). Consolidation is the SEC-LOW-001 follow-on,
+ * blocked on SEC-MEDIUM-006's broader auth-blacklist
+ * convergence. See the gateway-local declaration's class
+ * docstring for the full divergence trace.
+ */
 export const TOKEN_BLACKLIST = 'TOKEN_BLACKLIST';
 export const SESSION_MANAGER = 'SESSION_MANAGER';
 export const IP_VALIDATOR = 'IP_VALIDATOR';

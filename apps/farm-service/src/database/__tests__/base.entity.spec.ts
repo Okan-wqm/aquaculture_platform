@@ -33,8 +33,13 @@ describe('BaseEntity', () => {
       const afterDelete = new Date();
 
       expect(entity.deletedAt).toBeDefined();
-      expect(entity.deletedAt!.getTime()).toBeGreaterThanOrEqual(beforeDelete.getTime());
-      expect(entity.deletedAt!.getTime()).toBeLessThanOrEqual(afterDelete.getTime());
+      const deletedAt = entity.deletedAt;
+      expect(deletedAt).toBeDefined();
+      if (!deletedAt) {
+        throw new Error('deletedAt must be set after softDelete');
+      }
+      expect(deletedAt.getTime()).toBeGreaterThanOrEqual(beforeDelete.getTime());
+      expect(deletedAt.getTime()).toBeLessThanOrEqual(afterDelete.getTime());
     });
 
     it('should set deletedBy when provided', () => {

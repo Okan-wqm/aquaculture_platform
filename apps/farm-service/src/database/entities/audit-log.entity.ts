@@ -42,12 +42,17 @@ export interface AuditMetadata {
   source?: string; // API, SYSTEM, MIGRATION, etc.
 }
 
-@Entity('farm_audit_logs', { schema: 'farm' })
+@Entity('farm_audit_logs')
 @Index('IDX_farm_audit_tenant_entity', ['tenantId', 'entityType', 'entityId'])
 @Index('IDX_farm_audit_tenant_created', ['tenantId', 'createdAt'])
 @Index('IDX_farm_audit_created', ['createdAt']) // Retention policy için
 @Index('IDX_farm_audit_tenant_action', ['tenantId', 'action'])
 @Index('IDX_farm_audit_tenant_user', ['tenantId', 'userId'])
+// AUDITTRAIL-HIGH-005 cure: legalHold column mirrors the DB-level
+// trigger guard installed by migration 1788300000000. The flag is set
+// only by litigation-hold workflows; once true, the BEFORE DELETE
+// trigger refuses deletion at the DB level — defense-in-depth against
+// retention-sweep regressions.
 export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -96,4 +101,14 @@ export class AuditLog {
    */
   @Column({ type: 'text', nullable: true })
   summary?: string;
+
+  /**
+   * Litigation-hold flag. When true, BEFORE DELETE trigger
+   * (`trg_farm_audit_logs_prevent_legal_hold_delete`) refuses deletion at
+   * the DB level — preserves evidence integrity even if a buggy
+   * retention sweep, misconfigured CASCADE, or compromised application
+   * role attempts to drop held rows.
+   */
+  @Column({ type: 'boolean', default: false })
+  legalHold!: boolean;
 }

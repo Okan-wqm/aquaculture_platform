@@ -16,7 +16,7 @@ import {
   UpdateOnCallScheduleInput,
   ClonePolicyInput,
 } from '../dto/escalation-policy.dto';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 
 /**
  * User context interface

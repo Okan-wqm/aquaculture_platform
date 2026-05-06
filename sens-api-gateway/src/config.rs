@@ -18,15 +18,16 @@ use std::str::FromStr;
 use tracing::{debug, info, warn};
 
 use crate::i2c::I2cDeviceConfig;
+use crate::plc_programming::PlcProgrammingConfig;
 
 // ============================================================================
-// Secret<String> Serialization Helpers (v1.2.2)
+// `Secret<String>` Serialization Helpers (v1.2.2)
 // ============================================================================
 
 /// Prefix used to identify base64-encoded credential fields in config.yaml
 const B64_PREFIX: &str = "b64:";
 
-/// Serialize Option<Secret<String>> — stores the value as base64 to avoid
+/// Serialize `Option<Secret<String>>` — stores the value as base64 to avoid
 /// accidental cleartext credential exposure via grep, diff, or backup tools.
 ///
 /// The `b64:` prefix allows the deserializer to distinguish encoded values
@@ -51,7 +52,7 @@ where
     }
 }
 
-/// Deserialize Option<Secret<String>> — handles both the new `b64:` encoded
+/// Deserialize `Option<Secret<String>>` — handles both the new `b64:` encoded
 /// form and any legacy cleartext values for backward compatibility.
 fn deserialize_secret_option<'de, D>(deserializer: D) -> Result<Option<Secret<String>>, D::Error>
 where
@@ -150,7 +151,7 @@ pub struct AgentConfig {
     /// Human-readable device code (e.g., "RPI-A1B2C3D4")
     pub device_code: String,
 
-    /// Provisioning token — zeroized on drop via Secret<String> (IEC 62443 FR4 / MED-30).
+    /// Provisioning token — zeroized on drop via `Secret<String>` (IEC 62443 FR4 / MED-30).
     /// Cleared from config after successful activation.
     #[serde(
         default,
@@ -416,7 +417,8 @@ impl MqttTlsConfig {
         #[cfg(not(debug_assertions))]
         if self.insecure_skip_verify {
             return Err(crate::error::AgentError::Config(
-                "MQTT TLS insecure_skip_verify is not allowed in release builds (IEC 62443 FR4)".into(),
+                "MQTT TLS insecure_skip_verify is not allowed in release builds (IEC 62443 FR4)"
+                    .into(),
             ));
         }
         Ok(())
@@ -1461,10 +1463,46 @@ pub struct ModbusSecurityConfig {
     /// When non-empty, write_register/write_coil must target an address within
     /// one of these ranges. Prevents a compromised cloud credential from writing
     /// to arbitrary holding registers (pump relays, dosing actuators, VFD frequency).
-    /// Format: [(start, end)] inclusive ranges. Empty = all addresses allowed when
-    /// allow_writes=true (backward compat).
+    /// Format: [(start, end)] inclusive ranges.
     #[serde(default)]
     pub allowed_write_ranges: Vec<(u16, u16)>,
+
+    /// Explicitly allow every write address when allow_writes=true.
+    ///
+    /// 2026-04-29: Empty `allowed_write_ranges` used to mean "all addresses",
+    /// which made broad write authority easy to enable accidentally. This flag
+    /// turns that posture into a named, auditable operator decision.
+    #[serde(default)]
+    pub allow_all_write_addresses: bool,
+
+    /// Verify FC6 register writes by reading the holding register back.
+    ///
+    /// 2026-04-29: A protocol ACK only proves the device accepted the request.
+    /// Readback verifies the physical/logical register reached the requested
+    /// value and catches PLC-side clamps, rejected writes hidden behind ACKs, or
+    /// wrong-address configuration.
+    #[serde(default = "default_modbus_write_readback")]
+    pub verify_write_readback: bool,
+
+    /// Number of extra readback attempts after the first read.
+    #[serde(default = "default_modbus_write_readback_retries")]
+    pub write_readback_retries: u8,
+
+    /// Delay before each readback attempt.
+    #[serde(default = "default_modbus_write_readback_settle_ms")]
+    pub write_readback_settle_ms: u64,
+}
+
+fn default_modbus_write_readback() -> bool {
+    true
+}
+
+fn default_modbus_write_readback_retries() -> u8 {
+    1
+}
+
+fn default_modbus_write_readback_settle_ms() -> u64 {
+    25
 }
 
 impl Default for ModbusSecurityConfig {
@@ -1477,6 +1515,10 @@ impl Default for ModbusSecurityConfig {
             max_register_count: default_max_register_count(),
             allow_writes: false,
             allowed_write_ranges: Vec::new(),
+            allow_all_write_addresses: false,
+            verify_write_readback: default_modbus_write_readback(),
+            write_readback_retries: default_modbus_write_readback_retries(),
+            write_readback_settle_ms: default_modbus_write_readback_settle_ms(),
         }
     }
 }
@@ -2366,6 +2408,22 @@ pub struct OpcUaServerConfig {
     /// IP-throttled. Plan §5 Faz 5 step 9: 20 failed / 60s.
     pub max_failed_auth_per_60s: u32,
 
+    /// Phase B-3 (Plan §B-3 Batch #271) — per-tenant session quota.
+    /// On a single-tenant agent this acts as a refined global cap
+    /// distinct from `max_sessions` (the absolute hard floor). On a
+    /// multi-tenant agent (future) it isolates noisy-neighbor
+    /// scenarios. Default 5 — well below `max_sessions=10` so per-user
+    /// fairness has room to fan out.
+    pub max_sessions_per_tenant: u32,
+
+    /// Phase B-3 (Plan §B-3 Batch #271) — per-user session quota
+    /// within a tenant. A single compromised operator credential
+    /// cannot starve other operators by opening many parallel
+    /// sessions. Default 2 — enough for a primary operator session +
+    /// a single supplementary connection (e.g., HMI + UaExpert
+    /// debug).
+    pub max_sessions_per_user: u32,
+
     /// Primary auth mode. Secondary gate is always the authz
     /// policy engine — see module doc.
     pub auth_mode: OpcUaAuthMode,
@@ -2400,6 +2458,8 @@ impl Default for OpcUaServerConfig {
             port: 4840,
             max_sessions: 10,
             max_failed_auth_per_60s: 20,
+            max_sessions_per_tenant: 5,
+            max_sessions_per_user: 2,
             auth_mode: OpcUaAuthMode::default(),
             security_policy: OpcUaSecurityPolicy::default(),
             own_pki_dir: "/var/lib/suderra/pki/own".to_string(),
@@ -2445,6 +2505,38 @@ impl OpcUaServerConfig {
                 "opc_ua_server.max_failed_auth_per_60s must be >= 1 (0 disables brute-force throttle)"
                     .to_string(),
             );
+        }
+        // Phase B-3 — session quota validators. Per-user MUST be <=
+        // per-tenant (a single user cannot exceed the tenant cap by
+        // construction); per-tenant MUST be <= max_sessions (the
+        // global hard floor — the per-tenant cap is a refinement, not
+        // an override). Both fields >= 1 — 0 would lock out all
+        // operators which is a misconfig.
+        if self.max_sessions_per_user == 0 {
+            return Err(
+                "opc_ua_server.max_sessions_per_user must be >= 1 (0 locks out every operator — misconfig)"
+                    .to_string(),
+            );
+        }
+        if self.max_sessions_per_tenant == 0 {
+            return Err(
+                "opc_ua_server.max_sessions_per_tenant must be >= 1 (0 locks out every tenant — misconfig)"
+                    .to_string(),
+            );
+        }
+        if self.max_sessions_per_user > self.max_sessions_per_tenant {
+            return Err(format!(
+                "opc_ua_server.max_sessions_per_user ({}) cannot exceed max_sessions_per_tenant ({}) — \
+                 per-user is refined per-tenant, must be <= the tenant ceiling",
+                self.max_sessions_per_user, self.max_sessions_per_tenant
+            ));
+        }
+        if self.max_sessions_per_tenant > self.max_sessions {
+            return Err(format!(
+                "opc_ua_server.max_sessions_per_tenant ({}) cannot exceed max_sessions ({}) — \
+                 the per-tenant cap is a refinement of the global hard floor, must be <= it",
+                self.max_sessions_per_tenant, self.max_sessions
+            ));
         }
         // Polling below 10ms risks pathological lock contention
         // on ProcessImage::get_all_tags + starves other tasks.
@@ -3090,7 +3182,9 @@ impl AgentConfig {
     pub fn validate(&self) -> Result<()> {
         // Validate device_id - can be empty if tenant_token is set (self-registration mode)
         if self.device_id.trim().is_empty() && self.tenant_token.is_none() {
-            anyhow::bail!("device_id cannot be empty (unless tenant_token is set for self-registration)");
+            anyhow::bail!(
+                "device_id cannot be empty (unless tenant_token is set for self-registration)"
+            );
         }
 
         // v1.2.5: Validate device_id looks like a UUID format (basic check)
@@ -3112,7 +3206,9 @@ impl AgentConfig {
 
         // Validate device_code - can be empty if tenant_token is set (self-registration mode)
         if self.device_code.trim().is_empty() && self.tenant_token.is_none() {
-            anyhow::bail!("device_code cannot be empty (unless tenant_token is set for self-registration)");
+            anyhow::bail!(
+                "device_code cannot be empty (unless tenant_token is set for self-registration)"
+            );
         }
 
         // Validate API URL format
@@ -3221,6 +3317,40 @@ impl AgentConfig {
             }
         }
 
+        // 2026-04-29 PLC command endpoint inventory validation:
+        // Direct PLC write commands use connection names as stable
+        // authorization/audit targets. Duplicate names would make the command
+        // target ambiguous, so config load fails before any command can run.
+        let mut plc_names = std::collections::HashSet::new();
+        for cfg in &self.plc_programming.opcua {
+            if cfg.name.trim().is_empty() {
+                anyhow::bail!("OPC UA PLC connection name cannot be empty");
+            }
+            if !plc_names.insert(format!("opcua:{}", cfg.name)) {
+                anyhow::bail!("Duplicate OPC UA PLC connection name '{}'", cfg.name);
+            }
+            if cfg.endpoint_url.trim().is_empty() {
+                anyhow::bail!(
+                    "OPC UA PLC connection '{}' endpoint_url cannot be empty",
+                    cfg.name
+                );
+            }
+        }
+        for cfg in &self.plc_programming.s7 {
+            if cfg.name.trim().is_empty() {
+                anyhow::bail!("S7 PLC connection name cannot be empty");
+            }
+            if !plc_names.insert(format!("s7:{}", cfg.name)) {
+                anyhow::bail!("Duplicate S7 PLC connection name '{}'", cfg.name);
+            }
+            if cfg.address.trim().is_empty() {
+                anyhow::bail!("S7 PLC connection '{}' address cannot be empty", cfg.name);
+            }
+            if cfg.port == 0 {
+                anyhow::bail!("S7 PLC connection '{}' port cannot be 0", cfg.name);
+            }
+        }
+
         // Validate Modbus devices
         for device in &self.modbus {
             // Validate slave_id (Modbus uses 1-247, 0 is broadcast)
@@ -3245,6 +3375,46 @@ impl AgentConfig {
             // Validate address is not empty
             if device.address.trim().is_empty() {
                 anyhow::bail!("Modbus device '{}' has empty address", device.name);
+            }
+
+            // 2026-04-29 enterprise Modbus write policy:
+            // Write-enabled devices must either declare bounded address ranges
+            // or explicitly opt into all-address writes. This removes the
+            // legacy accidental "empty whitelist means all registers" posture.
+            if device.security.enabled && device.security.allow_writes {
+                if device.security.allowed_write_ranges.is_empty()
+                    && !device.security.allow_all_write_addresses
+                {
+                    anyhow::bail!(
+                        "Modbus device '{}': allow_writes=true requires non-empty allowed_write_ranges or explicit allow_all_write_addresses=true",
+                        device.name
+                    );
+                }
+
+                let mut ranges = device.security.allowed_write_ranges.clone();
+                ranges.sort_unstable_by_key(|(start, end)| (*start, *end));
+                let mut previous_end: Option<u16> = None;
+                for (start, end) in ranges {
+                    if start > end {
+                        anyhow::bail!(
+                            "Modbus device '{}': invalid allowed_write_ranges entry {}..{} (start must be <= end)",
+                            device.name,
+                            start,
+                            end
+                        );
+                    }
+                    if let Some(prev_end) = previous_end {
+                        if start <= prev_end {
+                            anyhow::bail!(
+                                "Modbus device '{}': overlapping allowed_write_ranges around {}..{}",
+                                device.name,
+                                start,
+                                end
+                            );
+                        }
+                    }
+                    previous_end = Some(end);
+                }
             }
 
             // Validate Modbus TLS configuration (v1.2.0 - IEC 62443 SL2 FR4)
@@ -3343,12 +3513,19 @@ impl AgentConfig {
             );
         }
 
-        // Warn if TLS is disabled in release builds
+        // 2026-04-29 enterprise transport hardening:
+        // MQTT TLS disabled in a release build is a configuration error, not
+        // an operator warning.
+        //
+        // What it solves: the edge command/control channel carries mutating
+        // commands. Release builds must not boot with plaintext MQTT because
+        // that turns a production misconfiguration into a supported runtime
+        // posture.
         #[cfg(not(debug_assertions))]
         if !self.mqtt.tls.enabled {
-            warn!(
-                "MQTT TLS is disabled in a release build. This is insecure for production deployments. \
-                 Set mqtt.tls.enabled: true in config.yaml."
+            anyhow::bail!(
+                "Config coherence: mqtt.tls.enabled=false is not allowed in release builds. \
+                 Enable MQTT TLS for production command/control traffic."
             );
         }
 
@@ -3393,16 +3570,22 @@ impl AgentConfig {
         if let Some(ref lora) = self.lorawan {
             if lora.enabled {
                 // Bolge gecerli mi?
-                let valid_regions = ["EU868", "US915", "CN470", "AU915", "AS923", "KR920", "IN865"];
+                let valid_regions = [
+                    "EU868", "US915", "CN470", "AU915", "AS923", "KR920", "IN865",
+                ];
                 if !valid_regions.contains(&lora.region.to_uppercase().as_str()) {
                     anyhow::bail!(
                         "Gecersiz LoRa bolgesi '{}': gecerli bolgeler: {:?}",
-                        lora.region, valid_regions
+                        lora.region,
+                        valid_regions
                     );
                 }
 
                 // net_id 6 hex karakter mi?
-                let net_id_clean = lora.net_id.trim_start_matches("0x").trim_start_matches("0X");
+                let net_id_clean = lora
+                    .net_id
+                    .trim_start_matches("0x")
+                    .trim_start_matches("0X");
                 if net_id_clean.len() != 6 || !net_id_clean.chars().all(|c| c.is_ascii_hexdigit()) {
                     anyhow::bail!(
                         "LoRa net_id '{}' gecersiz: 6 hex karakter olmali (orn: '000001')",
@@ -3421,21 +3604,29 @@ impl AgentConfig {
                 // Her cihaz config'inde dev_eui, app_eui, app_key format kontrolu
                 for (i, device) in lora.devices.iter().enumerate() {
                     // dev_eui: 16 hex karakter
-                    if device.dev_eui.len() != 16 || !device.dev_eui.chars().all(|c| c.is_ascii_hexdigit()) {
+                    if device.dev_eui.len() != 16
+                        || !device.dev_eui.chars().all(|c| c.is_ascii_hexdigit())
+                    {
                         anyhow::bail!(
                             "LoRa cihaz [{}] dev_eui '{}' gecersiz: 16 hex karakter olmali",
-                            i, device.dev_eui
+                            i,
+                            device.dev_eui
                         );
                     }
                     // app_eui: 16 hex karakter
-                    if device.app_eui.len() != 16 || !device.app_eui.chars().all(|c| c.is_ascii_hexdigit()) {
+                    if device.app_eui.len() != 16
+                        || !device.app_eui.chars().all(|c| c.is_ascii_hexdigit())
+                    {
                         anyhow::bail!(
                             "LoRa cihaz [{}] app_eui '{}' gecersiz: 16 hex karakter olmali",
-                            i, device.app_eui
+                            i,
+                            device.app_eui
                         );
                     }
                     // app_key: 32 hex karakter
-                    if device.app_key.len() != 32 || !device.app_key.chars().all(|c| c.is_ascii_hexdigit()) {
+                    if device.app_key.len() != 32
+                        || !device.app_key.chars().all(|c| c.is_ascii_hexdigit())
+                    {
                         anyhow::bail!(
                             "LoRa cihaz [{}] app_key gecersiz: 32 hex karakter olmali",
                             i
@@ -3942,21 +4133,31 @@ impl AgentConfig {
                 .truncate(true)
                 .mode(0o600)
                 .open(&tmp_path)
-                .with_context(|| format!("Failed to create temp config file: {}", tmp_path.display()))?;
-            std::io::Write::write_all(&mut file, content.as_bytes())
-                .with_context(|| format!("Failed to write temp config file: {}", tmp_path.display()))?;
-            file.sync_all()
-                .with_context(|| format!("Failed to sync temp config file: {}", tmp_path.display()))?;
+                .with_context(|| {
+                    format!("Failed to create temp config file: {}", tmp_path.display())
+                })?;
+            std::io::Write::write_all(&mut file, content.as_bytes()).with_context(|| {
+                format!("Failed to write temp config file: {}", tmp_path.display())
+            })?;
+            file.sync_all().with_context(|| {
+                format!("Failed to sync temp config file: {}", tmp_path.display())
+            })?;
         }
 
         #[cfg(not(unix))]
         {
-            fs::write(&tmp_path, &content)
-                .with_context(|| format!("Failed to write temp config file: {}", tmp_path.display()))?;
+            fs::write(&tmp_path, &content).with_context(|| {
+                format!("Failed to write temp config file: {}", tmp_path.display())
+            })?;
         }
 
-        fs::rename(&tmp_path, &path)
-            .with_context(|| format!("Failed to rename config file: {} -> {}", tmp_path.display(), path.display()))?;
+        fs::rename(&tmp_path, &path).with_context(|| {
+            format!(
+                "Failed to rename config file: {} -> {}",
+                tmp_path.display(),
+                path.display()
+            )
+        })?;
 
         info!("Configuration saved to {}", path.display());
         Ok(())
@@ -4271,8 +4472,8 @@ modbus: []
 gpio: []
 "#;
 
-        let config: AgentConfig = serde_yaml::from_str(yaml)
-            .expect("Failed to parse installer-generated config");
+        let config: AgentConfig =
+            serde_yaml::from_str(yaml).expect("Failed to parse installer-generated config");
 
         assert_eq!(config.device_id, "fd23af6b-167f-4afd-a62a-ceace2a4046b");
         assert_eq!(config.device_code, "PI-32F7A01B");

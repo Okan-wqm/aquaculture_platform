@@ -38,7 +38,7 @@ import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
 import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
 import { JwtMiddleware } from './middleware/jwt.middleware';
 import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
-import { StripInternalHeadersMiddleware } from './middleware/strip-internal-headers.middleware';
+import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { CsrfMiddleware } from './middleware/csrf.middleware';
 import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
 import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
@@ -205,19 +205,34 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       httpRequest.headers.set('x-user-payload', JSON.stringify(user));
     }
 
-    // SECURITY (HIGH-003): sign request for subgraph identity verification AND
-    // bind the resolved tenant into the HMAC so a compromised caller cannot
-    // forward a valid signature with a spoofed x-tenant-id header. If no
-    // tenant applies (public / pre-auth paths), tenantId is empty string.
+    // SECURITY: sign request for subgraph identity verification AND bind
+    // the resolved tenant + method + path + body into the HMAC. v2 canonical
+    // input prevents cross-endpoint replay (a captured signature for one
+    // subgraph operation cannot be forwarded to another) AND body-tampering
+    // (the receiver re-derives sha256(body) and rejects on mismatch). If
+    // no tenant applies (public / pre-auth paths), tenantId is empty string.
+    //
+    // Closes: SEC-CRITICAL-001 — sender side; subgraph guards already accept v2
+    // via verifyServiceIdentityRequest in libs/backend-common/src/guards.
     if (this.secret) {
       const signedTenantId = uuidRegex.test(resolvedTenantId ?? '')
         ? (resolvedTenantId as string)
         : '';
-      const identityHeaders = generateServiceIdentityHeaders(
-        'gateway-api',
-        this.secret,
-        signedTenantId,
-      );
+      // Apollo's httpRequest exposes the to-be-sent verb, URL, and body.
+      // Path is extracted without the query string per v2 contract.
+      const subgraphUrl = new URL(httpRequest.url);
+      const subgraphPath = subgraphUrl.pathname;
+      const subgraphMethod = httpRequest.method ?? 'POST';
+      const subgraphBody =
+        typeof httpRequest.body === 'string' ? httpRequest.body : JSON.stringify(httpRequest.body ?? '');
+      const identityHeaders = buildSignedInternalHeaders({
+        serviceName: 'gateway-api',
+        tenantId: signedTenantId,
+        method: subgraphMethod,
+        path: subgraphPath,
+        body: subgraphBody,
+        secret: this.secret,
+      });
       for (const [key, value] of Object.entries(identityHeaders)) {
         httpRequest.headers.set(key, value);
       }
@@ -271,6 +286,9 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     // fallback. Tracked separately because removing the dev path requires
     // updating dev-onboarding scripts.
     PlatformJwtModule,
+
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    AuditedOperationModule.forRoot(),
 
     // Apollo Federation Gateway
     GraphQLModule.forRootAsync<ApolloGatewayDriverConfig>({
@@ -362,7 +380,15 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
           // SECURITY: Disable batched HTTP requests to prevent rate-limit bypass
           // A single HTTP request with many batched operations would count as 1 request
           allowBatchedHttpRequests: false,
-          playground: configService.get('NODE_ENV') !== 'production',
+          /**
+           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+           * migration is blocked by the Nest/Apollo peer graph.
+           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+           * class protections must be fail-closed at runtime.
+           */
+          csrfPrevention: true,
+          // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+          // WHY: gateway UI exposure must not rely on deprecated Apollo Playground behavior.
           // SECURITY: Disable introspection in production to prevent schema discovery attacks
           // Explicit env var allows overriding independently of NODE_ENV
           introspection: configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true' ||

@@ -657,7 +657,18 @@ export class MeteredBillingService implements OnModuleInit {
   ): Promise<BillingCalculation> {
     this.logger.log(`Calculating billing for subscription ${subscriptionId}, period ${periodStart.toISOString()} - ${periodEnd.toISOString()}`);
 
-    const cacheKey = `${subscriptionId}-${periodStart.getTime()}-${periodEnd.getTime()}`;
+    // BILLING-MEDIUM-006 cure: tenant-scoped cache key. Even
+    // though calculationCache is in-process today, the
+    // layer-1-nestjs platform contract requires tenant-scoped
+    // cache keys (`cache:<service>:<tenant>:<resource>:<key>`).
+    // Pre-cure the key was `${subscriptionId}-${period}` —
+    // technically unique because subscriptionId is globally
+    // unique, but a future promotion to Redis without prior
+    // adjustment would inherit the bad shape and a logical bug
+    // in subscriptionId allocation could cause cross-tenant
+    // cache bleed. Building the discipline in NOW prevents the
+    // future regression class.
+    const cacheKey = `cache:metered-billing:${tenantId}:billing-calculation:${subscriptionId}-${periodStart.getTime()}-${periodEnd.getTime()}`;
     const cached = this.calculationCache.get(cacheKey);
     if (cached && cached.expiresAt > new Date()) {
       this.logger.debug(`Returning cached billing calculation for ${cacheKey}`);

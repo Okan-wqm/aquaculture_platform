@@ -609,7 +609,23 @@ export class WebAuthnService {
   }
 
   /**
-   * Log audit event.
+   * Persist a WebAuthn audit row.
+   *
+   * # Why no try/catch wraps the write (AUDITTRAIL-HIGH-003 sibling)
+   *
+   * Same fail-closed posture as MfaService.logMfaEvent: WebAuthn is a
+   * security gate; its audit rows carry SOC 2 CC6.1 step-up evidence.
+   * A silent swallow on DB failure silently loses that evidence while
+   * letting the WebAuthn flow proceed as if audit succeeded — the same
+   * regression class the auditor flagged on mfa.service.ts.
+   *
+   * The cure is removing the try/catch and letting the failure bubble
+   * to the caller, who already `await`s this helper. AuditLogService.log
+   * propagates DB errors (apps/auth-service/src/audit/audit-log.service.ts:36),
+   * so the chain is end-to-end fail-closed.
+   *
+   * Tier-1 "make it impossible": no future maintainer can reintroduce
+   * silent loss without deliberately re-adding the swallow.
    */
   private async logAudit(
     action: string,
@@ -617,20 +633,16 @@ export class WebAuthnService {
     details: Record<string, unknown>,
     severity: AuditLogSeverity = AuditLogSeverity.INFO,
   ): Promise<void> {
-    try {
-      await this.auditLogService.log({
-        performedBy: userId,
-        action,
-        entityType: 'WebAuthnCredential',
-        entityId: userId,
-        details: {
-          ...details,
-          timestamp: new Date().toISOString(),
-        },
-        severity,
-      });
-    } catch (error) {
-      this.logger.error(`Failed to log WebAuthn audit event: ${action}`, error);
-    }
+    await this.auditLogService.log({
+      performedBy: userId,
+      action,
+      entityType: 'WebAuthnCredential',
+      entityId: userId,
+      details: {
+        ...details,
+        timestamp: new Date().toISOString(),
+      },
+      severity,
+    });
   }
 }

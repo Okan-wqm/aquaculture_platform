@@ -54,6 +54,14 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
   async execute(command: CreateBatchCommand): Promise<Batch> {
     const { tenantId, payload, createdBy } = command;
 
+    if (payload.initialQuantity <= 0) {
+      throw new BadRequestException('Initial quantity must be positive');
+    }
+
+    if (payload.initialAvgWeightG <= 0) {
+      throw new BadRequestException('Initial average weight must be positive');
+    }
+
     // Species kontrolü (read operation, outside transaction)
     const species = await this.speciesRepository.findOne({
       where: { id: payload.speciesId, tenantId, isActive: true, isDeleted: false },

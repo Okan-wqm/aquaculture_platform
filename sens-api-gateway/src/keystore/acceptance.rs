@@ -89,7 +89,10 @@ pub struct FileBackedAcceptance {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileBackedAcceptanceError {
     /// `expires_at_unix_secs` was in the past at validation time.
-    Expired { expired_at_unix_secs: i64, now_unix_secs: i64 },
+    Expired {
+        expired_at_unix_secs: i64,
+        now_unix_secs: i64,
+    },
 
     /// `expires_at_unix_secs` parses as an impossible `SystemTime`
     /// (negative + before UNIX epoch, or overflow).
@@ -113,7 +116,10 @@ pub enum FileBackedAcceptanceError {
 impl std::fmt::Display for FileBackedAcceptanceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Expired { expired_at_unix_secs, now_unix_secs } => write!(
+            Self::Expired {
+                expired_at_unix_secs,
+                now_unix_secs,
+            } => write!(
                 f,
                 "acceptance expired: expired_at={} now={}",
                 expired_at_unix_secs, now_unix_secs
@@ -122,9 +128,7 @@ impl std::fmt::Display for FileBackedAcceptanceError {
             Self::InvalidSignatureLength(n) => {
                 write!(f, "acceptance signature length {} != 64", n)
             }
-            Self::IdentityMismatch => {
-                f.write_str("acceptance operator/device identity mismatch")
-            }
+            Self::IdentityMismatch => f.write_str("acceptance operator/device identity mismatch"),
             Self::InvalidSignature => f.write_str("acceptance signature invalid"),
             Self::EmptyIdentity => f.write_str("acceptance operator_id or device_id empty"),
         }
@@ -170,9 +174,8 @@ impl FileBackedAcceptance {
         device_id: &str,
     ) -> Vec<u8> {
         let tag = b"file-backed-acceptance-v2";
-        let mut out = Vec::with_capacity(
-            4 + operator_id.len() + 8 + 4 + device_id.len() + tag.len(),
-        );
+        let mut out =
+            Vec::with_capacity(4 + operator_id.len() + 8 + 4 + device_id.len() + tag.len());
         out.extend_from_slice(&(operator_id.len() as u32).to_be_bytes());
         out.extend_from_slice(operator_id.as_bytes());
         out.extend_from_slice(&expires_at_unix_secs.to_be_bytes());
@@ -233,8 +236,11 @@ impl FileBackedAcceptance {
             .checked_add(Duration::from_secs(token.expires_at_unix_secs as u64))
             .ok_or(FileBackedAcceptanceError::InvalidExpiry)?;
 
-        let canonical =
-            Self::canonical_bytes(&token.operator_id, token.expires_at_unix_secs, &token.device_id);
+        let canonical = Self::canonical_bytes(
+            &token.operator_id,
+            token.expires_at_unix_secs,
+            &token.device_id,
+        );
 
         if !verify_signature(&canonical, &token.signature) {
             return Err(FileBackedAcceptanceError::InvalidSignature);
@@ -265,7 +271,10 @@ mod tests {
     use super::*;
 
     fn valid_token(future_secs: i64) -> AcceptanceToken {
-        let now_secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
         AcceptanceToken {
             operator_id: "op-42".to_string(),
             device_id: "dev-123".to_string(),

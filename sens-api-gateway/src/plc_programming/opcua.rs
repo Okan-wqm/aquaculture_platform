@@ -33,18 +33,18 @@
 
 use super::common::*;
 use super::{PlcProgram, PlcProgrammer, PlcRunMode, PlcStatus, UploadResult};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 // WHY: tokio::sync::Mutex — held across .await (OPC UA TCP read/write is async I/O)
+use serde_json::Value as JsonValue;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
-use serde_json::Value as JsonValue;
 use tracing::{debug, info, warn};
 
 // ============================================================================
@@ -782,7 +782,10 @@ impl Variant {
             let array_len = array_len as usize;
             // OOM protection: cap at 65536 elements
             if array_len > 65536 {
-                return Err(anyhow!("Array too large: {} elements (max 65536)", array_len));
+                return Err(anyhow!(
+                    "Array too large: {} elements (max 65536)",
+                    array_len
+                ));
             }
             let element_type = type_id & 0x3F;
             let mut elements = Vec::with_capacity(array_len);
@@ -939,7 +942,10 @@ impl Variant {
                 if data.len() < offset + len {
                     return Err(anyhow!("Insufficient data for ByteString value"));
                 }
-                Ok((Self::ByteString(data[offset..offset + len].to_vec()), offset + len))
+                Ok((
+                    Self::ByteString(data[offset..offset + len].to_vec()),
+                    offset + len,
+                ))
             }
             0x11 => {
                 // NodeId
@@ -1197,7 +1203,9 @@ impl BrowseReference {
         } else {
             let len = name_len as usize;
             if data.len() < offset + len {
-                return Err(anyhow!("Insufficient data for BrowseReference BrowseName value"));
+                return Err(anyhow!(
+                    "Insufficient data for BrowseReference BrowseName value"
+                ));
             }
             let s = String::from_utf8_lossy(&data[offset..offset + len]).to_string();
             offset += len;
@@ -1206,7 +1214,9 @@ impl BrowseReference {
 
         // DisplayName (LocalizedText)
         if data.len() < offset + 1 {
-            return Err(anyhow!("Insufficient data for BrowseReference DisplayName encoding"));
+            return Err(anyhow!(
+                "Insufficient data for BrowseReference DisplayName encoding"
+            ));
         }
         let encoding = data[offset];
         offset += 1;
@@ -1487,16 +1497,25 @@ impl OpcUaClient {
         // Check message type
         if &header[0..3] == MSG_ERROR {
             // Parse OPC UA ERR message: size(4) at [4..8], error_code(4) at [8..12], reason string at [12..]
-            let err_size = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
+            let err_size =
+                u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
             if err_size > 8 && err_size <= MAX_OPCUA_MESSAGE_SIZE {
                 let remaining = err_size - 8; // Already read 8-byte header
                 let mut err_body = vec![0u8; remaining];
                 let _ = timeout(io_timeout, conn.read_exact(&mut err_body)).await;
                 if err_body.len() >= 4 {
-                    let error_code = u32::from_le_bytes([err_body[0], err_body[1], err_body[2], err_body[3]]);
+                    let error_code =
+                        u32::from_le_bytes([err_body[0], err_body[1], err_body[2], err_body[3]]);
                     let reason = if err_body.len() >= 8 {
-                        let str_len = u32::from_le_bytes([err_body[4], err_body[5], err_body[6], err_body[7]]);
-                        if str_len != 0xFFFFFFFF && (str_len as usize) <= err_body.len().saturating_sub(8) {
+                        let str_len = u32::from_le_bytes([
+                            err_body[4],
+                            err_body[5],
+                            err_body[6],
+                            err_body[7],
+                        ]);
+                        if str_len != 0xFFFFFFFF
+                            && (str_len as usize) <= err_body.len().saturating_sub(8)
+                        {
                             String::from_utf8_lossy(&err_body[8..8 + str_len as usize]).to_string()
                         } else {
                             String::new()
@@ -1507,7 +1526,11 @@ impl OpcUaClient {
                     if reason.is_empty() {
                         return Err(anyhow!("OPC UA server error 0x{:08X}", error_code));
                     } else {
-                        return Err(anyhow!("OPC UA server error 0x{:08X}: {}", error_code, reason));
+                        return Err(anyhow!(
+                            "OPC UA server error 0x{:08X}: {}",
+                            error_code,
+                            reason
+                        ));
                     }
                 }
             }
@@ -1560,7 +1583,11 @@ impl OpcUaClient {
 
             loop {
                 if total_chunks >= max_chunks {
-                    return Err(anyhow!("Too many message chunks ({} exceeded max {})", total_chunks, max_chunks));
+                    return Err(anyhow!(
+                        "Too many message chunks ({} exceeded max {})",
+                        total_chunks,
+                        max_chunks
+                    ));
                 }
 
                 // Read next chunk header
@@ -1571,7 +1598,10 @@ impl OpcUaClient {
 
                 let next_chunk_type = next_header[3];
                 let next_size = u32::from_le_bytes([
-                    next_header[4], next_header[5], next_header[6], next_header[7],
+                    next_header[4],
+                    next_header[5],
+                    next_header[6],
+                    next_header[7],
                 ]) as usize;
 
                 if next_chunk_type == b'A' {
@@ -1630,10 +1660,12 @@ impl OpcUaClient {
             if let Some(bracket_end) = host_port.find(']') {
                 let host = &host_port[1..bracket_end]; // Remove brackets
                 let after_bracket = &host_port[bracket_end + 1..];
-                let port = if after_bracket.starts_with(':') {
-                    after_bracket[1..].parse().unwrap_or(DEFAULT_OPCUA_PORT)
-                } else {
-                    DEFAULT_OPCUA_PORT
+                // strip_prefix returns Some(&str) past ":" or
+                // None if no port — replaces hardcoded `[1..]`
+                // slice (Batch #25 clippy::manual_strip cleanup).
+                let port = match after_bracket.strip_prefix(':') {
+                    Some(port_str) => port_str.parse().unwrap_or(DEFAULT_OPCUA_PORT),
+                    None => DEFAULT_OPCUA_PORT,
                 };
                 Ok((host.to_string(), port))
             } else {
@@ -1657,7 +1689,10 @@ impl OpcUaClient {
     fn generate_nonce() -> Vec<u8> {
         let mut nonce = vec![0u8; 32];
         if let Err(e) = getrandom::getrandom(&mut nonce) {
-            warn!("SECURITY: CSPRNG failed ({}), using degraded entropy fallback", e);
+            warn!(
+                "SECURITY: CSPRNG failed ({}), using degraded entropy fallback",
+                e
+            );
             // Fallback: timestamp + pid (only if OS CSPRNG is unavailable)
             use std::time::{SystemTime, UNIX_EPOCH};
             let ts = SystemTime::now()
@@ -1850,7 +1885,10 @@ impl OpcUaClient {
         // - ...
 
         if response.len() < 50 {
-            return Err(anyhow!("CreateSession response too short: {} bytes", response.len()));
+            return Err(anyhow!(
+                "CreateSession response too short: {} bytes",
+                response.len()
+            ));
         }
 
         // Skip message header (8) + security header (8) + sequence header (8) = 24 bytes
@@ -1964,7 +2002,9 @@ impl OpcUaClient {
 
         // Parse AuthenticationToken
         if body.len() <= offset {
-            return Err(anyhow!("CreateSession response missing AuthenticationToken"));
+            return Err(anyhow!(
+                "CreateSession response missing AuthenticationToken"
+            ));
         }
         let (auth_token, _consumed) = NodeId::decode(&body[offset..])?;
         debug!("Auth Token: {:?}", auth_token);
@@ -2051,7 +2091,10 @@ impl OpcUaClient {
         let response = self.send_receive(&message).await?;
 
         if response.len() < 30 {
-            return Err(anyhow!("ActivateSession response too short: {} bytes", response.len()));
+            return Err(anyhow!(
+                "ActivateSession response too short: {} bytes",
+                response.len()
+            ));
         }
 
         // Parse ActivateSessionResponse
@@ -2093,7 +2136,11 @@ impl OpcUaClient {
     // =========================================================================
 
     /// Browse nodes in the OPC UA address space
-    async fn browse_nodes(&self, node_id: &NodeId, reference_type: u32) -> Result<Vec<BrowseReference>> {
+    async fn browse_nodes(
+        &self,
+        node_id: &NodeId,
+        reference_type: u32,
+    ) -> Result<Vec<BrowseReference>> {
         let mut request = Vec::new();
 
         // Type ID for BrowseRequest
@@ -2164,7 +2211,10 @@ impl OpcUaClient {
             ]);
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
-                return Err(anyhow!("Browse failed with status: 0x{:08X}", service_result));
+                return Err(anyhow!(
+                    "Browse failed with status: 0x{:08X}",
+                    service_result
+                ));
             }
         }
 
@@ -2490,7 +2540,10 @@ impl OpcUaClient {
         };
 
         if service_result & STATUS_BAD_MASK != 0 {
-            return Err(anyhow!("Write failed with status: 0x{:08X}", service_result));
+            return Err(anyhow!(
+                "Write failed with status: 0x{:08X}",
+                service_result
+            ));
         }
 
         // Skip DiagnosticInfo
@@ -2702,7 +2755,10 @@ impl OpcUaClient {
         offset += 4;
 
         if call_status & STATUS_BAD_MASK != 0 {
-            return Err(anyhow!("Method call returned status: 0x{:08X}", call_status));
+            return Err(anyhow!(
+                "Method call returned status: 0x{:08X}",
+                call_status
+            ));
         }
 
         // InputArgumentResults (skip array of StatusCodes)
@@ -2768,7 +2824,10 @@ impl OpcUaClient {
             }
         }
 
-        debug!("Method call returned {} output arguments", output_arguments.len());
+        debug!(
+            "Method call returned {} output arguments",
+            output_arguments.len()
+        );
         Ok(output_arguments)
     }
 
@@ -2802,8 +2861,10 @@ impl OpcUaClient {
                         let offset = consumed;
                         if body.len() >= offset + 12 {
                             let service_result = u32::from_le_bytes([
-                                body[offset + 8], body[offset + 9],
-                                body[offset + 10], body[offset + 11],
+                                body[offset + 8],
+                                body[offset + 9],
+                                body[offset + 10],
+                                body[offset + 11],
                             ]);
                             if service_result & STATUS_BAD_MASK != 0 {
                                 debug!("CloseSession returned status: 0x{:08X}", service_result);
@@ -2937,8 +2998,10 @@ impl OpcUaClient {
             let body_start = 8; // After OPN + size
             if response.len() > body_start + 4 {
                 let resp_channel_id = u32::from_le_bytes([
-                    response[body_start], response[body_start + 1],
-                    response[body_start + 2], response[body_start + 3],
+                    response[body_start],
+                    response[body_start + 1],
+                    response[body_start + 2],
+                    response[body_start + 3],
                 ]);
                 *self.secure_channel_id.lock().await = resp_channel_id;
             }
@@ -2949,18 +3012,22 @@ impl OpcUaClient {
             let scan_start = 24; // After security + sequence headers
             if response.len() > scan_start + 40 {
                 // Skip TypeId + ResponseHeader to find SecurityToken
-                let (_, type_consumed) = NodeId::decode(&response[scan_start..])
-                    .unwrap_or((NodeId::null(), 0));
+                let (_, type_consumed) =
+                    NodeId::decode(&response[scan_start..]).unwrap_or((NodeId::null(), 0));
                 let token_offset = scan_start + type_consumed + 8 + 4 + 4 + 1 + 4 + 3;
                 // SecurityToken: channel_id(4) + token_id(4) + created_at(8) + revised_lifetime(4)
                 if response.len() >= token_offset + 20 {
                     let new_token_id = u32::from_le_bytes([
-                        response[token_offset + 4], response[token_offset + 5],
-                        response[token_offset + 6], response[token_offset + 7],
+                        response[token_offset + 4],
+                        response[token_offset + 5],
+                        response[token_offset + 6],
+                        response[token_offset + 7],
                     ]);
                     let revised_lifetime = u32::from_le_bytes([
-                        response[token_offset + 16], response[token_offset + 17],
-                        response[token_offset + 18], response[token_offset + 19],
+                        response[token_offset + 16],
+                        response[token_offset + 17],
+                        response[token_offset + 18],
+                        response[token_offset + 19],
                     ]);
 
                     *self.token_id.lock().await = new_token_id;
@@ -2968,8 +3035,10 @@ impl OpcUaClient {
                     if revised_lifetime > 0 {
                         *self.token_lifetime_ms.lock().await = revised_lifetime;
                     }
-                    debug!("Secure channel token renewed: id={}, lifetime={}ms",
-                        new_token_id, revised_lifetime);
+                    debug!(
+                        "Secure channel token renewed: id={}, lifetime={}ms",
+                        new_token_id, revised_lifetime
+                    );
                 }
             }
         }
@@ -2996,10 +3065,7 @@ impl OpcUaClient {
         config_name: String,
     ) -> tokio::task::JoinHandle<()> {
         // Keepalive interval: 75% of session timeout, minimum 5s
-        let interval_ms = std::cmp::max(
-            (session_timeout_ms as u64 * 3) / 4,
-            5000,
-        );
+        let interval_ms = std::cmp::max((session_timeout_ms as u64 * 3) / 4, 5000);
 
         tokio::spawn(async move {
             let mut consecutive_failures = 0u32;
@@ -3027,7 +3093,10 @@ impl OpcUaClient {
                 };
 
                 if needs_renewal {
-                    debug!("Secure channel token approaching expiry, renewing for {}", config_name);
+                    debug!(
+                        "Secure channel token approaching expiry, renewing for {}",
+                        config_name
+                    );
                     // Build and send a renew request inline (simplified: read ServerState serves as keepalive)
                     // Full token renewal requires direct TCP access, so we just mark it
                     // The actual renewal happens via the read_node keepalive below
@@ -3037,7 +3106,8 @@ impl OpcUaClient {
                 let keepalive_result: Result<()> = async {
                     let io_timeout = Duration::from_secs(timeout_secs);
                     let mut conn_guard = connection.lock().await;
-                    let conn = conn_guard.as_mut()
+                    let conn = conn_guard
+                        .as_mut()
                         .ok_or_else(|| anyhow!("Not connected"))?;
 
                     // Build a minimal ReadRequest for ServerState
@@ -3132,7 +3202,8 @@ impl OpcUaClient {
                         .await
                         .map_err(|_| anyhow!("Keepalive read timeout"))??;
 
-                    let resp_size = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
+                    let resp_size =
+                        u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
                     if resp_size > 8 && resp_size <= MAX_OPCUA_MESSAGE_SIZE {
                         let mut body = vec![0u8; resp_size - 8];
                         timeout(io_timeout, conn.read_exact(&mut body))
@@ -3141,7 +3212,8 @@ impl OpcUaClient {
                     }
 
                     Ok(())
-                }.await;
+                }
+                .await;
 
                 match keepalive_result {
                     Ok(()) => {
@@ -3149,9 +3221,15 @@ impl OpcUaClient {
                     }
                     Err(e) => {
                         consecutive_failures += 1;
-                        debug!("Keepalive failed for {} (attempt {}): {}", config_name, consecutive_failures, e);
+                        debug!(
+                            "Keepalive failed for {} (attempt {}): {}",
+                            config_name, consecutive_failures, e
+                        );
                         if consecutive_failures >= 3 {
-                            warn!("3 consecutive keepalive failures for {}, marking disconnected", config_name);
+                            warn!(
+                                "3 consecutive keepalive failures for {}, marking disconnected",
+                                config_name
+                            );
                             connected.store(false, Ordering::Release);
                             break;
                         }
@@ -3162,7 +3240,10 @@ impl OpcUaClient {
     }
 
     /// Browse next continuation point to get remaining references
-    async fn browse_next(&self, continuation_point: &[u8]) -> Result<(Vec<BrowseReference>, Option<Vec<u8>>)> {
+    async fn browse_next(
+        &self,
+        continuation_point: &[u8],
+    ) -> Result<(Vec<BrowseReference>, Option<Vec<u8>>)> {
         let mut request = Vec::new();
 
         // Type ID for BrowseNextRequest (531)
@@ -3202,11 +3283,17 @@ impl OpcUaClient {
         // Check ServiceResult
         if body.len() >= offset + 4 {
             let service_result = u32::from_le_bytes([
-                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                body[offset],
+                body[offset + 1],
+                body[offset + 2],
+                body[offset + 3],
             ]);
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
-                return Err(anyhow!("BrowseNext failed with status: 0x{:08X}", service_result));
+                return Err(anyhow!(
+                    "BrowseNext failed with status: 0x{:08X}",
+                    service_result
+                ));
             }
         }
 
@@ -3218,14 +3305,22 @@ impl OpcUaClient {
         // Skip StringTable
         if body.len() >= offset + 4 {
             let array_len = i32::from_le_bytes([
-                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                body[offset],
+                body[offset + 1],
+                body[offset + 2],
+                body[offset + 3],
             ]);
             offset += 4;
             if array_len > 0 {
                 for _ in 0..array_len {
-                    if body.len() < offset + 4 { break; }
+                    if body.len() < offset + 4 {
+                        break;
+                    }
                     let str_len = u32::from_le_bytes([
-                        body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                        body[offset],
+                        body[offset + 1],
+                        body[offset + 2],
+                        body[offset + 3],
                     ]);
                     offset += 4;
                     if str_len != 0xFFFFFFFF {
@@ -3253,7 +3348,10 @@ impl OpcUaClient {
         }
 
         let results_len = i32::from_le_bytes([
-            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            body[offset],
+            body[offset + 1],
+            body[offset + 2],
+            body[offset + 3],
         ]);
         offset += 4;
 
@@ -3267,7 +3365,10 @@ impl OpcUaClient {
             return Ok((references, next_cp));
         }
         let browse_status = u32::from_le_bytes([
-            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            body[offset],
+            body[offset + 1],
+            body[offset + 2],
+            body[offset + 3],
         ]);
         offset += 4;
 
@@ -3280,7 +3381,10 @@ impl OpcUaClient {
             return Ok((references, next_cp));
         }
         let cp_len = u32::from_le_bytes([
-            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            body[offset],
+            body[offset + 1],
+            body[offset + 2],
+            body[offset + 3],
         ]);
         offset += 4;
         if cp_len != 0xFFFFFFFF && cp_len > 0 {
@@ -3294,13 +3398,18 @@ impl OpcUaClient {
         // References array
         if body.len() >= offset + 4 {
             let refs_len = i32::from_le_bytes([
-                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                body[offset],
+                body[offset + 1],
+                body[offset + 2],
+                body[offset + 3],
             ]);
             offset += 4;
 
             if refs_len > 0 {
                 for _ in 0..refs_len {
-                    if body.len() <= offset { break; }
+                    if body.len() <= offset {
+                        break;
+                    }
                     match BrowseReference::decode(&body[offset..]) {
                         Ok((reference, consumed)) => {
                             references.push(reference);
@@ -3342,7 +3451,11 @@ impl OpcUaClient {
     }
 
     /// Browse all references from a node, automatically following continuation points
-    async fn browse_all(&self, node_id: &NodeId, reference_type: u32) -> Result<Vec<BrowseReference>> {
+    async fn browse_all(
+        &self,
+        node_id: &NodeId,
+        reference_type: u32,
+    ) -> Result<Vec<BrowseReference>> {
         let all_refs = self.browse_nodes(node_id, reference_type).await?;
 
         // The initial browse_nodes doesn't return continuation points currently,
@@ -3410,11 +3523,17 @@ impl OpcUaClient {
         // Check ServiceResult
         if body.len() >= offset + 4 {
             let service_result = u32::from_le_bytes([
-                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                body[offset],
+                body[offset + 1],
+                body[offset + 2],
+                body[offset + 3],
             ]);
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
-                return Err(anyhow!("CreateSubscription failed: 0x{:08X}", service_result));
+                return Err(anyhow!(
+                    "CreateSubscription failed: 0x{:08X}",
+                    service_result
+                ));
             }
         }
 
@@ -3424,32 +3543,49 @@ impl OpcUaClient {
         }
         if body.len() >= offset + 4 {
             let arr_len = i32::from_le_bytes([
-                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                body[offset],
+                body[offset + 1],
+                body[offset + 2],
+                body[offset + 3],
             ]);
             offset += 4;
             if arr_len > 0 {
                 for _ in 0..arr_len {
-                    if body.len() < offset + 4 { break; }
+                    if body.len() < offset + 4 {
+                        break;
+                    }
                     let slen = u32::from_le_bytes([
-                        body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                        body[offset],
+                        body[offset + 1],
+                        body[offset + 2],
+                        body[offset + 3],
                     ]);
                     offset += 4;
-                    if slen != 0xFFFFFFFF { offset += slen as usize; }
+                    if slen != 0xFFFFFFFF {
+                        offset += slen as usize;
+                    }
                 }
             }
         }
         if body.len() > offset + 2 {
             let (_, consumed) = NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
             offset += consumed;
-            if body.len() > offset { offset += 1; }
+            if body.len() > offset {
+                offset += 1;
+            }
         }
 
         // SubscriptionId (UInt32)
         if body.len() < offset + 4 {
-            return Err(anyhow!("CreateSubscription response: missing subscription ID"));
+            return Err(anyhow!(
+                "CreateSubscription response: missing subscription ID"
+            ));
         }
         let subscription_id = u32::from_le_bytes([
-            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            body[offset],
+            body[offset + 1],
+            body[offset + 2],
+            body[offset + 3],
         ]);
 
         debug!("Created OPC UA subscription: id={}", subscription_id);
@@ -3530,36 +3666,56 @@ impl OpcUaClient {
         // Check ServiceResult
         if body.len() >= offset + 4 {
             let service_result = u32::from_le_bytes([
-                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                body[offset],
+                body[offset + 1],
+                body[offset + 2],
+                body[offset + 3],
             ]);
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
-                return Err(anyhow!("CreateMonitoredItems failed: 0x{:08X}", service_result));
+                return Err(anyhow!(
+                    "CreateMonitoredItems failed: 0x{:08X}",
+                    service_result
+                ));
             }
         }
 
         // Skip DiagnosticInfo + StringTable + AdditionalHeader (simplified)
-        if body.len() > offset && body[offset] == 0x00 { offset += 1; }
+        if body.len() > offset && body[offset] == 0x00 {
+            offset += 1;
+        }
         if body.len() >= offset + 4 {
             let arr_len = i32::from_le_bytes([
-                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                body[offset],
+                body[offset + 1],
+                body[offset + 2],
+                body[offset + 3],
             ]);
             offset += 4;
             if arr_len > 0 {
                 for _ in 0..arr_len {
-                    if body.len() < offset + 4 { break; }
+                    if body.len() < offset + 4 {
+                        break;
+                    }
                     let slen = u32::from_le_bytes([
-                        body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                        body[offset],
+                        body[offset + 1],
+                        body[offset + 2],
+                        body[offset + 3],
                     ]);
                     offset += 4;
-                    if slen != 0xFFFFFFFF { offset += slen as usize; }
+                    if slen != 0xFFFFFFFF {
+                        offset += slen as usize;
+                    }
                 }
             }
         }
         if body.len() > offset + 2 {
             let (_, consumed) = NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
             offset += consumed;
-            if body.len() > offset { offset += 1; }
+            if body.len() > offset {
+                offset += 1;
+            }
         }
 
         // Parse Results array - each MonitoredItemCreateResult has:
@@ -3567,27 +3723,41 @@ impl OpcUaClient {
         let mut monitored_item_ids = Vec::new();
         if body.len() >= offset + 4 {
             let results_len = i32::from_le_bytes([
-                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                body[offset],
+                body[offset + 1],
+                body[offset + 2],
+                body[offset + 3],
             ]);
             offset += 4;
 
             for _ in 0..results_len {
-                if body.len() < offset + 16 { break; }
+                if body.len() < offset + 16 {
+                    break;
+                }
                 let status = u32::from_le_bytes([
-                    body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                    body[offset],
+                    body[offset + 1],
+                    body[offset + 2],
+                    body[offset + 3],
                 ]);
                 offset += 4;
                 let item_id = u32::from_le_bytes([
-                    body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                    body[offset],
+                    body[offset + 1],
+                    body[offset + 2],
+                    body[offset + 3],
                 ]);
                 offset += 4;
                 offset += 8; // RevisedSamplingInterval (Double)
                 offset += 4; // RevisedQueueSize (UInt32)
                 // FilterResult (null ExtensionObject)
                 if body.len() > offset + 2 {
-                    let (_, consumed) = NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
+                    let (_, consumed) =
+                        NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
                     offset += consumed;
-                    if body.len() > offset { offset += 1; }
+                    if body.len() > offset {
+                        offset += 1;
+                    }
                 }
 
                 if status & STATUS_BAD_MASK == 0 {
@@ -3598,7 +3768,11 @@ impl OpcUaClient {
             }
         }
 
-        debug!("Created {} monitored items on subscription {}", monitored_item_ids.len(), subscription_id);
+        debug!(
+            "Created {} monitored items on subscription {}",
+            monitored_item_ids.len(),
+            subscription_id
+        );
         Ok(monitored_item_ids)
     }
 
@@ -3629,7 +3803,11 @@ impl OpcUaClient {
             return Err(anyhow!("DeleteMonitoredItems response too short"));
         }
 
-        debug!("Deleted {} monitored items from subscription {}", item_ids.len(), subscription_id);
+        debug!(
+            "Deleted {} monitored items from subscription {}",
+            item_ids.len(),
+            subscription_id
+        );
         Ok(())
     }
 
@@ -3696,7 +3874,10 @@ impl OpcUaClient {
         // Check ServiceResult
         if body.len() >= offset + 4 {
             let service_result = u32::from_le_bytes([
-                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                body[offset],
+                body[offset + 1],
+                body[offset + 2],
+                body[offset + 3],
             ]);
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
@@ -3705,27 +3886,41 @@ impl OpcUaClient {
         }
 
         // Skip DiagnosticInfo + StringTable + AdditionalHeader
-        if body.len() > offset && body[offset] == 0x00 { offset += 1; }
+        if body.len() > offset && body[offset] == 0x00 {
+            offset += 1;
+        }
         if body.len() >= offset + 4 {
             let arr_len = i32::from_le_bytes([
-                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                body[offset],
+                body[offset + 1],
+                body[offset + 2],
+                body[offset + 3],
             ]);
             offset += 4;
             if arr_len > 0 {
                 for _ in 0..arr_len {
-                    if body.len() < offset + 4 { break; }
+                    if body.len() < offset + 4 {
+                        break;
+                    }
                     let slen = u32::from_le_bytes([
-                        body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                        body[offset],
+                        body[offset + 1],
+                        body[offset + 2],
+                        body[offset + 3],
                     ]);
                     offset += 4;
-                    if slen != 0xFFFFFFFF { offset += slen as usize; }
+                    if slen != 0xFFFFFFFF {
+                        offset += slen as usize;
+                    }
                 }
             }
         }
         if body.len() > offset + 2 {
             let (_, consumed) = NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
             offset += consumed;
-            if body.len() > offset { offset += 1; }
+            if body.len() > offset {
+                offset += 1;
+            }
         }
 
         // SubscriptionId (UInt32)
@@ -3734,14 +3929,20 @@ impl OpcUaClient {
             return Ok(result);
         }
         let subscription_id = u32::from_le_bytes([
-            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            body[offset],
+            body[offset + 1],
+            body[offset + 2],
+            body[offset + 3],
         ]);
         offset += 4;
 
         // AvailableSequenceNumbers (skip)
         if body.len() >= offset + 4 {
             let seq_count = i32::from_le_bytes([
-                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                body[offset],
+                body[offset + 1],
+                body[offset + 2],
+                body[offset + 3],
             ]);
             offset += 4;
             if seq_count > 0 {
@@ -3772,31 +3973,43 @@ impl OpcUaClient {
             return Ok(result);
         }
         let notif_count = i32::from_le_bytes([
-            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            body[offset],
+            body[offset + 1],
+            body[offset + 2],
+            body[offset + 3],
         ]);
         offset += 4;
 
         let mut items = Vec::new();
 
         for _ in 0..notif_count {
-            if body.len() <= offset + 3 { break; }
+            if body.len() <= offset + 3 {
+                break;
+            }
 
             // NotificationData is an ExtensionObject
             // TypeId
-            let (_notif_type_id, consumed) = NodeId::decode(&body[offset..])
-                .unwrap_or((NodeId::null(), 0));
+            let (_notif_type_id, consumed) =
+                NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
             offset += consumed;
 
             // Encoding byte
-            if body.len() <= offset { break; }
+            if body.len() <= offset {
+                break;
+            }
             let encoding = body[offset];
             offset += 1;
 
             if encoding == 0x01 {
                 // Has binary body
-                if body.len() < offset + 4 { break; }
+                if body.len() < offset + 4 {
+                    break;
+                }
                 let _body_len = u32::from_le_bytes([
-                    body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                    body[offset],
+                    body[offset + 1],
+                    body[offset + 2],
+                    body[offset + 3],
                 ]) as usize;
                 offset += 4;
 
@@ -3804,15 +4017,23 @@ impl OpcUaClient {
                 // Parse monitored items
                 if body.len() >= offset + 4 {
                     let item_count = i32::from_le_bytes([
-                        body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                        body[offset],
+                        body[offset + 1],
+                        body[offset + 2],
+                        body[offset + 3],
                     ]);
                     offset += 4;
 
                     for _ in 0..item_count {
-                        if body.len() < offset + 4 { break; }
+                        if body.len() < offset + 4 {
+                            break;
+                        }
                         // ClientHandle (UInt32)
                         let client_handle = u32::from_le_bytes([
-                            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                            body[offset],
+                            body[offset + 1],
+                            body[offset + 2],
+                            body[offset + 3],
                         ]);
                         offset += 4;
 
@@ -3834,7 +4055,10 @@ impl OpcUaClient {
                     // Skip DiagnosticInfos array
                     if body.len() >= offset + 4 {
                         let diag_count = i32::from_le_bytes([
-                            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                            body[offset],
+                            body[offset + 1],
+                            body[offset + 2],
+                            body[offset + 3],
                         ]);
                         offset += 4;
                         // Skip diagnostic infos (simplified)
@@ -3866,7 +4090,9 @@ impl OpcUaClient {
         for part in &parts {
             let part = part.trim();
             if let Some(ns) = part.strip_prefix("ns=") {
-                namespace = ns.parse().map_err(|_| anyhow!("Invalid namespace: {}", ns))?;
+                namespace = ns
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid namespace: {}", ns))?;
             } else if let Some(s) = part.strip_prefix("s=") {
                 id_type = Some("s");
                 identifier = Some(s);
@@ -3878,13 +4104,12 @@ impl OpcUaClient {
 
         match (id_type, identifier) {
             (Some("i"), Some(id)) => {
-                let numeric_id: u32 = id.parse()
+                let numeric_id: u32 = id
+                    .parse()
                     .map_err(|_| anyhow!("Invalid numeric node ID: {}", id))?;
                 Ok(NodeId::numeric(namespace, numeric_id))
             }
-            (Some("s"), Some(id)) => {
-                Ok(NodeId::string(namespace, id))
-            }
+            (Some("s"), Some(id)) => Ok(NodeId::string(namespace, id)),
             _ => {
                 // Try parsing as a plain numeric ID
                 if let Ok(id) = address.parse::<u32>() {
@@ -4081,10 +4306,10 @@ impl PlcProgrammer for OpcUaClient {
                             // 7=Unknown
                             match *state {
                                 0 => PlcRunMode::Run,
-                                1 => PlcRunMode::Stop, // Failed
+                                1 => PlcRunMode::Stop,    // Failed
                                 2 => PlcRunMode::Program, // NoConfiguration
-                                3 => PlcRunMode::Stop, // Suspended
-                                4 => PlcRunMode::Stop, // Shutdown
+                                3 => PlcRunMode::Stop,    // Suspended
+                                4 => PlcRunMode::Stop,    // Shutdown
                                 5 => PlcRunMode::Program, // Test
                                 _ => PlcRunMode::Unknown,
                             }
@@ -4123,7 +4348,10 @@ impl PlcProgrammer for OpcUaClient {
 
         // Read SoftwareVersion from Server node (i=2263)
         let software_version_node = NodeId::numeric(0, NODE_ID_SOFTWARE_VERSION);
-        let firmware = match self.read_node(&software_version_node, ATTRIBUTE_VALUE).await {
+        let firmware = match self
+            .read_node(&software_version_node, ATTRIBUTE_VALUE)
+            .await
+        {
             Ok(data_value) => {
                 if data_value.is_good() {
                     match &data_value.value {
@@ -4157,9 +4385,11 @@ impl PlcProgrammer for OpcUaClient {
                             // FILETIME is 100-nanosecond intervals since 1601-01-01
                             let unix_epoch_filetime = 116444736000000000i64;
                             let unix_timestamp = (*filetime - unix_epoch_filetime) / 10_000_000;
-                            Some(chrono::DateTime::from_timestamp(unix_timestamp, 0)
-                                .map(|dt| dt.to_rfc3339())
-                                .unwrap_or_default())
+                            Some(
+                                chrono::DateTime::from_timestamp(unix_timestamp, 0)
+                                    .map(|dt| dt.to_rfc3339())
+                                    .unwrap_or_default(),
+                            )
                         }
                         _ => None,
                     }
@@ -4197,7 +4427,9 @@ impl PlcProgrammer for OpcUaClient {
         let mut plc_response: HashMap<String, JsonValue> = HashMap::new();
 
         // Determine target namespace (default to 2 if not specified)
-        let namespace = self.config.program_namespace
+        let namespace = self
+            .config
+            .program_namespace
             .as_ref()
             .and_then(|ns| ns.parse::<u16>().ok())
             .unwrap_or(2);
@@ -4225,9 +4457,15 @@ impl PlcProgrammer for OpcUaClient {
         match method_result {
             Ok(outputs) => {
                 info!("Program uploaded via ProgramTransfer method");
-                plc_response.insert("method".to_string(), JsonValue::String("ProgramTransfer.Upload".to_string()));
+                plc_response.insert(
+                    "method".to_string(),
+                    JsonValue::String("ProgramTransfer.Upload".to_string()),
+                );
                 if let Some(output) = outputs.first() {
-                    plc_response.insert("result".to_string(), JsonValue::String(output.to_string_value()));
+                    plc_response.insert(
+                        "result".to_string(),
+                        JsonValue::String(output.to_string_value()),
+                    );
                 }
             }
             Err(e) => {
@@ -4236,17 +4474,24 @@ impl PlcProgrammer for OpcUaClient {
 
                 // Strategy 2: Try writing to a file node
                 // Common pattern: Files/Programs/<ProgramName>
-                let file_node = NodeId::string(namespace, &format!("Files.Programs.{}", program.name));
+                let file_node =
+                    NodeId::string(namespace, &format!("Files.Programs.{}", program.name));
 
                 let write_result = self
-                    .write_node(&file_node, Variant::ByteString(program_source_bytes.clone()))
+                    .write_node(
+                        &file_node,
+                        Variant::ByteString(program_source_bytes.clone()),
+                    )
                     .await;
 
                 match write_result {
                     Ok(status) => {
                         if status & STATUS_BAD_MASK == 0 {
                             info!("Program uploaded via file node write");
-                            plc_response.insert("method".to_string(), JsonValue::String("FileNode.Write".to_string()));
+                            plc_response.insert(
+                                "method".to_string(),
+                                JsonValue::String("FileNode.Write".to_string()),
+                            );
                         } else {
                             let err_msg = format!("File write returned status: 0x{:08X}", status);
                             debug!("{}", err_msg);
@@ -4262,7 +4507,10 @@ impl PlcProgrammer for OpcUaClient {
                                 Ok(status2) => {
                                     if status2 & STATUS_BAD_MASK == 0 {
                                         info!("Program uploaded via direct node write");
-                                        plc_response.insert("method".to_string(), JsonValue::String("DirectNode.Write".to_string()));
+                                        plc_response.insert(
+                                            "method".to_string(),
+                                            JsonValue::String("DirectNode.Write".to_string()),
+                                        );
                                     } else {
                                         errors.push(format!(
                                             "All upload strategies failed. Last status: 0x{:08X}",
@@ -4290,7 +4538,10 @@ impl PlcProgrammer for OpcUaClient {
                             Ok(status2) => {
                                 if status2 & STATUS_BAD_MASK == 0 {
                                     info!("Program uploaded via direct node write");
-                                    plc_response.insert("method".to_string(), JsonValue::String("DirectNode.Write".to_string()));
+                                    plc_response.insert(
+                                        "method".to_string(),
+                                        JsonValue::String("DirectNode.Write".to_string()),
+                                    );
                                 } else {
                                     errors.push(format!(
                                         "All upload strategies failed. Last status: 0x{:08X}",
@@ -4329,14 +4580,19 @@ impl PlcProgrammer for OpcUaClient {
     }
 
     async fn download_program(&self, program_name: &str) -> Result<PlcProgram> {
-        info!("Downloading program '{}' via OPC UA: {}", program_name, self.config.name);
+        info!(
+            "Downloading program '{}' via OPC UA: {}",
+            program_name, self.config.name
+        );
 
         if !self.is_connected() {
             return Err(anyhow!("Not connected to OPC UA server"));
         }
 
         // Determine target namespace (default to 2 if not specified)
-        let namespace = self.config.program_namespace
+        let namespace = self
+            .config
+            .program_namespace
             .as_ref()
             .and_then(|ns| ns.parse::<u16>().ok())
             .unwrap_or(2);
@@ -4362,11 +4618,17 @@ impl PlcProgrammer for OpcUaClient {
                     match output {
                         Variant::ByteString(bytes) => {
                             source = String::from_utf8_lossy(bytes).to_string();
-                            metadata.insert("method".to_string(), "ProgramTransfer.Download".to_string());
+                            metadata.insert(
+                                "method".to_string(),
+                                "ProgramTransfer.Download".to_string(),
+                            );
                         }
                         Variant::String(s) => {
                             source = s.clone();
-                            metadata.insert("method".to_string(), "ProgramTransfer.Download".to_string());
+                            metadata.insert(
+                                "method".to_string(),
+                                "ProgramTransfer.Download".to_string(),
+                            );
                         }
                         _ => {
                             debug!("Unexpected output type from ProgramTransfer.Download");
@@ -4378,7 +4640,8 @@ impl PlcProgrammer for OpcUaClient {
                 debug!("ProgramTransfer.Download method not available: {}", e);
 
                 // Strategy 2: Try reading from file node
-                let file_node = NodeId::string(namespace, &format!("Files.Programs.{}", program_name));
+                let file_node =
+                    NodeId::string(namespace, &format!("Files.Programs.{}", program_name));
                 let read_result = self.read_node(&file_node, ATTRIBUTE_VALUE).await;
 
                 match read_result {
@@ -4387,11 +4650,13 @@ impl PlcProgrammer for OpcUaClient {
                             match &data_value.value {
                                 Some(Variant::ByteString(bytes)) => {
                                     source = String::from_utf8_lossy(bytes).to_string();
-                                    metadata.insert("method".to_string(), "FileNode.Read".to_string());
+                                    metadata
+                                        .insert("method".to_string(), "FileNode.Read".to_string());
                                 }
                                 Some(Variant::String(s)) => {
                                     source = s.clone();
-                                    metadata.insert("method".to_string(), "FileNode.Read".to_string());
+                                    metadata
+                                        .insert("method".to_string(), "FileNode.Read".to_string());
                                 }
                                 _ => {
                                     debug!("Unexpected value type from file node");
@@ -4412,11 +4677,17 @@ impl PlcProgrammer for OpcUaClient {
                                     match &data_value.value {
                                         Some(Variant::ByteString(bytes)) => {
                                             source = String::from_utf8_lossy(bytes).to_string();
-                                            metadata.insert("method".to_string(), "DirectNode.Read".to_string());
+                                            metadata.insert(
+                                                "method".to_string(),
+                                                "DirectNode.Read".to_string(),
+                                            );
                                         }
                                         Some(Variant::String(s)) => {
                                             source = s.clone();
-                                            metadata.insert("method".to_string(), "DirectNode.Read".to_string());
+                                            metadata.insert(
+                                                "method".to_string(),
+                                                "DirectNode.Read".to_string(),
+                                            );
                                         }
                                         _ => {
                                             return Err(anyhow!(
@@ -4451,7 +4722,11 @@ impl PlcProgrammer for OpcUaClient {
         // Detect program language from source
         let language = detect_program_language(&source);
 
-        info!("Program '{}' downloaded successfully ({} bytes)", program_name, source.len());
+        info!(
+            "Program '{}' downloaded successfully ({} bytes)",
+            program_name,
+            source.len()
+        );
 
         Ok(PlcProgram {
             name: program_name.to_string(),
@@ -4471,7 +4746,9 @@ impl PlcProgrammer for OpcUaClient {
         }
 
         // Determine target namespace (default to 2 if not specified)
-        let namespace = self.config.program_namespace
+        let namespace = self
+            .config
+            .program_namespace
             .as_ref()
             .and_then(|ns| ns.parse::<u16>().ok())
             .unwrap_or(2);
@@ -4510,7 +4787,10 @@ impl PlcProgrammer for OpcUaClient {
         let server_object = NodeId::numeric(0, NODE_ID_SERVER);
         let server_start = NodeId::string(0, "Start");
 
-        match self.call_method(&server_object, &server_start, vec![]).await {
+        match self
+            .call_method(&server_object, &server_start, vec![])
+            .await
+        {
             Ok(_) => {
                 info!("PLC started via Server.Start method");
                 return Ok(());
@@ -4563,7 +4843,9 @@ impl PlcProgrammer for OpcUaClient {
         }
 
         // Determine target namespace (default to 2 if not specified)
-        let namespace = self.config.program_namespace
+        let namespace = self
+            .config
+            .program_namespace
             .as_ref()
             .and_then(|ns| ns.parse::<u16>().ok())
             .unwrap_or(2);
@@ -4657,14 +4939,19 @@ impl PlcProgrammer for OpcUaClient {
         let mut programs = Vec::new();
 
         // Determine target namespace (default to 2 if not specified)
-        let namespace = self.config.program_namespace
+        let namespace = self
+            .config
+            .program_namespace
             .as_ref()
             .and_then(|ns| ns.parse::<u16>().ok())
             .unwrap_or(2);
 
         // Strategy 1: Browse Programs folder
         let programs_folder = NodeId::string(namespace, "Programs");
-        match self.browse_nodes(&programs_folder, REFERENCE_TYPE_ORGANIZES).await {
+        match self
+            .browse_nodes(&programs_folder, REFERENCE_TYPE_ORGANIZES)
+            .await
+        {
             Ok(references) => {
                 for reference in references {
                     if !reference.browse_name.is_empty() {
@@ -4685,7 +4972,10 @@ impl PlcProgrammer for OpcUaClient {
 
         // Strategy 2: Browse PLC object for programs
         let plc_object = NodeId::string(namespace, "PLC");
-        match self.browse_nodes(&plc_object, REFERENCE_TYPE_HIERARCHICAL).await {
+        match self
+            .browse_nodes(&plc_object, REFERENCE_TYPE_HIERARCHICAL)
+            .await
+        {
             Ok(references) => {
                 for reference in references {
                     // Filter for program-like nodes (NodeClass = Object or Variable)
@@ -4719,7 +5009,10 @@ impl PlcProgrammer for OpcUaClient {
 
         // Strategy 3: Browse Files/Programs folder
         let files_programs = NodeId::string(namespace, "Files.Programs");
-        match self.browse_nodes(&files_programs, REFERENCE_TYPE_ORGANIZES).await {
+        match self
+            .browse_nodes(&files_programs, REFERENCE_TYPE_ORGANIZES)
+            .await
+        {
             Ok(references) => {
                 for reference in references {
                     if !reference.browse_name.is_empty() {
@@ -4740,7 +5033,10 @@ impl PlcProgrammer for OpcUaClient {
 
         // Strategy 4: Browse Objects folder for application-specific nodes
         let objects_folder = NodeId::numeric(0, NODE_ID_OBJECTS_FOLDER);
-        match self.browse_nodes(&objects_folder, REFERENCE_TYPE_ORGANIZES).await {
+        match self
+            .browse_nodes(&objects_folder, REFERENCE_TYPE_ORGANIZES)
+            .await
+        {
             Ok(references) => {
                 for reference in references {
                     // Look for nodes that might be programs (in vendor namespace)
@@ -4761,7 +5057,10 @@ impl PlcProgrammer for OpcUaClient {
                     }
                 }
                 if !programs.is_empty() {
-                    debug!("Found {} potential programs in Objects folder", programs.len());
+                    debug!(
+                        "Found {} potential programs in Objects folder",
+                        programs.len()
+                    );
                     return Ok(programs);
                 }
             }
@@ -4785,7 +5084,9 @@ impl PlcProgrammer for OpcUaClient {
         }
 
         // Determine target namespace (default to 2 if not specified)
-        let namespace = self.config.program_namespace
+        let namespace = self
+            .config
+            .program_namespace
             .as_ref()
             .and_then(|ns| ns.parse::<u16>().ok())
             .unwrap_or(2);
@@ -4803,7 +5104,10 @@ impl PlcProgrammer for OpcUaClient {
             .await
         {
             Ok(_) => {
-                info!("Program '{}' deleted via ProgramTransfer.Delete method", program_name);
+                info!(
+                    "Program '{}' deleted via ProgramTransfer.Delete method",
+                    program_name
+                );
                 return Ok(());
             }
             Err(e) => {
@@ -4838,7 +5142,10 @@ impl PlcProgrammer for OpcUaClient {
             .await
         {
             Ok(_) => {
-                info!("Program '{}' deleted via {}.Delete method", program_name, program_name);
+                info!(
+                    "Program '{}' deleted via {}.Delete method",
+                    program_name, program_name
+                );
                 return Ok(());
             }
             Err(e) => {
@@ -4875,8 +5182,14 @@ impl PlcProgrammer for OpcUaClient {
                 let source = &program.source;
 
                 // Check for basic ST structure
-                if !source.contains("PROGRAM") && !source.contains("FUNCTION") && !source.contains("FUNCTION_BLOCK") {
-                    warnings.push("Source doesn't contain PROGRAM, FUNCTION, or FUNCTION_BLOCK declaration".to_string());
+                if !source.contains("PROGRAM")
+                    && !source.contains("FUNCTION")
+                    && !source.contains("FUNCTION_BLOCK")
+                {
+                    warnings.push(
+                        "Source doesn't contain PROGRAM, FUNCTION, or FUNCTION_BLOCK declaration"
+                            .to_string(),
+                    );
                 }
 
                 // Check for unmatched blocks
@@ -4912,7 +5225,8 @@ impl PlcProgrammer for OpcUaClient {
                     errors.push("Invalid assignment operator ':=:' found".to_string());
                 }
                 if source.contains(";;") {
-                    warnings.push("Double semicolons ';;' found - may be unintentional".to_string());
+                    warnings
+                        .push("Double semicolons ';;' found - may be unintentional".to_string());
                 }
             }
             super::ProgramLanguage::Ld => {
@@ -4929,15 +5243,26 @@ impl PlcProgrammer for OpcUaClient {
             }
             super::ProgramLanguage::Il => {
                 // Basic IL validation
-                let valid_opcodes = ["LD", "ST", "AND", "OR", "ADD", "SUB", "MUL", "DIV", "JMP", "CAL", "RET"];
+                let valid_opcodes = [
+                    "LD", "ST", "AND", "OR", "ADD", "SUB", "MUL", "DIV", "JMP", "CAL", "RET",
+                ];
                 let lines: Vec<&str> = program.source.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     let trimmed = line.trim();
-                    if !trimmed.is_empty() && !trimmed.starts_with("//") && !trimmed.starts_with("(*") {
+                    if !trimmed.is_empty()
+                        && !trimmed.starts_with("//")
+                        && !trimmed.starts_with("(*")
+                    {
                         let first_word = trimmed.split_whitespace().next().unwrap_or("");
                         // Skip labels (ending with :)
-                        if !first_word.ends_with(':') && !valid_opcodes.iter().any(|op| first_word.starts_with(op)) {
-                            warnings.push(format!("Line {}: Unknown instruction '{}'", i + 1, first_word));
+                        if !first_word.ends_with(':')
+                            && !valid_opcodes.iter().any(|op| first_word.starts_with(op))
+                        {
+                            warnings.push(format!(
+                                "Line {}: Unknown instruction '{}'",
+                                i + 1,
+                                first_word
+                            ));
                         }
                     }
                 }
@@ -4945,14 +5270,18 @@ impl PlcProgrammer for OpcUaClient {
             super::ProgramLanguage::Sfc => {
                 // Basic SFC validation
                 if !program.source.contains("STEP") && !program.source.contains("TRANSITION") {
-                    warnings.push("SFC source doesn't contain STEP or TRANSITION definitions".to_string());
+                    warnings.push(
+                        "SFC source doesn't contain STEP or TRANSITION definitions".to_string(),
+                    );
                 }
             }
         }
 
         // If connected, try to use server-side compilation
         if self.is_connected() {
-            let namespace = self.config.program_namespace
+            let namespace = self
+                .config
+                .program_namespace
                 .as_ref()
                 .and_then(|ns| ns.parse::<u16>().ok())
                 .unwrap_or(2);
@@ -4973,7 +5302,10 @@ impl PlcProgrammer for OpcUaClient {
                 .await
             {
                 Ok(outputs) => {
-                    plc_response.insert("method".to_string(), JsonValue::String("ProgramTransfer.Compile".to_string()));
+                    plc_response.insert(
+                        "method".to_string(),
+                        JsonValue::String("ProgramTransfer.Compile".to_string()),
+                    );
 
                     // Parse compilation result
                     for (i, output) in outputs.iter().enumerate() {
@@ -4989,11 +5321,17 @@ impl PlcProgrammer for OpcUaClient {
                                 } else if msg.to_lowercase().contains("warning") {
                                     warnings.push(format!("Server: {}", msg));
                                 } else {
-                                    plc_response.insert(format!("output_{}", i), JsonValue::String(msg.clone()));
+                                    plc_response.insert(
+                                        format!("output_{}", i),
+                                        JsonValue::String(msg.clone()),
+                                    );
                                 }
                             }
                             _ => {
-                                plc_response.insert(format!("output_{}", i), JsonValue::String(output.to_string_value()));
+                                plc_response.insert(
+                                    format!("output_{}", i),
+                                    JsonValue::String(output.to_string_value()),
+                                );
                             }
                         }
                     }
@@ -5001,11 +5339,17 @@ impl PlcProgrammer for OpcUaClient {
                 }
                 Err(e) => {
                     debug!("ProgramTransfer.Compile not available: {}", e);
-                    plc_response.insert("method".to_string(), JsonValue::String("local_validation".to_string()));
+                    plc_response.insert(
+                        "method".to_string(),
+                        JsonValue::String("local_validation".to_string()),
+                    );
                 }
             }
         } else {
-            plc_response.insert("method".to_string(), JsonValue::String("local_validation".to_string()));
+            plc_response.insert(
+                "method".to_string(),
+                JsonValue::String("local_validation".to_string()),
+            );
         }
 
         let success = errors.is_empty();
@@ -5020,7 +5364,12 @@ impl PlcProgrammer for OpcUaClient {
         })
     }
 
-    async fn read_variable(&self, address: &str, _data_type: &super::PlcDataType, _count: u16) -> Result<Vec<u8>> {
+    async fn read_variable(
+        &self,
+        address: &str,
+        _data_type: &super::PlcDataType,
+        _count: u16,
+    ) -> Result<Vec<u8>> {
         if !self.is_connected() {
             return Err(anyhow!("Not connected to OPC UA server"));
         }
@@ -5029,7 +5378,10 @@ impl PlcProgrammer for OpcUaClient {
         let data_value = self.read_node(&node_id, ATTRIBUTE_VALUE).await?;
 
         if !data_value.is_good() {
-            return Err(anyhow!("OPC UA read returned bad status: 0x{:08X}", data_value.status_code));
+            return Err(anyhow!(
+                "OPC UA read returned bad status: 0x{:08X}",
+                data_value.status_code
+            ));
         }
 
         match data_value.value {
@@ -5046,7 +5398,12 @@ impl PlcProgrammer for OpcUaClient {
         }
     }
 
-    async fn write_variable(&self, address: &str, data_type: &super::PlcDataType, data: &[u8]) -> Result<()> {
+    async fn write_variable(
+        &self,
+        address: &str,
+        data_type: &super::PlcDataType,
+        data: &[u8],
+    ) -> Result<()> {
         if !self.is_connected() {
             return Err(anyhow!("Not connected to OPC UA server"));
         }
@@ -5082,8 +5439,7 @@ impl PlcProgrammer for OpcUaClient {
             super::PlcDataType::Lreal => {
                 if data.len() >= 8 {
                     Variant::Double(f64::from_le_bytes([
-                        data[0], data[1], data[2], data[3],
-                        data[4], data[5], data[6], data[7],
+                        data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
                     ]))
                 } else {
                     return Err(anyhow!("Insufficient data for LREAL write"));
@@ -5092,9 +5448,7 @@ impl PlcProgrammer for OpcUaClient {
             super::PlcDataType::String => {
                 Variant::String(String::from_utf8_lossy(data).to_string())
             }
-            super::PlcDataType::Byte => {
-                Variant::Byte(data.first().copied().unwrap_or(0))
-            }
+            super::PlcDataType::Byte => Variant::Byte(data.first().copied().unwrap_or(0)),
             super::PlcDataType::Word => {
                 if data.len() >= 2 {
                     Variant::UInt16(u16::from_le_bytes([data[0], data[1]]))
@@ -5129,22 +5483,28 @@ fn detect_program_language(source: &str) -> super::ProgramLanguage {
     let source_upper = source.to_uppercase();
 
     // Check for ST keywords
-    if source_upper.contains("PROGRAM ") || source_upper.contains("FUNCTION_BLOCK ")
-        || source_upper.contains("VAR ") || source_upper.contains("END_VAR")
-        || source_upper.contains(":= ") || source_upper.contains("IF ") && source_upper.contains("END_IF")
+    if source_upper.contains("PROGRAM ")
+        || source_upper.contains("FUNCTION_BLOCK ")
+        || source_upper.contains("VAR ")
+        || source_upper.contains("END_VAR")
+        || source_upper.contains(":= ")
+        || source_upper.contains("IF ") && source_upper.contains("END_IF")
     {
         return super::ProgramLanguage::St;
     }
 
     // Check for Ladder Diagram (LD)
-    if source_upper.contains("RUNG") || source_upper.contains("<LADDER>")
-        || source.contains("--| |--") || source.contains("--( )--")
+    if source_upper.contains("RUNG")
+        || source_upper.contains("<LADDER>")
+        || source.contains("--| |--")
+        || source.contains("--( )--")
     {
         return super::ProgramLanguage::Ld;
     }
 
     // Check for FBD
-    if source_upper.contains("<FBD>") || source_upper.contains("<BLOCK>")
+    if source_upper.contains("<FBD>")
+        || source_upper.contains("<BLOCK>")
         || source_upper.contains("BLOCK_TYPE")
     {
         return super::ProgramLanguage::Fbd;
@@ -5153,14 +5513,17 @@ fn detect_program_language(source: &str) -> super::ProgramLanguage {
     // Check for IL
     if source_upper.lines().any(|line| {
         let trimmed = line.trim();
-        trimmed.starts_with("LD ") || trimmed.starts_with("ST ")
-            || trimmed.starts_with("AND ") || trimmed.starts_with("OR ")
+        trimmed.starts_with("LD ")
+            || trimmed.starts_with("ST ")
+            || trimmed.starts_with("AND ")
+            || trimmed.starts_with("OR ")
     }) {
         return super::ProgramLanguage::Il;
     }
 
     // Check for SFC
-    if source_upper.contains("INITIAL_STEP") || source_upper.contains("TRANSITION ")
+    if source_upper.contains("INITIAL_STEP")
+        || source_upper.contains("TRANSITION ")
         || source_upper.contains("END_STEP")
     {
         return super::ProgramLanguage::Sfc;
@@ -5259,7 +5622,7 @@ mod tests {
         let node = NodeId::numeric(1, 1000);
         let encoded = node.encode();
         assert_eq!(encoded[0], 0x01); // Four-byte numeric
-        assert_eq!(encoded[1], 1);    // Namespace
+        assert_eq!(encoded[1], 1); // Namespace
         assert_eq!(u16::from_le_bytes([encoded[2], encoded[3]]), 1000);
     }
 
@@ -5269,7 +5632,10 @@ mod tests {
         let encoded = node.encode();
         assert_eq!(encoded[0], 0x03); // String
         assert_eq!(u16::from_le_bytes([encoded[1], encoded[2]]), 2); // Namespace
-        assert_eq!(u32::from_le_bytes([encoded[3], encoded[4], encoded[5], encoded[6]]), 4); // Length
+        assert_eq!(
+            u32::from_le_bytes([encoded[3], encoded[4], encoded[5], encoded[6]]),
+            4
+        ); // Length
         assert_eq!(&encoded[7..11], b"Test");
     }
 
@@ -5329,7 +5695,7 @@ mod tests {
         let variant = Variant::Boolean(true);
         let encoded = variant.encode();
         assert_eq!(encoded[0], 0x01); // Boolean type
-        assert_eq!(encoded[1], 1);    // true
+        assert_eq!(encoded[1], 1); // true
 
         let (decoded, consumed) = Variant::decode(&encoded).unwrap();
         assert_eq!(consumed, 2);
@@ -5384,7 +5750,10 @@ mod tests {
     fn test_variant_to_string_value() {
         assert_eq!(Variant::Boolean(true).to_string_value(), "true");
         assert_eq!(Variant::Int32(42).to_string_value(), "42");
-        assert_eq!(Variant::String("test".to_string()).to_string_value(), "test");
+        assert_eq!(
+            Variant::String("test".to_string()).to_string_value(),
+            "test"
+        );
         assert_eq!(Variant::Null.to_string_value(), "");
     }
 
@@ -5430,8 +5799,14 @@ mod tests {
         // Nonces should be different (with very high probability)
         assert_ne!(nonce1, nonce2);
         // Nonce should not be all zeros (CSPRNG should provide entropy)
-        assert!(nonce1.iter().any(|&b| b != 0), "Nonce should not be all zeros");
-        assert!(nonce2.iter().any(|&b| b != 0), "Nonce should not be all zeros");
+        assert!(
+            nonce1.iter().any(|&b| b != 0),
+            "Nonce should not be all zeros"
+        );
+        assert!(
+            nonce2.iter().any(|&b| b != 0),
+            "Nonce should not be all zeros"
+        );
     }
 
     #[test]
@@ -5477,22 +5852,34 @@ mod tests {
     #[test]
     fn test_encode_string() {
         let encoded = OpcUaClient::encode_string("Test");
-        assert_eq!(u32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]), 4);
+        assert_eq!(
+            u32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]),
+            4
+        );
         assert_eq!(&encoded[4..8], b"Test");
 
         let empty = OpcUaClient::encode_string("");
-        assert_eq!(u32::from_le_bytes([empty[0], empty[1], empty[2], empty[3]]), 0xFFFFFFFF);
+        assert_eq!(
+            u32::from_le_bytes([empty[0], empty[1], empty[2], empty[3]]),
+            0xFFFFFFFF
+        );
     }
 
     #[test]
     fn test_encode_bytestring() {
         let data = vec![1, 2, 3, 4, 5];
         let encoded = OpcUaClient::encode_bytestring(&data);
-        assert_eq!(u32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]), 5);
+        assert_eq!(
+            u32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]),
+            5
+        );
         assert_eq!(&encoded[4..9], &[1, 2, 3, 4, 5]);
 
         let empty = OpcUaClient::encode_bytestring(&[]);
-        assert_eq!(u32::from_le_bytes([empty[0], empty[1], empty[2], empty[3]]), 0xFFFFFFFF);
+        assert_eq!(
+            u32::from_le_bytes([empty[0], empty[1], empty[2], empty[3]]),
+            0xFFFFFFFF
+        );
     }
 
     #[test]
@@ -5506,7 +5893,10 @@ mod tests {
             counter := counter + 1;
             END_PROGRAM
         "#;
-        assert_eq!(detect_program_language(st_source), super::super::ProgramLanguage::St);
+        assert_eq!(
+            detect_program_language(st_source),
+            super::super::ProgramLanguage::St
+        );
     }
 
     #[test]
@@ -5516,7 +5906,10 @@ mod tests {
             --| |--+--( )--
             RUNG 2
         "#;
-        assert_eq!(detect_program_language(ladder_source), super::super::ProgramLanguage::Ld);
+        assert_eq!(
+            detect_program_language(ladder_source),
+            super::super::ProgramLanguage::Ld
+        );
     }
 
     #[test]
@@ -5526,7 +5919,10 @@ mod tests {
             AND input2
             ST output1
         "#;
-        assert_eq!(detect_program_language(il_source), super::super::ProgramLanguage::Il);
+        assert_eq!(
+            detect_program_language(il_source),
+            super::super::ProgramLanguage::Il
+        );
     }
 
     #[test]
@@ -5538,7 +5934,10 @@ mod tests {
             TRANSITION FROM Init TO Step1
             END_TRANSITION
         "#;
-        assert_eq!(detect_program_language(sfc_source), super::super::ProgramLanguage::Sfc);
+        assert_eq!(
+            detect_program_language(sfc_source),
+            super::super::ProgramLanguage::Sfc
+        );
     }
 
     #[test]
@@ -5587,7 +5986,10 @@ mod tests {
         // First byte should be Int32 type (0x06) with array bit (0x80) = 0x86
         assert_eq!(encoded[0], 0x86);
         // Array length (i32 LE) = 3
-        assert_eq!(i32::from_le_bytes([encoded[1], encoded[2], encoded[3], encoded[4]]), 3);
+        assert_eq!(
+            i32::from_le_bytes([encoded[1], encoded[2], encoded[3], encoded[4]]),
+            3
+        );
 
         // Decode it back
         let (decoded, consumed) = Variant::decode(&encoded).unwrap();
@@ -5642,10 +6044,7 @@ mod tests {
 
     #[test]
     fn test_array_variant_boolean() {
-        let array = Variant::Array(vec![
-            Variant::Boolean(true),
-            Variant::Boolean(false),
-        ]);
+        let array = Variant::Array(vec![Variant::Boolean(true), Variant::Boolean(false)]);
         let encoded = array.encode();
         assert_eq!(encoded[0], 0x81); // Boolean (0x01) | array (0x80)
 

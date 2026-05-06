@@ -21,6 +21,7 @@ import { GetBatchPerformanceQuery, BatchPerformanceResult } from '../queries/get
 import { Batch } from '../entities/batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { Species } from '../../species/entities/species.entity';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { BatchCostCalculatorService } from '../services/batch-cost-calculator.service';
 
 @Injectable()

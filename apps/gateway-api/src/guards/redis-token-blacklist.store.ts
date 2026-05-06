@@ -2,7 +2,37 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common';
 
 /**
- * Token blacklist store interface
+ * Token blacklist store interface (gateway-local).
+ *
+ * # SEC-LOW-001 — divergence from canonical ITokenBlacklist
+ *
+ * The platform exposes a canonical `ITokenBlacklist` interface +
+ * `TOKEN_BLACKLIST` DI symbol at
+ * `libs/backend-common/src/security/interfaces/index.ts`. This
+ * gateway-local declaration of `TokenBlacklistStore` +
+ * `TOKEN_BLACKLIST_STORE` predates that canonical surface and
+ * differs structurally:
+ *
+ *   - Gateway: `add(jti, exp: number)` (Unix seconds),
+ *     `isValidToken(jti, userId, iat)` composite check,
+ *     `blacklistUserTokens(userId, invalidatedAt: number)`.
+ *   - Canonical: `add(jti, expiresAt: Date, reason?: string)`,
+ *     `isBlacklisted(jti)`, `blacklistAllForUser(userId)`.
+ *
+ * The auditor's direction (auth-security-expert review,
+ * SEC-LOW-001) is "Tier-2: merge tokens after SEC-MEDIUM-006
+ * lands". The merge is a pure refactor (the gateway's
+ * isValidToken composite check needs to land in the canonical
+ * lib first, then both consumers reference one symbol) but
+ * requires SEC-MEDIUM-006's broader auth-blacklist consolidation
+ * to land first.
+ *
+ * Until then, the divergence is documented HERE + at the
+ * canonical declaration site so future maintainers see both
+ * sides of the cross-reference. The
+ * `tests/invariants/token-blacklist-divergence-tracked.spec.ts`
+ * invariant pins the cross-reference annotations so this
+ * documentation cannot rot.
  */
 export interface TokenBlacklistStore {
   /**
@@ -195,6 +225,11 @@ export class InMemoryTokenBlacklistStore implements TokenBlacklistStore {
 }
 
 /**
- * Injection token for token blacklist store
+ * Injection token for token blacklist store (gateway-local).
+ *
+ * SEC-LOW-001 cross-reference: the canonical platform DI symbol
+ * is `TOKEN_BLACKLIST` at `libs/backend-common/src/security/
+ * interfaces/index.ts`. Consolidation tracked under SEC-LOW-001 +
+ * blocked on SEC-MEDIUM-006. See class docstring above.
  */
 export const TOKEN_BLACKLIST_STORE = Symbol('TOKEN_BLACKLIST_STORE');

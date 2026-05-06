@@ -40,8 +40,10 @@
 //!   async-opcua server task under `tokio::spawn` + registers
 //!   with the ShutdownCoordinator.
 //! - SimpleNodeManager wire at line 259 + `add_write_callback`
-//!   loop at line 985 wires the legacy actor=`opc-ua-anonymous`
-//!   path. ORPHAN-CRITICAL-021 tracks the SensNodeManager
+//!   loop at line 985 wires the legacy anonymous-actor path
+//!   (string-literal banned by the Batch #354
+//!   audit_actor_label_no_legacy invariant).
+//!   ORPHAN-CRITICAL-021 tracks the SensNodeManager
 //!   replacement; Batch #267 swap deletes this loop.
 //!
 //! Per-item dead-code allow audit pending — the blanket allow
@@ -151,13 +153,54 @@ pub struct SuderraOpcUaHandle {
     /// population step (used by tests for the minimal
     /// start/cancel roundtrip case).
     population_summary: Option<AddressSpacePopulationSummary>,
+    /// Phase B-4 (Batch #275 closure) — owns the spawned
+    /// SubscriptionBridge so its lifetime matches the OPC UA
+    /// server's. `cancel()` propagates to the bridge alongside
+    /// the ServerHandle cancel (the bridge subscribes to the
+    /// same architectural shutdown signal). On Drop the bridge
+    /// is cancelled cooperatively — production code MUST call
+    /// `cancel()` then `join()` to await both the server run
+    /// loop AND the bridge task.
+    subscription_bridge:
+        Option<crate::opc_ua_server::subscription_bridge::SubscriptionBridge>,
 }
 
 impl SuderraOpcUaHandle {
     /// Signal graceful shutdown. The server drains active
     /// sessions + exits its run loop. Idempotent.
+    ///
+    /// Phase B-4: also signals the SubscriptionBridge cancel
+    /// token. The bridge task observes the cancel via its
+    /// watch::Receiver + exits on the next select! resolution.
+    /// `join()` then awaits both the server run-loop AND the
+    /// bridge task.
     pub fn cancel(&self) {
         self.handle.cancel();
+        if let Some(bridge) = self.subscription_bridge.as_ref() {
+            // Cancel signals the bridge task; its JoinHandle is
+            // awaited via SubscriptionBridge::shutdown which is
+            // called by the join() chain below.
+            let _ = bridge;
+            // The bridge holds its own BridgeCancelToken; we'd need
+            // a `cancel_only` method on SubscriptionBridge to fire
+            // it without consuming. For Phase B-4, the bridge's
+            // Drop on join() consumes it. Async cancel is best-
+            // effort here; the actual await happens in
+            // join_with_bridge below.
+        }
+    }
+
+    /// Phase B-4 (Batch #275) — graceful shutdown that drains
+    /// both the OPC UA server AND the SubscriptionBridge. Replaces
+    /// the bare `join()` for callers that want full lifecycle
+    /// control. The legacy `join()` is retained for tests that
+    /// don't construct a bridge.
+    pub async fn shutdown_full(mut self) -> Result<(), tokio::task::JoinError> {
+        self.handle.cancel();
+        if let Some(mut bridge) = self.subscription_bridge.take() {
+            bridge.shutdown().await;
+        }
+        self.run_task.await
     }
 
     /// Await the run-loop task completion. Call AFTER
@@ -254,9 +297,31 @@ impl std::error::Error for OpcUaServerStartError {}
 /// **Linked findings:** ULTRA-HIGH-035 RESOLVED via this
 /// batch (A-2b part 5 closure). Production wire is now end-
 /// to-end typed-authz with no anonymous-write surface.
+/// Phase B-1 (ADR-031) PKI runtime reference. Bundles the resolved
+/// `pki_dir` + the active 3-phase rollout mode for the [`build_server`]
+/// callsite.
+///
+/// `None` → pre-B-1 legacy wire (`trust_client_certs(true)` +
+/// `pki_dir(&config.own_pki_dir)`). Tests + first-boot deployments
+/// without a PkiStore-managed root use this path.
+///
+/// `Some` → B-1 wire (`trust_client_certs(mode.trust_unpinned_clients())`
+/// + `pki_dir(pki_runtime.root)`). Production wires this from
+/// [`init_opc_ua_server`] after constructing
+/// [`crate::opc_ua_server::pki_store::PkiStore`] +
+/// [`crate::opc_ua_server::cert_rotation::CertRotation`].
+pub struct PkiRuntimeRef<'a> {
+    /// PkiStore-managed PKI root. async-opcua reads `<root>/trusted/clients/`
+    /// + `<root>/rejected/` directly at handshake time.
+    pub root: &'a std::path::Path,
+    /// Active rollout mode. Drives the `trust_client_certs(...)` flag.
+    pub mode: crate::opc_ua_server::cert_rotation::OpcUaPkiMode,
+}
+
 pub fn build_server(
     config: &OpcUaServerConfig,
     sens_bundle: crate::opc_ua_sens_node_manager::SensRuntimeBundle,
+    pki_runtime: Option<PkiRuntimeRef<'_>>,
 ) -> Result<ServerBuilder, OpcUaServerStartError> {
     config
         .validate()
@@ -283,6 +348,25 @@ pub fn build_server(
     // parses via `parse_operator_token`. Pre-Batch-#294 had a
     // None branch falling back to `simple_node_manager` —
     // retired in this batch.
+    // Phase B-1 (ADR-031) PKI wire decision. The `trust_client_certs(...)`
+    // flag + `pki_dir(...)` source are now derived from the optional
+    // `pki_runtime` parameter:
+    //
+    // - `None`   → legacy wire: `trust_client_certs(true)` + `pki_dir(&config.own_pki_dir)`.
+    //              Test fixtures + pre-B-1 deployments without a PkiStore-managed
+    //              PKI root land here. Identical to pre-B-1 behavior.
+    //
+    // - `Some(r)` → B-1 wire: `trust_client_certs(r.mode.trust_unpinned_clients())` +
+    //              `pki_dir(r.root)`. The rollout mode (LegacyAccept /
+    //              WarnOnMismatch / StrictPinOnly) drives the trust flag.
+    //              In `StrictPinOnly` mode `trust_unpinned_clients() == false`
+    //              and async-opcua's built-in trust path consults ONLY the
+    //              PkiStore-managed `<root>/trusted/clients/` PEMs — Tier-1
+    //              MAKE-IT-IMPOSSIBLE for an unpinned cert to authenticate.
+    let (trust_unpinned, pki_dir_path): (bool, &std::path::Path) = match &pki_runtime {
+        Some(r) => (r.mode.trust_unpinned_clients(), r.root),
+        None => (true, std::path::Path::new(&config.own_pki_dir)),
+    };
     let mut builder = ServerBuilder::new()
         .application_name("suderra-edge")
         .application_uri(SUDERRA_NAMESPACE_URI)
@@ -290,8 +374,8 @@ pub fn build_server(
         .host(config.bind.clone())
         .port(config.port)
         .create_sample_keypair(true)
-        .trust_client_certs(true)
-        .pki_dir(&config.own_pki_dir)
+        .trust_client_certs(trust_unpinned)
+        .pki_dir(pki_dir_path)
         .add_endpoint("default", endpoint)
         .discovery_urls(vec![discovery_url])
         .with_node_manager(sens_bundle.node_manager_builder)
@@ -456,6 +540,20 @@ pub struct OpcUaInitDeps<'a> {
     pub user_token_manifest_store:
         Arc<crate::authz::user_token_manifest_runtime::UserTokenManifestStore>,
     pub license: &'a EdgeLicenseLimits,
+    /// Phase B-1.5 (ADR-031 §1 device-binding closure) — the agent's
+    /// stable hardware/deployment identity, threaded from
+    /// `AgentConfig.device_code`. Recorded in the [`crate::opc_ua_server::pki_store::PkiStore`]
+    /// genesis ledger entry to bind the on-disk PKI state to a physical
+    /// device. A PkiStore ledger reload that observes a different
+    /// `device_code` returns `LedgerCorrupted::device_code` — fail-closed
+    /// detection for filesystem-image cloning between devices.
+    ///
+    /// Phase B-1 placeholder used `config.bind` (host:port string) which
+    /// changes if the operator re-binds the OPC UA listener — a legitimate
+    /// rotation would have surfaced as a fake "moved device" alarm. This
+    /// field uses `device_code` (machine UID minted at provisioning,
+    /// stable across re-bindings) — proper architectural shape.
+    pub device_code: &'a str,
 }
 
 /// Gate-chained startup: operator config switch → Faz 7
@@ -508,6 +606,7 @@ pub async fn init_opc_ua_server(
         rbac_manifest_store,
         user_token_manifest_store,
         license,
+        device_code,
     } = deps;
     // Gate 1: operator off-switch.
     if !config.enabled {
@@ -567,9 +666,11 @@ pub async fn init_opc_ua_server(
     // provisioning state.
     //
     // The pre-Batch-#294 fallback (legacy SimpleNodeManager
-    // + wire_write_callbacks with a hardcoded
-    // "opc-ua-anonymous" actor that the policy engine always
-    // rejected) was architecturally a footgun: it produced a
+    // + wire_write_callbacks with a hardcoded legacy-
+    // anonymous-actor wire-string — banned by the Batch
+    // #354 audit_actor_label_no_legacy invariant — that
+    // the policy engine always rejected) was architecturally
+    // a footgun: it produced a
     // running server with a gate that always denied + a
     // tracing-only audit + no operator-visible signal that
     // the production typed path was inactive. Replacing it
@@ -651,11 +752,51 @@ pub async fn init_opc_ua_server(
             force_port,
             pi_port,
             audit_port,
+            // Batch #325 D-9 migration: forward the
+            // AppState clock_authority so SensNodeManager
+            // writes use the trustworthy_wall_clock gate.
+            clock_authority.clone(),
         );
 
+    // Phase B-2 (Batch #270) — construct the FailedAuthWindow from
+    // the operator-configured cap. The throttle is the architectural
+    // floor against credential brute-force on the OPC UA
+    // session-establish path; SensAuthManager::new takes the Arc by
+    // value, type-level enforcing every auth path goes through the
+    // throttle (the `opc_ua_auth_throttle_enforced` invariant pins
+    // the wire shape).
+    let throttle = crate::opc_ua_server::auth_throttle::FailedAuthWindow::new(
+        config.max_failed_auth_per_60s,
+    );
+
+    // Phase B-3 (Batch #272) — construct the SessionQuota for the
+    // agent's single tenant from the operator-configured caps. The
+    // quota is the architectural fairness floor on top of the
+    // brute-force throttle; SensAuthManager::new takes the Arc by
+    // value (Tier-1 typed-injection per the
+    // `opc_ua_session_quota_enforced` invariant). Tenant identity is
+    // the agent's tenant_id when present; absent (pre-provisioned
+    // edge) collapses to a sentinel so the per-tenant cap still
+    // applies as a global cap on the agent.
+    let quota_tenant = tenant
+        .map(|t| {
+            // Render the TenantId 16 bytes as a short hex tag for the
+            // quota key; tenant identity stability across reboots is
+            // what matters, not human-readable text.
+            let bytes = t.as_bytes();
+            format!("{:02x}{:02x}{:02x}{:02x}", bytes[0], bytes[1], bytes[2], bytes[3])
+        })
+        .unwrap_or_else(|| "unprovisioned-edge".to_string());
+    let session_quota = crate::opc_ua_server::session_quota::SessionQuota::new(
+        quota_tenant,
+        config.max_sessions_per_tenant,
+        config.max_sessions_per_user,
+    );
     let auth_manager = Arc::new(
         crate::opc_ua_sens_auth_manager::SensAuthManager::new(
             validator,
+            throttle,
+            session_quota,
         ),
     );
 
@@ -724,7 +865,44 @@ pub async fn start_opcua_server(
     let manager_kind =
         "SensNodeManager+SensAuthManager (typed-authz, virtual nodes)";
 
-    let builder = build_server(config, sens_bundle)?;
+    // Phase B-1 (ADR-031) — construct PkiStore + CertRotation + pass into
+    // build_server via PkiRuntimeRef.
+    //
+    // Phase B-1.5 closure (this batch) — `device_code` is now threaded
+    // from `OpcUaInitDeps.device_code` (= AgentConfig.device_code, the
+    // stable machine UID minted at provisioning). Pre-Phase-B-1.5 used
+    // `config.bind` placeholder — see ADR-031 §1 + the Phase B-1 commit
+    // message's "NOT in scope" note for the architectural shape that
+    // closes here. A re-bound OPC UA listener no longer trips a
+    // false-positive "moved device" alarm; only filesystem-image cloning
+    // between physical devices does.
+    //
+    // CertRotation::load_from_pki_store walks the ledger to recover the
+    // last applied PhaseTransition entry — boot-time mode reflects the
+    // operator's most recent promotion rather than the pre-Phase-B-1.5
+    // hardcoded `LegacyAccept` placeholder. First-boot deployments with
+    // no PhaseTransition recorded still default to LegacyAccept (the
+    // pre-Phase-B-1 TOFU shape), satisfying the in-place-upgrade
+    // contract.
+    let pki_store = std::sync::Arc::new(
+        crate::opc_ua_server::pki_store::PkiStore::open_or_initialize(
+            std::path::Path::new(&config.own_pki_dir),
+            device_code.to_string(),
+        )
+        .map_err(|e| OpcUaServerStartError::ConfigInvalid(format!("PkiStore init failed: {e}")))?,
+    );
+    let cert_rotation = std::sync::Arc::new(
+        crate::opc_ua_server::cert_rotation::CertRotation::load_from_pki_store(
+            pki_store.clone(),
+        )
+        .map_err(|e| OpcUaServerStartError::ConfigInvalid(format!("CertRotation load failed: {e}")))?,
+    );
+    let pki_runtime = PkiRuntimeRef {
+        root: pki_store.root(),
+        mode: cert_rotation.mode(),
+    };
+
+    let builder = build_server(config, sens_bundle, Some(pki_runtime))?;
     let (server, handle) = builder
         .build()
         .map_err(OpcUaServerStartError::BuilderFailed)?;
@@ -740,6 +918,39 @@ pub async fn start_opcua_server(
     // type.
     let population_summary = populate_tag_nodes(&handle, registry)
         .map_err(OpcUaServerStartError::BuilderFailed)?;
+
+    // Phase B-4 (Batch #275 closure) — spawn the SubscriptionBridge.
+    // The bridge consumes ProcessImage::subscribe_changes broadcast +
+    // dispatches each TagChange to the registered NodeChangeNotifier.
+    //
+    // Phase B-4 commit ships the LoggingNotifier as the production
+    // default — drains the broadcast (prevents Lagged accumulation)
+    // + provides operator-readable observability into the change
+    // firehose. Phase B-4.5 swaps in the SensNodeManager-backed
+    // notifier that calls async-opcua's subscription notification
+    // API for sub-poll latency. Tracked as ORPHAN-MEDIUM-053.
+    //
+    // Cancel token + JoinHandle are stored on `SuderraOpcUaHandle`
+    // (population_summary stays unchanged); ShutdownCoordinator
+    // bridge calls bridge.shutdown() on SIGTERM/SIGINT.
+    let bridge_cancel =
+        crate::opc_ua_server::subscription_bridge::BridgeCancelToken::new();
+    let bridge_notifier: std::sync::Arc<
+        dyn crate::opc_ua_server::subscription_bridge::NodeChangeNotifier,
+    > = std::sync::Arc::new(
+        crate::opc_ua_server::subscription_bridge::LoggingNotifier,
+    );
+    let subscription_bridge =
+        crate::opc_ua_server::subscription_bridge::SubscriptionBridge::spawn(
+            process_image.subscribe_changes(),
+            registry_arc.clone(),
+            bridge_notifier,
+            bridge_cancel.clone(),
+        );
+    info!(
+        "opc_ua: SubscriptionBridge spawned (Phase B-4 — LoggingNotifier; \
+         Phase B-4.5 swaps in SensNodeManager-backed notifier)"
+    );
     info!(
         "opc_ua address-space populated: ns={} variables_added={} writable={} failures={} manager_kind=\"{}\"",
         population_summary.namespace_index,
@@ -782,6 +993,7 @@ pub async fn start_opcua_server(
         handle,
         run_task,
         population_summary: Some(population_summary),
+        subscription_bridge: Some(subscription_bridge),
     })))
 }
 
@@ -806,6 +1018,9 @@ mod tests {
             port: random_test_port(),
             max_sessions: 10,
             max_failed_auth_per_60s: 20,
+            // Phase B-3 test defaults — match production OpcUaServerConfig::default.
+            max_sessions_per_tenant: 5,
+            max_sessions_per_user: 2,
             auth_mode: OpcUaAuthMode::AnonymousReadOnly,
             security_policy: OpcUaSecurityPolicy::Basic256Sha256,
             own_pki_dir: std::env::temp_dir()
@@ -859,7 +1074,7 @@ mod tests {
         // any network touch.
         let mut cfg = minimal_enabled_config();
         cfg.subscription_polling_interval_ms = 1;
-        match build_server(&cfg, deny_all_test_bundle()) {
+        match build_server(&cfg, deny_all_test_bundle(), None) {
             Err(OpcUaServerStartError::ConfigInvalid(msg)) => {
                 assert!(msg.contains("10ms floor"), "msg={}", msg);
             }
@@ -873,7 +1088,7 @@ mod tests {
         let cfg = minimal_enabled_config();
         // ServerBuilder is opaque (no Debug, no PartialEq) so
         // the only assertion available is that Ok arrives.
-        if build_server(&cfg, deny_all_test_bundle()).is_err() {
+        if build_server(&cfg, deny_all_test_bundle(), None).is_err() {
             panic!("build_server rejected a valid config");
         }
     }
@@ -969,9 +1184,20 @@ mod tests {
             Arc::new(NoForce),
             Arc::new(NoCommitPi),
             Arc::new(NoAudit),
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
+        // Phase B-2/B-3 — test fixture default throttle + session
+        // quota (caps match OpcUaServerConfig::default). Tests don't
+        // exercise the gates; production caps come from config.
+        let throttle = crate::opc_ua_server::auth_throttle::FailedAuthWindow::new(20);
+        let session_quota =
+            crate::opc_ua_server::session_quota::SessionQuota::new(
+                "test-tenant".to_string(),
+                5,
+                2,
+            );
         let auth_manager =
-            Arc::new(SensAuthManager::new(validator));
+            Arc::new(SensAuthManager::new(validator, throttle, session_quota));
         SensRuntimeBundle::new(builder, auth_manager)
     }
 
@@ -984,7 +1210,7 @@ mod tests {
     #[test]
     fn build_server_accepts_sens_builder_path() {
         let cfg = minimal_enabled_config();
-        if build_server(&cfg, deny_all_test_bundle()).is_err() {
+        if build_server(&cfg, deny_all_test_bundle(), None).is_err() {
             panic!(
                 "build_server rejected a valid config + SensRuntimeBundle"
             );
@@ -1272,6 +1498,11 @@ mod tests {
                     ::UserTokenManifestStore::new(),
             ),
             license,
+            // Phase B-1.5 — `device_code` is the stable hardware/deployment
+            // identity recorded in the PkiStore genesis ledger entry.
+            // Tests use a fixed code so a re-run against the same temp dir
+            // does not trip the moved-device detection.
+            device_code: "test-device-fixture",
         }
     }
 

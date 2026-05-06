@@ -159,7 +159,7 @@ export class ConvertTimestampToTimestamptz1781100000000
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     this.logger.log(
-      `Converting ${this.totalColumnCount()} timestamp columns across ${this.conversions.length} tables to TIMESTAMPTZ`,
+      `Converting up to ${this.totalColumnCount()} timestamp columns across ${this.conversions.length} tables to TIMESTAMPTZ`,
     );
 
     // Capture the session TimeZone GUC as an audit artefact. If it's not
@@ -175,7 +175,64 @@ export class ConvertTimestampToTimestamptz1781100000000
       `Session TimeZone = ${sessionTz} (USING clause pins interpretation to UTC regardless)`,
     );
 
+    let convertedTotal = 0;
+    let skippedTotal = 0;
+
     for (const { table, columns } of this.conversions) {
+      // INIT-FIX (factory-reset 2026-05-06): on a fresh-volume bootstrap the
+      // init scripts produce a stale `auth.users` snapshot that pre-dates
+      // several MFA / WebAuthn / announcements tables/columns. Migrations
+      // that ran on the legacy DB no longer ship in the codebase, so the
+      // historical "every column already exists" assumption is false on a
+      // brand-new DB.
+      //
+      // We resolve the actual present columns from information_schema and
+      // convert only those. Missing columns are logged and skipped — they
+      // will be created by later migrations or entity bootstrap with the
+      // correct timestamptz type from birth, so this migration's intent
+      // (no plain TIMESTAMP in auth schema) is preserved either way.
+      //
+      // Skipping if the table itself doesn't exist (e.g. announcements,
+      // message_threads, support_tickets when the auth-service ships
+      // without them yet) is treated the same way — log and continue.
+      const tableExistsRows: Array<{ exists: boolean }> = await queryRunner.query(
+        `SELECT EXISTS (
+           SELECT 1 FROM information_schema.tables
+           WHERE table_schema = 'auth' AND table_name = $1
+         ) AS exists`,
+        [table],
+      );
+      const tableExists = tableExistsRows[0]?.exists === true;
+      if (!tableExists) {
+        this.logger.warn(
+          `Skipping ${table}: auth.${table} not present on this DB; later migrations or entity bootstrap will own it.`,
+        );
+        skippedTotal += columns.length;
+        continue;
+      }
+
+      const colRows: Array<{ column_name: string }> = await queryRunner.query(
+        `SELECT column_name FROM information_schema.columns
+           WHERE table_schema = 'auth' AND table_name = $1
+             AND column_name = ANY($2::text[])`,
+        [table, [...columns]],
+      );
+      const presentCols = new Set(colRows.map((r) => r.column_name));
+      const present = columns.filter((c) => presentCols.has(c));
+      const missing = columns.filter((c) => !presentCols.has(c));
+
+      if (missing.length > 0) {
+        this.logger.warn(
+          `Skipping non-existent columns on auth.${table}: ${missing.join(', ')} (covered by later migrations or entity bootstrap)`,
+        );
+        skippedTotal += missing.length;
+      }
+
+      if (present.length === 0) {
+        this.logger.warn(`No matching columns to convert on auth.${table}; skipping table.`);
+        continue;
+      }
+
       // Build a single ALTER TABLE with one ALTER COLUMN per target.
       // PostgreSQL rewrites the table once for the whole statement —
       // significantly faster than N separate ALTERs, each of which would
@@ -186,7 +243,7 @@ export class ConvertTimestampToTimestamptz1781100000000
       // service which uses snake_case via BaseEntity). Losing the quotes
       // would make PostgreSQL lowercase them and the ALTER would fail
       // with "column does not exist".
-      const clauses = columns
+      const clauses = present
         .map(
           (col) =>
             `ALTER COLUMN "${col}" TYPE TIMESTAMPTZ USING "${col}" AT TIME ZONE 'UTC'`,
@@ -194,12 +251,15 @@ export class ConvertTimestampToTimestamptz1781100000000
         .join(', ');
 
       const sql = `ALTER TABLE "${table}" ${clauses}`;
-      this.logger.log(`Converting ${table}: ${columns.join(', ')}`);
+      this.logger.log(`Converting ${table}: ${present.join(', ')}`);
 
       await queryRunner.query(sql);
+      convertedTotal += present.length;
     }
 
-    this.logger.log('All auth schema timestamp columns converted to TIMESTAMPTZ');
+    this.logger.log(
+      `auth schema timestamp conversion complete — converted=${convertedTotal} skipped=${skippedTotal}`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

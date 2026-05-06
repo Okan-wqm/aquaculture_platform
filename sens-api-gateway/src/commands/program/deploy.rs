@@ -23,13 +23,9 @@
 
 use chrono::Utc;
 use serde_json::{Value, json};
-use std::fs;
-use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
-use crate::st_validator::validate_st;
-
-use super::super::{CommandHandler, ProgramDefinition, ProgramState};
+use super::super::{CommandHandler, ProgramDefinition};
 use super::compute_effective_deploy_limits;
 
 impl CommandHandler {

@@ -27,25 +27,25 @@
 //!     |-- MqttClient ref
 //! ```
 
-pub mod types;
-pub mod crypto;
 pub mod codec;
+pub mod crypto;
+pub mod mac;
 pub mod session;
 pub mod sx1302;
-pub mod mac;
+pub mod types;
 
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{RwLock, mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
+use crate::AppState;
 use crate::config::LoRaWanConfig;
 use crate::io_poll::{IoDataPayload, IoTagData};
-use crate::process_image::{ProcessImage, TagQuality, TagSource};
-use crate::AppState;
+use crate::process_image::{TagQuality, TagSource};
 
 use self::mac::{DownlinkItem, LoRaMac, MacEvent};
 use self::session::SessionStore;
@@ -134,36 +134,52 @@ impl LoRaHandle {
     /// SX1302'yi baslat
     pub async fn init(&self) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.send_command(LoRaCommand::Init { response: tx }).await?;
-        rx.await.map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
+        self.send_command(LoRaCommand::Init { response: tx })
+            .await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
     }
 
     /// Cihaz ekle
     pub async fn add_device(&self, config: LoRaDeviceConfig) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.send_command(LoRaCommand::AddDevice { config, response: tx }).await?;
-        rx.await.map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
+        self.send_command(LoRaCommand::AddDevice {
+            config,
+            response: tx,
+        })
+        .await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
     }
 
     /// Cihaz kaldir
     pub async fn remove_device(&self, dev_eui: DevEui) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.send_command(LoRaCommand::RemoveDevice { dev_eui, response: tx }).await?;
-        rx.await.map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
+        self.send_command(LoRaCommand::RemoveDevice {
+            dev_eui,
+            response: tx,
+        })
+        .await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
     }
 
     /// Downlink mesaji kuyruga ekle
     pub async fn queue_downlink(&self, item: DownlinkItem) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.send_command(LoRaCommand::QueueDownlink { item, response: tx }).await?;
-        rx.await.map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
+        self.send_command(LoRaCommand::QueueDownlink { item, response: tx })
+            .await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
     }
 
     /// Istatistikleri al
     pub async fn get_stats(&self) -> Result<LoRaStats> {
         let (tx, rx) = oneshot::channel();
-        self.send_command(LoRaCommand::GetStats { response: tx }).await?;
-        rx.await.map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))
+        self.send_command(LoRaCommand::GetStats { response: tx })
+            .await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))
     }
 
     /// Actor'u durdur
@@ -235,18 +251,15 @@ impl LoRaActor {
 
         // io_data batch publish araligi — 100ms penceresi ile toplanan
         // uplink verilerini tek MQTT mesajinda gonderir
-        let mut batch_interval =
-            tokio::time::interval(tokio::time::Duration::from_millis(100));
+        let mut batch_interval = tokio::time::interval(tokio::time::Duration::from_millis(100));
         batch_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         // Frame counter flush araligi — bellekteki counter cache'ini SQLite'a yaz
-        let mut flush_interval =
-            tokio::time::interval(tokio::time::Duration::from_secs(10));
+        let mut flush_interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
         flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         // Periyodik temizlik araligi — unknown_device_tracker memory leak onleme
-        let mut cleanup_interval =
-            tokio::time::interval(tokio::time::Duration::from_secs(600)); // 10 dakika
+        let mut cleanup_interval = tokio::time::interval(tokio::time::Duration::from_secs(600)); // 10 dakika
         cleanup_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
@@ -451,14 +464,12 @@ impl LoRaActor {
             return;
         }
 
-        let mac = match self.mac.as_mut() {
-            Some(m) => m,
-            None => return,
-        };
-
         // Her paketi MAC katmaninda isle
         for pkt in &packets {
-            let events = mac.process_uplink(pkt);
+            let events = match self.mac.as_mut() {
+                Some(mac) => mac.process_uplink(pkt),
+                None => return,
+            };
 
             for event in events {
                 self.handle_mac_event(event).await;
@@ -487,7 +498,13 @@ impl LoRaActor {
                 debug!(
                     "Uplink islendi: dev_eui={}, dev_addr={}, f_port={}, f_cnt={}, \
                      RSSI={} dBm, SNR={:.1} dB, {} deger",
-                    dev_eui, dev_addr, f_port, f_cnt, rssi, snr, decoded_values.len()
+                    dev_eui,
+                    dev_addr,
+                    f_port,
+                    f_cnt,
+                    rssi,
+                    snr,
+                    decoded_values.len()
                 );
 
                 if decoded_values.is_empty() {
@@ -508,12 +525,15 @@ impl LoRaActor {
                         .await;
 
                     // io_data'yi batch tamponuna ekle — 100ms penceresi ile topluca yayinlanacak
-                    self.pending_io_data.push((tag_name.clone(), *value, TagQuality::Good));
+                    self.pending_io_data
+                        .push((tag_name.clone(), *value, TagQuality::Good));
                 }
 
                 debug!(
                     "Uplink verileri tampona eklendi: dev_eui={}, {} tag, tampon boyutu={}",
-                    dev_eui, decoded_values.len(), self.pending_io_data.len()
+                    dev_eui,
+                    decoded_values.len(),
+                    self.pending_io_data.len()
                 );
 
                 // MQTT yayinlari icin state lock'u kisa sure alinir
@@ -537,9 +557,17 @@ impl LoRaActor {
                 crate::publish_helpers::publish_lora_event(&state, &event_payload).await;
             }
 
-            MacEvent::SendJoinAccept { tx_packet, dev_eui, dev_addr } => {
-                info!("Join-Accept gonderiliyor: dev_eui={}, dev_addr={}, {} byte",
-                    dev_eui, dev_addr, tx_packet.payload.len());
+            MacEvent::SendJoinAccept {
+                tx_packet,
+                dev_eui,
+                dev_addr,
+            } => {
+                info!(
+                    "Join-Accept gonderiliyor: dev_eui={}, dev_addr={}, {} byte",
+                    dev_eui,
+                    dev_addr,
+                    tx_packet.payload.len()
+                );
                 // Radyodan gonder
                 if let Some(ref sx) = self.sx1302 {
                     if let Err(e) = sx.transmit(&tx_packet) {
@@ -613,6 +641,7 @@ impl LoRaActor {
                 IoTagData {
                     value: serde_json::json!(value),
                     quality: quality_str,
+                    simulated: quality.is_simulated(),
                 },
             );
         }

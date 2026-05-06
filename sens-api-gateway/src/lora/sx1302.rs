@@ -10,22 +10,23 @@
 //! - **Dahili SX1250 TX**: Class A/B/C downlink icin entegre verici
 //!
 //! ## Mimari
-//! `lorawan` feature aktifken, bu modul Semtech'in C HAL kutuphanesini FFI
-//! uzerinden kullanir. Feature aktif degilken, simulasyon modu calisir ve
-//! gelistirme/test ortaminda donanim gerektirmeden calismayi saglar.
+//! `sx1302-vendor-hal` feature'i ve `vendor/sx1302_hal/libloragw/src/*.c`
+//! kaynaklari birlikte mevcutken bu modul Semtech'in C HAL kutuphanesini FFI
+//! uzerinden kullanir. Aksi halde simulasyon modu calisir ve gelistirme/test
+//! ortaminda donanim gerektirmeden calismayi saglar.
 
 #![allow(dead_code)]
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tracing::{debug, info, warn};
 
 use super::types::{LoRaRegion, RxPacket, TxPacket};
 
 // ============================================================================
-// SX1302 — Gercek donanim implementasyonu (lorawan feature aktif)
+// SX1302 — Gercek donanim implementasyonu (feature + vendor C kaynaklari aktif)
 // ============================================================================
 // SX1302 C HAL'i ile FFI uzerinden iletisim kurar.
-// Bu blok sadece `lorawan` feature aktifken derlenir.
+// Bu blok sadece `sx1302-vendor-hal` feature'i ve vendor C kaynaklari mevcutken derlenir.
 //
 // C HAL'inin yapisi:
 // - lgw_start()   : SX1302'yi baslatir, AGC firmware yukler, PLL kalibre eder
@@ -37,7 +38,7 @@ use super::types::{LoRaRegion, RxPacket, TxPacket};
 // Her fonksiyon, C tarafinda global state tutar (tek bir SX1302 cipi icin).
 // Bu yuzden Rust tarafinda da Sx1302 struct'ini singleton olarak kullaniyoruz.
 
-#[cfg(feature = "lorawan")]
+#[cfg(all(feature = "sx1302-vendor-hal", sx1302_vendor_hal))]
 mod ffi {
     // bindgen tarafindan uretilen FFI tanimlari
     // build.rs, C header'larindan otomatik olarak bu dosyayi uretir.
@@ -58,7 +59,10 @@ mod ffi {
 const MAX_RX_PACKETS: usize = 16;
 // Compile-time assertion: lgw_receive takes u8 count — MAX_RX_PACKETS must fit in u8.
 // Without this, `MAX_RX_PACKETS as u8` silently truncates values > 255.
-const _: () = assert!(MAX_RX_PACKETS <= 255, "MAX_RX_PACKETS exceeds u8 range for lgw_receive()");
+const _: () = assert!(
+    MAX_RX_PACKETS <= 255,
+    "MAX_RX_PACKETS exceeds u8 range for lgw_receive()"
+);
 
 /// SX1302 sicaklik sensoru okuma araligi (saniye).
 /// Cok sik okumak SPI bandwidth'ini gereksiz tuketir.
@@ -73,7 +77,8 @@ const TEMPERATURE_READ_INTERVAL_SECS: u64 = 60;
 ///
 /// Provides initialization, packet reception, transmission, and temperature
 /// reading capabilities. Uses Semtech's C HAL library via FFI when the
-/// `lorawan` feature is enabled, or returns simulated data otherwise.
+/// `sx1302-vendor-hal` is enabled with vendored HAL C sources, or returns
+/// simulated data otherwise.
 ///
 /// # Example
 /// ```no_run
@@ -103,7 +108,7 @@ pub struct Sx1302 {
 // ============================================================================
 // Gercek donanim implementasyonu
 // ============================================================================
-#[cfg(feature = "lorawan")]
+#[cfg(all(feature = "sx1302-vendor-hal", sx1302_vendor_hal))]
 impl Sx1302 {
     /// Create a new SX1302 concentrator instance.
     ///
@@ -207,9 +212,7 @@ impl Sx1302 {
         // SAFETY: pkt_buf is a valid mutable Vec of MAX_RX_PACKETS elements;
         // lgw_receive() writes at most MAX_RX_PACKETS entries and the pointer
         // remains valid for the duration of the call.
-        let nb_pkt = unsafe {
-            ffi::lgw_receive(MAX_RX_PACKETS as u8, pkt_buf.as_mut_ptr())
-        };
+        let nb_pkt = unsafe { ffi::lgw_receive(MAX_RX_PACKETS as u8, pkt_buf.as_mut_ptr()) };
 
         if nb_pkt < 0 {
             anyhow::bail!("SX1302 paket alma hatasi: lgw_receive() = {}", nb_pkt);
@@ -222,7 +225,8 @@ impl Sx1302 {
         if nb_pkt_usize > pkt_buf.len() {
             anyhow::bail!(
                 "SX1302 HAL error: lgw_receive() returned {} packets but buffer is {}",
-                nb_pkt_usize, pkt_buf.len()
+                nb_pkt_usize,
+                pkt_buf.len()
             );
         }
 
@@ -368,7 +372,7 @@ impl Sx1302 {
 // - SPI hattini serbest birakir (diger suruculer kullanabilsin)
 // - TX ortasinda kesilmeyi onler (RF regulator zarar gorebilir)
 // - AGC firmware'ini temizler (bir sonraki baslatma icin temiz state)
-#[cfg(feature = "lorawan")]
+#[cfg(all(feature = "sx1302-vendor-hal", sx1302_vendor_hal))]
 impl Drop for Sx1302 {
     fn drop(&mut self) {
         if self.initialized {
@@ -387,7 +391,7 @@ impl Drop for Sx1302 {
 }
 
 // ============================================================================
-// Simulasyon modu (lorawan feature AKTIF DEGIL)
+// Simulasyon modu (native HAL aktif degil)
 // ============================================================================
 // Gelistirme ve test ortaminda gercek donanim olmadan calismayi saglar.
 // CI/CD pipeline'larinda ve birim testlerinde bu mod kullanilir.
@@ -398,13 +402,15 @@ impl Drop for Sx1302 {
 // - get_temperature() sabit 25.0 C dondurur
 // - Drop'ta hicbir sey yapilmaz (temizlenecek donanim yok)
 
-#[cfg(not(feature = "lorawan"))]
+#[cfg(not(all(feature = "sx1302-vendor-hal", sx1302_vendor_hal)))]
 impl Sx1302 {
     /// Create a new SX1302 concentrator instance (simulation mode).
     pub fn new(region: LoRaRegion, reset_pin: Option<u8>) -> Self {
         warn!(
             "SX1302 SIMULASYON MODUNDA — gercek donanim kullanilmiyor. \
-             Gercek donanim icin `lorawan` feature'ini aktif edin."
+             Gercek donanim icin `sx1302-vendor-hal` feature'ini aktif edin, \
+             vendor HAL C kaynaklarini saglayin ve release derlemesinde \
+             SUDERRA_REQUIRE_SX1302_VENDOR_HAL=1 kullanin."
         );
         info!(
             "SX1302 (sim) olusturuldu: bolge={:?}, reset_pin={:?}",
@@ -462,7 +468,7 @@ impl Sx1302 {
     }
 }
 
-#[cfg(not(feature = "lorawan"))]
+#[cfg(not(all(feature = "sx1302-vendor-hal", sx1302_vendor_hal)))]
 impl Drop for Sx1302 {
     fn drop(&mut self) {
         if self.initialized {

@@ -116,47 +116,23 @@ pub mod in_memory_engine;
 // commitment to forward-compat for downstream consumers (ST VM, commands,
 // audit events, etc.).
 pub use permission::{
-    ActuatorClass,
-    AerationSubClass,
-    ChemistrySubClass,
-    DeviceId,
-    LifeSupportRole,
-    ModbusDeviceId,
-    ModbusRegisterRange,
-    ModbusRegisterRangeError,
-    OperatorId,
-    Permission,
-    SpiDeviceId,
-    TagId,
-    TenantId,
-    ThermalSubClass,
+    ActuatorClass, AerationSubClass, ChemistrySubClass, DeviceId, LifeSupportRole, ModbusDeviceId,
+    ModbusRegisterRange, ModbusRegisterRangeError, OperatorId, Permission, SpiDeviceId, TagId,
+    TenantId, ThermalSubClass,
 };
 
 pub use context::{
-    ActorIdentity,
-    AuthorizationDecision,
-    AuthorizationDenyReason,
-    AuthorizedContext,
+    ActorIdentity, AuthorizationDecision, AuthorizationDenyReason, AuthorizedContext,
 };
 
 pub use policy::{
-    AuthorizationRequest,
-    CoApproverEvidence,
-    DenyAllPolicyEngine,
-    Ed25519SignatureBytes,
-    InvalidSignatureLength,
-    PolicyEngine,
-    PolicyEngineError,
+    AuthorizationRequest, CoApproverEvidence, DenyAllPolicyEngine, Ed25519SignatureBytes,
+    InvalidSignatureLength, PolicyEngine, PolicyEngineError,
 };
 
 pub use manifest::{
-    CanonicalBytesError,
-    CustomRole,
-    Ed25519PublicKeyBytes,
-    InvalidPubKeyLength,
-    OperatorBinding,
-    RbacManifest,
-    SignedRbacManifest,
+    CanonicalBytesError, CustomRole, Ed25519PublicKeyBytes, InvalidPubKeyLength, OperatorBinding,
+    RbacManifest, SignedRbacManifest,
 };
 
 pub use verify::{verify_manifest, ManifestVerifyError};

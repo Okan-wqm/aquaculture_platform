@@ -3,11 +3,13 @@ import { Logger, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { ToggleLegalHoldCommand } from './toggle-legal-hold.command';
 import { LegalHold } from '../entities/legal-hold.entity';
 import { LegalHoldService } from '../services/legal-hold.service';
+import { tenantAdvisoryLockKey } from '../services/legal-hold.advisory-lock';
 import { ComplianceAuditService } from '../services/compliance-audit.service';
 import { ComplianceAction } from '../entities/compliance-audit-log.entity';
 
@@ -40,6 +42,7 @@ export class ToggleLegalHoldHandler
     const {
       tenantId, userId, activate, holdId, channelId, reason,
       legalMatterId, legalMatterDescription, requestedBy, expiresAt,
+      approverId, releaseReason,
     } = command;
 
     // Validate before entering transaction
@@ -54,9 +57,46 @@ export class ToggleLegalHoldHandler
     if (!activate && !holdId) {
       throw new BadRequestException('holdId is required to release a legal hold');
     }
+    // LEGAL-MEDIUM-002: dual-approver pre-checks at the command boundary
+    // so the resolver/HTTP layer surfaces the constraint to the caller
+    // *before* the transaction opens. The service layer pins the same
+    // invariants again (defense in depth), and the DB CHECK constraint
+    // pins them at the schema layer.
+    if (!activate) {
+      if (!approverId) {
+        throw new BadRequestException(
+          'approverId is required to release a legal hold (dual-approver protocol)',
+        );
+      }
+      if (approverId === userId) {
+        throw new BadRequestException(
+          'Self-approval is forbidden: the releaser and the approver must be two distinct SUPER_ADMIN identities',
+        );
+      }
+      if (!releaseReason || releaseReason.trim().length === 0) {
+        throw new BadRequestException(
+          'releaseReason is required to release a legal hold',
+        );
+      }
+    }
 
-    // Wrap hold + audit + outbox in a single transaction
+    // Wrap hold + audit + outbox in a single transaction.
+    //
+    // LEGAL-MEDIUM-004 cure (TOCTOU): the FIRST statement inside the
+    // transaction is `pg_advisory_xact_lock(tenantHash)`. The retention
+    // path (`RetentionPolicyService.dropChunksForTenantUnderLock`) takes
+    // the SAME advisory key; the two paths therefore serialize. If a
+    // retention sweep is mid-flight against this tenant, our activate
+    // waits for it to finish (so the chunks-already-dropped state is
+    // visible before the hold lands). If WE win the race, the retention
+    // sweep waits for our COMMIT; on its lock acquisition it re-reads
+    // the registry and sees the new hold, aborting the destructive op.
     return this.dataSource.transaction(async (manager) => {
+      const lockKey = tenantAdvisoryLockKey(tenantId);
+      await manager.query(`SELECT pg_advisory_xact_lock($1::bigint)`, [
+        lockKey.toString(),
+      ]);
+
       let hold: LegalHold;
 
       if (activate) {
@@ -83,7 +123,9 @@ export class ToggleLegalHoldHandler
       } else {
         hold = await this.legalHoldService.release(holdId!, tenantId, userId, manager);
 
-        this.logger.log(`Legal hold released: id=${holdId}, by=${userId}`);
+        this.logger.log(
+          `Legal hold released: id=${holdId}, by=${userId}, approver=${approverId}`,
+        );
       }
 
       // Log to compliance audit within the same transaction.
@@ -114,7 +156,7 @@ export class ToggleLegalHoldHandler
         reason: hold.reason,
         toggledBy: userId,
         toggledAt: new Date().toISOString(),
-      },  manager);
+      }, manager);
 
       return hold;
     });

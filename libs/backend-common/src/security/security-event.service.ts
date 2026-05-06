@@ -147,7 +147,18 @@ export class SecurityEventService {
   }
 
   // -------------------------------------------------------------------
-  // Event type name map — maps SecurityEventType to the dedicated eventType discriminator.
+  // Event type name map — maps SecurityEventType to the dedicated
+  // eventType discriminator.
+  //
+  // # Why exhaustiveness matters
+  //
+  // The `Record<SecurityEventType, string>` type forces every enum
+  // member to appear in the map. A new enum value added without a
+  // matching entry trips a TS2741 error at compile time — making
+  // it impossible to ship a SecurityEventType the eventType-name
+  // mapper doesn't handle. The comment is here so future
+  // maintainers don't "fix" the error by relaxing the Record type
+  // to a Partial.
   // -------------------------------------------------------------------
   private static readonly EVENT_TYPE_NAMES: Record<SecurityEventType, string> = {
     [SecurityEventType.AUTH_LOGIN_FAILED]: 'AuthLoginFailed',
@@ -160,6 +171,15 @@ export class SecurityEventService {
     [SecurityEventType.TENANT_ACCESS_DENIED]: 'TenantAccessDenied',
     [SecurityEventType.SERVICE_IDENTITY_REJECTED]: 'ServiceIdentityRejected',
     [SecurityEventType.SUSPICIOUS_ACTIVITY]: 'SuspiciousActivity',
+    // ORPHAN-MEDIUM-031 cure: the REFRESH_TOKEN_REUSE_DETECTED
+    // enum member was added to libs/event-contracts/src/security/
+    // security-events.ts in a prior commit but the corresponding
+    // EVENT_TYPE_NAMES entry was never added — TS2741 fired on
+    // every consumer importing this service. Drive-by fix
+    // alongside CIRCUIT-LOW-002 because the sensor-service
+    // unit-test compilation was blocked by it.
+    [SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED]:
+      'AuthRefreshTokenReuseDetected',
   };
 
   // -------------------------------------------------------------------

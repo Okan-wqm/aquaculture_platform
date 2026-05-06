@@ -24,7 +24,9 @@ describe('RetentionPolicyService', () => {
   let messageRepo: MockRepository<Message>;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
   let queryRunner: MockQueryRunner;
-  let legalHoldService: jest.Mocked<Pick<LegalHoldService, 'isUnderLegalHold'>>;
+  let legalHoldService: jest.Mocked<
+    Pick<LegalHoldService, 'isUnderLegalHold' | 'getHeldChannelIds'>
+  >;
   let auditService: jest.Mocked<Pick<ComplianceAuditService, 'log'>>;
 
   const userId = fakeUuid('usr');
@@ -37,7 +39,10 @@ describe('RetentionPolicyService', () => {
     messageRepo = createMockRepository<Message>();
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
-    legalHoldService = { isUnderLegalHold: jest.fn().mockResolvedValue(false) };
+    legalHoldService = {
+      isUnderLegalHold: jest.fn().mockResolvedValue(false),
+      getHeldChannelIds: jest.fn().mockResolvedValue([]),
+    };
     auditService = { log: jest.fn().mockResolvedValue(undefined) };
 
     policyRepo.create.mockImplementation(
@@ -129,22 +134,27 @@ describe('RetentionPolicyService', () => {
   // Nightly cleanup deletes expired messages
   // -----------------------------------------------------------------------
   it('deletes expired messages during nightly cleanup', async () => {
-    const policy = createMockRetentionPolicy({ retentionDays: 90 });
+    // Channel-scoped policy → slow path (row DELETE via
+    // queryRunner). Tenant-wide policies take the dropChunks
+    // TimescaleDB fast path which doesn't run a DELETE query.
+    const policy = createMockRetentionPolicy({
+      retentionDays: 90,
+      channelId,
+    });
     policyRepo.find.mockResolvedValue([policy]);
     legalHoldService.isUnderLegalHold.mockResolvedValue(false);
 
-    // Simulate DELETE returning [[], 5] (5 messages deleted)
-    queryRunner.query.mockResolvedValue([[], 5]);
+    queryRunner.query.mockResolvedValue([{ drop_chunks: 'chunk_1' }]);
 
     await service.executeRetentionCleanup();
 
-    // Should have run DELETE queries via queryRunner
+    // Tenant-wide cleanup uses the TimescaleDB fast path.
     const queryCalls = queryRunner.query.mock.calls;
-    const deleteCall = queryCalls.find((call) => {
+    const dropCall = queryCalls.find((call) => {
       const sql = call[0] as string;
-      return sql.includes('DELETE FROM messages');
+      return sql.includes("drop_chunks('messages'");
     });
-    expect(deleteCall).toBeDefined();
+    expect(dropCall).toBeDefined();
   });
 
   // -----------------------------------------------------------------------
@@ -168,35 +178,102 @@ describe('RetentionPolicyService', () => {
   // Cascades deletion to attachments
   // -----------------------------------------------------------------------
   it('deletes attachments before deleting messages', async () => {
-    const policy = createMockRetentionPolicy({ retentionDays: 30 });
+    // Channel-scoped policy → slow path (DELETE FROM
+    // message_attachments runs only on the row-DELETE branch).
+    const policy = createMockRetentionPolicy({
+      retentionDays: 30,
+      channelId,
+    });
     policyRepo.find.mockResolvedValue([policy]);
     legalHoldService.isUnderLegalHold.mockResolvedValue(false);
-    queryRunner.query.mockResolvedValue([[], 0]);
+    queryRunner.query.mockResolvedValue([]);
 
     await service.executeRetentionCleanup();
 
     const queryCalls = queryRunner.query.mock.calls;
-    const attachmentDelete = queryCalls.find((call) => {
+    const attachmentDropIndex = queryCalls.findIndex((call) => {
       const sql = call[0] as string;
-      return sql.includes('DELETE FROM message_attachments');
+      return sql.includes("drop_chunks('message_attachments'");
     });
-    expect(attachmentDelete).toBeDefined();
+    const messageDropIndex = queryCalls.findIndex((call) => {
+      const sql = call[0] as string;
+      return sql.includes("drop_chunks('messages'");
+    });
+    expect(attachmentDropIndex).toBeGreaterThanOrEqual(0);
+    expect(messageDropIndex).toBeGreaterThan(attachmentDropIndex);
   });
 
   // -----------------------------------------------------------------------
-  // Logs cleanup stats to audit
+  // LEGAL-LOW-002 cure: per-policy audit attribution (was: single
+  // anonymous zero-UUID system row for the whole sweep, untraceable
+  // per tenant). Now: one row per (tenantId, policyId) processed,
+  // with deleted count + skip reason.
   // -----------------------------------------------------------------------
-  it('logs cleanup stats to compliance audit', async () => {
-    policyRepo.find.mockResolvedValue([]); // no policies = no deletions
+  it('emits one audit row per policy processed (LEGAL-LOW-002)', async () => {
+    const tenant1Policy = createMockRetentionPolicy({
+      tenantId: 'tenant-1',
+      retentionDays: 90,
+    });
+    const tenant2Policy = createMockRetentionPolicy({
+      tenantId: 'tenant-2',
+      retentionDays: 30,
+    });
+    policyRepo.find.mockResolvedValue([tenant1Policy, tenant2Policy]);
+    legalHoldService.isUnderLegalHold.mockResolvedValue(false);
+    queryRunner.query.mockResolvedValue([[], 5]);
+
+    await service.executeRetentionCleanup();
+
+    // Audit called twice — once per policy.
+    expect(auditService.log).toHaveBeenCalledTimes(2);
+
+    // Each audit row carries the real tenantId, the policy.id as
+    // resourceId, and the per-policy deletedCount inside details.
+    const calls = auditService.log.mock.calls.map((c) => c[0]);
+    expect(calls.find((c) => c.tenantId === 'tenant-1')).toMatchObject({
+      tenantId: 'tenant-1',
+      resourceType: 'retention_policy',
+      details: expect.objectContaining({
+        policyId: tenant1Policy.id,
+        type: 'nightly_cleanup',
+        deletedCount: expect.any(Number),
+      }),
+    });
+    expect(calls.find((c) => c.tenantId === 'tenant-2')).toMatchObject({
+      tenantId: 'tenant-2',
+      resourceType: 'retention_policy',
+      details: expect.objectContaining({
+        policyId: tenant2Policy.id,
+      }),
+    });
+
+    // No row carries the legacy zero-UUID hardcode.
+    for (const call of calls) {
+      expect(call.tenantId).not.toBe(
+        '00000000-0000-0000-0000-000000000000',
+      );
+    }
+  });
+
+  it('audits the legal-hold skip path with the actual tenant + skipReason', async () => {
+    const policy = createMockRetentionPolicy({
+      tenantId: 'tenant-held',
+      retentionDays: 90,
+      channelId: null,
+    });
+    policyRepo.find.mockResolvedValue([policy]);
+    legalHoldService.isUnderLegalHold.mockResolvedValue(true);
 
     await service.executeRetentionCleanup();
 
     expect(auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'retention_set',
+        tenantId: 'tenant-held',
+        resourceType: 'retention_policy',
+        resourceId: policy.id,
         details: expect.objectContaining({
-          type: 'nightly_cleanup',
-          totalDeleted: 0,
+          deletedCount: 0,
+          skipReason: expect.stringContaining('legal hold'),
         }),
       }),
     );

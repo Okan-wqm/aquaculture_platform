@@ -1,0 +1,12 @@
+[project]
+name = "aria-kernel"
+version = "0.1.0"
+description = "Minimal ARIA Phase 0 kernel feedback surfaces"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+aria-kernel = "aria_kernel.cli:main"
+
+[tool.setuptools.package-data]
+aria_kernel = ["data/*.json"]

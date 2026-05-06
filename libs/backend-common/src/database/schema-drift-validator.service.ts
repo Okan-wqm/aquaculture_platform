@@ -242,7 +242,7 @@ export function createSchemaDriftValidator(
       errorViolations: string[],
       warningViolations: string[],
     ): Promise<void> {
-      const schema = entity.schema ?? 'public';
+      const schema = this.resolveEntitySchema(entity);
       const tableName = entity.tableName;
 
       // Existence + schema check.
@@ -468,6 +468,27 @@ export function createSchemaDriftValidator(
           );
         }
       }
+    }
+
+    /**
+     * Resolve the schema the validator should use for a TypeORM entity.
+     *
+     * Tenant-aware services intentionally declare no `schema:` on tenant
+     * business entities so TypeORM emits unqualified SQL and PostgreSQL
+     * `search_path` routes each request to `tenant_<uuid>, <source>, public`.
+     * For drift validation, the canonical physical table for those same
+     * schema-less entities is the service source schema, not `public`.
+     */
+    private resolveEntitySchema(entity: EntityMetadata): string {
+      if (entity.schema) {
+        return entity.schema;
+      }
+
+      if (TENANT_AWARE_SCHEMAS.has(serviceName)) {
+        return serviceName;
+      }
+
+      return 'public';
     }
 
     /**

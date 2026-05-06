@@ -114,7 +114,7 @@ export interface PostOperationState {
 // ============================================================================
 
 @ObjectType()
-@Entity('tank_operations', { schema: 'farm' })
+@Entity('tank_operations')
 @Index(['tenantId', 'tankId', 'operationDate'])
 @Index(['tenantId', 'batchId', 'operationDate'])
 @Index(['tenantId', 'operationType', 'operationDate'])

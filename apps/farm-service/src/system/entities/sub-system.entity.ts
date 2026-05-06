@@ -72,7 +72,7 @@ registerEnumType(SubSystemStatus, {
 // ============================================================================
 
 @ObjectType()
-@Entity('sub_systems', { schema: 'farm' })
+@Entity('sub_systems')
 @Index(['tenantId', 'systemId', 'code'], { unique: true })
 @Index(['tenantId', 'systemId'])
 @Index(['tenantId', 'type'])

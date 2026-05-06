@@ -137,6 +137,56 @@ export function maskPii(value: string): string {
 }
 
 /**
+ * Apply `maskPii` AND hard-truncate the result to a fixed maximum length.
+ *
+ * # Why truncation matters at the persistence boundary
+ *
+ * Stripe `last_payment_error.message`, refund-reason free-text input
+ * fields, and similar third-party / user-supplied error strings are
+ * theoretically unbounded. Persisting them to a Postgres `text`
+ * column without a cap exposes the platform to:
+ *
+ *   - Storage exhaustion via deliberately-long error messages
+ *     (a misbehaving upstream can fill a column with 10 MB strings).
+ *   - Index-size blowup if the column is later promoted to a
+ *     btree-indexed column.
+ *   - Display-layer DoS in admin dashboards / invoice PDFs that
+ *     embed the raw column without their own truncation.
+ *
+ * The `maskAndTruncatePii` helper applies both invariants in a
+ * single pass — masking happens FIRST so the truncation marker
+ * doesn't truncate mid-redaction-token (e.g.
+ * `[CC-RED…<truncated>` would lose the redaction guarantee).
+ *
+ * # Why the marker text matters
+ *
+ * The trailing `…<truncated>` marker is the same shape used by
+ * `AccessLogMiddleware.truncatePath` (AUDITTRAIL-HIGH-004 cure) so
+ * forensic-search tooling can find every truncated value with one
+ * regex regardless of stream.
+ *
+ * # Defaults
+ *
+ * `maxLen` defaults to 500, matching the column-cap recommendation
+ * in BILLING-MEDIUM-003. Callers with stricter limits (e.g. log
+ * lines with their own truncation) pass an explicit smaller cap.
+ */
+export function maskAndTruncatePii(
+  value: string | null | undefined,
+  maxLen = 500,
+): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const masked = maskPii(value);
+  if (masked.length <= maxLen) {
+    return masked;
+  }
+  const marker = '…<truncated>';
+  return `${masked.slice(0, maxLen - marker.length)}${marker}`;
+}
+
+/**
  * Recursively walk an object and apply `maskPii` to every string leaf.
  * Complements the structured logger's key-based masker — use the key masker
  * when the field NAME identifies the sensitivity, and this value masker

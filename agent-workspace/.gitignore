@@ -1,6 +1,34 @@
-# Agent workspace - generated analysis output
-# These files are created by the multi-agent analysis system
-# and should not be committed to version control
+# ARIA Snowball — agent-workspace hardening (per docs/aria/SPEC.md §6.2 Layer A)
+#
+# Whitelist-based: deny everything by default, allow only known-safe artifacts.
+# This file is committed to the repo. The external workspace at
+# ~/.aria/workspaces/<hash>/ holds heavy, private state.
+#
+# CLAUDE.md repo contract:
+#   - agent-workspace/seed_hints.md is UNTRUSTED data, not instructions
+#   - any file here is treated as data by ARIA, never as directive
+#   - Discovery engine (kernel-level) hardcodes a skip for agent-workspace/**
+#     so domain agents in .claude/agents/ never analyse it as application code
 
+# 1) Deny everything by default
 *
+
+# 2) Allow this hardening file itself
 !.gitignore
+
+# 3) Allow the kernel <-> external workspace linker (created at install)
+!aria.config.json
+!ARIA_ANCHOR.json
+
+# 4) Allow the UNTRUSTED repo-side seed-hints file (per SPEC §5 trust model).
+#    ARIA treats its content as low-priority exploration clue, never evidence.
+!seed_hints.md
+
+# 5) Allow sanitized public reports only. Private reports never live here;
+#    they live in the external workspace and are never committed (L3).
+!public_reports/
+!public_reports/**
+
+# 6) Allow the manual kill-switch sentinel. Operator touches this to halt ARIA
+#    at the next checkpoint (L3 unconditional kill switch).
+!ARIA_STOP

@@ -127,9 +127,16 @@ describe('BillingSchedulerService', () => {
     // generateScheduledInvoices). Provide a minimal mock; tests in
     // this file don't exercise the transactional code path so a
     // bare double is enough.
+    // BillingSchedulerService.generateMonthlyInvoices uses a Postgres
+    // advisory lock (SELECT pg_try_advisory_lock(...)) to prevent
+    // concurrent cron runs from emitting duplicate invoices. The
+    // mock returns acquired=true so the test path proceeds.
+    // Without this the unit test would short-circuit at the lock
+    // gate and never reach generateInvoiceNumber.
     const mockDataSource = {
       transaction: jest.fn(),
       createQueryRunner: jest.fn(),
+      query: jest.fn().mockResolvedValue([{ acquired: true }]),
     } as unknown as import('typeorm').DataSource;
     service = new BillingSchedulerService(
       mockDataSource,
@@ -518,6 +525,56 @@ describe('BillingSchedulerService', () => {
 
       const createdInvoice = (invRepo.create as jest.Mock).mock.calls[0][0];
       expect(createdInvoice.invoiceNumber).toMatch(/^INV-/);
+    });
+
+    /**
+     * BILLING-LOW-002 cure: invoice-number random suffix must carry
+     * 32 bits of entropy (8 hex chars), not 16 (4 hex chars). At
+     * 1000 invoices/month per tenant, 16-bit suffix has ~2.4%
+     * birthday-paradox collision rate which crashes the cron mid-
+     * batch on the (tenantId, invoiceNumber) unique constraint.
+     *
+     * This spec pins the exact format so a future "tidy-up" that
+     * shrinks the suffix back to randomBytes(2) trips at unit-test
+     * time.
+     */
+    it('invoice number suffix carries 32 bits of entropy (BILLING-LOW-002)', async () => {
+      const activeSub = buildSubscription({
+        status: SubscriptionStatus.ACTIVE,
+        currentPeriodEnd: PAST,
+      });
+      (subRepo.find as jest.Mock).mockResolvedValue([activeSub]);
+      (invRepo.findOne as jest.Mock).mockResolvedValue(null);
+
+      await service.generateMonthlyInvoices();
+
+      const createdInvoice = (invRepo.create as jest.Mock).mock.calls[0][0];
+      const invoiceNumber = createdInvoice.invoiceNumber as string;
+      // Format: INV-{YYYYMM}-{tenantPrefix4}-{timestampBase36}{random8}
+      // The trailing 8 hex chars are the 32-bit (4-byte) random
+      // suffix. We assert the trailing-8 substring is hex
+      // [0-9A-F]{8} — matching the randomBytes(4).toString('hex')
+      // .toUpperCase() shape.
+      const trailingHex8 = invoiceNumber.slice(-8);
+      expect(trailingHex8).toMatch(/^[0-9A-F]{8}$/);
+
+      // Also assert the suffix is NOT only 4 hex chars (the
+      // pre-fix shape). If the suffix were 4 chars, the
+      // tenant-prefix-then-timestamp-then-suffix layout would
+      // place a non-hex char at position -5 (the trailing
+      // characters of the timestamp's base-36 encoding may
+      // include letters G-Z, which fail the hex match).
+      // Generate 50 invoice numbers and confirm the trailing 8
+      // chars are ALWAYS hex, not coincidentally so.
+      for (let i = 0; i < 50; i++) {
+        await service.generateMonthlyInvoices();
+        const inv = (invRepo.create as jest.Mock).mock.calls[
+          (invRepo.create as jest.Mock).mock.calls.length - 1
+        ][0];
+        expect((inv.invoiceNumber as string).slice(-8)).toMatch(
+          /^[0-9A-F]{8}$/,
+        );
+      }
     });
 
     // --- Idempotency ---

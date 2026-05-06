@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { JwtModule, JwtService } from '@nestjs/jwt';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
@@ -38,6 +39,13 @@ import { TenantModule } from './modules/tenant/tenant.module';
       envFilePath: ['.env', '.env.local'],
       cache: true,
     }),
+
+    // AUDITTRAIL-HIGH-008 cure: register the NestJS scheduler so @Cron
+    // decorators (currently AuditLogService.scheduledLogCleanup, which
+    // enforces the 7-year audit retention floor from AUDITTRAIL-HIGH-001)
+    // actually fire at runtime. Without ScheduleModule, every @Cron in
+    // this service tree is silent dead code.
+    ScheduleModule.forRoot(),
 
     // Database connection — auth-service owns the 'auth' schema. Uses the
     // platform TypeORM factory so pool size, SSL, fail-fast, env-var
@@ -82,12 +90,20 @@ import { TenantModule } from './modules/tenant/tenant.module';
            *  defense-in-depth in case a subgraph becomes directly accessible. */
           allowBatchedHttpRequests: false,
           /**
+           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+           * migration is blocked by the Nest/Apollo peer graph.
+           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+           * class protections must be fail-closed at runtime.
+           */
+          csrfPrevention: true,
+          /**
            * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
            * Without depth limiting, an attacker can craft a deeply nested GraphQL query
            * that causes exponential resource consumption on the server.
-           */
+          */
           validationRules: [depthLimit(10)],
-          playground: !isProduction,
+          // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+          // WHY: auth developer UI must not rely on deprecated Apollo Playground behavior.
           // SECURITY: Disable introspection in production to prevent schema discovery
           introspection: !isProduction,
           context: ({ req, res }: { req: Request; res: Response }) => ({ req, res }),
@@ -229,6 +245,15 @@ import { TenantModule } from './modules/tenant/tenant.module';
     AnnouncementModule,
     GdprModule,
     AuditModule,
+    /**
+     * AUDITTRAIL-CRITICAL-002 cure: registers AuditedOperationInterceptor
+     * as a global APP_INTERCEPTOR so any handler decorated with
+     * @AuditedOperation() in this service writes a transactional audit
+     * row — the decorator is structurally inert without this module
+     * registration. Independent from the local AuditModule above
+     * (which is auth-service-specific schema/service infrastructure).
+     */
+    AuditedOperationModule.forRoot(),
     HealthModule,
 
     // Prometheus metrics (per-service /metrics endpoint)
@@ -331,6 +356,14 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer
       .apply(
+        // SECURITY (SEC-CRITICAL-002): MUST run BEFORE UserContextMiddleware.
+        // A Docker-network caller can otherwise forge x-user-payload /
+        // x-tenant-id and pass forged SUPER_ADMIN context into downstream
+        // guards. The middleware verifies the request carries a valid
+        // x-service-identity + x-service-signature pair (HMAC-SHA256 of
+        // identity using INTERNAL_SERVICE_SECRET); if not, the four
+        // spoofable internal headers are stripped from req.headers.
+        StripInternalHeadersMiddleware,
         MetricsMiddleware,        // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging

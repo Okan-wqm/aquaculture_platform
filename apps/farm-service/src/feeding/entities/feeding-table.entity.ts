@@ -152,7 +152,7 @@ export interface FeedingTableSummary {
 // ============================================================================
 
 @ObjectType()
-@Entity('feeding_tables', { schema: 'farm' })
+@Entity('feeding_tables')
 @Index(['tenantId', 'batchId', 'version'], { unique: true })
 @Index(['tenantId', 'batchId', 'status'])
 @Index(['tenantId', 'status'])

@@ -257,7 +257,7 @@ impl CodesysClient {
     }
 
     /// Parse protocol response
-    /// Header structure: magic[0:4] + length[4:8] + service_id[8:10] + reserved[10:12] + payload_len[12:16]
+    /// Header structure: `magic[0:4] + length[4:8] + service_id[8:10] + reserved[10:12] + payload_len[12:16]`
     fn parse_response(&self, data: &[u8]) -> Result<(ResponseCode, Vec<u8>)> {
         if data.len() < 16 {
             return Err(anyhow!(

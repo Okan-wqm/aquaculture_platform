@@ -113,8 +113,8 @@ pub fn verify_firmware_manifest(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::manifest::{FileDigest, FileEntry, Sha256Digest};
+    use super::*;
     use crate::authz::policy::Ed25519SignatureBytes;
     use std::time::Duration;
 
@@ -185,9 +185,8 @@ mod tests {
     fn rejects_tenant_mismatch() {
         let m = canned(1_000, 1_000, 9_000);
         let s = signed(m);
-        let err =
-            verify_firmware_manifest(&s, &other_tenant(), 999, now_at(5_000), |_, _| true)
-                .expect_err("tenant");
+        let err = verify_firmware_manifest(&s, &other_tenant(), 999, now_at(5_000), |_, _| true)
+            .expect_err("tenant");
         assert_eq!(err, ManifestVerifyError::TenantMismatch);
     }
 
@@ -195,9 +194,8 @@ mod tests {
     fn rejects_equal_firmware_version() {
         let m = canned(1_000, 1_000, 9_000);
         let s = signed(m);
-        let err =
-            verify_firmware_manifest(&s, &tenant(), 1_000, now_at(5_000), |_, _| true)
-                .expect_err("equal version");
+        let err = verify_firmware_manifest(&s, &tenant(), 1_000, now_at(5_000), |_, _| true)
+            .expect_err("equal version");
         assert_eq!(
             err,
             ManifestVerifyError::StaleFirmwareVersion {
@@ -211,9 +209,8 @@ mod tests {
     fn rejects_lower_firmware_version() {
         let m = canned(100, 1_000, 9_000);
         let s = signed(m);
-        let err =
-            verify_firmware_manifest(&s, &tenant(), 1_000, now_at(5_000), |_, _| true)
-                .expect_err("lower version");
+        let err = verify_firmware_manifest(&s, &tenant(), 1_000, now_at(5_000), |_, _| true)
+            .expect_err("lower version");
         assert_eq!(
             err,
             ManifestVerifyError::StaleFirmwareVersion {

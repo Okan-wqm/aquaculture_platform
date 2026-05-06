@@ -1,0 +1,200 @@
+name: Nightly Fuzz - ST Parser (sens-api-gateway)
+
+# Batch #327 D-8 fuzz_st_parser nightly schedule
+# (Plan §5 Faz 2 D-8 + IEC 62443 SL-2 FR3 Input Validation).
+#
+# WHY this exists:
+#   The IEC 61131-3 Structured Text parser
+#   (`sens-api-gateway/src/st_validator.rs`, ~2700 lines) is
+#   the highest-risk parser in the agent — operators upload
+#   .st source files via the cmd_deploy_st_source MQTT
+#   command, and the parser runs BEFORE the bytecode compile
+#   pass. A panic here would crash the agent before the
+#   compile-side gates fire.
+#
+#   PR-time CI cannot run unbounded fuzz (libfuzzer runs
+#   indefinitely until a crash or external timeout); a 24h
+#   nightly schedule is the canonical IEC 62443 SL-2
+#   FR3-compliant fuzz cadence — long enough to surface
+#   subtle stack-overflow / integer-overflow / allocation-
+#   amplification bugs that PR-time bounded test runs miss.
+#
+# WHAT this workflow enforces:
+#   1. cargo install cargo-fuzz (cached) — the runner that
+#      drives libfuzzer-sys against fuzz_targets/st_parser.rs.
+#   2. cargo fuzz run st_parser -- -max_total_time=82800
+#      — 23h cap (82800 = 23 * 3600); leaves 1h headroom for
+#      any post-run artifact upload + GitHub Actions cron
+#      scheduling jitter so the run never overlaps the next
+#      day's trigger.
+#   3. On crash detected: upload the crash artifact + open
+#      a HIGH-severity GitHub Issue tagged `fuzz-st-parser`
+#      so the on-call rotation sees the regression.
+#   4. On clean run: log the iteration count + cycle time
+#      so operators can trend the fuzzer's coverage growth.
+#
+# WHAT this workflow DOES NOT enforce:
+#   - Coverage-guided corpus seeding from production .st
+#     samples — the corpus is libfuzzer's own derivative
+#     (saved across runs via the cache step). Future batch
+#     can add a seed corpus from the operator-tested .st
+#     library if coverage plateaus.
+#   - Fail the build on coverage decrease — coverage trend
+#     analysis is a separate observability concern; the
+#     gate is "no crashes", not "coverage ratchet".
+#   - Cross-arch fuzz — fuzz runs on the GitHub default
+#     ubuntu-latest x86_64 only. ARM-specific bugs in the
+#     parser would surface on the integration test path,
+#     not here.
+#
+# WHY a separate workflow file (vs. extending ci-edge.yml):
+#   - Triggers are different (cron vs. push/PR).
+#   - Resource profile is different (24h runner vs. 10min
+#     PR gate).
+#   - Failure path is different (open issue vs. block PR).
+#   - Cancellation policy is different (concurrency=cancel
+#     for PR gates; no-cancel for the long-running fuzz).
+#
+# WHY 23h (not 24h):
+#   GitHub-hosted runners have a 6h job timeout by default
+#   (extended to 35h via timeout-minutes). 23h fits inside
+#   the 35h cap with headroom for cargo-fuzz install +
+#   artifact upload. If a future batch wants a real 24h
+#   run, the runner needs to switch to self-hosted.
+
+on:
+  schedule:
+    # Daily at 01:30 UTC — runs through the lower-traffic
+    # window for GitHub Actions runners.
+    - cron: '30 1 * * *'
+  # Manual trigger for ad-hoc runs (e.g., after a parser
+  # change that warrants extra fuzz coverage before the
+  # next nightly cycle).
+  workflow_dispatch:
+    inputs:
+      max_total_time_secs:
+        description: 'Fuzz duration in seconds (default 82800 = 23h)'
+        required: false
+        default: '82800'
+
+# Concurrency: NEVER cancel an in-flight fuzz run. The
+# next cron tick simply skips if a previous one is still
+# active. Manual workflow_dispatch shares the same group
+# so a manual run cannot stomp the cron run.
+concurrency:
+  group: fuzz-st-parser
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: 23h fuzz cycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 1440  # 24h max — fuzz cap is 23h.
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (nightly — required by cargo-fuzz)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo-fuzz install + corpus
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-fuzz
+            sens-api-gateway/fuzz/corpus
+            sens-api-gateway/fuzz/artifacts
+          # Cache key includes the fuzz target source so a
+          # parser refactor invalidates the corpus (forces
+          # re-discovery of crashes against the new shape).
+          key: fuzz-st-parser-${{ hashFiles('sens-api-gateway/fuzz/fuzz_targets/st_parser.rs', 'sens-api-gateway/src/st_validator.rs') }}
+          restore-keys: |
+            fuzz-st-parser-
+
+      - name: Install cargo-fuzz (if not cached)
+        run: |
+          if ! command -v cargo-fuzz >/dev/null 2>&1; then
+            cargo install cargo-fuzz --locked
+          fi
+
+      - name: Run fuzz cycle
+        id: fuzz_run
+        env:
+          MAX_TOTAL_TIME_SECS: ${{ github.event.inputs.max_total_time_secs || '82800' }}
+        working-directory: sens-api-gateway
+        run: |
+          set +e
+          cargo +nightly fuzz run st_parser \
+            -- -max_total_time="$MAX_TOTAL_TIME_SECS" \
+               -rss_limit_mb=2048 \
+               -max_len=65536 \
+               2>&1 | tee fuzz-output.log
+          fuzz_exit=$?
+          set -e
+          echo "fuzz_exit=$fuzz_exit" >> "$GITHUB_OUTPUT"
+          # libfuzzer exits 0 on a CLEAN run + 77 (or
+          # nonzero) on crash detection. Map both to GHA
+          # outputs so the next step decides whether to
+          # open an issue.
+          if [ "$fuzz_exit" -ne 0 ]; then
+            echo "crash_detected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "crash_detected=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload fuzz output log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-st-parser-output-${{ github.run_id }}
+          path: sens-api-gateway/fuzz-output.log
+          retention-days: 30
+
+      - name: Upload crash artifacts on failure
+        if: steps.fuzz_run.outputs.crash_detected == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-st-parser-crashes-${{ github.run_id }}
+          path: sens-api-gateway/fuzz/artifacts/st_parser/
+          retention-days: 90
+
+      - name: Open issue on crash detection
+        if: steps.fuzz_run.outputs.crash_detected == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 fuzz-st-parser crash detected (${context.runId})`;
+            const body = [
+              '## Nightly Fuzz Crash — ST Parser',
+              '',
+              'The 23h nightly fuzz cycle for `sens-api-gateway/src/st_validator.rs`',
+              'detected a crash. Plan §5 Faz 2 D-8 + IEC 62443 SL-2 FR3 require',
+              'this to be triaged within the on-call response window.',
+              '',
+              '### Triage steps',
+              '',
+              '1. Download the `fuzz-st-parser-crashes-' + context.runId + '` artifact.',
+              '2. Reproduce locally:',
+              '   ```',
+              '   cd sens-api-gateway',
+              '   cargo +nightly fuzz run st_parser <crash-input-file>',
+              '   ```',
+              '3. Determine root cause (see `fuzz-st-parser-output-' + context.runId + '` artifact for the libfuzzer trace).',
+              '4. File a finding under `docs/reviews/_registry/findings.jsonl` with severity HIGH (parser-crash class).',
+              '5. Land the architectural fix in a follow-up batch.',
+              '',
+              '### Run metadata',
+              '',
+              `- Run ID: ${context.runId}`,
+              `- Workflow: ${context.workflow}`,
+              `- Triggered by: ${context.eventName}`,
+              `- Repository: ${context.repo.owner}/${context.repo.repo}`,
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['fuzz-st-parser', 'security', 'high-priority'],
+            });

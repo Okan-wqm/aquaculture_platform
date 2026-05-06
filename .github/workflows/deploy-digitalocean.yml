@@ -519,7 +519,7 @@ jobs:
             nx-deploy-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Install Linux platform binaries
         uses: ./.github/actions/install-platform-binaries
@@ -586,7 +586,7 @@ jobs:
             nx-deploy-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Install Linux platform binaries
         uses: ./.github/actions/install-platform-binaries
@@ -754,12 +754,11 @@ jobs:
       # but downloading the artifact is harmless and avoids special-casing the matrix.
       # ARCH-CI-016: Download frontend dist artifacts for shell/MFE images.
       # Aquamobil builds entirely inside its Dockerfile and does not need
-      # the downloaded artifacts. continue-on-error prevents the entire
-      # matrix from failing when the artifact expires or is unavailable.
+      # the downloaded artifacts, but the upstream artifact contract is still
+      # fail-closed: missing artifacts indicate a broken build chain.
       - name: Download frontend artifacts
         # SEC-CI-002: pinned to SHA
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        continue-on-error: true
         with:
           name: frontend-dist
           path: web

@@ -1,13 +1,13 @@
 import { Injectable, Inject, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 import Redis from 'ioredis';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Message } from '../message/entities/message.entity';
-import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 import { LegalHoldService } from '../compliance/services/legal-hold.service';
 import { ComplianceAuditService } from '../compliance/services/compliance-audit.service';
@@ -81,10 +81,6 @@ export class GdprService {
   private readonly logger = new Logger(GdprService.name);
 
   constructor(
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
-    @InjectRepository(MessagingOutbox)
-    private readonly outboxRepo: Repository<MessagingOutbox>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     @Inject('NATS_SERVICE')
@@ -134,80 +130,81 @@ export class GdprService {
       this.logger.warn(`Redis rate-limit check failed, allowing export: ${(err as Error).message}`);
     }
 
-    // 1. Export messages using keyset pagination (cursor-based) to avoid OOM.
-    // BEFORE: skip/take → SQL OFFSET N, which requires scanning N rows before each chunk.
-    // On the partitioned messages table (RANGE by createdAt), this becomes O(N²) total cost.
-    // A user with 100k messages would require ~50M row scans across all chunks.
-    // WHY: Keyset pagination uses (createdAt, id) as a composite cursor.
-    // The existing idx_messages_sender index on (senderId, createdAt DESC) supports this
-    // with O(1) cost per chunk regardless of total message count.
-    const CHUNK_SIZE = 1000;
-    const exportedMessages: ExportedMessage[] = [];
-    let lastCursor: { createdAt: Date; id: string } | null = null;
+    const { exportedMessages, memberships, receipts, reactions } =
+      await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+        const CHUNK_SIZE = 1000;
+        const exportedMessages: ExportedMessage[] = [];
+        let lastCursor: { createdAt: Date; id: string } | null = null;
 
-    while (true) {
-      let query = this.messageRepo
-        .createQueryBuilder('m')
-        .leftJoinAndSelect('m.attachments', 'a')
-        .where('m.senderId = :userId AND m.isDeleted = false', { userId })
-        .orderBy('m.createdAt', 'ASC')
-        .addOrderBy('m.id', 'ASC')
-        .take(CHUNK_SIZE);
+        while (true) {
+          let query = queryRunner.manager
+            .createQueryBuilder(Message, 'm')
+            .leftJoinAndSelect('m.attachments', 'a')
+            .where('m."tenantId" = :tenantId', { tenantId })
+            .andWhere('m."senderId" = :userId', { userId })
+            .andWhere('m."isDeleted" = false')
+            .orderBy('m.createdAt', 'ASC')
+            .addOrderBy('m.id', 'ASC')
+            .take(CHUNK_SIZE);
 
-      if (lastCursor) {
-        // Keyset predicate: fetch only rows after the last seen cursor.
-        // Bug fix: PostgreSQL row-value syntax (col1, col2) > (val1, val2) is valid SQL
-        // but TypeORM QueryBuilder does not support this syntax reliably across versions.
-        // The equivalent explicit boolean expression is correctly parsed by TypeORM:
-        //   rows where createdAt > cursor, OR same createdAt but id > cursor id.
-        // This correctly handles timestamp ties within the same millisecond.
-        query = query.andWhere(
-          '(m."createdAt" > :createdAt OR (m."createdAt" = :createdAt AND m.id > :id))',
-          { createdAt: lastCursor.createdAt, id: lastCursor.id },
+          if (lastCursor) {
+            query = query.andWhere(
+              '(m."createdAt" > :createdAt OR (m."createdAt" = :createdAt AND m."id" > :id))',
+              { createdAt: lastCursor.createdAt, id: lastCursor.id },
+            );
+          }
+
+          const chunk = await query.getMany();
+
+          for (const msg of chunk) {
+            exportedMessages.push({
+              content: msg.content,
+              createdAt: msg.createdAt,
+              channelId: msg.channelId,
+              contentType: msg.contentType,
+              attachments: (msg.attachments ?? []).map((att) => ({
+                originalFilename: att.originalFilename,
+                mimeType: att.mimeType,
+                fileSize: att.fileSize,
+              })),
+            });
+          }
+
+          if (chunk.length < CHUNK_SIZE) break;
+
+          const last = chunk[chunk.length - 1];
+          if (last) {
+            lastCursor = { createdAt: last.createdAt, id: last.id };
+          }
+        }
+
+        const memberships: ExportedMembership[] = await queryRunner.query(
+          `SELECT "channelId", role, "joinedAt", "leftAt"
+           FROM channel_members
+           WHERE "tenantId" = $1 AND "userId" = $2
+           ORDER BY "joinedAt" ASC`,
+          [tenantId, userId],
         );
-      }
 
-      const chunk = await query.getMany();
+        const receipts: ExportedReceipt[] = await queryRunner.query(
+          `SELECT m."channelId", r."messageId", r."readAt"
+           FROM message_receipts r
+           INNER JOIN messages m ON m."tenantId" = r."tenantId" AND m.id = r."messageId"
+           WHERE r."tenantId" = $1 AND r."userId" = $2
+           ORDER BY r."readAt" ASC`,
+          [tenantId, userId],
+        );
 
-      for (const msg of chunk) {
-        exportedMessages.push({
-          content: msg.content,
-          createdAt: msg.createdAt,
-          channelId: msg.channelId,
-          contentType: msg.contentType,
-          attachments: (msg.attachments ?? []).map((att) => ({
-            originalFilename: att.originalFilename,
-            mimeType: att.mimeType,
-            fileSize: att.fileSize,
-          })),
-        });
-      }
+        const reactions: ExportedReaction[] = await queryRunner.query(
+          `SELECT "messageId", emoji, "createdAt"
+           FROM message_reactions
+           WHERE "tenantId" = $1 AND "userId" = $2
+           ORDER BY "createdAt" ASC`,
+          [tenantId, userId],
+        );
 
-      if (chunk.length < CHUNK_SIZE) break;
-
-      const last = chunk[chunk.length - 1];
-      if (last) {
-        lastCursor = { createdAt: last.createdAt, id: last.id };
-      }
-    }
-
-    // 2. Export channel memberships
-    const memberships: ExportedMembership[] = await this.dataSource.query(
-      `SELECT "channelId", role, "joinedAt", "leftAt" FROM channel_members WHERE "userId" = $1 ORDER BY "joinedAt" ASC`,
-      [userId],
-    );
-
-    // 3. Export read receipts
-    const receipts: ExportedReceipt[] = await this.dataSource.query(
-      `SELECT "channelId", "messageId", "readAt" FROM message_receipts WHERE "userId" = $1 ORDER BY "readAt" ASC`,
-      [userId],
-    );
-
-    // 4. Export reactions
-    const reactions: ExportedReaction[] = await this.dataSource.query(
-      `SELECT "messageId", emoji, "createdAt" FROM message_reactions WHERE "userId" = $1 ORDER BY "createdAt" ASC`,
-      [userId],
-    );
+        return { exportedMessages, memberships, receipts, reactions };
+      });
 
     // Set rate-limit key after successful export
     try {
@@ -254,25 +251,16 @@ export class GdprService {
       throw new BadRequestException('Invalid password confirmation');
     }
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
     try {
-      // ── SECURITY: Legal hold check INSIDE transaction with SELECT FOR UPDATE ──
-      // BEFORE: legal hold check was OUTSIDE the transaction (TOCTOU race).
-      // A concurrent legal hold creation between the check and anonymize would
-      // allow anonymization of legally-held data, destroying evidence.
-      // WHY: SELECT FOR UPDATE on legal_holds serializes concurrent hold creation
-      // and anonymization -- if a hold is being created concurrently, this query
-      // blocks until that transaction commits/rolls back, then re-evaluates.
-      // @see MSG-CRITICAL-019
-      const activeTenantHolds: Array<{ id: string; channelId: string | null }> = await queryRunner.query(
-        `SELECT id, "channelId" FROM legal_holds
+      await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+        // Tenant-pinned transaction prevents GDPR erasure from touching source
+        // schema or another tenant while preserving the legal-hold lock boundary.
+        const activeTenantHolds: Array<{ id: string; channelId: string | null }> = await queryRunner.query(
+          `SELECT id, "channelId" FROM legal_holds
          WHERE "tenantId" = $1 AND "isActive" = true
          FOR UPDATE`,
-        [tenantId],
-      );
+          [tenantId],
+        );
 
       // Check if any hold is tenant-wide (channelId IS NULL)
       const tenantWideHold = activeTenantHolds.find((h) => h.channelId === null);
@@ -425,20 +413,19 @@ export class GdprService {
       // 12. SECURITY: Compliance audit log INSIDE transaction (before commit)
       // BEFORE: audit log was written AFTER commit, so if audit write failed,
       // anonymization happened with no audit trail.
-      await queryRunner.query(
-        `INSERT INTO compliance_audit_log ("tenantId", "userId", action, "resourceType", "resourceId", details, "createdAt")
+        await queryRunner.query(
+          `INSERT INTO compliance_audit_log ("tenantId", "userId", action, "resourceType", "resourceId", details, "createdAt")
          VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-        [
-          tenantId,
-          userId,
-          ComplianceAction.DATA_ANONYMIZE,
-          'user',
-          userId,
-          JSON.stringify({ anonymizedAt }),
-        ],
-      );
-
-      await queryRunner.commitTransaction();
+          [
+            tenantId,
+            userId,
+            ComplianceAction.DATA_ANONYMIZE,
+            'user',
+            userId,
+            JSON.stringify({ anonymizedAt }),
+          ],
+        );
+      });
 
       // SECURITY: Increment GDPR erasure metric for compliance reporting.
       // @see MSG-HIGH-027 (GDPR erasure metric counter)
@@ -448,13 +435,10 @@ export class GdprService {
 
       return true;
     } catch (err) {
-      await queryRunner.rollbackTransaction();
       this.logger.error(
         `GDPR anonymisation failed for user ${userId}: ${(err as Error).message}`,
       );
       throw err;
-    } finally {
-      await queryRunner.release();
     }
   }
 

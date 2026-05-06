@@ -231,17 +231,24 @@ describe('AuthContext', () => {
         wrapper: createWrapper(false),
       });
 
-      await expect(
-        act(async () => {
+      let thrown: unknown;
+      await act(async () => {
+        try {
           await result.current.login({
             email: 'test@example.com',
             password: 'wrong',
           });
-        })
-      ).rejects.toThrow('Invalid credentials');
+        } catch (error) {
+          thrown = error;
+        }
+      });
 
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toBe('Invalid credentials');
       expect(result.current.isAuthenticated).toBe(false);
-      expect(result.current.error).toBe('Invalid credentials');
+      await waitFor(() => {
+        expect(result.current.error).toBe('Invalid credentials');
+      });
     });
 
     it('should handle missing login response gracefully', async () => {
@@ -738,13 +745,19 @@ describe('AuthContext', () => {
       });
 
       // Trigger error
-      await expect(
-        act(async () => {
+      let thrown: unknown;
+      await act(async () => {
+        try {
           await result.current.login({ email: 'a@b.com', password: 'wrong' });
-        })
-      ).rejects.toThrow();
+        } catch (error) {
+          thrown = error;
+        }
+      });
 
-      expect(result.current.error).toBe('Login failed');
+      expect(thrown).toBeInstanceOf(Error);
+      await waitFor(() => {
+        expect(result.current.error).toBe('Login failed');
+      });
 
       act(() => {
         result.current.clearError();

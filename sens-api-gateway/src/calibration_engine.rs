@@ -3,10 +3,10 @@
 //! Manages sensor calibration workflows (one-point, two-point).
 //! Tracks reading stability, computes slope/offset, logs to SQLite.
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
-use serde::{Serialize, Deserialize};
 use tracing::{info, warn};
 
 use crate::scada_db::ScadaDb;
@@ -17,29 +17,37 @@ use crate::scada_db::ScadaDb;
 pub struct CalibSensorConfig {
     pub tag: String,
     pub sensor_type: String,
-    pub method: String,           // "one-point" or "two-point"
+    pub method: String, // "one-point" or "two-point"
     pub points: Vec<CalibPointDef>,
     #[serde(default = "default_tolerance")]
     pub tolerance: f64,
     #[serde(default = "default_interval_days")]
     pub interval_days: u32,
     #[serde(default = "default_stability_window")]
-    pub stability_window: u32,    // seconds
+    pub stability_window: u32, // seconds
     #[serde(default = "default_stability_threshold")]
     pub stability_threshold: f64,
 }
 
-fn default_tolerance() -> f64 { 0.1 }
-fn default_interval_days() -> u32 { 30 }
-fn default_stability_window() -> u32 { 15 }
-fn default_stability_threshold() -> f64 { 0.05 }
+fn default_tolerance() -> f64 {
+    0.1
+}
+fn default_interval_days() -> u32 {
+    30
+}
+fn default_stability_window() -> u32 {
+    15
+}
+fn default_stability_threshold() -> f64 {
+    0.05
+}
 
 /// Calibration reference point definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CalibPointDef {
     pub label: String,
-    pub reference_value: Option<f64>,  // None for air saturation (DO sensor)
+    pub reference_value: Option<f64>, // None for air saturation (DO sensor)
 }
 
 /// Calibration result
@@ -120,7 +128,10 @@ impl CalibrationEngine {
         let first_point = match config.points.first() {
             Some(p) => p,
             None => {
-                warn!("Calibration rejected for tag {}: empty points list", config.tag);
+                warn!(
+                    "Calibration rejected for tag {}: empty points list",
+                    config.tag
+                );
                 return CalibStateMsg {
                     tag: config.tag.clone(),
                     state: "error".to_string(),
@@ -162,7 +173,10 @@ impl CalibrationEngine {
 
         self.sessions.insert(config.tag.clone(), session);
 
-        info!("Calibration started for tag: {} ({})", config.tag, config.method);
+        info!(
+            "Calibration started for tag: {} ({})",
+            config.tag, config.method
+        );
 
         CalibStateMsg {
             tag: config.tag.clone(),
@@ -197,9 +211,12 @@ impl CalibrationEngine {
         // Check stability
         let stable = if session.readings.len() >= window {
             let mean: f64 = session.readings.iter().sum::<f64>() / session.readings.len() as f64;
-            let variance: f64 = session.readings.iter()
+            let variance: f64 = session
+                .readings
+                .iter()
                 .map(|v| (v - mean).powi(2))
-                .sum::<f64>() / session.readings.len() as f64;
+                .sum::<f64>()
+                / session.readings.len() as f64;
             let std_dev = variance.sqrt();
             std_dev < session.stability_threshold
         } else {
@@ -216,7 +233,9 @@ impl CalibrationEngine {
             step,
             total_steps,
             instruction: None,
-            reference_value: session.points.get(session.current_point)
+            reference_value: session
+                .points
+                .get(session.current_point)
                 .and_then(|p| p.reference_value),
             current_raw: Some(current_raw),
             stable,
@@ -227,8 +246,14 @@ impl CalibrationEngine {
     }
 
     /// Confirm current calibration point
-    pub fn confirm_point(&mut self, tag: &str, _point_index: usize) -> Result<CalibStateMsg, String> {
-        let session = self.sessions.get_mut(tag)
+    pub fn confirm_point(
+        &mut self,
+        tag: &str,
+        _point_index: usize,
+    ) -> Result<CalibStateMsg, String> {
+        let session = self
+            .sessions
+            .get_mut(tag)
             .ok_or_else(|| format!("No calibration session for {}", tag))?;
 
         if session.state != CalibPhase::WaitingPoint {
@@ -242,7 +267,9 @@ impl CalibrationEngine {
             session.readings.iter().sum::<f64>() / session.readings.len() as f64
         };
 
-        let reference = session.points.get(session.current_point)
+        let reference = session
+            .points
+            .get(session.current_point)
             .and_then(|p| p.reference_value)
             .unwrap_or(raw); // For one-point/air calibration, use raw as reference
 
@@ -254,7 +281,11 @@ impl CalibrationEngine {
 
         info!(
             "Calibration point confirmed for {}: raw={:.4}, ref={:.4} ({}/{})",
-            tag, raw, reference, session.collected.len(), session.points.len()
+            tag,
+            raw,
+            reference,
+            session.collected.len(),
+            session.points.len()
         );
 
         // Check if all points are collected
@@ -287,7 +318,9 @@ impl CalibrationEngine {
 
     /// Calculate slope and offset from collected points
     fn calculate(&mut self, tag: &str) -> Result<CalibStateMsg, String> {
-        let session = self.sessions.get_mut(tag)
+        let session = self
+            .sessions
+            .get_mut(tag)
             .ok_or_else(|| format!("No session for {}", tag))?;
 
         let total_steps = (session.points.len() as u32) * 2 + 1;
@@ -342,12 +375,24 @@ impl CalibrationEngine {
 
                 // R² calculation
                 let mean_y = sum_y / n_f;
-                let ss_tot: f64 = session.collected.iter().map(|p| (p.reference - mean_y).powi(2)).sum();
-                let ss_res: f64 = session.collected.iter().map(|p| {
-                    let predicted = slope * p.raw + offset;
-                    (p.reference - predicted).powi(2)
-                }).sum();
-                let r2 = if ss_tot > f64::EPSILON { 1.0 - ss_res / ss_tot } else { 1.0 };
+                let ss_tot: f64 = session
+                    .collected
+                    .iter()
+                    .map(|p| (p.reference - mean_y).powi(2))
+                    .sum();
+                let ss_res: f64 = session
+                    .collected
+                    .iter()
+                    .map(|p| {
+                        let predicted = slope * p.raw + offset;
+                        (p.reference - predicted).powi(2)
+                    })
+                    .sum();
+                let r2 = if ss_tot > f64::EPSILON {
+                    1.0 - ss_res / ss_tot
+                } else {
+                    1.0
+                };
 
                 (slope, offset, r2)
             }
@@ -378,9 +423,14 @@ impl CalibrationEngine {
 
         // Log to SQLite
         if let Some(ref db) = self.db {
-            let points_json = serde_json::to_string(&session.collected.iter().map(|p| {
-                serde_json::json!({"raw": p.raw, "reference": p.reference})
-            }).collect::<Vec<_>>()).unwrap_or_default();
+            let points_json = serde_json::to_string(
+                &session
+                    .collected
+                    .iter()
+                    .map(|p| serde_json::json!({"raw": p.raw, "reference": p.reference}))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap_or_default();
 
             let cal_record = crate::scada_db::CalibrationRecord {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -396,7 +446,8 @@ impl CalibrationEngine {
                 calibrated_at: chrono::Utc::now().timestamp_millis(),
                 calibrated_by: None,
                 next_due_at: next_cal.as_ref().and_then(|d| {
-                    chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()
+                    chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d")
+                        .ok()
                         .and_then(|nd| nd.and_hms_opt(0, 0, 0))
                         .map(|ndt| ndt.and_utc().timestamp_millis())
                 }),
@@ -449,11 +500,14 @@ impl CalibrationEngine {
                 CalibPhase::WaitingPoint => "waiting_point",
                 CalibPhase::Done => "done",
                 CalibPhase::Error(_) => "error",
-            }.to_string(),
+            }
+            .to_string(),
             step,
             total_steps,
             instruction: None,
-            reference_value: session.points.get(session.current_point)
+            reference_value: session
+                .points
+                .get(session.current_point)
                 .and_then(|p| p.reference_value),
             current_raw: session.readings.back().copied(),
             stable: false,

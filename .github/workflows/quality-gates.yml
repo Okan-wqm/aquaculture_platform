@@ -52,11 +52,9 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies (minimal — ts-node only)
-        # --legacy-peer-deps matches repo-wide convention — @nestjs/apollo
-        # 13.2 peer-depends on @apollo/server@^5 but the project pins v4
-        # (see ci-full.yml and every other workflow). Convergence; the
-        # underlying peer-dep resolution is tracked separately.
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+        # Dependency resolution must be peer-clean. This job is a gate, not
+        # a place to hide package graph conflicts.
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Determine commit range
         id: range
@@ -89,6 +87,22 @@ jobs:
           ./node_modules/.bin/ts-node --project tools/gates/tsconfig.json \
             tools/gates/banned-phrase.ts \
             --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+
+      - name: Run dependency-policy gate
+        if: always()
+        run: node scripts/ci/check-dependency-policy.mjs
+
+      - name: Run Apollo CSRF prevention gate
+        if: always()
+        run: node scripts/ci/check-apollo-csrf-prevention.mjs
+
+      - name: Run messaging tenant routing gate
+        if: always()
+        run: node scripts/ci/check-messaging-tenant-entity-routing.mjs
+
+      - name: Run Apollo Router static fallback gate
+        if: always()
+        run: node scripts/apollo-router/check-router-static-fallback.mjs
 
       # `if: always()` so a banned-phrase failure does not hide a migration
       # finding. Both gates independent; surfacing both failures in one run

@@ -22,6 +22,7 @@ import { TenantAdminService } from './services/tenant-admin.service';
 import { TenantRoleService } from './services/tenant-role.service';
 import { TenantUserManagementService } from './services/tenant-user-management.service';
 import { TenantService } from './services/tenant.service';
+import { TenantUserCountReconcileService } from './services/tenant-user-count-reconcile.service';
 import { UserLifecycleService } from './services/user-lifecycle.service';
 
 @Module({
@@ -55,6 +56,13 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
     TenantRoleResolver,
     MobileSettingsResolver,
     SchemaManagerService,
+    // DBR-LOW-001 cure: daily 04:00 UTC reconcile of
+    // auth.tenants.userCount vs auth.users count. Catches drift from
+    // edge cases (transaction rollback, manual DB intervention,
+    // hard-erasure paths) that bypass the application-side
+    // increment/decrement. Replace-with-computed semantics, NOT
+    // delta — single drift ring doesn't propagate forward.
+    TenantUserCountReconcileService,
   ],
   exports: [TenantService, TenantAdminService, TenantRoleService, UserLifecycleService, TypeOrmModule],
 })

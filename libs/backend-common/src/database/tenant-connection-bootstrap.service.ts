@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { getRequestContext } from '../logging/request-context';
 import { validateTenantSchemaName } from './schema-manager.service';
+import { getPgPoolFromDataSource } from './pg-pool-from-data-source.util';
 
 /**
  * Tenant schema regex — only matches tenant_<16 hex chars>.
@@ -22,7 +23,10 @@ const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
  *   - When a tenant context is present in AsyncLocalStorage, the search_path
  *     becomes `"tenant_<uuid>", <sourceSchema>, public` so per-request queries
  *     find tenant data first, falling back to the source schema for shared
- *     reference data.
+ *     reference data. The checkout derives the schema from either
+ *     `schemaName` or the canonical `tenantId` in AsyncLocalStorage; this keeps
+ *     GraphQL/CQRS async hops tenant-routed even when an intermediate layer
+ *     drops the middleware-derived schemaName field but preserves tenantId.
  *
  *   - When NO tenant context is present (non-request code paths: the NestJS
  *     bootstrap phase, SourceSchemaBootstrapService, MigrationRunnerService,
@@ -78,10 +82,13 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
 
     /** @internal */
     patchConnectionPool(): void {
-      const driver = this.dataSource.driver as any;
-      const pool = driver.master;
-
-      if (!pool || typeof pool.connect !== 'function') {
+      // DATA-LOW-001 cure: route through the canonical typed
+      // adapter instead of an inline `dataSource.driver as any`
+      // cast. The cast lives once, in one util, with a narrow
+      // PgPoolLike interface — no leakage of TypeORM driver
+      // internals into the bootstrap.
+      const pool = getPgPoolFromDataSource(this.dataSource);
+      if (!pool) {
         this.logger.error('Cannot patch connection pool — pg Pool not found on DataSource driver');
         return;
       }
@@ -91,6 +98,15 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
       const defaultSearchPath = `SET search_path TO "${src}", public`;
       const logger = this.logger;
 
+      // The wrapped function is polymorphic by construction — it
+      // returns void on the callback-style path AND Promise on
+      // the promise-style path. The PgPoolConnectFn surface
+      // declares both overloads but TypeScript can't infer the
+      // single-implementation polymorphic shape from the runtime
+      // function value. Assign through a unknown-cast so the
+      // narrow surface stays narrow at every consumer's read,
+      // while the polymorphic implementation is allowed to
+      // satisfy both call shapes.
       pool.connect = function (callback?: any) {
         if (typeof callback === 'function') {
           return originalConnect((err: any, client: any, done: any) => {
@@ -99,7 +115,7 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
             let schemaName: string | undefined;
             try {
               const ctx = getRequestContext();
-              schemaName = ctx?.schemaName;
+              schemaName = resolveTenantSchemaName(ctx?.schemaName, ctx?.tenantId);
             } catch {
               // Not in request context (migrations, startup) — use default
             }
@@ -143,7 +159,7 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
           let schemaName: string | undefined;
           try {
             const ctx = getRequestContext();
-            schemaName = ctx?.schemaName;
+            schemaName = resolveTenantSchemaName(ctx?.schemaName, ctx?.tenantId);
           } catch {
             // Not in request context
           }
@@ -172,7 +188,7 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
           }
           return client;
         });
-      };
+      } as unknown as typeof pool.connect;
 
       this.logger.log(
         `PostgreSQL connection pool patched for tenant-aware search_path routing ` +
@@ -182,4 +198,19 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
   }
 
   return TenantConnectionBootstrapImpl;
+}
+
+function resolveTenantSchemaName(
+  schemaName: string | undefined,
+  tenantId: string | undefined,
+): string | undefined {
+  if (schemaName && TENANT_SCHEMA_REGEX.test(schemaName)) {
+    return schemaName;
+  }
+
+  if (tenantId && isValidUUID(tenantId)) {
+    return getTenantSchemaName(tenantId);
+  }
+
+  return undefined;
 }

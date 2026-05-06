@@ -3,7 +3,7 @@
 //! **WHY:** Every derived key must be bound to a single purpose. A key used for
 //! audit HMAC MUST NOT accidentally be passed to SQLCipher rekey. The type
 //! system enforces this by threading [`KeyPurpose`] through the HKDF `info`
-//! parameter (domain separation) AND by tagging the returned [`KeyMaterial`]
+//! parameter (domain separation) AND by tagging the returned `KeyMaterial`
 //! with its purpose at the type level (typestate pattern, Batch 5).
 //!
 //! **Architectural root cause addressed:**
@@ -38,6 +38,24 @@ pub enum KeyPurpose {
     /// with new bytecode loses retain access — intentional, ADR-017 §7).
     SqlCipherRetainPersistence,
 
+    /// SQLCipher master key for the license-tier cache database
+    /// (ADR-031, Batch #341).
+    /// Context bytes: deployment-instance UUID. The license cache is bound
+    /// to the device, NOT to any program artifact — same context shape as
+    /// `SqlCipherOfflineQueue`. Adding this variant unblocks the PR-195
+    /// per-consumer migration arc for `src/license_cache.rs`.
+    SqlCipherLicenseCache,
+
+    /// SQLCipher master key for the ST VM bytecode-retain persistence
+    /// database (ADR-031, Batch #341). Distinct from
+    /// `SqlCipherRetainPersistence` (which covers `scripting/persistence.rs`
+    /// — the runtime VM state). This variant covers
+    /// `scripting/bytecode_retain.rs` — the bytecode artifact retention
+    /// store.
+    /// Context bytes: program artifact SHA-256 (program-bound lifecycle
+    /// matches `SqlCipherRetainPersistence` per ADR-017 §7).
+    SqlCipherBytecodeRetain,
+
     /// HMAC-SHA256 chain key for the append-only audit log (ADR-020 §2).
     /// Context bytes: `b"audit-hmac-chain-v1"` (constant; rotation happens at
     /// master level). Rotation closes the old chain and opens a new one with
@@ -70,11 +88,49 @@ impl KeyPurpose {
         match self {
             Self::SqlCipherOfflineQueue => b"suderra:sqlcipher:offline-queue:v2",
             Self::SqlCipherRetainPersistence => b"suderra:sqlcipher:retain-persistence:v1",
+            Self::SqlCipherLicenseCache => b"suderra:sqlcipher:license-cache:v2",
+            Self::SqlCipherBytecodeRetain => b"suderra:sqlcipher:bytecode-retain:v1",
             Self::AuditHmacChain => b"suderra:audit:hmac-chain:v1",
             Self::ReplayCache => b"suderra:replay-cache:v1",
             Self::DekEscrow => b"suderra:dek-escrow:v1",
             Self::ConfigVerify => b"suderra:config-verify:v1",
         }
+    }
+
+    /// True iff this `KeyPurpose` is a SQLCipher key
+    /// derivation target — i.e., usable as input to
+    /// SQLCipher `PRAGMA key`/`PRAGMA rekey`. Today this
+    /// is `SqlCipherOfflineQueue` + `SqlCipherRetainPersistence`;
+    /// adding a future SqlCipher* variant requires extending
+    /// this match arm AND an ADR-driven rollout per the
+    /// `hkdf_info` stability contract above.
+    ///
+    /// ## Why a method on `KeyPurpose` (not a free function
+    /// in `db_migration::v2_keystore_key`)
+    ///
+    /// Pre-Batch-#337 the predicate lived as a private
+    /// `is_sqlcipher_purpose` function in
+    /// `db_migration::v2_keystore_key`. The
+    /// audit-flagged LOW-006 finding (edge-industrial-auditor)
+    /// observed that this fragmentation undermined the
+    /// SSoT claim — a future module needing the same
+    /// predicate (e.g., a key-rotation orchestrator that
+    /// filters SqlCipher purposes) would reimplement the
+    /// match arm, and the SSoT would quietly stop being
+    /// true. Promoting the predicate to a method on the
+    /// enum places the match arm next to the variant
+    /// definitions — the natural SSoT location.
+    ///
+    /// `const` so it's usable in const contexts (e.g.,
+    /// future static lookup tables).
+    pub const fn is_sqlcipher_variant(self) -> bool {
+        matches!(
+            self,
+            Self::SqlCipherOfflineQueue
+                | Self::SqlCipherRetainPersistence
+                | Self::SqlCipherLicenseCache
+                | Self::SqlCipherBytecodeRetain
+        )
     }
 }
 
@@ -131,13 +187,28 @@ mod tests {
             KeyPurpose::SqlCipherRetainPersistence.hkdf_info(),
             b"suderra:sqlcipher:retain-persistence:v1"
         );
+        // Batch #341 — ADR-031 additions.
+        assert_eq!(
+            KeyPurpose::SqlCipherLicenseCache.hkdf_info(),
+            b"suderra:sqlcipher:license-cache:v2"
+        );
+        assert_eq!(
+            KeyPurpose::SqlCipherBytecodeRetain.hkdf_info(),
+            b"suderra:sqlcipher:bytecode-retain:v1"
+        );
         assert_eq!(
             KeyPurpose::AuditHmacChain.hkdf_info(),
             b"suderra:audit:hmac-chain:v1"
         );
-        assert_eq!(KeyPurpose::ReplayCache.hkdf_info(), b"suderra:replay-cache:v1");
+        assert_eq!(
+            KeyPurpose::ReplayCache.hkdf_info(),
+            b"suderra:replay-cache:v1"
+        );
         assert_eq!(KeyPurpose::DekEscrow.hkdf_info(), b"suderra:dek-escrow:v1");
-        assert_eq!(KeyPurpose::ConfigVerify.hkdf_info(), b"suderra:config-verify:v1");
+        assert_eq!(
+            KeyPurpose::ConfigVerify.hkdf_info(),
+            b"suderra:config-verify:v1"
+        );
     }
 
     /// WHY: Every distinct KeyPurpose must map to a distinct info string.
@@ -147,6 +218,8 @@ mod tests {
         let purposes = [
             KeyPurpose::SqlCipherOfflineQueue,
             KeyPurpose::SqlCipherRetainPersistence,
+            KeyPurpose::SqlCipherLicenseCache,
+            KeyPurpose::SqlCipherBytecodeRetain,
             KeyPurpose::AuditHmacChain,
             KeyPurpose::ReplayCache,
             KeyPurpose::DekEscrow,
@@ -154,7 +227,13 @@ mod tests {
         ];
         for (i, a) in purposes.iter().enumerate() {
             for b in &purposes[i + 1..] {
-                assert_ne!(a.hkdf_info(), b.hkdf_info(), "info collision: {:?} vs {:?}", a, b);
+                assert_ne!(
+                    a.hkdf_info(),
+                    b.hkdf_info(),
+                    "info collision: {:?} vs {:?}",
+                    a,
+                    b
+                );
             }
         }
     }

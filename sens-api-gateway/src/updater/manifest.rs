@@ -451,8 +451,8 @@ mod tests {
     #[test]
     fn accepts_deeply_nested_valid_path() {
         let mut m = canned_manifest();
-        m.files[0].path = "lib/systemd/system/multi-user.target.wants/suderra-agent.service"
-            .to_string();
+        m.files[0].path =
+            "lib/systemd/system/multi-user.target.wants/suderra-agent.service".to_string();
         m.canonical_bytes().expect("nested OK");
     }
 
@@ -493,8 +493,8 @@ mod tests {
     #[test]
     fn signed_manifest_rejects_wrong_signature_length() {
         let m = canned_manifest();
-        let err =
-            SignedFirmwareManifest::from_body_and_signature_bytes(m, &[0u8; 63]).expect_err("short");
+        let err = SignedFirmwareManifest::from_body_and_signature_bytes(m, &[0u8; 63])
+            .expect_err("short");
         assert_eq!(err.got, 63);
     }
 

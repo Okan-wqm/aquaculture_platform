@@ -12,6 +12,7 @@ import {
   HttpStatus,
   UnauthorizedException,
   ParseUUIDPipe,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -32,6 +33,7 @@ import {
 } from 'class-validator';
 import { Request } from 'express';
 import { getAuthUser } from '../../shared/authenticated-request';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
@@ -268,6 +270,7 @@ class QuerySessionsDto {
 
 @ApiTags('Impersonation')
 @Controller('impersonation')
+@UseGuards(PlatformAdminGuard)
 export class ImpersonationController {
   constructor(private readonly impersonationService: ImpersonationService) {}
 

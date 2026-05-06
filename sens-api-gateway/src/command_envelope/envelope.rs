@@ -44,7 +44,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::canonical::{canonical_params, CanonicalParamsError, CmdHash};
+use super::canonical::{CanonicalParamsError, CmdHash, canonical_params};
 use super::jti::{InvalidJti, Jti};
 use super::mutating::is_mutating;
 use crate::authz::policy::Ed25519SignatureBytes;
@@ -256,9 +256,18 @@ pub enum EnvelopeVerifyError {
     InvalidJti(InvalidJti),
     NonceTooLong(usize),
     // -- Freshness --
-    InvalidFreshnessWindow { iat: i64, exp: i64 },
-    NotYetValid { now_unix_secs: i64, iat: i64 },
-    Expired { now_unix_secs: i64, exp: i64 },
+    InvalidFreshnessWindow {
+        iat: i64,
+        exp: i64,
+    },
+    NotYetValid {
+        now_unix_secs: i64,
+        iat: i64,
+    },
+    Expired {
+        now_unix_secs: i64,
+        exp: i64,
+    },
     InvalidNow,
     // -- Tenant --
     TenantMismatch,
@@ -511,8 +520,9 @@ pub(crate) fn envelope_canonical_bytes(
     env: &CommandEnvelope,
 ) -> Result<Vec<u8>, EnvelopeVerifyError> {
     let cmd_bytes = env.cmd.as_bytes();
-    let cmd_len = u32::try_from(cmd_bytes.len())
-        .map_err(|_| EnvelopeVerifyError::CanonicalParamsFailed(CanonicalParamsError::CmdNameLengthOverflow))?;
+    let cmd_len = u32::try_from(cmd_bytes.len()).map_err(|_| {
+        EnvelopeVerifyError::CanonicalParamsFailed(CanonicalParamsError::CmdNameLengthOverflow)
+    })?;
 
     let params_bytes = canonical_params(&env.cmd, &env.params)?;
     let params_len = u32::try_from(params_bytes.len()).map_err(|_| {
@@ -768,7 +778,10 @@ mod tests {
         .expect_err("inverted");
         assert_eq!(
             err,
-            EnvelopeVerifyError::InvalidFreshnessWindow { iat: 9_000, exp: 1_000 }
+            EnvelopeVerifyError::InvalidFreshnessWindow {
+                iat: 9_000,
+                exp: 1_000
+            }
         );
     }
 
@@ -914,10 +927,7 @@ mod tests {
             |_, _| true,
         )
         .expect_err("nonce too long");
-        assert_eq!(
-            err,
-            EnvelopeVerifyError::NonceTooLong(MAX_NONCE_BYTES + 1)
-        );
+        assert_eq!(err, EnvelopeVerifyError::NonceTooLong(MAX_NONCE_BYTES + 1));
     }
 
     /// WHY: SignatureMode JSON wire format is snake_case.
@@ -998,15 +1008,27 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                EnvelopeVerifyError::NotYetValid { now_unix_secs: 0, iat: 1 }
+                EnvelopeVerifyError::NotYetValid {
+                    now_unix_secs: 0,
+                    iat: 1
+                }
             ),
             "not_yet_valid"
         );
         assert_eq!(
-            format!("{}", EnvelopeVerifyError::Expired { now_unix_secs: 2, exp: 1 }),
+            format!(
+                "{}",
+                EnvelopeVerifyError::Expired {
+                    now_unix_secs: 2,
+                    exp: 1
+                }
+            ),
             "expired"
         );
-        assert_eq!(format!("{}", EnvelopeVerifyError::InvalidNow), "invalid_now");
+        assert_eq!(
+            format!("{}", EnvelopeVerifyError::InvalidNow),
+            "invalid_now"
+        );
         assert_eq!(
             format!("{}", EnvelopeVerifyError::TenantMismatch),
             "tenant_mismatch"
@@ -1018,9 +1040,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                EnvelopeVerifyError::CanonicalParamsFailed(
-                    CanonicalParamsError::EmptyCmdName
-                )
+                EnvelopeVerifyError::CanonicalParamsFailed(CanonicalParamsError::EmptyCmdName)
             ),
             "canonical_params_failed"
         );

@@ -61,10 +61,23 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
         );
       }
 
+      // BILLING-MEDIUM-003 cure: refund reason comes from caller-
+      // supplied input (admin operator or API consumer). Without
+      // mask + truncation a malicious or careless input can:
+      //   - Leak PII into operational storage (operator types
+      //     "Refunded card 4242 for jane@x.com" — the failureReason
+      //     column then carries email + last-4 indefinitely).
+      //   - Inflate column size via long pasted blob (theoretically
+      //     unbounded on a `text` column).
+      // Same canonical helper as stripe-webhook.service.ts above —
+      // single SSoT for failure-reason-style fields across the
+      // billing service.
+      const sanitizedReason = maskAndTruncatePii(input.reason, 500);
+
       // Build RefundInfo entry
       const refundInfo: RefundInfo = {
         amount: input.amount,
-        reason: input.reason,
+        reason: sanitizedReason ?? '',
         refundedAt: new Date(),
         refundId: input.refundId,
       };
@@ -137,7 +150,7 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
 
       this.logger.log(
         `Payment refunded: ${savedPayment.id}, amount=${input.amount}, totalRefunded=${savedPayment.refundedAmount}, ` +
-        `status=${savedPayment.status}, reason="${input.reason}"`,
+        `status=${savedPayment.status}, reason="${sanitizedReason ?? ''}"`,
       );
 
       // Publish NATS event
@@ -149,7 +162,7 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
           refundAmount: input.amount,
           totalRefunded: savedPayment.refundedAmount.toNumber(),
           currency: payment.currency,
-          reason: input.reason,
+          reason: sanitizedReason ?? '',
           refundId: input.refundId,
           isFullRefund,
           refundedAt: refundInfo.refundedAt,

@@ -1,0 +1,23 @@
+name: aria-kernel-fast
+
+on:
+  pull_request:
+    paths:
+      - "aria-kernel/**"
+      - "docs/aria/**"
+      - ".github/workflows/aria-kernel*.yml"
+
+concurrency:
+  group: aria-kernel-fast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'

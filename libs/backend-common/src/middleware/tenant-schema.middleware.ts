@@ -40,11 +40,16 @@ export function createTenantSchemaMiddleware(defaultSchema: string) {
     async use(req: TenantRequest, res: Response, next: NextFunction): Promise<void> {
       const startTime = Date.now();
 
-      this.logger.debug(`[DEBUG] Incoming headers: x-tenant-id=${req.headers['x-tenant-id']}, x-user-payload exists=${!!req.headers['x-user-payload']}`);
-      this.logger.debug(`[DEBUG] req.tenantId=${req.tenantId}, req.user?.tenantId=${req.user?.tenantId}`);
-
+      // SEC-LOW-003 cure: removed three DEBUG lines that printed
+      // raw tenantId values + the contents of x-tenant-id /
+      // x-user-payload header presence. Even at DEBUG severity,
+      // structured-log aggregation pipelines persist debug rows long
+      // enough for tenantId to leak into third-party retention.
+      // The schema-resolution flow below uses tenantId by reference
+      // without echoing it; failures still produce a structured WARN
+      // (Tenant schema not found for tenant <id>) which is the
+      // operational signal that matters.
       const tenantId = req.tenantId || req.user?.tenantId;
-      this.logger.debug(`[DEBUG] Resolved tenantId: ${tenantId}`);
 
       if (tenantId && tenantId !== 'default-tenant') {
         if (!isValidUUID(tenantId)) {

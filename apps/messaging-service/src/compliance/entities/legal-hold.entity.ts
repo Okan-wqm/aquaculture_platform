@@ -19,7 +19,7 @@ import { ObjectType, Field, ID } from '@nestjs/graphql';
  * @see ADR-012 Phase 3 (Compliance — Legal Hold Support)
  */
 @ObjectType()
-@Entity('legal_holds', { schema: 'messaging' })
+@Entity('legal_holds')
 @Index('idx_legal_hold_tenant_active', ['tenantId', 'isActive'])
 @Index('idx_legal_hold_channel', ['channelId'], { where: '"isActive" = true' })
 export class LegalHold {
@@ -76,6 +76,29 @@ export class LegalHold {
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
   releasedBy: string | null;
+
+  /**
+   * The SECOND SUPER_ADMIN that countersigned the release (dual-approver
+   * protocol per LEGAL-MEDIUM-002 cure). NULL while the hold is active;
+   * non-NULL on every released hold post-cure.
+   *
+   * The DB enforces `releasedByApprover IS NULL OR releasedBy <> releasedByApprover`
+   * via CHECK constraint `chk_legal_hold_no_self_approval` so a code
+   * regression cannot let the same identity self-approve.
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'uuid', nullable: true })
+  releasedByApprover: string | null;
+
+  /**
+   * Free-text justification recorded at release time. Required to be
+   * ≥ 50 chars by the service layer; column is nullable for backward
+   * compatibility with rows released before the dual-approver protocol
+   * landed (LEGAL-MEDIUM-002).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'text', nullable: true })
+  releaseReason: string | null;
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

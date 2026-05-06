@@ -35,9 +35,24 @@
  * `tenant_id` is explicitly BANNED as a label on any metric in this
  * module — agent-system telemetry is reviewer-perspective, not
  * tenant-perspective. Per-tenant cost attribution lives in the
- * separate `observability.tenant_cost_rollup` TimescaleDB table
- * (Phase 12.5), where the unbounded tenant_id cardinality is
- * accepted (hypertables handle it; Prometheus does not).
+ * separate `observability.tenant_cost_rollup` TimescaleDB table,
+ * where the unbounded tenant_id cardinality is accepted
+ * (hypertables handle it; Prometheus does not).
+ *
+ * # Status of the cost-rollup wiring (TENANTCOST-LOW-001)
+ *
+ * The `tenant_cost_rollup` schema migration has landed
+ * (`1805000000000-AddTenantCostRollup.ts`) but the per-tenant
+ * cost-rollup PIPELINE that populates it is wiring-deferred —
+ * see TENANTCOST-CRITICAL-001 for the multi-skill DAG that
+ * lands the producer side. Until that finding closes, the
+ * `tenant_id`-banned-from-orchestrator-metrics rule is the
+ * complete story; the rollup table exists but is unwired, so
+ * pointing readers at it as the alternative for per-tenant
+ * cost views is misleading. The cite stays here as a
+ * forward-reference — when TENANTCOST-CRITICAL-001 lands the
+ * comment's status section gets removed and the rollup
+ * becomes the canonical alternative as designed.
  *
  * # Registration pattern
  *

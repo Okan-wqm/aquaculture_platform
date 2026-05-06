@@ -8,8 +8,9 @@ import {
 import { DataSource, IsNull } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { RemoveMemberCommand } from './remove-member.command';
 import { Channel, ChannelType } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
@@ -38,13 +39,9 @@ export class RemoveMemberHandler
     const { tenantId, actorUserId, channelId, targetUserId } = command;
     const isSelfLeave = actorUserId === targetUserId;
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       const channel = await queryRunner.manager.findOne(Channel, {
-        where: { id: channelId },
+        where: { tenantId, id: channelId },
       });
 
       if (!channel) {
@@ -59,7 +56,7 @@ export class RemoveMemberHandler
 
       // Load target member
       const targetMember = await queryRunner.manager.findOne(ChannelMember, {
-        where: { channelId, userId: targetUserId, leftAt: IsNull() },
+        where: { tenantId, channelId, userId: targetUserId, leftAt: IsNull() },
       });
 
       if (!targetMember) {
@@ -78,7 +75,7 @@ export class RemoveMemberHandler
       if (!isSelfLeave) {
         // Actor must be ADMIN or OWNER
         const actorMember = await queryRunner.manager.findOne(ChannelMember, {
-          where: { channelId, userId: actorUserId, leftAt: IsNull() },
+          where: { tenantId, channelId, userId: actorUserId, leftAt: IsNull() },
         });
 
         if (!actorMember) {
@@ -109,20 +106,13 @@ export class RemoveMemberHandler
         selfLeave: isSelfLeave,
       },  queryRunner.manager);
 
-      await queryRunner.commitTransaction();
-
       this.logger.log(
         isSelfLeave
           ? `User ${targetUserId} left channel ${channelId}`
           : `User ${targetUserId} removed from channel ${channelId} by ${actorUserId}`,
       );
+    });
 
-      return true;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    return true;
   }
 }

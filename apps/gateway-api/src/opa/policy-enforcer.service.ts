@@ -125,6 +125,21 @@ const FALLBACK_POLICIES: Record<string, (context: AuthorizationContext) => boole
 export class PolicyEnforcerService implements OnModuleInit {
   private readonly logger = new Logger(PolicyEnforcerService.name);
   private readonly enableAuditLog: boolean;
+  /**
+   * Allow operating with `POLICY_FAIL_OPEN=true` ONLY in non-production
+   * environments. This boolean is the result of evaluating the env var
+   * AND the NODE_ENV gate together — production code paths cannot
+   * silently flip to permissive failure on policy evaluation errors.
+   *
+   * WHY (CIRCUIT-CRITICAL-002 closure): the previous logic accepted
+   * POLICY_FAIL_OPEN=true unconditionally, including in production. A
+   * single misconfiguration (or an attacker who plants the env var
+   * via a compromised CI/CD step) would silently downgrade auth to
+   * "allow on error" — every transient OPA outage becomes a green
+   * light. Tier-1 cure: production rejects the override; the env var
+   * is honoured only when NODE_ENV !== 'production' so dev / CI / test
+   * loops that intentionally simulate OPA-down still work.
+   */
   private readonly failOpen: boolean;
   private isOpaAvailable = false;
 
@@ -133,7 +148,19 @@ export class PolicyEnforcerService implements OnModuleInit {
     @Inject(ConfigService) private readonly configService: ConfigService,
   ) {
     this.enableAuditLog = this.configService.get<boolean>('POLICY_AUDIT_LOG', true);
-    this.failOpen = this.configService.get<boolean>('POLICY_FAIL_OPEN', false);
+    const requestedFailOpen = this.configService.get<boolean>('POLICY_FAIL_OPEN', false);
+    const nodeEnv = process.env['NODE_ENV'];
+    if (requestedFailOpen && nodeEnv === 'production') {
+      // Hard-refuse the override in production. We log the rejection so
+      // operators see WHY the env var did not take effect — the symptom
+      // would otherwise be "I set POLICY_FAIL_OPEN=true and policy still
+      // denies on OPA outage".
+      this.logger.error(
+        'POLICY_FAIL_OPEN=true rejected in production: auth cannot silently downgrade to permissive on OPA failure (CIRCUIT-CRITICAL-002). ' +
+          'Set NODE_ENV !== production for dev/test fail-open semantics.',
+      );
+    }
+    this.failOpen = requestedFailOpen && nodeEnv !== 'production';
   }
 
   async onModuleInit(): Promise<void> {

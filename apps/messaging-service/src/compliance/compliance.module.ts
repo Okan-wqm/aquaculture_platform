@@ -14,6 +14,7 @@ import { Message } from '../message/entities/message.entity';
 // Services
 import { RetentionPolicyService } from './services/retention-policy.service';
 import { LegalHoldService } from './services/legal-hold.service';
+import { LegalHoldGuard } from './services/legal-hold.guard';
 import { ComplianceAuditService } from './services/compliance-audit.service';
 import { DataExportService } from './services/data-export.service';
 
@@ -58,6 +59,7 @@ const QueryHandlers = [GetAuditLogHandler, GetRetentionPoliciesHandler];
     // Services
     RetentionPolicyService,
     LegalHoldService,
+    LegalHoldGuard,
     ComplianceAuditService,
     DataExportService,
 
@@ -76,6 +78,7 @@ const QueryHandlers = [GetAuditLogHandler, GetRetentionPoliciesHandler];
   ],
   exports: [
     LegalHoldService,
+    LegalHoldGuard,
     ComplianceAuditService,
     RetentionPolicyService,
     DataExportService,

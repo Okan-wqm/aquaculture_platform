@@ -276,9 +276,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'purchase_order_items',
       'inventory_counts',
       'inventory_count_items',
+      'storage_lot_mixes',
 
       // Regulatory settings (Maskinporten credentials, company info)
       'regulatory_settings',
+      'biomass_reports',
       'sentinel_hub_settings',
 
       // Weather & Marine observations

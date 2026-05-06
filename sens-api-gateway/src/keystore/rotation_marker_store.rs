@@ -73,7 +73,6 @@
 //! continuation toward UH ULTRA-MEDIUM-007 closure.
 
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -83,6 +82,9 @@ use super::rotation_deadline::{
     KeystoreRotationDeadline, RotationDeadlineError,
 };
 use crate::runtime_safety::clock::ClockAuthority;
+use crate::shared_io::atomic_json_sidecar::{
+    write_atomic_json, AtomicJsonWriteError,
+};
 
 /// Canonical filename inside `$SUDERRA_DATA_DIR`.
 pub const ROTATION_MARKER_FILENAME: &str = "keystore_rotation_marker.json";
@@ -176,6 +178,29 @@ impl From<RotationDeadlineError> for MarkerStoreError {
     }
 }
 
+/// Map the shared atomic-JSON-sidecar helper's error
+/// taxonomy into this consumer's domain error
+/// (Batch #338 — closes audit MEDIUM-004 finding).
+impl From<AtomicJsonWriteError> for MarkerStoreError {
+    fn from(e: AtomicJsonWriteError) -> Self {
+        let path = match &e {
+            AtomicJsonWriteError::ParentCreate { path, .. } => path.clone(),
+            AtomicJsonWriteError::Serialize { path, .. } => path.clone(),
+            AtomicJsonWriteError::TempIo { temp_path, .. } => {
+                temp_path.clone()
+            }
+            AtomicJsonWriteError::Rename { path, .. } => path.clone(),
+            AtomicJsonWriteError::ParentFsync { parent, .. } => {
+                parent.clone()
+            }
+        };
+        Self::WriteFailed {
+            path,
+            reason: format!("{e}"),
+        }
+    }
+}
+
 /// Wire-shape of the JSON file. Versioned so future
 /// schema extensions can land without breaking older
 /// readers (they reject with SchemaVersionMismatch +
@@ -231,99 +256,39 @@ pub fn read_marker(
     Ok(Some(deadline))
 }
 
-/// Atomic write: serialize the deadline to JSON, write
-/// to a temp file, fsync, rename over the target path.
+/// Atomic write: serialize the deadline to JSON + hand
+/// off to the shared atomic-JSON-sidecar helper for the
+/// full 6-step crash-safe dance (Batch #338 — closes
+/// audit MEDIUM-004).
 ///
 /// Failure semantics: caller MUST treat WriteFailed as
 /// "rotation not recorded" — the in-memory deadline
 /// should NOT be advanced if the persistence failed,
 /// otherwise a subsequent boot reads the OLD marker +
 /// the alarm misses the rotation.
+///
+/// **Why delegate (Batch #338):** the 6-step dance is
+/// shared with `db_migration::manifest::write_manifest`.
+/// Both previously implemented steps 1-5 inline +
+/// omitted step 6 (parent-directory fsync — required for
+/// full POSIX rename durability under power loss).
+/// Extracting the SSoT helper at
+/// `crate::shared_io::atomic_json_sidecar` removes the
+/// duplication + adds step 6 to BOTH consumers in one
+/// place. The helper's `AtomicJsonWriteError` is mapped
+/// into `MarkerStoreError::WriteFailed` via the `From`
+/// impl above so consumer-side log prefixes stay
+/// canonical.
 pub fn write_marker(
     path: &Path,
     deadline: &KeystoreRotationDeadline,
 ) -> Result<(), MarkerStoreError> {
-    // Ensure parent directory exists (first-boot case
-    // where $SUDERRA_DATA_DIR was just created).
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| {
-            MarkerStoreError::WriteFailed {
-                path: path.to_path_buf(),
-                reason: format!("create_dir_all parent: {}", e),
-            }
-        })?;
-    }
-
     let payload = MarkerFileSchemaV1 {
         schema_version: ROTATION_MARKER_SCHEMA_VERSION,
         last_rotation_at_unix_secs: deadline.last_rotation_at_unix_secs(),
     };
-    let bytes = serde_json::to_vec_pretty(&payload).map_err(|e| {
-        MarkerStoreError::WriteFailed {
-            path: path.to_path_buf(),
-            reason: format!("json serialize: {}", e),
-        }
-    })?;
 
-    // Temp file in the SAME directory as the target so
-    // the rename is on the same filesystem (cross-fs
-    // rename returns EXDEV; same-fs rename is atomic per
-    // POSIX).
-    let parent = path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let mut temp_path = parent.join(format!(
-        ".{}.tmp-{}",
-        path.file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("rotation_marker"),
-        std::process::id()
-    ));
-    // If a stale temp from a previous crashed write
-    // exists, overwrite it (the rename only replaces the
-    // target on success).
-    let _ = fs::remove_file(&temp_path);
-
-    {
-        let mut f = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&temp_path)
-            .map_err(|e| MarkerStoreError::WriteFailed {
-                path: temp_path.clone(),
-                reason: format!("open temp: {}", e),
-            })?;
-        f.write_all(&bytes).map_err(|e| MarkerStoreError::WriteFailed {
-            path: temp_path.clone(),
-            reason: format!("write_all: {}", e),
-        })?;
-        // fsync so the data is durable BEFORE the rename
-        // commits. Without fsync a power loss between
-        // rename + actual disk flush could leave a
-        // zero-byte file with a successful rename name —
-        // the file_size==0 case would parse-fail at next
-        // read. fsync makes this fail-closed.
-        f.sync_all().map_err(|e| MarkerStoreError::WriteFailed {
-            path: temp_path.clone(),
-            reason: format!("fsync: {}", e),
-        })?;
-        // f drops here, releasing the file descriptor.
-        // Move temp_path out of the owning binding so
-        // the rename below can take it.
-    }
-
-    fs::rename(&temp_path, path).map_err(|e| {
-        // Best-effort cleanup of the temp file on
-        // rename failure. The rename failed atomically
-        // so the OLD target (if any) is intact.
-        let _ = fs::remove_file(&temp_path);
-        MarkerStoreError::WriteFailed {
-            path: path.to_path_buf(),
-            reason: format!("rename: {}", e),
-        }
-    })?;
+    write_atomic_json(path, &payload)?;
 
     info!(
         "Keystore rotation marker written: {} (last_rotation={})",

@@ -161,31 +161,18 @@ import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/17
 // row. Drops median enqueue-to-publish latency from ~500ms (cron
 // cadence) to ~5ms.
 import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1782100000000-AddFarmOutboxNotifyTrigger';
-// FARM-LOW-001 — eight migrations between 1786000000000 and 1788100000000
-// existed on disk but were missing from the in-process `migrations: [...]`
-// array consulted by farm-service's MigrationRunnerService when
-// DATABASE_MIGRATIONS_RUN=true (dev / E2E). The aqua-db-migrate orchestrator
-// glob-picks them up in production via `apps/farm-service/src/database/
-// migrations/*{.ts,.js}`, so production was unaffected, but every E2E run
-// or `nx test` that boots farm-service against a real Postgres operated
-// against pre-1786 schema state. Class-ref imports (NOT glob paths) are
-// required because NX/webpack bundles all source files into a single output
-// and a `dist/migrations/*.js` glob would match zero files at runtime.
 import { MovePublicTablesToFarm1786000000000 } from './database/migrations/1786000000000-MovePublicTablesToFarm';
 import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1786200000000-AddFarmOutboxModernColumns';
-// Phase 7.4 — cross-service correlation column on water_quality_measurements
-// pointing back at the sensor_readings row that produced it. Sibling migrations
-// 1786000000000–1788100000000 are picked up by the aqua-db-migrate orchestrator
-// via glob; only the explicit list below is consulted by farm-service's
-// in-process MigrationRunnerService when DATABASE_MIGRATIONS_RUN=true (dev / E2E).
-// Future hygiene PR: backfill the omitted 1787*/1788* entries here too.
-import { AddWaterQualitySensorReadingCorrelation1788200000000 } from './database/migrations/1788200000000-AddWaterQualitySensorReadingCorrelation';
-// FARM-MEDIUM-005 — partial UNIQUE + lookup indexes for the relatedSensorReadingId
-// column. Split from the column-add migration because CREATE INDEX without
-// CONCURRENTLY against pre-existing per-tenant copies of water_quality_measurements
-// would take ACCESS EXCLUSIVE and stall writers. See migration's docblock for
-// the runtime tenant-schema discovery + transaction=false rationale.
-import { AddWaterQualitySensorReadingCorrelationIndexes1788210000000 } from './database/migrations/1788210000000-AddWaterQualitySensorReadingCorrelationIndexes';
+import { AddDomainRetentionFunctions1787000000000 } from './database/migrations/1787000000000-AddDomainRetentionFunctions';
+import { AddStorageInventoryReceivedDate1787100000000 } from './database/migrations/1787100000000-AddStorageInventoryReceivedDate';
+import { CreateStorageLotMixes1787150000000 } from './database/migrations/1787150000000-CreateStorageLotMixes';
+import { AddStorageLotMixesGinIndex1787200000000 } from './database/migrations/1787200000000-AddStorageLotMixesGinIndex';
+import { AddRecurringTemplateTimezone1787300000000 } from './database/migrations/1787300000000-AddRecurringTemplateTimezone';
+import { AddDailyBatchFeedingMaterializedView1787400000000 } from './database/migrations/1787400000000-AddDailyBatchFeedingMaterializedView';
+import { AddDailyTankWaterQualityMaterializedView1787500000000 } from './database/migrations/1787500000000-AddDailyTankWaterQualityMaterializedView';
+import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrations/1788100000000-WireSupplierSitesAndSiteContacts';
+import { DedupeEquipmentTypesByCode1788200000000 } from './database/migrations/1788200000000-DedupeEquipmentTypesByCode';
+import { AddBiomassReports1788300000000 } from './database/migrations/1788300000000-AddBiomassReports';
 
 @Module({
   imports: [
@@ -235,12 +222,18 @@ import { AddWaterQualitySensorReadingCorrelationIndexes1788210000000 } from './d
             ConvertAuditColumnsToTimestamptz1781900000000,
             AddFarmOutboxLeaseColumns1782000000000,
             AddFarmOutboxNotifyTrigger1782100000000,
-            // FARM-LOW-001 — backfilled migrations 1786–1788. Strict
-            // ascending timestamp order matches the runner's apply order.
             MovePublicTablesToFarm1786000000000,
             AddFarmOutboxModernColumns1786200000000,
-            AddWaterQualitySensorReadingCorrelation1788200000000,
-            AddWaterQualitySensorReadingCorrelationIndexes1788210000000,
+            AddDomainRetentionFunctions1787000000000,
+            AddStorageInventoryReceivedDate1787100000000,
+            CreateStorageLotMixes1787150000000,
+            AddStorageLotMixesGinIndex1787200000000,
+            AddRecurringTemplateTimezone1787300000000,
+            AddDailyBatchFeedingMaterializedView1787400000000,
+            AddDailyTankWaterQualityMaterializedView1787500000000,
+            WireSupplierSitesAndSiteContacts1788100000000,
+            DedupeEquipmentTypesByCode1788200000000,
+            AddBiomassReports1788300000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

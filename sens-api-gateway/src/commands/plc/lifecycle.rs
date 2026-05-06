@@ -42,12 +42,9 @@
 
 use serde_json::{Value, json};
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::info;
 
-use crate::plc_programming::{
-    AdsClient, CodesysClient, EtherNetIpClient, OpcUaClient, PlcProgram, PlcProgrammer,
-    S7Client,
-};
+use crate::plc_programming::{CodesysClient, PlcProgrammer, S7Client};
 
 impl super::super::CommandHandler {
     pub(in crate::commands) async fn cmd_plc_start(&self, params: &Value) -> (bool, Value, Option<String>) {

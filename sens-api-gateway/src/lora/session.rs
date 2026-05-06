@@ -107,7 +107,7 @@ impl SessionStore {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
-             PRAGMA cache_size=-2000;"
+             PRAGMA cache_size=-2000;",
         )
         .context("SQLite performans PRAGMA'lari uygulanamadi")?;
 
@@ -117,7 +117,10 @@ impl SessionStore {
         };
 
         store.init_schema()?;
-        info!("LoRa session store baslatildi (WAL modu aktif): {}", db_path.display());
+        info!(
+            "LoRa session store baslatildi (WAL modu aktif): {}",
+            db_path.display()
+        );
 
         Ok(store)
     }
@@ -125,8 +128,7 @@ impl SessionStore {
     /// Test icin bellek-ici veritabani olusturur (sifreleme yok)
     #[cfg(test)]
     pub fn in_memory() -> Result<Self> {
-        let conn = Connection::open_in_memory()
-            .context("Bellek-ici session DB olusturulamadi")?;
+        let conn = Connection::open_in_memory().context("Bellek-ici session DB olusturulamadi")?;
 
         let store = Self {
             db: Mutex::new(conn),
@@ -308,7 +310,10 @@ impl SessionStore {
         )
         .context("Oturum kaydedilemedi")?;
 
-        debug!("Oturum kaydedildi: dev_eui={}, dev_addr={}", dev_eui_hex, dev_addr_hex);
+        debug!(
+            "Oturum kaydedildi: dev_eui={}, dev_addr={}",
+            dev_eui_hex, dev_addr_hex
+        );
         Ok(())
     }
 
@@ -320,7 +325,10 @@ impl SessionStore {
     /// %99'u ortadan kaldirilir (10sn flush = 2000 yerine 1 transaction).
     pub fn update_frame_counter(&self, dev_eui: &DevEui, f_cnt_up: u32) -> Result<()> {
         let now = chrono::Utc::now().timestamp();
-        let mut pending = self.pending_counters.lock().unwrap_or_else(|p| p.into_inner());
+        let mut pending = self
+            .pending_counters
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         pending.insert(*dev_eui, (f_cnt_up, now));
         Ok(())
     }
@@ -332,7 +340,10 @@ impl SessionStore {
     pub fn flush_frame_counters(&self) -> Result<usize> {
         // Onceki pending'leri hizlica drain et — lock'u kisa tut
         let pending: HashMap<DevEui, (u32, i64)> = {
-            let mut guard = self.pending_counters.lock().unwrap_or_else(|p| p.into_inner());
+            let mut guard = self
+                .pending_counters
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
             std::mem::take(&mut *guard)
         };
 
@@ -349,13 +360,18 @@ impl SessionStore {
 
         {
             let mut stmt = conn
-                .prepare_cached("UPDATE sessions SET f_cnt_up = ?1, last_seen = ?2 WHERE dev_eui = ?3")
+                .prepare_cached(
+                    "UPDATE sessions SET f_cnt_up = ?1, last_seen = ?2 WHERE dev_eui = ?3",
+                )
                 .context("Frame counter flush statement hazirlanamadi")?;
 
             for (dev_eui, (f_cnt_up, last_seen)) in &pending {
                 let dev_eui_hex = format!("{}", dev_eui);
                 if let Err(e) = stmt.execute(params![f_cnt_up, last_seen, dev_eui_hex]) {
-                    warn!("Frame counter flush hatasi: dev_eui={}, hata={}", dev_eui, e);
+                    warn!(
+                        "Frame counter flush hatasi: dev_eui={}, hata={}",
+                        dev_eui, e
+                    );
                 }
             }
         }
@@ -363,7 +379,10 @@ impl SessionStore {
         conn.execute_batch("COMMIT")
             .context("Frame counter flush COMMIT hatasi")?;
 
-        debug!("Frame counter flush tamamlandi: {} cihaz guncellendi", count);
+        debug!(
+            "Frame counter flush tamamlandi: {} cihaz guncellendi",
+            count
+        );
         Ok(count)
     }
 
@@ -405,12 +424,13 @@ impl SessionStore {
         )
         .context("FCntDown artirilamadi")?;
 
-        let new_cnt: u32 = conn.query_row(
-            "SELECT f_cnt_down FROM sessions WHERE dev_eui = ?1",
-            params![dev_eui_hex],
-            |row| row.get(0),
-        )
-        .context("FCntDown okunamadi")?;
+        let new_cnt: u32 = conn
+            .query_row(
+                "SELECT f_cnt_down FROM sessions WHERE dev_eui = ?1",
+                params![dev_eui_hex],
+                |row| row.get(0),
+            )
+            .context("FCntDown okunamadi")?;
 
         Ok(new_cnt)
     }
@@ -445,14 +465,14 @@ impl SessionStore {
         let cutoff = chrono::Utc::now().timestamp() - max_idle_secs;
 
         let deleted = conn
-            .execute(
-                "DELETE FROM sessions WHERE last_seen < ?1",
-                params![cutoff],
-            )
+            .execute("DELETE FROM sessions WHERE last_seen < ?1", params![cutoff])
             .context("Eski oturumlar temizlenemedi")?;
 
         if deleted > 0 {
-            info!("{} eski oturum temizlendi (idle > {} sn)", deleted, max_idle_secs);
+            info!(
+                "{} eski oturum temizlendi (idle > {} sn)",
+                deleted, max_idle_secs
+            );
         }
 
         Ok(deleted)
@@ -566,7 +586,10 @@ impl SessionStore {
         )
         .context("DevNonce kaydedilemedi")?;
 
-        debug!("DevNonce kaydedildi: dev_eui={}, nonce={}", dev_eui_hex, dev_nonce_hex);
+        debug!(
+            "DevNonce kaydedildi: dev_eui={}, nonce={}",
+            dev_eui_hex, dev_nonce_hex
+        );
         Ok(())
     }
 
@@ -614,11 +637,11 @@ struct RawSessionRow {
 
 /// Ham SQLite satirini StoredSession'a donusturur
 fn parse_session_row(raw: RawSessionRow) -> Result<StoredSession> {
-    let dev_eui = DevEui::from_hex(&raw.dev_eui)
-        .map_err(|e| anyhow::anyhow!("DevEui parse: {}", e))?;
+    let dev_eui =
+        DevEui::from_hex(&raw.dev_eui).map_err(|e| anyhow::anyhow!("DevEui parse: {}", e))?;
 
-    let dev_addr = DevAddr::from_hex(&raw.dev_addr)
-        .map_err(|e| anyhow::anyhow!("DevAddr parse: {}", e))?;
+    let dev_addr =
+        DevAddr::from_hex(&raw.dev_addr).map_err(|e| anyhow::anyhow!("DevAddr parse: {}", e))?;
 
     let nwk_s_key = hex_to_fixed::<16>(&raw.nwk_s_key)
         .ok_or_else(|| anyhow::anyhow!("NwkSKey hex parse hatasi"))?;
@@ -677,7 +700,11 @@ fn hex_encode(bytes: &[u8]) -> String {
 // hex modulu - session.rs icinde kullanilan basit hex encode/decode
 mod hex {
     pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes.as_ref().iter().map(|b| format!("{:02x}", b)).collect()
+        bytes
+            .as_ref()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect()
     }
 }
 
@@ -713,7 +740,8 @@ mod tests {
         store.save_session(&session).expect("kayit basarisiz");
 
         let dev_addr = DevAddr([0x26, 0x01, 0x12, 0x34]);
-        let loaded = store.get_session(&dev_addr)
+        let loaded = store
+            .get_session(&dev_addr)
             .expect("sorgu hatasi")
             .expect("oturum bulunamadi");
 
@@ -738,13 +766,16 @@ mod tests {
         let session = make_test_session();
         store.save_session(&session).expect("kayit basarisiz");
 
-        store.update_frame_counter(&session.dev_eui, 42).expect("guncelleme hatasi");
+        store
+            .update_frame_counter(&session.dev_eui, 42)
+            .expect("guncelleme hatasi");
 
         // Cache'ten SQLite'a flush et (batch write mekanizmasi)
         let flushed = store.flush_frame_counters().expect("flush hatasi");
         assert_eq!(flushed, 1);
 
-        let loaded = store.get_session(&session.keys.dev_addr)
+        let loaded = store
+            .get_session(&session.keys.dev_addr)
             .expect("sorgu hatasi")
             .expect("oturum bulunamadi");
         assert_eq!(loaded.keys.f_cnt_up, 42);
@@ -766,7 +797,8 @@ mod tests {
 
         // Hepsinin frame counter'ini cache'e yaz
         for (i, s) in sessions.iter().enumerate() {
-            store.update_frame_counter(&s.dev_eui, (i as u32 + 1) * 100)
+            store
+                .update_frame_counter(&s.dev_eui, (i as u32 + 1) * 100)
                 .expect("update hatasi");
         }
 
@@ -780,7 +812,8 @@ mod tests {
 
         // Degerleri dogrula
         for (i, s) in sessions.iter().enumerate() {
-            let loaded = store.get_session(&s.keys.dev_addr)
+            let loaded = store
+                .get_session(&s.keys.dev_addr)
                 .expect("sorgu hatasi")
                 .expect("oturum bulunamadi");
             assert_eq!(loaded.keys.f_cnt_up, (i as u32 + 1) * 100);
@@ -793,10 +826,14 @@ mod tests {
         let session = make_test_session();
         store.save_session(&session).expect("kayit basarisiz");
 
-        let cnt1 = store.increment_f_cnt_down(&session.dev_eui).expect("artirma hatasi");
+        let cnt1 = store
+            .increment_f_cnt_down(&session.dev_eui)
+            .expect("artirma hatasi");
         assert_eq!(cnt1, 1);
 
-        let cnt2 = store.increment_f_cnt_down(&session.dev_eui).expect("artirma hatasi");
+        let cnt2 = store
+            .increment_f_cnt_down(&session.dev_eui)
+            .expect("artirma hatasi");
         assert_eq!(cnt2, 2);
     }
 
@@ -805,7 +842,9 @@ mod tests {
         let store = SessionStore::in_memory().expect("store olusturulamadi");
         assert_eq!(store.count_active().expect("sayim hatasi"), 0);
 
-        store.save_session(&make_test_session()).expect("kayit basarisiz");
+        store
+            .save_session(&make_test_session())
+            .expect("kayit basarisiz");
         assert_eq!(store.count_active().expect("sayim hatasi"), 1);
     }
 
@@ -839,7 +878,8 @@ mod tests {
         store.save_pending_join(&pending).expect("kayit basarisiz");
 
         // Getir
-        let loaded = store.get_pending_join(&dev_eui)
+        let loaded = store
+            .get_pending_join(&dev_eui)
             .expect("sorgu hatasi")
             .expect("bekleyen join bulunamadi");
         assert_eq!(loaded.dev_nonce, [0xAB, 0xCD]);
@@ -871,7 +911,8 @@ mod tests {
         session.keys.f_cnt_up = 0;
         store.save_session(&session).expect("guncelleme basarisiz");
 
-        let loaded = store.get_session(&session.keys.dev_addr)
+        let loaded = store
+            .get_session(&session.keys.dev_addr)
             .expect("sorgu hatasi")
             .expect("oturum bulunamadi");
         assert_eq!(loaded.keys.nwk_s_key, [0xCC; 16]);
@@ -888,21 +929,39 @@ mod tests {
         let nonce = [0xAB, 0xCD];
 
         // Ilk kullanim — kullanilmamis olmali
-        assert!(!store.is_dev_nonce_used(&dev_eui, &nonce).expect("sorgu hatasi"));
+        assert!(
+            !store
+                .is_dev_nonce_used(&dev_eui, &nonce)
+                .expect("sorgu hatasi")
+        );
 
         // Kaydet
-        store.save_used_dev_nonce(&dev_eui, &nonce).expect("kayit hatasi");
+        store
+            .save_used_dev_nonce(&dev_eui, &nonce)
+            .expect("kayit hatasi");
 
         // Artik kullanilmis olmali
-        assert!(store.is_dev_nonce_used(&dev_eui, &nonce).expect("sorgu hatasi"));
+        assert!(
+            store
+                .is_dev_nonce_used(&dev_eui, &nonce)
+                .expect("sorgu hatasi")
+        );
 
         // Farkli nonce kullanilmamis olmali
         let other_nonce = [0x12, 0x34];
-        assert!(!store.is_dev_nonce_used(&dev_eui, &other_nonce).expect("sorgu hatasi"));
+        assert!(
+            !store
+                .is_dev_nonce_used(&dev_eui, &other_nonce)
+                .expect("sorgu hatasi")
+        );
 
         // Farkli cihaz icin ayni nonce kullanilmamis olmali
         let other_dev = DevEui([0xFF; 8]);
-        assert!(!store.is_dev_nonce_used(&other_dev, &nonce).expect("sorgu hatasi"));
+        assert!(
+            !store
+                .is_dev_nonce_used(&other_dev, &nonce)
+                .expect("sorgu hatasi")
+        );
     }
 
     #[test]
@@ -912,7 +971,11 @@ mod tests {
         let nonce = [0xAB, 0xCD];
 
         // Ayni nonce'u iki kez kaydetme hataya neden olmamali (INSERT OR IGNORE)
-        store.save_used_dev_nonce(&dev_eui, &nonce).expect("ilk kayit hatasi");
-        store.save_used_dev_nonce(&dev_eui, &nonce).expect("ikinci kayit hatasi");
+        store
+            .save_used_dev_nonce(&dev_eui, &nonce)
+            .expect("ilk kayit hatasi");
+        store
+            .save_used_dev_nonce(&dev_eui, &nonce)
+            .expect("ikinci kayit hatasi");
     }
 }

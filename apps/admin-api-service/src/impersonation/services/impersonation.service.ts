@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { AuditLogService } from '../../audit/audit.service';
+import { AuditSeverity } from '../../audit/audit.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, In } from 'typeorm';
@@ -505,9 +506,16 @@ export class ImpersonationService {
       `Started impersonation: ${request.superAdminEmail} -> ${request.targetTenantName || request.targetTenantId}`,
     );
 
-    // H-S2-04: Write to central audit log — security dashboard visibility
+    // AUDITTRAIL-CRITICAL-003 cure: SUPER_ADMIN cross-tenant access has
+    // the highest audit-criticality of any platform action. The
+    // pre-fix `.catch(() => warn)` pattern was fire-and-forget — under
+    // a transient DB blip the session existed in the impersonation
+    // table but was invisible in audit.audit_logs, breaking the
+    // SOC 2 CC1 / GDPR Art 30 reconstruction guarantee. Awaiting the
+    // log lets a failure propagate; the operator gets a clear error
+    // instead of a half-recorded SUPER_ADMIN session.
     await this.auditLogService.log({
-      action: 'USER_IMPERSONATED',
+      action: 'IMPERSONATION_STARTED',
       entityType: 'ImpersonationSession',
       entityId: saved.id,
       performedBy: request.superAdminId,
@@ -520,8 +528,9 @@ export class ImpersonationService {
         reason: request.reason,
         reasonDetails: request.reasonDetails,
         ticketReference: request.ticketReference,
+        durationMinutes,
       },
-    }).catch((err: Error) => this.logger.warn(`Audit log failed: ${err.message}`));
+    });
 
     // C-5 fix: Return raw token to caller (only time it's available in plaintext).
     // The DB stores the hash. Override the hashed value on the returned object only.
@@ -555,6 +564,28 @@ export class ImpersonationService {
     const saved = await this.sessionRepo.save(session);
     this.localActiveSessions.delete(sessionId);
 
+    // AUDITTRAIL-CRITICAL-003 cure: end-event audit row pairs with the
+    // start-event row at impersonation start. Operators querying the
+    // SUPER_ADMIN access pattern can reconstruct the (session-start,
+    // session-end) timeline from audit.audit_logs alone, without
+    // joining the impersonation_sessions table (which is operational,
+    // not audit, and may be retention-bound differently).
+    await this.auditLogService.log({
+      action: 'IMPERSONATION_ENDED',
+      entityType: 'ImpersonationSession',
+      entityId: saved.id,
+      performedBy: endedBy || session.superAdminId,
+      tenantId: session.targetTenantId,
+      details: {
+        sessionId: saved.id,
+        endReason: saved.endReason,
+        durationActualMinutes:
+          saved.endedAt && session.createdAt
+            ? Math.round((saved.endedAt.getTime() - session.createdAt.getTime()) / 60000)
+            : null,
+      },
+    });
+
     this.logger.log(`Ended impersonation session: ${sessionId}`);
 
     return saved;
@@ -576,6 +607,25 @@ export class ImpersonationService {
 
     const saved = await this.sessionRepo.save(session);
     this.localActiveSessions.delete(sessionId);
+
+    // AUDITTRAIL-CRITICAL-003 cure: terminated-by-other-admin event
+    // is a stronger security signal than self-end (it indicates an
+    // operator override of an active SUPER_ADMIN session). CRITICAL
+    // severity so the audit dashboard surfaces it.
+    await this.auditLogService.log({
+      action: 'IMPERSONATION_TERMINATED',
+      entityType: 'ImpersonationSession',
+      entityId: saved.id,
+      performedBy: terminatedBy,
+      tenantId: session.targetTenantId,
+      severity: AuditSeverity.CRITICAL,
+      details: {
+        sessionId: saved.id,
+        sessionOwnerId: session.superAdminId,
+        endReason: saved.endReason,
+        terminationReason: reason,
+      },
+    });
 
     this.logger.warn(`Terminated impersonation session: ${sessionId} - ${reason}`);
 
@@ -644,6 +694,25 @@ export class ImpersonationService {
 
     // Update in-memory cache
     this.localActiveSessions.set(sessionId, saved);
+
+    // AUDITTRAIL-CRITICAL-003 cure: extension event audit row. Each
+    // extension is a discrete audit event (operator chose to extend
+    // SUPER_ADMIN access) — captured in audit.audit_logs separately
+    // from the session.actionsPerformed array (which is operational
+    // metadata on the session itself, not a regulatory audit record).
+    await this.auditLogService.log({
+      action: 'IMPERSONATION_EXTENDED',
+      entityType: 'ImpersonationSession',
+      entityId: saved.id,
+      performedBy: extendedBy,
+      tenantId: session.targetTenantId,
+      details: {
+        sessionId: saved.id,
+        additionalMinutes,
+        newExpiresAt: saved.expiresAt.toISOString(),
+        sessionOwnerId: session.superAdminId,
+      },
+    });
 
     this.logger.log(
       `Extended impersonation session ${sessionId} by ${additionalMinutes} minutes`,
@@ -970,6 +1039,28 @@ export class ImpersonationService {
 
     await this.sessionRepo.save(session);
     this.localActiveSessions.delete(session.id);
+
+    // AUDITTRAIL-CRITICAL-003 cure: expiry event audit row. Even
+    // automatic system-driven expiry needs an audit record so the
+    // SUPER_ADMIN access timeline is complete in audit.audit_logs.
+    // performedBy is the system marker since no operator action drove
+    // the expiry; the original session.superAdminId carries the actor
+    // identity in details for traceability.
+    await this.auditLogService.log({
+      action: 'IMPERSONATION_EXPIRED',
+      entityType: 'ImpersonationSession',
+      entityId: session.id,
+      performedBy: 'system:cron',
+      tenantId: session.targetTenantId,
+      details: {
+        sessionId: session.id,
+        sessionOwnerId: session.superAdminId,
+        durationActualMinutes:
+          session.endedAt && session.createdAt
+            ? Math.round((session.endedAt.getTime() - session.createdAt.getTime()) / 60000)
+            : null,
+      },
+    });
   }
 
   // ============================================================================

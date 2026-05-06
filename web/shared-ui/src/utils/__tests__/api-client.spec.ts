@@ -556,6 +556,7 @@ describe('api-client', () => {
       });
 
       it('should include status code in RestClientError', async () => {
+        apiClient.setTokens('test-access-token-123');
         mockFetch.mockResolvedValueOnce(
           mockResponse(422, { message: 'Validation error' })
         );
@@ -572,6 +573,7 @@ describe('api-client', () => {
 
     describe('Convenience methods', () => {
       it('should support PUT method', async () => {
+        apiClient.setTokens('test-access-token-123');
         mockFetch.mockResolvedValueOnce(
           mockResponse(200, { updated: true })
         );
@@ -583,6 +585,7 @@ describe('api-client', () => {
       });
 
       it('should support PATCH method', async () => {
+        apiClient.setTokens('test-access-token-123');
         mockFetch.mockResolvedValueOnce(
           mockResponse(200, { patched: true })
         );
@@ -594,6 +597,7 @@ describe('api-client', () => {
       });
 
       it('should support DELETE method', async () => {
+        apiClient.setTokens('test-access-token-123');
         mockFetch.mockResolvedValueOnce(mockResponse(204, null));
 
         await apiClient.restClient.delete('/users/1');

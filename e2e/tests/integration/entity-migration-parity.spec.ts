@@ -217,7 +217,8 @@ function parseEntity(file: string, content: string, service: string): EntityDecl
     const nameOverride = NAME_OVERRIDE_RE.exec(decoratorArg);
 
     if (nameOverride) {
-      columns.add(nameOverride[2]);
+      const columnName = nameOverride[2];
+      if (columnName) columns.add(columnName);
       continue;
     }
 
@@ -231,7 +232,8 @@ function parseEntity(file: string, content: string, service: string): EntityDecl
 
     const propMatch = PROPERTY_DECL_RE.exec(firstLine);
     if (propMatch) {
-      columns.add(propMatch[1]);
+      const propertyName = propMatch[1];
+      if (propertyName) columns.add(propertyName);
     }
   }
 
@@ -248,6 +250,7 @@ function parseMigration(file: string, content: string): CreateTableBlock[] {
   while ((match = CREATE_TABLE_RE.exec(content)) !== null) {
     const tableName = match[2];
     const body = match[3];
+    if (!tableName || body === undefined) continue;
     const columns = new Set<string>();
 
     for (const rawLine of body.split('\n')) {
@@ -260,7 +263,8 @@ function parseMigration(file: string, content: string): CreateTableBlock[] {
       // Lines beginning with "--" are comments.
       if (stripped.startsWith('--')) continue;
       const colMatch = COLUMN_LINE_RE.exec(stripped);
-      if (colMatch) columns.add(colMatch[1]);
+      const columnName = colMatch?.[1];
+      if (columnName) columns.add(columnName);
     }
 
     blocks.push({ migrationFile: file, tableName, columns });

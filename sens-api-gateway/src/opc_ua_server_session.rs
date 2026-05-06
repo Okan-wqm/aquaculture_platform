@@ -5,8 +5,10 @@
 //!
 //! Batch 224 introduced `parse_opc_ua_session_actor(&str) ->
 //! Option<ActorIdentity>` that reads a session-layer actor string
-//! (`"op:<hex32>"`, `"svc:<cn>"`, `"opc-ua-anonymous"`) and returns
-//! an authz `ActorIdentity`. The `&str` input is a convention —
+//! (`"op:<hex32>"`, `"svc:<cn>"`, plus a third legacy
+//! anonymous-actor wire-string banned by the Batch #354
+//! audit_actor_label_no_legacy invariant) and returns an authz
+//! `ActorIdentity`. The `&str` input is a convention —
 //! nothing in the type system binds the string back to a real
 //! authenticated session. Once that string escapes the OPC UA
 //! session layer, any caller can fabricate one.

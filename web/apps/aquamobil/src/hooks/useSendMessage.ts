@@ -30,6 +30,7 @@ import { useNetworkStatus } from './useNetworkStatus';
 import { useOfflineQueue } from './useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { SEND_MESSAGE } from '@/graphql/messaging-operations';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 import type { Message, MessagePage, MessageContentType } from '@/types/messaging';
 
 interface SendMessageParams {
@@ -58,7 +59,10 @@ export function useSendMessage(channelId: string | undefined) {
   const isOnline = useNetworkStatus();
   const { addToQueue } = useOfflineQueue();
 
-  const messageQueryKey = ['messaging', 'messages', channelId, tenantId];
+  // WHY 2026-04-29: useMessages reads this exact tenant-prefixed key. Optimistic
+  // writes, cancellation, rollback, and invalidation must target the same cache
+  // tree or sent messages can vanish until a full refetch.
+  const messageQueryKey = createTenantQueryKey(tenantId, 'messaging', 'messages', channelId);
 
   const mutation = useMutation({
     mutationFn: async (params: SendMessageParams & { _idempotencyKey: string }) => {
@@ -139,7 +143,7 @@ export function useSendMessage(channelId: string | undefined) {
     },
 
     // On success: replace optimistic message with server response
-    onSuccess: (serverMessage: Message, params) => {
+    onSuccess: async (serverMessage: Message, params) => {
       queryClient.setQueryData(
         messageQueryKey,
         (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
@@ -157,8 +161,9 @@ export function useSendMessage(channelId: string | undefined) {
           };
         },
       );
-      // Invalidate channel list to update lastMessage
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      if (tenantId) {
+        await invalidateSyncedOperationQueries(queryClient, tenantId, ['sendMessage']);
+      }
     },
 
     // On error: mark optimistic message as failed
@@ -219,7 +224,7 @@ export function useSendMessage(channelId: string | undefined) {
         return;
       }
 
-      mutation.mutate({ ...params, _idempotencyKey: idempotencyKey });
+      await mutation.mutateAsync({ ...params, _idempotencyKey: idempotencyKey });
     },
     [channelId, isAuthenticated, isOnline, mutation, addToQueue],
   );

@@ -12,6 +12,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
 
 import { ConvertTimestampToTimestamptz1781500000000 } from './migrations/1781500000000-ConvertTimestampToTimestamptz';
+import { ConvertAuditColumnsToTimestamptz1781900000000 } from './migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
+import { AuditLogImmutability1782000000000 } from './migrations/1782000000000-AuditLogImmutability';
 import { AddMfaCompletedToImpersonationSessions1782100000000 } from './migrations/1782100000000-AddMfaCompletedToImpersonationSessions';
 import { MoveSharedTablesFromAdminToShared1782200000000 } from './migrations/1782200000000-MoveSharedTablesFromAdminToShared';
 import { MoveUserPermissionsToShared1786900000000 } from './migrations/1786900000000-MoveUserPermissionsToShared';
@@ -19,8 +21,18 @@ import { GrantSharedSchemaPrivileges1787000000000 } from './migrations/178700000
 import { CreateAdminAuditLogsTable1787100000000 } from './migrations/1787100000000-CreateAdminAuditLogsTable';
 import { RealignSharedAuditLogsSchema1787200000000 } from './migrations/1787200000000-RealignSharedAuditLogsSchema';
 import { CreateIngestBackendPolicyState1787300000000 } from './migrations/1787300000000-CreateIngestBackendPolicyState';
+import { RestoreSharedAuditLogsImmutability1787400000000 } from './migrations/1787400000000-RestoreSharedAuditLogsImmutability';
+import { CreateComplianceLegalHolds1787500000000 } from './migrations/1787500000000-CreateComplianceLegalHolds';
+import { AddGdprDataRequestsCheckConstraints1787600000000 } from './migrations/1787600000000-AddGdprDataRequestsCheckConstraints';
+import { AddUserConsentsNaturalKeyUnique1787700000000 } from './migrations/1787700000000-AddUserConsentsNaturalKeyUnique';
+import { AddAdminAuditLogsImmutability1787800000000 } from './migrations/1787800000000-AddAdminAuditLogsImmutability';
+import { AddUserPermissionsUserFk1787900000000 } from './migrations/1787900000000-AddUserPermissionsUserFk';
+import { ConvertAuditIpColumnsToInet1788000000000 } from './migrations/1788000000000-ConvertAuditIpColumnsToInet';
+import { AddAuditLogShapeExtension1788100000000 } from './migrations/1788100000000-AddAuditLogShapeExtension';
+import { CreateSharedAccessLogs1788400000000 } from './migrations/1788400000000-CreateSharedAccessLogs';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
+import { AdminApiRetentionBootstrapModule } from './retention/retention-bootstrap.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { BillingModule } from './billing/billing.module';
 import { DatabaseManagementModule } from './database-management/database-management.module';
@@ -72,6 +84,8 @@ import { UsersModule } from './users/users.module';
           defaultPoolSize: 40,
           migrations: [
             ConvertTimestampToTimestamptz1781500000000,
+            ConvertAuditColumnsToTimestamptz1781900000000,
+            AuditLogImmutability1782000000000,
             AddMfaCompletedToImpersonationSessions1782100000000,
             MoveSharedTablesFromAdminToShared1782200000000,
             MoveUserPermissionsToShared1786900000000,
@@ -79,6 +93,15 @@ import { UsersModule } from './users/users.module';
             CreateAdminAuditLogsTable1787100000000,
             RealignSharedAuditLogsSchema1787200000000,
             CreateIngestBackendPolicyState1787300000000,
+            RestoreSharedAuditLogsImmutability1787400000000,
+            CreateComplianceLegalHolds1787500000000,
+            AddGdprDataRequestsCheckConstraints1787600000000,
+            AddUserConsentsNaturalKeyUnique1787700000000,
+            AddAdminAuditLogsImmutability1787800000000,
+            AddUserPermissionsUserFk1787900000000,
+            ConvertAuditIpColumnsToInet1788000000000,
+            AddAuditLogShapeExtension1788100000000,
+            CreateSharedAccessLogs1788400000000,
           ],
           // admin-api opts in to TypeORM's built-in migration runner via the
           // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other
@@ -135,6 +158,11 @@ import { UsersModule } from './users/users.module';
       },
     }),
     CqrsModule.forRoot(),
+    // CIRCUIT-LOW-001 cure foundation: Global circuit breaker for
+    // every cross-service fetch in admin-api (system-metrics scraper,
+    // performance-monitoring fetch). @Global so feature modules
+    // constructor-inject CircuitBreakerService directly.
+    CircuitBreakerModule,
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
     // NATS Event Bus for cross-service event publishing
@@ -162,6 +190,10 @@ import { UsersModule } from './users/users.module';
     }),
     TenantManagementModule,
     AuditLogModule,
+    // COMPLIANCE-MEDIUM-001 cure: register retention policies for
+    // shared.audit_logs + admin.audit_logs with the canonical
+    // RetentionEnforcementService cron (03:00 UTC daily).
+    AdminApiRetentionBootstrapModule,
     SystemMetricsModule,
     HealthModule,
     UsersModule,

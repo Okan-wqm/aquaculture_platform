@@ -1,0 +1,25 @@
+{
+  "base_commit_sha": "1b718077b567048d71cfdf15778673a1dc674672",
+  "complete": true,
+  "cycle_id": "e2e-2a-001",
+  "dirty_path_count": 1,
+  "dirty_snapshot": false,
+  "fated_file_count": 7496,
+  "file_counts": {
+    "allowed": 7468,
+    "fated": 7496,
+    "generated": 28,
+    "git_tracked": 7496,
+    "unknown": 0,
+    "working_tree": 7554
+  },
+  "generated_at": "2026-05-06T05:24:33+00:00",
+  "legacy_tracked_file_count": 7468,
+  "missing_fates": [],
+  "repo_state_id": "repo-state:877ac9395639cc3cfa3c45e7590c3fc7530cb491fcf91a6dcb047dea64ae9730",
+  "schema_version": 1,
+  "snapshot_hash": "sha256:833291137206939fbee8fa67a7219dc1e2d362bc3ecd22686f266fc992d1a57e",
+  "snapshot_mode": "committed",
+  "tracked_file_count": 7468,
+  "unknown_count": 0
+}

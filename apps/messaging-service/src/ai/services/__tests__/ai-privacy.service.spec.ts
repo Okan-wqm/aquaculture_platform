@@ -11,8 +11,9 @@ import {
   fakeUuid,
   resetUuidCounter,
   MockRedis,
-  TENANT_A,
 } from '../../../__tests__/test-helpers';
+
+const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 /**
  * AiPrivacyService — behavior contracts
@@ -34,8 +35,19 @@ import {
 describe('AiPrivacyService', () => {
   let service: AiPrivacyService;
   let redisClient: MockRedis;
-  let tenantRepo: jest.Mocked<Pick<Repository<TenantAiSetting>, 'findOne' | 'upsert' | 'query'>>;
-  let userRepo: jest.Mocked<Pick<Repository<UserAiConsent>, 'findOne' | 'upsert'>>;
+  let dataSource: jest.Mocked<Pick<DataSource, 'createQueryRunner'>>;
+  let queryRunner: {
+    connect: jest.Mock;
+    startTransaction: jest.Mock;
+    query: jest.Mock;
+    commitTransaction: jest.Mock;
+    rollbackTransaction: jest.Mock;
+    release: jest.Mock;
+    manager: {
+      findOne: jest.Mock;
+      upsert: jest.Mock;
+    };
+  };
   let bypassRls: jest.Mocked<Pick<BypassRlsService, 'withBypass'>>;
 
   const userId = fakeUuid('usr');
@@ -44,15 +56,26 @@ describe('AiPrivacyService', () => {
     resetUuidCounter();
 
     redisClient = createMockRedis();
-    tenantRepo = {
-      findOne: jest.fn(),
-      upsert: jest.fn().mockResolvedValue(undefined),
-      query: jest.fn().mockResolvedValue([[], 0]),
-    } as jest.Mocked<Pick<Repository<TenantAiSetting>, 'findOne' | 'upsert' | 'query'>>;
-    userRepo = {
-      findOne: jest.fn(),
-      upsert: jest.fn().mockResolvedValue(undefined),
-    } as jest.Mocked<Pick<Repository<UserAiConsent>, 'findOne' | 'upsert'>>;
+    queryRunner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      startTransaction: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes(`set_config('search_path'`)) {
+          return undefined;
+        }
+        return [[], 0];
+      }),
+      commitTransaction: jest.fn().mockResolvedValue(undefined),
+      rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      manager: {
+        findOne: jest.fn(),
+        upsert: jest.fn().mockResolvedValue(undefined),
+      },
+    };
+    dataSource = {
+      createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+    } as jest.Mocked<Pick<DataSource, 'createQueryRunner'>>;
     bypassRls = {
       // Pass-through: invoke the callback synchronously so embedding-sweep
       // SQL still hits tenantRepo.query for assertion.
@@ -64,8 +87,7 @@ describe('AiPrivacyService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AiPrivacyService,
-        { provide: getRepositoryToken(TenantAiSetting), useValue: tenantRepo },
-        { provide: getRepositoryToken(UserAiConsent), useValue: userRepo },
+        { provide: DataSource, useValue: dataSource },
         { provide: REDIS_CLIENT, useValue: redisClient },
         { provide: BypassRlsService, useValue: bypassRls },
       ],
@@ -88,8 +110,7 @@ describe('AiPrivacyService', () => {
     expect(await service.canAnalyzeMessage(TENANT_A, userId)).toBe(true);
 
     // Repos NOT touched — both came from cache.
-    expect(tenantRepo.findOne).not.toHaveBeenCalled();
-    expect(userRepo.findOne).not.toHaveBeenCalled();
+    expect(queryRunner.manager.findOne).not.toHaveBeenCalled();
   });
 
   it('returns false when tenant AI is disabled', async () => {
@@ -110,7 +131,7 @@ describe('AiPrivacyService', () => {
     // Cache miss for both
     redisClient.get.mockResolvedValue(null);
     // Simulate DB outage
-    tenantRepo.findOne.mockRejectedValueOnce(new Error('DB unreachable'));
+    queryRunner.manager.findOne.mockRejectedValueOnce(new Error('DB unreachable'));
 
     expect(await service.canAnalyzeMessage(TENANT_A, userId)).toBe(false);
   });
@@ -121,15 +142,15 @@ describe('AiPrivacyService', () => {
   it('isTenantAiEnabled: cache hit returns cached value without DB read', async () => {
     redisClient.get.mockResolvedValueOnce('true');
     expect(await service.isTenantAiEnabled(TENANT_A)).toBe(true);
-    expect(tenantRepo.findOne).not.toHaveBeenCalled();
+    expect(queryRunner.manager.findOne).not.toHaveBeenCalled();
   });
 
   it('isTenantAiEnabled: cache miss queries repo and writes back to cache', async () => {
     redisClient.get.mockResolvedValueOnce(null);
-    tenantRepo.findOne.mockResolvedValueOnce({ aiEnabled: true } as TenantAiSetting);
+    queryRunner.manager.findOne.mockResolvedValueOnce({ aiEnabled: true } as TenantAiSetting);
 
     expect(await service.isTenantAiEnabled(TENANT_A)).toBe(true);
-    expect(tenantRepo.findOne).toHaveBeenCalledWith({ where: { tenantId: TENANT_A } });
+    expect(queryRunner.manager.findOne).toHaveBeenCalledWith(TenantAiSetting, { where: { tenantId: TENANT_A } });
     expect(redisClient.setex).toHaveBeenCalledWith(
       `ai:tenant:${TENANT_A}`,
       60,
@@ -139,14 +160,14 @@ describe('AiPrivacyService', () => {
 
   it('isTenantAiEnabled: missing row defaults to false (deny-by-default)', async () => {
     redisClient.get.mockResolvedValueOnce(null);
-    tenantRepo.findOne.mockResolvedValueOnce(null);
+    queryRunner.manager.findOne.mockResolvedValueOnce(null);
 
     expect(await service.isTenantAiEnabled(TENANT_A)).toBe(false);
   });
 
   it('isTenantAiEnabled: Redis GET failure falls through to repo (resilience)', async () => {
     redisClient.get.mockRejectedValueOnce(new Error('Redis down'));
-    tenantRepo.findOne.mockResolvedValueOnce({ aiEnabled: true } as TenantAiSetting);
+    queryRunner.manager.findOne.mockResolvedValueOnce({ aiEnabled: true } as TenantAiSetting);
 
     expect(await service.isTenantAiEnabled(TENANT_A)).toBe(true);
   });
@@ -156,17 +177,17 @@ describe('AiPrivacyService', () => {
   // -----------------------------------------------------------------------
   it('hasUserConsented: cache miss queries repo with composite key and writes back', async () => {
     redisClient.get.mockResolvedValueOnce(null);
-    userRepo.findOne.mockResolvedValueOnce({ consented: true } as UserAiConsent);
+    queryRunner.manager.findOne.mockResolvedValueOnce({ consented: true } as UserAiConsent);
 
     expect(await service.hasUserConsented(TENANT_A, userId)).toBe(true);
-    expect(userRepo.findOne).toHaveBeenCalledWith({
+    expect(queryRunner.manager.findOne).toHaveBeenCalledWith(UserAiConsent, {
       where: { tenantId: TENANT_A, userId },
     });
   });
 
   it('hasUserConsented: missing row defaults to false', async () => {
     redisClient.get.mockResolvedValueOnce(null);
-    userRepo.findOne.mockResolvedValueOnce(null);
+    queryRunner.manager.findOne.mockResolvedValueOnce(null);
 
     expect(await service.hasUserConsented(TENANT_A, userId)).toBe(false);
   });
@@ -177,7 +198,8 @@ describe('AiPrivacyService', () => {
   it('setTenantAiEnabled: upserts repo and invalidates cache', async () => {
     await service.setTenantAiEnabled(TENANT_A, true);
 
-    expect(tenantRepo.upsert).toHaveBeenCalledWith(
+    expect(queryRunner.manager.upsert).toHaveBeenCalledWith(
+      TenantAiSetting,
       { tenantId: TENANT_A, aiEnabled: true },
       { conflictPaths: ['tenantId'] },
     );
@@ -190,7 +212,8 @@ describe('AiPrivacyService', () => {
   it('setUserAiConsent: granting consent does NOT trigger embedding sweep', async () => {
     await service.setUserAiConsent(TENANT_A, userId, true);
 
-    expect(userRepo.upsert).toHaveBeenCalledWith(
+    expect(queryRunner.manager.upsert).toHaveBeenCalledWith(
+      UserAiConsent,
       { tenantId: TENANT_A, userId, consented: true },
       { conflictPaths: ['tenantId', 'userId'] },
     );
@@ -199,7 +222,12 @@ describe('AiPrivacyService', () => {
   });
 
   it('setUserAiConsent: revoking consent triggers embedding sweep wrapped in BypassRls', async () => {
-    tenantRepo.query.mockResolvedValueOnce([[], 5]);
+    queryRunner.query.mockImplementation(async (sql: string) => {
+      if (sql.includes(`set_config('search_path'`)) {
+        return undefined;
+      }
+      return [[], 5];
+    });
 
     await service.setUserAiConsent(TENANT_A, userId, false);
 
@@ -208,24 +236,29 @@ describe('AiPrivacyService', () => {
       expect.stringMatching(/^ai-privacy:embedding-sweep:tenant=.+:user=.+$/),
       expect.any(Function),
     );
-    // Sweep query schema-qualified to messaging.* (post-P7 entity decoration)
-    expect(tenantRepo.query).toHaveBeenCalledWith(
-      expect.stringContaining('"messaging"."messages"'),
+    // Sweep query must remain tenant-routed through search_path.
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE "messages"'),
       [TENANT_A, userId],
     );
-    expect(tenantRepo.query).toHaveBeenCalledWith(
-      expect.stringContaining('"messaging"."channels"'),
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      expect.stringContaining('FROM "channels"'),
       [TENANT_A, userId],
     );
   });
 
   it('setUserAiConsent: sweep failure does NOT roll back consent change (logged + escalated)', async () => {
-    tenantRepo.query.mockRejectedValueOnce(new Error('vector op failed'));
+    queryRunner.query.mockImplementation(async (sql: string) => {
+      if (sql.includes(`set_config('search_path'`)) {
+        return undefined;
+      }
+      throw new Error('vector op failed');
+    });
 
     // Must NOT throw — consent revocation is GDPR-mandated and persists
     await expect(service.setUserAiConsent(TENANT_A, userId, false)).resolves.toBeUndefined();
 
     // Consent flag was still upserted
-    expect(userRepo.upsert).toHaveBeenCalled();
+    expect(queryRunner.manager.upsert).toHaveBeenCalled();
   });
 });

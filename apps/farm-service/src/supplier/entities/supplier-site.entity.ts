@@ -32,7 +32,7 @@ import { Supplier } from './supplier.entity';
 import type { Site } from '../../site/entities/site.entity';
 
 @ObjectType()
-@Entity('supplier_sites', { schema: 'farm' })
+@Entity('supplier_sites')
 @Unique(['supplierId', 'siteId'])
 @Index(['tenantId', 'supplierId'])
 @Index(['tenantId', 'siteId'])

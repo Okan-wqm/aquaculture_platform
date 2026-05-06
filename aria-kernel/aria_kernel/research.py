@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+import hashlib
+import re
+import urllib.request
+from urllib.parse import urlparse
+from pathlib import Path
+from typing import Any
+
+from .ledger import append_jsonl, load_jsonl
+from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+
+
+SOURCE_TIERS = ("official", "standards", "security_advisory", "vendor", "oss_repo", "other")
+MAX_FETCH_BYTES = 1_000_000
+MAX_SANITIZED_CHARS = 200_000
+
+
+def record_research_source(
+    *,
+    url: str,
+    source_tier: str,
+    content_hash: str,
+    title: str = "",
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    if not (url.startswith("https://") or url.startswith("http://")):
+        raise GovernanceError("research source URL must be http(s)")
+    if source_tier not in SOURCE_TIERS:
+        raise GovernanceError(f"unknown research source tier: {source_tier}")
+    if not content_hash.startswith("sha256:"):
+        raise GovernanceError("research source content_hash must be sha256-prefixed")
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "url": url,
+        "source_tier": source_tier,
+        "content_hash": content_hash,
+        "title": title,
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "research" / "sources.jsonl", row)
+
+
+def list_research_sources(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "research" / "sources.jsonl")
+
+
+def fetch_research_source(
+    *,
+    url: str,
+    source_tier: str,
+    title: str = "",
+    base_dir: str | Path | None = None,
+    content_override: str | bytes | None = None,
+    allowed_domains: list[str] | None = None,
+) -> dict[str, Any]:
+    if not (url.startswith("https://") or url.startswith("http://")):
+        raise GovernanceError("research fetch URL must be http(s)")
+    if source_tier not in SOURCE_TIERS:
+        raise GovernanceError(f"unknown research source tier: {source_tier}")
+    policy = _source_policy(url=url, allowed_domains=allowed_domains or [], base_dir=base_dir)
+    if policy["status"] != "allowed":
+        raise GovernanceError("research fetch blocked by source policy")
+    content_type = "text/plain"
+    if content_override is None:
+        payload, content_type = _fetch_url(url)
+    elif isinstance(content_override, bytes):
+        payload = content_override[:MAX_FETCH_BYTES]
+    else:
+        payload = content_override.encode("utf-8")[:MAX_FETCH_BYTES]
+    if content_override is not None and b"<html" in payload[:200].lower():
+        content_type = "text/html"
+    sanitized = _sanitize_content(payload, content_type)
+    content_hash = _sha256(sanitized.encode("utf-8"))
+    source = record_research_source(
+        url=url,
+        source_tier=source_tier,
+        content_hash=content_hash,
+        title=title,
+        base_dir=base_dir,
+    )
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "source_ref": source["ledger_hash"],
+        "url": url,
+        "source_tier": source_tier,
+        "title": title,
+        "content_hash": content_hash,
+        "content_type": content_type,
+        "sanitized_text": sanitized,
+        "extracted_claims": _extract_claims(sanitized),
+        "source_policy": policy,
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "research" / "fetches.jsonl", row)
+
+
+def list_research_fetches(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "research" / "fetches.jsonl")
+
+
+def record_research_policy(
+    *,
+    allowed_domains: list[str],
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    domains = _normalize_domains(allowed_domains)
+    if not domains:
+        raise GovernanceError("research policy requires at least one allowed domain")
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "allowed_domains": domains,
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "research" / "policies.jsonl", row)
+
+
+def list_research_policies(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "research" / "policies.jsonl")
+
+
+def _source_policy(*, url: str, allowed_domains: list[str], base_dir: str | Path | None) -> dict[str, Any]:
+    configured_domains = _normalize_domains(allowed_domains)
+    if not configured_domains:
+        policies = list_research_policies(base_dir=base_dir)
+        if policies:
+            configured_domains = _normalize_domains(policies[-1].get("allowed_domains", []))
+    if not configured_domains:
+        return {"status": "allowed", "mode": "open"}
+    host = (urlparse(url).hostname or "").lower()
+    allowed = any(host == domain or host.endswith("." + domain) for domain in configured_domains)
+    return {
+        "status": "allowed" if allowed else "blocked",
+        "mode": "allowlist",
+        "host": host,
+        "allowed_domains": configured_domains,
+    }
+
+
+def _normalize_domains(domains: list[str]) -> list[str]:
+    normalized = []
+    for domain in domains:
+        value = str(domain).strip().lower()
+        if value.startswith("http://") or value.startswith("https://"):
+            value = urlparse(value).hostname or ""
+        value = value.lstrip(".")
+        if value:
+            normalized.append(value)
+    return sorted(set(normalized))
+
+
+def _fetch_url(url: str) -> tuple[bytes, str]:
+    request = urllib.request.Request(url, headers={"User-Agent": "ARIA-research-fetch/1"})
+    with urllib.request.urlopen(request, timeout=20) as response:
+        content_type = response.headers.get("content-type", "application/octet-stream")
+        if not _allowed_content_type(content_type):
+            raise GovernanceError(f"research fetch blocked unsupported content type: {content_type}")
+        return response.read(MAX_FETCH_BYTES + 1)[:MAX_FETCH_BYTES], content_type
+
+
+def _allowed_content_type(content_type: str) -> bool:
+    normalized = content_type.split(";", 1)[0].strip().lower()
+    return normalized in ("text/plain", "text/html", "text/markdown", "application/json")
+
+
+def _sanitize_content(payload: bytes, content_type: str) -> str:
+    text = payload.decode("utf-8", errors="replace")
+    if "html" in content_type.lower():
+        text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", text)
+        text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = re.sub(r"https?://\S+", "[url]", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:MAX_SANITIZED_CHARS]
+
+
+def _extract_claims(text: str) -> list[str]:
+    sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+", text) if item.strip()]
+    return sentences[:10]
+
+
+def _sha256(payload: bytes) -> str:
+    return "sha256:" + hashlib.sha256(payload).hexdigest()

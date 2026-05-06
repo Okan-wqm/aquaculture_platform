@@ -8,12 +8,6 @@ import { NotificationChannel } from '../../database/entities/escalation-policy.e
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { RedisService } from '@aquaculture/backend-common/redis';
 
-// PROC-MEDIUM-014 closed by PR-38: UserNotificationPreferences.channelConfigs
-// is now Partial<Record<NotificationChannel, ChannelConfig>>, so each test
-// passes only the channel subset it cares about as a plain literal. The
-// makeChannelConfigs() helper that PR-36 added is no longer needed for
-// type safety.
-
 const mockRedisService = {
   get: jest.fn().mockResolvedValue(null),
   set: jest.fn().mockResolvedValue(undefined),

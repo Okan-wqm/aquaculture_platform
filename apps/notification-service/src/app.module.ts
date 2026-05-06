@@ -55,6 +55,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       cache: true,
     }),
 
+    // CIRCUIT-HIGH-005 cure: SmsService.sendSms() wraps the Twilio
+    // outbound call in the canonical CircuitBreakerService.
+    // Importing CircuitBreakerModule once registers the singleton in
+    // this service's @Global DI scope.
+    CircuitBreakerModule,
+
     // Database connection — uses the platform TypeORM factory.
     // NotificationMigrationRunnerService (provider above) executes
     // migrations at OnApplicationBootstrap; factory's migrationsRun:false
@@ -100,18 +106,22 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
          *  defense-in-depth in case a subgraph becomes directly accessible. */
         allowBatchedHttpRequests: false,
         /**
+         * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+         * migration is blocked by the Nest/Apollo peer graph.
+         * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+         * class protections must be fail-closed at runtime.
+         */
+        csrfPrevention: true,
+        /**
          * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
          * Without depth limiting, an attacker can craft a deeply nested GraphQL query
          * that causes exponential resource consumption on the server.
          */
         validationRules: [depthLimit(10)],
         /**
-         * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
-         * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
-         * When false, ApolloServerPluginLandingPageDisabled is applied instead.
-         * Disabled in production for security (no introspection exposure).
+         * 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+         * WHY: notification subgraph developer UI must not rely on deprecated Apollo Playground behavior.
          */
-        playground: configService.get('NODE_ENV') !== 'production',
         introspection: configService.get('NODE_ENV') !== 'production',
         context: ({ req }: { req: Record<string, unknown> & { headers: Record<string, string | undefined>; user?: Record<string, unknown> } }) => {
           const userPayloadHeader = req.headers['x-user-payload'];
@@ -174,6 +184,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     HealthModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    AuditedOperationModule.forRoot(),
     /**
      * SEC-DB: Tenant Row-Level Security.
      *
@@ -255,6 +267,8 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep — strip forged internal headers.
+        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

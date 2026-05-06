@@ -32,6 +32,22 @@ function makeDs(opts: {
   deleteResults?: Record<string, number>;
   auditAnonAffected?: number;
   deleteError?: Error;
+  /**
+   * COMPLIANCE-MEDIUM-004: when defined, the dataSource's
+   * `getRepository(TenantErasureAuditEntity).findOne(...)` returns
+   * this row, simulating a pre-existing erasure for the
+   * idempotency-replay test paths. Default null = no prior
+   * erasure exists.
+   */
+  existingErasureAuditRow?: {
+    tenantId: string;
+    confirmedAt: Date;
+    deletedRowsByTable: Record<string, number>;
+    totalDeleted: number;
+    auditRowsAnonymised: number;
+    requestedBy: string;
+    tableCount: number;
+  } | null;
 }) {
   const executed: string[] = [];
   const deleteAffected = (table: string): number =>
@@ -80,9 +96,21 @@ function makeDs(opts: {
   // `dataSource.transaction()`. The manager's queryRunner must
   // expose `isTransactionActive: true` because the real
   // OutboxPublisher asserts it before calling `.enqueue()`.
+  // COMPLIANCE-MEDIUM-004: the cascade now calls
+  // `mgr.insert(TenantErasureAuditEntity, ...)` to persist the
+  // erasure-audit row inside the transaction. Stub the insert
+  // method to a resolved promise; spec-side observers can
+  // assert on insertCalls if needed.
+  const insertCalls: Array<{ entity: unknown; row: unknown }> = [];
   const managerDouble = {
     createQueryBuilder,
     queryRunner: { isTransactionActive: true },
+    insert: jest.fn().mockImplementation(
+      async (entity: unknown, row: unknown) => {
+        insertCalls.push({ entity, row });
+        return { identifiers: [], generatedMaps: [], raw: [] };
+      },
+    ),
   };
   const transaction = jest
     .fn()
@@ -90,12 +118,32 @@ function makeDs(opts: {
       async <T>(cb: (mgr: typeof managerDouble) => Promise<T>): Promise<T> =>
         cb(managerDouble),
     );
+  // COMPLIANCE-MEDIUM-004: dataSource.getRepository(
+  //   TenantErasureAuditEntity).findOne(...) drives the
+  // idempotency-replay branch in confirm(). Default behavior:
+  // returns null (no prior erasure → first-call path).
+  const repoFindOne = jest
+    .fn()
+    .mockResolvedValue(opts.existingErasureAuditRow ?? null);
+  const getRepository = jest.fn().mockImplementation(() => ({
+    findOne: repoFindOne,
+  }));
   const dataSource = {
     entityMetadatas: opts.entities,
     createQueryBuilder,
     transaction,
+    getRepository,
   };
-  return { dataSource, executed, qb, auditQb, managerDouble, transaction };
+  return {
+    dataSource,
+    executed,
+    qb,
+    auditQb,
+    managerDouble,
+    transaction,
+    insertCalls,
+    repoFindOne,
+  };
 }
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -375,5 +423,173 @@ describe('TenantErasureService.hashUserId', () => {
     expect(TenantErasureService.hashUserId('alice')).not.toBe(
       TenantErasureService.hashUserId('bob'),
     );
+  });
+});
+
+/**
+ * COMPLIANCE-MEDIUM-004 — idempotency-replay specs.
+ *
+ * Pin the contract: a re-invocation on a tenantId that's already
+ * been erased returns the original ErasureResult tagged
+ * `state: 'ALREADY_PURGED'`. The cascade does NOT re-run; the
+ * TenantErased event does NOT re-emit; the audit-row INSERT
+ * does NOT re-fire (so the immutability trigger never sees
+ * a duplicate-key conflict).
+ */
+describe('TenantErasureService idempotency (COMPLIANCE-MEDIUM-004)', () => {
+  const ORIGINAL_PURGE_DATE = new Date('2026-04-15T12:00:00.000Z');
+
+  it('confirm() on an already-purged tenant returns state=ALREADY_PURGED with the original timestamps', async () => {
+    const { dataSource, executed, transaction, insertCalls } = makeDs({
+      entities: [],
+      existingErasureAuditRow: {
+        tenantId: TENANT,
+        confirmedAt: ORIGINAL_PURGE_DATE,
+        deletedRowsByTable: { batches: 7, harvest_records: 3 },
+        totalDeleted: 10,
+        auditRowsAnonymised: 25,
+        requestedBy: 'admin-original',
+        tableCount: 2,
+      },
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new TenantErasureService(dataSource as any);
+
+    // Caller submits a token that doesn't even need to be valid;
+    // the idempotency check short-circuits before token
+    // validation. (This deliberately models the operator
+    // back-forward case where the original token is no longer
+    // in memory.)
+    const result = await service.confirm(TENANT, 'irrelevant-token');
+
+    expect(result.state).toBe('ALREADY_PURGED');
+    expect(result.confirmedAt).toBe(ORIGINAL_PURGE_DATE.toISOString());
+    expect(result.totalDeleted).toBe(10);
+    expect(result.auditRowsAnonymised).toBe(25);
+    expect(result.deletedRowsByTable).toEqual({ batches: 7, harvest_records: 3 });
+
+    // Critical invariants of the idempotency contract:
+    // 1. No DELETE cascade ran.
+    expect(executed).toEqual([]);
+    // 2. No transaction was opened (the lookup runs outside the
+    //    cascade transaction; the cascade itself never starts).
+    expect(transaction).not.toHaveBeenCalled();
+    // 3. No audit-row INSERT was attempted.
+    expect(insertCalls).toEqual([]);
+  });
+
+  it('confirm() on a fresh tenant (no prior audit row) runs the cascade and persists the audit row', async () => {
+    const { dataSource, insertCalls } = makeDs({
+      entities: [],
+      existingErasureAuditRow: null,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new TenantErasureService(dataSource as any);
+    const ticket = service.initiate(TENANT, USER);
+    const result = await service.confirm(TENANT, ticket.token);
+
+    expect(result.state).toBe('PURGED');
+    // The audit row was written exactly once inside the cascade
+    // transaction, with the right tenantId.
+    expect(insertCalls.length).toBe(1);
+    const row = insertCalls[0]!.row as { tenantId: string };
+    expect(row.tenantId).toBe(TENANT);
+  });
+
+  it('confirm() pre-existing erasure row is preferred over a stale in-memory ticket (replay short-circuits ticket validation)', async () => {
+    const { dataSource, executed } = makeDs({
+      entities: [],
+      existingErasureAuditRow: {
+        tenantId: TENANT,
+        confirmedAt: ORIGINAL_PURGE_DATE,
+        deletedRowsByTable: {},
+        totalDeleted: 0,
+        auditRowsAnonymised: 0,
+        requestedBy: USER,
+        tableCount: 0,
+      },
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new TenantErasureService(dataSource as any);
+    const ticket = service.initiate(TENANT, USER);
+    // The stale in-memory ticket is still valid token-wise. With
+    // a pre-existing erasure row, the idempotency check wins and
+    // the cascade does NOT re-run.
+    const result = await service.confirm(TENANT, ticket.token);
+    expect(result.state).toBe('ALREADY_PURGED');
+    expect(executed).toEqual([]);
+  });
+});
+
+/**
+ * COMPLIANCE-HIGH-004 — legal-hold precedence specs.
+ *
+ * Pin the contract: a tenant under active legal hold MUST NOT
+ * have farm-side data deleted. The cascade is BLOCKED at the
+ * top of confirm(), the ticket is NOT consumed, and the call
+ * throws (so the operator sees the explicit refusal).
+ */
+describe('TenantErasureService legal-hold precedence (COMPLIANCE-HIGH-004)', () => {
+  it('throws when LegalHoldService.assertNoHold reports the tenant on hold; cascade does NOT run', async () => {
+    const { dataSource, executed } = makeDs({ entities: [] });
+    const legalHoldService = {
+      assertNoHold: jest.fn().mockRejectedValue(
+        new (class extends Error {
+          constructor() {
+            super('LegalHold active');
+            this.name = 'LegalHoldActiveError';
+          }
+        })(),
+      ),
+    };
+    const service = new TenantErasureService(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dataSource as any,
+      undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      legalHoldService as any,
+    );
+    const ticket = service.initiate(TENANT, USER);
+    await expect(service.confirm(TENANT, ticket.token)).rejects.toThrow(
+      /LegalHold active/i,
+    );
+    // Critical: the cascade did NOT run.
+    expect(executed).toEqual([]);
+    // Critical: the ticket is NOT consumed — the operator can
+    // retry after the legal hold is released without re-running
+    // initiate(). (The service implementation deliberately calls
+    // assertNoHold BEFORE consuming the ticket for this reason.)
+    expect(service.getPendingTicket(TENANT)).toBeDefined();
+  });
+
+  it('passes through to the cascade when no legal hold is active', async () => {
+    const { dataSource } = makeDs({ entities: [] });
+    const legalHoldService = {
+      assertNoHold: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new TenantErasureService(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dataSource as any,
+      undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      legalHoldService as any,
+    );
+    const ticket = service.initiate(TENANT, USER);
+    const result = await service.confirm(TENANT, ticket.token);
+    expect(result.state).toBe('PURGED');
+    expect(legalHoldService.assertNoHold).toHaveBeenCalledWith(
+      TENANT,
+      'tenant',
+    );
+  });
+
+  it('skips the legal-hold check when LegalHoldService is not injected (test-harness/local-dev path)', async () => {
+    const { dataSource } = makeDs({ entities: [] });
+    // No legal-hold service injected.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new TenantErasureService(dataSource as any);
+    const ticket = service.initiate(TENANT, USER);
+    const result = await service.confirm(TENANT, ticket.token);
+    expect(result.state).toBe('PURGED');
   });
 });

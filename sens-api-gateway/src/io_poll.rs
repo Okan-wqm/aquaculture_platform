@@ -2,6 +2,7 @@
 //!
 //! Runs as a spawned tokio task. Polls GPIO, Modbus, and I2C at configurable intervals.
 
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -12,7 +13,7 @@ use tracing::{debug, error, info, warn};
 use crate::AppState;
 use crate::atlas_ezo::AtlasEzoDriver;
 use crate::gpio::PinState;
-use crate::process_image::{TagQuality, TagSource, ProtocolConfig, I2cDriverType, IoType};
+use crate::process_image::{I2cDriverType, IoType, ProtocolConfig, TagQuality, TagSource};
 
 /// Payload published to MQTT io_data topic
 #[derive(Debug, Serialize)]
@@ -93,10 +94,43 @@ pub async fn io_poll_loop(state: Arc<RwLock<AppState>>) {
 }
 
 async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
-    let s = state.read().await;
+    // 2026-04-29 enterprise polling concurrency hardening:
+    // snapshot cloneable handles/config under the AppState lock, then drop the
+    // guard before any fieldbus await.
+    //
+    // What it solves: slow Modbus/GPIO/I2C calls no longer hold the global
+    // AppState read lock and block config reload, shutdown mutation, or other
+    // state writers.
+    let (
+        is_ready,
+        process_image,
+        force_registry,
+        gpio_handle,
+        modbus_handle,
+        i2c_handle,
+        alarm_manager,
+        health_state,
+    ) = {
+        let s = state.read().await;
+        (
+            s.is_activated && s.mqtt_client.is_some(),
+            s.process_image.clone(),
+            s.force_registry.clone(),
+            s.gpio_handle.clone(),
+            s.modbus_handle.clone(),
+            s.i2c_handle.clone(),
+            s.alarm_manager.clone(),
+            s.health_state.clone(),
+        )
+    };
+    #[cfg(feature = "scada-display")]
+    let scada_state = {
+        let s = state.read().await;
+        s.scada_state.clone()
+    };
 
     // Skip if not activated or no MQTT
-    if !s.is_activated || s.mqtt_client.is_none() {
+    if !is_ready {
         return Ok(());
     }
 
@@ -118,7 +152,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     }
 
     // --- GPIO reads ---
-    if let Some(ref gpio) = s.gpio_handle {
+    if let Some(ref gpio) = gpio_handle {
         let result = gpio.read_all().await;
         for pin_value in &result.values {
             // Find matching tag config for this GPIO pin
@@ -134,7 +168,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     }
 
     // --- Modbus reads (parallel per device) ---
-    if let Some(ref modbus) = s.modbus_handle {
+    if let Some(ref modbus) = modbus_handle {
         let results = modbus.read_all_parallel().await;
         // Batch 103 observability: count successful + failed
         // device reads for fleet dashboards. Each
@@ -172,7 +206,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     }
 
     // --- I2C reads (SEQUENTIAL - shared bus!) ---
-    if let Some(ref i2c) = s.i2c_handle {
+    if let Some(ref i2c) = i2c_handle {
         let ezo_driver = AtlasEzoDriver::new(i2c.clone());
 
         for cfg in &configs {
@@ -267,7 +301,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         let mut alarm_events = Vec::new();
 
         {
-            let mut mgr = s.alarm_manager.write().await;
+            let mut mgr = alarm_manager.write().await;
             for (tag_name, tag_value) in &all_tags {
                 // ARC-006: skip simulated-quality tags. Sim
                 // reads produce a stable placeholder (0.0); a
@@ -307,9 +341,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     for (name, tag) in &all_tags {
         let cfg = configs.iter().find(|c| c.tag_name == *name);
         let value = match cfg.map(|c| &c.io_type) {
-            Some(IoType::DI) | Some(IoType::DO) => {
-                serde_json::Value::Bool(tag.value != 0.0)
-            }
+            Some(IoType::DI) | Some(IoType::DO) => serde_json::Value::Bool(tag.value != 0.0),
             _ => serde_json::json!(tag.value),
         };
 
@@ -335,10 +367,11 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     // --- SCADA display broadcast (reuses all_tags snapshot) ---
     #[cfg(feature = "scada-display")]
     {
-        if let Some(ref scada_state) = s.scada_state {
+        if let Some(ref scada_state) = scada_state {
             // Existing: broadcast process-mapped sensor data
             if let Some(process) = scada_state.get_process().await {
-                let sensor_data = crate::scada_server::build_scada_sensor_data_from_tags(&all_tags, &process);
+                let sensor_data =
+                    crate::scada_server::build_scada_sensor_data_from_tags(&all_tags, &process);
                 if !sensor_data.equipment_data.is_empty() {
                     scada_state.broadcast_sensor_data(&sensor_data);
                 }
@@ -413,7 +446,9 @@ fn bytes_to_f64(data: &[u8]) -> f64 {
             let value = f32::from_be_bytes([data[0], data[1], data[2], data[3]]);
             value as f64
         }
-        8 => f64::from_be_bytes([data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]]),
+        8 => f64::from_be_bytes([
+            data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+        ]),
         _ => {
             warn!("Unexpected I2C data length: {}", data.len());
             0.0

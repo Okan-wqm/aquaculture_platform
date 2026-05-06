@@ -8,8 +8,9 @@ import {
 import { DataSource, IsNull } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { UpdateChannelCommand } from './update-channel.command';
 import { Channel, ChannelType } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
@@ -32,15 +33,11 @@ export class UpdateChannelHandler
    * Requires ADMIN+ channel role. DIRECT channels cannot be updated.
    */
   async execute(command: UpdateChannelCommand): Promise<Channel> {
-    const { userId, channelId, input } = command;
+    const { tenantId, userId, channelId, input } = command;
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       const channel = await queryRunner.manager.findOne(Channel, {
-        where: { id: channelId },
+        where: { tenantId, id: channelId },
       });
 
       if (!channel) {
@@ -57,7 +54,7 @@ export class UpdateChannelHandler
 
       // Verify actor has ADMIN+ role
       const actorMember = await queryRunner.manager.findOne(ChannelMember, {
-        where: { channelId, userId, leftAt: IsNull() },
+        where: { tenantId, channelId, userId, leftAt: IsNull() },
       });
 
       if (!actorMember) {
@@ -105,20 +102,13 @@ export class UpdateChannelHandler
 
       // Write outbox event for ChannelUpdated
       await this.outboxPublisher.enqueue({
-        ...createBaseEvent('ChannelUpdated', command.tenantId),
+        ...createBaseEvent('ChannelUpdated', tenantId),
         channelId: channel.id,
         ...changes,
       },  queryRunner.manager);
 
-      await queryRunner.commitTransaction();
-
       this.logger.log(`Channel ${channelId} updated by user ${userId}`);
       return updatedChannel;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 }

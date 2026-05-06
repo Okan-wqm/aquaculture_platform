@@ -63,6 +63,14 @@ export class SystemMetricsService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    /**
+     * CIRCUIT-LOW-001 cure: every cross-service health-check fetch
+     * runs through the canonical breaker. fail-mode = fail-OPEN-degraded
+     * (an observability gap is preferable to a cascade — a downstream
+     * service crashing should not propagate into admin-api's
+     * dashboard rendering path).
+     */
+    private readonly circuitBreaker: CircuitBreakerService,
   ) {}
 
   /**
@@ -240,26 +248,55 @@ export class SystemMetricsService {
     for (const endpoint of serviceEndpoints) {
       const startTime = Date.now();
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        // SECURITY (HIGH-003): admin-api scrapes service /metrics endpoints
-        // — an internal cross-service path. Empty tenantId is the explicit
-        // non-tenant declaration; HMAC keeps the platform invariant intact.
-        const response = await fetch(endpoint.url, {
-          signal: controller.signal,
-          headers: buildSignedInternalHeaders({
-            serviceName: 'admin-api',
-            tenantId: '',
-          }),
-        }).catch(() => null);
-        clearTimeout(timeout);
+        // CIRCUIT-LOW-001 cure: wrap the cross-service health-check
+        // fetch in the canonical breaker. fail-OPEN-degraded means
+        // an OPEN breaker returns the same shape as a non-2xx
+        // response — the dashboard sees the service as 'degraded'
+        // without consuming further fetch latency budget.
+        const response = await this.circuitBreaker.execute<Response | null>({
+          serviceName: `admin-api-health-check:${endpoint.name}`,
+          // tenantId='*' (global) — health checks are infrastructure-
+          // level, not tenant-scoped.
+          tenantId: '*',
+          options: {
+            ...DEFAULT_BREAKER_OPTIONS,
+            failureMode: 'fail-open-degraded',
+          },
+          fn: async () => {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 3000);
+            try {
+              // SECURITY (HIGH-003): admin-api scrapes service /metrics
+              // endpoints — an internal cross-service path. Empty
+              // tenantId is the explicit non-tenant declaration; HMAC
+              // keeps the platform invariant intact.
+              return await fetch(endpoint.url, {
+                signal: controller.signal,
+                headers: buildSignedInternalHeaders({
+                  serviceName: 'admin-api',
+                  tenantId: '',
+                }),
+              });
+            } catch {
+              // Network-error path: the breaker counts this as a
+              // failure (we re-throw to trigger that), then the
+              // fallback returns null so the loop moves on.
+              throw new Error(`fetch failed for ${endpoint.name}`);
+            } finally {
+              clearTimeout(timeout);
+            }
+          },
+          fallback: () => null,
+        });
 
         services.push({
           name: endpoint.name,
           status: response?.ok ? 'healthy' : 'degraded',
           responseTime: Date.now() - startTime,
           lastCheck: new Date(),
-          details: response ? { statusCode: response.status } : { error: 'unreachable' },
+          details: response
+            ? { statusCode: response.status }
+            : { error: 'unreachable' },
         });
       } catch {
         services.push({

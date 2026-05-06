@@ -30,11 +30,12 @@ COPY tsconfig*.json ./
 # -----------------------------------------------------------------------------
 FROM base AS deps
 
-# Install all dependencies (including devDependencies for build)
-# Skip prepare script (husky) in Docker
-# Use npm ci with BuildKit cache mount for faster subsequent builds
+# Install all dependencies (including devDependencies for build).
+# 2026-04-30: Keep Docker dependency resolution peer-clean like CI.
+# WHY: Apollo Server / NestJS and TypeORM supply-chain upgrades must fail at
+# install time instead of being bypassed by --legacy-peer-deps.
 RUN --mount=type=cache,target=/root/.npm,sharing=shared \
-    npm ci --legacy-peer-deps --ignore-scripts --no-audit
+    npm ci --ignore-scripts --no-audit
 
 # -----------------------------------------------------------------------------
 # Stage 3: Builder - Compile TypeScript
@@ -63,10 +64,10 @@ RUN bash tools/build/build-service.sh ${SERVICE_NAME}
 # -----------------------------------------------------------------------------
 FROM base AS prod-deps
 
-# Skip prepare script (husky) in Docker
-# Production dependencies only with BuildKit cache mount
+# Skip prepare script (husky) in Docker.
+# Production dependencies only with BuildKit cache mount and strict peers.
 RUN --mount=type=cache,target=/root/.npm,sharing=shared \
-    npm ci --legacy-peer-deps --omit=dev --ignore-scripts --no-audit
+    npm ci --omit=dev --ignore-scripts --no-audit
 
 # -----------------------------------------------------------------------------
 # Stage 5: Production image

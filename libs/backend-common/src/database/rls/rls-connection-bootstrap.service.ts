@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { getRequestContext } from '../../logging/request-context';
 import { RLS_BYPASS_GUC, RLS_TENANT_GUC } from './apply-tenant-rls.helper';
+import { getPgPoolFromDataSource } from '../pg-pool-from-data-source.util';
 
 /**
  * RlsConnectionBootstrap
@@ -129,46 +130,15 @@ export function createRlsConnectionBootstrap(serviceName: string) {
 
     /** @internal */
     patchConnectionPool(): void {
-      // Tier-3 runtime guard for the RlsModule.forPoolService contract.
-      //
-      // The compile-time API split (forPoolService vs forBypassOnly) makes
-      // the common "I forgot TypeOrmModule" mistake impossible by
-      // construction. However, NestJS DI cannot statically prove the
-      // DataSource the container resolves is a usable pg pool — it could
-      // be a mocked/stubbed DataSource from a test bootstrap, a misconfigured
-      // TypeOrmModule that resolved to a non-postgres driver, or a proxy
-      // object. When ANY of those happen we fail LOUD here rather than
-      // let the service run without RLS GUC propagation (which would
-      // silently deny every query against an RLS-enabled table).
-      if (!this.dataSource) {
-        throw new Error(
-          `RlsConnectionBootstrap[${serviceName}]: DataSource injection ` +
-            `resolved to a falsy value. The service imported ` +
-            `RlsModule.forPoolService() but its imports graph does not ` +
-            `provide a usable TypeORM DataSource. ` +
-            `REMEDIATION: add TypeOrmModule.forRoot(...) to the module's imports ` +
-            `OR switch to RlsModule.forBypassOnly() if the service does not ` +
-            `own a pg pool.`,
-        );
-      }
-
-      // TypeORM exposes the underlying pg Pool via `driver.master`. Same
-      // access path as TenantConnectionBootstrap; if that ever changes both
-      // bootstraps need updating in lockstep.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const driver = this.dataSource.driver as any;
-      const pool = driver?.master;
-
-      if (!pool || typeof pool.connect !== 'function') {
-        throw new Error(
-          `RlsConnectionBootstrap[${serviceName}]: DataSource driver does not ` +
-            `expose a pg Pool (driver.master is ${typeof pool}). ` +
-            `This indicates either a non-postgres DataSource or a DataSource ` +
-            `that has not been initialised. ` +
-            `REMEDIATION: verify TypeOrmModule.forRoot(...) uses type: 'postgres' ` +
-            `and that the DataSource has connected successfully by the time ` +
-            `OnModuleInit fires. If the service does not own a pg pool at all, ` +
-            `switch to RlsModule.forBypassOnly().`,
+      // DATA-LOW-001 cure: TypeORM driver-shape cast lives once
+      // in libs/backend-common/src/database/pg-pool-from-data-source.util.ts.
+      // Sister bootstrap (TenantConnectionBootstrap) uses the
+      // same util — both stay in lockstep automatically.
+      const pool = getPgPoolFromDataSource(this.dataSource);
+      if (!pool) {
+        this.logger.error(
+          'Cannot patch connection pool — pg Pool not found on DataSource driver. ' +
+            'RLS GUC propagation is INACTIVE — tenant isolation policies will deny all queries!',
         );
       }
 
@@ -234,7 +204,7 @@ export function createRlsConnectionBootstrap(serviceName: string) {
 
           return client;
         });
-      };
+      } as unknown as typeof pool.connect;
 
       this.logger.log(
         'PostgreSQL connection pool patched for RLS GUC propagation ' +

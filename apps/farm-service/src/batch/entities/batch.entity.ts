@@ -73,7 +73,7 @@ export type {
 
 @ObjectType()
 @Directive('@key(fields: "id")')
-@Entity('batches_v2', { schema: 'farm' })
+@Entity('batches_v2')
 @Index(['tenantId', 'batchNumber'], { unique: true })
 @Index(['tenantId', 'speciesId'])
 @Index(['tenantId', 'status'])

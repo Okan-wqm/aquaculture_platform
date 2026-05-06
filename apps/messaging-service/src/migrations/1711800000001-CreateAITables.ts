@@ -170,6 +170,41 @@ export class CreateAITables1711800000001 implements MigrationInterface {
         ADD COLUMN IF NOT EXISTS "embedding" vector(384);
     `);
 
+    // Existing tenant schemas can carry a dimensionless `vector` column if a
+    // legacy clone path copied only the pgvector base type. Normalize that
+    // shape before creating the HNSW index, because vector_cosine_ops requires
+    // a fixed dimension.
+    await queryRunner.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = '${s}'
+             AND c.relname = 'messages'
+             AND a.attname = 'embedding'
+             AND NOT a.attisdropped
+             AND format_type(a.atttypid, a.atttypmod) <> 'vector(384)'
+        ) THEN
+          IF EXISTS (
+            SELECT 1
+              FROM "${s}"."messages"
+             WHERE "embedding" IS NOT NULL
+               AND vector_dims("embedding") <> 384
+             LIMIT 1
+          ) THEN
+            RAISE EXCEPTION 'messages.embedding contains non-384-dimension vectors in schema ${s}';
+          END IF;
+
+          ALTER TABLE "${s}"."messages"
+            ALTER COLUMN "embedding" TYPE vector(384)
+            USING "embedding"::vector(384);
+        END IF;
+      END $$;
+    `);
+
     // ------------------------------------------------------------------
     // 7. HNSW index on embedding column for fast cosine similarity search
     //    Parameters: m=16 (connections per node), ef_construction=200

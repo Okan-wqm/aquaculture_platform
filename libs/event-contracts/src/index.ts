@@ -1,6 +1,10 @@
 // Base event contract and shared types
 export * from './base-event';
 
+// Cross-service shared enums (DBR-HIGH-003 cure — single source of truth
+// for values that are persisted to the DB and round-tripped via events).
+export * from './enums/tenant-plan.enum';
+
 // Domain events by module
 export * from './auth-events';
 export * from './tenant-events';
@@ -18,8 +22,15 @@ export * from './water-quality-events';
 export * from './messaging-events';
 export * from './storage-events';
 
+// Automation domain events (sensor-service compiler / programming).
+// ORPHAN-EVENT-CONTRACT-015..018 cure.
+export * from './automation-events';
+
 // Security events (auth failures, rate limit, CSP violations, etc.)
 export * from './security';
+
+// Compliance events (legal-hold lifecycle: applied/released/expired).
+export * from './compliance-events';
 
 // Schema-migration events (Phase 6 NATS event-bridge). Emitted by each
 // service's MigrationRunnerService via NatsMigrationEventSink; the
@@ -53,6 +64,8 @@ import type { WaterQualityEvent } from './water-quality-events';
 import type { MessagingEvent } from './messaging-events';
 import type { StorageEvent } from './storage-events';
 import type { SecurityEvent } from './security';
+import type { ComplianceEvent } from './compliance-events';
+import type { AutomationEvent } from './automation-events';
 
 /**
  * Union type for all platform events.
@@ -73,4 +86,6 @@ export type AnyPlatformEvent =
   | WaterQualityEvent
   | MessagingEvent
   | StorageEvent
-  | SecurityEvent;
+  | SecurityEvent
+  | ComplianceEvent
+  | AutomationEvent;

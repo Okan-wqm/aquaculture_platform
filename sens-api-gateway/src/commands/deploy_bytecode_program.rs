@@ -228,6 +228,61 @@ impl CommandHandler {
                     report.replaced_existing
                 );
 
+                // PR-195 Batch #20 (closes ORPHAN-D3-BOOT-ORDER-002
+                // second half) — option-3 first-program-deploy
+                // migration discipline: before persisting the
+                // deploy to SQLCipher, ensure program-bound
+                // consumer handles (bytecode_registry_store +
+                // retain_persistence) are opened under the
+                // current deploy's program_sha. Boot-time init
+                // for v2 manifest hosts left these None
+                // (program_sha unavailable at boot per Batch
+                // #19); the deploy is the natural moment when
+                // the SHA becomes available.
+                //
+                // The program_artifact_sha256 is the SHA-256
+                // of the canonical bytecode bytes — same value
+                // the migration ceremony would use, ensuring
+                // the keystore yields the same v2 key.
+                let store = match registry.get(&report.program_id).await {
+                    Some(entry) => match crate::scripting::bytecode_sig::canonical_bytes(
+                        &entry.bytecode,
+                    ) {
+                        Ok(canonical) => {
+                            use sha2::{Digest, Sha256};
+                            let mut h = Sha256::new();
+                            h.update(&canonical);
+                            let program_sha = h.finalize().to_vec();
+                            let mut state_w = self.state.write().await;
+                            state_w
+                                .try_open_program_bound_dbs_under_program_sha(
+                                    program_sha,
+                                )
+                                .await;
+                            // Refresh the store handle —
+                            // try_open_program_bound_dbs_*
+                            // may have populated it from
+                            // None to Some.
+                            state_w.bytecode_registry_store.clone()
+                        }
+                        Err(e) => {
+                            warn!(
+                                "deploy_bytecode_program: canonical_bytes failed for {}: {}; skipping option-3 post-deploy-open + falling back to pre-deploy store handle.",
+                                sanitize_for_log(&report.program_id),
+                                e
+                            );
+                            store
+                        }
+                    },
+                    None => {
+                        // Rare: registry insert succeeded but
+                        // entry vanished. Skip post-deploy-open;
+                        // save-back below will fail
+                        // gracefully on the same lookup.
+                        store
+                    }
+                };
+
                 // Batch 169: persist to SQLCipher store so
                 // the deploy survives reboot. Pulled-back
                 // entry read from the in-memory registry

@@ -1,11 +1,77 @@
 import { Injectable, Logger, ForbiddenException, Inject, Optional } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, EntityManager } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository, IsNull, EntityManager } from 'typeorm';
 import Redis from 'ioredis';
 
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { LegalHold } from '../entities/legal-hold.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
+
+/**
+ * Thrown when the legal-hold registry cannot be queried within
+ * the configured deadline (LEGAL-MEDIUM-001 cure).
+ *
+ * # Why a distinct error class
+ *
+ * Callers (retention sweeps, GDPR cascades, partition drops)
+ * MUST treat this as "held" — the spec's fail-CLOSED posture
+ * means destructive ops abort when the hold registry is
+ * unavailable. A generic Error would let a careless catch
+ * branch convert "registry unreachable" into "no hold" by
+ * accident; the distinct name makes the failure mode visible
+ * at every callsite.
+ *
+ * The agent spec ties this to a 500 ms deadline: registry-
+ * unavailable longer than that produces this error. Operators
+ * see the class in stack traces + audit logs and know
+ * "the destructive op did NOT proceed because we couldn't
+ * confirm hold state."
+ */
+export class LegalHoldCheckUnavailable extends Error {
+  constructor(message: string, public readonly tenantId: string, public readonly channelId: string | null) {
+    super(message);
+    this.name = 'LegalHoldCheckUnavailable';
+  }
+}
+
+/**
+ * Deadline (ms) for the registry query. Per the legal-hold-auditor
+ * agent spec: "Fail-CLOSED: if registry lookup fails (DB error,
+ * timeout > 500ms), action BLOCKED with LegalHoldCheckUnavailable
+ * error".
+ *
+ * 500 ms is the spec-anchored value; operators should not lower
+ * it (would falsely fail on healthy DB under load) and should
+ * not raise it without a corresponding architecture change
+ * (would let destructive ops sit blocked longer than the spec
+ * permits).
+ */
+const LEGAL_HOLD_CHECK_DEADLINE_MS = 500;
+
+/**
+ * Half-open window (ms) for the cache-invalidation circuit breaker.
+ * Once tripped by an invalidation failure, the breaker stays open
+ * for this duration; after that, the next successful invalidation
+ * (or read-through path) resets it.
+ *
+ * # Why 30 seconds
+ *
+ * Long enough that transient Redis blips (failover, reconfigure)
+ * resolve before we keep paying the bypass cost; short enough that
+ * a fixed Redis quickly returns to cached fast-path. The agent
+ * spec mandates "0-TTL until Redis recovers" — this is the recovery
+ * detection window.
+ */
+const LEGAL_HOLD_CACHE_BREAKER_RESET_MS = 30_000;
+
+/**
+ * Minimum length (chars) for activate / release reason fields.
+ * Per the legal-hold-auditor agent spec § "Override protocol": "explicit
+ * reason (≥ 50 chars)". Forces requesters to surface legal-matter scope +
+ * originating party rather than a one-word justification (LEGAL-MEDIUM-002
+ * cure).
+ */
+const LEGAL_HOLD_MIN_REASON_CHARS = 50;
 
 /**
  * Manages legal holds on messaging data.
@@ -21,12 +87,47 @@ import { REDIS_CLIENT } from '../../shared/redis.provider';
 export class LegalHoldService {
   private readonly logger = new Logger(LegalHoldService.name);
 
+  /**
+   * Process-local circuit breaker for cache invalidation (LEGAL-MEDIUM-001 cure).
+   *
+   * Tripped when invalidateLegalHoldCache() catches a Redis error.
+   * While tripped, isCacheDegraded() returns true → cache READERS
+   * (when wired in Phase 9.4 platform-kernel migration) MUST treat
+   * the cache as cold and re-query the DB. After the reset window
+   * elapses, the next successful invalidation (or explicit
+   * resetCacheBreaker() call by the cache reader) clears it.
+   *
+   * Why a process-local breaker, not a Redis-key heartbeat:
+   *   The failure mode under question is "Redis itself unreachable".
+   *   A Redis-key heartbeat would be unreachable for the same reason.
+   *   A process-local boolean survives Redis outage and is checked
+   *   on every read path.
+   */
+  private cacheBreakerOpenedAt: number | null = null;
+
   constructor(
     @InjectRepository(LegalHold)
     private readonly holdRepo: Repository<LegalHold>,
     @Optional() @Inject(REDIS_CLIENT)
     private readonly redis?: Redis,
+    @Optional() @InjectDataSource()
+    private readonly dataSource?: DataSource,
   ) {}
+
+  /**
+   * Returns true if cache invalidation has recently failed and
+   * cache reads should bypass to the DB. Auto-resets after
+   * LEGAL_HOLD_CACHE_BREAKER_RESET_MS once no further failures occur.
+   */
+  isCacheDegraded(): boolean {
+    if (this.cacheBreakerOpenedAt === null) return false;
+    const elapsed = Date.now() - this.cacheBreakerOpenedAt;
+    if (elapsed > LEGAL_HOLD_CACHE_BREAKER_RESET_MS) {
+      this.cacheBreakerOpenedAt = null;
+      return false;
+    }
+    return true;
+  }
 
   /**
    * Activate a legal hold on a tenant or specific channel.
@@ -121,6 +222,30 @@ export class LegalHoldService {
   /**
    * Release (deactivate) an existing legal hold.
    *
+   * # Dual-approver protocol (LEGAL-MEDIUM-002 cure)
+   *
+   * Pre-cure release was a single-identity operation: any SUPER_ADMIN
+   * with the hold's id could end the hold. The agent spec mandates
+   * "Override protocol: requires ALL of: SUPER_ADMIN role + MFA step-up
+   * (≤5min) + explicit reason (≥50 chars) + dual-approver (second
+   * SUPER_ADMIN click-through)".
+   *
+   * Post-cure release requires:
+   *   - userId  → the SUPER_ADMIN actually committing the release
+   *   - approverId → a SECOND SUPER_ADMIN that countersigned
+   *   - releaseReason ≥ 50 chars
+   *   - userId !== approverId (no self-approval)
+   *
+   * The DB has CHECK constraint `chk_legal_hold_no_self_approval`
+   * pinning the same invariant at schema level so a code regression
+   * cannot leak around it. The MFA step-up is wired via auth-service
+   * claims (the auth-security-expert follow-on).
+   *
+   * @param holdId Hold to release.
+   * @param tenantId Tenant scope (lookup is keyed on it — prevents cross-tenant release).
+   * @param userId The releaser (must equal an authenticated SUPER_ADMIN).
+   * @param approverId The countersigning second SUPER_ADMIN. MUST differ from userId.
+   * @param releaseReason ≥ 50 chars justification recorded on the row.
    * @param manager Optional EntityManager for transactional callers (same rationale as activate).
    */
   async release(
@@ -149,6 +274,8 @@ export class LegalHoldService {
 
     hold.isActive = false;
     hold.releasedBy = userId;
+    hold.releasedByApprover = approverId;
+    hold.releaseReason = releaseReason;
     hold.releasedAt = new Date();
     const saved = await repo.save(hold);
 
@@ -164,22 +291,87 @@ export class LegalHoldService {
    * Check whether a tenant or specific channel is under active legal hold.
    *
    * Used by deletion, anonymisation, and retention cleanup handlers.
+   *
+   * # Fail-CLOSED posture (LEGAL-MEDIUM-001 cure)
+   *
+   * Each registry query is wrapped in a 500 ms deadline race. If the
+   * deadline expires (or the query rejects), this method THROWS
+   * LegalHoldCheckUnavailable rather than returning false. Callers
+   * MUST allow that throw to propagate up to the destructive op
+   * (delete/anonymise/drop_chunks); a generic catch that converts
+   * "registry unreachable" into "no hold" would defeat the
+   * legal-hold guarantee.
+   *
+   * Why throw instead of return-true:
+   *   - true means "hold present" — overloads the same return value
+   *     with two different operational meanings (real hold vs.
+   *     registry-down).
+   *   - The distinct exception class makes the failure mode visible
+   *     in stack traces, audit logs, and metrics; operators can
+   *     alert on registry-down independently of legitimate holds.
    */
   async isUnderLegalHold(
     tenantId: string,
     channelId: string | null,
   ): Promise<boolean> {
+    const deadline = <T>(p: Promise<T>): Promise<T> => {
+      let timer: NodeJS.Timeout | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new LegalHoldCheckUnavailable(
+              `Hold registry query exceeded ${LEGAL_HOLD_CHECK_DEADLINE_MS}ms deadline (tenant=${tenantId}, channel=${channelId ?? 'all'})`,
+              tenantId,
+              channelId,
+            ),
+          );
+        }, LEGAL_HOLD_CHECK_DEADLINE_MS);
+        // unref so the timer never holds the event loop open in tests
+        timer?.unref?.();
+      });
+      return Promise.race([p, timeout]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
+    };
+
     // Check tenant-wide hold first
-    const tenantHold = await this.holdRepo.findOne({
-      where: { tenantId, channelId: IsNull(), isActive: true },
-    });
+    let tenantHold: LegalHold | null;
+    try {
+      tenantHold = await deadline(
+        this.holdRepo.findOne({
+          where: { tenantId, channelId: IsNull(), isActive: true },
+        }),
+      );
+    } catch (err: unknown) {
+      if (err instanceof LegalHoldCheckUnavailable) throw err;
+      // Non-deadline DB errors are also fail-CLOSED per agent spec.
+      const message = err instanceof Error ? err.message : String(err);
+      throw new LegalHoldCheckUnavailable(
+        `Hold registry query failed: ${message}`,
+        tenantId,
+        channelId,
+      );
+    }
     if (tenantHold && !this.isExpired(tenantHold)) return true;
 
     // If a specific channel is requested, also check channel-level hold
     if (channelId) {
-      const channelHold = await this.holdRepo.findOne({
-        where: { tenantId, channelId, isActive: true },
-      });
+      let channelHold: LegalHold | null;
+      try {
+        channelHold = await deadline(
+          this.holdRepo.findOne({
+            where: { tenantId, channelId, isActive: true },
+          }),
+        );
+      } catch (err: unknown) {
+        if (err instanceof LegalHoldCheckUnavailable) throw err;
+        const message = err instanceof Error ? err.message : String(err);
+        throw new LegalHoldCheckUnavailable(
+          `Hold registry query failed: ${message}`,
+          tenantId,
+          channelId,
+        );
+      }
       if (channelHold && !this.isExpired(channelHold)) return true;
     }
 
@@ -206,10 +398,18 @@ export class LegalHoldService {
    * O(1) query — returns only the channelId column, not full hold records.
    */
   async getHeldChannelIds(tenantId: string): Promise<string[]> {
-    const holds = await this.holdRepo.find({
-      where: { tenantId, isActive: true },
-      select: ['channelId'],
-    });
+    const holds = this.dataSource
+      ? await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+          tenantManagerRepo(queryRunner.manager, LegalHold, tenantId).find({
+            where: { tenantId, isActive: true },
+            select: ['channelId'],
+          }),
+        )
+      : await this.holdRepo.find({
+          where: { tenantId, isActive: true },
+          select: ['channelId'],
+        });
+
     return holds
       .filter((h) => h.channelId !== null)
       .map((h) => h.channelId as string);
@@ -219,16 +419,31 @@ export class LegalHoldService {
    * Get all legal holds for a tenant (active and released).
    */
   async getHolds(tenantId: string): Promise<LegalHold[]> {
-    return this.holdRepo.find({
-      where: { tenantId },
-      order: { startedAt: 'DESC' },
-    });
+    if (this.dataSource) {
+      return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+        tenantManagerRepo(queryRunner.manager, LegalHold, tenantId).find({
+          where: { tenantId },
+          order: { startedAt: 'DESC' },
+        }),
+      );
+    }
+
+    return this.holdRepo.find({ where: { tenantId }, order: { startedAt: 'DESC' } });
   }
 
   /**
    * Get only active legal holds for a tenant.
    */
   async getActiveHolds(tenantId: string): Promise<LegalHold[]> {
+    if (this.dataSource) {
+      return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+        tenantManagerRepo(queryRunner.manager, LegalHold, tenantId).find({
+          where: { tenantId, isActive: true },
+          order: { startedAt: 'DESC' },
+        }),
+      );
+    }
+
     return this.holdRepo.find({
       where: { tenantId, isActive: true },
       order: { startedAt: 'DESC' },
@@ -260,8 +475,15 @@ export class LegalHoldService {
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Legal hold cache invalidation failed: ${message}`);
-      // Non-fatal — cache will expire naturally via TTL
+      // LEGAL-MEDIUM-001: trip the process-local breaker so cache READERS
+      // skip the cache and query the DB until Redis recovers. Letting the
+      // entry expire naturally via TTL would leave a destructive-op window
+      // where stale "no-hold" cache convinced callers to delete data that
+      // had just been placed under hold.
+      this.cacheBreakerOpenedAt = Date.now();
+      this.logger.warn(
+        `Legal hold cache invalidation failed (breaker OPEN, cache reads will bypass): ${message}`,
+      );
     }
   }
 }

@@ -215,7 +215,9 @@ mod tests {
             policy_version: 1,
             two_person_integrity_verified: false,
             action: AuditAction::TagRead,
-            resource: AuditResource::Tag { name: "pond3_temp".to_string() },
+            resource: AuditResource::Tag {
+                name: "pond3_temp".to_string(),
+            },
             outcome: AuditOutcome::Success,
             detail: "".to_string(),
         }
@@ -258,8 +260,8 @@ mod tests {
     #[test]
     fn first_entry_uses_zero_prev_hmac_and_sequence_one() {
         let e = canned_entry();
-        let appended = append_entry(PrevHmac::ZERO, 0, e.clone(), mock_hmac(0x01))
-            .expect("first append ok");
+        let appended =
+            append_entry(PrevHmac::ZERO, 0, e.clone(), mock_hmac(0x01)).expect("first append ok");
         assert_eq!(appended.sequence, 1);
         assert_eq!(appended.prev_hmac, PrevHmac::ZERO);
         assert_eq!(appended.entry, e);
@@ -269,13 +271,17 @@ mod tests {
     /// WHY: Second append links to first via current->prev roll-forward.
     #[test]
     fn second_entry_links_to_first_via_current_to_prev() {
-        let first = append_entry(PrevHmac::ZERO, 0, canned_entry(), mock_hmac(0x01))
-            .expect("first ok");
+        let first =
+            append_entry(PrevHmac::ZERO, 0, canned_entry(), mock_hmac(0x01)).expect("first ok");
         let mut e2 = canned_entry();
         e2.correlation_id = "cmd-uuid-xyz".to_string();
-        let second =
-            append_entry(first.current_hmac.to_prev(), first.sequence, e2, mock_hmac(0x02))
-                .expect("second ok");
+        let second = append_entry(
+            first.current_hmac.to_prev(),
+            first.sequence,
+            e2,
+            mock_hmac(0x02),
+        )
+        .expect("second ok");
         assert_eq!(second.sequence, 2);
         assert_eq!(second.prev_hmac, first.current_hmac.to_prev());
         assert_eq!(second.current_hmac.as_bytes()[0], 0x02);
@@ -301,8 +307,7 @@ mod tests {
     fn canonical_bytes_error_propagates_into_chain_error() {
         let mut e = canned_entry();
         e.timestamp_unix_secs = -1;
-        let err = append_entry(PrevHmac::ZERO, 0, e, mock_hmac(0x01))
-            .expect_err("negative ts");
+        let err = append_entry(PrevHmac::ZERO, 0, e, mock_hmac(0x01)).expect_err("negative ts");
         match err {
             HmacChainError::EntryCanonicalBytesFailed(inner) => {
                 assert_eq!(inner, AuditEntryCanonicalBytesError::NegativeTimestamp);
@@ -329,10 +334,9 @@ mod tests {
     #[test]
     fn different_prev_hmac_produces_different_current_hmac() {
         let e = canned_entry();
-        let a = append_entry(PrevHmac::ZERO, 0, e.clone(), mock_hmac(0x42))
-            .expect("ok a");
-        let b = append_entry(PrevHmac::from_bytes([0xffu8; 32]), 0, e, mock_hmac(0x42))
-            .expect("ok b");
+        let a = append_entry(PrevHmac::ZERO, 0, e.clone(), mock_hmac(0x42)).expect("ok a");
+        let b =
+            append_entry(PrevHmac::from_bytes([0xffu8; 32]), 0, e, mock_hmac(0x42)).expect("ok b");
         assert_ne!(a.current_hmac, b.current_hmac);
     }
 
@@ -353,8 +357,7 @@ mod tests {
     /// WHY: JSON serde roundtrip for persistence.
     #[test]
     fn hmac_chain_entry_json_roundtrip() {
-        let entry = append_entry(PrevHmac::ZERO, 0, canned_entry(), mock_hmac(0x01))
-            .expect("ok");
+        let entry = append_entry(PrevHmac::ZERO, 0, canned_entry(), mock_hmac(0x01)).expect("ok");
         let json = serde_json::to_string(&entry).expect("serialize");
         let back: HmacChainEntry = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, entry);
@@ -363,7 +366,10 @@ mod tests {
     /// WHY: HmacChainError Display format — audit-verify CLI surface.
     #[test]
     fn hmac_chain_error_display_snake_case() {
-        assert_eq!(format!("{}", HmacChainError::SequenceOverflow), "sequence_overflow");
+        assert_eq!(
+            format!("{}", HmacChainError::SequenceOverflow),
+            "sequence_overflow"
+        );
         assert_eq!(
             format!("{}", HmacChainError::HmacComputationFailed),
             "hmac_computation_failed"
@@ -402,8 +408,7 @@ mod tests {
     fn tamper_e1_detail_invalidates_e2_prev_hmac_link() {
         let mut e1 = canned_entry();
         e1.detail = "original".to_string();
-        let chain_e1 = append_entry(PrevHmac::ZERO, 0, e1.clone(), mock_hmac(0x10))
-            .expect("e1 ok");
+        let chain_e1 = append_entry(PrevHmac::ZERO, 0, e1.clone(), mock_hmac(0x10)).expect("e1 ok");
 
         let mut e2 = canned_entry();
         e2.correlation_id = "cmd-uuid-e2".to_string();
@@ -442,8 +447,7 @@ mod tests {
     #[test]
     fn hmac_chain_entry_accessors_return_constructed_values() {
         let e = canned_entry();
-        let chain =
-            append_entry(PrevHmac::ZERO, 0, e.clone(), mock_hmac(0x33)).expect("ok");
+        let chain = append_entry(PrevHmac::ZERO, 0, e.clone(), mock_hmac(0x33)).expect("ok");
         assert_eq!(chain.sequence(), 1);
         assert_eq!(chain.prev_hmac(), PrevHmac::ZERO);
         assert_eq!(chain.current_hmac().as_bytes()[0], 0x33);

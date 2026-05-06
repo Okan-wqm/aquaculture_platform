@@ -181,6 +181,13 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
        *  The gateway already blocks batching, but subgraphs must also enforce this as
        *  defense-in-depth in case a subgraph becomes directly accessible. */
       allowBatchedHttpRequests: false,
+      /**
+       * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+       * migration is blocked by the Nest/Apollo peer graph.
+       * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+       * class protections must be fail-closed at runtime.
+       */
+      csrfPrevention: true,
       buildSchemaOptions: {
         orphanedTypes: [
           ContactInfo,
@@ -233,11 +240,14 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
         }
         return formattedError;
       },
-      playground: process.env['NODE_ENV'] !== 'production',
+      // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+      // WHY: HR subgraph developer UI must not rely on deprecated Apollo Playground behavior.
       introspection: process.env['NODE_ENV'] !== 'production',
       context: ({ req }: { req: Request }) => ({ req }),
     }),
     CqrsModule.forRoot(),
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    AuditedOperationModule.forRoot(),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
     // NATS Event Bus for cross-service event publishing
@@ -337,6 +347,9 @@ export class AppModule implements NestModule {
     // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep — strip forged internal headers when the
+        // request lacks a valid x-service-identity HMAC.
+        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

@@ -25,10 +25,10 @@
 //! └──────────────┘                 └───────────────┘
 //! ```
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, watch, RwLock};
+use tokio::sync::{RwLock, broadcast, watch};
 use tracing::{debug, info, warn};
 
 use crate::config::MqttFailoverConfig;
@@ -546,11 +546,7 @@ mod tests {
     #[tokio::test]
     async fn test_failover_manager_creation() {
         let config = test_config();
-        let (manager, _rx) = FailoverManager::new(
-            "primary.example.com".to_string(),
-            8883,
-            config,
-        );
+        let (manager, _rx) = FailoverManager::new("primary.example.com".to_string(), 8883, config);
 
         assert!(manager.is_enabled());
         assert_eq!(manager.get_state().await, FailoverState::PrimaryActive);
@@ -565,11 +561,7 @@ mod tests {
             backup_broker: None,
             ..Default::default()
         };
-        let (manager, _rx) = FailoverManager::new(
-            "primary.example.com".to_string(),
-            8883,
-            config,
-        );
+        let (manager, _rx) = FailoverManager::new("primary.example.com".to_string(), 8883, config);
 
         assert!(!manager.is_enabled());
     }
@@ -577,11 +569,7 @@ mod tests {
     #[tokio::test]
     async fn test_failure_counting() {
         let config = test_config();
-        let (manager, _rx) = FailoverManager::new(
-            "primary.example.com".to_string(),
-            8883,
-            config,
-        );
+        let (manager, _rx) = FailoverManager::new("primary.example.com".to_string(), 8883, config);
 
         // First two failures shouldn't trigger failover
         assert!(!manager.record_failure().await);
@@ -598,11 +586,7 @@ mod tests {
     #[tokio::test]
     async fn test_success_resets_failures() {
         let config = test_config();
-        let (manager, _rx) = FailoverManager::new(
-            "primary.example.com".to_string(),
-            8883,
-            config,
-        );
+        let (manager, _rx) = FailoverManager::new("primary.example.com".to_string(), 8883, config);
 
         manager.record_failure().await;
         manager.record_failure().await;
@@ -615,11 +599,8 @@ mod tests {
     #[tokio::test]
     async fn test_state_transitions() {
         let config = test_config();
-        let (manager, mut rx) = FailoverManager::new(
-            "primary.example.com".to_string(),
-            8883,
-            config,
-        );
+        let (manager, mut rx) =
+            FailoverManager::new("primary.example.com".to_string(), 8883, config);
 
         // Initial state
         assert_eq!(manager.get_state().await, FailoverState::PrimaryActive);
@@ -638,11 +619,7 @@ mod tests {
     #[tokio::test]
     async fn test_status_report() {
         let config = test_config();
-        let (manager, _rx) = FailoverManager::new(
-            "primary.example.com".to_string(),
-            8883,
-            config,
-        );
+        let (manager, _rx) = FailoverManager::new("primary.example.com".to_string(), 8883, config);
 
         let report = manager.get_status_report().await;
 

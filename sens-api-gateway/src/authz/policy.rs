@@ -363,7 +363,10 @@ mod tests {
             42,
             SystemTime::UNIX_EPOCH,
         );
-        let decision = engine.authorize(req).await.expect("deny-all returns Ok(Deny)");
+        let decision = engine
+            .authorize(req)
+            .await
+            .expect("deny-all returns Ok(Deny)");
         assert!(matches!(
             decision,
             AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted)
@@ -373,7 +376,10 @@ mod tests {
 
         // reload on deny-all always errors with ManifestUnavailable — this is
         // the expected "we have no manifest" signal for the supervisor.
-        let err = engine.reload_manifest().await.expect_err("deny-all has no manifest");
+        let err = engine
+            .reload_manifest()
+            .await
+            .expect_err("deny-all has no manifest");
         assert_eq!(err, PolicyEngineError::ManifestUnavailable);
     }
 
@@ -385,7 +391,12 @@ mod tests {
             "manifest_unavailable"
         );
         assert_eq!(
-            format!("{}", PolicyEngineError::ManifestInvalid { reason: "tenant_mismatch" }),
+            format!(
+                "{}",
+                PolicyEngineError::ManifestInvalid {
+                    reason: "tenant_mismatch"
+                }
+            ),
             "manifest_invalid:tenant_mismatch"
         );
         assert_eq!(

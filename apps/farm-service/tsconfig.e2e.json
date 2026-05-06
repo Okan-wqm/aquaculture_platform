@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.spec.json",
+  "compilerOptions": {
+    "types": ["jest", "node"],
+    "strictPropertyInitialization": false
+  },
+  "include": [
+    "jest.e2e.config.ts",
+    "test/**/*.ts",
+    "src/**/*.d.ts"
+  ]
+}

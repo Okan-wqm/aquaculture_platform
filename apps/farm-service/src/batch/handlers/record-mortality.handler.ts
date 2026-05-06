@@ -105,6 +105,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         queryRunner.manager,
         payload.tankId,
         tenantId,
+        { mode: 'pessimistic_write' },
       );
 
       if (!tankLookup) {

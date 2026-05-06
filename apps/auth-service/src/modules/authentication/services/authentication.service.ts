@@ -80,6 +80,15 @@ export class AuthenticationService {
     @Optional() private readonly timingSafe?: TimingSafeService,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
     @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
+    // SEC-HIGH-009 cure: when refresh-token reuse is detected (a
+    // previously-revoked token is presented again, indicating either
+    // a captured-token replay or a buggy client retry on a now-stale
+    // copy), the SecurityEventService publishes a
+    // RefreshTokenReuseDetected event so the incident-detection
+    // pipeline (Prom alert / pager) sees the signal in real time.
+    // @Optional preserves local-dev paths where the security
+    // infrastructure may not be wired.
+    @Optional() private readonly securityEventService?: SecurityEventService,
   ) {
     this.maxFailedAttempts = this.configService.get<number>(
       'MAX_FAILED_ATTEMPTS',
@@ -750,6 +759,34 @@ export class AuthenticationService {
       }
 
       if (!matchedToken) {
+        // SEC-HIGH-009 cure: refresh-token reuse detection.
+        //
+        // Before throwing the generic 401, check whether the presented
+        // token matches a REVOKED token for the same user. A match means:
+        //   (a) An attacker captured the original refresh token and is
+        //       replaying it AFTER the legitimate user already rotated it
+        //       (RFC 6819 § 5.2.2 captured-token attack), OR
+        //   (b) A buggy client cached a stale token and is retrying.
+        //
+        // Both cases are operationally indistinguishable; the security
+        // posture must assume (a) and invalidate every active token for
+        // the user — the attacker may have captured BOTH the original
+        // and the rotated copy. This is the OWASP-recommended response
+        // ("revoke the entire refresh-token chain on reuse-detection").
+        if (userIdPrefix) {
+          const revokedMatch = await this.detectRefreshTokenReuse(
+            manager,
+            userIdPrefix,
+            tokenPart,
+          );
+          if (revokedMatch) {
+            await this.revokeAllUserTokensOnReuseDetection(
+              manager,
+              userIdPrefix,
+              revokedMatch,
+            );
+          }
+        }
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
@@ -780,6 +817,102 @@ export class AuthenticationService {
         matchedToken.userAgent ?? undefined,
       );
     });
+  }
+
+  /**
+   * SEC-HIGH-009 cure helper: scan REVOKED tokens for the user to
+   * decide whether the presented token corresponds to a previously-
+   * issued (now-revoked) refresh token. Returns the matching revoked
+   * row on hit, null otherwise. Used only on the no-match branch of
+   * the main refresh path; the cost is N bcrypt.compare calls where N
+   * is bounded by MAX_REFRESH_TOKEN_CHECK (typically 5-10).
+   */
+  private async detectRefreshTokenReuse(
+    manager: import('typeorm').EntityManager,
+    userId: string,
+    tokenPart: string,
+  ): Promise<RefreshToken | null> {
+    // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
+    const tokenRepo = manager.getRepository(RefreshToken);
+    const revokedTokens = await tokenRepo
+      .createQueryBuilder('rt')
+      .where('rt.isRevoked = :isRevoked', { isRevoked: true })
+      .andWhere('rt.userId = :userId', { userId })
+      .orderBy('rt.revokedAt', 'DESC')
+      .take(TOKEN_CONSTANTS.MAX_REFRESH_TOKEN_CHECK)
+      .getMany();
+    for (const storedToken of revokedTokens) {
+      const isMatch = await bcrypt.compare(tokenPart, storedToken.token);
+      if (isMatch) return storedToken;
+    }
+    return null;
+  }
+
+  /**
+   * SEC-HIGH-009 cure helper: when reuse is detected, revoke every
+   * active refresh token for the user (best-effort family invalidation
+   * — without an explicit familyId column we revoke the entire user's
+   * chain), blacklist all outstanding access tokens, revoke all
+   * sessions, and emit RefreshTokenReuseDetected SecurityEvent.
+   *
+   * Defense layers fail open independently — if SecurityEventService
+   * is down, the token revocations still land. If sessionManager /
+   * tokenBlacklist are missing (local-dev), the refresh-token revoke
+   * still happens.
+   */
+  private async revokeAllUserTokensOnReuseDetection(
+    manager: import('typeorm').EntityManager,
+    userId: string,
+    suspectToken: RefreshToken,
+  ): Promise<void> {
+    // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
+    const tokenRepo = manager.getRepository(RefreshToken);
+    const revokeReason = `Reuse detected: revoked token id=${suspectToken.id} replayed`;
+    await tokenRepo.update(
+      { userId, isRevoked: false },
+      { isRevoked: true, revokedAt: new Date(), revokedReason: revokeReason },
+    );
+
+    if (this.tokenBlacklist) {
+      const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
+      const expiresInSeconds = parseExpiresIn(expiresIn);
+      const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
+      await this.tokenBlacklist.blacklistUserTokens(
+        userId,
+        expiryDate,
+        'refresh_token_reuse_detected',
+      );
+    }
+    if (this.sessionManager) {
+      await this.sessionManager.revokeAllSessions(userId);
+    }
+
+    this.logger.warn(
+      `Refresh-token reuse detected for user ${userId}; all tokens revoked. ` +
+        `Suspect token id=${suspectToken.id} (revoked at ${suspectToken.revokedAt?.toISOString() ?? 'unknown'}, reason='${suspectToken.revokedReason ?? 'unknown'}'). ` +
+        `Source IP=${suspectToken.ipAddress ?? 'unknown'}.`,
+    );
+
+    // SecurityEvent emission. Defensive try/catch — a downstream
+    // event-bus outage MUST NOT block the 401 response (otherwise a
+    // failed event publish becomes a token-rotation request DOS).
+    try {
+      await this.securityEventService?.publishSuspiciousActivity({
+        ip: suspectToken.ipAddress ?? undefined,
+        userId,
+        userAgent: suspectToken.userAgent ?? undefined,
+        description: 'refresh-token-reuse-detected',
+        suspectTokenId: suspectToken.id,
+        suspectTokenRevokedAt: suspectToken.revokedAt?.toISOString(),
+        suspectTokenRevokedReason: suspectToken.revokedReason ?? undefined,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `RefreshTokenReuseDetected SecurityEvent publish failed (non-fatal): ${
+          err instanceof Error ? err.message : 'Unknown'
+        }`,
+      );
+    }
   }
 
   /**

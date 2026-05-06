@@ -144,7 +144,9 @@ describe('Tenant Admin — Modules (myTenantModules, assignModuleManager, remove
 
         // All modules should belong to the same tenant
         if (result.myTenantModules.length > 0) {
-          const firstTenantId = result.myTenantModules[0].tenantId;
+          const [firstModule] = result.myTenantModules;
+          if (!firstModule) throw new Error('Expected tenant module after non-empty check');
+          const firstTenantId = firstModule.tenantId;
           result.myTenantModules.forEach(mod => {
             expect(mod.tenantId).toBe(firstTenantId);
           });
@@ -174,7 +176,9 @@ describe('Tenant Admin — Modules (myTenantModules, assignModuleManager, remove
         `);
 
         if (modulesResult.myTenantModules.length > 0) {
-          availableModuleId = modulesResult.myTenantModules[0].moduleId;
+          const [firstModule] = modulesResult.myTenantModules;
+          if (!firstModule) throw new Error('Expected tenant module after non-empty check');
+          availableModuleId = firstModule.moduleId;
         }
 
         const usersResult = await client.query<{
@@ -186,7 +190,9 @@ describe('Tenant Admin — Modules (myTenantModules, assignModuleManager, remove
         `);
 
         if (usersResult.tenantUsers.length > 0) {
-          availableUserId = usersResult.tenantUsers[0].id;
+          const [firstUser] = usersResult.tenantUsers;
+          if (!firstUser) throw new Error('Expected tenant user after non-empty check');
+          availableUserId = firstUser.id;
         }
       } catch {
         // If queries fail, tests will skip gracefully

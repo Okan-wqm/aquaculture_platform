@@ -38,15 +38,21 @@ vendor/sx1302_hal/
 
 ## Gelistirme Ortami (Simulasyon)
 
-HAL kaynaklari olmadan da proje derlenir. `lorawan` feature aktif degilken
-simulasyon modu calisir ve donanim gerektirmez:
+HAL kaynaklari olmadan da proje derlenir. `lorawan` protokol feature'i
+donanim C HAL'ini zorunlu kilmaz; `sx1302-vendor-hal` etkin olsa bile kaynaklar
+yoksa gelistirme/CI derlemesi simulasyon backend'i ile devam eder. Release veya
+HIL derlemesinde gercek HAL'i zorunlu kilmak icin
+`SUDERRA_REQUIRE_SX1302_VENDOR_HAL=1` kullanin:
 
 ```bash
 # Simulasyon modu (varsayilan)
 cargo build
 
-# Gercek donanim (HAL klonlanmis olmali)
+# LoRaWAN protokol kodu + simulasyon backend'i
 cargo build --features lorawan
+
+# Gercek donanim (HAL klonlanmis olmali; kaynak yoksa hata verir)
+SUDERRA_REQUIRE_SX1302_VENDOR_HAL=1 cargo build --features sx1302-vendor-hal
 ```
 
 ## Stub Header

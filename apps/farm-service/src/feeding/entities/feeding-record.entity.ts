@@ -106,7 +106,7 @@ export interface FishBehavior {
 // ============================================================================
 
 @ObjectType()
-@Entity('feeding_records', { schema: 'farm' })
+@Entity('feeding_records')
 @Index(['tenantId', 'batchId', 'feedingDate'])
 @Index(['tenantId', 'tankId', 'feedingDate'])
 @Index(['tenantId', 'feedingDate'])

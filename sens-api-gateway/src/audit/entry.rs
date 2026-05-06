@@ -92,14 +92,18 @@ impl AuditActor {
     /// is responsible for the label being a code-constant short string with
     /// no PII. Canonical-bytes enforces a length bound.
     pub fn new(label: impl Into<String>) -> Self {
-        Self { label: label.into() }
+        Self {
+            label: label.into(),
+        }
     }
 
     /// Preferred path: project an authenticated [`crate::authz::ActorIdentity`]
     /// through its `audit_label()` redaction. Operator UUIDs become
     /// `"op:<operator>"`; machine issuers become `"svc:<cn>"`.
     pub fn from_actor_identity(actor: &crate::authz::ActorIdentity) -> Self {
-        Self { label: actor.audit_label() }
+        Self {
+            label: actor.audit_label(),
+        }
     }
 }
 
@@ -161,6 +165,68 @@ pub enum AuditAction {
     // -- Operational --
     ShutdownInitiated,
     BootCompleted,
+
+    // -- mTLS forensic surface (Phase 1.1.5 / ORPHAN-MEDIUM-036/037 closure) --
+    /// Strict-mode handshake rejected by SuderraServerCertVerifier policy
+    /// gates (chain depth, validity window, age cap, fingerprint pinning).
+    /// Forensic post-mortem queryability for handshake-abort events that
+    /// happen OUTSIDE the command-dispatch pipeline. Not a security
+    /// boundary — the handshake-abort is the primary security action;
+    /// this audit emit is for HMAC-chain-anchored forensic evidence so
+    /// auditors can reconstruct the rejected-handshake timeline offline.
+    MtlsHandshakeRejectStrict,
+    /// Custom CA bundle parse loop completed with partial success
+    /// (`parse_errs > 0 && added > 0`). Pre-Phase-1.1.5 the partial-fix
+    /// path emitted only `tracing::error!`; this audit-action wires the
+    /// same event through the HMAC chain. Operators running tampered
+    /// or operator-typo'd CA bundle files see the partial-load event in
+    /// the audit stream alongside the running cert anchors snapshot.
+    MtlsCaBundleParsePartial,
+
+    // -- OPC UA PKI lifecycle (Phase B-1.5 / ULTRA-HIGH-072 closure) --
+    /// Trusted client cert added to the OPC UA PkiStore via
+    /// `PkiStore::add_trusted_cert`. The PkiStore has its own SHA-256
+    /// JSONL ledger anchored by a domain-separation tag; this
+    /// AuditAction wires the same event through the ADR-020 audit-sink
+    /// HMAC chain so a single audit-verify CLI run reconstructs the
+    /// full mTLS + OPC UA PKI rotation timeline. Defense-in-depth:
+    /// PkiStore ledger is fail-closed-on-tamper at boot; audit-sink
+    /// chain is fail-closed-on-tamper at offline verify.
+    OpcUaCertTrusted,
+    /// Trusted client cert revoked from the PkiStore. Architectural
+    /// floor — once revoked, the fingerprint is forever-banned per
+    /// ADR-031 §1 (re-add returns `FingerprintWasRevoked`). The audit
+    /// emit captures the operator-supplied revocation reason for
+    /// forensic queryability.
+    OpcUaCertRevoked,
+    /// 3-phase rollout transition (LegacyAccept / WarnOnMismatch /
+    /// StrictPinOnly) applied via `CertRotation::transition_to`. Both
+    /// successful applies + the no-op rebuilds emit (the no-op carries
+    /// the same `from_mode == to_mode` pair so audit-stream consumers
+    /// can distinguish "operator pushed redundant manifest" from
+    /// "operator promoted floor"). Rejected transitions (downgrade,
+    /// Strict-with-empty-pins) do NOT emit — the rejection is logged
+    /// at the command-handler level via the existing dispatch audit
+    /// pipeline.
+    OpcUaPkiPhaseTransition,
+    /// OPC UA session-establish authentication exceeded the
+    /// `FailedAuthWindow` cap (`OpcUaServerConfig.max_failed_auth_per_60s`,
+    /// default 20). Phase B-2 / Batch #270 closure. Emitted by the
+    /// SensAuthManager wrapper when an `authenticate_*_identity_token`
+    /// call returns `BadUserAccessDenied` because the throttle was
+    /// already in `Throttled` state. Forensic queryability for
+    /// brute-force attempts at the OPC UA surface — paired with
+    /// `MtlsHandshakeRejectStrict` for the TLS-layer reject events.
+    OpcUaAuthThrottled,
+    /// Phase B-3 / Batch #272 closure. Emitted when
+    /// `SessionQuota::try_acquire` rejects a session-establish call
+    /// because either the per-tenant or per-user cap was reached.
+    /// Distinguished from `OpcUaAuthThrottled` (brute-force reject)
+    /// — quota-exceeded means the credential AUTHENTICATED but the
+    /// fairness gate prevents a parallel session. Operators querying
+    /// the audit chain see "compromised user starves others" patterns
+    /// here.
+    OpcUaSessionQuotaExceeded,
 }
 
 impl AuditAction {
@@ -199,6 +265,20 @@ impl AuditAction {
             Self::MqttCertRotationRolledBack => 27,
             Self::ShutdownInitiated => 28,
             Self::BootCompleted => 29,
+            // Phase 1.1.5 / ORPHAN-MEDIUM-036/037 — append at next free
+            // wire_tag. Wire-stability contract per the doc comment above:
+            // these tags are byte discriminators in canonical bytes; never
+            // reorder, never reuse a removed tag's number.
+            Self::MtlsHandshakeRejectStrict => 30,
+            Self::MtlsCaBundleParsePartial => 31,
+            // Phase B-1.5 / ULTRA-HIGH-072 — OPC UA PKI lifecycle wires.
+            Self::OpcUaCertTrusted => 32,
+            Self::OpcUaCertRevoked => 33,
+            Self::OpcUaPkiPhaseTransition => 34,
+            // Phase B-2 / Batch #270 — brute-force throttle wire.
+            Self::OpcUaAuthThrottled => 35,
+            // Phase B-3 / Batch #272 — session quota wire.
+            Self::OpcUaSessionQuotaExceeded => 36,
         }
     }
 }
@@ -469,7 +549,9 @@ impl AuditEntry {
             ));
         }
         if self.detail.len() > MAX_DETAIL_BYTES {
-            return Err(AuditEntryCanonicalBytesError::DetailTooLong(self.detail.len()));
+            return Err(AuditEntryCanonicalBytesError::DetailTooLong(
+                self.detail.len(),
+            ));
         }
 
         let mut out = Vec::with_capacity(
@@ -493,7 +575,11 @@ impl AuditEntry {
 
         out.extend_from_slice(&self.policy_version.to_be_bytes());
 
-        out.push(if self.two_person_integrity_verified { 1 } else { 0 });
+        out.push(if self.two_person_integrity_verified {
+            1
+        } else {
+            0
+        });
 
         out.push(self.action.wire_tag());
 
@@ -532,7 +618,9 @@ mod tests {
             policy_version: 7,
             two_person_integrity_verified: false,
             action: AuditAction::TagWrite,
-            resource: AuditResource::Tag { name: "pond3_aerator".to_string() },
+            resource: AuditResource::Tag {
+                name: "pond3_aerator".to_string(),
+            },
             outcome: AuditOutcome::Success,
             detail: "".to_string(),
         }
@@ -597,7 +685,9 @@ mod tests {
         assert_ne!(base_bytes, act.canonical_bytes().expect("ok"));
 
         let mut res = base.clone();
-        res.resource = AuditResource::Tag { name: "pond3_feeder".to_string() };
+        res.resource = AuditResource::Tag {
+            name: "pond3_feeder".to_string(),
+        };
         assert_ne!(base_bytes, res.canonical_bytes().expect("ok"));
 
         let mut outcome = base.clone();
@@ -636,11 +726,15 @@ mod tests {
     #[test]
     fn canonical_bytes_framing_resists_detail_resource_collision() {
         let mut a = canned_entry();
-        a.resource = AuditResource::Tag { name: "x".to_string() };
+        a.resource = AuditResource::Tag {
+            name: "x".to_string(),
+        };
         a.detail = "y".to_string();
 
         let mut b = canned_entry();
-        b.resource = AuditResource::Tag { name: "xy".to_string() };
+        b.resource = AuditResource::Tag {
+            name: "xy".to_string(),
+        };
         b.detail = "".to_string();
 
         assert_ne!(
@@ -672,6 +766,17 @@ mod tests {
         assert_eq!(AuditAction::MqttCertRotationRolledBack.wire_tag(), 27);
         assert_eq!(AuditAction::ShutdownInitiated.wire_tag(), 28);
         assert_eq!(AuditAction::BootCompleted.wire_tag(), 29);
+        // Phase 1.1.5 / ORPHAN-MEDIUM-036/037 — pin appended variants.
+        assert_eq!(AuditAction::MtlsHandshakeRejectStrict.wire_tag(), 30);
+        assert_eq!(AuditAction::MtlsCaBundleParsePartial.wire_tag(), 31);
+        // Phase B-1.5 / ULTRA-HIGH-072 — OPC UA PKI lifecycle wires.
+        assert_eq!(AuditAction::OpcUaCertTrusted.wire_tag(), 32);
+        assert_eq!(AuditAction::OpcUaCertRevoked.wire_tag(), 33);
+        assert_eq!(AuditAction::OpcUaPkiPhaseTransition.wire_tag(), 34);
+        // Phase B-2 — brute-force throttle wire.
+        assert_eq!(AuditAction::OpcUaAuthThrottled.wire_tag(), 35);
+        // Phase B-3 — session quota wire.
+        assert_eq!(AuditAction::OpcUaSessionQuotaExceeded.wire_tag(), 36);
     }
 
     /// WHY (EDGE-HIGH-001 closure): AuditResource wire_tag stability pin.
@@ -683,12 +788,14 @@ mod tests {
         let p = AuditResource::Permission {
             permission: Permission::ReadTag,
         };
-        let pg = AuditResource::Program { program_id: "x".to_string() };
-        let fi = AuditResource::FirmwareImage { image_digest_hex: "x".to_string() };
         let pv = AuditResource::PolicyManifestVersion { version: 1 };
-        let ks = AuditResource::Keystore { purpose_label: "x".to_string() };
+        let ks = AuditResource::Keystore {
+            purpose_label: "x".to_string(),
+        };
         let tn = AuditResource::Tenant { tenant: tenant() };
-        let o = AuditResource::Other { label: "x".to_string() };
+        let o = AuditResource::Other {
+            label: "x".to_string(),
+        };
 
         assert_eq!(t.wire_tag(), 0);
         assert_eq!(p.wire_tag(), 1);
@@ -707,8 +814,12 @@ mod tests {
     ///      bytes via the wire_tag byte discriminator.
     #[test]
     fn audit_resource_canonical_bytes_distinguishes_variants_by_wire_tag() {
-        let tag = AuditResource::Tag { name: "same".to_string() };
-        let program = AuditResource::Program { program_id: "same".to_string() };
+        let tag = AuditResource::Tag {
+            name: "same".to_string(),
+        };
+        let program = AuditResource::Program {
+            program_id: "same".to_string(),
+        };
         let mut a = Vec::new();
         let mut b = Vec::new();
         tag.append_canonical_bytes(&mut a).expect("ok");
@@ -872,7 +983,7 @@ mod tests {
     ///      ActorIdentity through audit_label redaction.
     #[test]
     fn audit_actor_from_actor_identity_redacts_operator() {
-        use crate::authz::{permission::OperatorId, ActorIdentity};
+        use crate::authz::{ActorIdentity, permission::OperatorId};
         let actor = ActorIdentity::Operator(OperatorId::new_from_verified([0x07u8; 16]));
         let aa = AuditActor::from_actor_identity(&actor);
         assert_eq!(aa.label, "op:<operator>");
@@ -900,10 +1011,7 @@ mod tests {
             "empty_actor_label"
         );
         assert_eq!(
-            format!(
-                "{}",
-                AuditEntryCanonicalBytesError::DetailTooLong(4097)
-            ),
+            format!("{}", AuditEntryCanonicalBytesError::DetailTooLong(4097)),
             "detail_too_long:4097"
         );
         assert_eq!(
@@ -914,10 +1022,7 @@ mod tests {
             "correlation_id_too_long:129"
         );
         assert_eq!(
-            format!(
-                "{}",
-                AuditEntryCanonicalBytesError::ActorLabelTooLong(257)
-            ),
+            format!("{}", AuditEntryCanonicalBytesError::ActorLabelTooLong(257)),
             "actor_label_too_long:257"
         );
     }

@@ -801,29 +801,60 @@ export class MfaService {
   // Audit Logging
   // ==========================================================================
 
+  /**
+   * Persist an MFA audit row.
+   *
+   * # Why no try/catch wraps the write (AUDITTRAIL-HIGH-003)
+   *
+   * Pre-fix this method wrapped `auditLogService.log(...)` in a
+   * try/catch and on DB failure logged the error and returned. Every
+   * MFA gate (verify, step-up, lockout, disable) called this and then
+   * proceeded as if audit had succeeded. Combined with the gates being
+   * security boundaries — `MFA_VERIFY_FAILED`, `MFA_LOCKOUT`,
+   * `MFA_STEPUP_FAILED`, `MFA_STEPUP_LOCKOUT`, `MFA_STEPUP_SUCCESS` are
+   * all SOC 2 CC6.1 evidence-bearing rows — a single DB blip silently
+   * lost evidence the platform is contractually required to keep.
+   *
+   * The architectural cure is fail-closed: the MFA gate succeeds only
+   * if its audit row succeeds. If audit can't be written, the gate
+   * fails, the user retries, and the platform stays auditable. This is
+   * the right posture for a security gate — better to fail an MFA
+   * verify than to silently drop the evidence row.
+   *
+   * Callers that already `await` this method (every callsite in this
+   * file does — see lines 312, 345, 355, 379, 392, 404, 442, 514, 546,
+   * 553, 563, 615, 641, 648, 657, 727) will surface the failure to
+   * the request handler as the throw-bubble convention. The
+   * AuditLogService.log() implementation in
+   * apps/auth-service/src/audit/audit-log.service.ts:36 already
+   * propagates DB errors; removing the swallow here completes the
+   * fail-closed chain end-to-end.
+   *
+   * Tier-1 "make it impossible" rationale: with the try/catch removed,
+   * no future maintainer can reintroduce silent loss without
+   * deliberately re-adding the swallow — a code review would catch it
+   * because the swallow has no purpose when the contract is "audit
+   * failure = MFA failure."
+   */
   private async logMfaEvent(
     action: string,
     user: User,
     success: boolean,
     reason?: string,
   ): Promise<void> {
-    try {
-      await this.auditLogService.log({
-        tenantId: user.tenantId || undefined,
-        performedBy: user.id,
-        performedByEmail: user.email,
-        action,
-        entityType: 'User',
-        entityId: user.id,
-        details: {
-          success,
-          reason,
-          timestamp: new Date().toISOString(),
-        },
-        severity: success ? AuditLogSeverity.INFO : AuditLogSeverity.WARNING,
-      });
-    } catch (error) {
-      this.logger.error(`Failed to log MFA event: ${action}`, error);
-    }
+    await this.auditLogService.log({
+      tenantId: user.tenantId || undefined,
+      performedBy: user.id,
+      performedByEmail: user.email,
+      action,
+      entityType: 'User',
+      entityId: user.id,
+      details: {
+        success,
+        reason,
+        timestamp: new Date().toISOString(),
+      },
+      severity: success ? AuditLogSeverity.INFO : AuditLogSeverity.WARNING,
+    });
   }
 }

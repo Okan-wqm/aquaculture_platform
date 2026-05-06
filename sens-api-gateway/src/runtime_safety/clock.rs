@@ -58,7 +58,9 @@ impl MonotonicAnchor {
     /// EDGE-LOW-002 closure: demoted from `pub` to `pub(crate)` to
     /// enforce the seal. Tests use `for_test` below.
     pub(crate) fn from_nanos_since_process_epoch(nanos: u128) -> Self {
-        Self { nanos_since_epoch: nanos }
+        Self {
+            nanos_since_epoch: nanos,
+        }
     }
 
     /// Test-only ctor — mints an anchor from arbitrary nanos for use in
@@ -66,7 +68,9 @@ impl MonotonicAnchor {
     /// production builds.
     #[cfg(test)]
     pub fn for_test(nanos: u128) -> Self {
-        Self { nanos_since_epoch: nanos }
+        Self {
+            nanos_since_epoch: nanos,
+        }
     }
 
     pub fn nanos_since_process_epoch(&self) -> u128 {
@@ -130,7 +134,10 @@ pub enum ClockError {
     /// cannot be trusted for audit timestamps or signature freshness
     /// windows. Fail-closed — caller must reject time-sensitive operations
     /// until sync recovers.
-    NtsSyncStale { last_sync_age_secs: u64, threshold_secs: u64 },
+    NtsSyncStale {
+        last_sync_age_secs: u64,
+        threshold_secs: u64,
+    },
 
     /// Monotonic anchor went backward — impossible on a correct clock.
     /// Indicates kernel bug or emulator/VM quirk. Fail-closed.
@@ -464,7 +471,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                ClockError::NtsSyncStale { last_sync_age_secs: 7200, threshold_secs: 3600 }
+                ClockError::NtsSyncStale {
+                    last_sync_age_secs: 7200,
+                    threshold_secs: 3600
+                }
             ),
             "nts_sync_stale"
         );
@@ -515,7 +525,9 @@ mod tests {
         }
 
         fn assert_object_safe(_: &dyn ClockAuthority) {}
-        let m = Mock { counter: AtomicU64::new(0) };
+        let m = Mock {
+            counter: AtomicU64::new(0),
+        };
         assert_object_safe(&m);
     }
 

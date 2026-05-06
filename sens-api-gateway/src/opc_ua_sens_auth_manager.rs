@@ -128,22 +128,70 @@ use crate::opc_ua_server_user_token_validator::{
 pub struct SensAuthManager {
     validator: Arc<UserTokenValidator>,
     policies: Vec<UserTokenPolicy>,
+    /// Phase B-2 (Batch #270 closure) — brute-force throttle.
+    /// Type-level invariant: SensAuthManager cannot be constructed
+    /// without the throttle (`Self::new` requires the Arc); a future
+    /// refactor that "removes" the throttle would have to also remove
+    /// the field, which is detected by the
+    /// `opc_ua_auth_throttle_enforced` invariant test.
+    ///
+    /// Per-username throttle (NOT per-IP — async-opcua 0.18's
+    /// AuthManager trait does not expose ClientAddr; per-IP gap is
+    /// tracked at ORPHAN-MEDIUM-051). See
+    /// `crate::opc_ua_server::auth_throttle` module preamble for the
+    /// architectural decision record.
+    throttle: Arc<crate::opc_ua_server::auth_throttle::FailedAuthWindow>,
+    /// Phase B-3 (Batch #272 closure) — per-tenant + per-user session
+    /// quota. Type-level invariant: SensAuthManager carries the quota
+    /// for the agent's single tenant; every successful authenticate
+    /// path consumes a `SessionLease` before issuing the UserToken.
+    /// The `opc_ua_session_quota_enforced` invariant pins the wire.
+    session_quota: Arc<crate::opc_ua_server::session_quota::SessionQuota>,
+    /// Per-token lease registry — the lease lives in this map keyed
+    /// by the UserToken string we return to async-opcua. Drop on
+    /// session-close is best-effort: async-opcua 0.18 does not expose
+    /// a session-close callback at the AuthManager layer (same
+    /// architectural class as ORPHAN-HIGH-045 +
+    /// ORPHAN-MEDIUM-051). The TTL fail-safe inside SessionQuota
+    /// (1-hour default) is the load-bearing release path; this map
+    /// is the explicit-release-on-token-known path for callers that
+    /// can iterate token lifecycle.
+    ///
+    /// Note: storing leases keyed by token allows future Phase B-3.5
+    /// to wire a per-token cleanup hook (e.g., when async-opcua
+    /// upstream exposes the close callback) without reshaping the
+    /// SensAuthManager API. See ORPHAN-MEDIUM-052.
+    active_leases: Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                String,
+                crate::opc_ua_server::session_quota::SessionLease,
+            >,
+        >,
+    >,
 }
 
 #[cfg(feature = "opc-ua-server")]
 impl SensAuthManager {
-    /// Construct a new SensAuthManager from the Batch #245
-    /// validator Arc.
-    ///
-    /// **Wire status (Batch #266):** reachable only via
-    /// `#[cfg(feature = "opc-ua-server")]` builds. Production
-    /// wire (Batch #267) calls this at boot after
-    /// `init_user_token_manifest_store` has populated the
-    /// manifest store + the validator wraps it.
-    pub fn new(validator: Arc<UserTokenValidator>) -> Self {
+    /// Construct a new SensAuthManager from the validator Arc + the
+    /// brute-force throttle Arc. The throttle parameter is mandatory
+    /// (Tier-1 architectural floor — every SensAuthManager carries a
+    /// throttle gate). Production wire constructs the
+    /// `FailedAuthWindow` from `OpcUaServerConfig.max_failed_auth_per_60s`
+    /// at boot.
+    pub fn new(
+        validator: Arc<UserTokenValidator>,
+        throttle: Arc<crate::opc_ua_server::auth_throttle::FailedAuthWindow>,
+        session_quota: Arc<crate::opc_ua_server::session_quota::SessionQuota>,
+    ) -> Self {
         Self {
             validator,
             policies: Self::default_policies(),
+            throttle,
+            session_quota,
+            active_leases: Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
         }
     }
 
@@ -252,6 +300,46 @@ impl AuthManager for SensAuthManager {
         username: &str,
         password: &Password,
     ) -> Result<UserToken, Error> {
+        // Phase B-2 (Batch #270) — pre-check throttle BEFORE running
+        // Argon2id. If the username is already throttled in this
+        // 60-second window, return BadUserAccessDenied immediately.
+        // The Argon2id verifier is the threat — a brute-force loop
+        // running unthrottled would saturate the edge agent's CPU
+        // budget at ~50ms per attempt × 1000 attempts = 50 seconds of
+        // CPU starvation per minute. The throttle bounds this at
+        // cap × Argon2id-cost per window per username.
+        let throttle_key =
+            crate::opc_ua_server::auth_throttle::AuthThrottleKey::for_username(username);
+        if let crate::opc_ua_server::auth_throttle::ThrottleDecision::Throttled {
+            count,
+            retry_after,
+        } = self.throttle.peek_decision(&throttle_key)
+        {
+            tracing::warn!(
+                target: "opc_ua.auth_throttle",
+                throttle_key = %throttle_key.as_str(),
+                count = count,
+                retry_after_secs = retry_after.as_secs(),
+                "SensAuthManager: session-establish REJECTED — \
+                 brute-force throttle active for username (Phase B-2)"
+            );
+            crate::audit::try_emit_mtls_forensic_event(
+                crate::audit::AuditAction::OpcUaAuthThrottled,
+                "opc_ua.auth.throttle.denied",
+                serde_json::json!({
+                    "throttle_key": throttle_key.as_str(),
+                    "count": count,
+                    "retry_after_secs": retry_after.as_secs(),
+                    "reason": "pre_check_throttle_active",
+                }),
+            );
+            return Err(Error::new(
+                StatusCode::BadUserAccessDenied,
+                "Authentication temporarily denied — too many failed attempts \
+                 for this username. Retry after the throttle window expires.",
+            ));
+        }
+
         let password_secret =
             secrecy::Secret::new(password.get().as_bytes().to_vec());
 
@@ -274,7 +362,74 @@ impl AuthManager for SensAuthManager {
                         ));
                     }
                 };
+                // Phase B-2 — clear the throttle counter on success.
+                // An operator who typoed N < cap times then succeeded
+                // should not carry the failure history into their next
+                // typing burst.
+                self.throttle.clear_on_success(&throttle_key);
+
+                // Phase B-3 (Batch #272) — acquire a SessionLease
+                // BEFORE issuing the UserToken. Quota check is the
+                // last gate at session-establish; a successful
+                // credential authentication still cannot establish a
+                // session if the per-user or per-tenant cap is full.
+                // Defense-in-depth: brute-force throttle (B-2) +
+                // quota fairness (B-3) + global Limits.max_sessions
+                // (Batch 228) — three layers each tunable
+                // independently.
+                let normalized_user = username.trim().to_lowercase();
+                let lease = match self.session_quota.try_acquire(&normalized_user) {
+                    Ok(lease) => lease,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "opc_ua.session_quota",
+                            user = %normalized_user,
+                            error = %e,
+                            "SensAuthManager: session-establish REJECTED by quota \
+                             after successful authentication (Phase B-3)"
+                        );
+                        crate::audit::try_emit_mtls_forensic_event(
+                            crate::audit::AuditAction::OpcUaSessionQuotaExceeded,
+                            "opc_ua.session.quota.exceeded",
+                            serde_json::json!({
+                                "user": normalized_user,
+                                "reason": format!("{e}"),
+                                "current_user_count": self.session_quota.current_user_count(&normalized_user),
+                                "current_tenant_total": self.session_quota.current_tenant_total(),
+                            }),
+                        );
+                        return Err(Error::new(
+                            StatusCode::BadTooManySessions,
+                            "Session quota exceeded — close an existing \
+                             session for this user (or wait for an idle \
+                             session in the tenant to release).",
+                        ));
+                    }
+                };
+
                 let token_str = format_operator_token(&op);
+                // Stash the lease keyed by the token string so a
+                // future session-close callback (Phase B-3.5 /
+                // ORPHAN-MEDIUM-052) can look it up + drop it
+                // explicitly. Until then, the SessionQuota's TTL
+                // fail-safe is the release path.
+                if let Ok(mut leases) = self.active_leases.lock() {
+                    leases.insert(token_str.clone(), lease);
+                } else {
+                    // Mutex poisoned — we still hold the lease in
+                    // scope; the Drop impl will release it when
+                    // this match arm returns. The token-keyed
+                    // registry is best-effort cleanup for
+                    // explicit-release; the on-Drop release is the
+                    // architectural floor.
+                    tracing::error!(
+                        "SensAuthManager: active_leases mutex poisoned — \
+                         lease will release on scope exit instead of via \
+                         token-keyed registry"
+                    );
+                    // Drop happens at end of scope (lease moves out).
+                    drop(lease);
+                }
                 tracing::info!(
                     "SensAuthManager: UserName/Password session \
                      established for operator_id_hex={:?}",
@@ -297,6 +452,28 @@ impl AuthManager for SensAuthManager {
                 // Generic message — same response for unknown
                 // username + wrong password (Batch #242 validator
                 // collapse). Username enumeration defense.
+                //
+                // Phase B-2 — record_failure for the throttle. If
+                // this attempt pushes the count to the cap, the next
+                // attempt for the same username will skip Argon2id
+                // entirely (peek_decision at the top of this method).
+                let decision = self.throttle.record_failure(&throttle_key);
+                if let crate::opc_ua_server::auth_throttle::ThrottleDecision::Throttled {
+                    count,
+                    retry_after,
+                } = decision
+                {
+                    crate::audit::try_emit_mtls_forensic_event(
+                        crate::audit::AuditAction::OpcUaAuthThrottled,
+                        "opc_ua.auth.throttle.cap_reached",
+                        serde_json::json!({
+                            "throttle_key": throttle_key.as_str(),
+                            "count": count,
+                            "retry_after_secs": retry_after.as_secs(),
+                            "reason": "credential_mismatch_burst",
+                        }),
+                    );
+                }
                 tracing::warn!(
                     "SensAuthManager: credential_mismatch \
                      (username + password did not match an enrolled \
@@ -308,6 +485,11 @@ impl AuthManager for SensAuthManager {
                 ))
             }
             Err(UserTokenValidatorError::BadUsernameFormat) => {
+                // Phase B-2 — bad-username-format also counts toward
+                // the throttle. A client systematically probing with
+                // malformed usernames (e.g., NFKC bypass attempts) is
+                // a brute-force surface even though no Argon2id runs.
+                let _ = self.throttle.record_failure(&throttle_key);
                 tracing::warn!(
                     "SensAuthManager: client supplied bad username \
                      format (empty / NFKC-rejected / oversize)"
@@ -322,6 +504,7 @@ impl AuthManager for SensAuthManager {
             // log so a future validator extension that surfaces
             // them through this path is visible.
             Err(other) => {
+                let _ = self.throttle.record_failure(&throttle_key);
                 tracing::error!(
                     "SensAuthManager: unexpected validator error \
                      on user-pass path: {}",

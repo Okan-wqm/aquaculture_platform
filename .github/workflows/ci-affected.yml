@@ -31,7 +31,7 @@ jobs:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       # SEC-CI-002/SEC-CI-019: Migrated from unmaintained @v2 to @v3, pinned to SHA
       - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
         id: changes
@@ -44,6 +44,48 @@ jobs:
               - 'platform/libs/**'
             web:
               - 'web/**'
+            # Deploy-pipeline infrastructure. Changes here affect how the
+            # deploy runs even when no application source changed — e.g.
+            # a droplet-up.sh tweak, a new criticality-manifest entry, a
+            # change to the compose topology. Without including these,
+            # deploy-workflow fixes cannot TEST THEMSELVES (recursive
+            # chicken-egg: the fix lands but nothing triggers the chain
+            # that would exercise it).
+            deploy-config:
+              - 'scripts/deploy/**'
+              - '.github/workflows/deploy-digitalocean.yml'
+              - '.github/workflows/deploy-staging.yml'
+              - '.github/workflows/ci-affected.yml'
+              - '.github/actions/**'
+              - 'infrastructure/deploy/**'
+              - 'docker-compose.droplet.yml'
+              - 'docker-compose.prod.yml'
+              # CI install-chain tooling — the Nx graph probe + ESLint
+              # plugin loader resolve against these paths on every run.
+              # A broken `tools/eslint-rules/` tsconfig or a miswired
+              # `tools/gates/` script crashes the install job itself, so
+              # changes here MUST trigger the full chain or the fix
+              # cannot validate itself. Root cause: commit 5f3280c4
+              # fixed the eslint-rules build but CI skipped validation
+              # because the change only touched tools/, producing
+              # has_changes=false. Architectural fix: treat CI-consumed
+              # tooling as deploy-config for path-filter purposes.
+              - 'tools/eslint-rules/**'
+              - 'tools/gates/**'
+              - 'tools/scripts/**'
+              - '.eslintrc.json'
+              - '.eslintrc.js'
+              - 'tsconfig.base.json'
+              # Root manifest + lockfile. Any change here rewires the
+              # workspace graph OR the dependency tree — both invalidate
+              # every downstream build. Missing these from the filter
+              # was the a8320411 blind-spot: a workspaces-array change
+              # (root cause of the @nx/eslint-plugin native-binding
+              # red herring) landed and CI-Affected skipped the full
+              # chain in 9s because has_changes=false.
+              - '.npmrc'
+              - 'package.json'
+              - 'package-lock.json'
       - id: check
         run: |
           if [ "${{ steps.changes.outputs.apps }}" = "true" ] || \
@@ -65,7 +107,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
@@ -82,7 +124,7 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       # Persist node_modules for downstream jobs
       - name: Cache node_modules
@@ -105,7 +147,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
@@ -120,7 +162,17 @@ jobs:
 
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
+
+      # 2026-05-05: Nx builds Rust crates in parallel. Installing the pinned
+      # toolchain once before Nx starts prevents competing cargo/rustup
+      # processes from mutating ~/.rustup concurrently.
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+          components: rustfmt,clippy,rust-src
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -147,7 +199,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
@@ -162,7 +214,7 @@ jobs:
 
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -190,7 +242,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
@@ -205,7 +257,7 @@ jobs:
 
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -235,7 +287,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
@@ -250,7 +302,7 @@ jobs:
 
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -298,7 +350,7 @@ jobs:
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
       - name: Validate pagination schema types
         run: node scripts/validate-pagination-schema.js
 
@@ -512,9 +564,25 @@ jobs:
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
+      - name: Validate dependency graph contracts
+        run: npm ls typeorm uuid @nestjs/apollo @apollo/server @apollo/gateway @opentelemetry/api @opentelemetry/sdk-node
       - name: Run npm audit
-        run: npm audit --audit-level=high --omit=dev || true
+        run: |
+          set +e
+          npm audit --audit-level=high --omit=dev --json > npm-audit-root.json
+          AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-root.json npm-audit-source-map.md
+          exit "$AUDIT_STATUS"
+      - name: Upload npm audit source map
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-audit-source-map-${{ github.run_number }}
+          path: |
+            npm-audit-root.json
+            npm-audit-source-map.md
+          retention-days: 14
 
   docs-check:
     needs: detect-changes

@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 
 /**
@@ -25,10 +25,14 @@ export type TestRole =
 export interface TestTokenOptions {
   /** User ID (sub claim). Defaults to random UUID. */
   userId?: string;
+  /** Legacy alias for userId. */
+  sub?: string;
   /** User email. Defaults to `e2e-{uuid}@test.aquaculture.io`. */
   email?: string;
   /** Primary role. Defaults to TENANT_ADMIN. */
   role?: TestRole;
+  /** Role list claim. Defaults to [role]. */
+  roles?: TestRole[];
   /** Tenant ID. Null for SUPER_ADMIN. Defaults to random UUID. */
   tenantId?: string | null;
   /** Assigned module codes. Defaults to all platform modules. */
@@ -36,7 +40,11 @@ export interface TestTokenOptions {
   /** Resource-level permissions. Defaults to empty array. */
   resourcePermissions?: string[];
   /** Token expiration (ms/zeit format). Defaults to '1h'. */
-  expiresIn?: string;
+  expiresIn?: SignOptions['expiresIn'];
+  /** Token issuer. Defaults to aquaculture-platform. */
+  issuer?: string;
+  /** Token audience. Defaults to aquaculture-platform. */
+  audience?: string;
   /** Whether to include jti claim. Defaults to true. */
   includeJti?: boolean;
   /** Token type (access/refresh). Defaults to 'access'. */
@@ -86,8 +94,8 @@ const ALL_MODULES = [
  *   sub, email, role, roles, tenantId, modules, resourcePermissions, jti, iss, aud
  */
 export function generateTestToken(options: TestTokenOptions = {}): string {
-  const userId = options.userId ?? randomUUID();
-  const role = options.role ?? 'TENANT_ADMIN';
+  const userId = options.sub ?? options.userId ?? randomUUID();
+  const role = options.role ?? options.roles?.[0] ?? 'TENANT_ADMIN';
 
   // SUPER_ADMIN has no tenant, others default to a random tenant
   const tenantId =
@@ -101,7 +109,7 @@ export function generateTestToken(options: TestTokenOptions = {}): string {
     sub: userId,
     email: options.email ?? `e2e-${userId.slice(0, 8)}@test.aquaculture.io`,
     role,
-    roles: [role],
+    roles: options.roles ?? [role],
     tenantId,
     modules: options.modules ?? [...ALL_MODULES],
     resourcePermissions: options.resourcePermissions ?? [],
@@ -117,8 +125,8 @@ export function generateTestToken(options: TestTokenOptions = {}): string {
 
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn: options.expiresIn ?? '1h',
-    issuer: 'aquaculture-platform',
-    audience: 'aquaculture-platform',
+    issuer: options.issuer ?? 'aquaculture-platform',
+    audience: options.audience ?? 'aquaculture-platform',
   });
 }
 
@@ -146,14 +154,14 @@ export function generateTokenWithoutJti(
 export function generateTokenWithWrongSecret(
   options: TestTokenOptions = {},
 ): string {
-  const userId = options.userId ?? randomUUID();
-  const role = options.role ?? 'TENANT_ADMIN';
+  const userId = options.sub ?? options.userId ?? randomUUID();
+  const role = options.role ?? options.roles?.[0] ?? 'TENANT_ADMIN';
 
   const payload: Record<string, unknown> = {
     sub: userId,
     email: options.email ?? `e2e-${userId.slice(0, 8)}@test.aquaculture.io`,
     role,
-    roles: [role],
+    roles: options.roles ?? [role],
     tenantId: options.tenantId ?? randomUUID(),
     modules: options.modules ?? [...ALL_MODULES],
     resourcePermissions: options.resourcePermissions ?? [],
@@ -163,8 +171,17 @@ export function generateTokenWithWrongSecret(
 
   return jwt.sign(payload, 'wrong-secret-that-does-not-match-the-real-one!!!', {
     expiresIn: options.expiresIn ?? '1h',
-    issuer: 'aquaculture-platform',
-    audience: 'aquaculture-platform',
+    issuer: options.issuer ?? 'aquaculture-platform',
+    audience: options.audience ?? 'aquaculture-platform',
+  });
+}
+
+export function generateTokenWithWrongAudience(
+  options: TestTokenOptions = {},
+): string {
+  return generateTestToken({
+    ...options,
+    audience: options.audience ?? 'wrong-audience',
   });
 }
 
@@ -188,4 +205,125 @@ export function verifyTestToken(token: string): TestJwtPayload {
     issuer: 'aquaculture-platform',
     audience: 'aquaculture-platform',
   }) as TestJwtPayload;
+}
+
+// ============================================================================
+// Role-specific token helpers (convenience wrappers)
+// ============================================================================
+
+/** Options for role-specific token generators */
+export interface RoleTokenOptions {
+  /** User ID (sub claim). Defaults to random UUID. */
+  userId?: string;
+  /** Alias for userId (sub claim). */
+  sub?: string;
+  /** User email. */
+  email?: string;
+  /** Tenant ID. */
+  tenantId?: string;
+  /** Assigned module codes. */
+  modules?: string[];
+  /** Resource permissions. */
+  resourcePermissions?: string[];
+  /** Token expiration. */
+  expiresIn?: SignOptions['expiresIn'];
+}
+
+/**
+ * Generate a MODULE_USER token.
+ * Convenience wrapper around generateTestToken with role: 'MODULE_USER'.
+ */
+export function generateModuleUserToken(options: RoleTokenOptions = {}): string {
+  return generateTestToken({
+    userId: options.sub ?? options.userId,
+    email: options.email,
+    role: 'MODULE_USER',
+    tenantId: options.tenantId,
+    modules: options.modules,
+    resourcePermissions: options.resourcePermissions,
+    expiresIn: options.expiresIn,
+  });
+}
+
+/**
+ * Generate a TENANT_ADMIN token.
+ * Convenience wrapper around generateTestToken with role: 'TENANT_ADMIN'.
+ */
+export function generateTenantAdminToken(options: RoleTokenOptions = {}): string {
+  return generateTestToken({
+    userId: options.sub ?? options.userId,
+    email: options.email,
+    role: 'TENANT_ADMIN',
+    tenantId: options.tenantId,
+    modules: options.modules,
+    resourcePermissions: options.resourcePermissions,
+    expiresIn: options.expiresIn,
+  });
+}
+
+/**
+ * Decode a JWT token without verification.
+ * Assertion alias for integration tests that require a valid object payload.
+ */
+export function decodeJwt(token: string): TestJwtPayload {
+  return expectDecodedJwt(token);
+}
+
+export function expectDecodedJwt(token: string): TestJwtPayload {
+  const payload = decodeTestToken(token);
+  if (!payload) {
+    throw new Error('Expected JWT to decode to an object payload');
+  }
+  return payload;
+}
+
+/**
+ * Extract resource permissions from a JWT token without verification.
+ */
+export function extractResourcePermissions(token: string): string[] {
+  const payload = decodeTestToken(token);
+  return payload?.resourcePermissions ?? [];
+}
+
+/**
+ * Create an expired JWT for auth rejection tests.
+ * Alias for generateExpiredToken — used by integration tests.
+ */
+export function createExpiredJwt(options: TestTokenOptions = {}): string {
+  return generateExpiredToken(options);
+}
+
+export function generateCrossTenantTokens(): {
+  tenantA: { tenantId: string; token: string; userId: string };
+  tenantB: { tenantId: string; token: string; userId: string };
+} {
+  const tenantAId = randomUUID();
+  const tenantBId = randomUUID();
+  const tenantAUserId = randomUUID();
+  const tenantBUserId = randomUUID();
+
+  return {
+    tenantA: {
+      tenantId: tenantAId,
+      userId: tenantAUserId,
+      token: generateTestToken({
+        userId: tenantAUserId,
+        tenantId: tenantAId,
+        role: 'TENANT_ADMIN',
+        roles: ['TENANT_ADMIN'],
+        modules: ['farm'],
+      }),
+    },
+    tenantB: {
+      tenantId: tenantBId,
+      userId: tenantBUserId,
+      token: generateTestToken({
+        userId: tenantBUserId,
+        tenantId: tenantBId,
+        role: 'TENANT_ADMIN',
+        roles: ['TENANT_ADMIN'],
+        modules: ['farm'],
+      }),
+    },
+  };
 }

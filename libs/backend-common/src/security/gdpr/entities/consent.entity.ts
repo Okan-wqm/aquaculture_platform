@@ -19,6 +19,14 @@ import { ConsentType } from '../../interfaces';
 @Index('IDX_consent_tenant', ['tenantId'])
 @Index('IDX_consent_type', ['consentType'])
 @Index('IDX_consent_user_type', ['userId', 'consentType'])
+// DBR-MEDIUM-004 cure: each (userId, consentType, version) tuple
+// represents a single consent decision the user made; two rows
+// claiming the same tuple violates the GDPR Art 7(1) demonstrability
+// invariant. Unique constraint makes the duplicate impossible at
+// INSERT time.
+@Index('UQ_consent_user_type_version', ['userId', 'consentType', 'version'], {
+  unique: true,
+})
 export class UserConsent {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

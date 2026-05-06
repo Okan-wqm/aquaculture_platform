@@ -1,0 +1,1455 @@
+/**
+ * Site tenant isolation and read-after-write tests.
+ *
+ * WHY: This is the first Postgres-backed farm-service P0 contract test for
+ * "DB has the row but the API/frontend cannot see the update". It proves the
+ * handler/repository path writes to the active tenant schema, never to the
+ * source `farm` schema, and immediate get/list queries see the committed edit.
+ */
+import 'reflect-metadata';
+import { randomBytes } from 'crypto';
+
+import { createTenantConnectionBootstrap, getTenantSchemaName, withTenantContext } from '@aquaculture/backend-common';
+import { bootPostgresContainer, HarnessContext, shutdownHarness } from '@platform/migration-harness';
+import { DataSource, ObjectLiteral, Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+
+import { AddFeedInventoryCommand } from '../../feeding/commands/add-feed-inventory.command';
+import { AdjustFeedInventoryCommand, AdjustmentType } from '../../feeding/commands/adjust-feed-inventory.command';
+import { FeedInventory, InventoryStatus } from '../../feeding/entities/feed-inventory.entity';
+import { AddFeedInventoryHandler } from '../../feeding/handlers/add-feed-inventory.handler';
+import { AdjustFeedInventoryHandler } from '../../feeding/handlers/adjust-feed-inventory.handler';
+import { GetFeedInventoryHandler } from '../../feeding/query-handlers/get-feed-inventory.handler';
+import { GetFeedInventoryQuery } from '../../feeding/queries/get-feed-inventory.query';
+import { CreateFeedCommand } from '../../feed/commands/create-feed.command';
+import { DeleteFeedCommand } from '../../feed/commands/delete-feed.command';
+import { UpdateFeedCommand } from '../../feed/commands/update-feed.command';
+import { Feed, FeedStatus, FeedType } from '../../feed/entities/feed.entity';
+import { FeedSite } from '../../feed/entities/feed-site.entity';
+import { FeedTypeSpecies } from '../../feed/entities/feed-type-species.entity';
+import { CreateFeedHandler } from '../../feed/handlers/create-feed.handler';
+import { DeleteFeedHandler } from '../../feed/handlers/delete-feed.handler';
+import { GetFeedHandler } from '../../feed/handlers/get-feed.handler';
+import { ListFeedsHandler } from '../../feed/handlers/list-feeds.handler';
+import { UpdateFeedHandler } from '../../feed/handlers/update-feed.handler';
+import { GetFeedQuery } from '../../feed/queries/get-feed.query';
+import { ListFeedsQuery } from '../../feed/queries/list-feeds.query';
+import { CreateSiteCommand } from '../../site/commands/create-site.command';
+import { DeleteSiteCommand } from '../../site/commands/delete-site.command';
+import { UpdateSiteCommand } from '../../site/commands/update-site.command';
+import { Site, SiteStatus } from '../../site/entities/site.entity';
+import { CreateSiteHandler } from '../../site/handlers/create-site.handler';
+import { DeleteSiteHandler } from '../../site/handlers/delete-site.handler';
+import { GetSiteHandler } from '../../site/handlers/get-site.handler';
+import { ListSitesHandler } from '../../site/handlers/list-sites.handler';
+import { UpdateSiteHandler } from '../../site/handlers/update-site.handler';
+import { GetSiteQuery } from '../../site/queries/get-site.query';
+import { ListSitesQuery } from '../../site/queries/list-sites.query';
+import { CreateDepartmentCommand } from '../../department/commands/create-department.command';
+import { DeleteDepartmentCommand } from '../../department/commands/delete-department.command';
+import { UpdateDepartmentCommand } from '../../department/commands/update-department.command';
+import { Department, DepartmentStatus, DepartmentType } from '../../department/entities/department.entity';
+import { CreateDepartmentHandler } from '../../department/handlers/create-department.handler';
+import { DeleteDepartmentHandler } from '../../department/handlers/delete-department.handler';
+import { GetDepartmentDeletePreviewHandler } from '../../department/handlers/get-department-delete-preview.handler';
+import { GetDepartmentHandler } from '../../department/handlers/get-department.handler';
+import { ListDepartmentsHandler } from '../../department/handlers/list-departments.handler';
+import { UpdateDepartmentHandler } from '../../department/handlers/update-department.handler';
+import { GetDepartmentDeletePreviewQuery } from '../../department/queries/get-department-delete-preview.query';
+import { GetDepartmentQuery } from '../../department/queries/get-department.query';
+import { ListDepartmentsQuery } from '../../department/queries/list-departments.query';
+import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
+import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
+import { EquipmentType, EquipmentCategory } from '../../equipment/entities/equipment-type.entity';
+import { SubEquipment } from '../../equipment/entities/sub-equipment.entity';
+import { System } from '../../system/entities/system.entity';
+import { SubSystem } from '../../system/entities/sub-system.entity';
+import { CreateSystemCommand } from '../../system/commands/create-system.command';
+import { DeleteSystemCommand } from '../../system/commands/delete-system.command';
+import { UpdateSystemCommand } from '../../system/commands/update-system.command';
+import { GetSystemDeletePreviewQuery } from '../../system/queries/get-system-delete-preview.query';
+import { SystemStatus, SystemType } from '../../system/entities/system.entity';
+import { CreateSystemHandler } from '../../system/handlers/create-system.handler';
+import { DeleteSystemHandler } from '../../system/handlers/delete-system.handler';
+import { GetSystemDeletePreviewHandler } from '../../system/handlers/get-system-delete-preview.handler';
+import { GetSystemHandler } from '../../system/handlers/get-system.handler';
+import { ListSystemsHandler } from '../../system/handlers/list-systems.handler';
+import { UpdateSystemHandler } from '../../system/handlers/update-system.handler';
+import { GetSystemQuery } from '../../system/queries/get-system.query';
+import { ListSystemsQuery } from '../../system/queries/list-systems.query';
+import { CreateEquipmentCommand } from '../../equipment/commands/create-equipment.command';
+import { DeleteEquipmentCommand } from '../../equipment/commands/delete-equipment.command';
+import { UpdateEquipmentCommand } from '../../equipment/commands/update-equipment.command';
+import { CreateEquipmentHandler } from '../../equipment/handlers/create-equipment.handler';
+import { DeleteEquipmentHandler } from '../../equipment/handlers/delete-equipment.handler';
+import { GetEquipmentHandler } from '../../equipment/handlers/get-equipment.handler';
+import { ListEquipmentHandler } from '../../equipment/handlers/list-equipment.handler';
+import { UpdateEquipmentHandler } from '../../equipment/handlers/update-equipment.handler';
+import { GetEquipmentQuery } from '../../equipment/queries/get-equipment.query';
+import { ListEquipmentQuery } from '../../equipment/queries/list-equipment.query';
+import { CreateTankCommand } from '../../tank/commands/create-tank.command';
+import { DeleteTankCommand } from '../../tank/commands/delete-tank.command';
+import { UpdateTankCommand } from '../../tank/commands/update-tank.command';
+import { UpdateTankStatusCommand } from '../../tank/commands/update-tank-status.command';
+import { Tank, TankMaterial, TankStatus, TankType, WaterType } from '../../tank/entities/tank.entity';
+import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { CreateTankHandler } from '../../tank/handlers/create-tank.handler';
+import { DeleteTankHandler } from '../../tank/handlers/delete-tank.handler';
+import { GetTankHandler } from '../../tank/handlers/get-tank.handler';
+import { ListTanksHandler } from '../../tank/handlers/list-tanks.handler';
+import { UpdateTankHandler } from '../../tank/handlers/update-tank.handler';
+import { UpdateTankStatusHandler } from '../../tank/handlers/update-tank-status.handler';
+import { GetTankQuery } from '../../tank/queries/get-tank.query';
+import { ListTanksQuery } from '../../tank/queries/list-tanks.query';
+import { Species } from '../../species/entities/species.entity';
+import { Supplier } from '../../supplier/entities/supplier.entity';
+import { CreateParameterConfigCommand } from '../../water-quality/commands/create-parameter-config.command';
+import { DeleteParameterConfigCommand } from '../../water-quality/commands/delete-parameter-config.command';
+import { UpdateParameterConfigCommand } from '../../water-quality/commands/update-parameter-config.command';
+import {
+  ParameterDataType,
+  ParameterGroup,
+  WaterQualityParameterConfig,
+} from '../../water-quality/entities/water-quality-parameter-config.entity';
+import { CreateParameterConfigHandler } from '../../water-quality/handlers/create-parameter-config.handler';
+import { DeleteParameterConfigHandler } from '../../water-quality/handlers/delete-parameter-config.handler';
+import { UpdateParameterConfigHandler } from '../../water-quality/handlers/update-parameter-config.handler';
+import { GetParameterConfigHandler } from '../../water-quality/query-handlers/get-parameter-config.handler';
+import { ListParameterConfigsHandler } from '../../water-quality/query-handlers/list-parameter-configs.handler';
+import { GetParameterConfigQuery } from '../../water-quality/queries/get-parameter-config.query';
+import { ListParameterConfigsQuery } from '../../water-quality/queries/list-parameter-configs.query';
+import { ParameterConfigCacheService } from '../../water-quality/services/parameter-config-cache.service';
+import { SentinelHubSettings } from '../../sentinel-hub/entities/sentinel-hub-settings.entity';
+import { SentinelHubService } from '../../sentinel-hub/sentinel-hub.service';
+import {
+  createSourceEquipmentTypesReferenceTable,
+  createTenantSchemaFromSource,
+} from './helpers/tenant-schema-harness';
+
+const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
+const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
+const USER_ID = 'f1b7b266-5e20-4c37-8ab2-b7ef18db3a21';
+const PUMP_EQUIPMENT_TYPE_ID = '18d6e179-af77-45f3-b33b-9a2a5e61b751';
+const TANK_EQUIPMENT_TYPE_ID = 'eae12d34-514b-4d1a-87c9-6d8626547cae';
+const SETUP_TENANT_TABLES = [
+  'sites',
+  'departments',
+  'systems',
+  'sub_systems',
+  'equipment',
+  'equipment_systems',
+  'tanks',
+  'suppliers',
+  'species',
+  'feeds',
+  'feed_sites',
+  'feed_type_species',
+  'feed_inventory',
+  'water_quality_parameter_configs',
+  'sentinel_hub_settings',
+] as const;
+
+interface SiteHarness {
+  createSite: CreateSiteHandler;
+  getSite: GetSiteHandler;
+  listSites: ListSitesHandler;
+  updateSite: UpdateSiteHandler;
+  deleteSite: DeleteSiteHandler;
+  createSystem: CreateSystemHandler;
+  getSystem: GetSystemHandler;
+  listSystems: ListSystemsHandler;
+  updateSystem: UpdateSystemHandler;
+  deleteSystem: DeleteSystemHandler;
+  getSystemDeletePreview: GetSystemDeletePreviewHandler;
+  createDepartment: CreateDepartmentHandler;
+  getDepartment: GetDepartmentHandler;
+  listDepartments: ListDepartmentsHandler;
+  updateDepartment: UpdateDepartmentHandler;
+  deleteDepartment: DeleteDepartmentHandler;
+  getDepartmentDeletePreview: GetDepartmentDeletePreviewHandler;
+  createEquipment: CreateEquipmentHandler;
+  getEquipment: GetEquipmentHandler;
+  listEquipment: ListEquipmentHandler;
+  updateEquipment: UpdateEquipmentHandler;
+  deleteEquipment: DeleteEquipmentHandler;
+  createTank: CreateTankHandler;
+  getTank: GetTankHandler;
+  listTanks: ListTanksHandler;
+  updateTank: UpdateTankHandler;
+  updateTankStatus: UpdateTankStatusHandler;
+  deleteTank: DeleteTankHandler;
+  createFeed: CreateFeedHandler;
+  getFeed: GetFeedHandler;
+  listFeeds: ListFeedsHandler;
+  updateFeed: UpdateFeedHandler;
+  deleteFeed: DeleteFeedHandler;
+  addFeedInventory: AddFeedInventoryHandler;
+  adjustFeedInventory: AdjustFeedInventoryHandler;
+  getFeedInventory: GetFeedInventoryHandler;
+  parameterConfigCache: ParameterConfigCacheService;
+  createParameterConfig: CreateParameterConfigHandler;
+  getParameterConfig: GetParameterConfigHandler;
+  listParameterConfigs: ListParameterConfigsHandler;
+  updateParameterConfig: UpdateParameterConfigHandler;
+  deleteParameterConfig: DeleteParameterConfigHandler;
+  sentinelHub: SentinelHubService;
+}
+
+jest.setTimeout(120_000);
+
+describe('Site tenant isolation on real Postgres', () => {
+  let pg: HarnessContext | undefined;
+  let dataSource: DataSource | undefined;
+  let siteRepository: Repository<Site>;
+  let systemRepository: Repository<System>;
+  let departmentRepository: Repository<Department>;
+  let equipmentRepository: Repository<Equipment>;
+  let equipmentSystemRepository: Repository<EquipmentSystem>;
+  let equipmentTypeRepository: Repository<EquipmentType>;
+  let sentinelSettingsRepository: Repository<SentinelHubSettings>;
+  let tankRepository: Repository<Tank>;
+  let feedRepository: Repository<Feed>;
+  let inventoryRepository: Repository<FeedInventory>;
+  let parameterConfigRepository: Repository<WaterQualityParameterConfig>;
+  let harness: SiteHarness;
+
+  beforeAll(async () => {
+    pg = await bootPostgresContainer({ startTimeoutMs: 90_000 });
+    await pg.dataSource.query('CREATE SCHEMA farm');
+    await createSourceEquipmentTypesReferenceTable(pg.dataSource);
+
+    dataSource = new DataSource({
+      type: 'postgres',
+      ...pg.connectionOptions,
+      name: `farm-service-tenant-isolation-${randomBytes(4).toString('hex')}`,
+      entities: [
+        Site,
+        Department,
+        System,
+        SubSystem,
+        Equipment,
+        EquipmentSystem,
+        EquipmentType,
+        Tank,
+        Feed,
+        FeedSite,
+        FeedTypeSpecies,
+        Species,
+        Supplier,
+        FeedInventory,
+        WaterQualityParameterConfig,
+        SentinelHubSettings,
+      ],
+      synchronize: true,
+      logging: false,
+      extra: {
+        options: '-c search_path=farm,public',
+      },
+    });
+
+    await dataSource.initialize();
+    equipmentTypeRepository = dataSource.getRepository(EquipmentType);
+    await seedEquipmentTypesForSetupTest();
+
+    const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
+    new TenantConnectionBootstrap(dataSource).onModuleInit();
+
+    await createTenantSchemaFromSource(dataSource, getTenantSchemaName(TENANT_A), SETUP_TENANT_TABLES);
+    await createTenantSchemaFromSource(dataSource, getTenantSchemaName(TENANT_B), SETUP_TENANT_TABLES);
+
+    siteRepository = dataSource.getRepository(Site);
+    systemRepository = dataSource.getRepository(System);
+    departmentRepository = dataSource.getRepository(Department);
+    equipmentRepository = dataSource.getRepository(Equipment);
+    equipmentSystemRepository = dataSource.getRepository(EquipmentSystem);
+    sentinelSettingsRepository = dataSource.getRepository(SentinelHubSettings);
+    tankRepository = dataSource.getRepository(Tank);
+    feedRepository = dataSource.getRepository(Feed);
+    inventoryRepository = dataSource.getRepository(FeedInventory);
+    parameterConfigRepository = dataSource.getRepository(WaterQualityParameterConfig);
+    const auditLogService = createAuditLogService();
+    const tankCodeGenerator = createTankCodeGenerator();
+    const parameterConfigCache = new ParameterConfigCacheService(parameterConfigRepository);
+
+    harness = {
+      createSite: new CreateSiteHandler(siteRepository),
+      getSite: new GetSiteHandler(siteRepository),
+      listSites: new ListSitesHandler(siteRepository),
+      updateSite: new UpdateSiteHandler(siteRepository),
+      deleteSite: new DeleteSiteHandler(
+        siteRepository,
+        departmentRepository,
+        unusedRepository<System>(),
+        unusedRepository<Equipment>(),
+        unusedRepository<Tank>(),
+      ),
+      createSystem: new CreateSystemHandler(systemRepository, siteRepository, departmentRepository),
+      getSystem: new GetSystemHandler(systemRepository),
+      listSystems: new ListSystemsHandler(systemRepository),
+      updateSystem: new UpdateSystemHandler(systemRepository),
+      deleteSystem: new DeleteSystemHandler(
+        systemRepository,
+        equipmentRepository,
+        equipmentSystemRepository,
+      ),
+      getSystemDeletePreview: new GetSystemDeletePreviewHandler(
+        systemRepository,
+        equipmentRepository,
+        equipmentSystemRepository,
+      ),
+      createDepartment: new CreateDepartmentHandler(departmentRepository, siteRepository),
+      getDepartment: new GetDepartmentHandler(departmentRepository),
+      listDepartments: new ListDepartmentsHandler(departmentRepository),
+      updateDepartment: new UpdateDepartmentHandler(departmentRepository),
+      deleteDepartment: new DeleteDepartmentHandler(
+        departmentRepository,
+        equipmentRepository,
+        tankRepository,
+        systemRepository,
+      ),
+      getDepartmentDeletePreview: new GetDepartmentDeletePreviewHandler(
+        departmentRepository,
+        equipmentRepository,
+        tankRepository,
+      ),
+      createEquipment: new CreateEquipmentHandler(
+        equipmentRepository,
+        equipmentTypeRepository,
+        equipmentSystemRepository,
+        departmentRepository,
+        systemRepository,
+        unusedRepository<Supplier>(),
+        tankRepository,
+        tankCodeGenerator,
+      ),
+      getEquipment: new GetEquipmentHandler(equipmentRepository),
+      listEquipment: new ListEquipmentHandler(
+        equipmentRepository,
+        tankRepository,
+        equipmentTypeRepository,
+        dataSource,
+      ),
+      updateEquipment: new UpdateEquipmentHandler(
+        equipmentRepository,
+        equipmentSystemRepository,
+        departmentRepository,
+        systemRepository,
+        unusedRepository<Supplier>(),
+        tankRepository,
+      ),
+      deleteEquipment: new DeleteEquipmentHandler(
+        equipmentRepository,
+        emptySubEquipmentRepository(),
+        tankRepository,
+        emptyTankBatchRepository(),
+      ),
+      createTank: new CreateTankHandler(
+        tankRepository,
+        departmentRepository,
+        auditLogService,
+        tankCodeGenerator,
+      ),
+      getTank: new GetTankHandler(tankRepository),
+      listTanks: new ListTanksHandler(tankRepository),
+      updateTank: new UpdateTankHandler(tankRepository, auditLogService),
+      updateTankStatus: new UpdateTankStatusHandler(tankRepository, auditLogService),
+      deleteTank: new DeleteTankHandler(tankRepository, auditLogService),
+      createFeed: new CreateFeedHandler(
+        feedRepository,
+        unusedRepository<Supplier>(),
+        siteRepository,
+        unusedRepository<Species>(),
+      ),
+      getFeed: new GetFeedHandler(feedRepository),
+      listFeeds: new ListFeedsHandler(feedRepository),
+      updateFeed: new UpdateFeedHandler(feedRepository, unusedRepository<Supplier>()),
+      deleteFeed: new DeleteFeedHandler(feedRepository),
+      addFeedInventory: new AddFeedInventoryHandler(inventoryRepository, feedRepository, siteRepository),
+      adjustFeedInventory: new AdjustFeedInventoryHandler(inventoryRepository),
+      getFeedInventory: new GetFeedInventoryHandler(inventoryRepository),
+      parameterConfigCache,
+      createParameterConfig: new CreateParameterConfigHandler(parameterConfigRepository, parameterConfigCache),
+      getParameterConfig: new GetParameterConfigHandler(parameterConfigRepository),
+      listParameterConfigs: new ListParameterConfigsHandler(parameterConfigRepository),
+      updateParameterConfig: new UpdateParameterConfigHandler(parameterConfigRepository, parameterConfigCache),
+      deleteParameterConfig: new DeleteParameterConfigHandler(parameterConfigRepository, parameterConfigCache),
+      sentinelHub: new SentinelHubService(sentinelSettingsRepository, createSentinelConfigService()),
+    };
+  });
+
+  afterAll(async () => {
+    if (dataSource?.isInitialized) {
+      await dataSource.destroy();
+    }
+    await shutdownHarness(pg);
+  });
+
+  it('creates tenant data in the active tenant schema and never in the source schema', async () => {
+    const siteA = await createSiteForTenant(TENANT_A, 'North Farm', 'NF-01');
+
+    expect(await rowCount('farm', TENANT_A)).toBe(0);
+    expect(await rowCount(getTenantSchemaName(TENANT_A), TENANT_A)).toBe(1);
+    expect(await rowCount(getTenantSchemaName(TENANT_B), TENANT_A)).toBe(0);
+
+    const tenantAList = await withTenantContext(TENANT_A, () =>
+      harness.listSites.execute(new ListSitesQuery(TENANT_A, { search: 'North' }, { page: 1, limit: 10 })),
+    );
+    const tenantBList = await withTenantContext(TENANT_B, () =>
+      harness.listSites.execute(new ListSitesQuery(TENANT_B, { search: 'North' }, { page: 1, limit: 10 })),
+    );
+
+    expect(tenantAList.data.map((site: Site) => site.id)).toContain(siteA.id);
+    expect(tenantBList.data).toHaveLength(0);
+  });
+
+  it('allows same business keys in different tenants without cross-tenant visibility', async () => {
+    const siteA = await createSiteForTenant(TENANT_A, 'Shared Name Farm', 'SHARED-01');
+    const siteB = await createSiteForTenant(TENANT_B, 'Shared Name Farm', 'SHARED-01');
+
+    expect(siteA.id).not.toBe(siteB.id);
+
+    const tenantAList = await withTenantContext(TENANT_A, () =>
+      harness.listSites.execute(new ListSitesQuery(TENANT_A, { search: 'Shared Name' }, { page: 1, limit: 10 })),
+    );
+    const tenantBList = await withTenantContext(TENANT_B, () =>
+      harness.listSites.execute(new ListSitesQuery(TENANT_B, { search: 'Shared Name' }, { page: 1, limit: 10 })),
+    );
+
+    expect(tenantAList.data.map((site: Site) => site.id)).toEqual([siteA.id]);
+    expect(tenantBList.data.map((site: Site) => site.id)).toEqual([siteB.id]);
+  });
+
+  it('returns updated values immediately through get and list in the same tenant only', async () => {
+    const tenantASite = await createSiteForTenant(TENANT_A, 'Editable Farm', 'EDIT-01');
+    await createSiteForTenant(TENANT_B, 'Editable Farm', 'EDIT-01');
+
+    const updated = await withTenantContext(TENANT_A, () =>
+      harness.updateSite.execute(
+        new UpdateSiteCommand(
+          tenantASite.id,
+          {
+            id: tenantASite.id,
+            name: 'Editable Farm Updated',
+            status: SiteStatus.MAINTENANCE,
+          },
+          TENANT_A,
+          USER_ID,
+        ),
+      ),
+    );
+
+    const getAfterUpdate = await withTenantContext(TENANT_A, () =>
+      harness.getSite.execute(new GetSiteQuery(tenantASite.id, TENANT_A)),
+    );
+    const listAfterUpdate = await withTenantContext(TENANT_A, () =>
+      harness.listSites.execute(new ListSitesQuery(TENANT_A, { search: 'Updated' }, { page: 1, limit: 10 })),
+    );
+    const tenantBList = await withTenantContext(TENANT_B, () =>
+      harness.listSites.execute(new ListSitesQuery(TENANT_B, { search: 'Updated' }, { page: 1, limit: 10 })),
+    );
+
+    expect(updated.name).toBe('Editable Farm Updated');
+    expect(updated.status).toBe(SiteStatus.MAINTENANCE);
+    expect(getAfterUpdate?.name).toBe('Editable Farm Updated');
+    expect(getAfterUpdate?.status).toBe(SiteStatus.MAINTENANCE);
+    expect(listAfterUpdate.data.map((site: Site) => site.id)).toEqual([tenantASite.id]);
+    expect(tenantBList.data).toHaveLength(0);
+  });
+
+  it('soft-deletes only the current tenant row and removes it from active lists immediately', async () => {
+    const tenantASite = await createSiteForTenant(TENANT_A, 'Delete Candidate', 'DEL-01');
+    const tenantBSite = await createSiteForTenant(TENANT_B, 'Delete Candidate', 'DEL-01');
+
+    await withTenantContext(TENANT_A, () =>
+      harness.deleteSite.execute(new DeleteSiteCommand(tenantASite.id, TENANT_A, USER_ID, false)),
+    );
+
+    const tenantAList = await withTenantContext(TENANT_A, () =>
+      harness.listSites.execute(new ListSitesQuery(TENANT_A, { search: 'Delete Candidate' }, { page: 1, limit: 10 })),
+    );
+    const tenantBList = await withTenantContext(TENANT_B, () =>
+      harness.listSites.execute(new ListSitesQuery(TENANT_B, { search: 'Delete Candidate' }, { page: 1, limit: 10 })),
+    );
+
+    expect(tenantAList.data).toHaveLength(0);
+    expect(tenantBList.data.map((site: Site) => site.id)).toEqual([tenantBSite.id]);
+    expect(await rowCount('farm', TENANT_A)).toBe(0);
+  });
+
+  it('keeps system create/update/delete isolated and immediately visible per tenant', async () => {
+    const siteA = await createSiteForTenant(TENANT_A, 'System Site A', 'SYS-SITE-A');
+    const siteB = await createSiteForTenant(TENANT_B, 'System Site B', 'SYS-SITE-B');
+
+    const systemA = await createSystemForTenant(TENANT_A, siteA.id, 'RAS Main', 'RAS-01');
+    const systemB = await createSystemForTenant(TENANT_B, siteB.id, 'RAS Main', 'RAS-01');
+
+    expect(systemA.id).not.toBe(systemB.id);
+    expect(await systemRowCount('farm', TENANT_A)).toBe(0);
+    expect(await systemRowCount(getTenantSchemaName(TENANT_A), TENANT_A)).toBe(1);
+    expect(await systemRowCount(getTenantSchemaName(TENANT_B), TENANT_A)).toBe(0);
+
+    const updated = await withTenantContext(TENANT_A, () =>
+      harness.updateSystem.execute(
+        new UpdateSystemCommand(
+          {
+            id: systemA.id,
+            name: 'RAS Main Updated',
+            status: SystemStatus.MAINTENANCE,
+            tankCount: 8,
+          },
+          TENANT_A,
+          USER_ID,
+        ),
+      ),
+    );
+    const getAfterUpdate = await withTenantContext(TENANT_A, () =>
+      harness.getSystem.execute(new GetSystemQuery(systemA.id, TENANT_A, true)),
+    );
+    const tenantAList = await withTenantContext(TENANT_A, () =>
+      harness.listSystems.execute(
+        new ListSystemsQuery(TENANT_A, { search: 'Updated' }, { page: 1, limit: 10 }),
+      ),
+    );
+    const tenantBList = await withTenantContext(TENANT_B, () =>
+      harness.listSystems.execute(
+        new ListSystemsQuery(TENANT_B, { search: 'Updated' }, { page: 1, limit: 10 }),
+      ),
+    );
+
+    expect(updated.name).toBe('RAS Main Updated');
+    expect(updated.status).toBe(SystemStatus.MAINTENANCE);
+    expect(getAfterUpdate?.name).toBe('RAS Main Updated');
+    expect(getAfterUpdate?.tankCount).toBe(8);
+    expect(tenantAList.data.map((system: System) => system.id)).toEqual([systemA.id]);
+    expect(tenantBList.data).toHaveLength(0);
+
+    await withTenantContext(TENANT_A, () =>
+      harness.deleteSystem.execute(new DeleteSystemCommand(systemA.id, TENANT_A, USER_ID, false)),
+    );
+
+    const tenantAAfterDelete = await withTenantContext(TENANT_A, () =>
+      harness.listSystems.execute(
+        new ListSystemsQuery(TENANT_A, { search: 'RAS Main' }, { page: 1, limit: 10 }),
+      ),
+    );
+    const tenantBAfterDelete = await withTenantContext(TENANT_B, () =>
+      harness.listSystems.execute(
+        new ListSystemsQuery(TENANT_B, { search: 'RAS Main' }, { page: 1, limit: 10 }),
+      ),
+    );
+
+    expect(tenantAAfterDelete.data).toHaveLength(0);
+    expect(tenantBAfterDelete.data.map((system: System) => system.id)).toEqual([systemB.id]);
+  });
+
+  it('keeps department create/update/delete-preview/delete isolated and immediately visible per tenant', async () => {
+    const siteA = await createSiteForTenant(TENANT_A, 'Department Site A', 'DEPT-SITE-A');
+    const siteB = await createSiteForTenant(TENANT_B, 'Department Site B', 'DEPT-SITE-B');
+
+    const departmentA = await createDepartmentForTenant(TENANT_A, siteA.id, 'Growout Shared', 'DEPT-01');
+    const departmentB = await createDepartmentForTenant(TENANT_B, siteB.id, 'Growout Shared', 'DEPT-01');
+
+    expect(departmentA.id).not.toBe(departmentB.id);
+    expect(await tableTenantRowCount('farm', 'departments', TENANT_A)).toBe(0);
+    expect(await tableTenantRowCount(getTenantSchemaName(TENANT_A), 'departments', TENANT_A)).toBe(1);
+    expect(await tableTenantRowCount(getTenantSchemaName(TENANT_B), 'departments', TENANT_A)).toBe(0);
+
+    const updated = await withTenantContext(TENANT_A, () =>
+      harness.updateDepartment.execute(
+        new UpdateDepartmentCommand(
+          departmentA.id,
+          {
+            id: departmentA.id,
+            name: 'Growout Shared Updated',
+            status: DepartmentStatus.INACTIVE,
+            capacity: 250,
+          },
+          TENANT_A,
+          USER_ID,
+        ),
+      ),
+    );
+    const getAfterUpdate = await withTenantContext(TENANT_A, () =>
+      harness.getDepartment.execute(new GetDepartmentQuery(departmentA.id, TENANT_A, true)),
+    );
+    const tenantAList = await withTenantContext(TENANT_A, () =>
+      harness.listDepartments.execute(
+        new ListDepartmentsQuery(TENANT_A, { search: 'Updated' }, { page: 1, limit: 10 }),
+      ),
+    );
+    const tenantBList = await withTenantContext(TENANT_B, () =>
+      harness.listDepartments.execute(
+        new ListDepartmentsQuery(TENANT_B, { search: 'Updated' }, { page: 1, limit: 10 }),
+      ),
+    );
+    const deletePreview = await withTenantContext(TENANT_A, () =>
+      harness.getDepartmentDeletePreview.execute(new GetDepartmentDeletePreviewQuery(departmentA.id, TENANT_A)),
+    );
+
+    expect(updated.name).toBe('Growout Shared Updated');
+    expect(updated.status).toBe(DepartmentStatus.INACTIVE);
+    expect(Number(updated.capacity)).toBe(250);
+    expect(getAfterUpdate?.name).toBe('Growout Shared Updated');
+    expect(tenantAList.data.map((department: Department) => department.id)).toEqual([departmentA.id]);
+    expect(tenantBList.data).toHaveLength(0);
+    expect(deletePreview.canDelete).toBe(true);
+    expect(deletePreview.affectedItems.totalCount).toBe(0);
+
+    await withTenantContext(TENANT_A, () =>
+      harness.deleteDepartment.execute(new DeleteDepartmentCommand(departmentA.id, TENANT_A, USER_ID, false)),
+    );
+
+    const tenantAAfterDelete = await withTenantContext(TENANT_A, () =>
+      harness.listDepartments.execute(
+        new ListDepartmentsQuery(TENANT_A, { search: 'Growout Shared' }, { page: 1, limit: 10 }),
+      ),
+    );
+    const tenantBAfterDelete = await withTenantContext(TENANT_B, () =>
+      harness.listDepartments.execute(
+        new ListDepartmentsQuery(TENANT_B, { search: 'Growout Shared' }, { page: 1, limit: 10 }),
+      ),
+    );
+
+    expect(tenantAAfterDelete.data).toHaveLength(0);
+    expect(tenantBAfterDelete.data.map((department: Department) => department.id)).toEqual([departmentB.id]);
+  });
+
+  it('keeps sensor-visible equipment and system junctions tenant-local and immediately queryable', async () => {
+    const siteA = await createSiteForTenant(TENANT_A, 'Equipment Site A', 'EQ-SITE-A');
+    const siteB = await createSiteForTenant(TENANT_B, 'Equipment Site B', 'EQ-SITE-B');
+    const departmentA = await createDepartmentForTenant(TENANT_A, siteA.id, 'Equipment Dept A', 'EQ-DEPT-A');
+    const departmentB = await createDepartmentForTenant(TENANT_B, siteB.id, 'Equipment Dept B', 'EQ-DEPT-B');
+    const systemA = await createSystemForTenant(TENANT_A, siteA.id, 'Equipment RAS A', 'EQ-RAS-A');
+    const systemB = await createSystemForTenant(TENANT_B, siteB.id, 'Equipment RAS B', 'EQ-RAS-B');
+
+    const equipmentA = await createEquipmentForTenant(
+      TENANT_A,
+      departmentA.id,
+      systemA.id,
+      PUMP_EQUIPMENT_TYPE_ID,
+      'Sensor Pump',
+      'PUMP-01',
+      true,
+    );
+    const equipmentB = await createEquipmentForTenant(
+      TENANT_B,
+      departmentB.id,
+      systemB.id,
+      PUMP_EQUIPMENT_TYPE_ID,
+      'Sensor Pump',
+      'PUMP-01',
+      true,
+    );
+
+    expect(equipmentA.id).not.toBe(equipmentB.id);
+    expect(await tableTenantRowCount('farm', 'equipment', TENANT_A)).toBe(0);
+    expect(await tableTenantRowCount('farm', 'equipment_systems', TENANT_A)).toBe(0);
+    expect(await tableHasRowForTenantAndId(getTenantSchemaName(TENANT_A), 'equipment', TENANT_A, equipmentA.id)).toBe(true);
+    expect(
+      await tableHasRowForTenantAndId(getTenantSchemaName(TENANT_A), 'equipment_systems', TENANT_A, equipmentA.id, 'equipmentId'),
+    ).toBe(true);
+    expect(await tableHasRowForTenantAndId(getTenantSchemaName(TENANT_B), 'equipment', TENANT_A, equipmentA.id)).toBe(false);
+
+    const updated = await withTenantContext(TENANT_A, () =>
+      harness.updateEquipment.execute(
+        new UpdateEquipmentCommand(
+          equipmentA.id,
+          {
+            id: equipmentA.id,
+            name: 'Sensor Pump Updated',
+            status: EquipmentStatus.MAINTENANCE,
+            isVisibleInSensor: true,
+            systemIds: [systemA.id],
+          },
+          TENANT_A,
+          USER_ID,
+        ),
+      ),
+    );
+    const getAfterUpdate = await withTenantContext(TENANT_A, () =>
+      harness.getEquipment.execute(new GetEquipmentQuery(equipmentA.id, TENANT_A, true)),
+    );
+    const tenantAList = await withTenantContext(TENANT_A, () =>
+      harness.listEquipment.execute(
+        new ListEquipmentQuery(
+          TENANT_A,
+          { search: 'Updated', systemId: systemA.id, isVisibleInSensor: true, isTank: false },
+          { page: 1, limit: 10 },
+        ),
+      ),
+    );
+    const tenantBList = await withTenantContext(TENANT_B, () =>
+      harness.listEquipment.execute(
+        new ListEquipmentQuery(
+          TENANT_B,
+          { search: 'Updated', systemId: systemB.id, isVisibleInSensor: true, isTank: false },
+          { page: 1, limit: 10 },
+        ),
+      ),
+    );
+    const systemPreview = await withTenantContext(TENANT_A, () =>
+      harness.getSystemDeletePreview.execute(new GetSystemDeletePreviewQuery(systemA.id, TENANT_A)),
+    );
+
+    expect(updated.name).toBe('Sensor Pump Updated');
+    expect(updated.status).toBe(EquipmentStatus.MAINTENANCE);
+    expect(getAfterUpdate.name).toBe('Sensor Pump Updated');
+    expect(getAfterUpdate.equipmentSystems?.map((link) => link.systemId)).toEqual([systemA.id]);
+    expect(tenantAList.data.map((equipment: Equipment) => equipment.id)).toEqual([equipmentA.id]);
+    expect(tenantBList.data).toHaveLength(0);
+    expect(systemPreview.affectedItems.equipment.map((equipment) => equipment.id)).toEqual([equipmentA.id]);
+
+    await withTenantContext(TENANT_A, () =>
+      harness.deleteEquipment.execute(new DeleteEquipmentCommand(equipmentA.id, TENANT_A, USER_ID, false)),
+    );
+
+    const tenantAAfterDelete = await withTenantContext(TENANT_A, () =>
+      harness.listEquipment.execute(
+        new ListEquipmentQuery(TENANT_A, { search: 'Sensor Pump', isTank: false }, { page: 1, limit: 10 }),
+      ),
+    );
+    const tenantBAfterDelete = await withTenantContext(TENANT_B, () =>
+      harness.listEquipment.execute(
+        new ListEquipmentQuery(TENANT_B, { search: 'Sensor Pump', isTank: false }, { page: 1, limit: 10 }),
+      ),
+    );
+
+    expect(tenantAAfterDelete.data).toHaveLength(0);
+    expect(tenantBAfterDelete.data.map((equipment: Equipment) => equipment.id)).toEqual([equipmentB.id]);
+  });
+
+  it('keeps tank create/update/status/delete isolated and immediately visible per tenant', async () => {
+    const siteA = await createSiteForTenant(TENANT_A, 'Tank Site A', 'TNK-SITE-A');
+    const siteB = await createSiteForTenant(TENANT_B, 'Tank Site B', 'TNK-SITE-B');
+    const departmentA = await createDepartmentForTenant(TENANT_A, siteA.id, 'Growout A', 'GROW-A');
+    const departmentB = await createDepartmentForTenant(TENANT_B, siteB.id, 'Growout B', 'GROW-B');
+
+    const tankA = await createTankForTenant(TENANT_A, departmentA.id, 'Circular Tank');
+    const tankB = await createTankForTenant(TENANT_B, departmentB.id, 'Circular Tank');
+
+    expect(tankA.id).not.toBe(tankB.id);
+    expect(await tankRowCount('farm', TENANT_A)).toBe(0);
+    expect(await tankRowCount(getTenantSchemaName(TENANT_A), TENANT_A)).toBe(1);
+    expect(await tankRowCount(getTenantSchemaName(TENANT_B), TENANT_A)).toBe(0);
+
+    const updated = await withTenantContext(TENANT_A, () =>
+      harness.updateTank.execute(
+        new UpdateTankCommand(TENANT_A, USER_ID, {
+          id: tankA.id,
+          name: 'Circular Tank Updated',
+          maxBiomass: 1100,
+        }),
+      ),
+    );
+    const activated = await withTenantContext(TENANT_A, () =>
+      harness.updateTankStatus.execute(
+        new UpdateTankStatusCommand(TENANT_A, USER_ID, {
+          id: tankA.id,
+          status: TankStatus.ACTIVE,
+          reason: 'ready-for-stocking',
+        }),
+      ),
+    );
+    const getAfterUpdate = await withTenantContext(TENANT_A, () =>
+      harness.getTank.execute(new GetTankQuery(TENANT_A, tankA.id)),
+    );
+    const tenantAList = await withTenantContext(TENANT_A, () =>
+      harness.listTanks.execute(
+        new ListTanksQuery(TENANT_A, { search: 'Updated', isActive: true, offset: 0, limit: 10 }),
+      ),
+    );
+    const tenantBList = await withTenantContext(TENANT_B, () =>
+      harness.listTanks.execute(
+        new ListTanksQuery(TENANT_B, { search: 'Updated', isActive: true, offset: 0, limit: 10 }),
+      ),
+    );
+
+    expect(updated.name).toBe('Circular Tank Updated');
+    expect(activated.status).toBe(TankStatus.ACTIVE);
+    expect(getAfterUpdate.name).toBe('Circular Tank Updated');
+    expect(getAfterUpdate.status).toBe(TankStatus.ACTIVE);
+    expect(Number(getAfterUpdate.maxBiomass)).toBe(1100);
+    expect(tenantAList.data.map((tank: Tank) => tank.id)).toEqual([tankA.id]);
+    expect(tenantBList.data).toHaveLength(0);
+
+    await withTenantContext(TENANT_A, () =>
+      harness.deleteTank.execute(new DeleteTankCommand(TENANT_A, USER_ID, tankA.id)),
+    );
+
+    const tenantAActiveAfterDelete = await withTenantContext(TENANT_A, () =>
+      harness.listTanks.execute(
+        new ListTanksQuery(TENANT_A, { search: 'Circular Tank', isActive: true, offset: 0, limit: 10 }),
+      ),
+    );
+    const tenantBActiveAfterDelete = await withTenantContext(TENANT_B, () =>
+      harness.listTanks.execute(
+        new ListTanksQuery(TENANT_B, { search: 'Circular Tank', isActive: true, offset: 0, limit: 10 }),
+      ),
+    );
+
+    expect(tenantAActiveAfterDelete.data).toHaveLength(0);
+    expect(tenantBActiveAfterDelete.data.map((tank: Tank) => tank.id)).toEqual([tankB.id]);
+  });
+
+  it('routes tank-like equipment to the tenant tanks table and keeps it visible through equipment lists', async () => {
+    const siteA = await createSiteForTenant(TENANT_A, 'Tank Equipment Site A', 'TEQ-SITE-A');
+    const siteB = await createSiteForTenant(TENANT_B, 'Tank Equipment Site B', 'TEQ-SITE-B');
+    const departmentA = await createDepartmentForTenant(TENANT_A, siteA.id, 'Tank Equipment Dept A', 'TEQ-DEPT-A');
+    const departmentB = await createDepartmentForTenant(TENANT_B, siteB.id, 'Tank Equipment Dept B', 'TEQ-DEPT-B');
+    const systemA = await createSystemForTenant(TENANT_A, siteA.id, 'Tank Equipment RAS A', 'TEQ-RAS-A');
+    const systemB = await createSystemForTenant(TENANT_B, siteB.id, 'Tank Equipment RAS B', 'TEQ-RAS-B');
+
+    const tankEquipmentA = await createTankEquipmentForTenant(TENANT_A, departmentA.id, systemA.id, 'Unified Tank');
+    const tankEquipmentB = await createTankEquipmentForTenant(TENANT_B, departmentB.id, systemB.id, 'Unified Tank');
+
+    expect(tankEquipmentA.id).not.toBe(tankEquipmentB.id);
+    expect(await tableTenantRowCount('farm', 'tanks', TENANT_A)).toBe(0);
+    expect(await tableTenantRowCount('farm', 'equipment', TENANT_A)).toBe(0);
+    expect(await tableHasRowForTenantAndId(getTenantSchemaName(TENANT_A), 'tanks', TENANT_A, tankEquipmentA.id)).toBe(true);
+    expect(await tableHasRowForTenantAndId(getTenantSchemaName(TENANT_A), 'equipment', TENANT_A, tankEquipmentA.id)).toBe(false);
+    expect(await tableHasRowForTenantAndId(getTenantSchemaName(TENANT_B), 'tanks', TENANT_A, tankEquipmentA.id)).toBe(false);
+
+    const tenantAList = await withTenantContext(TENANT_A, () =>
+      harness.listEquipment.execute(
+        new ListEquipmentQuery(
+          TENANT_A,
+          { search: 'Unified Tank', isTank: true, categories: [EquipmentCategory.TANK] },
+          { page: 1, limit: 10 },
+        ),
+      ),
+    );
+    const tenantBList = await withTenantContext(TENANT_B, () =>
+      harness.listEquipment.execute(
+        new ListEquipmentQuery(
+          TENANT_B,
+          { search: 'Unified Tank', isTank: true, categories: [EquipmentCategory.TANK] },
+          { page: 1, limit: 10 },
+        ),
+      ),
+    );
+
+    expect(tenantAList.data.map((equipment: Equipment) => equipment.id)).toEqual([tankEquipmentA.id]);
+    expect(tenantAList.data[0]?.isTank).toBe(true);
+    expect(tenantAList.data[0]?.equipmentType?.code).toBe('tank-circular');
+    expect(tenantBList.data.map((equipment: Equipment) => equipment.id)).toEqual([tankEquipmentB.id]);
+  });
+
+  it('keeps feed create/update/delete isolated and immediately visible per tenant', async () => {
+    const siteA = await createSiteForTenant(TENANT_A, 'Feed Site A', 'FEED-SITE-A');
+    const siteB = await createSiteForTenant(TENANT_B, 'Feed Site B', 'FEED-SITE-B');
+
+    const feedA = await createFeedForTenant(TENANT_A, siteA.id, 'Starter Pellet', 'FEED-01');
+    const feedB = await createFeedForTenant(TENANT_B, siteB.id, 'Starter Pellet', 'FEED-01');
+
+    expect(feedA.id).not.toBe(feedB.id);
+    expect(await feedRowCount('farm', TENANT_A)).toBe(0);
+    expect(await feedRowCount(getTenantSchemaName(TENANT_A), TENANT_A)).toBe(1);
+    expect(await feedRowCount(getTenantSchemaName(TENANT_B), TENANT_A)).toBe(0);
+
+    const updated = await withTenantContext(TENANT_A, () =>
+      harness.updateFeed.execute(
+        new UpdateFeedCommand(
+          feedA.id,
+          {
+            id: feedA.id,
+            name: 'Starter Pellet Updated',
+            status: FeedStatus.LOW_STOCK,
+            quantity: 12,
+          },
+          TENANT_A,
+          USER_ID,
+        ),
+      ),
+    );
+    const getAfterUpdate = await withTenantContext(TENANT_A, () =>
+      harness.getFeed.execute(new GetFeedQuery(feedA.id, TENANT_A)),
+    );
+    const tenantAList = await withTenantContext(TENANT_A, () =>
+      harness.listFeeds.execute(
+        new ListFeedsQuery(TENANT_A, { siteId: siteA.id, search: 'Updated' }, { page: 1, limit: 10 }),
+      ),
+    );
+    const tenantBList = await withTenantContext(TENANT_B, () =>
+      harness.listFeeds.execute(
+        new ListFeedsQuery(TENANT_B, { siteId: siteB.id, search: 'Updated' }, { page: 1, limit: 10 }),
+      ),
+    );
+
+    expect(updated.name).toBe('Starter Pellet Updated');
+    expect(updated.status).toBe(FeedStatus.LOW_STOCK);
+    expect(Number(getAfterUpdate?.quantity)).toBe(12);
+    expect(tenantAList.data.map((feed: Feed) => feed.id)).toEqual([feedA.id]);
+    expect(tenantBList.data).toHaveLength(0);
+
+    await withTenantContext(TENANT_A, () =>
+      harness.deleteFeed.execute(new DeleteFeedCommand(feedA.id, TENANT_A, USER_ID)),
+    );
+
+    const tenantAAfterDelete = await withTenantContext(TENANT_A, () =>
+      harness.listFeeds.execute(
+        new ListFeedsQuery(TENANT_A, { siteId: siteA.id, search: 'Starter Pellet' }, { page: 1, limit: 10 }),
+      ),
+    );
+    const tenantBAfterDelete = await withTenantContext(TENANT_B, () =>
+      harness.listFeeds.execute(
+        new ListFeedsQuery(TENANT_B, { siteId: siteB.id, search: 'Starter Pellet' }, { page: 1, limit: 10 }),
+      ),
+    );
+
+    expect(tenantAAfterDelete.data).toHaveLength(0);
+    expect(tenantBAfterDelete.data.map((feed: Feed) => feed.id)).toEqual([feedB.id]);
+  });
+
+  it('keeps feed inventory lot merges and adjustments isolated per tenant', async () => {
+    const siteA = await createSiteForTenant(TENANT_A, 'Inventory Site A', 'INV-SITE-A');
+    const siteB = await createSiteForTenant(TENANT_B, 'Inventory Site B', 'INV-SITE-B');
+    const feedA = await createFeedForTenant(TENANT_A, siteA.id, 'Inventory Feed', 'INV-FEED-01');
+    const feedB = await createFeedForTenant(TENANT_B, siteB.id, 'Inventory Feed', 'INV-FEED-01');
+
+    const firstStock = await addInventoryForTenant(TENANT_A, feedA.id, siteA.id, 100, 50, 'LOT-1');
+    const mergedStock = await addInventoryForTenant(TENANT_A, feedA.id, siteA.id, 25, 50, 'LOT-1');
+    await addInventoryForTenant(TENANT_B, feedB.id, siteB.id, 75, 20, 'LOT-1');
+
+    expect(firstStock.id).toBe(mergedStock.id);
+    expect(Number(mergedStock.quantityKg)).toBe(125);
+    expect(await inventoryRowCount('farm', TENANT_A)).toBe(0);
+    expect(await inventoryRowCount(getTenantSchemaName(TENANT_A), TENANT_A)).toBe(1);
+    expect(await inventoryRowCount(getTenantSchemaName(TENANT_B), TENANT_A)).toBe(0);
+
+    const adjusted = await withTenantContext(TENANT_A, () =>
+      harness.adjustFeedInventory.execute(
+        new AdjustFeedInventoryCommand(
+          TENANT_A,
+          {
+            inventoryId: mergedStock.id,
+            adjustmentType: AdjustmentType.SET_QUANTITY,
+            quantity: 40,
+            reason: 'physical-count',
+          },
+          USER_ID,
+        ),
+      ),
+    );
+    const tenantALowStock = await withTenantContext(TENANT_A, () =>
+      harness.getFeedInventory.execute(
+        new GetFeedInventoryQuery(TENANT_A, { feedId: feedA.id, siteId: siteA.id, lowStockOnly: true }, 1, 10),
+      ),
+    );
+    const tenantBInventory = await withTenantContext(TENANT_B, () =>
+      harness.getFeedInventory.execute(
+        new GetFeedInventoryQuery(TENANT_B, { feedId: feedB.id, siteId: siteB.id }, 1, 10),
+      ),
+    );
+
+    expect(Number(adjusted.quantityKg)).toBe(40);
+    expect(adjusted.status).toBe(InventoryStatus.LOW_STOCK);
+    expect(tenantALowStock.data.map((inventory: FeedInventory) => inventory.id)).toEqual([mergedStock.id]);
+    expect(tenantBInventory.data).toHaveLength(1);
+    expect(Number(tenantBInventory.data[0]?.quantityKg)).toBe(75);
+
+    await expect(
+      withTenantContext(TENANT_A, () =>
+        harness.adjustFeedInventory.execute(
+          new AdjustFeedInventoryCommand(
+            TENANT_A,
+            {
+              inventoryId: mergedStock.id,
+              adjustmentType: AdjustmentType.DECREASE,
+              quantity: 100,
+              reason: 'invalid-negative-stock-guard',
+            },
+            USER_ID,
+          ),
+        ),
+      ),
+    ).rejects.toThrow('Stok negatif olamaz');
+  });
+
+  it('invalidates water-quality parameter config cache only for the mutated tenant', async () => {
+    const configA = await createParameterConfigForTenant(TENANT_A, 'do_cache', 'Dissolved Oxygen Cache', 1);
+    const configB = await createParameterConfigForTenant(TENANT_B, 'do_cache', 'Dissolved Oxygen Cache', 1);
+
+    expect(await parameterConfigRowCount('farm', TENANT_A)).toBe(0);
+    expect(await parameterConfigRowCount(getTenantSchemaName(TENANT_A), TENANT_A)).toBe(1);
+    expect(await parameterConfigRowCount(getTenantSchemaName(TENANT_B), TENANT_A)).toBe(0);
+
+    const tenantAWarmCache = await withTenantContext(TENANT_A, () =>
+      harness.parameterConfigCache.getActiveConfigs(TENANT_A),
+    );
+    const tenantBWarmCache = await withTenantContext(TENANT_B, () =>
+      harness.parameterConfigCache.getActiveConfigs(TENANT_B),
+    );
+
+    expect(tenantAWarmCache.map((config) => config.id)).toEqual([configA.id]);
+    expect(tenantBWarmCache.map((config) => config.id)).toEqual([configB.id]);
+
+    const updated = await withTenantContext(TENANT_A, () =>
+      harness.updateParameterConfig.execute(
+        new UpdateParameterConfigCommand(
+          TENANT_A,
+          configA.id,
+          {
+            name: 'Dissolved Oxygen Cache Updated',
+            displayOrder: 0,
+          },
+          USER_ID,
+        ),
+      ),
+    );
+    const getAfterUpdate = await withTenantContext(TENANT_A, () =>
+      harness.getParameterConfig.execute(new GetParameterConfigQuery(TENANT_A, configA.id)),
+    );
+    const listAfterUpdate = await withTenantContext(TENANT_A, () =>
+      harness.listParameterConfigs.execute(
+        new ListParameterConfigsQuery(TENANT_A, { group: ParameterGroup.BASIC, isActive: true }),
+      ),
+    );
+    const tenantACacheAfterUpdate = await withTenantContext(TENANT_A, () =>
+      harness.parameterConfigCache.getActiveConfigs(TENANT_A),
+    );
+    const tenantBCacheAfterTenantAUpdate = await withTenantContext(TENANT_B, () =>
+      harness.parameterConfigCache.getActiveConfigs(TENANT_B),
+    );
+
+    expect(updated.name).toBe('Dissolved Oxygen Cache Updated');
+    expect(getAfterUpdate.name).toBe('Dissolved Oxygen Cache Updated');
+    expect(listAfterUpdate.map((config) => config.id)).toEqual([configA.id]);
+    expect(tenantACacheAfterUpdate.map((config) => config.name)).toEqual(['Dissolved Oxygen Cache Updated']);
+    expect(tenantBCacheAfterTenantAUpdate.map((config) => config.name)).toEqual(['Dissolved Oxygen Cache']);
+
+    await withTenantContext(TENANT_A, () =>
+      harness.deleteParameterConfig.execute(new DeleteParameterConfigCommand(TENANT_A, configA.id)),
+    );
+
+    const tenantACacheAfterDelete = await withTenantContext(TENANT_A, () =>
+      harness.parameterConfigCache.getActiveConfigs(TENANT_A),
+    );
+    const tenantBCacheAfterDelete = await withTenantContext(TENANT_B, () =>
+      harness.parameterConfigCache.getActiveConfigs(TENANT_B),
+    );
+
+    expect(tenantACacheAfterDelete).toHaveLength(0);
+    expect(tenantBCacheAfterDelete.map((config) => config.id)).toEqual([configB.id]);
+  });
+
+  it('keeps Sentinel Hub settings tenant-local with immediate status and credential reads', async () => {
+    await withTenantContext(TENANT_A, () =>
+      harness.sentinelHub.saveSettings(
+        TENANT_A,
+        'tenant-a-client-id',
+        'tenant-a-client-secret',
+        'tenant-a-instance-id',
+      ),
+    );
+    await withTenantContext(TENANT_B, () =>
+      harness.sentinelHub.saveSettings(
+        TENANT_B,
+        'tenant-b-client-id',
+        'tenant-b-client-secret',
+        'tenant-b-instance-id',
+      ),
+    );
+
+    expect(await tableTenantRowCount('farm', 'sentinel_hub_settings', TENANT_A)).toBe(0);
+    expect(await tableTenantRowCount(getTenantSchemaName(TENANT_A), 'sentinel_hub_settings', TENANT_A)).toBe(1);
+    expect(await tableTenantRowCount(getTenantSchemaName(TENANT_B), 'sentinel_hub_settings', TENANT_A)).toBe(0);
+
+    const tenantAStatus = await withTenantContext(TENANT_A, () => harness.sentinelHub.getStatus(TENANT_A));
+    const tenantBCredentials = await withTenantContext(TENANT_B, () => harness.sentinelHub.getCredentials(TENANT_B));
+
+    expect(tenantAStatus.isConfigured).toBe(true);
+    expect(tenantAStatus.clientIdMasked).toBe('tena****t-id');
+    expect(tenantBCredentials?.isConfigured).toBe(true);
+    expect(tenantBCredentials?.clientId).toBe('tena****t-id');
+
+    await withTenantContext(TENANT_A, () =>
+      harness.sentinelHub.updateInstanceId(TENANT_A, 'tenant-a-instance-id-updated'),
+    );
+
+    const tenantAUpdated = await withTenantContext(TENANT_A, () => harness.sentinelHub.getStatus(TENANT_A));
+    const tenantBUnchanged = await withTenantContext(TENANT_B, () => harness.sentinelHub.getStatus(TENANT_B));
+
+    expect(tenantAUpdated.instanceIdMasked).toBe('tena****ated');
+    expect(tenantBUnchanged.instanceIdMasked).toBe('tena****e-id');
+
+    await withTenantContext(TENANT_A, () => harness.sentinelHub.deleteSettings(TENANT_A));
+
+    const tenantAAfterDelete = await withTenantContext(TENANT_A, () => harness.sentinelHub.getStatus(TENANT_A));
+    const tenantBAfterDelete = await withTenantContext(TENANT_B, () => harness.sentinelHub.getStatus(TENANT_B));
+
+    expect(tenantAAfterDelete.isConfigured).toBe(false);
+    expect(tenantBAfterDelete.isConfigured).toBe(true);
+  });
+
+  async function createSiteForTenant(tenantId: string, name: string, code: string): Promise<Site> {
+    return withTenantContext(tenantId, () =>
+      harness.createSite.execute(
+        new CreateSiteCommand(
+          {
+            name,
+            code,
+            country: 'NO',
+            timezone: 'UTC',
+            status: SiteStatus.ACTIVE,
+          },
+          tenantId,
+          USER_ID,
+        ),
+      ),
+    );
+  }
+
+  async function rowCount(schema: string, tenantId: string): Promise<number> {
+    const rows: Array<{ count: string }> = await dataSource!.query(
+      `SELECT COUNT(*)::text AS count FROM "${schema}"."sites" WHERE "tenantId" = $1`,
+      [tenantId],
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async function createSystemForTenant(
+    tenantId: string,
+    siteId: string,
+    name: string,
+    code: string,
+  ): Promise<System> {
+    return withTenantContext(tenantId, () =>
+      harness.createSystem.execute(
+        new CreateSystemCommand(
+          {
+            siteId,
+            name,
+            code,
+            type: SystemType.RAS,
+            status: SystemStatus.OPERATIONAL,
+            tankCount: 4,
+          },
+          tenantId,
+          USER_ID,
+        ),
+      ),
+    );
+  }
+
+  async function systemRowCount(schema: string, tenantId: string): Promise<number> {
+    const rows: Array<{ count: string }> = await dataSource!.query(
+      `SELECT COUNT(*)::text AS count FROM "${schema}"."systems" WHERE "tenantId" = $1`,
+      [tenantId],
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async function createDepartmentForTenant(
+    tenantId: string,
+    siteId: string,
+    name: string,
+    code: string,
+  ): Promise<Department> {
+    return withTenantContext(tenantId, () =>
+      harness.createDepartment.execute(
+        new CreateDepartmentCommand(
+          {
+            siteId,
+            name,
+            code,
+            type: DepartmentType.PRODUCTION,
+            capacity: 100,
+          },
+          tenantId,
+          USER_ID,
+        ),
+      ),
+    );
+  }
+
+  async function createEquipmentForTenant(
+    tenantId: string,
+    departmentId: string,
+    systemId: string,
+    equipmentTypeId: string,
+    name: string,
+    code: string,
+    isVisibleInSensor: boolean,
+  ): Promise<Equipment> {
+    return withTenantContext(tenantId, () =>
+      harness.createEquipment.execute(
+        new CreateEquipmentCommand(
+          {
+            departmentId,
+            systemIds: [systemId],
+            equipmentTypeId,
+            name,
+            code,
+            status: EquipmentStatus.OPERATIONAL,
+            isVisibleInSensor,
+            specifications: { flowRate: 100 },
+          },
+          tenantId,
+          USER_ID,
+        ),
+      ),
+    );
+  }
+
+  async function createTankEquipmentForTenant(
+    tenantId: string,
+    departmentId: string,
+    systemId: string,
+    name: string,
+  ): Promise<Equipment> {
+    return withTenantContext(tenantId, () =>
+      harness.createEquipment.execute(
+        new CreateEquipmentCommand(
+          {
+            departmentId,
+            systemIds: [systemId],
+            equipmentTypeId: TANK_EQUIPMENT_TYPE_ID,
+            name,
+            code: `${name.replace(/\s+/g, '-').toUpperCase()}-IGNORED`,
+            status: EquipmentStatus.PREPARING,
+            specifications: {
+              tankType: 'circular',
+              material: 'fiberglass',
+              waterType: 'saltwater',
+              dimensions: {
+                diameter: 4,
+                depth: 2,
+              },
+              maxBiomass: 900,
+              maxDensity: 25,
+            },
+          },
+          tenantId,
+          USER_ID,
+        ),
+      ),
+    );
+  }
+
+  async function createTankForTenant(
+    tenantId: string,
+    departmentId: string,
+    name: string,
+  ): Promise<Tank> {
+    return withTenantContext(tenantId, () =>
+      harness.createTank.execute(
+        new CreateTankCommand(tenantId, USER_ID, {
+          name,
+          departmentId,
+          tankType: TankType.CIRCULAR,
+          material: TankMaterial.FIBERGLASS,
+          waterType: WaterType.SALTWATER,
+          diameter: 5,
+          depth: 2,
+          maxBiomass: 1000,
+          maxDensity: 30,
+          status: TankStatus.PREPARING,
+        }),
+      ),
+    );
+  }
+
+  async function tankRowCount(schema: string, tenantId: string): Promise<number> {
+    const rows: Array<{ count: string }> = await dataSource!.query(
+      `SELECT COUNT(*)::text AS count FROM "${schema}"."tanks" WHERE "tenantId" = $1`,
+      [tenantId],
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async function createFeedForTenant(
+    tenantId: string,
+    siteId: string,
+    name: string,
+    code: string,
+  ): Promise<Feed> {
+    return withTenantContext(tenantId, () =>
+      harness.createFeed.execute(
+        new CreateFeedCommand(
+          {
+            name,
+            code,
+            siteId,
+            type: FeedType.STARTER,
+            status: FeedStatus.AVAILABLE,
+            quantity: 100,
+            minStock: 10,
+            unit: 'kg',
+          },
+          tenantId,
+          USER_ID,
+        ),
+      ),
+    );
+  }
+
+  async function feedRowCount(schema: string, tenantId: string): Promise<number> {
+    const rows: Array<{ count: string }> = await dataSource!.query(
+      `SELECT COUNT(*)::text AS count FROM "${schema}"."feeds" WHERE "tenantId" = $1`,
+      [tenantId],
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async function addInventoryForTenant(
+    tenantId: string,
+    feedId: string,
+    siteId: string,
+    quantityKg: number,
+    minStockKg: number,
+    lotNumber: string,
+  ): Promise<FeedInventory> {
+    return withTenantContext(tenantId, () =>
+      harness.addFeedInventory.execute(
+        new AddFeedInventoryCommand(
+          tenantId,
+          {
+            feedId,
+            siteId,
+            quantityKg,
+            minStockKg,
+            lotNumber,
+            unitPricePerKg: 2,
+            currency: 'USD',
+          },
+          USER_ID,
+        ),
+      ),
+    );
+  }
+
+  async function inventoryRowCount(schema: string, tenantId: string): Promise<number> {
+    const rows: Array<{ count: string }> = await dataSource!.query(
+      `SELECT COUNT(*)::text AS count FROM "${schema}"."feed_inventory" WHERE "tenantId" = $1`,
+      [tenantId],
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async function createParameterConfigForTenant(
+    tenantId: string,
+    code: string,
+    name: string,
+    displayOrder: number,
+  ): Promise<WaterQualityParameterConfig> {
+    return withTenantContext(tenantId, () =>
+      harness.createParameterConfig.execute(
+        new CreateParameterConfigCommand(
+          tenantId,
+          {
+            code,
+            name,
+            unit: 'mg/L',
+            dataType: ParameterDataType.NUMBER,
+            group: ParameterGroup.BASIC,
+            precision: 2,
+            displayOrder,
+            isActive: true,
+            isVisible: true,
+          },
+          USER_ID,
+        ),
+      ),
+    );
+  }
+
+  async function parameterConfigRowCount(schema: string, tenantId: string): Promise<number> {
+    const rows: Array<{ count: string }> = await dataSource!.query(
+      `SELECT COUNT(*)::text AS count FROM "${schema}"."water_quality_parameter_configs" WHERE "tenantId" = $1`,
+      [tenantId],
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async function tableTenantRowCount(schema: string, table: string, tenantId: string): Promise<number> {
+    const rows: Array<{ count: string }> = await dataSource!.query(
+      `SELECT COUNT(*)::text AS count FROM "${schema}"."${table}" WHERE "tenantId" = $1`,
+      [tenantId],
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async function tableHasRowForTenantAndId(
+    schema: string,
+    table: string,
+    tenantId: string,
+    id: string,
+    idColumn = 'id',
+  ): Promise<boolean> {
+    const rows: Array<{ count: string }> = await dataSource!.query(
+      `SELECT COUNT(*)::text AS count FROM "${schema}"."${table}" WHERE "tenantId" = $1 AND "${idColumn}" = $2`,
+      [tenantId, id],
+    );
+    return Number(rows[0]?.count ?? 0) === 1;
+  }
+
+  async function seedEquipmentTypesForSetupTest(): Promise<void> {
+    await equipmentTypeRepository.save([
+      equipmentTypeRepository.create({
+        id: PUMP_EQUIPMENT_TYPE_ID,
+        name: 'Centrifugal Pump',
+        code: 'pump-centrifugal',
+        category: EquipmentCategory.PUMP,
+        specificationSchema: {
+          fields: [{ name: 'flowRate', label: 'Flow Rate', type: 'number' }],
+        },
+        isActive: true,
+        isSystem: true,
+        sortOrder: 1,
+      }),
+      equipmentTypeRepository.create({
+        id: TANK_EQUIPMENT_TYPE_ID,
+        name: 'Circular Tank',
+        code: 'tank-circular',
+        category: EquipmentCategory.TANK,
+        specificationSchema: {
+          fields: [
+            { name: 'tankType', label: 'Tank Type', type: 'text', required: true },
+            { name: 'maxBiomass', label: 'Max Biomass', type: 'number', required: true },
+          ],
+        },
+        isActive: true,
+        isSystem: true,
+        sortOrder: 2,
+      }),
+    ]);
+  }
+});
+
+function unusedRepository<T extends ObjectLiteral>(): Repository<T> {
+  return {} as Repository<T>;
+}
+
+function emptySubEquipmentRepository(): Repository<SubEquipment> {
+  return {
+    find: jest.fn().mockResolvedValue([]),
+  } as unknown as Repository<SubEquipment>;
+}
+
+function emptyTankBatchRepository(): Repository<TankBatch> {
+  return {
+    find: jest.fn().mockResolvedValue([]),
+  } as unknown as Repository<TankBatch>;
+}
+
+function createSentinelConfigService(): ConfigService {
+  return new ConfigService({
+    SENTINEL_HUB_ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef',
+  });
+}
+
+function createAuditLogService() {
+  return {
+    log: jest.fn().mockResolvedValue(undefined),
+  } as any;
+}
+
+function createTankCodeGenerator() {
+  let sequence = 0;
+  return {
+    generateTankCode: jest.fn().mockImplementation(async (tenantId: string) => {
+      sequence += 1;
+      return `TNK-${tenantId.slice(0, 4)}-${String(sequence).padStart(3, '0')}`;
+    }),
+  } as any;
+}

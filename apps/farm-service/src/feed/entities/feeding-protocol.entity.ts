@@ -48,7 +48,7 @@ export interface GrowthStageProtocol {
   notes?: string;
 }
 
-@Entity('feeding_protocols', { schema: 'farm' })
+@Entity('feeding_protocols')
 @Index(['tenantId', 'name'], { unique: true })
 @Index(['tenantId', 'species'])
 @Index(['tenantId', 'stage'])

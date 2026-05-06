@@ -1,8 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException } from '@nestjs/common';
-import { LegalHoldService } from '../legal-hold.service';
+import {
+  LegalHoldService,
+  LegalHoldCheckUnavailable,
+} from '../legal-hold.service';
 import { LegalHold } from '../../entities/legal-hold.entity';
+import { REDIS_CLIENT } from '../../../shared/redis.provider';
 import {
   createMockRepository,
   createMockLegalHold,
@@ -12,11 +16,24 @@ import {
   TENANT_A,
 } from '../../../__tests__/test-helpers';
 
+/**
+ * 50+ char reason used by tests where the spec-anchored ≥50 char floor
+ * is not the subject under test. Short reasons are tested explicitly
+ * in the LEGAL-MEDIUM-002 dual-approver block below.
+ */
+const LONG_REASON =
+  'Regulatory investigation under SEC matter 24-C-19821 ' +
+  'concerning historical messaging records preservation';
+const LONG_RELEASE_REASON =
+  'Matter SEC 24-C-19821 closed by court order dated 2026-04-29; ' +
+  'no further preservation obligation per outside counsel.';
+
 describe('LegalHoldService', () => {
   let service: LegalHoldService;
   let holdRepo: MockRepository<LegalHold>;
 
   const adminUserId = fakeUuid('usr');
+  const approverUserId = fakeUuid('usr');
   const channelId = fakeUuid('ch');
 
   beforeEach(async () => {
@@ -53,14 +70,14 @@ describe('LegalHoldService', () => {
 
     const legalMatterId = fakeUuid('lm');
     const result = await service.activate(
-      TENANT_A, null, 'Regulatory investigation', adminUserId, legalMatterId,
+      TENANT_A, null, LONG_REASON, adminUserId, legalMatterId,
     );
 
     expect(holdRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: TENANT_A,
         channelId: null,
-        reason: 'Regulatory investigation',
+        reason: LONG_REASON,
         legalMatterId,
         startedBy: adminUserId,
         isActive: true,
@@ -78,7 +95,7 @@ describe('LegalHoldService', () => {
 
     const legalMatterId = fakeUuid('lm');
     const result = await service.activate(
-      TENANT_A, channelId, 'Channel audit', adminUserId, legalMatterId,
+      TENANT_A, channelId, LONG_REASON, adminUserId, legalMatterId,
     );
 
     expect(holdRepo.create).toHaveBeenCalledWith(
@@ -100,7 +117,7 @@ describe('LegalHoldService', () => {
     holdRepo.findOne.mockResolvedValue(existingHold);
 
     await expect(
-      service.activate(TENANT_A, null, 'Duplicate', adminUserId, fakeUuid('lm')),
+      service.activate(TENANT_A, null, LONG_REASON, adminUserId, fakeUuid('lm')),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -154,6 +171,8 @@ describe('LegalHoldService', () => {
 
     expect(result.isActive).toBe(false);
     expect(result.releasedBy).toBe(releaserId);
+    expect(result.releasedByApprover).toBe(approver);
+    expect(result.releaseReason).toBe(LONG_RELEASE_REASON);
     expect(result.releasedAt).toBeInstanceOf(Date);
     expect(holdRepo.save).toHaveBeenCalled();
     // Verify the new tenantId scope is honoured: lookup must be by

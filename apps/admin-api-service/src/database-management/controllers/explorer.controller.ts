@@ -443,13 +443,20 @@ export class DatabaseExplorerController {
       this.logger.log(
         `[AUDIT] Data access: ${schema}.${table} (page=${page}, rows=${rows.length})`,
       );
-      this.auditLogService.log({
+      // AUDITTRAIL-HIGH-009 cure: SUPER_ADMIN cross-tenant data access
+      // is the highest-criticality audit class. Awaiting the log propagates
+      // a failure as 500 to the caller — operator sees a clear error
+      // instead of a half-recorded SUPER_ADMIN data access. The
+      // pre-fix `.catch(() => warn log)` pattern dropped audit rows
+      // under transient DB blips, leaving the access invisible in the
+      // SOC 2 CC4 evidence chain.
+      await this.auditLogService.log({
         action: 'DATABASE_EXPLORER_READ',
         entityType: 'DatabaseTable',
         entityId: `${schema}.${table}`,
         performedBy: 'SUPER_ADMIN',
         details: { schema, table, page, limit, rowsReturned: rows.length },
-      }).catch((err: Error) => this.logger.warn(`Audit log failed: ${err.message}`));
+      });
 
       return {
         tableName: table,
@@ -520,14 +527,17 @@ export class DatabaseExplorerController {
       this.logger.warn(
         `[AUDIT] Data export: ${schema}.${table} (format=${format}, rows=${rows.length})`,
       );
-      this.auditLogService.log({
+      // AUDITTRAIL-HIGH-009 cure: data EXPORT is the highest-leak-risk
+      // SUPER_ADMIN action. Awaiting the audit row propagates failure
+      // as 500 — the export is BLOCKED until the audit row commits.
+      await this.auditLogService.log({
         action: 'DATABASE_EXPLORER_EXPORT',
         entityType: 'DatabaseTable',
         entityId: `${schema}.${table}`,
         performedBy: 'SUPER_ADMIN',
         severity: AuditSeverity.WARNING,
         details: { schema, table, format, rowsExported: rows.length },
-      }).catch((err: Error) => this.logger.warn(`Audit log failed: ${err.message}`));
+      });
 
       if (format === 'json') {
         res.setHeader('Content-Type', 'application/json');
@@ -960,7 +970,12 @@ export class DatabaseExplorerController {
       this.logger.warn(
         `SECURITY AUDIT: Raw SQL query executed by SUPER_ADMIN: ${sql.substring(0, 100)}...`,
       );
-      this.auditLogService.log({
+      // AUDITTRAIL-HIGH-009 cure: raw SQL is the absolute highest-risk
+      // SUPER_ADMIN action — direct DB read on any tenant's data.
+      // Awaiting the audit row is mandatory; a failure to record blocks
+      // the response, ensuring no raw SQL execution can complete
+      // without an audit row landing.
+      await this.auditLogService.log({
         action: 'DATABASE_EXPLORER_RAW_SQL',
         entityType: 'DatabaseQuery',
         performedBy: 'SUPER_ADMIN',
@@ -970,7 +985,7 @@ export class DatabaseExplorerController {
           paramCount: (params as unknown[]).length,
           rowCount: result.length,
         },
-      }).catch((err: Error) => this.logger.warn(`Audit log failed: ${err.message}`));
+      });
 
       return {
         rows: result,

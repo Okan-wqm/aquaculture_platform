@@ -483,12 +483,8 @@ export class AnalyticsService {
     // Revenue growth rate (compare to last month's snapshot)
     const revenueGrowthRate = await this.calculateGrowthRate('financial', 'mrr', mrr);
 
-    // Group by currency. Single-currency assumption (USD) holds because
-    // the subscription pipeline does not yet support multi-currency
-    // pricing (see PROC-MEDIUM-007 backlog item). When that lands the
-    // MRR aggregation needs a per-currency breakdown via the invoice
-    // currency column.
-    const byCurrency: Record<string, number> = { USD: mrr };
+    // Group by currency
+    const byCurrency: Record<string, number> = { USD: mrr }; // Single-currency tenancy (USD); multi-currency breakdown tracked separately.
 
     this.logger.debug(`Financial metrics: MRR=${mrr}, totalRevenue=${totalRevenue}, payingTenants=${payingTenants}`);
 
@@ -576,10 +572,8 @@ export class AnalyticsService {
   async getSystemMetrics(): Promise<SystemMetrics> {
     this.logger.debug('Calculating system metrics...');
 
-    // These would ideally come from Prometheus/CloudWatch. The
-    // database-derived approximation below covers the metrics
-    // available without a metrics-stack scrape; an observability
-    // integration is captured separately.
+    // These would ideally come from Prometheus/CloudWatch/etc.
+    // Until observability-service wires those sources, we calculate what we can from the database.
 
     // Count database connections (approximate from pool)
     const activeConnections = 10; // Would need DB pool stats
@@ -668,10 +662,8 @@ export class AnalyticsService {
       // Non-critical — leave as 0
     }
 
-    // Module usage requires aggregating audit logs by module —
-    // returning zeros with a logged warning so the caller (admin
-    // dashboard) renders a "no data" state instead of crashing
-    // when audit-log analysis isn't wired in.
+    // Module usage — wiring requires audit-log analysis pipeline; returns
+    // zeros with an explicit warning until that pipeline lands.
     this.logger.warn('Detailed module usage metrics require audit log analysis');
 
     return {

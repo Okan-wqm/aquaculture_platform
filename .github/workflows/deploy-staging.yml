@@ -125,7 +125,7 @@ jobs:
             nx-staging-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Install Linux platform binaries
         timeout-minutes: 3
@@ -209,7 +209,7 @@ jobs:
             nx-staging-fe-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Install Linux platform binaries
         timeout-minutes: 3
@@ -386,7 +386,6 @@ jobs:
       - name: Download frontend artifacts
         # SEC-CI-002: pinned to SHA
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        continue-on-error: true
         with:
           name: frontend-dist-staging
           path: web

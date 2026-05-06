@@ -1,6 +1,6 @@
 # sens-api-gateway — Use Cases
 
-**Version:** 1.6.0 (`Cargo.toml:6`) · **Date:** 2026-04-24 · **Source commit:** `3413db47`
+**Version:** 1.6.0 (`Cargo.toml:6`) · **Date:** 2026-04-29 · **Source commit:** `3413db47`
 **Audience:** customer IT/OT team scoping a pilot; Siemens procurement validating market fit; systems-integrator sizing an install.
 **Scope:** seven concrete deployment scenarios, each grounded in a real customer profile and the Rust features that serve it. Numbers shown as ranges are engineering estimates — every per-deal number is pending per-deal (quote-bound). Where a scenario depends on a feature not yet shipping, the row names the ROADMAP-Qx milestone and the tracker ID.
 
@@ -48,7 +48,7 @@ Each scenario declares:
 
 **Why sens-api-gateway.** IEC 61131-3 ST bytecode VM (`Cargo.toml:367` feature `st-bytecode`, `src/st_validator.rs`, ADR-017) lets the biologist author deterministic interlocks (e.g. "if DO < 5.5 AND pump-run-time > 30 s, open emergency aerator") without a PLC programmer. Function-block registry (`src/scripting/fb_registry.rs`, `src/scripting/function_blocks/`) has PID / MAVG / HYSTERESIS primitives. Multi-task scheduler (`Cargo.toml:372` feature `multi-task-scheduler`) keeps DO-control loop independent of alarm-broadcast loop — scan-cycle jitter is bounded. Compliance reporting scenario (`docs/SCENARIOS_BEYOND_SCADA.md` §4) auto-submits to the government portal.
 
-**Known gaps + ROADMAP.** Modbus defense-in-depth per-register allow-list is type-only today per `docs/reviews/edge-expert/2026-04-05-s2-high-findings.md:141-198` — ROADMAP-Q2 runtime enforcement. Modbus write routing bug (`docs/reviews/orphan-findings.md#ORPHAN-008`) and analog-write truncation (`#ORPHAN-009`) — both ROADMAP-Q1 closure. Customers running mission-critical writes pre-Q1 must follow the runbook mitigation (single-device Modbus config).
+**Known gaps + ROADMAP.** Modbus per-register allow-list is runtime-enforced and write routing is FIXED-IN-CODE per `sens-api-gateway/docs/reviews/orphan-findings.md#orphan-008`. Analog-write truncation remains tracked under `sens-api-gateway/docs/reviews/orphan-findings.md#orphan-009`; customers running mission-critical analog writes must keep setpoints inside validated engineering ranges until that conversion policy is closed.
 
 ---
 
@@ -147,7 +147,7 @@ Each scenario declares:
 | Scenario | Core agent features used today | Features pending per ROADMAP |
 |----------|-------------------------------|------------------------------|
 | 1. Salmon sea-pen | Offline queue, LoRaWAN, signed envelope, audit chain | MQTT mTLS (Q2), MindSphere (siemens-integration-writer) |
-| 2. Turkish RAS | ST bytecode, multi-task scheduler, SCADA display, Atlas EZO | Modbus allow-list runtime (Q2), ORPHAN-008 / ORPHAN-009 (Q1) |
+| 2. Turkish RAS | ST bytecode, multi-task scheduler, SCADA display, Atlas EZO | ORPHAN-008 FIXED-IN-CODE; ORPHAN-009 analog conversion policy remains next |
 | 3. EU trout + S7 retrofit | S7comm, OPC UA client, OTA updater | OTA doc (Q2 / ORPHAN-018), MindSphere bridge |
 | 4. Municipal water treatment | EtherNet/IP, S7comm, signed envelope, audit chain | IEC 62443-4-2 SL2 (Q3/Q4), ISA-18.2 KPI (Q3) |
 | 5. Pharma cleanroom | Beckhoff ADS, LoRaWAN, audit chain, keystore Tier 3 | IEC 62443-4-1 SDLA (Q3), OTA doc (Q2) |

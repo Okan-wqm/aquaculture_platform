@@ -57,7 +57,7 @@ registerEnumType(BatchDocumentType, {
 // ============================================================================
 
 @ObjectType()
-@Entity('batch_documents', { schema: 'farm' })
+@Entity('batch_documents')
 @Index(['tenantId', 'batchId'])
 @Index(['tenantId', 'documentType'])
 export class BatchDocument {

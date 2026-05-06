@@ -1,0 +1,34 @@
+name: aria-kernel-full
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - snowball
+    paths:
+      - "aria-kernel/**"
+      - "docs/aria/**"
+      - ".github/workflows/aria-kernel*.yml"
+
+concurrency:
+  group: aria-kernel-full-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'
+      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity migrate-tools-v1-to-v2 --tools-dir ./.aria-ci/tools --workspace-root . --acknowledge --reason "ci bootstrap"
+      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel discovery run --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools --cycle-id ci-${{ github.run_id }} --snapshot-mode committed
+      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools

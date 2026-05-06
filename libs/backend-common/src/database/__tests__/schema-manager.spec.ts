@@ -8,9 +8,32 @@ describe('SchemaManagerService', () => {
   let dataSource: jest.Mocked<DataSource>;
 
   const mockQuery = jest.fn();
+  // WHY: createTenantSchema + deleteTenantSchema now pin a QueryRunner so the
+  // pg_advisory_lock + pg_advisory_unlock pair travels on the same physical
+  // connection (DATA-CRITICAL-001 fix). The mock DataSource needs a
+  // createQueryRunner that returns a runner whose .query forwards to the
+  // same mockQuery — this preserves the test's existing call-shape
+  // assertions while exercising the new lock-pinning path.
+  // WHAT: createQueryRunner returns a stub with connect/release/query.
+  const mockRunnerQuery = jest.fn();
+  const mockRunnerConnect = jest.fn();
+  const mockRunnerRelease = jest.fn();
+  const mockCreateQueryRunner = jest.fn();
 
   beforeEach(async () => {
     mockQuery.mockReset();
+    mockRunnerQuery.mockReset();
+    mockRunnerConnect.mockReset();
+    mockRunnerRelease.mockReset();
+    mockCreateQueryRunner.mockReset();
+    // The runner's query forwards to mockQuery so existing test assertions
+    // that check `dataSource.query` invocations still see lock/unlock calls.
+    mockRunnerQuery.mockImplementation((...args) => mockQuery(...args));
+    mockCreateQueryRunner.mockReturnValue({
+      connect: mockRunnerConnect.mockResolvedValue(undefined),
+      release: mockRunnerRelease.mockResolvedValue(undefined),
+      query: mockRunnerQuery,
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -19,6 +42,7 @@ describe('SchemaManagerService', () => {
           provide: DataSource,
           useValue: {
             query: mockQuery,
+            createQueryRunner: mockCreateQueryRunner,
           },
         },
       ],
@@ -261,6 +285,27 @@ describe('SchemaManagerService', () => {
       expect(result.schemaName).toBe(schemaName);
       expect(result.tablesCreated.length).toBeGreaterThan(0);
       expect(result.duration).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should fail closed when an unknown module is requested', async () => {
+      const result = await service.createTenantSchema(tenantId, ['farm', 'unknown-module']);
+
+      expect(result.success).toBe(false);
+      expect(result.errors).toContain('Unknown tenant module(s): unknown-module');
+      expect(mockQuery).not.toHaveBeenCalledWith(
+        expect.stringContaining('pg_advisory_lock'),
+        expect.anything(),
+      );
+    });
+
+    it('should fail closed when no module is requested', async () => {
+      const result = await service.createTenantSchema(tenantId, []);
+
+      expect(result.success).toBe(false);
+      expect(result.errors).toContain('No tenant modules requested for schema provisioning');
+      expect(mockQuery).not.toHaveBeenCalledWith(
+        expect.stringContaining('CREATE SCHEMA'),
+      );
     });
 
     it('should drop schema on failure (rollback)', async () => {
@@ -771,7 +816,6 @@ describe('SchemaManagerService', () => {
       // Implementation uses pg_catalog.set_config (not SET search_path TO)
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining('set_config'),
-        undefined
       );
     });
   });
@@ -829,6 +873,33 @@ describe('SchemaManagerService', () => {
 
       expect(result.rowsMigrated).toBe(0);
       expect(result.error).toContain('Insert failed');
+    });
+
+    it('should only fall back to camelCase tenantId when tenant_id column is absent', async () => {
+      const undefinedColumnError = Object.assign(
+        new Error('column "tenant_id" does not exist'),
+        { code: '42703' },
+      );
+
+      mockQuery
+        .mockResolvedValueOnce([{ count: '0' }])
+        .mockRejectedValueOnce(undefinedColumnError)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ count: '25' }]);
+
+      const result = await service.migrateDataToTenantSchema(
+        tenantId,
+        'public',
+        'legacy_farms'
+      );
+
+      expect(result.rowsMigrated).toBe(25);
+
+      const insertCalls = mockQuery.mock.calls.filter(
+        call => call[0].includes('INSERT INTO')
+      );
+      expect(insertCalls[0][0]).toContain('WHERE tenant_id = $1');
+      expect(insertCalls[1][0]).toContain('WHERE "tenantId" = $1');
     });
 
     it('should use ON CONFLICT DO NOTHING for idempotent migration', async () => {

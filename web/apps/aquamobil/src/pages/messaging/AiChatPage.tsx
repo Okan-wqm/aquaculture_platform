@@ -49,8 +49,8 @@ import { MessageBubble } from '@/components/messaging/MessageBubble';
 import { AiTypingIndicator } from '@/components/messaging/AiTypingIndicator';
 import { AiActionCard } from '@/components/messaging/AiActionCard';
 import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
-import { getDateLabel, getUserDisplayName } from '@/utils/messaging-helpers';
-import type { Message, AiPersona } from '@/types/messaging';
+import { getDateLabel } from '@/utils/messaging-helpers';
+import type { Message } from '@/types/messaging';
 
 // ---------------------------------------------------------------------------
 // Helpers

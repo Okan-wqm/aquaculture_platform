@@ -214,7 +214,11 @@ impl CommandHandler {
         let target_version_ack = target_version.clone();
         let current_version_ack = current_version.clone();
 
-        let _ = tokio::spawn(async move {
+        // Fire-and-forget — bind to _handle so
+        // clippy::let_underscore_future doesn't flag a
+        // forgotten-await false positive (firmware progress
+        // task lifetime is task-bound, not awaited here).
+        let _handle = tokio::spawn(async move {
             let send_progress = |stage: &str, detail: Value| {
                 let state = state.clone();
                 let command_id = command_id.clone();
@@ -604,11 +608,32 @@ pub(super) async fn fetch_latest_agent_tag(repo: &str) -> anyhow::Result<String>
 
 /// Download a file from a URL to a local path with a 300-second
 /// timeout.
+///
+/// WHY pre-Phase-1.1.5 this callsite was an ORPHAN-HIGH-035 surface:
+/// the bare `reqwest::Client::builder()` inherited the process-global
+/// default rustls CryptoProvider — pre-Phase-1.1.5 that was the
+/// **unrestricted** ring provider installed by `mqtt.rs::install_default()`.
+/// Firmware OTA downloads (tarball + checksum) flow through this helper;
+/// without explicit cipher-allowlist plumbing a TLS 1.2 ECDHE downgrade
+/// attack on the firmware-host CDN would expose the OTA payload to a
+/// passive MITM that observes the binary + checksum out of order. The
+/// SHA-256 checksum verifier downstream catches *tampering*, not
+/// *eavesdropping* — confidentiality of the firmware binary (which
+/// contains compiled-in OTA signing pubkeys + agent telemetry endpoints)
+/// matters even when integrity is independently verified.
+///
+/// Closure: this helper now goes through `build_suderra_https_client_config`
+/// — same TLS 1.3 + 3-suite AEAD allowlist as `provisioning.rs::activate`,
+/// `scripting/engine.rs`, and `fetch_latest_agent_tag`. Every reqwest
+/// callsite in the agent now uniformly enforces the cipher allowlist.
 pub(super) async fn download_file(url: &str, dest: &Path) -> anyhow::Result<()> {
     info!("Downloading {} -> {:?}", url, dest);
 
+    let suderra_tls = crate::mtls::build_suderra_https_client_config()
+        .map_err(|e| anyhow::anyhow!("Failed to build Suderra HTTPS ClientConfig: {e}"))?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(300))
+        .use_preconfigured_tls((*suderra_tls).clone())
         .build()?;
 
     let response = client

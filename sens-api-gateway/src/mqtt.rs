@@ -261,11 +261,7 @@ impl MqttClient {
         let client_id = format!("{}-{}", username, config.device_code);
 
         // Create MQTT options
-        let mut options = MqttOptions::new(
-            &client_id,
-            broker,
-            config.mqtt.port,
-        );
+        let mut options = MqttOptions::new(&client_id, broker, config.mqtt.port);
 
         // v1.2.2: Use expose_secret() to access password (zeroize on drop)
         options.set_credentials(username, password.expose_secret());
@@ -420,7 +416,9 @@ impl MqttClient {
                     if publish.payload.len() > MAX_MQTT_PAYLOAD {
                         warn!(
                             "Dropping oversized MQTT message on topic='{}': {} bytes > {} limit",
-                            publish.topic, publish.payload.len(), MAX_MQTT_PAYLOAD
+                            publish.topic,
+                            publish.payload.len(),
+                            MAX_MQTT_PAYLOAD
                         );
                         continue;
                     }
@@ -509,16 +507,10 @@ impl MqttClient {
                         if !first_connect {
                             info!("Resubscribing to topics after reconnection...");
                         }
-                        if let Err(e) = client
-                            .subscribe(&topics.commands, QoS::AtLeastOnce)
-                            .await
-                        {
+                        if let Err(e) = client.subscribe(&topics.commands, QoS::AtLeastOnce).await {
                             error!("Failed to resubscribe to commands: {:?}", e);
                         }
-                        if let Err(e) = client
-                            .subscribe(&topics.config, QoS::AtLeastOnce)
-                            .await
-                        {
+                        if let Err(e) = client.subscribe(&topics.config, QoS::AtLeastOnce).await {
                             error!("Failed to resubscribe to config: {:?}", e);
                         }
                     }
@@ -722,7 +714,12 @@ impl MqttClient {
     pub async fn publish_lora_event(&self, payload: &impl serde::Serialize) -> Result<()> {
         let data = serde_json::to_vec(payload)?;
         self.client
-            .publish(&self.topics.lora_events, rumqttc::QoS::AtMostOnce, false, data)
+            .publish(
+                &self.topics.lora_events,
+                rumqttc::QoS::AtMostOnce,
+                false,
+                data,
+            )
             .await?;
         self.record_publish();
         Ok(())
@@ -957,10 +954,34 @@ impl MqttClient {
             ));
         }
 
-        // rustls 0.23+ requires explicit CryptoProvider when both ring and aws-lc-rs
-        // are compiled in. Install ring (portable, good ARM cross-compilation support).
-        // install_default() returns Err if already installed — ignore that.
-        let _ = rumqttc::tokio_rustls::rustls::crypto::ring::default_provider().install_default();
+        // Phase 1.1.5 (ORPHAN-HIGH-035 closure) — `install_default()` removed.
+        //
+        // Pre-Phase-1.1.5 this site planted `rustls::crypto::ring::default_provider()`
+        // (the UNRESTRICTED ring provider, every TLS 1.2 ECDHE suite included)
+        // as the process-wide default. The Suderra cipher allowlist (TLS 1.3 +
+        // 3 AEAD suites) was applied only to MQTT via explicit
+        // `ClientConfig::builder_with_provider(suderra_provider)` further down
+        // this function. Every HTTPS reqwest callsite that didn't carry an
+        // explicit provider would inherit the unrestricted default — silently
+        // exposing `provisioning.rs::activate` (single-use device-bootstrap
+        // token exchange — edge-expert flagged as the highest-attack-surface
+        // HTTPS callsite), `firmware.rs::download_file`, and
+        // `scripting/engine.rs` HTTP webhooks to TLS 1.2 cipher-suite-downgrade
+        // attacks regardless of how carefully MQTT was hardened.
+        //
+        // Tier-1 MAKE-IT-IMPOSSIBLE (Phase 1.1.5): every TLS callsite in the
+        // agent now MUST go through one of these two factories:
+        //   - `crate::mtls::build_suderra_crypto_provider()` for the rustls
+        //     `ClientConfig::builder_with_provider(...)` path (MQTT transport).
+        //   - `crate::mtls::build_suderra_https_client_config()` for reqwest's
+        //     `use_preconfigured_tls(...)` path (HTTPS to cloud APIs).
+        //
+        // If a future caller skips both and writes
+        // `rustls::ClientConfig::builder()` without a provider arg, rustls
+        // panics at the builder call ("no process-level CryptoProvider
+        // available") — fail-fast at boot/dev/CI rather than silent bypass in
+        // production. The `d4_d6_mtls_unified::no_install_default_in_non_test_code`
+        // invariant is the source-grep detector that catches a regression.
 
         // Read CA certificate for server verification
         let ca_cert = if let Some(ref ca_path) = tls_config.ca_cert_path {
@@ -989,21 +1010,33 @@ impl MqttClient {
             None
         };
 
-        // Build TLS configuration
-        // Note: rumqttc requires explicit CA certificate for TLS validation
-        // If no CA cert is provided, return error (security requirement)
+        // PHASE 0.1 — Unified rustls path for system-CA + custom-CA branches.
+        //
+        // WHY: Pre-Phase-0 the custom-CA branch used `TlsConfiguration::Simple` which
+        // rumqttc builds internally — that wrapper does NOT support custom verifiers,
+        // so SuderraServerCertVerifier (mode-aware pinning + age cap + chain depth
+        // gates) could not run on operator-supplied CA chains. That made Strict +
+        // custom-CA architecturally impossible. The fix is to build the RootCertStore
+        // from operator PEM bytes and feed it through the same ClientConfig builder
+        // used by the system-CA branch — verifier wiring then applies uniformly
+        // regardless of CA source. Closes orphan finding ORPHAN-CRITICAL-029.
+        //
+        // WHY also: pre-Phase-0 the system-CA path silently dropped client_auth
+        // (`.with_no_client_auth()` was hard-coded), while the custom-CA path
+        // propagated it via TlsConfiguration::Simple. The unified pipeline below
+        // honors client_auth on BOTH paths. Closes ORPHAN-MEDIUM-030.
+
+        // Build a unified RootCertStore from EITHER native certs OR custom CA PEM bytes.
+        let mut root_store = rumqttc::tokio_rustls::rustls::RootCertStore::empty();
         if ca_cert.is_empty() {
-            // No custom CA certificate — use system CA store.
+            // System-CA path — pull from rustls-native-certs.
             // Let's Encrypt certificates are pre-installed on most Linux distributions
             // including Raspberry Pi OS, so this works out of the box for production.
             use rustls_native_certs::load_native_certs;
             let native_certs = load_native_certs();
-            if !native_certs.errors.is_empty() {
-                for err in &native_certs.errors {
-                    warn!("Error loading native certificate: {:?}", err);
-                }
+            for err in &native_certs.errors {
+                warn!("Error loading native certificate: {:?}", err);
             }
-            let mut root_store = rumqttc::tokio_rustls::rustls::RootCertStore::empty();
             for cert in native_certs.certs {
                 if let Err(e) = root_store.add(cert) {
                     warn!("Failed to add native certificate to root store: {:?}", e);
@@ -1015,7 +1048,10 @@ impl MqttClient {
                      Ensure system CA certificates are installed (e.g., ca-certificates package)."
                 ));
             }
-            info!("Loaded {} system CA certificates for MQTT TLS", root_store.len());
+            info!(
+                "Loaded {} system CA certificates for MQTT TLS",
+                root_store.len()
+            );
 
             // Batch 139 Sprint 6.6/6.8: install
             // SuderraServerCertVerifier when configured
@@ -1025,14 +1061,107 @@ impl MqttClient {
             // to the rustls default webpki verifier — HC-1
             // backward compat.
             //
-            // Root-store is shared between the default
-            // builder AND the SuderraServerCertVerifier's
-            // inner WebPkiServerVerifier so X.509 chain
-            // trust uses the SAME anchors either path.
-            let root_store_arc = Arc::new(root_store.clone());
-            let provider = rumqttc::tokio_rustls::rustls::crypto::ring::default_provider();
-            let sig_algs = provider.signature_verification_algorithms;
-            let suderra_verifier = crate::mtls::build_suderra_verifier(
+            // ORPHAN-MEDIUM-036 partial fix: per-entry parse failures emit at `error!`
+            // severity (not `warn!`) so structured-log subscribers treating error-level
+            // as audit-relevant capture them. A summary `error!` after the loop surfaces
+            // partial-load explicitly. The full audit-sink HMAC-chain emit (per ADR-020)
+            // lands in Phase 1.1.3 — that's the architectural completion that requires
+            // importing the audit-sink API into this site. The current change is the
+            // minimum architectural surfacing required so silent partial CA-bundle load
+            // is no longer possible at any structured-log subscriber. IEC 62443 FR3
+            // (System Integrity) compliance.
+            use rustls::pki_types::CertificateDer;
+            use rustls::pki_types::pem::PemObject;
+            let mut added = 0usize;
+            let mut parse_errs = 0usize;
+            for cert_result in CertificateDer::pem_slice_iter(&ca_cert) {
+                match cert_result {
+                    Ok(cert) => match root_store.add(cert) {
+                        Ok(()) => added += 1,
+                        Err(e) => {
+                            tracing::error!(
+                                event_type = "mtls_ca_bundle_entry_rejected",
+                                reason = ?e,
+                                "Failed to add custom CA certificate to root store"
+                            );
+                            parse_errs += 1;
+                        }
+                    },
+                    Err(e) => {
+                        tracing::error!(
+                            event_type = "mtls_ca_bundle_parse_error",
+                            reason = ?e,
+                            "Failed to parse custom CA PEM entry"
+                        );
+                        parse_errs += 1;
+                    }
+                }
+            }
+            if root_store.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Custom CA file contained no valid certificates ({} parse errors). \
+                     Ensure the file is PEM-encoded with one or more CERTIFICATE blocks.",
+                    parse_errs
+                ));
+            }
+            if parse_errs > 0 {
+                // Partial-load: at least one PEM block parsed, but not all. Surface as
+                // `error!` so the structured-log pipeline treats this as an integrity
+                // event, not background noise. Operator should investigate which
+                // entries failed (preceding error-level events) and rotate the bundle.
+                tracing::error!(
+                    event_type = "mtls_ca_bundle_partial_load",
+                    added = added,
+                    parse_errs = parse_errs,
+                    "Custom CA bundle partially loaded — operator action required \
+                     (see preceding mtls_ca_bundle_entry_rejected / mtls_ca_bundle_parse_error events)"
+                );
+                // Phase 1.1.5 / ORPHAN-MEDIUM-036 closure: ALSO emit through
+                // the ADR-020 audit-sink HMAC chain. The `tracing::error!`
+                // above is structured-log-only — whether a subscriber bridges
+                // error-level to audit is deployment-config-dependent. The
+                // explicit audit emit here makes the partial-load event
+                // forensically queryable offline via the audit-verify CLI
+                // independent of the active tracing subscriber.
+                let detail = serde_json::json!({
+                    "added": added,
+                    "parse_errs": parse_errs,
+                });
+                crate::audit::try_emit_mtls_forensic_event(
+                    crate::audit::AuditAction::MtlsCaBundleParsePartial,
+                    "mtls.ca_bundle.partial_load",
+                    detail,
+                );
+            } else {
+                info!("Loaded {} custom CA certificate(s) for MQTT TLS", added);
+            }
+        }
+
+        // PHASE 0.2 — handshake-time cipher allowlist gate.
+        //
+        // The Suderra CryptoProvider is `rustls::crypto::ring::default_provider`
+        // with `cipher_suites` narrowed to `CIPHER_SUITE_ALLOWLIST` (3 TLS 1.3
+        // suites). rustls negotiates from this slice, so non-allowlist suites
+        // cannot appear in the ClientHello — Tier-1 MAKE-IT-IMPOSSIBLE for
+        // cipher-suite downgrade. Replaces the dead-code Gate 4 in
+        // `verify_leaf_cert` (cipher isn't finalized at the ServerCertVerifier
+        // callback). Closes ORPHAN-HIGH-031.
+        //
+        // `signature_verification_algorithms` comes from the SAME provider so
+        // SuderraServerCertVerifier and the rustls handshake share signature
+        // algorithm policy.
+        let suderra_provider = crate::mtls::build_suderra_crypto_provider();
+        let sig_algs = suderra_provider.signature_verification_algorithms;
+
+        // Phase 1.1.4 (D-4 + D-6): construct the hot-reloadable verifier
+        // state and install it as a delegating wrapper. The wrapper queries
+        // the state on every handshake, so cmd_update_cert_pinning's
+        // rebuild takes effect on the NEXT TLS connect with no
+        // ClientConfig reconstruction. Legacy + no-pins still flows
+        // through the inner fallback WebPkiServerVerifier (HC-1).
+        let root_store_arc = Arc::new(root_store);
+        let mtls_verifier_state = std::sync::Arc::new(
+            crate::mtls::MtlsVerifierState::new(
                 mtls_config.mode,
                 sig_algs,
                 &mtls_config.pinned_leaf_fingerprints_hex,
@@ -1100,8 +1229,9 @@ impl MqttClient {
             alpn: Some(vec![b"mqtt".to_vec()]),
             client_auth,
         };
+        client_config.alpn_protocols = vec![b"mqtt".to_vec()];
 
-        Ok(Transport::Tls(tls))
+        let tls = TlsConfiguration::Rustls(Arc::new(client_config));
+        Ok((Transport::Tls(tls), mtls_verifier_state))
     }
-
 }

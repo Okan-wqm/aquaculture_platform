@@ -192,16 +192,33 @@ pub struct HardwareCapabilities {
 
 /// Identify a known I2C device by its bus address.
 /// Returns (device_name, description, io_type, data_type) if recognized.
-fn identify_i2c_device(address: u8) -> Option<(&'static str, &'static str, &'static str, &'static str)> {
+fn identify_i2c_device(
+    address: u8,
+) -> Option<(&'static str, &'static str, &'static str, &'static str)> {
     match address {
-        0x76 | 0x77 => Some(("BME280", "Temperature/Humidity/Pressure sensor", "AI", "FLOAT32")),
+        0x76 | 0x77 => Some((
+            "BME280",
+            "Temperature/Humidity/Pressure sensor",
+            "AI",
+            "FLOAT32",
+        )),
         0x44 | 0x45 => Some(("SHT31", "Temperature/Humidity sensor", "AI", "FLOAT32")),
         0x48..=0x4B => Some(("ADS1115", "16-bit 4-channel ADC", "AI", "INT16")),
-        0x61 => Some(("ATLAS_DO", "Atlas Scientific Dissolved Oxygen", "AI", "FLOAT32")),
+        0x61 => Some((
+            "ATLAS_DO",
+            "Atlas Scientific Dissolved Oxygen",
+            "AI",
+            "FLOAT32",
+        )),
         0x62 => Some(("ATLAS_ORP", "Atlas Scientific ORP sensor", "AI", "FLOAT32")),
         0x63 => Some(("ATLAS_PH", "Atlas Scientific pH sensor", "AI", "FLOAT32")),
         0x64 => Some(("ATLAS_EC", "Atlas Scientific Conductivity", "AI", "FLOAT32")),
-        0x66 => Some(("ATLAS_RTD", "Atlas Scientific RTD Temperature", "AI", "FLOAT32")),
+        0x66 => Some((
+            "ATLAS_RTD",
+            "Atlas Scientific RTD Temperature",
+            "AI",
+            "FLOAT32",
+        )),
         0x10 => Some(("VEML7700", "Ambient Light sensor", "AI", "FLOAT32")),
         0x23 => Some(("BH1750", "Digital Light sensor", "AI", "FLOAT32")),
         0x20..=0x22 | 0x24..=0x27 => Some(("PCF8574", "8-bit I/O Expander", "DI", "BOOL")),
@@ -242,7 +259,8 @@ impl HardwareScanner {
         match self.platform {
             GpioPlatform::RevolutionPi => {
                 // Primary: piControl modules (DIO, AIO, etc.)
-                discovered_ios.extend(self.discover_picontrol_ios(&picontrol_modules, &pitest_output));
+                discovered_ios
+                    .extend(self.discover_picontrol_ios(&picontrol_modules, &pitest_output));
                 // Fallback: also report GPIO chips if any
                 if discovered_ios.is_empty() {
                     discovered_ios.extend(self.discover_gpio_ios(&gpio_chips));
@@ -322,11 +340,7 @@ impl HardwareScanner {
             .map(|entries| {
                 entries
                     .flatten()
-                    .filter(|e| {
-                        e.file_name()
-                            .to_string_lossy()
-                            .starts_with("spidev")
-                    })
+                    .filter(|e| e.file_name().to_string_lossy().starts_with("spidev"))
                     .count()
             })
             .unwrap_or(0);
@@ -435,7 +449,10 @@ impl HardwareScanner {
 
         // Run piTest -d once for both module and pin enumeration.
         // Use absolute path to prevent PATH injection (MQTT-triggered command).
-        match std::process::Command::new("/usr/bin/piTest").arg("-d").output() {
+        match std::process::Command::new("/usr/bin/piTest")
+            .arg("-d")
+            .output()
+        {
             Ok(output) => {
                 if output.status.success() {
                     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -450,12 +467,15 @@ impl HardwareScanner {
             Err(e) => {
                 warn!("piTest not found or failed to execute: {}", e);
                 // Fallback: at least report that piControl exists
-                (vec![PiControlModule {
-                    device_name: "piControl0".to_string(),
-                    model: "unknown".to_string(),
-                    offset: 0,
-                    length: 0,
-                }], String::new())
+                (
+                    vec![PiControlModule {
+                        device_name: "piControl0".to_string(),
+                        model: "unknown".to_string(),
+                        offset: 0,
+                        length: 0,
+                    }],
+                    String::new(),
+                )
             }
         }
     }
@@ -532,7 +552,11 @@ impl HardwareScanner {
     /// Uses the cached `piTest -d` output to find individual I/O pins (Inp/Out lines).
     /// If detailed pin info isn't available, generates standard DIO/AIO channels
     /// based on known module types.
-    fn discover_picontrol_ios(&self, modules: &[PiControlModule], pitest_output: &str) -> Vec<DiscoveredIo> {
+    fn discover_picontrol_ios(
+        &self,
+        modules: &[PiControlModule],
+        pitest_output: &str,
+    ) -> Vec<DiscoveredIo> {
         let mut ios = Vec::new();
 
         // Reuse the piTest -d output captured in scan_picontrol()
@@ -556,11 +580,7 @@ impl HardwareScanner {
     /// `  I_1             Inp   bit      484.0`
     /// `  O_1             Out   bit      488.0`
     /// `  InputValue_1    Inp   word     490`
-    fn parse_pitest_pins(
-        &self,
-        output: &str,
-        modules: &[PiControlModule],
-    ) -> Vec<DiscoveredIo> {
+    fn parse_pitest_pins(&self, output: &str, modules: &[PiControlModule]) -> Vec<DiscoveredIo> {
         let mut ios = Vec::new();
         let mut current_module: Option<&PiControlModule> = None;
         let mut di_count: u32 = 0;
@@ -606,10 +626,16 @@ impl HardwareScanner {
                 }
             };
             let (byte_offset, bit_pos) = if let Some(dot_pos) = offset_str.find('.') {
-                match (offset_str[..dot_pos].parse::<u32>(), offset_str[dot_pos + 1..].parse::<u32>()) {
+                match (
+                    offset_str[..dot_pos].parse::<u32>(),
+                    offset_str[dot_pos + 1..].parse::<u32>(),
+                ) {
                     (Ok(byte_off), Ok(bit)) => (byte_off, bit),
                     _ => {
-                        warn!("piTest pin line malformed offset '{}': '{}'", offset_str, trimmed);
+                        warn!(
+                            "piTest pin line malformed offset '{}': '{}'",
+                            offset_str, trimmed
+                        );
                         continue;
                     }
                 }
@@ -617,7 +643,10 @@ impl HardwareScanner {
                 match offset_str.parse::<u32>() {
                     Ok(byte_off) => (byte_off, 0),
                     Err(_) => {
-                        warn!("piTest pin line malformed offset '{}': '{}'", offset_str, trimmed);
+                        warn!(
+                            "piTest pin line malformed offset '{}': '{}'",
+                            offset_str, trimmed
+                        );
                         continue;
                     }
                 }
@@ -789,8 +818,8 @@ impl HardwareScanner {
         // BCM GPIO pins 2-27 are user-accessible on all RPi models
         // GPIO 0-1 are reserved for I2C (HAT EEPROM)
         const BCM_USABLE_PINS: [u32; 26] = [
-            2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27,
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+            26, 27,
         ];
 
         let mut ios = Vec::new();
@@ -953,8 +982,11 @@ impl HardwareScanner {
         };
 
         if !output.status.success() {
-            warn!("i2cdetect failed for bus {}: {}", bus,
-                  String::from_utf8_lossy(&output.stderr));
+            warn!(
+                "i2cdetect failed for bus {}: {}",
+                bus,
+                String::from_utf8_lossy(&output.stderr)
+            );
             return Vec::new();
         }
 
@@ -998,8 +1030,10 @@ impl HardwareScanner {
                 }
                 if let Ok(addr) = u8::from_str_radix(token, 16) {
                     // Sanity check: address should be in the same row
-                    if addr >= row_base && addr < row_base.saturating_add(16)
-                        && addr >= 0x03 && addr <= 0x77
+                    if addr >= row_base
+                        && addr < row_base.saturating_add(16)
+                        && addr >= 0x03
+                        && addr <= 0x77
                     {
                         let known = identify_i2c_device(addr);
                         devices.push(I2cDeviceInfo {
@@ -1036,7 +1070,10 @@ impl HardwareScanner {
                     format!("I2C_B{}_{}", bus_info.bus, device.address_hex),
                     "AI".to_string(),
                     "FLOAT32".to_string(),
-                    format!("Unknown I2C device @ bus {} addr {}", bus_info.bus, device.address_hex),
+                    format!(
+                        "Unknown I2C device @ bus {} addr {}",
+                        bus_info.bus, device.address_hex
+                    ),
                 ),
             };
 
@@ -1113,7 +1150,10 @@ impl HardwareScanner {
             data_type: "FLOAT32".to_string(),
             module_address: spi.bus as u32,
             channel: spi.chip_select as u32,
-            description: format!("SPI bus {} chip select {} ({})", spi.bus, spi.chip_select, spi.device_path),
+            description: format!(
+                "SPI bus {} chip select {} ({})",
+                spi.bus, spi.chip_select, spi.device_path
+            ),
             gpio_pin: None,
             source: "spi".to_string(),
             bus_type: Some("spi".to_string()),

@@ -8,7 +8,20 @@ export class AuthPayload {
   @Field()
   accessToken!: string;
 
-  @Field({ description: 'Deprecated: refresh token is now stored in httpOnly cookie. This field returns empty string.' })
+  // SEC-HIGH-008 cure: machine-readable deprecation. The
+  // deprecationReason flows into GraphQL SDL as
+  // @deprecated(reason: ...) — IDE plugins surface a warning, codegen
+  // emits a deprecation comment, and federation gateways propagate
+  // the signal. Description-text-only deprecation never reached
+  // frontend codegen tooling. Refresh-token transport moved to
+  // httpOnly cookie; the field stays nullable+empty until the next
+  // release sunset, then deletes.
+  @Field({
+    description:
+      'Deprecated: refresh token is now stored in httpOnly cookie. This field returns empty string.',
+    deprecationReason:
+      'Refresh token is now in httpOnly cookie; this field returns empty string and will be removed in the next release. Read the cookie via the auth flow instead.',
+  })
   refreshToken!: string;
 
   @Field(() => User)

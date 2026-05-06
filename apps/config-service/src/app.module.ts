@@ -73,12 +73,16 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
        *  defense-in-depth in case a subgraph becomes directly accessible. */
       allowBatchedHttpRequests: false,
       /**
-       * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
-       * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
-       * When false, ApolloServerPluginLandingPageDisabled is applied instead.
-       * Disabled in production for security (no introspection exposure).
+       * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+       * migration is blocked by the Nest/Apollo peer graph.
+       * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+       * class protections must be fail-closed at runtime.
        */
-      playground: process.env['NODE_ENV'] !== 'production',
+      csrfPrevention: true,
+      /**
+       * 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+       * WHY: subgraphs must not depend on deprecated Apollo developer UI behavior.
+       */
       introspection: process.env['NODE_ENV'] !== 'production',
       // installSubscriptionHandlers removed in @nestjs/graphql v13 — use graphql-ws for subscriptions instead
       validationRules: [depthLimit(10)],

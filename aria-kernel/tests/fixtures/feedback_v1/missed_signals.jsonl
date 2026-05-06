@@ -1,0 +1,1 @@
+{"$schema":"aria/feedback-event/v1","event_id":"FB-missed-dynamic-option","kind":"missed_signal","source":"operator","refs":["web/modules/hr-module/src/b.tsx:2"],"summary":"missed dynamic option provider","capability_gap_key":"frontend:dynamic_option_provider:tsx","trusted":false,"schema_version":1}

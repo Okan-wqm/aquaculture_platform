@@ -3,20 +3,26 @@ import {
   NestInterceptor,
   ExecutionContext,
   CallHandler,
+  InternalServerErrorException,
   Logger,
   Optional,
   Inject,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { Observable } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { Observable, from, throwError } from 'rxjs';
+import { switchMap, catchError } from 'rxjs/operators';
 
 import { createBaseEvent } from '@platform/event-contracts';
 
 import { AUDIT_LOG_KEY, AuditLogOptions } from '../decorators/audit-log.decorator';
 import { AuditLogService } from './audit-log.service';
 import { AuditSeverity } from './audit-log.entity';
+import {
+  hashIpForGdpr,
+  readIpHashingPolicyFromEnv,
+  shouldHashIp,
+} from './ip-hash.util';
 
 /**
  * Keys that must never appear in audit log metadata.
@@ -46,14 +52,32 @@ const MAX_SANITIZE_DEPTH = 3;
  * NestJS interceptor that automatically captures audit trail entries
  * for any handler decorated with @AuditLog().
  *
- * Behaviour:
- * - Runs AFTER the handler completes (in the `tap` of the response observable)
- * - Reads AUDIT_LOG_KEY metadata from the handler via Reflector
- * - Extracts user info (userId, email, tenantId) from req.user
- * - Extracts IP and User-Agent from the request
- * - Publishes to NATS `events.audit.*` topic if NatsEventBus is available
- * - Stores in database via AuditLogService
- * - Fire-and-forget: NEVER blocks or slows the response
+ * # Behaviour (post-AUDITTRAIL-HIGH-002 + HIGH-006 cure)
+ *
+ * - Runs AFTER the handler completes via `switchMap` so the response
+ *   stream WAITS for the audit-row write to commit.
+ * - Reads AUDIT_LOG_KEY metadata from the handler via Reflector.
+ * - Extracts user info (userId, email, tenantId) from req.user.
+ * - Extracts IP and User-Agent from the request.
+ * - Publishes to NATS `events.audit.*` topic if NatsEventBus is
+ *   available (event-bus emit stays fire-and-forget — it is a
+ *   downstream observability signal, not a primary audit channel).
+ * - Stores in database via AuditLogService.recordAwait — failures
+ *   propagate as InternalServerErrorException so the consumer sees
+ *   the audit-write failure rather than silently dropping evidence.
+ *
+ * # Why this changed (was fire-and-forget, now fail-closed)
+ *
+ * Pre-fix this interceptor used `tap({ next })` and
+ * `auditLogService.record(...)` (fire-and-forget). On a process
+ * crash between handler-return and worker-flush, the audit row was
+ * lost. RxJS `tap` does not wait for promises, so even
+ * `recordAwait` would have raced the response stream. The
+ * architectural successor `AuditedOperationInterceptor` already
+ * uses `switchMap → from(promise) → switchMap(() => [result])` to
+ * block emission until the audit write resolves; this interceptor
+ * now matches that contract end-to-end, closing AUDITTRAIL-HIGH-002
+ * and AUDITTRAIL-HIGH-006 in a single architectural cure.
  *
  * Supports both HTTP and GraphQL execution contexts.
  */
@@ -85,78 +109,161 @@ export class AuditLogInterceptor implements NestInterceptor {
     const args = this.extractArgs(context);
 
     return next.handle().pipe(
-      tap({
-        next: (result: unknown) => {
-          // Fire-and-forget: persist audit log after successful response
-          this.recordAuditLog(auditOptions, requestContext, args, result);
-        },
-        error: (error: Error) => {
-          // Also log failed operations with ERROR severity
+      // ── Success path ──
+      // switchMap blocks emission until the audit-row write resolves.
+      // Pre-cure this used `tap` which does NOT await promises — the
+      // response stream completed before the audit row hit the DB,
+      // and on crash between the two the row was lost.
+      switchMap((result: unknown) =>
+        from(
+          this.recordAuditLog(auditOptions, requestContext, args, result),
+        ).pipe(switchMap(() => [result])),
+      ),
+      // ── Failure path ──
+      // Handler threw. We still write a FAILED audit row, then
+      // re-throw the original handler error.
+      catchError((handlerError: Error) =>
+        from(
           this.recordAuditLog(
             auditOptions,
             requestContext,
             args,
             null,
-            error,
-          );
-        },
+            handlerError,
+          ),
+        ).pipe(
+          switchMap(() => throwError(() => handlerError)),
+          // If audit write ALSO fails, throw an InternalServerError
+          // wrapping both so the operator sees both the original
+          // handler error AND the audit failure.
+          catchError((auditWriteError: Error) => {
+            this.logger.error(
+              `AUDIT_WRITE_FAILURE: Could not persist FAILED audit ` +
+                `entry for ${auditOptions.action} on ${auditOptions.resource}. ` +
+                `Original error: ${handlerError.message}. ` +
+                `Audit error: ${auditWriteError.message}`,
+            );
+            return throwError(
+              () =>
+                new InternalServerErrorException(
+                  `Operation failed and audit trail could not be ` +
+                    `written. Original: ${handlerError.message}`,
+                ),
+            );
+          }),
+        ),
+      ),
+      // ── Audit write failure on SUCCESS path ──
+      // The first switchMap above can fail if recordAuditLog rejects
+      // on a successful handler. We catch that here and surface as
+      // InternalServerError — the operation has been aborted for
+      // compliance per the same posture AuditedOperationInterceptor
+      // applies.
+      catchError((error: Error) => {
+        if (error instanceof InternalServerErrorException) {
+          return throwError(() => error);
+        }
+        this.logger.error(
+          `AUDIT_WRITE_FAILURE: Could not persist SUCCESS audit ` +
+            `entry for ${auditOptions.action} on ${auditOptions.resource}. ` +
+            `Error: ${error.message}`,
+        );
+        return throwError(
+          () =>
+            new InternalServerErrorException(
+              'Operation succeeded but audit trail could not be ' +
+                'written. The operation has been aborted for compliance.',
+            ),
+        );
       }),
     );
   }
 
   /**
-   * Persist audit log entry. This method NEVER throws —
-   * all errors are caught and logged.
+   * Persist audit log entry.
+   *
+   * # Why this method now AWAITS the DB write (was fire-and-forget)
+   *
+   * Pre-cure this method called `auditLogService.record()`
+   * (fire-and-forget) wrapped in a try/catch that swallowed every
+   * error to a logger.error line. The combined effect: the audit row
+   * could fail to land in the DB and the handler's response would
+   * already be on the wire to the client. SOC 2 CC4 evidence
+   * silently lost on every DB blip.
+   *
+   * Cure (AUDITTRAIL-HIGH-002 + HIGH-006): use `recordAwait` and let
+   * failures propagate. Callers (the `intercept` switchMap above)
+   * convert a rejection into an InternalServerErrorException so the
+   * operation aborts for compliance — same posture as the canonical
+   * AuditedOperationInterceptor.
+   *
+   * The NATS event-bus emission stays fire-and-forget because the
+   * event bus is a downstream observability signal, not a primary
+   * audit channel — losing a NATS event must not abort the
+   * operation. If event-bus delivery is critical for a particular
+   * consumer, that consumer should subscribe to the audit-row table
+   * via outbox / CDC, not depend on the volatile `events.audit.*`
+   * stream.
+   *
+   * @throws Error — propagates DB write failure to the caller; the
+   *   intercept() switchMap chain wraps it into
+   *   InternalServerErrorException for the client.
    */
-  private recordAuditLog(
+  private async recordAuditLog(
     options: AuditLogOptions,
     requestCtx: RequestContext,
     args: Record<string, unknown> | null,
     result: unknown,
     error?: Error,
-  ): void {
-    try {
-      const resourceId = this.extractResourceId(result);
-      const sanitizedArgs = args ? this.sanitizeObject(args) : null;
+  ): Promise<void> {
+    const resourceId = this.extractResourceId(result);
+    const sanitizedArgs = args ? this.sanitizeObject(args) : null;
 
-      const metadata: Record<string, unknown> = {};
-      if (options.description) {
-        metadata['description'] = options.description;
-      }
-      if (sanitizedArgs && Object.keys(sanitizedArgs).length > 0) {
-        metadata['args'] = sanitizedArgs;
-      }
-      if (resourceId) {
-        metadata['resourceId'] = resourceId;
-      }
-      if (error) {
-        metadata['error'] = error.message;
-      }
-
-      // 1. Persist to database (fire-and-forget)
-      this.auditLogService.record({
-        action: options.action,
-        resource: options.resource,
-        resourceId,
-        userId: requestCtx.userId,
-        userEmail: requestCtx.userEmail,
-        tenantId: requestCtx.tenantId,
-        schemaName: requestCtx.schemaName,
-        metadata: Object.keys(metadata).length > 0 ? metadata : null,
-        ip: requestCtx.ip,
-        userAgent: requestCtx.userAgent,
-        severity: error ? AuditSeverity.ERROR : AuditSeverity.INFO,
-        correlationId: requestCtx.correlationId,
-      });
-
-      // 2. Publish to NATS (fire-and-forget, if available)
-      this.publishToEventBus(options, requestCtx, resourceId, metadata, error);
-    } catch (err) {
-      // Last resort: never let audit logging crash the application
-      this.logger.error(
-        `Audit log recording failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    const metadata: Record<string, unknown> = {};
+    if (options.description) {
+      metadata['description'] = options.description;
     }
+    if (sanitizedArgs && Object.keys(sanitizedArgs).length > 0) {
+      metadata['args'] = sanitizedArgs;
+    }
+    if (resourceId) {
+      metadata['resourceId'] = resourceId;
+    }
+    if (error) {
+      metadata['error'] = error.message;
+    }
+
+    // 1. Persist to database — AWAITED. A rejection bubbles up to
+    //    the intercept() chain which surfaces it as a 5xx.
+    //    AUDITTRAIL-LOW-002: route IP through the canonical
+    //    region-gated hashing helper. Region comes from the JWT
+    //    claim (when minted with one); deployment-wide policy
+    //    comes from env vars. Same shape AuditedOperationInterceptor
+    //    uses — single SSoT for audit-IP hashing across the
+    //    platform.
+    const ipHashingPolicy = readIpHashingPolicyFromEnv();
+    const persistedIp = shouldHashIp(requestCtx.region, ipHashingPolicy)
+      ? hashIpForGdpr(requestCtx.ip)
+      : requestCtx.ip;
+
+    await this.auditLogService.recordAwait({
+      action: options.action,
+      resource: options.resource,
+      resourceId,
+      userId: requestCtx.userId,
+      userEmail: requestCtx.userEmail,
+      tenantId: requestCtx.tenantId,
+      schemaName: requestCtx.schemaName,
+      metadata: Object.keys(metadata).length > 0 ? metadata : null,
+      ip: persistedIp,
+      userAgent: requestCtx.userAgent,
+      severity: error ? AuditSeverity.ERROR : AuditSeverity.INFO,
+      correlationId: requestCtx.correlationId,
+    });
+
+    // 2. Publish to NATS (fire-and-forget — observability signal,
+    //    not a primary audit channel; loss must not abort the op).
+    this.publishToEventBus(options, requestCtx, resourceId, metadata, error);
   }
 
   /**
@@ -215,11 +322,26 @@ export class AuditLogInterceptor implements NestInterceptor {
     return {
       userId: user?.sub ?? user?.id ?? null,
       userEmail: user?.email ?? null,
-      tenantId: user?.tenantId ?? (headers['x-tenant-id'] as string) ?? null,
+      // AUDITTRAIL-MEDIUM-003 cure: tenantId comes ONLY from the JWT
+      // trust anchor (user.tenantId). The legacy code fell back to
+      // the `x-tenant-id` header when user.tenantId was null —
+      // acceptable on pre-auth / cross-tenant-admin / edge-device
+      // ingestion paths per CLAUDE.md, but those paths do not run
+      // through this interceptor (this interceptor fires only on
+      // @AuditLog()-decorated handlers, all of which sit behind
+      // authentication). The header fallback was therefore a
+      // confused-deputy hazard: a compromised intermediary that
+      // injected `x-tenant-id` could make the audit row attribute
+      // an action to a different tenant than the JWT claimed.
+      // Truthful null is better than an attacker-controllable value.
+      tenantId: user?.tenantId ?? null,
       schemaName: (headers['x-schema-name'] as string) ?? null,
       ip: this.extractIp(request),
       userAgent: (headers['user-agent'] as string) ?? null,
       correlationId: (headers['x-correlation-id'] as string) ?? null,
+      // AUDITTRAIL-LOW-002: residency from JWT claim drives the
+      // IP-hashing decision in recordAuditLog above.
+      region: (user?.['region'] as string | undefined) ?? null,
     };
   }
 
@@ -356,4 +478,16 @@ interface RequestContext {
   ip: string | null;
   userAgent: string | null;
   correlationId: string | null;
+  /**
+   * Tenant residency region marker (AUDITTRAIL-LOW-002).
+   *
+   * Populated from the JWT `region` claim. Drives the IP-hashing
+   * decision in recordAuditLog via the canonical
+   * `shouldHashIp` + `hashIpForGdpr` helpers from
+   * `./ip-hash.util`. Same shape as the canonical
+   * AuditedOperationInterceptor's RequestContext.region — both
+   * interceptors funnel through the same helper to keep the
+   * IP-hashing policy identical end-to-end.
+   */
+  region: string | null;
 }

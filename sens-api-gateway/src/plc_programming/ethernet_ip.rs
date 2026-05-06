@@ -716,9 +716,8 @@ impl PlcProgrammer for EtherNetIpClient {
                         }
 
                         if data.len() >= 15 {
-                            let serial = u32::from_le_bytes([
-                                data[10], data[11], data[12], data[13],
-                            ]);
+                            let serial =
+                                u32::from_le_bytes([data[10], data[11], data[12], data[13]]);
                             let name_len = data[14] as usize;
                             if data.len() >= 15 + name_len {
                                 if let Ok(product_name) =
@@ -736,12 +735,12 @@ impl PlcProgrammer for EtherNetIpClient {
                                 if data.len() > state_offset {
                                     let state = data[state_offset];
                                     run_mode = match state {
-                                        0 => PlcRunMode::Unknown,    // Non-existent
-                                        1 => PlcRunMode::Test,       // Self-testing
-                                        2 => PlcRunMode::Stop,       // Standby
-                                        3 => PlcRunMode::Run,        // Operational
-                                        4 => PlcRunMode::Fault,      // Major recoverable fault
-                                        5 => PlcRunMode::Fault,      // Major unrecoverable fault
+                                        0 => PlcRunMode::Unknown, // Non-existent
+                                        1 => PlcRunMode::Test,    // Self-testing
+                                        2 => PlcRunMode::Stop,    // Standby
+                                        3 => PlcRunMode::Run,     // Operational
+                                        4 => PlcRunMode::Fault,   // Major recoverable fault
+                                        5 => PlcRunMode::Fault,   // Major unrecoverable fault
                                         _ => PlcRunMode::Unknown,
                                     };
                                     debug!("CIP Identity: state={} -> {:?}", state, run_mode);

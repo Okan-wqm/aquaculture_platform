@@ -1,8 +1,8 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException, Inject } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import Redis from 'ioredis';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Message } from '../entities/message.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
@@ -17,10 +17,7 @@ export class MessageService {
   private readonly logger = new Logger(MessageService.name);
 
   constructor(
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
-    @InjectRepository(ChannelMember)
-    private readonly channelMemberRepo: Repository<ChannelMember>,
+    private readonly dataSource: DataSource,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
   ) {}
@@ -30,10 +27,12 @@ export class MessageService {
    * @throws NotFoundException if message does not exist
    * @returns the Message entity
    */
-  async validateMessageOwnership(messageId: string, userId: string): Promise<Message> {
-    const message = await this.messageRepo.findOne({
-      where: { id: messageId, isDeleted: false },
-    });
+  async validateMessageOwnership(tenantId: string, messageId: string, userId: string): Promise<Message> {
+    const message = await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+      queryRunner.manager.findOne(Message, {
+        where: { tenantId, id: messageId, isDeleted: false },
+      }),
+    );
     if (!message) {
       throw new NotFoundException(`Message ${messageId} not found.`);
     }
@@ -64,7 +63,7 @@ export class MessageService {
 
       const entries = Object.values(allCounts);
       if (entries.length === 0) {
-        return this.getUnreadCountFromDb(userId);
+        return this.getUnreadCountFromDb(tenantId, userId);
       }
 
       let total = 0;
@@ -75,7 +74,7 @@ export class MessageService {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(`Redis getUnreadCount failed, falling back to DB: ${message}`);
-      return this.getUnreadCountFromDb(userId);
+      return this.getUnreadCountFromDb(tenantId, userId);
     }
   }
 
@@ -90,10 +89,12 @@ export class MessageService {
     tenantId: string,
   ): Promise<void> {
     try {
-      const members = await this.channelMemberRepo.find({
-        where: { channelId },
-        select: ['userId'],
-      });
+      const members = await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+        queryRunner.manager.find(ChannelMember, {
+          where: { tenantId, channelId, leftAt: IsNull() },
+          select: ['userId'],
+        }),
+      );
 
       const pipeline = this.redis.pipeline();
       for (const member of members) {
@@ -131,23 +132,24 @@ export class MessageService {
    * Fallback: calculate unread from database when Redis is unavailable.
    * Counts messages after lastReadAt across all channels the user is a member of.
    */
-  private async getUnreadCountFromDb(userId: string): Promise<number> {
-    const result = await this.messageRepo
-      .createQueryBuilder('m')
-      .innerJoin(
-        ChannelMember,
-        'cm',
-        'cm."channelId" = m."channelId" AND cm."userId" = :userId',
-        { userId },
-      )
-      .where('m."isDeleted" = false')
-      .andWhere('m."senderId" != :userId', { userId })
-      .andWhere('cm."leftAt" IS NULL')
-      .andWhere(
-        '(cm."lastReadAt" IS NULL OR m."createdAt" > cm."lastReadAt")',
-      )
-      .getCount();
-
-    return result;
+  private async getUnreadCountFromDb(tenantId: string, userId: string): Promise<number> {
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+      queryRunner.manager
+        .createQueryBuilder(Message, 'm')
+        .innerJoin(
+          ChannelMember,
+          'cm',
+          'cm."tenantId" = :tenantId AND cm."channelId" = m."channelId" AND cm."userId" = :userId',
+          { tenantId, userId },
+        )
+        .where('m."tenantId" = :tenantId', { tenantId })
+        .andWhere('m."isDeleted" = false')
+        .andWhere('m."senderId" != :userId', { userId })
+        .andWhere('cm."leftAt" IS NULL')
+        .andWhere(
+          '(cm."lastReadAt" IS NULL OR m."createdAt" > cm."lastReadAt")',
+        )
+        .getCount(),
+    );
   }
 }

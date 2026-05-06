@@ -17,6 +17,7 @@ export enum SecurityEventType {
   TENANT_ACCESS_DENIED = 'security.events.tenant.access.denied',
   SERVICE_IDENTITY_REJECTED = 'security.events.service.identity.rejected',
   SUSPICIOUS_ACTIVITY = 'security.events.suspicious.activity',
+  REFRESH_TOKEN_REUSE_DETECTED = 'security.events.auth.refresh.token.reuse.detected',
 }
 
 // ==================== Flat Security Event Interfaces ====================
@@ -184,6 +185,34 @@ export interface SuspiciousActivityEvent extends SecurityEventCommon {
   category?: string;
 }
 
+/**
+ * Refresh-token reuse detected event.
+ *
+ * Published by auth-service when a refresh-token rotation observes a
+ * presented token whose family has already been rotated (i.e. an earlier
+ * rotation invalidated this token but it has now been presented again).
+ * Per OAuth 2.0 best practice (RFC 8252 §6, draft-ietf-oauth-security-topics),
+ * detected reuse means the original family has been compromised — the
+ * receiver MUST invalidate the entire family + log out the affected user.
+ *
+ * WHY: Pre-fix the rotation path detected reuse but emitted no event,
+ * leaving the security team blind to refresh-token theft attempts —
+ * DATA-HIGH-002. Adding an explicit event lets observability/notification
+ * services raise an alert + email the user about the suspicious sign-in.
+ */
+export interface RefreshTokenReuseDetectedEvent extends SecurityEventCommon {
+  eventType: 'RefreshTokenReuseDetected';
+  securityEventType: SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED;
+  /** User whose refresh-token family was reused. */
+  userId: string;
+  /** Refresh-token family identifier (one family per user-device pair). */
+  familyId: string;
+  /** Whether the family was successfully invalidated post-detection. */
+  familyRevoked: boolean;
+  /** Number of tokens revoked when the family was nuked. */
+  tokensRevokedCount: number;
+}
+
 // ==================== Type Union ====================
 
 /**
@@ -200,4 +229,5 @@ export type SecurityEvent =
   | CspViolationEvent
   | TenantAccessDeniedEvent
   | ServiceIdentityRejectedEvent
-  | SuspiciousActivityEvent;
+  | SuspiciousActivityEvent
+  | RefreshTokenReuseDetectedEvent;

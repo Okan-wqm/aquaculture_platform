@@ -137,6 +137,125 @@ impl BytecodeRegistryStore {
                 ))
             })?;
 
+        Self::finalize_open(conn, path_str)
+    }
+
+    /// Manifest-aware constructor (PR-195 Batch #15 —
+    /// fourth per-consumer adoption of
+    /// `consumer_key_resolver` SSoT; BytecodeRegistryStore
+    /// is consumer 4 of 4 per ADR-031, completing the
+    /// per-consumer adoption arc).
+    ///
+    /// Reads the per-DB sidecar manifest (Batch #329)
+    /// and derives the SQLCipher PRAGMA key via
+    /// `db_migration::consumer_key_resolver` (Batch #8).
+    /// Missing manifest = legacy v1 default per Batch
+    /// #330; v1 manifest = HMAC-SHA256 kernel; v2
+    /// manifest = keystore-derived key.
+    ///
+    /// **Why `program_artifact_sha256` is required:**
+    /// BytecodeRegistryStore is a PROGRAM-BOUND consumer
+    /// per ADR-031 — distinct programs produce distinct
+    /// keystore-derived keys (tenant-isolation
+    /// invariant). For the v2 path the resolver
+    /// requires the program SHA bytes; for the v1
+    /// fallback path the SHA is unused but the caller
+    /// still provides it. main.rs's bytecode-loader
+    /// path plumbs the SHA from the loaded program.
+    ///
+    /// **Why `deployment_uuid` is omitted:**
+    /// program-bound consumers don't use the
+    /// deployment-instance UUID per ADR-031.
+    ///
+    /// **Async:** `Keystore::derive_key` is async;
+    /// caller awaits at boot time. Hot-path methods
+    /// remain sync.
+    pub async fn new_with_keystore_derivation<P: AsRef<Path>>(
+        db_path: P,
+        keystore: std::sync::Arc<dyn crate::keystore::Keystore>,
+        program_artifact_sha256: Vec<u8>,
+    ) -> Result<Self, StoreError> {
+        let path_str = db_path.as_ref().to_string_lossy().to_string();
+
+        if let Some(parent) = db_path.as_ref().parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    StoreError::ConnectionFailed(format!(
+                        "create parent dir: {}",
+                        e
+                    ))
+                })?;
+            }
+        }
+
+        // Pull v1 inputs via the SSoT (Batch #14 db_secret
+        // + Batch #344 machine_id) — resolver only USES
+        // them on v1 / missing-manifest path.
+        let machine_id = crate::machine_id::read().map_err(|e| {
+            StoreError::ConnectionFailed(format!(
+                "machine_id read: {}",
+                e
+            ))
+        })?;
+        let secret_key = crate::db_secret::read_or_create_v1_secret()
+            .map_err(|e| {
+                StoreError::ConnectionFailed(format!(
+                    "secret_key read: {}",
+                    e
+                ))
+            })?;
+        let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
+            machine_id: machine_id.into_bytes(),
+            secret_key,
+        };
+
+        let ctx = crate::db_migration::consumer_context::ConsumerContext {
+            deployment_uuid: Vec::new(),
+            program_artifact_sha256: Some(program_artifact_sha256),
+        };
+
+        let resolved =
+            crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+                db_path.as_ref(),
+                crate::keystore::purpose::KeyPurpose::SqlCipherBytecodeRetain,
+                &ctx,
+                keystore.as_ref(),
+                &v1_inputs,
+            )
+            .await
+            .map_err(|e| {
+                StoreError::ConnectionFailed(format!(
+                    "resolver: {}",
+                    e
+                ))
+            })?;
+
+        let conn = Connection::open(&db_path).map_err(|e| {
+            StoreError::ConnectionFailed(format!("open: {}", e))
+        })?;
+        conn.execute_batch(&format!(
+            "PRAGMA key = \"x'{}'\";",
+            resolved.pragma_key_hex.as_str()
+        ))
+        .map_err(|e| {
+            StoreError::ConnectionFailed(format!(
+                "apply encryption key: {}",
+                e
+            ))
+        })?;
+
+        Self::finalize_open(conn, path_str)
+    }
+
+    /// Shared post-PRAGMA-key initialization. Both the
+    /// legacy `new` and the manifest-aware
+    /// `new_with_keystore_derivation` share the SAME
+    /// post-key sequence — no drift in WAL mode or
+    /// migration discipline between callers.
+    fn finalize_open(
+        conn: Connection,
+        path_str: String,
+    ) -> Result<Self, StoreError> {
         // WAL mode + sane defaults (same as
         // SqlitePersistence).
         conn.execute_batch(
@@ -387,6 +506,8 @@ pub async fn load_into_registry(
 mod tests {
     use super::*;
     use super::super::bytecode::Opcode;
+    use async_trait::async_trait;
+    use crate::keystore::purpose::KeyPurpose;
 
     fn mk_bc(program_id: &str, version: u64) -> Bytecode {
         Bytecode {
@@ -533,5 +654,202 @@ mod tests {
         let results = load_into_registry(&store, &reg).await;
         assert!(results.is_empty());
         assert_eq!(reg.len().await, 0);
+    }
+
+    // -------- Batch #15 — manifest-aware constructor tests --------
+
+    use crate::db_migration::manifest::{
+        manifest_path_for_db, write_manifest as write_db_manifest,
+        DbKeySourceManifest,
+    };
+    use crate::db_migration::schema_version::DbKeySchemaVersion;
+    use crate::keystore::error::{
+        KeyDerivationError as KsKeyDerivationError, KeystoreError, KeystoreErrorKind,
+    };
+    use crate::keystore::purpose::DerivedKeyId;
+    use crate::keystore::secret::KeyMaterial;
+    use crate::keystore::{KeyBackend, RotationSource};
+    use std::sync::Mutex as StdMutex;
+
+    static REGISTRY_STORE_ENV_MUTEX: StdMutex<()> = StdMutex::new(());
+
+    struct RegistryStoreStubKeystore;
+
+    #[async_trait]
+    impl crate::keystore::Keystore for RegistryStoreStubKeystore {
+        fn backend(&self) -> KeyBackend {
+            KeyBackend::FileBacked
+        }
+
+        async fn derive_key(
+            &self,
+            purpose: KeyPurpose,
+            _context: &[u8],
+        ) -> std::result::Result<KeyMaterial, KsKeyDerivationError> {
+            let mut bytes = [0u8; 32];
+            bytes[0] = match purpose {
+                KeyPurpose::SqlCipherBytecodeRetain => 0xb4,
+                _ => 0xff,
+            };
+            Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
+        }
+
+        fn derived_key_id(
+            &self,
+            _purpose: KeyPurpose,
+            _context: &[u8],
+        ) -> DerivedKeyId {
+            DerivedKeyId([0u8; 16])
+        }
+
+        async fn rotate_master(
+            &self,
+        ) -> std::result::Result<(), KeystoreError> {
+            Err(KeystoreError::new(
+                KeystoreErrorKind::NotImplemented,
+                String::from("stub"),
+            ))
+        }
+
+        async fn rotate_master_with_source(
+            &self,
+            _source: RotationSource<'_>,
+        ) -> std::result::Result<(), KeystoreError> {
+            Err(KeystoreError::new(
+                KeystoreErrorKind::NotImplemented,
+                String::from("stub"),
+            ))
+        }
+    }
+
+    fn ensure_registry_secret(dir: &std::path::Path) {
+        let secret = dir.join("db.key");
+        if !secret.exists() {
+            std::fs::write(&secret, vec![0xCDu8; 32]).expect("seed secret");
+        }
+    }
+
+    #[tokio::test]
+    async fn registry_store_with_keystore_derivation_v1_fallback() {
+        let _guard = REGISTRY_STORE_ENV_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        ensure_registry_secret(dir.path());
+        let secret = dir.path().join("db.key");
+        let db_path = dir.path().join("bytecode_retain.db");
+
+        // SAFETY: env-mutation serialized.
+        unsafe {
+            std::env::set_var("SUDERRA_DB_KEY_PATH", &secret);
+        }
+        let result = BytecodeRegistryStore::new_with_keystore_derivation(
+            &db_path,
+            std::sync::Arc::new(RegistryStoreStubKeystore),
+            vec![0xAB; 32],
+        )
+        .await;
+        unsafe {
+            std::env::remove_var("SUDERRA_DB_KEY_PATH");
+        }
+
+        let _store = result.expect("v1 fallback opens");
+    }
+
+    #[tokio::test]
+    async fn registry_store_with_keystore_derivation_v2_opens_keystore_key() {
+        let _guard = REGISTRY_STORE_ENV_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        ensure_registry_secret(dir.path());
+        let secret = dir.path().join("db.key");
+        let db_path = dir.path().join("bytecode_retain.db");
+
+        // Compute v2 key: StubKeystore returns 0xb4-prefix.
+        let mut v2_bytes = [0u8; 32];
+        v2_bytes[0] = 0xb4;
+        let v2_hex =
+            crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(
+                &v2_bytes,
+            );
+
+        {
+            let conn = Connection::open(&db_path).expect("seed");
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", v2_hex))
+                .expect("apply v2");
+            conn.execute_batch(
+                "CREATE TABLE seed (id INTEGER PRIMARY KEY); \
+                 INSERT INTO seed VALUES (1);",
+            )
+            .expect("seed table");
+        }
+
+        write_db_manifest(
+            &manifest_path_for_db(&db_path),
+            &DbKeySourceManifest {
+                schema_version: DbKeySchemaVersion::V2KeystoreDerived,
+                last_updated_at_unix_secs: 1_700_000_000,
+            },
+        )
+        .expect("seed v2 manifest");
+
+        // SAFETY: env-mutation serialized.
+        unsafe {
+            std::env::set_var("SUDERRA_DB_KEY_PATH", &secret);
+        }
+        let result = BytecodeRegistryStore::new_with_keystore_derivation(
+            &db_path,
+            std::sync::Arc::new(RegistryStoreStubKeystore),
+            vec![0xDD; 32], // used by v2 path
+        )
+        .await;
+        unsafe {
+            std::env::remove_var("SUDERRA_DB_KEY_PATH");
+        }
+
+        let _store = result.expect("v2 opens");
+    }
+
+    #[tokio::test]
+    async fn registry_store_with_keystore_derivation_corrupt_manifest_fails_closed() {
+        let _guard = REGISTRY_STORE_ENV_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        ensure_registry_secret(dir.path());
+        let secret = dir.path().join("db.key");
+        let db_path = dir.path().join("bytecode_retain.db");
+
+        std::fs::write(manifest_path_for_db(&db_path), b"not valid json")
+            .expect("seed corrupt");
+
+        // SAFETY: env-mutation serialized.
+        unsafe {
+            std::env::set_var("SUDERRA_DB_KEY_PATH", &secret);
+        }
+        let result = BytecodeRegistryStore::new_with_keystore_derivation(
+            &db_path,
+            std::sync::Arc::new(RegistryStoreStubKeystore),
+            vec![0xAB; 32],
+        )
+        .await;
+        unsafe {
+            std::env::remove_var("SUDERRA_DB_KEY_PATH");
+        }
+
+        let err = match result {
+            Ok(_) => panic!("expected error"),
+            Err(e) => e,
+        };
+        match err {
+            StoreError::ConnectionFailed(msg) => {
+                assert!(
+                    msg.contains("resolver"),
+                    "expected resolver-failed message, got: {msg}"
+                );
+            }
+            other => panic!("expected ConnectionFailed, got {other:?}"),
+        }
     }
 }

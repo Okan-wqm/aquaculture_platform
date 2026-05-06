@@ -230,6 +230,30 @@ export class StripeWebhookService {
 
       const transactionId = `TXN-STRIPE-FAIL-${Date.now()}-${randomUUID().substring(0, 8).toUpperCase()}`;
 
+      // COMPLIANCE-HIGH-005 + BILLING-MEDIUM-003 cures:
+      //
+      // * COMPLIANCE-HIGH-005: maskPii on the upstream failureMessage
+      //   before it lands in operational storage. Stripe's failure
+      //   messages routinely include card last-4, billing email,
+      //   customer name — PII that has no place in long-term
+      //   operational rows. The audit log keeps the raw form via a
+      //   separate path (immutable + 7y retention; tenant erasure
+      //   clears with the rest of the audit trail). Operational
+      //   tables get the redacted form, indefinitely queryable
+      //   without leaking PII into ad-hoc reports.
+      //
+      // * BILLING-MEDIUM-003: cap at 500 chars via maskAndTruncatePii.
+      //   Stripe error messages are theoretically unbounded; storing
+      //   them un-capped on a postgres `text` column exposes the
+      //   platform to storage exhaustion + display-layer DoS. The
+      //   `${failureCode}: ` prefix is at most ~40 chars (Stripe's
+      //   error codes are kebab-case identifiers), so the
+      //   500-char cap on the masked reason gives a 540-char hard
+      //   ceiling on the persisted string — well within the
+      //   downstream display surfaces' tolerances.
+      const maskedFailureReason =
+        `${failureCode}: ${maskAndTruncatePii(failureMessage, 500) ?? ''}`;
+
       const payment = manager.create(Payment, {
         tenantId,
         transactionId,
@@ -241,7 +265,7 @@ export class StripeWebhookService {
         paymentDate: new Date(),
         processedAt: new Date(),
         stripePaymentIntentId,
-        failureReason: `${failureCode}: ${failureMessage}`,
+        failureReason: maskedFailureReason,
         refundedAmount: new Decimal(0),
         notes: 'Stripe webhook: payment_intent.payment_failed',
         createdBy: 'stripe-webhook',
@@ -254,7 +278,9 @@ export class StripeWebhookService {
         `payment_intent.payment_failed: recorded failed payment ${savedPayment.id} for invoice ${invoiceId}`,
       );
 
-      // Publish NATS event for notification service
+      // Publish NATS event for notification service. Same masked form on
+      // the wire — downstream consumers (notification-service) get the
+      // redacted version; the raw is preserved in audit only.
       try {
         const natsEvent: PaymentFailedEvent = {
           ...createBaseEvent<PaymentFailedEvent>('PaymentFailed', tenantId),
@@ -263,7 +289,7 @@ export class StripeWebhookService {
           amount: failedAmountMoney.toDecimal().toNumber(),
           currency,
           paymentMethod: PaymentMethod.CREDIT_CARD,
-          failureReason: `${failureCode}: ${failureMessage}`,
+          failureReason: maskedFailureReason,
           retryCount: 0,
           willRetry: paymentIntent.status === 'requires_payment_method',
         };

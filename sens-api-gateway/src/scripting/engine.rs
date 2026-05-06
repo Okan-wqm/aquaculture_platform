@@ -545,7 +545,7 @@ impl ScriptEngine {
     /// v2.2: Now async to access shared storage
     /// v1.2.0: Use async get_active() with internal locking
     /// PERF-007: Use list_async() to avoid blocking the Tokio worker thread.
-    /// The sync list() acquires std::sync::Mutex<Connection> inline; if SQLite
+    /// The sync list() acquires `std::sync::Mutex<Connection>` inline; if SQLite
     /// is performing a WAL checkpoint or disk flush this blocks the entire thread,
     /// stalling MQTT/Modbus tasks on the 2-thread runtime.  list_async() offloads
     /// the blocking call to the spawn_blocking thread pool instead.
@@ -564,7 +564,9 @@ impl ScriptEngine {
                         let full_name = format!("{}:{}", script_id, var_name);
                         // LOW-40: Populate both maps so save_retain_variables() can
                         // use the fast retain_variables path on shutdown.
-                        self.context.retain_variables.insert(full_name.clone(), value.clone());
+                        self.context
+                            .retain_variables
+                            .insert(full_name.clone(), value.clone());
                         self.context.set_variable(&full_name, value);
                         loaded_count += 1;
                     }
@@ -720,8 +722,11 @@ impl ScriptEngine {
     async fn run_scan_cycle(&mut self) {
         let scan_interval = Duration::from_millis(self.scan_cycle_ms);
         let mut reload_counter = 0u64;
-        // v1.2.6: Use ceiling division for accurate reload timing
-        let reload_interval = ((30000 + self.scan_cycle_ms - 1) / self.scan_cycle_ms).max(1);
+        // v1.2.6: ceiling division for accurate reload timing.
+        // PR-195 Batch #25: switched to u64::div_ceil — same
+        // semantics as the (a+b-1)/b form for valid inputs but
+        // overflow-safe at u64::MAX (clippy::manual_div_ceil).
+        let reload_interval = 30000_u64.div_ceil(self.scan_cycle_ms).max(1);
 
         info!(
             scan_cycle_ms = self.scan_cycle_ms,
@@ -1381,9 +1386,11 @@ impl ScriptEngine {
         if matches!(op, ComparisonOperator::Between) {
             if let Some(l) = left.as_f64() {
                 if let Some(arr) = right.as_array() {
-                    if arr.len() >= 2 {
-                        let min = arr[0].as_f64().unwrap_or(f64::MIN);
-                        let max = arr[1].as_f64().unwrap_or(f64::MAX);
+                    // 2026-05-01: BETWEEN comparisons consume JSON configuration; use
+                    // checked array destructuring to reject malformed ranges without panic.
+                    if let [min_value, max_value, ..] = arr.as_slice() {
+                        let min = min_value.as_f64().unwrap_or(f64::MIN);
+                        let max = max_value.as_f64().unwrap_or(f64::MAX);
                         return l >= min && l <= max;
                     }
                 }
@@ -1729,7 +1736,9 @@ impl ScriptEngine {
             // LOW-40: Also track in the dedicated retain_variables map so that
             // save_retain_variables() can flush only this subset on shutdown,
             // avoiding an O(n_all_vars) scan with string prefix matching.
-            self.context.retain_variables.insert(var_name.clone(), value.clone());
+            self.context
+                .retain_variables
+                .insert(var_name.clone(), value.clone());
 
             if let Some(ref persistence) = self.persistence {
                 let script_id = self.current_script_id.as_deref().unwrap_or("global");
@@ -1898,7 +1907,11 @@ impl ScriptEngine {
         let host_lower = host.to_lowercase();
 
         // Block localhost
-        if host_lower == "localhost" || host_lower == "127.0.0.1" || host_lower == "::1" || host_lower == "[::1]" {
+        if host_lower == "localhost"
+            || host_lower == "127.0.0.1"
+            || host_lower == "::1"
+            || host_lower == "[::1]"
+        {
             return ActionResult::failure(
                 ActionType::Webhook,
                 "Webhook to localhost is not allowed (SSRF protection)",
@@ -1949,13 +1962,33 @@ impl ScriptEngine {
 
         // Use the engine's shared HTTP client (Arc-backed, connection pool shared across all
         // webhook actions and scan cycles).  Lazy-initialised on first call.
+        //
+        // Phase 1.1.3a (closes ORPHAN-HIGH-035 cipher dimension): the
+        // shared client now uses the Suderra-narrowed ClientConfig so
+        // operator-defined webhook URLs are exercised under the TLS 1.3
+        // + 3-suite cipher allowlist. Webhook destinations are
+        // operator-controlled (any HTTPS server), so Suderra leaf-cert
+        // pinning is intentionally NOT applied — the cipher allowlist
+        // is universally safe (TLS 1.3 is widely supported), but pinning
+        // would break the moment an operator's webhook destination
+        // rotates its cert.
         let client_arc = match &self.http_client {
             Some(c) => c.clone(),
             None => {
+                let suderra_tls = match crate::mtls::build_suderra_https_client_config() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return ActionResult::failure(
+                            ActionType::Webhook,
+                            format!("Failed to build Suderra HTTPS ClientConfig: {e}"),
+                        );
+                    }
+                };
                 let new_client = match reqwest::Client::builder()
                     .connect_timeout(std::time::Duration::from_secs(5))
                     .timeout(std::time::Duration::from_secs(10))
                     .pool_max_idle_per_host(2) // Limit idle connections
+                    .use_preconfigured_tls((*suderra_tls).clone())
                     .redirect(reqwest::redirect::Policy::none()) // Block redirect-based SSRF bypasses
                     .build()
                 {

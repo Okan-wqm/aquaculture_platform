@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "run_id": "run-v2",
+  "tool_id": "fixture-tool",
+  "cycle_id": "cycle-v2",
+  "status": "tool_unhealthy",
+  "input_hash": "sha256:input",
+  "output_hash": "sha256:output",
+  "read_paths": [],
+  "emitted_observations": [],
+  "emitted_findings": [],
+  "evidence_validation": {"valid": false},
+  "operator_feedback_refs": [],
+  "duration_ms": 1,
+  "cost_units": 0
+}

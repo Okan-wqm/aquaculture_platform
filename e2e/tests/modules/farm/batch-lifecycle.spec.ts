@@ -159,10 +159,14 @@ describe('Batch Full Lifecycle E2E', () => {
       );
 
       if (data.availableTanks && data.availableTanks.length >= 2) {
-        tankId = data.availableTanks[0].id as string;
-        destTankId = data.availableTanks[1].id as string;
+        const [sourceTank, destinationTank] = data.availableTanks;
+        if (!sourceTank || !destinationTank) throw new Error('Expected two available tanks');
+        tankId = sourceTank.id as string;
+        destTankId = destinationTank.id as string;
       } else if (data.availableTanks && data.availableTanks.length === 1) {
-        tankId = data.availableTanks[0].id as string;
+        const [sourceTank] = data.availableTanks;
+        if (!sourceTank) throw new Error('Expected one available tank');
+        tankId = sourceTank.id as string;
         destTankId = tankId; // fallback: ayni tank
       }
     });

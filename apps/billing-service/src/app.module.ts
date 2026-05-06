@@ -93,6 +93,13 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
        *  defense-in-depth in case a subgraph becomes directly accessible. */
       allowBatchedHttpRequests: false,
       /**
+       * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+       * migration is blocked by the Nest/Apollo peer graph.
+       * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+       * class protections must be fail-closed at runtime.
+       */
+      csrfPrevention: true,
+      /**
        * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
        * Without depth limiting, an attacker can craft a deeply nested GraphQL query
        * that causes exponential resource consumption on the server.
@@ -112,13 +119,10 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
         ],
       },
       /**
-       * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
-       * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
-       * When false, ApolloServerPluginLandingPageDisabled is applied instead.
-       * Disabled in production for security (no introspection exposure).
+       * 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+       * WHY: internal subgraphs must remain fail-closed and not reference deprecated UI paths.
        */
-      // SECURITY: Internal subgraph - always disable playground and introspection
-      playground: false,
+      // SECURITY: Internal subgraph - always disable introspection
       introspection: false,
       context: ({ req }: { req: Request }) => ({ req }),
     }),
@@ -152,6 +156,18 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     HealthModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    /**
+     * AUDITTRAIL-CRITICAL-002 cure: registers AuditedOperationInterceptor
+     * as a global APP_INTERCEPTOR so the 7 @AuditedOperation()-decorated
+     * billing handlers (create/change/cancel subscription, create/finalize/
+     * void invoice, record/refund payment) actually write audit rows.
+     * Pre-fix the decorators were structurally inert — no service in the
+     * fleet imported AuditedOperationModule, so audit-row coverage across
+     * 180 CQRS handlers was ~1%. Mounting this module here is the
+     * make-automatic Tier-2 cure that activates the existing decorators
+     * without further per-handler changes.
+     */
+    AuditedOperationModule.forRoot(),
     /**
      * SEC-DB: Tenant Row-Level Security.
      *
@@ -240,10 +256,24 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Middleware execution order:
+    // 0. StripInternalHeadersMiddleware (SECREV-CRITICAL-002): MUST run
+    //    BEFORE UserContextMiddleware. Verifies the request carries a
+    //    valid x-service-identity + x-service-signature pair signed with
+    //    INTERNAL_SERVICE_SECRET; if not, strips x-user-payload /
+    //    x-user-id / x-user-roles / x-tenant-id from req.headers so
+    //    UserContextMiddleware cannot pick up a forged SUPER_ADMIN
+    //    payload from a Docker-network attacker. The Stripe webhook
+    //    controller is @Public() and previously trusted unvalidated
+    //    metadata.tenantId — closing this header path closes the
+    //    forge-on-public-route surface SECREV-CRITICAL-001 references.
     // 1. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
     // 2. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
     consumer
-      .apply(UserContextMiddleware, TenantContextMiddleware)
+      .apply(
+        StripInternalHeadersMiddleware,
+        UserContextMiddleware,
+        TenantContextMiddleware,
+      )
       .forRoutes('*');
   }
 }

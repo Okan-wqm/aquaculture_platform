@@ -1,3 +1,5 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
@@ -181,12 +183,29 @@ pub enum I2cDriverType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProtocolConfig {
-    Gpio { pin: u8, direction: String },
-    Modbus { slave_id: u8, register: u16, function: u8, register_type: String },
-    I2c { bus: u8, address: u8, driver_type: I2cDriverType },
-    Spi { bus: u8, cs: u8 },
+    Gpio {
+        pin: u8,
+        direction: String,
+    },
+    Modbus {
+        slave_id: u8,
+        register: u16,
+        function: u8,
+        register_type: String,
+    },
+    I2c {
+        bus: u8,
+        address: u8,
+        driver_type: I2cDriverType,
+    },
+    Spi {
+        bus: u8,
+        cs: u8,
+    },
     // TODO: UART protocol needs read/write implementation in io_poll.rs and commands.rs
-    Uart { port: String },
+    Uart {
+        port: String,
+    },
 }
 
 /// Tag configuration (how to read/write a tag)
@@ -295,13 +314,16 @@ impl ProcessImage {
             }
             // No existing tag — insert with NaN to make it obvious the value is invalid.
             // f64::NAN propagates through arithmetic without silently producing valid results.
-            inner.tags.insert(name.to_string(), TagValue {
-                value: f64::NAN,
-                quality,
-                timestamp: Utc::now(),
-                raw_value: None,
-                source,
-            });
+            inner.tags.insert(
+                name.to_string(),
+                TagValue {
+                    value: f64::NAN,
+                    quality,
+                    timestamp: Utc::now(),
+                    raw_value: None,
+                    source,
+                },
+            );
             return;
         }
 
@@ -315,13 +337,16 @@ impl ProcessImage {
             (value, raw_value)
         };
 
-        inner.tags.insert(name.to_string(), TagValue {
-            value: scaled_value,
-            quality,
-            timestamp: Utc::now(),
-            raw_value: raw,
-            source,
-        });
+        inner.tags.insert(
+            name.to_string(),
+            TagValue {
+                value: scaled_value,
+                quality,
+                timestamp: Utc::now(),
+                raw_value: raw,
+                source,
+            },
+        );
     }
 
     /// Update a tag with a pre-scaled value (no scaling applied)
@@ -390,7 +415,12 @@ impl ProcessImage {
 
     /// Linear scaling: raw -> engineering units
     fn scale_value_inner(raw: f64, config: &TagConfig) -> f64 {
-        match (config.raw_min, config.raw_max, config.eng_min, config.eng_max) {
+        match (
+            config.raw_min,
+            config.raw_max,
+            config.eng_min,
+            config.eng_max,
+        ) {
             (Some(raw_min), Some(raw_max), Some(eng_min), Some(eng_max)) => {
                 let raw_range = raw_max - raw_min;
                 if raw_range.abs() < f64::EPSILON {

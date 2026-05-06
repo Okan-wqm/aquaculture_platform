@@ -208,17 +208,58 @@ impl std::fmt::Debug for SelfRegisterResponse {
 impl ProvisioningClient {
     /// Create a new provisioning client
     pub fn new(state: Arc<RwLock<AppState>>) -> Result<Self> {
-        // Use system CA store for TLS verification. The cloud API uses Let's Encrypt
-        // certificates which rotate every 90 days, making CA pinning impractical.
+        // Phase 1.1.3a (closes ORPHAN-HIGH-035 cipher dimension): use the
+        // Suderra-narrowed `ClientConfig` so the cipher-suite allowlist
+        // (3 TLS 1.3 suites) + the protocol-version pin (TLS 1.3 only)
+        // apply to the provisioning HTTPS path. Pre-Phase-1.1.3 this
+        // endpoint inherited the process-global `install_default()` ring
+        // provider — UNRESTRICTED — and would advertise every TLS 1.2
+        // ECDHE suite in the ClientHello, leaving the device-bootstrap
+        // token exchange exposed to cipher-suite-downgrade attacks.
         //
         // Security is maintained through:
-        // - HTTPS with standard certificate validation (system CA store)
+        // - HTTPS with TLS 1.3 + Suderra cipher allowlist (this batch)
+        // - Standard certificate validation against system CA store
+        //   (Let's Encrypt, DigiCert, etc. — the cloud API rotates Let's
+        //   Encrypt every 90 days, so leaf-cert pinning is impractical at
+        //   this layer)
         // - Provisioning tokens are single-use and time-limited
         // - MQTT credentials are rotated on each activation
+        // - Redirect policy disabled (block cross-origin redirects that
+        //   could leak the bootstrap token)
+        //
+        // ARCHITECTURAL DECISION (closes ORPHAN-HIGH-043 as not-applicable):
+        // Suderra leaf-cert pinning is INTENTIONALLY NOT applied to the
+        // cloud-API HTTPS path. Pre-1.1.3a we registered ORPHAN-HIGH-043 as
+        // a Phase 1.1.3b follow-up; investigation confirmed the cloud API
+        // uses Let's Encrypt (90-day automated rotation), making leaf-cert
+        // pinning operationally infeasible. The defenses we DO have are
+        // architecturally sufficient for the device-bootstrap threat model:
+        //
+        // - TLS 1.3 + 3-suite cipher allowlist (Phase 1.1.3a) — prevents
+        //   cipher-suite-downgrade attacks regardless of which Let's
+        //   Encrypt leaf is presented.
+        // - Standard PKI chain validation against ISRG Root X1 (in the
+        //   system native CA store) — Let's Encrypt's ACME issuance
+        //   protocol prevents domain-takeover impersonation absent a
+        //   coordinated DNS+ACME compromise.
+        // - Single-use time-limited bootstrap tokens (operator-supplied
+        //   via `mtls.provisioning_token` config field at first boot).
+        // - Redirect policy disabled (`Policy::none()`) — blocks
+        //   cross-origin token leakage via 3xx redirects.
+        //
+        // Pinning would be appropriate IF Suderra moved the cloud API to
+        // a Suderra-controlled CA hierarchy with a long-lived signing key.
+        // Until that architectural decision lands at the platform layer
+        // (cloud-side concern, not edge-agent), pinning here would be a
+        // yama — premature abstraction for an unrealistic operational
+        // scenario.
+        let suderra_tls = crate::mtls::build_suderra_https_client_config()
+            .map_err(|e| anyhow::anyhow!("Failed to build Suderra HTTPS ClientConfig: {e}"))?;
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
-            .tls_built_in_root_certs(true)
-            .redirect(reqwest::redirect::Policy::none()) // Block cross-origin redirects leaking token
+            .use_preconfigured_tls((*suderra_tls).clone())
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .context("Failed to create HTTP client")?;
 
@@ -343,11 +384,10 @@ impl ProvisioningClient {
         use secrecy::ExposeSecret;
         let (api_url, tenant_token) = {
             let state = self.state.read().await;
-            let secret = state
-                .config
-                .tenant_token
-                .clone()
-                .ok_or_else(|| AgentError::Provisioning("No tenant_token in config".to_string()))?;
+            let secret =
+                state.config.tenant_token.clone().ok_or_else(|| {
+                    AgentError::Provisioning("No tenant_token in config".to_string())
+                })?;
             let token = secret.expose_secret().clone();
 
             (state.config.api_url.clone(), token)

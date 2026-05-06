@@ -1,4 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 import {
   queueOperation,
   getPendingOperations,
@@ -337,6 +339,37 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       }
       const result = await syncAllOperations(tenantId, executeGraphQL);
       await refreshQueue();
+
+      // C7: After sync, determine per-operation outcomes by comparing against
+      // the refreshed queue. Operations no longer in the queue succeeded;
+      // operations still present with 'failed' status failed.
+      const postSyncOps = await getPendingOperations(tenantId);
+      const remainingIds = new Set(postSyncOps.map((op) => op.id));
+      const failedIds = new Set(
+        postSyncOps.filter((op) => op.status === 'failed').map((op) => op.id),
+      );
+      setSyncResults((prev) => {
+        const next = new Map(prev);
+        for (const op of preSyncOps) {
+          if (!remainingIds.has(op.id)) {
+            next.set(op.id, 'synced');
+          } else if (failedIds.has(op.id)) {
+            next.set(op.id, 'failed');
+          }
+          // else: still pending (e.g., skipped due to retry backoff)
+        }
+        return next;
+      });
+
+      // WHY: After a successful queue sync, invalidate React Query caches for
+      // the operation types that were confirmed by the backend. The queue is the
+      // single offline write path, so this is the convergence point that makes
+      // DB-committed farm data visible in list/card/detail screens immediately
+      // instead of waiting for staleTime or offline cache expiry.
+      const syncedOperationTypes = preSyncOps
+        .filter((op) => !remainingIds.has(op.id))
+        .map((op) => op.type);
+      await invalidateSyncedOperationQueries(queryClient, tenantId, syncedOperationTypes);
 
       // BUG-07: Reset the reconnect guard after a successful sync so that
       // new items queued while online will trigger auto-sync on next effect run.

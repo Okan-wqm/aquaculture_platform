@@ -54,6 +54,25 @@
 
 #![allow(dead_code)]
 
+// Phase B-1 (ADR-031) — submodule declarations resolve to
+// `src/opc_ua_server/<name>.rs` per Rust's directory-with-mod-stem
+// convention. Pre-B-1 this file was the only `opc_ua_server` module;
+// Phase B-1 adds two PKI lifecycle primitives without restructuring
+// the existing OpcUaTagRegistry surface. Phase B-2 (Plan §B-2 Batches
+// #269-#270) adds the FailedAuthWindow brute-force throttle primitive.
+pub mod auth_throttle;
+pub mod cert_rotation;
+pub mod pki_store;
+// Phase B-3 (Plan §B-3 Batch #271-#272) — per-tenant + per-user session
+// quota primitive with RAII SessionLease decrement.
+pub mod session_quota;
+// Phase B-4 (Plan §B-4 Batch #273-#275) — push-subscription bridge from
+// ProcessImage::subscribe_changes broadcast → OPC UA subscription state.
+pub mod subscription_bridge;
+// Phase B-5 (Plan §B-5 Batch #276-#277) — live config reload via drain +
+// atomic swap. ADR-032 (plan-intended ID was ADR-025 — renumbered).
+pub mod lifecycle;
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -558,9 +577,11 @@ pub async fn execute_opcua_write(
 // the 5th being `OpcUaAuthzPort::is_write_allowed(actor, tag)`
 // — the legacy untyped authz path. SimpleNodeManager's
 // `add_write_callback` boundary loses RequestContext (per
-// ORPHAN-CRITICAL-021) so its only authz signal is a
-// hard-coded actor string `"opc-ua-anonymous"`, which the
-// PolicyEngine rejects unconditionally. That's why Gap A-3
+// ORPHAN-CRITICAL-021) so its only authz signal is the
+// legacy anonymous-actor hardcode (string-literal banned by
+// the Batch #354 audit_actor_label_no_legacy invariant),
+// which the PolicyEngine rejects unconditionally. That's
+// why Gap A-3
 // landed the typed-authz chain (Batches #239-#250 +
 // SensNodeManager Batches #263-#289).
 //
@@ -1019,6 +1040,16 @@ pub struct PolicyEngineOpcUaAdapter {
     engine: Arc<dyn PolicyEngine>,
     tenant: TenantId,
     actor_resolver: ActorResolverFn,
+    /// **Batch #325 D-9 migration:** clock authority for
+    /// the AuthorizationRequest.received_at field. The
+    /// pre-#325 implementation used SystemTime::now()
+    /// which was vulnerable to operator clock-rollback
+    /// against the policy-version freshness check
+    /// (StalePolicyVersion deny path). Reading
+    /// received_at via clock.trustworthy_wall_clock()
+    /// fails-closed on stale-NTS via ClockAuthority's
+    /// gate.
+    clock: std::sync::Arc<dyn crate::runtime_safety::ClockAuthority>,
 }
 
 impl PolicyEngineOpcUaAdapter {
@@ -1026,11 +1057,17 @@ impl PolicyEngineOpcUaAdapter {
         engine: Arc<dyn PolicyEngine>,
         tenant: TenantId,
         actor_resolver: ActorResolverFn,
+        // Batch #325 D-9 migration: 4th param threads the
+        // clock through; production wire passes
+        // AppState::clock_authority; tests pass a fresh
+        // SystemClockAuthority via the test_clock helper.
+        clock: std::sync::Arc<dyn crate::runtime_safety::ClockAuthority>,
     ) -> Self {
         Self {
             engine,
             tenant,
             actor_resolver,
+            clock,
         }
     }
 }
@@ -1049,6 +1086,32 @@ impl OpcUaAuthzPort for PolicyEngineOpcUaAdapter {
             }
         };
 
+        // Batch #325 D-9 migration: read received_at via
+        // the trustworthy wallclock gate. NTS-stale clock
+        // → fail-closed (false). The policy-version
+        // freshness check (engine.authorize -> Deny(
+        // StalePolicyVersion)) depends on a trusted
+        // received_at; an operator-rolled wallclock could
+        // either pass an expired policy as fresh or fail a
+        // valid policy as stale. fail-closed on clock-side
+        // error is the architecturally honest answer (an
+        // OPC UA write rejected because the agent's clock
+        // is unverified is preferable to either silent
+        // policy-version bypass or DOS).
+        let received_at = match self.clock.trustworthy_wall_clock().await {
+            Ok(reading) => reading.system_time,
+            Err(e) => {
+                tracing::warn!(
+                    "PolicyEngineOpcUaAdapter::is_write_allowed: \
+                     clock unhealthy ({}) — REJECTING write for tag={} \
+                     actor={} (fail-closed per Batch #325 D-9)",
+                    e,
+                    tag_name,
+                    actor,
+                );
+                return false;
+            }
+        };
         let request = AuthorizationRequest::new(
             actor_identity,
             Permission::OpcUaWrite {
@@ -1056,7 +1119,7 @@ impl OpcUaAuthzPort for PolicyEngineOpcUaAdapter {
             },
             self.tenant.clone(),
             self.engine.current_policy_version(),
-            std::time::SystemTime::now(),
+            received_at,
         );
 
         match self.engine.authorize(request).await {
@@ -1952,6 +2015,12 @@ mod tests {
             engine.clone(),
             test_tenant(),
             Arc::new(|_actor: &str| Some(operator_actor())),
+            // Batch #325 D-9: test fixture clock — fresh
+            // SystemClockAuthority for the trustworthy_wall_clock
+            // gate. NTS-stale tests use a programmable mock
+            // (see authz_adapter_fail_closed_on_clock_unhealthy
+            // below).
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         assert!(adapter.is_write_allowed("hmi-op", "do_pump").await);
@@ -1979,6 +2048,7 @@ mod tests {
             engine,
             test_tenant(),
             Arc::new(|_actor: &str| Some(operator_actor())),
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         assert!(!adapter.is_write_allowed("stranger", "do_pump").await);
@@ -1996,6 +2066,7 @@ mod tests {
             engine,
             test_tenant(),
             Arc::new(|_actor: &str| Some(operator_actor())),
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         assert!(!adapter.is_write_allowed("hmi-op", "do_pump").await);
@@ -2008,6 +2079,7 @@ mod tests {
             engine.clone(),
             test_tenant(),
             Arc::new(|_actor: &str| None), // unresolvable actor
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         assert!(!adapter.is_write_allowed("anonymous", "do_pump").await);
@@ -2029,6 +2101,7 @@ mod tests {
             engine.clone(),
             my_tenant.clone(),
             Arc::new(|_actor: &str| Some(operator_actor())),
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         let _ = adapter.is_write_allowed("hmi-op", "do_pump").await;

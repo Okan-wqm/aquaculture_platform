@@ -494,6 +494,12 @@ pub enum Permission {
     SpiWrite { device_id: SpiDeviceId },
     /// Write to a tag via OPC UA server (ADR-018 §3 — 3rd-party HMI).
     OpcUaWrite { tag_id: TagId },
+    /// Write to a Siemens S7 variable address.
+    ///
+    /// 2026-04-29: Separates S7 write authority from `SafeStateTrigger`.
+    /// Safe-state permission is an emergency lifecycle control; reusing it for
+    /// S7 setpoint writes made least-privilege manifests impossible.
+    S7Write { address: TagId },
 
     // -------------------------------------------------------------------------
     // Effect-based permission (ADR-024 §3 — attacker cannot bypass via alternate interface)
@@ -579,6 +585,12 @@ impl Permission {
                 | Self::ForceValue
                 | Self::SafeStateTrigger
                 | Self::Reboot
+                // 2026-04-29: Direct PLC writes can change physical process state.
+                // They therefore share the mandatory co-approval floor with other
+                // safety-critical mutating commands instead of relying on an
+                // optional manifest extension.
+                | Self::OpcUaWrite { .. }
+                | Self::S7Write { .. }
         )
     }
 
@@ -590,7 +602,10 @@ impl Permission {
     ///
     /// **WHAT:** Match — returns bool for routing at the command dispatch layer.
     pub fn is_mutating(&self) -> bool {
-        !matches!(self, Self::ReadTag | Self::ReadAuditLog | Self::WatchSubscribe)
+        !matches!(
+            self,
+            Self::ReadTag | Self::ReadAuditLog | Self::WatchSubscribe
+        )
     }
 }
 
@@ -646,6 +661,18 @@ mod tests {
         assert!(Permission::ForceValue.requires_two_person_integrity());
         assert!(Permission::SafeStateTrigger.requires_two_person_integrity());
         assert!(Permission::Reboot.requires_two_person_integrity());
+        assert!(
+            Permission::OpcUaWrite {
+                tag_id: TagId::from("ns=2;s=pump.setpoint".to_string())
+            }
+            .requires_two_person_integrity()
+        );
+        assert!(
+            Permission::S7Write {
+                address: TagId::from("DB1.DBW0".to_string())
+            }
+            .requires_two_person_integrity()
+        );
 
         // Spot-check non-mandatory:
         assert!(!Permission::ReadTag.requires_two_person_integrity());
@@ -814,6 +841,12 @@ mod tests {
         assert!(
             Permission::OpcUaWrite {
                 tag_id: TagId::from("x".to_string())
+            }
+            .is_mutating()
+        );
+        assert!(
+            Permission::S7Write {
+                address: TagId::from("DB1.DBW0".to_string())
             }
             .is_mutating()
         );

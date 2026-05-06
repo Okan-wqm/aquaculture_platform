@@ -11,7 +11,10 @@ import { EventStoreModule } from './event-store/event-store.module';
 import { ProjectionsModule } from './projections/projections.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
-import { AddStoredEventsImmutabilityTriggers1782000000000 } from './migrations/1782000000000-AddStoredEventsImmutabilityTriggers';
+// Migration class imports removed — TypeOrmModule now uses the glob
+// pattern '/migrations/*.{js,ts}' to load every migration on disk
+// (ORPHAN-HIGH-001 cure). Pre-fix the explicit array missed
+// 1781000000000-CreateEventStoreTables and 1800000000000-AddFindingsTable.
 
 @Module({
   imports: [
@@ -35,7 +38,7 @@ import { AddStoredEventsImmutabilityTriggers1782000000000 } from './migrations/1
         createServiceTypeOrmConfig(configService, {
           serviceName: 'event-store',
           schema: 'event_store',
-          migrations: [AddStoredEventsImmutabilityTriggers1782000000000],
+          migrations: [__dirname + '/migrations/*.{js,ts}'],
           // event-store opts in to TypeORM's built-in migration runner via
           // DATABASE_MIGRATIONS_RUN (default true). No MigrationRunnerService
           // for this service yet.

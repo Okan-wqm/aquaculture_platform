@@ -35,9 +35,25 @@ export class ServiceMetricsService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit(): void {
-    // Clear global default registry to prevent duplicate metric errors
-    // when multiple modules or tests register default metrics
-    client.register.clear();
+    // WHY (PLAT-HIGH-006 closure): the previous implementation called
+    // `client.register.clear()` to wipe the GLOBAL default prom-client
+    // registry on every service init. The intent was to dodge "duplicate
+    // metric" errors during tests, but the side effect was platform-wide:
+    // ANY metric registered against the global default registry by
+    // another module in the same process — for example, a third-party
+    // library's instrumentation or a sibling service's bootstrap path —
+    // got silently wiped on each ServiceMetricsService.onModuleInit.
+    // Multiple instances (test scenarios, multi-stage bootstrap)
+    // clobbered each other. The architecturally correct boundary is
+    // that this service ONLY touches its own dedicated `this.registry`
+    // (created in the constructor, line above); it MUST NOT mutate any
+    // shared / global registry. Tests that need a fresh registry
+    // construct a new ServiceMetricsService instance — that is now the
+    // ONLY way to clear state.
+    //
+    // WHAT: drop the `client.register.clear()` call entirely. The
+    // local `this.registry.clear()` is preserved for re-init flows
+    // (e.g. tests that reuse a single instance via .reset()).
     this.registry.clear();
     this.initializeMetrics();
     this.startDefaultMetrics();

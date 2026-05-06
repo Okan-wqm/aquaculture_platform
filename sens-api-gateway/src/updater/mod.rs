@@ -97,10 +97,20 @@ pub mod file_verify;
 pub mod file_stream;
 pub mod verify;
 
+pub use bootloader::{BootloaderError, BootloaderHandle, NoopBootloaderHandle};
+pub use confirm_orchestrator::{
+    ConfirmOutcome, ConfirmSlotSelector, parse_slot_param, perform_confirm_slot,
+};
 pub use error::{FirmwareManifestCanonicalBytesError, ManifestVerifyError};
+pub use file_stream::{
+    FileSource, FileSourceError, InMemoryFileSource, StreamError, StreamReport,
+    stream_files_to_standby,
+};
+pub use file_verify::{
+    BatchVerifyReport, FileVerifyError, verify_all_files, verify_file_against_entry,
+};
 pub use manifest::{
-    FileEntry, FileDigest, FirmwareManifest, SignedFirmwareManifest, Sha256Digest,
-    TargetArch,
+    FileDigest, FileEntry, FirmwareManifest, Sha256Digest, SignedFirmwareManifest, TargetArch,
 };
 pub use partition::{AbPartition, PartitionRoll, SlotState};
 pub use partition_store::{PartitionState, PartitionStore, PartitionStoreError};
@@ -124,3 +134,7 @@ pub use file_stream::{
     StreamError, StreamReport,
 };
 pub use verify::verify_firmware_manifest;
+pub use watchdog::{
+    DEFAULT_WATCHDOG_POLL_INTERVAL_SECS, WatchdogAuditCtx, WatchdogTickOutcome,
+    run_cold_boot_watchdog, watchdog_tick,
+};

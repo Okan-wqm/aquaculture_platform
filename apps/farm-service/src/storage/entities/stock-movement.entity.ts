@@ -25,7 +25,7 @@ registerEnumType(MovementType, {
   description: 'Type of stock movement',
 });
 
-@Entity('stock_movements', { schema: 'farm' })
+@Entity('stock_movements')
 @Index(['tenantId', 'movementType'])
 @Index(['itemType', 'itemId'])
 @Index(['performedAt'])

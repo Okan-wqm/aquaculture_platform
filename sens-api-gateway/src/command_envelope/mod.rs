@@ -71,10 +71,10 @@ pub mod sqlcipher_dedup;
 // (catches cross-restart replays).
 pub mod layered_dedup;
 
-pub use canonical::{canonical_params, CanonicalParamsError, CmdHash};
+pub use canonical::{CanonicalParamsError, CmdHash, canonical_params};
 pub use envelope::{
-    verify_envelope, CommandEnvelope, EnvelopeVerifyError, SignatureMode,
-    MAX_CMD_NAME_BYTES, MAX_NONCE_BYTES,
+    CommandEnvelope, EnvelopeVerifyError, MAX_CMD_NAME_BYTES, MAX_NONCE_BYTES, SignatureMode,
+    verify_envelope,
 };
 // Batch #306 Faz 6 two-person integrity: the adapter needs
 // canonical bytes to verify the co-approver signature against

@@ -14,7 +14,7 @@ import {
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { createEncryptedColumnTransformer } from '@aquaculture/backend-common/security';
 
-@Entity('farm_workers', { schema: 'farm' })
+@Entity('farm_workers')
 @Index(['tenantId', 'email'], { unique: true })
 @Index(['tenantId', 'department'])
 export class Worker {

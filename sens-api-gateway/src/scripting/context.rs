@@ -20,8 +20,7 @@ fn get_interpolation_regex() -> &'static regex::Regex {
     INTERPOLATION_REGEX.get_or_init(|| {
         // SAFETY: This is a compile-time constant regex pattern; it cannot fail.
         #[allow(clippy::expect_used)]
-        regex::Regex::new(r"\$\{([^}]+)\}")
-            .expect("BUG: static regex pattern is always valid")
+        regex::Regex::new(r"\$\{([^}]+)\}").expect("BUG: static regex pattern is always valid")
     })
 }
 

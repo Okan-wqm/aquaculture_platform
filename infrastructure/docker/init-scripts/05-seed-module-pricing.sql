@@ -12,6 +12,21 @@ DECLARE
     v_hr_module_id UUID;
     v_sensor_module_id UUID;
 BEGIN
+    -- INIT-FIX: skip when auth.modules / admin.module_pricing don't exist yet.
+    -- These tables are created by auth-service / admin-api-service TypeORM migrations
+    -- on app startup, AFTER init scripts run. Without this guard, ON_ERROR_STOP=1
+    -- aborts postgres init on a fresh volume.
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'auth' AND table_name = 'modules'
+    ) OR NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'admin' AND table_name = 'module_pricing'
+    ) THEN
+        RAISE NOTICE 'auth.modules or admin.module_pricing not yet created — skipping module pricing seed. Re-run after services have migrated.';
+        RETURN;
+    END IF;
+
     -- Look up module IDs from auth.modules
     SELECT id INTO v_farm_module_id FROM auth.modules WHERE code = 'farm' LIMIT 1;
     SELECT id INTO v_hr_module_id FROM auth.modules WHERE code = 'hr' LIMIT 1;

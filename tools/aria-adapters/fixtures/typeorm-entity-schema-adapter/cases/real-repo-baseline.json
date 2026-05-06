@@ -1,0 +1,24 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "target": "farm-service",
+    "root": "apps/farm-service/src",
+    "serviceName": "farm",
+    "allowlist": [
+      "apps/farm-service/src/database/entities/code-sequence.entity.ts",
+      "apps/farm-service/src/batch/entities/batch.entity.ts"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": [
+      "typeorm_entity",
+      "module_schema",
+      "migration_registry"
+    ],
+    "raw_observations_count": 1618,
+    "raw_findings_count": 0,
+    "max_findings": 0
+  }
+}

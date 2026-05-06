@@ -27,7 +27,7 @@ registerEnumType(StorageLocationType, {
   description: 'Type of storage location',
 });
 
-@Entity('storage_locations', { schema: 'farm' })
+@Entity('storage_locations')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'type'])
 export class StorageLocation {

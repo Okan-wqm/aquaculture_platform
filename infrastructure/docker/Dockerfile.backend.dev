@@ -16,9 +16,10 @@ WORKDIR /app
 # Copy package files first (better layer caching)
 COPY package*.json ./
 
-# Install ALL dependencies with cache mount (ARCH-014: sharing=shared for parallel builds)
+# Install ALL dependencies with cache mount (ARCH-014: sharing=shared for parallel builds).
+# 2026-04-30: Development images must surface peer conflicts instead of bypassing them.
 RUN --mount=type=cache,target=/root/.npm,sharing=shared \
-    npm ci --legacy-peer-deps --ignore-scripts --no-audit && \
+    npm ci --ignore-scripts --no-audit && \
     chown -R node:node /app/node_modules
 
 # Copy configuration files

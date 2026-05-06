@@ -238,17 +238,33 @@ describe('CreateSubscriptionHandler', () => {
       await expect(handler.execute(buildCommand())).rejects.toThrow(ConflictException);
     });
 
-    it('should allow creating a new subscription after a CANCELLED one', async () => {
-      mockRepo.findOne.mockResolvedValue({
+    it('should allow creating a new subscription after a CANCELLED one (soft-deletes old, preserves history)', async () => {
+      // BILLING-MEDIUM-004 cure: pre-cure used hard delete which destroyed
+      // the audit trail for invoices+payments tied to the cancelled
+      // subscription. Post-cure the row is SOFT-deleted (isDeleted=true,
+      // deletedAt set) so it stays for billing reconciliation.
+      const cancelledSub = {
         id: 'cancelled-sub',
         tenantId: 'tenant-001',
         status: SubscriptionStatus.CANCELLED,
-      });
+        isDeleted: false,
+        deletedAt: undefined as Date | undefined,
+        deletedBy: undefined as string | undefined,
+        softDelete(deletedBy?: string): void {
+          this.isDeleted = true;
+          this.deletedAt = new Date();
+          this.deletedBy = deletedBy;
+        },
+      };
+      mockRepo.findOne.mockResolvedValue(cancelledSub);
 
       const result = await handler.execute(buildCommand());
 
-      // Old cancelled subscription should be deleted first
-      expect(mockRepo.delete).toHaveBeenCalledWith('cancelled-sub');
+      // Old cancelled subscription is now SOFT-deleted, not hard-deleted.
+      // The hard-delete call must NOT have been made.
+      expect(mockRepo.delete).not.toHaveBeenCalled();
+      expect(cancelledSub.isDeleted).toBe(true);
+      expect(cancelledSub.deletedAt).toBeInstanceOf(Date);
       expect(mockQR.commitTransaction).toHaveBeenCalledTimes(1);
       expect(result).toBeDefined();
       expect(result.status).toBe(SubscriptionStatus.ACTIVE);
@@ -266,7 +282,7 @@ describe('CreateSubscriptionHandler', () => {
       await handler.execute(buildCommand());
 
       expect(mockRepo.findOne).toHaveBeenCalledWith({
-        where: { tenantId: 'tenant-001' },
+        where: { isDeleted: false, tenantId: 'tenant-001' },
         lock: { mode: 'pessimistic_write' },
       });
     });

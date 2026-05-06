@@ -115,7 +115,7 @@ jobs:
 
       # ── Install Dependencies ─────────────────────────────────────────
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       # ── Database Setup ───────────────────────────────────────────────
       # Create the messaging source schema and grant permissions.

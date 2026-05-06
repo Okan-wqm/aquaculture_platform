@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { verifyServiceIdentity } from '../utils/service-identity.util';
+import { verifyServiceIdentityRequest } from '../utils/service-identity.util';
 import { SecurityEventService } from '../security/security-event.service';
 
 /**
@@ -89,45 +89,84 @@ export class ServiceIdentityGuard implements CanActivate {
       return true;
     }
 
-    // Extract identity headers
-    const serviceName = req.headers['x-service-identity'] as string | undefined;
-    const timestamp = req.headers['x-service-timestamp'] as string | undefined;
-    const signature = req.headers['x-service-signature'] as string | undefined;
-    // SECURITY (HIGH-003): bind X-Tenant-ID into signature verification so
-    // a compromised caller cannot forward a valid signature with a spoofed
-    // tenant header. Absent header verifies with empty string (non-tenant path).
+    // SECURITY: bind X-Tenant-ID into signature verification so a compromised
+    // caller cannot forward a valid signature with a spoofed tenant header.
+    // Absent header verifies with empty string (non-tenant path).
     const tenantHeader = (req.headers['x-tenant-id'] as string | undefined) ?? '';
+    const serviceName = (req.headers['x-service-identity'] as string | undefined) ?? 'unknown';
 
-    if (!serviceName || !timestamp || !signature) {
-      this.logger.warn(
-        'Rejected request: missing service identity headers ' +
-        `(identity=${!!serviceName}, timestamp=${!!timestamp}, signature=${!!signature})`,
-      );
-      this.securityEventService?.publishServiceIdentityRejected({
-        serviceName: serviceName ?? 'unknown',
-        reason: 'Missing service identity headers',
-      }).catch(() => { /* best-effort */ });
-      throw new ForbiddenException(
-        'Missing service identity headers. Direct access to subgraph services is not allowed.',
-      );
-    }
+    // Unified v1/v2 verifier — closes SEC-CRITICAL-001 by binding method,
+    // path, and body into the v2 canonical input. v1 is accepted only for
+    // the W0.A rolling-deploy window; verifier emits a security event on
+    // every v1 outcome so the fleet can confirm zero v1 traffic before
+    // W0.A-finalize removes v1 acceptance entirely.
+    const observedBody = this.serializeBodyForHash(req.body);
 
-    const valid = verifyServiceIdentity(serviceName, timestamp, signature, this.secret, tenantHeader);
-    if (!valid) {
+    const outcome = verifyServiceIdentityRequest({
+      headers: req.headers as Record<string, string | string[] | undefined>,
+      observedMethod: req.method ?? 'POST',
+      observedPath: this.canonicalisePath(req),
+      observedBody,
+      secret: this.secret,
+      expectedTenantId: tenantHeader,
+    });
+
+    if (!outcome.valid) {
       this.logger.warn(
-        `Rejected request: invalid service identity signature from "${serviceName}"` +
+        `Rejected request: ${outcome.reason} from "${serviceName}"` +
           (tenantHeader ? ` (tenant=${tenantHeader})` : ''),
       );
       this.securityEventService?.publishServiceIdentityRejected({
         serviceName,
-        reason: 'Invalid service identity signature',
+        reason:
+          outcome.reason === 'missing-headers'
+            ? 'Missing service identity headers'
+            : `Service identity verification failed: ${outcome.reason}`,
       }).catch(() => { /* best-effort */ });
       throw new ForbiddenException(
-        'Invalid service identity signature. Request may be forged, expired, or the tenant header was tampered with.',
+        outcome.reason === 'missing-headers'
+          ? 'Missing service identity headers. Direct access to subgraph services is not allowed.'
+          : 'Invalid service identity signature. Request may be forged, expired, or fields tampered with.',
       );
     }
 
+    if (outcome.version === 'v1') {
+      // Deprecated path observed — emit a security event so the metric
+      // for "safe to remove v1" can be tracked. Not a rejection (yet).
+      this.securityEventService?.publishServiceIdentityRejected({
+        serviceName,
+        reason: 'service-identity-v1-deprecated-accepted',
+      }).catch(() => { /* best-effort */ });
+    }
+
     return true;
+  }
+
+  /**
+   * Coerce the parsed body back into a byte-stable representation for
+   * sha256. Express + body-parser already JSON.parse'd the body for us;
+   * we re-serialize with stable key ordering by relying on JSON.stringify
+   * default ordering (insertion order), which matches what the sender's
+   * JSON.stringify produced. Raw-body callers (e.g. webhook controllers)
+   * should attach req.rawBody and we prefer that when present.
+   */
+  private serializeBodyForHash(body: unknown): string | Buffer {
+    if (body === undefined || body === null) return '';
+    if (typeof body === 'string') return body;
+    if (Buffer.isBuffer(body)) return body;
+    return JSON.stringify(body);
+  }
+
+  /**
+   * Extract the path-only component of the request URL for v2 canonical
+   * comparison. Express's req.path already excludes the query string in
+   * the typical case; this helper is defensive about variants where
+   * originalUrl carries query params.
+   */
+  private canonicalisePath(req: { path?: string; originalUrl?: string; url?: string }): string {
+    const raw = req.path ?? req.originalUrl ?? req.url ?? '/';
+    const qIdx = raw.indexOf('?');
+    return qIdx === -1 ? raw : raw.slice(0, qIdx);
   }
 
   /**

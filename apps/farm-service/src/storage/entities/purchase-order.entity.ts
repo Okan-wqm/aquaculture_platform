@@ -31,7 +31,7 @@ registerEnumType(PurchaseOrderStatus, {
   description: 'Status of purchase order',
 });
 
-@Entity('purchase_orders', { schema: 'farm' })
+@Entity('purchase_orders')
 @Index(['tenantId', 'orderNumber'], { unique: true })
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'category'])

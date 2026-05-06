@@ -88,12 +88,10 @@ pub struct ScadaDb {
 impl ScadaDb {
     pub fn new(path: &str) -> Result<Self, String> {
         if let Some(parent) = std::path::Path::new(path).parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create dir: {}", e))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {}", e))?;
         }
 
-        let conn =
-            rusqlite::Connection::open(path).map_err(|e| format!("DB open: {}", e))?;
+        let conn = rusqlite::Connection::open(path).map_err(|e| format!("DB open: {}", e))?;
 
         let key = derive_db_key();
         conn.pragma_update(None, "key", &key)
@@ -207,12 +205,7 @@ impl ScadaDb {
         Ok(())
     }
 
-    pub fn query_trend(
-        &self,
-        tag: &str,
-        from: i64,
-        to: i64,
-    ) -> Result<Vec<TrendPoint>, String> {
+    pub fn query_trend(&self, tag: &str, from: i64, to: i64) -> Result<Vec<TrendPoint>, String> {
         let conn = self.conn.lock().map_err(|e| format!("Lock: {}", e))?;
         let mut stmt = conn
             .prepare(
@@ -238,10 +231,7 @@ impl ScadaDb {
         Ok(result)
     }
 
-    pub fn insert_trend_batch(
-        &self,
-        records: &[(String, i64, f64, u8)],
-    ) -> Result<(), String> {
+    pub fn insert_trend_batch(&self, records: &[(String, i64, f64, u8)]) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("Lock: {}", e))?;
         let tx = conn
             .unchecked_transaction()
@@ -266,8 +256,7 @@ impl ScadaDb {
     }
 
     pub fn cleanup_old_trends(&self, retention_days: u32) -> Result<u64, String> {
-        let cutoff =
-            chrono::Utc::now().timestamp_millis() - (retention_days as i64) * 86400 * 1000;
+        let cutoff = chrono::Utc::now().timestamp_millis() - (retention_days as i64) * 86400 * 1000;
         let conn = self.conn.lock().map_err(|e| format!("Lock: {}", e))?;
         let deleted = conn
             .execute(
@@ -441,10 +430,7 @@ impl ScadaDb {
         Ok(result)
     }
 
-    pub fn get_latest_calibration(
-        &self,
-        tag: &str,
-    ) -> Result<Option<CalibrationRecord>, String> {
+    pub fn get_latest_calibration(&self, tag: &str) -> Result<Option<CalibrationRecord>, String> {
         let mut records = self.get_calibration_history(tag, 1)?;
         Ok(records.pop())
     }
@@ -596,11 +582,7 @@ impl ScadaDb {
     // Sync
     // -----------------------------------------------------------------------
 
-    pub fn get_unsynced(
-        &self,
-        table: &str,
-        limit: u32,
-    ) -> Result<Vec<serde_json::Value>, String> {
+    pub fn get_unsynced(&self, table: &str, limit: u32) -> Result<Vec<serde_json::Value>, String> {
         // Validate table name to prevent SQL injection
         let table = match table {
             "alarm_history" | "calibration_log" | "audit_log" => table,
@@ -611,13 +593,8 @@ impl ScadaDb {
         };
 
         let conn = self.conn.lock().map_err(|e| format!("Lock: {}", e))?;
-        let sql = format!(
-            "SELECT * FROM {} WHERE synced = 0 LIMIT ?1",
-            table
-        );
-        let mut stmt = conn
-            .prepare(&sql)
-            .map_err(|e| format!("Prepare: {}", e))?;
+        let sql = format!("SELECT * FROM {} WHERE synced = 0 LIMIT ?1", table);
+        let mut stmt = conn.prepare(&sql).map_err(|e| format!("Prepare: {}", e))?;
 
         let col_count = stmt.column_count();
         let col_names: Vec<String> = (0..col_count)
@@ -637,16 +614,11 @@ impl ScadaDb {
                             serde_json::json!(f)
                         }
                         Ok(rusqlite::types::ValueRef::Text(t)) => {
-                            serde_json::Value::String(
-                                String::from_utf8_lossy(t).into_owned(),
-                            )
+                            serde_json::Value::String(String::from_utf8_lossy(t).into_owned())
                         }
-                        Ok(rusqlite::types::ValueRef::Blob(b)) => {
-                            serde_json::Value::String(base64::Engine::encode(
-                                &base64::engine::general_purpose::STANDARD,
-                                b,
-                            ))
-                        }
+                        Ok(rusqlite::types::ValueRef::Blob(b)) => serde_json::Value::String(
+                            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b),
+                        ),
                         Err(_) => serde_json::Value::Null,
                     };
                     map.insert(name.clone(), val);

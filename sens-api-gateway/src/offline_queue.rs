@@ -19,7 +19,7 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use tracing::{debug, error, info, warn};
@@ -65,11 +65,43 @@ use tracing::{debug, error, info, warn};
 /// intentional — tests that need a specific path MUST set
 /// the env BEFORE the first call, exactly as the sandbox
 /// LazyLock in the test module does.
+///
+/// ## Algorithm SSoT (Batch #335 — closes ULTRA-HIGH-082's
+/// HIGH-001 audit finding)
+///
+/// The HMAC-SHA256(secret_key, machine_id) algorithm is
+/// implemented exactly ONCE in the codebase, at
+/// `crate::db_migration::v1_legacy_key::derive_v1_legacy_key`.
+/// This function is the IO-cached production wrapper:
+///
+///   1. Reads `/etc/machine-id` (or the `SUDERRA_DB_KEY_PATH`
+///      override) — IO that the pure kernel cannot do.
+///   2. Reads or creates `/etc/suderra/db.key` — IO that the
+///      pure kernel cannot do.
+///   3. Calls the kernel to compute the HMAC bytes.
+///   4. Formats the bytes as the SQLCipher PRAGMA-key
+///      lower-hex string via the kernel's
+///      `format_sqlcipher_pragma_key_hex` helper.
+///   5. Caches the hex string in `OnceLock` so subsequent
+///      calls skip steps 1-4.
+///
+/// Pre-Batch-#335, this function inlined the HMAC + hex
+/// formatting locally — that produced TWO copies of the
+/// algorithm (here + in `db_migration::v1_legacy_key`). The
+/// audit finding [registry: ULTRA-HIGH-082's HIGH-001
+/// surfaced by edge-industrial-auditor] flagged that the
+/// "cross-validation parity" test in
+/// `tests/invariants/db_migration_v1_legacy_key.rs`
+/// reimplemented the algorithm in the test file using the
+/// same `hmac`+`sha2` crates — it never imported THIS
+/// function. So a one-byte change here (e.g., switching
+/// to upper-hex) would NOT have been caught by the parity
+/// test, even though the migration tool's correctness
+/// depends on byte-for-byte parity. The architectural fix:
+/// this function delegates to the kernel; there is no
+/// second copy to drift away.
 pub(crate) fn derive_db_encryption_key() -> Result<String> {
-    use sha2::Sha256;
-    use hmac::{Hmac, Mac};
     use std::sync::OnceLock;
-    type HmacSha256 = Hmac<Sha256>;
 
     static CACHED: OnceLock<String> = OnceLock::new();
 
@@ -77,19 +109,29 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
         return Ok(hex.clone());
     }
 
-    let machine_id = machine_uid::get()
-        .map_err(|e| anyhow::anyhow!(
-            "Cannot derive database encryption key: machine-id unavailable ({}). \
-             Ensure /etc/machine-id or /var/lib/dbus/machine-id exists.", e
-        ))?;
+    // Batch #344 (closes ORPHAN-MEDIUM-033): delegate
+    // to crate::machine_id::read() which wraps
+    // machine_uid::get() with the SUDERRA_MACHINE_ID_PATH
+    // env-override. Production path is byte-identical to
+    // pre-#344 (env unset → falls through to
+    // machine_uid::get() with the same error context);
+    // CI / test paths can sandbox the machine-id read
+    // alongside the SUDERRA_DB_KEY_PATH override.
+    let machine_id = crate::machine_id::read()
+        .context("Cannot derive database encryption key")?;
 
     let secret_key = load_or_create_db_secret()?;
 
-    let mut mac = HmacSha256::new_from_slice(&secret_key)
-        .context("Failed to create HMAC instance")?;
-    mac.update(machine_id.as_bytes());
-    let result = mac.finalize().into_bytes();
-    let hex: String = result.iter().map(|b| format!("{:02x}", b)).collect();
+    // Single-source-of-truth delegation. The HMAC algorithm
+    // + hex format live in `db_migration::v1_legacy_key`;
+    // this function is the IO-cached wrapper.
+    let key_bytes = crate::db_migration::v1_legacy_key::derive_v1_legacy_key(
+        machine_id.as_bytes(),
+        &secret_key,
+    );
+    let hex = crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(
+        &key_bytes,
+    );
 
     // Store via OnceLock::get_or_init to handle the race
     // where multiple threads invoke derive_db_encryption_
@@ -110,81 +152,74 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
 /// write access.
 ///
 /// If the file does not exist, a 32-byte random key is generated.
+/// **Delegating wrapper** (PR-195 Batch #14 SSoT
+/// extraction). The IO-read-or-create logic now lives
+/// in `crate::db_secret::read_or_create_v1_secret`.
+/// This function is retained as a thin delegating
+/// wrapper so callers within `offline_queue.rs` (every
+/// SQLCipher-key-using path) keep their byte-for-byte
+/// behavior — the extraction is a NAME change, not a
+/// semantic change. Other consumers
+/// (license_cache, retain_persistence, bytecode_retain)
+/// import `db_secret::read_or_create_v1_secret` directly,
+/// not this wrapper.
 fn load_or_create_db_secret() -> Result<Vec<u8>> {
-    use std::path::{Path, PathBuf};
-
-    // Batch 88: env-override for CI + test environments that
-    // cannot write to /etc. Production deployments leave the
-    // env unset + use the canonical path.
-    let path_buf: PathBuf = match std::env::var_os("SUDERRA_DB_KEY_PATH") {
-        Some(v) => PathBuf::from(v),
-        None => PathBuf::from("/etc/suderra/db.key"),
-    };
-    let secret_path: &Path = path_buf.as_path();
-
-    if secret_path.exists() {
-        let key = std::fs::read(secret_path)
-            .context("Failed to read database secret key from /etc/suderra/db.key")?;
-        if key.len() < 16 {
-            anyhow::bail!("Database secret key is too short ({} bytes), expected >= 16", key.len());
-        }
-        return Ok(key);
-    }
-
-    // Generate new random key
-    use rand::RngCore;
-    let mut key = vec![0u8; 32];
-    rand::rng().fill_bytes(&mut key);
-
-    // Ensure parent directory exists
-    if let Some(parent) = secret_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| {
-                format!(
-                    "Failed to create secret-key parent directory {}",
-                    parent.display()
-                )
-            })?;
-    }
-
-    // Write with restrictive permissions from the start (no TOCTOU race)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o400)
-            .open(secret_path)
-            .with_context(|| {
-                format!(
-                    "Failed to create database secret key file at {}",
-                    secret_path.display()
-                )
-            })?;
-        std::io::Write::write_all(&mut file, &key)
-            .context("Failed to write database secret key")?;
-    }
-
-    #[cfg(not(unix))]
-    {
-        std::fs::write(secret_path, &key)
-            .context("Failed to write database secret key")?;
-    }
-
-    tracing::info!("Generated new database secret key at {}", secret_path.display());
-    Ok(key)
+    crate::db_secret::read_or_create_v1_secret()
 }
 
 /// Apply SQLCipher encryption key to a newly opened database connection.
 ///
 /// Uses HMAC-SHA256(machine_id, secret_key) as the encryption key.
 /// The hex-encoded PRAGMA key format prevents SQL injection.
+///
+/// **Legacy v1-only path.** The manifest-aware variant
+/// is `apply_pragma_key_hex` below, called by
+/// `OfflineQueue::with_keystore_derivation` (PR-195
+/// Batch #13). This function stays in place for the
+/// legacy `with_disk_limit` constructor — operators on
+/// agents that haven't migrated to v2 still rely on
+/// the cached v1 derivation.
 fn apply_db_encryption_key(conn: &Connection) -> Result<()> {
     let hex_key = derive_db_encryption_key()?;
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
+    apply_pragma_key_hex(conn, &hex_key)
+}
+
+/// Apply a pre-derived SQLCipher PRAGMA key (lower-hex
+/// 64 chars) to a newly-opened connection. Extracted
+/// so both the legacy v1-only path and the
+/// manifest-aware path (PR-195 Batch #13
+/// `with_keystore_derivation`) share the same
+/// PRAGMA-emit logic — no drift between the two
+/// callers in how the key statement is constructed.
+fn apply_pragma_key_hex(conn: &Connection, hex: &str) -> Result<()> {
+    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex))
         .context("Failed to apply SQLCipher database encryption key")?;
     Ok(())
+}
+
+/// 2026-04-29 enterprise shutdown fsync helper.
+///
+/// What it solves: checkpoint code can explicitly sync each SQLite file that
+/// exists without treating absent WAL/SHM sidecars as an error.
+fn sync_file_if_exists(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("Failed to open {} for fsync", path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("Failed to fsync {}", path.display()))?;
+    Ok(())
+}
+
+/// 2026-04-29 enterprise SQLite sidecar path helper.
+///
+/// What it solves: WAL/SHM file names are built from the raw OS path, not
+/// `Display`, so non-UTF-8 filesystem paths are preserved.
+fn sqlite_sidecar_path(db_path: &Path, suffix: &str) -> PathBuf {
+    let mut raw = db_path.as_os_str().to_os_string();
+    raw.push(suffix);
+    PathBuf::from(raw)
 }
 
 /// Acquire mutex lock with poison recovery (v1.2.3)
@@ -368,6 +403,13 @@ const DEFAULT_MAX_DISK_BYTES: u64 = 50 * 1024 * 1024;
 pub struct OfflineQueue {
     /// Database connection (protected by mutex for sync access)
     conn: Mutex<Connection>,
+    /// 2026-04-29 enterprise shutdown durability:
+    /// filesystem path for file-backed queues.
+    ///
+    /// What it solves: graceful shutdown can fsync the SQLite DB/WAL files and
+    /// parent directory after a WAL checkpoint. In-memory test queues keep
+    /// this as None.
+    db_path: Option<PathBuf>,
     /// Maximum queue size (message count)
     max_size: usize,
     /// Maximum message age before expiration (seconds)
@@ -416,6 +458,7 @@ impl OfflineQueue {
 
         let queue = Self {
             conn: Mutex::new(conn),
+            db_path: Some(db_path.to_path_buf()),
             max_size,
             max_age_secs,
             max_disk_bytes,
@@ -433,15 +476,123 @@ impl OfflineQueue {
         Ok(queue)
     }
 
+    /// Manifest-aware constructor (PR-195 Batch #13).
+    ///
+    /// Reads the per-DB sidecar manifest (Batch #329)
+    /// and derives the SQLCipher PRAGMA key via
+    /// `db_migration::consumer_key_resolver` (Batch #8) —
+    /// missing manifest = legacy v1 default per Batch
+    /// #330; v1 manifest = HMAC-SHA256 kernel; v2
+    /// manifest = keystore-derived key.
+    ///
+    /// **Why this constructor exists:** the legacy
+    /// `with_disk_limit` always derives v1, which
+    /// works on un-migrated hosts but fails-closed on
+    /// hosts where the operator has run the migration
+    /// ceremony (manifest now declares v2; v1-derived
+    /// PRAGMA key would not decrypt the v2-encrypted
+    /// pages). This constructor reads the manifest
+    /// FIRST, picks the correct derivation path, and
+    /// opens with the matching key — works on BOTH
+    /// pre-migration and post-migration hosts.
+    ///
+    /// **Caller contract:**
+    ///
+    ///   - `db_path` — same path as the legacy
+    ///     constructor; the manifest sidecar lives
+    ///     at `manifest_path_for_db(db_path)`.
+    ///   - `keystore` — agent's already-built keystore
+    ///     handle for the v2 path.
+    ///   - `deployment_uuid` — provisioning device UUID
+    ///     bytes (v2 device-bound consumer context per
+    ///     ADR-031). OfflineQueue is device-bound, so
+    ///     program SHA is `None` internally.
+    ///
+    /// **Async:** `Keystore::derive_key` is async;
+    /// caller awaits this constructor at boot time.
+    /// Once constructed, the queue's hot-path methods
+    /// remain sync (no async leakage to the enqueue /
+    /// peek / ack callers).
+    pub async fn with_keystore_derivation(
+        db_path: &Path,
+        max_size: usize,
+        max_age_secs: u64,
+        max_disk_bytes: u64,
+        keystore: std::sync::Arc<dyn crate::keystore::Keystore>,
+        deployment_uuid: Vec<u8>,
+    ) -> Result<Self> {
+        // Read the v1 inputs the resolver may need (the
+        // resolver only uses them on the v1 / missing-
+        // manifest path; v2 path ignores them — but we
+        // populate unconditionally so the resolver
+        // always has the option, mirroring the v2
+        // shim's caller contract).
+        let machine_id = crate::machine_id::read()
+            .context("OfflineQueue with_keystore_derivation: machine_id read failed")?;
+        let secret_key = load_or_create_db_secret()?;
+        let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
+            machine_id: machine_id.into_bytes(),
+            secret_key,
+        };
+
+        // ConsumerContext for OfflineQueue (device-
+        // bound per ADR-031): deployment_uuid required;
+        // program_artifact_sha256 None.
+        let ctx = crate::db_migration::consumer_context::ConsumerContext {
+            deployment_uuid,
+            program_artifact_sha256: None,
+        };
+
+        let resolved = crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+            db_path,
+            crate::keystore::purpose::KeyPurpose::SqlCipherOfflineQueue,
+            &ctx,
+            keystore.as_ref(),
+            &v1_inputs,
+        )
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "OfflineQueue with_keystore_derivation: resolver failed: {e}"
+            )
+        })?;
+
+        let conn = Connection::open(db_path).with_context(|| {
+            format!("Failed to open queue database: {}", db_path.display())
+        })?;
+        apply_pragma_key_hex(&conn, resolved.pragma_key_hex.as_str())?;
+
+        let queue = Self {
+            conn: Mutex::new(conn),
+            max_size,
+            max_age_secs,
+            max_disk_bytes,
+            poison_health_verified: AtomicBool::new(false),
+        };
+        queue.init_schema()?;
+
+        info!(
+            "OfflineQueue (manifest-aware) initialized: \
+             max_size={}, max_age_secs={}, max_disk_mb={}, schema_version={:?}",
+            max_size,
+            max_age_secs,
+            max_disk_bytes / (1024 * 1024),
+            resolved.current_version,
+        );
+
+        Ok(queue)
+    }
+
     /// Create an in-memory queue (for testing)
     pub fn in_memory(max_size: usize) -> Result<Self> {
         let conn = Connection::open_in_memory().context("Failed to create in-memory database")?;
 
         let queue = Self {
             conn: Mutex::new(conn),
+            db_path: None,
             max_size,
-            max_age_secs: 0,             // No expiration
-            max_disk_bytes: 0,           // No disk limit for in-memory
+            max_age_secs: 0,   // No expiration
+            max_disk_bytes: 0, // No disk limit for in-memory
             poison_health_verified: AtomicBool::new(false),
         };
 
@@ -970,6 +1121,42 @@ impl OfflineQueue {
         Ok(None)
     }
 
+    /// 2026-04-29 enterprise graceful-shutdown checkpoint.
+    ///
+    /// What it solves: shutdown no longer logs an offline-queue flush while
+    /// doing no persistence work. The method forces a SQLite WAL checkpoint
+    /// and then fsyncs the DB, WAL/SHM sidecars when present, and parent
+    /// directory so queued MQTT messages survive process exit and power-loss
+    /// windows as far as the underlying filesystem allows.
+    pub fn checkpoint_and_fsync(&self) -> Result<()> {
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
+        conn.execute_batch(
+            "
+            PRAGMA synchronous=FULL;
+            PRAGMA wal_checkpoint(FULL);
+            ",
+        )
+        .context("Failed to checkpoint offline queue WAL")?;
+        drop(conn);
+
+        if let Some(db_path) = self.db_path.as_ref() {
+            sync_file_if_exists(db_path)?;
+
+            let wal_path = sqlite_sidecar_path(db_path, "-wal");
+            sync_file_if_exists(&wal_path)?;
+
+            let shm_path = sqlite_sidecar_path(db_path, "-shm");
+            sync_file_if_exists(&shm_path)?;
+
+            if let Some(parent) = db_path.parent() {
+                sync_file_if_exists(parent)?;
+            }
+        }
+
+        info!("Offline queue WAL checkpoint + fsync completed");
+        Ok(())
+    }
+
     /// Create a backup using VACUUM INTO (v1.2.4)
     ///
     /// Creates a consistent, compact backup of the database to the specified path.
@@ -1197,7 +1384,7 @@ impl AsyncOfflineQueue {
         }
     }
 
-    /// Create from an existing Arc<OfflineQueue>
+    /// Create from an existing `Arc<OfflineQueue>`
     pub fn from_arc(queue: std::sync::Arc<OfflineQueue>) -> Self {
         Self {
             inner: queue,
@@ -1341,6 +1528,18 @@ impl AsyncOfflineQueue {
         let queue = self.inner.clone();
 
         tokio::task::spawn_blocking(move || queue.vacuum_if_needed())
+            .await
+            .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?
+    }
+
+    /// 2026-04-29 enterprise graceful-shutdown checkpoint.
+    ///
+    /// What it solves: shutdown can run WAL checkpoint + fsync without
+    /// blocking the async runtime thread.
+    pub async fn checkpoint_and_fsync_async(&self) -> Result<()> {
+        let queue = self.inner.clone();
+
+        tokio::task::spawn_blocking(move || queue.checkpoint_and_fsync())
             .await
             .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?
     }
@@ -1699,5 +1898,202 @@ mod tests {
             .unwrap();
         assert!(std::path::Path::new(&backup_path).exists());
         assert!(backup_path.contains("offline_queue_"));
+    }
+
+    // -------- Batch #13 — manifest-aware constructor tests --------
+    //
+    // Validates that `with_keystore_derivation` reads
+    // the per-DB sidecar manifest, picks the correct
+    // derivation path (v1 fallback for missing /
+    // legacy manifest, v2 for keystore-derived
+    // manifest), and successfully opens the DB +
+    // initializes the schema.
+    //
+    // The tests reuse the existing `ensure_key_sandbox`
+    // helper for the secret-key path, plus their own
+    // tempdir for the DB + manifest sidecar.
+
+    use crate::db_migration::manifest::{
+        manifest_path_for_db, write_manifest, DbKeySourceManifest,
+    };
+    use crate::db_migration::schema_version::DbKeySchemaVersion;
+    use crate::keystore::error::{
+        KeyDerivationError, KeystoreError, KeystoreErrorKind,
+    };
+    use crate::keystore::purpose::{DerivedKeyId, KeyPurpose};
+    use crate::keystore::secret::KeyMaterial;
+    use crate::keystore::{KeyBackend, RotationSource};
+    use async_trait::async_trait;
+
+    /// Stub keystore returning a deterministic 32-byte
+    /// derived key (0xb1 prefix for SqlCipherOfflineQueue).
+    /// Mirrors the pattern in cli_executor / cli_runtime
+    /// tests.
+    struct OfflineQueueStubKeystore;
+
+    #[async_trait]
+    impl crate::keystore::Keystore for OfflineQueueStubKeystore {
+        fn backend(&self) -> KeyBackend {
+            KeyBackend::FileBacked
+        }
+
+        async fn derive_key(
+            &self,
+            purpose: KeyPurpose,
+            _context: &[u8],
+        ) -> std::result::Result<KeyMaterial, KeyDerivationError> {
+            let mut bytes = [0u8; 32];
+            bytes[0] = match purpose {
+                KeyPurpose::SqlCipherOfflineQueue => 0xb1,
+                _ => 0xff,
+            };
+            Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
+        }
+
+        fn derived_key_id(
+            &self,
+            _purpose: KeyPurpose,
+            _context: &[u8],
+        ) -> DerivedKeyId {
+            DerivedKeyId([0u8; 16])
+        }
+
+        async fn rotate_master(&self) -> std::result::Result<(), KeystoreError> {
+            Err(KeystoreError::new(
+                KeystoreErrorKind::NotImplemented,
+                String::from("stub"),
+            ))
+        }
+
+        async fn rotate_master_with_source(
+            &self,
+            _source: RotationSource<'_>,
+        ) -> std::result::Result<(), KeystoreError> {
+            Err(KeystoreError::new(
+                KeystoreErrorKind::NotImplemented,
+                String::from("stub"),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn with_keystore_derivation_no_manifest_uses_v1_legacy_default() {
+        // Missing manifest → resolver returns v1 default
+        // per Batch #330 boot-detector architectural
+        // decision. The constructor opens the DB with
+        // the v1-derived key + initializes schema.
+        ensure_key_sandbox();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("offline_queue.db");
+
+        let queue = OfflineQueue::with_keystore_derivation(
+            &db_path,
+            100,
+            3600,
+            DEFAULT_MAX_DISK_BYTES,
+            std::sync::Arc::new(OfflineQueueStubKeystore),
+            b"deployment-uuid".to_vec(),
+        )
+        .await
+        .expect("open with v1 fallback");
+
+        // Schema initialized + queue empty.
+        assert!(queue.is_empty());
+    }
+
+    #[tokio::test]
+    async fn with_keystore_derivation_v2_manifest_opens_with_keystore_key() {
+        // Pre-seed: open the DB with the v2-keystore-
+        // derived key directly (mirrors what the
+        // migration ceremony would do). Write a v2
+        // manifest. Then with_keystore_derivation should
+        // read the v2 manifest + open the DB with the
+        // keystore-derived key (NOT the v1 fallback).
+        ensure_key_sandbox();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("offline_queue.db");
+
+        // Compute the v2 key the resolver will produce.
+        let v2_bytes = {
+            let mut b = [0u8; 32];
+            b[0] = 0xb1;
+            b
+        };
+        let v2_hex = crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(&v2_bytes);
+
+        // Seed the DB encrypted under v2.
+        {
+            let conn = Connection::open(&db_path).expect("open");
+            apply_pragma_key_hex(&conn, &v2_hex).expect("apply v2 key");
+            conn.execute_batch(
+                "CREATE TABLE seed (id INTEGER PRIMARY KEY); \
+                 INSERT INTO seed VALUES (1);",
+            )
+            .expect("seed");
+        }
+
+        // Write v2 manifest sidecar.
+        write_manifest(
+            &manifest_path_for_db(&db_path),
+            &DbKeySourceManifest {
+                schema_version: DbKeySchemaVersion::V2KeystoreDerived,
+                last_updated_at_unix_secs: 1_700_000_000,
+            },
+        )
+        .expect("seed v2 manifest");
+
+        // Constructor should read v2 manifest + open
+        // with keystore-derived key. If the resolver
+        // mis-routes (v1 instead of v2), the DB would
+        // fail to open with `not a database`.
+        let queue = OfflineQueue::with_keystore_derivation(
+            &db_path,
+            100,
+            3600,
+            DEFAULT_MAX_DISK_BYTES,
+            std::sync::Arc::new(OfflineQueueStubKeystore),
+            b"deployment-uuid".to_vec(),
+        )
+        .await
+        .expect("open with v2 keystore key");
+
+        // After the constructor's init_schema runs,
+        // the queue is functional.
+        assert!(queue.is_empty());
+    }
+
+    #[tokio::test]
+    async fn with_keystore_derivation_corrupt_manifest_fails_closed() {
+        ensure_key_sandbox();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("offline_queue.db");
+
+        // Write a corrupt manifest sidecar.
+        std::fs::write(manifest_path_for_db(&db_path), b"not valid json")
+            .expect("seed corrupt");
+
+        let result = OfflineQueue::with_keystore_derivation(
+            &db_path,
+            100,
+            3600,
+            DEFAULT_MAX_DISK_BYTES,
+            std::sync::Arc::new(OfflineQueueStubKeystore),
+            b"deployment-uuid".to_vec(),
+        )
+        .await;
+
+        // Resolver fails → constructor returns Err. The
+        // DB is NOT silently opened with a guessed key
+        // (would brick the DB if guess is wrong).
+        assert!(result.is_err());
+        let err = match result {
+            Ok(_) => panic!("expected error"),
+            Err(e) => e,
+        };
+        let msg = format!("{:#}", err);
+        assert!(
+            msg.contains("resolver failed"),
+            "expected resolver-failed error, got: {msg}"
+        );
     }
 }

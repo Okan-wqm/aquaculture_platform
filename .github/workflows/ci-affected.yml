@@ -366,8 +366,24 @@ jobs:
           restore-keys: |
             nx-ci-${{ runner.os }}-
 
+      - name: Run migration harness tests (affected, isolated)
+        run: |
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          AFFECTED_TEST_PROJECTS="$(npx nx show projects --affected --base="$BASE_REF" --head=HEAD --with-target=test)"
+
+          if printf '%s\n' "$AFFECTED_TEST_PROJECTS" | grep -Fxq 'migration-harness'; then
+            npx nx run migration-harness:test
+          else
+            echo "migration-harness is not affected; skipping isolated Testcontainers gate."
+          fi
+        timeout-minutes: 20
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
       - name: Run tests (affected only)
-        run: npx nx affected -t test --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
+        run: npx nx affected -t test --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2 --exclude=migration-harness
         timeout-minutes: 35
         env:
           NX_DAEMON: 'false'

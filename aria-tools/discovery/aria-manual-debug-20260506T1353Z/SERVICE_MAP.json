@@ -1,0 +1,228 @@
+{
+  "apps": [
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "admin-api-service",
+      "path": "apps/admin-api-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "name": "ai-service",
+      "path": "apps/ai-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "alert-engine",
+      "path": "apps/alert-engine"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "auth-service",
+      "path": "apps/auth-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "billing-service",
+      "path": "apps/billing-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "config-service",
+      "path": "apps/config-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "name": "db-migrate",
+      "path": "apps/db-migrate"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "event-store-service",
+      "path": "apps/event-store-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "farm-service",
+      "path": "apps/farm-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "gateway-api",
+      "path": "apps/gateway-api"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "hr-service",
+      "path": "apps/hr-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "name": "hydroponics-service",
+      "path": "apps/hydroponics-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "name": "messaging-service",
+      "path": "apps/messaging-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "notification-service",
+      "path": "apps/notification-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "observability-service",
+      "path": "apps/observability-service"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "sensor-ingestion",
+      "path": "apps/sensor-ingestion"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "sensor-service",
+      "path": "apps/sensor-service"
+    }
+  ],
+  "generated_at": "2026-05-06T13:52:31+00:00",
+  "libs": [
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "aquaculture-engines",
+      "path": "libs/aquaculture-engines"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": true,
+      "name": "backend-common",
+      "path": "libs/backend-common"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "event-contracts",
+      "path": "libs/event-contracts"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "farm-shared",
+      "path": "libs/farm-shared"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "migration-harness",
+      "path": "libs/migration-harness"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "node-components",
+      "path": "libs/node-components"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "sdk",
+      "path": "libs/sdk"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "sensor-automation-types",
+      "path": "libs/sensor-automation-types"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "shared",
+      "path": "libs/shared"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "shared-contracts",
+      "path": "libs/shared-contracts"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "storage",
+      "path": "libs/storage"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": true,
+      "name": "testing",
+      "path": "libs/testing"
+    }
+  ],
+  "platform_libs": [
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "cqrs",
+      "path": "platform/libs/cqrs"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "event-bus",
+      "path": "platform/libs/event-bus"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "outbox",
+      "path": "platform/libs/outbox"
+    }
+  ],
+  "schema_version": 1,
+  "web": [
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "apps",
+      "path": "web/apps"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "name": "modules",
+      "path": "web/modules"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "shared-ui",
+      "path": "web/shared-ui"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "name": "shell",
+      "path": "web/shell"
+    }
+  ]
+}

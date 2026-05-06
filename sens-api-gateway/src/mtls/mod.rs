@@ -68,6 +68,7 @@ pub mod pinning;
 // the verify callback; delegates X.509 chain trust +
 // hostname match to the rustls WebPkiServerVerifier.
 pub mod rustls_verifier;
+pub mod state_handle;
 pub mod verify;
 
 pub use cipher::{CIPHER_SUITE_ALLOWLIST, CipherSuite};
@@ -80,13 +81,14 @@ pub use pinning::{
     BridgeWindowError, CertRotationStage, LeafCertFingerprint, MIN_BRIDGE_WINDOW_SECS,
     PinnedLeafCert, PinnedLeafCertSet, validate_bridge_window,
 };
+pub use crypto_provider::{build_suderra_crypto_provider, build_suderra_crypto_provider_or_default};
+pub use https_client_config::build_suderra_https_client_config;
 pub use rustls_verifier::{
     SuderraServerCertVerifier, SuderraVerifierBuildError, build_rotation_stage_from_pins_hex,
     build_suderra_verifier, verify_cert_at_handshake,
 };
-pub use rustls_verifier::{
-    build_rotation_stage_from_pins_hex, build_suderra_verifier,
-    verify_cert_at_handshake, SuderraServerCertVerifier,
-    SuderraVerifierBuildError,
+pub use state_handle::{
+    build_fallback_webpki, MtlsDelegatingVerifier, MtlsRebuildError,
+    MtlsVerifierState, RebuildOutcome,
 };
 pub use verify::verify_leaf_cert;

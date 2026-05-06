@@ -954,19 +954,19 @@ Kalan kör noktaları planlarken (bkz `/root/.claude/plans/` 7-faz planı) kod o
 2. Shell tarafındaki `remote-modules.d.ts` declaration kontrolü
 3. Consumer import'ları (şimdiki durumda yok ama olabilirdi)
 
-### Orphan 2 — `allocate-to-tank` Zaten Hard-Enforce Yapıyor — Plan Faz 1.1 Güncellendi
+### Orphan 2 — `allocate-to-tank` Zaten Hard-Enforce Yapıyor — Plan Faz 1.1 Güncellendi 🟢 RESOLVED
 
 **Bulgu:** `apps/farm-service/src/batch/handlers/allocate-to-tank.handler.ts:131-165` "LIFE-SAFETY: Hard capacity enforcement" başlığıyla zaten capacity check yapıyor — ama `TankCapacityService` değil `equipment.hasCapacityFor()` entity metodu üzerinden.
 
 **Etki:** Aynı invariant iki yerde (entity method + service). Plan Faz 1.1 "migration" yerine "central consolidation" olarak güncellendi.
 
-**Aksiyon (Faz 1.1 sırasında):** `Equipment.hasCapacityFor()` deprecate edilir, `TankCapacityService.enforce()` çağrısına delegate edilir.
+**Çözüm (FARM-MEDIUM-001 / PR #203):** `allocate-to-tank` çoktan `TankCapacityService.enforce({ mode: 'admin-override' })` çağrısına geçmişti — entity method `equipment.hasCapacityFor()` artık zero caller. PR-46 entity method'larını sildi (Equipment + Tank ikisinden), service-doc-block'u güncelleyerek "removed once a monorepo grep confirmed zero remaining callers" yazdı. Tek source of truth: `TankCapacityService`.
 
-### Orphan 3 — `Equipment.hasCapacityFor()` Competing API
+### Orphan 3 — `Equipment.hasCapacityFor()` Competing API 🟢 RESOLVED
 
 **Bulgu:** Equipment entity'si (allocate-to-tank'ten referans) muhtemelen inline `hasCapacityFor()` method'una sahip. `TankCapacityService` ile rakip pattern.
 
-**Aksiyon (Faz 1.1):** Entity metod silinmez (backward compat için), ama `@deprecated` JSDoc + gövdesi `TankCapacityService.enforce()` çağrısına yönlendirilir.
+**Çözüm (FARM-MEDIUM-001 / PR #203):** Hem `Equipment.hasCapacityFor()` (apps/farm-service/src/equipment/entities/equipment.entity.ts:384) HEM `Tank.hasCapacityFor()` (apps/farm-service/src/tank/entities/tank.entity.ts:576) tamamen silindi. Doc-comment yalan söylüyordu ("delegates here") — gerçekte ikisinin de bağımsız ve farklı kuralları vardı (Equipment `canHoldFish()` status check yapıyordu, Tank yapmıyordu; default density'leri farklıydı). Sıfır caller doğrulandıktan sonra sadelik kazandı.
 
 ### Orphan 4 — Legacy `farm.farms` Cross-Service Sorgulanıyor 🔴
 
@@ -1001,11 +1001,19 @@ const res = await postQuery('SELECT * FROM farm.ponds');
 
 **Aksiyon (Faz 1.2):** Yorum "READ-ONLY LEGACY" olarak güncellenir.
 
-### Orphan 7 — 6+ Entity'de `restore()` Var Ama Hiçbiri GraphQL Mutation Değil
+### Orphan 7 — 6+ Entity'de `restore()` Var Ama Hiçbiri GraphQL Mutation Değil 🟢 RESOLVED (4/5 entity için)
 
 **Bulgu:** `feed-type-species.entity.ts`, `feed.entity.ts`, `batch-feed-assignment.entity.ts`, `supplier.entity.ts`, `sub-system.entity.ts`, `species.entity.ts` — hepsinde `restore(): void { this.isDeleted = false; ... }` method'u tanımlı ama hiçbiri GraphQL mutation olarak expose edilmemiş.
 
 **Aksiyon (Plan Faz 4.2):** Generic `RestorableResolver<T>` mixin yazılır, 6+ resolver bunu extend eder. UI kullanıcıya restore butonu sunar.
+
+**Çözüm — Mimari karar değişikliği (FARM-MEDIUM-002 / PR #204):**
+
+Mixin yaklaşımı NestJS GraphQL ile uyumsuz çıktı — `@Mutation` decorator'ları class metadata'sını module init time'da okuduğu için inheritance üzerinden temiz compose etmiyor. Doğru pattern: thin pass-through, single source of truth `RestoreService` içinde.
+
+İlk 5 entity (Feed, Chemical, Supplier, Species, Consumable) çoktan bu pattern'i kullanıyordu. PR-47 4 yeni mutation ekledi: `restoreSite` (uniqueKeys: `[['code'],['name']]`), `restoreSystem` (`[['siteId','code']]`), `restoreDepartment` (`[['code']]`), `restoreFeedingProgram` (`[['code']]`). Her mutation TENANT_ADMIN-only; uniqueness check `RestoreService.assertUniqueness()` üzerinden — UNIQUE constraint çakışması `RestoreUniquenessConflictError` olarak surface eder.
+
+5'inci entity (`BatchFeedAssignment`) deferred — resolver raw SQL kullanıyor (`getTenantSchemaName()`) entity ise `@Entity({schema:'farm'})` deklare ediyor. Schema-mismatch finding olarak ayrıldı (FARM-MEDIUM-003 OPEN). Schema architecture decision (tenant-sharded vs global) verilmeden uniform restore eklenemez.
 
 ### Orphan 8 — `libs/storage` MinIO Client Zaten Mevcut (Plan Güncellendi)
 
@@ -1043,11 +1051,15 @@ const res = await postQuery('SELECT * FROM farm.ponds');
 
 **Aksiyon (Faz 1.2):** Sadece `CreateFarmHandler`/`CreatePondHandler` silinir. Query handler'lar + FarmRepository kalır. `farm.entity.ts:81` yorumu "READ-ONLY LEGACY" olarak güncellenir.
 
-### Orphan 14 — `batch_feed_assignments` UNIQUE Kısıt + Restore Çakışması
+### Orphan 14 — `batch_feed_assignments` UNIQUE Kısıt + Restore Çakışması 🟢 RESOLVED (servis düzeyinde)
 
 **Bulgu:** `batch_feed_assignments` tablosu `(tenant_id, batch_id)` UNIQUE kısıtı var (resolver:37 batch başına tek assignment varsayımı). Restore edilmiş (is_deleted=true) bir satır restore edilirken aktif aynı batch'te zaten başka satır varsa UNIQUE çakışması.
 
 **Aksiyon (Faz 4.2):** `RestoreService.restore()` pre-check: UNIQUE kısıtı kırılacak senaryoda 409 döner, kullanıcıya "existing active record must be soft-deleted first" mesajı.
+
+**Çözüm:** `RestoreService.assertUniqueness()` (apps/farm-service/src/common/services/restore.service.ts:183) tam olarak bu pattern'i implement ediyor — `uniqueKeys` parameter'ı her keyset için ayrı existence query çalıştırıyor, çakışma `RestoreUniquenessConflictError` olarak fırlatılıyor (kullanıcıya 409 + clear message: "Cannot restore X: an active row already occupies the unique key (...). Deactivate or rename the conflicting row first.").
+
+`BatchFeedAssignment` için `restoreBatchFeedAssignment` mutation eklenmedi çünkü resolver schema-mismatch'i (FARM-MEDIUM-003) önce çözülmeli — RestoreService TypeORM repo üzerinden yazıyor, mevcut delete raw SQL üzerinden tenant schema'ya yazıyor. Aynı tabloyu mu yoksa farklı tabloları mı işaret ediyorlar açık değil. Schema decision verilince mutation eklenebilir.
 
 ### Orphan 15 — Deploy Cleaner Fish Frontend Pre-Check Query Yapmıyor
 
@@ -1140,3 +1152,9 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 49 | Faz 6.3 — GDPR tenant export + erasure | ✅ RESOLVED (Faz 6.3) | Girdi 15-C11 + COMPLIANCE-CRITICAL-001 — `TenantExportService` walks `entityMetadatas` for all tenant-scoped tables (defence-in-depth redaction on farm_audit_logs); `TenantErasureService` two-step confirm (32-hex token / 5-min TTL) with topological-sort DELETE cascade + SHA-256 userId anonymisation on farm_audit_logs; 3 `TENANT_ADMIN` mutations (`exportTenantData` / `initiateTenantErasure` / `confirmTenantErasure`). Cross-service `TenantErased` event fan-out lands in phase 6.3.1. |
 | 50 | Faz 5.1 — Cursor pagination primitive + TypeORM adapter + first resolver adoption | ✅ RESOLVED (Faz 5.1) | Girdi 14a + Orphan 7 — `libs/backend-common/src/pagination/cursor.ts` primitive (opaque base64url `{id, createdAt}` / fail-closed decode / `CursorPaginationInput` / `buildCursorResponse` / `normaliseCursorInput`); `cursor-repository.ts` TypeORM adapter (`paginateCursor` one-line bridge); first resolver adoption `storageInventoryByCursor` alongside offset-based `storageInventory` (6-month deprecation window). 29 primitive/adapter tests + 5 resolver-handler wiring tests all green. |
 | 51 | Faz 7.5 — Onboarding fan-out complete (5/5 seeders) | ✅ RESOLVED (Faz 7.5 complete) | Girdi 15-C7 — `TenantCreated` wildcard subscription fans out to five hooks: `WaterQualityParameterConfigSeederService` (1) → `SpeciesSeederService` (2) → `FeedingProtocolSeederService` (3) → `RegulatorySettingsSeederService` (4: Maskinporten env=TEST skeleton) → `EquipmentTypeCatalogCheckerService` (5: read-only global-catalogue sanity WARN). Per-seeder fault isolation via runSeeder try/catch; sibling seeders always run when one fails. 11 tests across 2 suites pin the wiring contract; happy-path log confirms `5/5 seeders ok`. |
+| 52 | PROC-MEDIUM-012 — farm-service integration + e2e suite re-derivation | ✅ RESOLVED (PR #199) | spec-baseline ratchet final stop. `tsconfig.spec.json` exclude block removed; `batch-lifecycle.integration` + `tank-operations.integration` + `race-conditions` e2e re-derived against current Batch / Species / TankBatch / OutboxPublisher contracts. Domain mappings: BatchStatus.STOCKED→ACTIVE, currentBiomassKg→getCurrentBiomass(), BatchFCR shape rename, ConsumeFeedInventoryHandler EventBus→OutboxPublisher migration. 22/22 projects 0/0 green under strict-tsc gate. |
+| 53 | INFRA-MEDIUM-036 — `compose-dummy-env` shared helper + sensor-ingestion manifest drift | ✅ RESOLVED (PR #200) | schema-validation CI was a persistent red on every recent merged PR. Root cause: `validate-criticality-manifest.ts` + `validate-signals-manifest.ts` invoked `docker compose ... config ...` without `--env-file`, failing on every `${VAR:?required}` reference before the SSoT diff ran. Extracted `writeDummyEnvForCompose(composePath)` helper to `scripts/ci/lib/compose-dummy-env.ts`; rewired all three CI validators. Surfaced real drift the bug had been masking — `sensor-ingestion` (ADR-025/027 Rust strangler-fig) was missing from `service-criticality.yaml`. Added at `level: required` with rollout-aware reason. |
+| 54 | FARM-MEDIUM-001 — Phase 1.1 final TankCapacityService consolidation + CAPACITY_BLOCKED audit trail | ✅ RESOLVED (PR #203) | Closes the Phase 1.1 architectural loop. Deleted `Equipment.hasCapacityFor()` + `Tank.hasCapacityFor()` (zero callers). Added `AuditAction.CAPACITY_BLOCKED` enum value (TS-only — VARCHAR(50) column accepts new values without migration). Added `AuditLogService.logWithManager()` for transactional audit row emission (avoids phantom rows on rollback). Replaced `transfer-batch.handler.ts:443-447` dead density-only formula with `TankCapacityService.calculate()` against post-update tank state. `allocate-to-tank.handler.ts` emits `CAPACITY_BLOCKED` row through `queryRunner.manager` when admin override permits over-capacity allocation; snapshot includes every CapacityCalculation field for post-hoc analysis. |
+| 55 | FARM-MEDIUM-002 — Phase 4.2 restore mutations for hierarchy + feeding-program entities | ✅ RESOLVED (PR #204) | 4 of 5 entities — Site, Department, System, FeedingProgram — gained `restore<Entity>` mutations following the established thin-pass-through pattern from feed/chemical/supplier/species/consumable. Architectural call: dropped the plan's "RestorableResolver mixin" suggestion (NestJS GQL `@Mutation` decorators don't compose cleanly through inheritance) for uniform-by-convention. Per-entity uniqueKeys map to actual UNIQUE indexes: Site `[['code'],['name']]` (both checked); System `[['siteId','code']]`; Department + FeedingProgram `[['code']]`. The 5th entity (BatchFeedAssignment) is intentionally deferred — see FARM-MEDIUM-003. |
+| 56 | INFRA-MEDIUM-037 — CI's nx-affected lint/test/build hit 35-min timeout on every code-touching PR | 🟡 OPEN | Empirical run history: every recent code-change PR (#192/#194/#195/#196/#197/#199/#200/#203/#204) hits the 35-min timeout on lint/type-check/test/build; only dependabot PRs that affect 0 nx projects pass green. PR-200 lint job 73263369783 produced ZERO stdout in 35 min — either nx project-graph hangs without daemon or affected lint set is genuinely > budget at `--parallel=2` on 2-vCPU runners. Three solution shapes worth weighing: (1) `NX_DAEMON=true` for in-job graph caching; (2) larger runners; (3) matrix-strategy split fanning affected projects across parallel jobs. Most architectural answer is (3) — failure mode shifts from "everything times out" to "the slow service times out", localising the signal. |
+| 57 | FARM-MEDIUM-003 — `BatchFeedAssignment` resolver bypasses TypeORM schema declaration with raw SQL via `getTenantSchemaName()` | 🟡 OPEN | Surfaced during Phase 4.2 (FARM-MEDIUM-002). Entity declares `@Entity('batch_feed_assignments', { schema: 'farm' })` (line 42) but resolver mutations execute raw SQL against `${tenantSchemaName}.batch_feed_assignments` (read line 60-65, write 88-91, delete 256-260). TypeORM repository writes (e.g., `RestoreService.restore()`) would route to `farm.` schema — DIFFERENT table than where the resolver writes go. Three resolution paths to weigh in the closing PR: (1) Migrate resolver to TypeORM repository methods aligned with `@Entity({schema:'farm'})` — fixes inconsistency, assumes global model is correct. (2) Migrate entity to tenant-sharded schema interpolation — matches resolver but defeats abstraction. (3) Read git blame to identify which path predates the other; whichever was added later is the drift. Once resolved, `restoreBatchFeedAssignment` can be added uniformly to the Phase 4.2 surface. |

@@ -23,7 +23,6 @@
     "../farm-service/src/database/migrations/**/*.ts",
     "../sensor-service/src/database/migrations/**/*.ts",
     "../hr-service/src/database/migrations/**/*.ts",
-    "../hr-service/src/**/*.entity.ts",
     "../messaging-service/src/migrations/**/*.ts",
     "../messaging-service/src/database/migrations/**/*.ts",
     "../hydroponics-service/src/database/migrations/**/*.ts",
@@ -48,10 +47,6 @@
     "src/**/__tests__/**",
     "src/**/test-utils/**",
     "src/**/test-helpers/**",
-    "src/**/*.e2e-spec.ts",
-    "../*/src/**/*.spec.ts",
-    "../*/src/**/*.test.ts",
-    "../*/src/**/*.e2e-spec.ts",
-    "../*/src/**/__tests__/**"
+    "src/**/*.e2e-spec.ts"
   ]
 }

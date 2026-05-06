@@ -129,6 +129,18 @@ export class CreateWaterQualityInput {
   @IsUUID()
   idempotencyKey?: string;
 
+  /**
+   * Phase 7.4 — cross-service correlation. When this measurement was
+   * derived from a specific `sensor_readings` row in sensor-service,
+   * pass the reading's UUID. Null for manual / bulk-imported
+   * measurements. See water-quality-measurement.entity.ts for the
+   * architectural rationale (informational pointer, not a DB FK).
+   */
+  @Field(() => ID, { nullable: true, description: 'Source sensor_readings row that produced this measurement' })
+  @IsOptional()
+  @IsUUID()
+  relatedSensorReadingId?: string;
+
   @Field({ nullable: true, description: 'Notlar' })
   @IsOptional()
   @IsString()

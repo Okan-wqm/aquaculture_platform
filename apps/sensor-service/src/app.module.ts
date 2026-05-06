@@ -10,13 +10,20 @@ import { join } from 'path';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { SourceSchemaBootstrapService, RlsModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
-import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
-import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
-import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware } from '@aquaculture/backend-common/middleware';
-import { RedisModule } from '@aquaculture/backend-common/redis';
+import {
+  UserContextMiddleware,
+  TenantContextMiddleware,
+  CorrelationIdMiddleware,
+  RequestContextMiddleware,
+  MetricsMiddleware,
+  TenantGuard,
+  RolesGuard,
+  SourceSchemaBootstrapService,
+  ServiceIdentityGuard,
+  RedisModule,
+  RlsModule,
+  PlatformJwtModule,
+} from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
 import { GraphQLError } from 'graphql';

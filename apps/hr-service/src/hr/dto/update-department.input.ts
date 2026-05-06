@@ -1,5 +1,4 @@
 import { InputType, Field, ID } from '@nestjs/graphql';
-import { DepartmentType } from '../entities/department.entity';
 
 @InputType('UpdateHRDepartmentInput')
 export class UpdateDepartmentInput {
@@ -11,9 +10,6 @@ export class UpdateDepartmentInput {
 
   @Field({ nullable: true })
   code?: string;
-
-  @Field(() => DepartmentType, { nullable: true })
-  type?: DepartmentType;
 
   @Field({ nullable: true })
   description?: string;

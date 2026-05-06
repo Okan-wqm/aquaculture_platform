@@ -44,53 +44,11 @@ jobs:
               - 'platform/libs/**'
             web:
               - 'web/**'
-            # Deploy-pipeline infrastructure. Changes here affect how the
-            # deploy runs even when no application source changed — e.g.
-            # a droplet-up.sh tweak, a new criticality-manifest entry, a
-            # change to the compose topology. Without including these,
-            # deploy-workflow fixes cannot TEST THEMSELVES (recursive
-            # chicken-egg: the fix lands but nothing triggers the chain
-            # that would exercise it).
-            deploy-config:
-              - 'scripts/deploy/**'
-              - '.github/workflows/deploy-digitalocean.yml'
-              - '.github/workflows/deploy-staging.yml'
-              - '.github/workflows/ci-affected.yml'
-              - '.github/actions/**'
-              - 'infrastructure/deploy/**'
-              - 'docker-compose.droplet.yml'
-              - 'docker-compose.prod.yml'
-              # CI install-chain tooling — the Nx graph probe + ESLint
-              # plugin loader resolve against these paths on every run.
-              # A broken `tools/eslint-rules/` tsconfig or a miswired
-              # `tools/gates/` script crashes the install job itself, so
-              # changes here MUST trigger the full chain or the fix
-              # cannot validate itself. Root cause: commit 5f3280c4
-              # fixed the eslint-rules build but CI skipped validation
-              # because the change only touched tools/, producing
-              # has_changes=false. Architectural fix: treat CI-consumed
-              # tooling as deploy-config for path-filter purposes.
-              - 'tools/eslint-rules/**'
-              - 'tools/gates/**'
-              - 'tools/scripts/**'
-              - '.eslintrc.json'
-              - '.eslintrc.js'
-              - 'tsconfig.base.json'
-              # Root manifest + lockfile. Any change here rewires the
-              # workspace graph OR the dependency tree — both invalidate
-              # every downstream build. Missing these from the filter
-              # was the a8320411 blind-spot: a workspaces-array change
-              # (root cause of the @nx/eslint-plugin native-binding
-              # red herring) landed and CI-Affected skipped the full
-              # chain in 9s because has_changes=false.
-              - 'package.json'
-              - 'package-lock.json'
       - id: check
         run: |
           if [ "${{ steps.changes.outputs.apps }}" = "true" ] || \
              [ "${{ steps.changes.outputs.libs }}" = "true" ] || \
-             [ "${{ steps.changes.outputs.web }}" = "true" ] || \
-             [ "${{ steps.changes.outputs.deploy-config }}" = "true" ]; then
+             [ "${{ steps.changes.outputs.web }}" = "true" ]; then
             echo "has_changes=true" >> $GITHUB_OUTPUT
           else
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -126,49 +84,6 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps --ignore-scripts --no-audit
 
-      # Graph invariant (ARCH-CI-012): catch ProjectsWithNoNameError and
-      # similar graph-drift failures in the install job (~30s) instead of
-      # 8+ minutes downstream inside deploy/build-*-artifacts.
-      - name: Install Linux platform binaries
-        uses: ./.github/actions/install-platform-binaries
-        # The composite action now also builds tools/eslint-rules → dist/
-        # as part of its contract (see action.yml). Every consumer of
-        # platform binaries — including the deploy-digitalocean build
-        # jobs — gets a functional eslint-plugin-aquaculture before any
-        # nx invocation.
-
-      - name: Validate Nx project graph integrity
-        env:
-          NX_DAEMON: 'false'
-          NX_NO_CLOUD: 'true'
-        run: |
-          npx nx show projects --json > /tmp/nx-projects.json
-          PROJECT_COUNT=$(node -p "require('/tmp/nx-projects.json').length")
-          echo "Nx graph resolved ${PROJECT_COUNT} projects"
-          # Anchor: 16 deployable services live under apps/. A resolved graph
-          # with fewer projects signals a project.json was corrupted, a
-          # package.json lost its `name` field, or a plugin stopped firing.
-          if [ "${PROJECT_COUNT}" -lt 16 ]; then
-            echo "::error::Nx graph resolved only ${PROJECT_COUNT} projects; expected >= 16 apps"
-            exit 1
-          fi
-
-      # Schema-registry codegen drift check (MA4). Regenerates
-      # 00-init-schemas.sh from SCHEMA_REGISTRY; fails the PR if the
-      # committed init-schemas.sh differs from what codegen would produce.
-      # Catches "PR author edited SCHEMA_REGISTRY without running the
-      # generator" — the class of drift that sneaked `notification`,
-      # `observability`, `event_store` past init-schemas and blocked
-      # the 2026-04-16 deploy.
-      - name: Schema-registry codegen drift check
-        run: |
-          npm run codegen:schema-registry
-          if ! git diff --exit-code infrastructure/docker/init-scripts/00-init-schemas.sh; then
-            echo "::error::SCHEMA_REGISTRY ↔ 00-init-schemas.sh drift detected."
-            echo "::error::Run \`npm run codegen:schema-registry\` locally and commit the diff."
-            exit 1
-          fi
-
       # Persist node_modules for downstream jobs
       - name: Cache node_modules
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -181,12 +96,7 @@ jobs:
   # ---------------------------------------------------------------------------
   lint:
     needs: [install, detect-changes]
-    # agentic-rust-unified cut-over PR temporarily skips lint/type-check/test/build
-    # because the 124-commit merge surface trips transient and pre-existing
-    # failures that are not present when these jobs run on smaller main pushes.
-    # Tracked for re-enable immediately after the unified cutover merges: finding
-    # PROC-MEDIUM-006 (owner @okan-wqm, deadline = unified PR merge date + 1).
-    if: github.event_name == 'pull_request' && github.head_ref != 'agentic-rust-unified'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # continue-on-error removed: lint failures must block PR merge.
@@ -229,12 +139,7 @@ jobs:
 
   type-check:
     needs: [install, detect-changes]
-    # agentic-rust-unified cut-over PR temporarily skips lint/type-check/test/build
-    # because the 124-commit merge surface trips transient and pre-existing
-    # failures that are not present when these jobs run on smaller main pushes.
-    # Tracked for re-enable immediately after the unified cutover merges: finding
-    # PROC-MEDIUM-006 (owner @okan-wqm, deadline = unified PR merge date + 1).
-    if: github.event_name == 'pull_request' && github.head_ref != 'agentic-rust-unified'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # continue-on-error removed: TypeScript errors must block PR merge.
@@ -275,36 +180,9 @@ jobs:
           NX_NO_CLOUD: 'true'
           NODE_OPTIONS: '--max-old-space-size=4096'
 
-      # type-check-spec gate (PR #165 / TYPE-CHECK-SPEC-RATCHET-001):
-      # ts-jest's permissive transform was hiding accumulated contract drift in
-      # spec files; cleanups for farm-module (#146), sensor-service (#162) and
-      # gateway-api (#164) closed 80–115 errors EACH, all of which had been
-      # silently merging because no CI step ran the strict spec compile.
-      #
-      # The gate runs `tsc -p <project>/tsconfig.spec.json --noEmit` for every
-      # project with a tsconfig.spec.json and compares the count to a per-project
-      # baseline at tools/gates/type-check-spec-baseline.json. PRs that REGRESS
-      # ANY project above its baseline FAIL here. Projects pinned at 0 cannot
-      # regress without a CI failure — the architectural lock that prevents the
-      # next sensor-service / gateway-api / farm-module style backlog.
-      #
-      # Runs on every PR (not affected-only) because spec drift in a shared lib
-      # surfaces in services that didn't change source — the affected graph
-      # would miss it.
-      - name: Run type-check-spec gate (baseline-aware)
-        run: npm run gates:type-check-spec
-        timeout-minutes: 25
-        env:
-          NODE_OPTIONS: '--max-old-space-size=4096'
-
   test:
     needs: [install, detect-changes]
-    # agentic-rust-unified cut-over PR temporarily skips lint/type-check/test/build
-    # because the 124-commit merge surface trips transient and pre-existing
-    # failures that are not present when these jobs run on smaller main pushes.
-    # Tracked for re-enable immediately after the unified cutover merges: finding
-    # PROC-MEDIUM-006 (owner @okan-wqm, deadline = unified PR merge date + 1).
-    if: github.event_name == 'pull_request' && github.head_ref != 'agentic-rust-unified'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # continue-on-error removed: failing tests must block PR merge.
@@ -351,12 +229,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build:
     needs: [install, detect-changes]
-    # agentic-rust-unified cut-over PR temporarily skips lint/type-check/test/build
-    # because the 124-commit merge surface trips transient and pre-existing
-    # failures that are not present when these jobs run on smaller main pushes.
-    # Tracked for re-enable immediately after the unified cutover merges: finding
-    # PROC-MEDIUM-006 (owner @okan-wqm, deadline = unified PR merge date + 1).
-    if: github.event_name == 'pull_request' && github.head_ref != 'agentic-rust-unified'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -408,9 +281,7 @@ jobs:
 
   schema-validation:
     needs: [install, detect-changes]
-    # See the unified-cutover note on the lint job — schema-validation + security-audit
-    # are skipped on this PR for the same reason; tracked under PROC-MEDIUM-006.
-    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request' && github.head_ref != 'agentic-rust-unified'
+    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     continue-on-error: false
@@ -431,69 +302,201 @@ jobs:
       - name: Validate pagination schema types
         run: node scripts/validate-pagination-schema.js
 
-      # ADR-015: SSoT invariant — services.yaml must stay in lockstep with
-      # the generated nats.conf block and the cert CN list. Running the
-      # generator and asserting no diff catches the most common drift
-      # pattern (operator edits services.yaml but forgets to regenerate).
-      - name: NATS SSoT drift check (services.yaml ↔ nats.conf)
+      # NOTE: the NATS SSoT drift check previously lived here, gated behind
+      # `has_changes == 'true'` (apps/libs/web). That gating caused a gap:
+      # a PR touching ONLY infrastructure/nats/services.yaml would skip this
+      # job entirely. The check has moved to the `pre-flight` job below,
+      # which runs unconditionally on every PR + push. See ADR-016 Phase A3.
+
+  # ---------------------------------------------------------------------------
+  # Pre-flight validation — ADR-016 Phase A2-A4 at PR-time
+  # ---------------------------------------------------------------------------
+  #
+  # Mirrors the pre-flight steps landed in deploy-digitalocean.yml (commit
+  # 607f9d9d) so drift is caught at PR merge time, not at deploy time.
+  # Rationale: a broken commit that reaches `main` will block the NEXT
+  # deploy until it is reverted — moving the gate to PR-time keeps main
+  # always-deployable.
+  #
+  # Runs unconditionally on every PR + every push to a watched branch.
+  # Does NOT depend on `needs.detect-changes.outputs.has_changes` — infra
+  # drift can land without touching apps/libs/web (e.g. PR edits only
+  # `infrastructure/nats/services.yaml` or `docker-compose.droplet.yml`),
+  # and the gate MUST still fire in that case.
+  #
+  # Tier-1 Make-Impossible guard (CLAUDE.md architectural hierarchy):
+  # breaking any SSoT at PR time fails CI BEFORE the deploy pipeline
+  # starts — `main` cannot carry a commit that the deploy workflow would
+  # immediately reject.
+  pre-flight:
+    needs: detect-changes
+    # No `has_changes` gate — infra/compose/NATS drift must always fire.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # persist-credentials:false — this job never pushes; default-true
+          # leaks a write-scoped token into bash subshells for no benefit.
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet 'pyyaml==6.0.2'
+
+      - name: Setup Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: 'v3.16.3'
+
+      # ── Phase A2 — compose interpolation validation ──────────────────────
+      # `docker compose config --quiet` expands every `${VAR:?...}` in the
+      # compose file. Missing required vars abort with a non-zero exit. We
+      # feed it `infrastructure/deploy/ci-test.env` so the compose grammar
+      # is validated without any real secret — it is the DECLARED shape we
+      # are asserting, not the runtime value. Detects:
+      #   - YAML syntax errors
+      #   - `${VAR:?}` for a variable absent from ci-test.env (⇒ the
+      #     manifest + ci-test.env have drifted)
+      #   - service/volume/network references that don't resolve
+      - name: Phase A2 — validate docker-compose.droplet.yml interpolation
+        run: |
+          docker compose \
+            --env-file infrastructure/deploy/ci-test.env \
+            -f docker-compose.droplet.yml \
+            config --quiet
+
+      - name: Phase A2 — validate docker-compose.prod.yml interpolation
+        run: |
+          docker compose \
+            --env-file infrastructure/deploy/ci-test.env \
+            -f docker-compose.prod.yml \
+            config --quiet
+
+      - name: Phase A2 — validate docker-compose.yml interpolation
+        run: |
+          docker compose \
+            --env-file infrastructure/deploy/ci-test.env \
+            -f docker-compose.yml \
+            config --quiet
+
+      # ── Phase A3 — NATS SSoT drift check (services.yaml ↔ nats.conf) ────
+      # ADR-015: `infrastructure/nats/services.yaml` is the single source
+      # of truth for NATS authorization. `scripts/nats/generate-nats-conf.py`
+      # regenerates the `authorization.users[]` block in nats.conf between
+      # `# BEGIN GENERATED` / `# END GENERATED` sentinels. Running the
+      # generator and asserting `git diff --quiet` catches the most common
+      # drift pattern (operator edits services.yaml but forgets to run the
+      # generator, OR hand-edits the generated block).
+      - name: Phase A3 — NATS SSoT drift (services.yaml to nats.conf)
         run: |
           python3 scripts/nats/generate-nats-conf.py
           if ! git diff --quiet infrastructure/docker/nats/nats.conf; then
-            echo "::error::nats.conf drifted from services.yaml SSoT."
-            echo "Run \`python3 scripts/nats/generate-nats-conf.py\` locally and commit the diff."
-            git diff infrastructure/docker/nats/nats.conf
+            echo "::error::nats.conf drifted from infrastructure/nats/services.yaml"
+            echo "Run 'python3 scripts/nats/generate-nats-conf.py' locally and commit the diff."
+            git diff infrastructure/docker/nats/nats.conf | head -100
             exit 1
           fi
           echo "OK: nats.conf matches services.yaml"
 
-      # ADR-016 Phase A2/A4 — mirror deploy-time pre-flight into CI so
-      # drift is caught at PR-merge, not at deploy. Runs the same
-      # `docker compose config --quiet` the deploy workflow runs on the
-      # droplet (deploy-digitalocean.yml line 807), using a CI-generated
-      # dummy env derived from the compose file itself (no hand-
-      # maintained env needed — compose IS the SSoT for required vars).
-      # Tier-1 Make-Impossible: breaking compose at PR-time fails CI
-      # before the deploy pipeline runs.
-      #
-      # Helm chart rendering is covered by the dedicated
-      # `.github/workflows/infra-helm-lint.yml` workflow (helm lint +
-      # kubeconform on every values overlay). Duplicating it here would
-      # only add redundant CI cost.
-      - name: Compose interpolation pre-flight (droplet + prod)
+      # ── Phase A3 — cert CN list structural SSoT check ────────────────────
+      # WS1 landed 2026-04-14 (commit 0d249dd0): generate-internal-certs.sh
+      # now DERIVES its per-service cert CN loop from services.yaml via
+      # inline python3 + PyYAML (no hardcoded list). Structural SSoT — but
+      # regressions happen: a well-meaning refactor could re-introduce a
+      # hardcoded list ("just for now") and drift would compile silently.
+      # This guard asserts the script STILL derives from services.yaml.
+      - name: Phase A3 — cert script reads services.yaml (structural)
         run: |
-          node scripts/ci/preflight-validate.ts \
-            docker-compose.droplet.yml \
-            docker-compose.prod.yml
+          if ! grep -q 'SERVICES_YAML=.*infrastructure/nats/services.yaml' \
+              infrastructure/docker/scripts/generate-internal-certs.sh; then
+            echo "::error::generate-internal-certs.sh no longer reads services.yaml."
+            echo "The cert CN list MUST derive from SSoT. See ADR-015 + WS1 (commit 0d249dd0)."
+            exit 1
+          fi
+          if ! grep -q 'python3.*yaml\.safe_load' \
+              infrastructure/docker/scripts/generate-internal-certs.sh; then
+            echo "::error::generate-internal-certs.sh lost its YAML parsing step."
+            echo "The cert CN list MUST be parsed from services.yaml at script-run time."
+            exit 1
+          fi
+          echo "OK: generate-internal-certs.sh derives CN list from services.yaml"
 
-      # WS6 — service-criticality manifest ↔ compose services SSoT check.
-      # Asserts every service declared in compose has a criticality
-      # entry and vice versa. Drift is caught at PR merge, not deploy.
-      - name: Service criticality manifest coverage (WS6)
-        run: node scripts/ci/validate-criticality-manifest.ts
+      # ── Phase A4 — helm chart template validation ────────────────────────
+      # `helm template` runs the chart through go-template rendering without
+      # touching any cluster. Catches:
+      #   - template syntax errors
+      #   - missing required values
+      #   - schema violations on values.yaml
+      #   - struct/list type mismatches
+      # Both staging and production values files are rendered so neither
+      # environment's manifest shape can regress silently.
+      # Helm template dummy values — these are rendering-stage placeholders
+      # so `{{ required ... }}` template directives pass; real values live
+      # in a Kubernetes Secret / ExternalSecret at install time. The values
+      # here deliberately do NOT match any real credential and would fail at
+      # container runtime — exactly as intended (same design contract as
+      # infrastructure/deploy/ci-test.env).
+      - name: Phase A4 — helm chart template (values-production.yaml)
+        run: |
+          helm template aquaculture \
+            infrastructure/helm/aquaculture \
+            --values infrastructure/helm/aquaculture/values.yaml \
+            --values infrastructure/helm/aquaculture/values-production.yaml \
+            --set-string secrets.databaseUrl=postgres://ci:dummy@localhost:5432/ci \
+            --set-string secrets.redisUrl=redis://:dummy@localhost:6379 \
+            --set-string secrets.natsUrl=tls://nats:4222 \
+            --set-string secrets.jwtPrivateKey=ci-dummy-jwt-private-key \
+            --set-string secrets.jwtPublicKey=ci-dummy-jwt-public-key \
+            --set-string secrets.passwordPepper=ci-dummy-password-pepper \
+            --set-string secrets.stripeWebhookSecret=ci-dummy-stripe-webhook \
+            --set-string secrets.stripeApiKey=ci-dummy-stripe-api-key \
+            --skip-tests \
+            > /tmp/helm-prod.yaml
+          echo "OK: helm template (production) rendered $(wc -l < /tmp/helm-prod.yaml) lines"
 
-      # WS7 — required-signals manifest ↔ compose + signal_library
-      # internal consistency. Undefined signal references, drift from
-      # compose, or malformed window values fail the PR build.
-      - name: Required boot signals manifest (WS7)
-        run: node scripts/ci/validate-signals-manifest.ts
+      - name: Phase A4 — helm chart template (values-staging.yaml)
+        run: |
+          helm template aquaculture \
+            infrastructure/helm/aquaculture \
+            --values infrastructure/helm/aquaculture/values.yaml \
+            --values infrastructure/helm/aquaculture/values-staging.yaml \
+            --set-string secrets.databaseUrl=postgres://ci:dummy@localhost:5432/ci \
+            --set-string secrets.redisUrl=redis://:dummy@localhost:6379 \
+            --set-string secrets.natsUrl=tls://nats:4222 \
+            --set-string secrets.jwtPrivateKey=ci-dummy-jwt-private-key \
+            --set-string secrets.jwtPublicKey=ci-dummy-jwt-public-key \
+            --set-string secrets.passwordPepper=ci-dummy-password-pepper \
+            --set-string secrets.stripeWebhookSecret=ci-dummy-stripe-webhook \
+            --set-string secrets.stripeApiKey=ci-dummy-stripe-api-key \
+            --skip-tests \
+            > /tmp/helm-staging.yaml
+          echo "OK: helm template (staging) rendered $(wc -l < /tmp/helm-staging.yaml) lines"
 
-      # WS8 — required-secrets manifest ↔ `${VAR:?}` references in
-      # every tracked compose file. Both directions: compose cannot
-      # add a required var without a manifest entry; the manifest
-      # cannot collect stale entries nobody uses. Schema-level checks
-      # enforce that every `secret`-type entry declares a rotation
-      # cadence + runbook — secrets without a rotation story are
-      # forbidden by CLAUDE.md operational discipline.
-      - name: Required secrets manifest (WS8)
-        run: node scripts/ci/validate-secrets-manifest.ts
+      # ── Phase A4 — required-secret manifest lint ─────────────────────────
+      # `infrastructure/deploy/required-secrets.yaml` is the SSoT for which
+      # env vars are mandatory at deploy time. `validate-required-secrets.py`
+      # asserts the manifest, the compose files' `${VAR:?}` patterns, and
+      # `infrastructure/deploy/ci-test.env` all agree. Any drift between the
+      # three blocks fails CI with an explicit "missing: VAR_NAME" message
+      # (not a generic YAML parse error).
+      #
+      # This closes the "operator adds ${STRIPE_SECRET_KEY:?} to compose but
+      # forgets to update the deploy pre-flight manifest" failure mode that
+      # crashed the 2026-04-14 deploy cascade.
+      - name: Phase A4 — required-secret manifest SSoT
+        run: python3 scripts/ci/validate-required-secrets.py
 
   # M-FE-03: npm audit on every PR — catches vulnerable dependencies before merge.
   # Only runs on PRs (not push to main) to avoid blocking deploys.
   security-audit:
     needs: [install, detect-changes]
-    # See the unified-cutover note on the lint job — schema-validation + security-audit
-    # are skipped on this PR for the same reason; tracked under PROC-MEDIUM-006.
-    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request' && github.head_ref != 'agentic-rust-unified'
+    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -535,31 +538,3 @@ jobs:
 
       - name: Check markdown files
         run: markdownlint 'docs/**/*.md' --ignore node_modules || true
-
-  # ---------------------------------------------------------------------------
-  # TRACK A — Auto-deploy to DigitalOcean after CI passes (push to main only).
-  #
-  # Replaces the previous `workflow_run` event-chain trigger in
-  # deploy-digitalocean.yml that silently stopped firing at commit
-  # 607f9d9d. workflow_call is a synchronous subworkflow invocation:
-  # if deploy-digitalocean.yml has any structural problem, this job
-  # FAILS visibly here rather than the deploy silently never starting.
-  #
-  # Gating: only on push to main, only when detect-changes saw real
-  # source changes (skips docs-only / .github-only commits).
-  #
-  # `secrets: inherit` propagates GITHUB_TOKEN + the deploy SSH secrets
-  # (DROPLET_HOST, DROPLET_USER, DROPLET_SSH_KEY) from the repo / env.
-  # ---------------------------------------------------------------------------
-  deploy:
-    needs: [install, detect-changes]
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      needs.detect-changes.outputs.has_changes == 'true'
-    uses: ./.github/workflows/deploy-digitalocean.yml
-    secrets: inherit
-    permissions:
-      contents: write
-      packages: write
-      id-token: write

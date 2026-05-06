@@ -112,10 +112,8 @@ function validateFile(composePath: string): boolean {
         `(\${VAR:?...} pattern)`,
     );
 
-    const tmp = mkdtempSync(join(tmpdir(), 'preflight-'));
-    const envPath = join(tmp, 'dummy.env');
+    const { envPath, cleanup } = writeDummyEnvForCompose(composePath);
     try {
-      writeDummyEnv(envPath, required);
       const rc = runComposeValidate(composePath, envPath);
       if (rc !== 0) {
         console.error(
@@ -129,7 +127,7 @@ function validateFile(composePath: string): boolean {
       console.log(`  OK: ${composePath} interpolates cleanly`);
       return true;
     } finally {
-      rmSync(tmp, { recursive: true, force: true });
+      cleanup();
     }
   } finally {
     console.log('::endgroup::');

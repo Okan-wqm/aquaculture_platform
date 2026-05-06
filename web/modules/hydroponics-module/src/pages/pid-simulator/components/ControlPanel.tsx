@@ -171,8 +171,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           onChange={v => onConfigChange({ ...config, freshwaterALK: v })} />
         <Slider label="Water pH" value={config.freshwaterPH} min={5.0} max={8.5} step={0.1}
           onChange={v => onConfigChange({ ...config, freshwaterPH: v })} />
-        <Slider label="Aeration" value={config.aerationRate} min={0.01} max={0.3} step={0.01} unit=" /min"
-          onChange={v => onConfigChange({ ...config, aerationRate: v })} />
       </div>
 
       {/* Usage Summary */}

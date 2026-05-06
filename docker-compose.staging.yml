@@ -167,33 +167,11 @@ services:
       # Provisioning base URL is used by device-enrolment flows — must
       # point at staging so enrolled devices hit the staging API.
       PROVISIONING_API_BASE_URL: ${PROVISIONING_API_BASE_URL:-https://staging.suderra.com}
-      # ADR-022 — staging is the canary for the control-plane profile.
-      # Default `control-plane` here so dual-write equivalence is
-      # exercised end-to-end on every staging deploy. Override by env
-      # to revert to legacy if the sidecar is offline.
-      SENSOR_SERVICE_PROFILE: ${SENSOR_SERVICE_PROFILE:-control-plane}
     deploy:
       resources:
         limits:
-          # Staging exercises the control-plane envelope by default
-          # (ADR-022 budget: 192 MB / 0.2 vCPU). Set
-          # SENSOR_SERVICE_MEMORY/CPUS in the staging .env to tighten
-          # further or to revert to the legacy 384/0.4 envelope.
-          memory: ${SENSOR_SERVICE_MEMORY:-192M}
-          cpus: '${SENSOR_SERVICE_CPUS:-0.2}'
-
-  # Rust ingestion sidecar (ADR-025 / ADR-027). Staging override —
-  # base service definition lives in docker-compose.droplet.yml.
-  sensor-ingestion:
-    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${IMAGE_TAG:-staging}
-    container_name: aqua-sensor-ingestion-staging
-    environment:
-      RUST_LOG: ${SENSOR_INGESTION_LOG:-debug}
-    deploy:
-      resources:
-        limits:
-          memory: 192M
-          cpus: '0.25'
+          memory: 384M
+          cpus: '0.4'
 
   admin-api-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:${IMAGE_TAG:-staging}

@@ -22,6 +22,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import yaml from 'js-yaml';
+import { writeDummyEnvForCompose } from './lib/compose-dummy-env.ts';
 
 const COMPOSE_FILE =
   process.env['COMPOSE_FILE'] ?? 'docker-compose.droplet.yml';

@@ -7,9 +7,10 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { useAuthContext } from '@aquaculture/shared-ui';
-import { useModuleIds, useModuleUsageStats } from '../hooks/useTenantData';
-import { ModuleCard, AssignManagerModal, ModuleDetailsModal } from '../components/modules';
-import type { DisplayModule } from '../components/modules';
+import { useAssignModuleManager } from '../hooks/useTenantData';
+import { useTenantUsers } from '../hooks/useTenantData';
+import { getMyModuleIds, getModuleUsageStats } from '../lib/api';
+import { logError } from '../utils/error-handling';
 
 /** Module route mapping -- correct dashboard routes. */
 const moduleRouteMap: Record<string, string> = {
@@ -33,6 +34,321 @@ const moduleFeaturesMap: Record<string, string[]> = {
   'hydroponics': ['System Management', 'Nutrient Solutions', 'Growing Beds', 'Climate Control', 'Harvest Tracking'],
 };
 
+// Note: fetchTenantModules and formatDate removed - now using AuthContext modules
+
+/**
+ * Status badge component
+ */
+const StatusBadge: React.FC<{ status: DisplayModule['status'] }> = ({ status }) => {
+  const statusConfig = {
+    active: {
+      bg: 'bg-green-100',
+      text: 'text-green-700',
+      icon: <CheckCircle className="w-3 h-3" />,
+      label: 'Active',
+    },
+    inactive: {
+      bg: 'bg-gray-100',
+      text: 'text-gray-700',
+      icon: <XCircle className="w-3 h-3" />,
+      label: 'Inactive',
+    },
+    pending: {
+      bg: 'bg-yellow-100',
+      text: 'text-yellow-700',
+      icon: <Clock className="w-3 h-3" />,
+      label: 'Pending Setup',
+    },
+  };
+
+  const config = statusConfig[status];
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}
+    >
+      {config.icon}
+      {config.label}
+    </span>
+  );
+};
+
+/**
+ * Assign Manager Modal Component
+ */
+const AssignManagerModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  module: DisplayModule | null;
+}> = ({ isOpen, onClose, module }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [assignError, setAssignError] = useState<string | null>(null);
+
+  const { data: tenantUsersData, isLoading: loading } = useTenantUsers();
+  const assignMutation = useAssignModuleManager();
+
+  const users = useMemo(() => {
+    return (tenantUsersData || []).map((u) => ({
+      id: u.id,
+      name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email,
+      email: u.email,
+    }));
+  }, [tenantUsersData]);
+
+  if (!isOpen || !module) return null;
+
+  const filteredUsers = users.filter(
+    (user) =>
+      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const handleConfirm = async () => {
+    if (!selectedUserId || !module) return;
+    setAssignError(null);
+    try {
+      await assignMutation.mutateAsync({ moduleId: module.id, userId: selectedUserId });
+      setSelectedUserId(null);
+      onClose();
+    } catch (err) {
+      logError('AssignManagerModal', err);
+      setAssignError(err instanceof Error ? err.message : 'Failed to assign manager');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      <div className="relative min-h-screen flex items-center justify-center p-4">
+        <div className="relative w-full max-w-md bg-white rounded-xl shadow-xl">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Assign Module Manager
+            </h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Select a user to manage "{module.name}"
+            </p>
+          </div>
+
+          <div className="px-6 py-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <input
+                type="text"
+                placeholder="Search users..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          {assignError && (
+            <div className="px-6 pb-2">
+              <p className="text-sm text-red-600">{assignError}</p>
+            </div>
+          )}
+
+          <div className="px-6 pb-4 max-h-64 overflow-y-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <RefreshCw className="w-6 h-6 animate-spin text-gray-500" />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredUsers.map((user) => (
+                  <button
+                    key={user.id}
+                    onClick={() => setSelectedUserId(user.id)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left ${
+                      selectedUserId === user.id
+                        ? 'bg-tenant-100 ring-2 ring-tenant-500'
+                        : 'hover:bg-tenant-50'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white text-sm font-medium">
+                      {user.name
+                        .split(' ')
+                        .map((n) => n[0])
+                        .join('')
+                        .substring(0, 2)
+                        .toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {user.name}
+                      </p>
+                      <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                    </div>
+                    {selectedUserId === user.id ? (
+                      <CheckCircle className="w-4 h-4 text-tenant-600" />
+                    ) : (
+                      <Shield className="w-4 h-4 text-gray-500" />
+                    )}
+                  </button>
+                ))}
+                {filteredUsers.length === 0 && !loading && (
+                  <p className="text-center text-sm text-gray-500 py-4">
+                    No users found
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={!selectedUserId || assignMutation.isPending}
+              className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 hover:bg-tenant-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {assignMutation.isPending && <RefreshCw className="w-4 h-4 animate-spin" />}
+              Assign Manager
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Module Details Modal Component
+ */
+const ModuleDetailsModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  module: DisplayModule | null;
+}> = ({ isOpen, onClose, module }) => {
+  if (!isOpen || !module) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      <div className="relative min-h-screen flex items-center justify-center p-4">
+        <div className="relative w-full max-w-lg bg-white rounded-xl shadow-xl">
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-tenant-50 flex items-center justify-center text-2xl">
+                {module.icon}
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {module.name}
+                </h3>
+                <span className="text-sm text-gray-500">{module.code}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="px-6 py-4 space-y-4">
+            {/* Description */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-1">Description</h4>
+              <p className="text-sm text-gray-600">{module.description}</p>
+            </div>
+
+            {/* Status */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-1">Status</h4>
+              <div className="flex items-center gap-2">
+                {module.status === 'active' ? (
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                ) : (
+                  <XCircle className="w-4 h-4 text-gray-500" />
+                )}
+                <span className={`text-sm ${module.status === 'active' ? 'text-green-600' : 'text-gray-500'}`}>
+                  {module.status === 'active' ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+            </div>
+
+            {/* Features */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Features</h4>
+              <div className="grid grid-cols-2 gap-2">
+                {module.features.map((feature, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-2 p-2 rounded-lg bg-gray-50"
+                  >
+                    <CheckCircle className="w-4 h-4 text-tenant-500" />
+                    <span className="text-sm text-gray-700">{feature}</span>
+                  </div>
+                ))}
+              </div>
+              {module.features.length === 0 && (
+                <p className="text-sm text-gray-500 italic">No features listed</p>
+              )}
+            </div>
+
+            {/* Route Info */}
+            {module.route && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-1">Dashboard Route</h4>
+                <code className="text-sm bg-gray-100 px-2 py-1 rounded text-gray-600">
+                  {module.route}
+                </code>
+              </div>
+            )}
+
+            {/* Manager Info */}
+            {module.manager && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-1">Module Manager</h4>
+                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white text-sm font-medium">
+                    {module.manager.name
+                      .split(' ')
+                      .map((n) => n[0])
+                      .join('')
+                      .substring(0, 2)
+                      .toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{module.manager.name}</p>
+                    <p className="text-xs text-gray-500">{module.manager.email}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ModuleUsageStat imported via lib/api (getModuleUsageStats return type)
+import type { ModuleUsageStat } from '../lib/types';
+
 /**
  * TenantModules Page
  *
@@ -55,14 +371,32 @@ const TenantModules: React.FC = () => {
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedModule, setSelectedModule] = useState<DisplayModule | null>(null);
 
-  // BUG-019: Fetch real module UUIDs from GraphQL
-  const { data: moduleIdByCode = {}, error: moduleIdError } = useModuleIds();
+  // BUG-019: Fetch real module UUIDs from GraphQL — AuthContext only carries code/name/route
+  const [moduleIdByCode, setModuleIdByCode] = useState<Record<string, string>>({});
+  useEffect(() => {
+    getMyModuleIds()
+      .then((modules) => {
+        const map: Record<string, string> = {};
+        (modules || []).forEach((m) => { if (m.code) map[m.code] = m.id; });
+        setModuleIdByCode(map);
+      })
+      .catch((err) => logError('TenantModules.fetchModuleIds', err));
+  }, []);
 
-  // Wave 4: Fetch module usage stats (graceful fallback)
-  const { data: usageStats = {}, error: usageError } = useModuleUsageStats();
-
-  // FIX MED-17: Surface fetch errors
-  const fetchError = moduleIdError || usageError;
+  // Wave 4: Fetch module usage stats (graceful fallback if backend not ready)
+  const [usageStats, setUsageStats] = useState<Record<string, ModuleUsageStat>>({});
+  useEffect(() => {
+    getModuleUsageStats()
+      .then((stats) => {
+        const map: Record<string, ModuleUsageStat> = {};
+        (stats || []).forEach((s) => { map[s.moduleCode] = s; });
+        setUsageStats(map);
+      })
+      .catch((err) => {
+        // Graceful fallback -- usage stats are optional enrichment
+        logError('TenantModules.fetchUsageStats', err);
+      });
+  }, []);
 
   // Transform AuthContext modules to DisplayModule format
   const modules = useMemo<DisplayModule[]>(() => {

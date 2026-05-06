@@ -3,35 +3,50 @@
  *
  * GraphQL mutations and queries for managing feed assignments to batches.
  * Allows assigning different feeds based on fish weight ranges.
+ *
+ * # Architecture — TypeORM repository pattern (FARM-MEDIUM-003 closure)
+ *
+ * Pre-refactor this resolver bypassed TypeORM with raw SQL via
+ * `getTenantSchemaName(tenantId)` interpolation against
+ * `${schema}.batch_feed_assignments`. Empirical investigation
+ * (FARM-MEDIUM-003 finding notes) confirmed both paths land on the
+ * same physical table — per-tenant schema cloning is canonical
+ * (`MODULE_SCHEMAS[farm].sourceSchema = 'farm', tables: ['batch_feed_
+ * assignments', ...]` + `CREATE TABLE LIKE INCLUDING ALL` per-tenant
+ * provisioning) and `TenantConnectionBootstrap` sets per-request
+ * search_path to the tenant schema, so unqualified TypeORM-emitted
+ * `batch_feed_assignments` resolves to the same `tenant_<id>` copy
+ * the raw SQL targeted explicitly.
+ *
+ * Converging on TypeORM repos rather than raw SQL gives:
+ *   1. Type-safe column/relation access (catches a removed column at
+ *      build time instead of at runtime).
+ *   2. Uniformity with every other farm-service handler (the rest
+ *      of the codebase uses repos; this resolver was the lone
+ *      raw-SQL outlier).
+ *   3. Compatibility with `RestoreService.restore()` — which uses
+ *      repository.find / save and is the canonical route for the
+ *      uniform restore-mutation surface from PR-47 (FARM-MEDIUM-002).
+ *      `restoreBatchFeedAssignment` could not exist on the raw-SQL
+ *      side without duplicating the uniqueness-check logic from
+ *      RestoreService.
+ *
+ * Validation paths (Batch + Feed existence checks) likewise routed
+ * through `batchRepo.findOne` / `feedRepo.findOne` rather than raw
+ * `batches_v2` / `feeds` queries.
  */
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { UseGuards, Logger } from '@nestjs/common';
+import { UseGuards, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
-import { getTenantSchemaName } from '../../common/utils/schema-sanitizer';
 import { BatchFeedAssignment, FeedAssignmentEntry } from '../entities/batch-feed-assignment.entity';
 import { Batch } from '../entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { BatchFeedAssignmentResponse } from '../dto/batch-feed-assignment.response';
 import { AssignFeedsToBatchInput, UpdateBatchFeedAssignmentInput } from '../dto/batch-feed-assignment.input';
-
-/**
- * Raw database row type for batch_feed_assignments table
- */
-interface BatchFeedAssignmentRow {
-  id: string;
-  tenantId: string;
-  batchId: string;
-  feedAssignments: FeedAssignmentEntry[] | string;
-  isActive: boolean;
-  notes?: string;
-  createdAt: Date;
-  updatedAt: Date;
-  createdBy?: string;
-  updatedBy?: string;
-}
+import { RestoreService } from '../../common/services/restore.service';
 
 @Resolver(() => BatchFeedAssignmentResponse)
 @UseGuards(TenantGuard)
@@ -45,6 +60,7 @@ export class BatchFeedAssignmentResolver {
     private readonly batchRepo: Repository<Batch>,
     @InjectRepository(Feed)
     private readonly feedRepo: Repository<Feed>,
+    private readonly restoreService: RestoreService,
   ) {}
 
   /**
@@ -56,24 +72,18 @@ export class BatchFeedAssignmentResolver {
     @Args('batchId', { type: () => ID }) batchId: string,
     @CurrentTenant() tenantId: string,
   ): Promise<BatchFeedAssignmentResponse | null> {
-    const schemaName = getTenantSchemaName(tenantId);
-
-    const result = await this.feedAssignmentRepo.query(
-      `SELECT * FROM "${schemaName}".batch_feed_assignments
-       WHERE "tenantId" = $1 AND "batchId" = $2 AND "isDeleted" = false
-       LIMIT 1`,
-      [tenantId, batchId]
-    );
-
-    const assignment = result?.[0];
+    const assignment = await this.feedAssignmentRepo.findOne({
+      where: { tenantId, batchId, isDeleted: false },
+    });
     if (!assignment) return null;
-
     return this.mapToResponse(assignment);
   }
 
   /**
-   * Assign feeds to a batch with weight ranges
-   * Creates new or updates existing assignment
+   * Assign feeds to a batch with weight ranges. Creates new or
+   * updates existing assignment (upsert by `(tenantId, batchId)` —
+   * the entity's UNIQUE index forbids two active rows for the same
+   * batch).
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => BatchFeedAssignmentResponse)
@@ -82,79 +92,78 @@ export class BatchFeedAssignmentResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<BatchFeedAssignmentResponse> {
-    const schemaName = getTenantSchemaName(tenantId);
     this.logger.log(`Assigning feeds to batch ${input.batchId} for tenant ${tenantId}`);
 
-    // Validate batch exists
-    const batchResult = await this.batchRepo.query(
-      `SELECT id FROM "${schemaName}".batches_v2 WHERE "id" = $1 AND "tenantId" = $2 AND "isDeleted" = false`,
-      [input.batchId, tenantId]
-    );
-    if (!batchResult?.[0]) {
-      throw new Error(`Batch ${input.batchId} not found`);
+    // Validate the batch exists. tenantId in the WHERE keeps the
+    // lookup tenant-scoped even if the search_path mechanism ever
+    // changes — defence in depth.
+    const batch = await this.batchRepo.findOne({
+      where: { id: input.batchId, tenantId, isDeleted: false },
+    });
+    if (!batch) {
+      throw new NotFoundException(`Batch ${input.batchId} not found`);
     }
 
-    // Validate all feeds exist
+    // Validate every referenced feed exists. The loop is small (an
+    // assignment usually has 3-5 entries — starter / grower /
+    // finisher), so per-feed findOne is fine.
     for (const entry of input.feedAssignments) {
-      const feedResult = await this.feedRepo.query(
-        `SELECT id FROM "${schemaName}".feeds WHERE "id" = $1 AND "tenantId" = $2 AND "isDeleted" = false`,
-        [entry.feedId, tenantId]
-      );
-      if (!feedResult?.[0]) {
-        throw new Error(`Feed ${entry.feedId} not found`);
+      const feed = await this.feedRepo.findOne({
+        where: { id: entry.feedId, tenantId, isDeleted: false },
+      });
+      if (!feed) {
+        throw new NotFoundException(`Feed ${entry.feedId} not found`);
       }
     }
 
-    // Check if assignment already exists
-    const existingResult = await this.feedAssignmentRepo.query(
-      `SELECT * FROM "${schemaName}".batch_feed_assignments
-       WHERE "tenantId" = $1 AND "batchId" = $2 AND "isDeleted" = false
-       LIMIT 1`,
-      [tenantId, input.batchId]
+    const feedAssignments: FeedAssignmentEntry[] = input.feedAssignments.map(
+      (entry, index) => ({
+        feedId: entry.feedId,
+        feedCode: entry.feedCode,
+        feedName: entry.feedName,
+        minWeightG: entry.minWeightG,
+        maxWeightG: entry.maxWeightG,
+        priority: entry.priority ?? index + 1,
+      }),
     );
 
-    const feedAssignments = input.feedAssignments.map((entry, index) => ({
-      feedId: entry.feedId,
-      feedCode: entry.feedCode,
-      feedName: entry.feedName,
-      minWeightG: entry.minWeightG,
-      maxWeightG: entry.maxWeightG,
-      priority: entry.priority ?? index + 1,
-    }));
+    // Upsert: load existing active row, update if present, else
+    // create. The entity's `@Index(['tenantId','batchId'], { unique:
+    // true })` enforces single-active-assignment-per-batch at the
+    // DB layer; this lookup is the operator-friendly path.
+    const existing = await this.feedAssignmentRepo.findOne({
+      where: { tenantId, batchId: input.batchId, isDeleted: false },
+    });
 
     let assignment: BatchFeedAssignment;
-
-    if (existingResult?.[0]) {
-      // Update existing
-      await this.feedAssignmentRepo.query(
-        `UPDATE "${schemaName}".batch_feed_assignments
-         SET "feedAssignments" = $1, "notes" = $2, "updatedBy" = $3, "updatedAt" = NOW(), "version" = "version" + 1
-         WHERE "id" = $4 AND "tenantId" = $5`,
-        [JSON.stringify(feedAssignments), input.notes || null, user.sub, existingResult[0].id, tenantId]
-      );
-
-      const updatedResult = await this.feedAssignmentRepo.query(
-        `SELECT * FROM "${schemaName}".batch_feed_assignments WHERE "id" = $1`,
-        [existingResult[0].id]
-      );
-      assignment = updatedResult[0];
+    if (existing) {
+      existing.feedAssignments = feedAssignments;
+      existing.notes = input.notes;
+      existing.updatedBy = user.sub;
+      // updatedAt + version are managed by TypeORM via the
+      // @UpdateDateColumn + @VersionColumn decorators.
+      assignment = await this.feedAssignmentRepo.save(existing);
     } else {
-      // Create new
-      const insertResult = await this.feedAssignmentRepo.query(
-        `INSERT INTO "${schemaName}".batch_feed_assignments
-         ("tenantId", "batchId", "feedAssignments", "notes", "isActive", "isDeleted", "createdBy", "version")
-         VALUES ($1, $2, $3, $4, true, false, $5, 1)
-         RETURNING *`,
-        [tenantId, input.batchId, JSON.stringify(feedAssignments), input.notes || null, user.sub]
-      );
-      assignment = insertResult[0];
+      const draft = this.feedAssignmentRepo.create({
+        tenantId,
+        batchId: input.batchId,
+        feedAssignments,
+        notes: input.notes,
+        isActive: true,
+        isDeleted: false,
+        createdBy: user.sub,
+      });
+      assignment = await this.feedAssignmentRepo.save(draft);
     }
 
     return this.mapToResponse(assignment);
   }
 
   /**
-   * Update feed assignment
+   * Update feed assignment — partial update of a specific assignment
+   * row. Differs from `assignFeedsToBatch` which is an upsert keyed
+   * by batchId; this targets a specific assignment id and is used
+   * by edit dialogs that already have the row loaded.
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => BatchFeedAssignmentResponse)
@@ -163,37 +172,25 @@ export class BatchFeedAssignmentResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<BatchFeedAssignmentResponse> {
-    const schemaName = getTenantSchemaName(tenantId);
     this.logger.log(`Updating feed assignment ${input.id} for tenant ${tenantId}`);
 
-    // Validate assignment exists
-    const existingResult = await this.feedAssignmentRepo.query(
-      `SELECT * FROM "${schemaName}".batch_feed_assignments
-       WHERE "id" = $1 AND "tenantId" = $2 AND "isDeleted" = false`,
-      [input.id, tenantId]
-    );
-
-    if (!existingResult?.[0]) {
-      throw new Error(`Feed assignment ${input.id} not found`);
+    const existing = await this.feedAssignmentRepo.findOne({
+      where: { id: input.id, tenantId, isDeleted: false },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Feed assignment ${input.id} not found`);
     }
 
-    const updates: string[] = [];
-    const params: (string | boolean | null)[] = [];
-    let paramIndex = 1;
-
     if (input.feedAssignments !== undefined) {
-      // Validate feeds
       for (const entry of input.feedAssignments) {
-        const feedResult = await this.feedRepo.query(
-          `SELECT id FROM "${schemaName}".feeds WHERE "id" = $1 AND "tenantId" = $2 AND "isDeleted" = false`,
-          [entry.feedId, tenantId]
-        );
-        if (!feedResult?.[0]) {
-          throw new Error(`Feed ${entry.feedId} not found`);
+        const feed = await this.feedRepo.findOne({
+          where: { id: entry.feedId, tenantId, isDeleted: false },
+        });
+        if (!feed) {
+          throw new NotFoundException(`Feed ${entry.feedId} not found`);
         }
       }
-
-      const feedAssignments = input.feedAssignments.map((entry, index) => ({
+      existing.feedAssignments = input.feedAssignments.map((entry, index) => ({
         feedId: entry.feedId,
         feedCode: entry.feedCode,
         feedName: entry.feedName,
@@ -201,47 +198,25 @@ export class BatchFeedAssignmentResolver {
         maxWeightG: entry.maxWeightG,
         priority: entry.priority ?? index + 1,
       }));
-      updates.push(`"feedAssignments" = $${paramIndex++}`);
-      params.push(JSON.stringify(feedAssignments));
     }
 
     if (input.notes !== undefined) {
-      updates.push(`"notes" = $${paramIndex++}`);
-      params.push(input.notes);
+      existing.notes = input.notes;
     }
 
     if (input.isActive !== undefined) {
-      updates.push(`"isActive" = $${paramIndex++}`);
-      params.push(input.isActive);
+      existing.isActive = input.isActive;
     }
 
-    if (updates.length > 0) {
-      updates.push(`"updatedBy" = $${paramIndex++}`);
-      params.push(user.sub);
-      updates.push(`"updatedAt" = NOW()`);
-      updates.push(`"version" = "version" + 1`);
-
-      params.push(input.id);
-      params.push(tenantId);
-
-      await this.feedAssignmentRepo.query(
-        `UPDATE "${schemaName}".batch_feed_assignments
-         SET ${updates.join(', ')}
-         WHERE "id" = $${paramIndex++} AND "tenantId" = $${paramIndex}`,
-        params
-      );
-    }
-
-    const updatedResult = await this.feedAssignmentRepo.query(
-      `SELECT * FROM "${schemaName}".batch_feed_assignments WHERE "id" = $1`,
-      [input.id]
-    );
-
-    return this.mapToResponse(updatedResult[0]);
+    existing.updatedBy = user.sub;
+    const saved = await this.feedAssignmentRepo.save(existing);
+    return this.mapToResponse(saved);
   }
 
   /**
-   * Delete (soft) feed assignment
+   * Delete (soft) feed assignment. Routes through the entity's
+   * `softDelete()` business method so the deletedAt / deletedBy /
+   * isActive=false bookkeeping stays in one place.
    */
   @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
@@ -250,32 +225,76 @@ export class BatchFeedAssignmentResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<boolean> {
-    const schemaName = getTenantSchemaName(tenantId);
     this.logger.log(`Deleting feed assignment ${id} for tenant ${tenantId}`);
 
-    const result = await this.feedAssignmentRepo.query(
-      `UPDATE "${schemaName}".batch_feed_assignments
-       SET "isDeleted" = true, "deletedAt" = NOW(), "deletedBy" = $1, "isActive" = false
-       WHERE "id" = $2 AND "tenantId" = $3 AND "isDeleted" = false`,
-      [user.sub, id, tenantId]
-    );
+    const existing = await this.feedAssignmentRepo.findOne({
+      where: { id, tenantId, isDeleted: false },
+    });
+    if (!existing) return false;
 
-    return result[1] > 0;
+    existing.softDelete(user.sub);
+    await this.feedAssignmentRepo.save(existing);
+    return true;
   }
 
   /**
-   * Map entity to GraphQL response
+   * Restore a soft-deleted feed assignment. TENANT_ADMIN only —
+   * follows the uniform restore-mutation pattern PR-47 established
+   * (Feed / Chemical / Supplier / Species / Consumable / Site /
+   * Department / System / FeedingProgram). The 5th of those entities
+   * (BatchFeedAssignment) was held back at PR-47 (FARM-MEDIUM-002)
+   * because the resolver was on raw SQL while RestoreService is
+   * repo-based; converging on repos in this PR closes that gap.
+   *
+   * The (tenantId, batchId) UNIQUE index makes uniqueness checking
+   * load-bearing: if a soft-deleted assignment for batch X is
+   * restored while another active assignment already exists for
+   * batch X, the DB-level unique index would fire. RestoreService.
+   * assertUniqueness pre-checks and surfaces a
+   * RestoreUniquenessConflictError with a clear message.
+   *
+   * Phase 4.2 — closes the FARM-MEDIUM-002 last gap.
    */
-  private mapToResponse(assignment: BatchFeedAssignmentRow): BatchFeedAssignmentResponse {
-    const feedAssignments = typeof assignment.feedAssignments === 'string'
-      ? JSON.parse(assignment.feedAssignments)
-      : assignment.feedAssignments;
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => BatchFeedAssignmentResponse)
+  async restoreBatchFeedAssignment(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; name?: string },
+  ): Promise<BatchFeedAssignmentResponse> {
+    this.logger.log(`Restoring feed assignment ${id} for tenant ${tenantId}`);
+    const restored = await this.restoreService.restore(
+      this.feedAssignmentRepo,
+      BatchFeedAssignment,
+      id,
+      { tenantId, userId: user.sub, userName: user.name },
+      {
+        // (tenantId, batchId) UNIQUE — see batch-feed-assignment.entity.ts:43
+        uniqueKeys: [['batchId']],
+      },
+    );
+    return this.mapToResponse(restored);
+  }
+
+  /**
+   * Map entity to GraphQL response. The JSONB column is already
+   * deserialized to an array by TypeORM; the legacy raw-SQL path
+   * had to JSON.parse a string when the driver returned text — that
+   * branch is no longer reachable but kept defensively for any
+   * caller that still hands in a string-typed test fixture.
+   */
+  private mapToResponse(assignment: BatchFeedAssignment): BatchFeedAssignmentResponse {
+    const feedAssignments = Array.isArray(assignment.feedAssignments)
+      ? assignment.feedAssignments
+      : typeof assignment.feedAssignments === 'string'
+        ? (JSON.parse(assignment.feedAssignments) as FeedAssignmentEntry[])
+        : [];
 
     return {
       id: assignment.id,
       tenantId: assignment.tenantId,
       batchId: assignment.batchId,
-      feedAssignments: feedAssignments || [],
+      feedAssignments,
       isActive: assignment.isActive,
       notes: assignment.notes,
       createdAt: assignment.createdAt,

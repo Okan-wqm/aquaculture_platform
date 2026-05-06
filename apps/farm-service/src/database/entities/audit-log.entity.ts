@@ -18,6 +18,15 @@ export enum AuditAction {
   DELETE = 'DELETE',
   SOFT_DELETE = 'SOFT_DELETE',
   RESTORE = 'RESTORE',
+  /**
+   * Recorded when a SUPER_ADMIN or TENANT_ADMIN consciously placed
+   * fish into a tank that violated the configured biomass / density
+   * cap. Phase 1.1 of the farm-module plan: TankCapacityService.enforce
+   * still allows the write under 'admin-override' mode, but the
+   * elevated risk leaves a row here so post-hoc analysis can reconstruct
+   * which operator decided to overstock when, why, and by how much.
+   */
+  CAPACITY_BLOCKED = 'CAPACITY_BLOCKED',
 }
 
 export interface AuditChanges {

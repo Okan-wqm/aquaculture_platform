@@ -26,16 +26,72 @@
  * INFRA-CRITICAL-021). Consumers that need them import via the deep path.
  */
 
-export * from './types';
-export * from './tenant';
-export * from './decorators';
-export * from './guards';
-export * from './utils';
-export * from './http';
-export { readSecret, bootstrapSecrets } from './config';
-export * from './auth';
-export * from './filters';
-export * from './middleware';
+// Tenant - Shared tenant-scoped constants (GLOBAL_TENANT_UUID, etc.)
+export * from './tenant/constants';
+
+// Decorators
+export * from './decorators/tenant.decorator';
+export * from './decorators/current-user.decorator';
+export * from './decorators/roles.decorator';
+export * from './decorators/cacheable.decorator';
+export * from './decorators/require-permission.decorator';
+
+// Guards
+export * from './guards/roles.guard';
+export * from './guards/tenant.guard';
+export * from './guards/tenant-permission.guard';
+export * from './guards/service-identity.guard';
+export * from './guards/token-revocation.service';
+
+// Utils - Inter-service authentication
+export * from './utils/service-identity.util';
+
+// HTTP - Signed internal HTTP client (HMAC-signed + tenant-bound headers)
+export * from './http/signed-http-client';
+export * from './http/resolve-tenant-id.util';
+
+// Config - Secret provider (Docker Secrets / file-backed env resolution)
+export { readSecret, bootstrapSecrets } from './config/secrets.provider';
+
+// Auth - Centralised JWT verification options + strict token type enforcement
+// All guards MUST use getJwtVerifyOptions() and enforceAccessTokenType().
+export { getJwtVerifyOptions, enforceAccessTokenType } from './auth/jwt-verification.utils';
+export type { JwtVerifyConfig } from './auth/jwt-verification.utils';
+
+// Auth - Shared RS256 JwtModule wiring for all token-CONSUMER services.
+// Token ISSUER (auth-service) keeps its own JwtModule block; every other
+// service must import PlatformJwtModule and never hand-roll JwtModule.
+export { PlatformJwtModule } from './auth/platform-jwt.module';
+
+// Auth - Password hashing with HMAC pepper + legacy lazy-migration path.
+export { hashPassword, verifyPassword, PEPPERED_PREFIX_V1 } from './auth/password.util';
+export type { VerifyPasswordResult } from './auth/password.util';
+
+// Utils - PII masking for GDPR-compliant logging
+export { maskEmail, logSafeUserId, maskPhone, maskPii, maskPiiDeep } from './utils/pii-mask.util';
+
+// Filters
+export * from './filters/http-exception.filter';
+
+// Middleware - includes TenantContextMiddleware, CorrelationIdMiddleware, RequestLoggingMiddleware
+// Note: TenantRequest is excluded here; the canonical TenantRequest is exported from
+// './types/tenant-request.interface' above. The middleware's extended TenantRequest
+// (which adds tenantContext) is available by importing directly from the middleware file.
+export {
+  UserPayload,
+  TenantContext,
+  UserContextMiddleware,
+  TenantContextMiddleware,
+  TraceContext,
+  TracedRequest,
+  CorrelationIdMiddleware,
+  RequestLoggingMiddleware,
+} from './middleware/tenant-context.middleware';
+
+// Tenant Schema Middleware (centralized factory)
+export { createTenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
+
+// Database - Schema Manager and Tenant-Aware Repository
 export * from './database';
 export * from './redis';
 export * from './context';

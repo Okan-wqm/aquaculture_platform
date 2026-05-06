@@ -101,7 +101,6 @@ export const GET_DEPARTMENTS = gql`
       id
       name
       code
-      type
       description
       siteId
       parentDepartmentId
@@ -271,7 +270,6 @@ export const CREATE_DEPARTMENT = gql`
       id
       name
       code
-      type
       description
       siteId
       parentDepartmentId
@@ -290,7 +288,6 @@ export const UPDATE_DEPARTMENT = gql`
       id
       name
       code
-      type
       description
       siteId
       parentDepartmentId

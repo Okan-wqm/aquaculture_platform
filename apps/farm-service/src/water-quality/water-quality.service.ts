@@ -58,6 +58,11 @@ export interface CreateWaterQualityData {
   idempotencyKey?: string;
   notes?: string;
   weatherConditions?: string;
+  /**
+   * Phase 7.4 — sensor-service `sensor_readings` UUID that this WQ
+   * measurement was derived from. Null for manual / bulk-imported.
+   */
+  relatedSensorReadingId?: string;
 }
 
 export interface UpdateWaterQualityData {
@@ -192,6 +197,10 @@ export class WaterQualityService {
         notes: input.notes,
         weatherConditions: input.weatherConditions,
         idempotencyKey: input.idempotencyKey,
+        // Phase 7.4: cross-service correlation pointer to the
+        // sensor_readings row in sensor-service that produced this
+        // measurement. Null for manual entries.
+        relatedSensorReadingId: input.relatedSensorReadingId,
         overallStatus: WaterQualityStatus.UNKNOWN,
         hasAlarm: false,
       });

@@ -3,6 +3,8 @@
  */
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
@@ -23,6 +25,8 @@ import { SiteResponse } from '../site/dto/site.response';
 import { DepartmentResponse } from '../department/dto/department.response';
 import { GetSiteQuery } from '../site/queries/get-site.query';
 import { GetDepartmentQuery } from '../department/queries/get-department.query';
+import { System } from './entities/system.entity';
+import { RestoreService } from '../common/services/restore.service';
 
 @Resolver(() => SystemResponse)
 @UseGuards(TenantGuard)
@@ -32,6 +36,9 @@ export class SystemResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @InjectRepository(System)
+    private readonly systemRepository: Repository<System>,
+    private readonly restoreService: RestoreService,
   ) {}
 
   /**
@@ -94,6 +101,42 @@ export class SystemResolver {
     this.logger.log(`Deleting system: ${id} for tenant ${tenantId} by user ${user.sub} (cascade: ${cascade})`);
     const command = new DeleteSystemCommand(id, tenantId, user.sub, cascade);
     return this.commandBus.execute(command);
+  }
+
+  /**
+   * Restore a soft-deleted system. TENANT_ADMIN only — restoring a
+   * system re-activates child systems and equipment connections; the
+   * uniqueness check guards the (tenantId, siteId, code) index so a
+   * later create with the same code cannot collide with the restored
+   * row. Cascade restore of children is intentionally NOT done here:
+   * each soft-deleted child must be restored explicitly so the operator
+   * is forced to confirm the scope of the rollback.
+   *
+   * Phase 4.2 of the "Farm modülü kalan kör noktalar" plan. Closes
+   * Girdi 6 for System.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => SystemResponse)
+  async restoreSystem(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; name?: string },
+  ): Promise<System> {
+    this.logger.log(`Restoring system ${id} for tenant ${tenantId} by user ${user.sub}`);
+    return this.restoreService.restore(
+      this.systemRepository,
+      System,
+      id,
+      { tenantId, userId: user.sub, userName: user.name },
+      {
+        // System is unique per (tenantId, siteId, code) at the schema
+        // level (see system.entity.ts:80). Restoring a row whose
+        // (siteId, code) tuple has been reclaimed by an active row
+        // would break the unique index — surfaces as
+        // RestoreUniquenessConflictError.
+        uniqueKeys: [['siteId', 'code']],
+      },
+    );
   }
 
   /**

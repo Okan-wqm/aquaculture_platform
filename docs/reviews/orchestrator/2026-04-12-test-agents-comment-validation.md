@@ -1,7 +1,7 @@
 # Test Agents External Comment Validation
 
 **Date:** 2026-04-12
-**Scope:** `.claude/test-agents/*.md`, `docs/test-audits/**`, `docs/research/test-agents/**`, and representative repo surfaces cited by the external commentary
+**Scope:** `.claude/agents/product-audit/*.md`, `docs/test-audits/**`, `docs/research/agents/product-audit/**`, and representative repo surfaces cited by the external commentary
 **Goal:** validate which parts of the external assessment are accurate, which are only partially accurate, and which are now outdated or incorrect against the current repository state
 
 ## Executive Verdict
@@ -18,7 +18,7 @@ The external commentary is directionally useful, but it is **not fully current**
   - audit artifacts **do exist**
   - the repo does **not** currently support the claim that the whole system is "purely theoretical"
 - The most accurate overall conclusion is:
-  - `.claude/test-agents/` is a **real, partially validated review system for product roundtrip audits**
+  - `.claude/agents/product-audit/` is a **real, partially validated review system for product roundtrip audits**
   - it is **not yet a full-platform release-confidence system**
   - its main weaknesses are **coverage ownership gaps** and **insufficient discovery guidance inside specialist prompts**
 
@@ -41,7 +41,7 @@ The external commentary is directionally useful, but it is **not fully current**
 
 ### 1. Current test-agent inventory
 
-Verified under `.claude/test-agents/`:
+Verified under `.claude/agents/product-audit/`:
 
 - 20 files total
 - 1 orchestrator
@@ -82,8 +82,8 @@ The external praise for methodology fidelity is justified.
 
 The following are explicitly encoded:
 
-- phase-driven workflow in [orchestrator](../../../../.claude/test-agents/orchestrator.md)
-- compaction trigger at 4+ specialists in [orchestrator](../../../../.claude/test-agents/orchestrator.md) and [INVOCATION-PACK](../../../../.claude/test-agents/INVOCATION-PACK.md)
+- phase-driven workflow in [orchestrator](../../../../.claude/agents/product-audit/orchestrator.md)
+- compaction trigger at 4+ specialists in [orchestrator](../../../../.claude/agents/product-audit/orchestrator.md) and [INVOCATION-PACK](../../../../.claude/agents/product-audit/INVOCATION-PACK.md)
 - finding ID discipline with `{severity}-{NNN}`
 - gap taxonomy:
   - `write-gap`
@@ -124,8 +124,8 @@ Adjustment:
 
 Why:
 
-- the seven-class taxonomy is encoded directly in [INVOCATION-PACK](../../../../.claude/test-agents/INVOCATION-PACK.md)
-- [context-manager](../../../../.claude/test-agents/context-manager.md) is explicitly instructed to preserve and graph these classes
+- the seven-class taxonomy is encoded directly in [INVOCATION-PACK](../../../../.claude/agents/product-audit/INVOCATION-PACK.md)
+- [context-manager](../../../../.claude/agents/product-audit/context-manager.md) is explicitly instructed to preserve and graph these classes
 
 Practical value:
 
@@ -138,7 +138,7 @@ Practical value:
 
 Why:
 
-- six concrete profiles exist in [INVOCATION-PACK](../../../../.claude/test-agents/INVOCATION-PACK.md)
+- six concrete profiles exist in [INVOCATION-PACK](../../../../.claude/agents/product-audit/INVOCATION-PACK.md)
 - each has a clear "Use when" section and bounded minimum roster
 
 Limitation:
@@ -167,7 +167,7 @@ Limitation:
 
 Why:
 
-- `docs/research/test-agents/2026-04-11-professional-e2e-review-methodology.md` exists
+- `docs/research/agents/product-audit/2026-04-11-professional-e2e-review-methodology.md` exists
 
 Limitation:
 
@@ -313,7 +313,7 @@ Verified repo surfaces:
 - billing scheduler and payment entities exist
 - invoice and subscription state is real platform surface
 
-There is no dedicated billing reconciliation auditor in `.claude/test-agents/`.
+There is no dedicated billing reconciliation auditor in `.claude/agents/product-audit/`.
 
 Some billing UI may be touched indirectly by general auditors, but:
 
@@ -391,7 +391,7 @@ So the corrected version is:
 
 ### D. Research and output infrastructure
 
-#### D1. "Every non-trivial rule traces to docs/research/test-agents/"
+#### D1. "Every non-trivial rule traces to docs/research/agents/product-audit/"
 
 **Verdict:** Not yet achieved
 
@@ -445,10 +445,10 @@ Best calibration:
 
 ## Recommended Follow-Up
 
-If the goal is to harden `.claude/test-agents/` realistically, the highest-value next steps are:
+If the goal is to harden `.claude/agents/product-audit/` realistically, the highest-value next steps are:
 
 1. Add repo-specific discovery guidance to every specialist prompt.
 2. Add explicit out-of-scope ownership boundaries to overlapping auditors.
 3. Add dedicated auditors for edge/industrial, billing reconciliation, AI tool execution, GDPR/compliance, and accessibility.
-4. Create per-auditor research notes under `docs/research/test-agents/`.
+4. Create per-auditor research notes under `docs/research/agents/product-audit/`.
 5. Run at least one second-cycle audit on a narrower topic to test repeatability instead of one-off success.

@@ -76,6 +76,7 @@ import {
 // Services
 import { FeedingProgramService } from '../services/feeding-program.service';
 import { DailyFeedingExecutionService } from '../services/daily-feeding-execution.service';
+import { RestoreService } from '../../common/services/restore.service';
 
 /**
  * User context interface
@@ -303,6 +304,7 @@ export class FeedingProgramResolver {
     private readonly feedingProgramService: FeedingProgramService,
     private readonly dailyFeedingExecutionService: DailyFeedingExecutionService,
     private readonly dataSource: DataSource,
+    private readonly restoreService: RestoreService,
   ) {}
 
   // ==========================================================================
@@ -727,6 +729,36 @@ export class FeedingProgramResolver {
     } catch (error) {
       throw this.handleMutationError('deleteFeedingProgram', error);
     }
+  }
+
+  /**
+   * Restore a soft-deleted feeding program. TENANT_ADMIN only —
+   * restores the program row but does NOT auto-resume the schedule;
+   * the operator must explicitly activateFeedingProgram afterwards.
+   * Uniqueness is checked on (tenantId, code) per
+   * feeding-program.entity.ts:451 so a code reused since the soft
+   * delete surfaces RestoreUniquenessConflictError.
+   *
+   * Phase 4.2 of the "Farm modülü kalan kör noktalar" plan.
+   */
+  @Mutation(() => FeedingProgram, { description: 'Soft-silinmis yemleme programini geri al' })
+  @Roles(Role.TENANT_ADMIN)
+  async restoreFeedingProgram(
+    @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgram> {
+    this.validateTenantAndUser(tenantId, user, 'restoreFeedingProgram');
+    this.logger.log(`Restoring feeding program ${id} for tenant ${tenantId} by user ${user.sub}`);
+    return this.restoreService.restore(
+      this.feedingProgramRepository,
+      FeedingProgram,
+      id,
+      { tenantId, userId: user.sub },
+      {
+        uniqueKeys: [['code']],
+      },
+    );
   }
 
   /**

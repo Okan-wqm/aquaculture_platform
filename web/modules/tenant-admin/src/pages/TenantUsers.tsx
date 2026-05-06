@@ -1,5 +1,20 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { UserPlus, Download, RefreshCw, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Users,
+  Search,
+  MoreVertical,
+  Shield,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Edit,
+  Trash2,
+  UserPlus,
+  Download,
+  RefreshCw,
+  AlertCircle,
+  UserMinus,
+} from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthContext } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
@@ -8,39 +23,107 @@ import { BulkActions } from '../components/users/BulkActions';
 import { UserListSection, type DisplayUser } from '../components/users/UserListSection';
 import { useTenantRoles } from '../hooks/useTenantRoles';
 import {
-  useTenantUsersRaw,
-  useCreateTenantUser,
-  useUpdateTenantUser,
-  useDeleteTenantUser,
-  useDeactivateTenantUser,
-  tenantKeys,
-} from '../hooks/useTenantData';
+  getTenantUsers as fetchUsers,
+  updateTenantUser,
+  createTenantUser,
+  deleteTenantUser,
+  deactivateTenantUser,
+} from '../lib/api';
+import type { User as ApiUserType } from '../lib/types';
 import { logError } from '../utils/error-handling';
 import { formatRelativeTime } from '../utils/date-utils';
 import { DeleteConfirmModal } from '../components/common';
 
-// ---------------------------------------------------------------------------
-// Types & helpers
-// ---------------------------------------------------------------------------
+// ApiUser = the User type returned by the GraphQL endpoint
+type ApiUser = ApiUserType;
 
-// WHY: accessType field added so the user list can display platform access badges
-// and pass the value to the edit modal for pre-populating the form.
+/**
+ * User type for display
+ */
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER' | 'SUPER_ADMIN';
+  status: 'active' | 'inactive' | 'pending';
+  modules: string[];
+  lastLogin: string;
+  createdAt: string;
+}
+
+/**
+ * Role badge component
+ */
+const RoleBadge: React.FC<{ role: User['role'] }> = ({ role }) => {
+  const roleConfig: Record<string, { bg: string; text: string; label: string }> = {
+    SUPER_ADMIN: { bg: 'bg-red-100', text: 'text-red-700', label: 'Super Admin' },
+    TENANT_ADMIN: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Tenant Admin' },
+    MODULE_MANAGER: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Module Manager' },
+    MODULE_USER: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Module User' },
+  };
+
+  const config = roleConfig[role] || roleConfig.MODULE_USER;
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+      <Shield className="w-3 h-3 mr-1" />
+      {config.label}
+    </span>
+  );
+};
+
+/**
+ * Status badge component
+ */
+const StatusBadge: React.FC<{ status: User['status'] }> = ({ status }) => {
+  const statusConfig = {
+    active: { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
+    inactive: { bg: 'bg-gray-100', text: 'text-gray-700', icon: <XCircle className="w-3 h-3" /> },
+    pending: { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Clock className="w-3 h-3" /> },
+  };
+
+  const config = statusConfig[status];
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+      {config.icon}
+      {status.charAt(0).toUpperCase() + status.slice(1)}
+    </span>
+  );
+};
+
+/**
+ * User avatar component
+ */
+const UserAvatar: React.FC<{ name: string; size?: 'sm' | 'md' | 'lg' }> = ({ name, size = 'md' }) => {
+  const initials = name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+  const sizeClasses = { sm: 'w-8 h-8 text-xs', md: 'w-10 h-10 text-sm', lg: 'w-12 h-12 text-base' };
+
+  return (
+    <div className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white font-medium`}>
+      {initials || '??'}
+    </div>
+  );
+};
+
+/**
+ * Transform API user to display user
+ */
 interface ApiUser {
   id: string;
   email: string;
   firstName?: string;
   lastName?: string;
   role: string;
-  accessType?: 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
-  isActive?: boolean;
+  isActive: boolean;
   isEmailVerified?: boolean;
   lastLoginAt?: string;
   createdAt: string;
 }
 
-function transformUser(apiUser: ApiUser): DisplayUser {
-  let status: 'active' | 'inactive' | 'pending' = 'active';
-  if (apiUser.isActive === false) {
+function transformUser(apiUser: ApiUser): User {
+  let status: User['status'] = 'active';
+  if (!apiUser.isActive) {
     status = 'inactive';
   } else if (!apiUser.isEmailVerified && !apiUser.lastLoginAt) {
     status = 'pending';
@@ -59,9 +142,7 @@ function transformUser(apiUser: ApiUser): DisplayUser {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+// Query strings removed -- now using typed API functions from lib/api
 
 /**
  * TenantUsers Page
@@ -81,6 +162,7 @@ const TenantUsers: React.FC = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
 
   // Pagination
   const [page, setPage] = useState(0);
@@ -92,11 +174,18 @@ const TenantUsers: React.FC = () => {
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [editingUser, setEditingUser] = useState<DisplayUser | null>(null);
-  const [deletingUser, setDeletingUser] = useState<DisplayUser | null>(null);
+
+  // Edit state
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+
+  // Delete state
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Roles
+  // SEC-011: Bulk deactivation state
+  const [deactivateError, setDeactivateError] = useState<string | null>(null);
+
+  // Roles for the modal
   const { data: roles = [], isLoading: rolesLoading } = useTenantRoles();
 
   // Debounce search (PERF-003)
@@ -107,26 +196,32 @@ const TenantUsers: React.FC = () => {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [searchQuery]);
 
-  // Data
-  const {
-    data: rawUsers = [],
-    isLoading: loading,
-    error: queryError,
-  } = useTenantUsersRaw({
-    limit: pageSize,
-    offset: page * pageSize,
-    status: statusFilter !== 'all' ? statusFilter : undefined,
-    role: roleFilter !== 'all' ? roleFilter : undefined,
-  });
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const options: { limit: number; offset: number; status?: string; role?: string } = {
+        limit: pageSize,
+        offset: page * pageSize,
+      };
+      if (statusFilter !== 'all') options.status = statusFilter;
+      if (roleFilter !== 'all') options.role = roleFilter;
 
-  const error = queryError ? (queryError as Error).message : null;
-  const users = rawUsers.map(transformUser);
+      const apiUsers = await fetchUsers(options);
+      setUsers((apiUsers || []).map(transformUser));
+    } catch (err) {
+      logError('TenantUsers.loadUsers', err);
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, pageSize, statusFilter, roleFilter]);
 
-  // Client-side search filter
-  const filteredUsers = users.filter((user) => {
-    const q = debouncedSearch.toLowerCase();
-    return user.name.toLowerCase().includes(q) || user.email.toLowerCase().includes(q);
-  });
+  // Mutations
+  const createUserMutation = useCreateTenantUser();
+  const updateUserMutation = useUpdateTenantUser();
+  const deleteUserMutation = useDeleteTenantUser();
+  const deactivateUserMutation = useDeactivateTenantUser();
 
   // Mutations
   const createUserMutation = useCreateTenantUser();
@@ -142,21 +237,20 @@ const TenantUsers: React.FC = () => {
     setSaveError(null);
     try {
       if (editingUser) {
-        // WHY: Pass accessType on update so tenant admin can change platform access.
-        await updateUserMutation.mutateAsync({
-          userId: editingUser.id,
-          input: { firstName: data.firstName, lastName: data.lastName, roleId: data.roleId, accessType: data.accessType },
+        // Update existing user
+        await updateTenantUser(editingUser.id, {
+          firstName: data.firstName,
+          lastName: data.lastName,
+          roleId: data.roleId,
         });
       } else {
-        // WHY: Pass accessType on create so backend sets correct access level
-        // and auto-provisions mobile settings when applicable.
-        await createUserMutation.mutateAsync({
+        // Create new user
+        await createTenantUser({
           firstName: data.firstName,
           lastName: data.lastName,
           email: data.email,
-          roleId: data.roleId || '',
+          roleId: data.roleId,
           sendInvitation: data.sendInvitation ?? true,
-          accessType: data.accessType,
         });
       }
       setIsModalOpen(false);
@@ -172,7 +266,7 @@ const TenantUsers: React.FC = () => {
     if (!deletingUser) return;
     setDeleteError(null);
     try {
-      await deleteUserMutation.mutateAsync(deletingUser.id);
+      await deleteTenantUser(deletingUser.id);
       setDeletingUser(null);
     } catch (err) {
       logError('TenantUsers.handleDelete', err);
@@ -180,14 +274,36 @@ const TenantUsers: React.FC = () => {
     }
   };
 
-  const handleDeactivateUser = useCallback(
-    async (userId: string): Promise<void> => {
-      await deactivateUserMutation.mutateAsync(userId);
-    },
-    [deactivateUserMutation],
-  );
+  // SEC-011: Handle bulk deactivation of selected users
+  const handleBulkDeactivate = async () => {
+    if (selectedUsers.length === 0 || !canManageUsers) return;
+    setDeactivateError(null);
+    try {
+      await Promise.all(
+        selectedUsers.map((userId) =>
+          deactivateTenantUser(userId)
+        )
+      );
+      setSelectedUsers([]);
+    } catch (err) {
+      logError('TenantUsers.handleBulkDeactivate', err);
+      setDeactivateError((err as Error).message);
+    }
+  };
 
-  const handleRefresh = () => queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+  const isDeactivating = deactivateUserMutation.isPending;
+  const isSaving = createUserMutation.isPending || updateUserMutation.isPending;
+  const isDeleting = deleteUserMutation.isPending;
+
+  // Filter users based on search and filters
+  const filteredUsers = users.filter((user) => {
+    const matchesSearch =
+      user.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      user.email.toLowerCase().includes(debouncedSearch.toLowerCase());
+    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+    const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
+    return matchesSearch && matchesRole && matchesStatus;
+  });
 
   const toggleUserSelection = useCallback((userId: string) => {
     setSelectedUsers((prev) =>
@@ -203,6 +319,10 @@ const TenantUsers: React.FC = () => {
 
   const handleRoleChange = (value: string) => { setRoleFilter(value); setPage(0); };
   const handleStatusChange = (value: string) => { setStatusFilter(value); setPage(0); };
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+  };
 
   if (loading) {
     return (
@@ -221,7 +341,11 @@ const TenantUsers: React.FC = () => {
           <p className="text-sm text-gray-500 mt-1">Manage users and their access to modules</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={handleRefresh} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" title="Refresh">
+          <button
+            onClick={handleRefresh}
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+            title="Refresh"
+          >
             <RefreshCw className="w-5 h-5 text-gray-500" />
           </button>
           <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">

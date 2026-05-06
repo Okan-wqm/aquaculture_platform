@@ -3,6 +3,7 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { RestoreModule } from '../common/services/restore.module';
 
 // Entities
 import { Department } from './entities/department.entity';
@@ -39,6 +40,8 @@ const QueryHandlers = [
 @Module({
   imports: [
     TypeOrmModule.forFeature([Department, Site, Equipment, Tank, System]),
+    // Phase 4.2: restoreDepartment mutation delegates to RestoreService.
+    RestoreModule,
   ],
   providers: [
     DepartmentResolver,

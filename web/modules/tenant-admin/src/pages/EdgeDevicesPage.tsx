@@ -16,8 +16,11 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 
 import { InstallerKeyModal } from '../components/devices/InstallerKeyModal';
-import { useEdgeDevices, tenantKeys } from '../hooks/useTenantData';
-import { formatRelativeTime } from '../utils/date-utils';
+import { getEdgeDevices } from '../lib/api';
+import type { EdgeDeviceListItem, DeviceStats } from '../lib/types';
+import { logError } from '../utils/error-handling';
+
+// EdgeDeviceListItem and DeviceStats imported from lib/types
 
 const stateColors: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-800',
@@ -50,7 +53,30 @@ const EdgeDevicesPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  // Debounce search
+  const fetchDevices = useCallback(async () => {
+    setLoading(true);
+    try {
+      const variables: Record<string, unknown> = { page, limit };
+      if (search) variables.search = search;
+      if (stateFilter) variables.lifecycleState = stateFilter;
+      if (onlineFilter !== undefined) variables.isOnline = onlineFilter;
+
+      const data = await getEdgeDevices(variables);
+
+      setDevices(data.edgeDevices.items);
+      setTotal(data.edgeDevices.total);
+      setStats(data.edgeDeviceStats);
+    } catch (err) {
+      logError('EdgeDevicesPage.fetchDevices', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search, stateFilter, onlineFilter]);
+
+  useEffect(() => {
+    fetchDevices();
+  }, [fetchDevices]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearch(searchInput);
@@ -74,6 +100,10 @@ const EdgeDevicesPage: React.FC = () => {
 
   const getStateCount = (state: string) =>
     stats?.byState?.find((s: { state: string; count: number }) => s.state === state)?.count || 0;
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: tenantKeys.devices() });
+  };
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: tenantKeys.devices() });

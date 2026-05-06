@@ -29,6 +29,8 @@ import { TankAllocation } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
 import { TankCapacityService } from '../../tank/services/tank-capacity.service';
+import { AuditLogService } from '../../database/services/audit-log.service';
+import { AuditAction } from '../../database/entities/audit-log.entity';
 
 /**
  * Map the command's AllocationType enum to the BatchAllocatedToTankEvent
@@ -75,6 +77,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly tankCapacityService: TankCapacityService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
@@ -238,7 +241,45 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       tankBatch.isOverCapacity = capacity.isOverCapacity;
       tankBatch.capacityUsedPercent = capacity.utilizationPercent;
 
-      await queryRunner.manager.save(tankBatch);
+      const savedTankBatch = await queryRunner.manager.save(tankBatch);
+
+      // Phase 1.1: when an admin consciously overrode the capacity gate
+      // we record a CAPACITY_BLOCKED row in farm_audit_logs. The write
+      // goes through the same transactional manager so the audit row
+      // commits or rolls back atomically with the allocation. The
+      // service.enforce() call already logged a warn-level line; this
+      // is the durable trail post-hoc analysis can query.
+      if (capacity.isOverCapacity) {
+        await this.auditLogService.logWithManager(queryRunner.manager, {
+          tenantId,
+          entityType: 'TankBatch',
+          entityId: savedTankBatch.id,
+          action: AuditAction.CAPACITY_BLOCKED,
+          userId: allocatedBy,
+          changes: {
+            after: {
+              tankId: payload.tankId,
+              batchId,
+              incomingBiomassKg: biomassKg,
+              projectedBiomassKg: capacity.projectedBiomassKg,
+              projectedDensityKgM3: capacity.projectedDensityKgM3,
+              maxBiomassKg: capacity.maxBiomassKg,
+              maxDensityKgM3: capacity.maxDensityKgM3,
+              utilizationPercent: capacity.utilizationPercent,
+              isOverBiomass: capacity.isOverBiomass,
+              isOverDensity: capacity.isOverDensity,
+              primaryBlockReason: capacity.primaryBlockReason,
+            },
+          },
+          metadata: {
+            source: 'AllocateToTankHandler',
+          },
+          summary:
+            `Admin override: allocated ${biomassKg.toFixed(2)} kg into ` +
+            `tank ${equipment.code ?? payload.tankId} despite ${capacity.primaryBlockReason} ` +
+            `cap (${capacity.utilizationPercent.toFixed(1)}% utilization)`,
+        });
+      }
 
       // Equipment güncelle
       equipment.currentBiomass = tankBatch.totalBiomassKg;

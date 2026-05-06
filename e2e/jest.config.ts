@@ -1,16 +1,15 @@
-export default {
-  displayName: 'e2e',
+import type { Config } from 'jest';
+
+const config: Config = {
+  displayName: 'e2e-workflow',
   testEnvironment: 'node',
   transform: {
-    '^.+\\.[tj]s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.json' }],
+    '^.+\\.ts$': 'ts-jest',
   },
-  moduleFileExtensions: ['ts', 'js', 'json'],
   testMatch: ['<rootDir>/tests/**/*.spec.ts'],
-  moduleNameMapper: {
-    '^@platform/backend-common$': '<rootDir>/../libs/backend-common/src/index.ts',
-    '^@platform/shared$': '<rootDir>/../libs/shared/src/index.ts',
-    '^@platform/event-contracts$': '<rootDir>/../libs/event-contracts/src/index.ts',
-    '^@platform/storage$': '<rootDir>/../libs/storage/src/index.ts',
-    '^@platform/testing$': '<rootDir>/../libs/testing/src/index.ts',
-  },
+  moduleFileExtensions: ['ts', 'js', 'json'],
+  testTimeout: 30000,
+  verbose: true,
 };
+
+export default config;

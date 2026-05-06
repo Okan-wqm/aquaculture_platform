@@ -53,6 +53,8 @@ import { FeedingResolvers } from './resolvers';
 // CreateFeedingRecordHandler. Imported here so the DI container
 // resolves the service for every feeding command handler.
 import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
+// Phase 4.2: restoreFeedingProgram mutation delegates to RestoreService.
+import { RestoreModule } from '../common/services/restore.module';
 
 @Module({
   imports: [
@@ -72,6 +74,7 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
       Equipment,
     ]),
     BackdatePolicyModule,
+    RestoreModule,
   ],
   providers: [
     FeedSelectorService,

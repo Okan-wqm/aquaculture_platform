@@ -67,32 +67,6 @@ Before running `terraform apply` the operator must:
 
 ---
 
-## Enable the staging pipeline
-
-The staging workflows (`deploy-staging.yml` + the `staging-gate` job in
-`deploy-digitalocean.yml`) are SHELF-READY: committed, tested, but
-gated behind a single repository variable so they do not fire until
-the operator actually provisions the droplet.
-
-| State | `vars.STAGING_ENABLED` | `deploy-staging.yml` | prod `staging-gate` |
-|-------|------------------------|----------------------|---------------------|
-| Default (no staging) | unset / `false`  | skips on push (warns once) | auto-bypasses (warns once) |
-| Provisioned          | `true`           | runs full pipeline         | enforces `deployed/staging-<sha>` tag |
-
-**To enable** (once the droplet exists and the secrets below are populated):
-
-1. GitHub repo → Settings → Secrets and variables → Actions → **Variables** tab
-2. New variable: `STAGING_ENABLED` = `true`
-3. Next push to `main` triggers a real staging deploy AND the prod
-   workflow's staging-gate enforces the tag. Both behaviours flip at
-   once — there is no half-enabled state.
-
-**To disable** (e.g. tearing down for cost reasons): set
-`STAGING_ENABLED=false` (or delete the variable). The gate auto-bypasses
-again; prod deploys resume the pre-WS9 fast path.
-
----
-
 ## Provision (Terraform)
 
 Create an environment root module at `infrastructure/terraform/environments/staging/main.tf` (not part of WS9 Phase 1; tracked in the plan as WS9 Phase 2 — "operator provisions actual droplet"). The module wires the `staging-droplet` module:

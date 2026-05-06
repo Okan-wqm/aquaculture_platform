@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import json
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,9 +32,11 @@ def run_cycle(paths: WorkspacePaths | None = None, **kwargs: Any) -> dict[str, o
     write_index(paths.feedback_index, index, paths.ledgers)
 
     cycle_id = datetime.now(timezone.utc).strftime("cyc-%Y%m%dT%H%M%SZ")
+    git_head_sha_at_cycle = _git_head_sha(paths.repo_root)
     learning = run_learning_pass(paths, cycle_id=cycle_id)
     state = {
         "cycle_id": cycle_id,
+        "git_head_sha_at_cycle": git_head_sha_at_cycle,
         "repo_root": str(paths.repo_root),
         "workspace_root": str(paths.workspace_root),
         "feedback_pressure_emitted": len(emitted),
@@ -59,13 +62,23 @@ def run_enterprise_cycle(
     if (root / "ARIA_STOP").exists():
         return {"schema_version": 2, "cycle_id": cycle_id, "event": "stopped", "status": "stopped"}
     workspace = _ensure_enterprise_workspace(workspace_root, workspace_base, root)
+    git_head_sha_at_cycle = _git_head_sha(Path(workspace_root))
     append_jsonl(root / "cycles.jsonl", {"schema_version": 2, "at": utc_now(), "cycle_id": cycle_id, "event": "started"})
     learning = run_learning_pass(workspace, cycle_id=cycle_id, tools_root=root)
     discovery = run_discovery(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root, snapshot_mode=snapshot_mode)
     diff = run_cycle_diff(cycle_id=cycle_id, base_dir=root)
     if discovery_only:
-        event = _complete_event(root, cycle_id, 0)
-        state = {"schema_version": 2, "cycle_id": cycle_id, "status": "completed", "event": event, "learning": learning, "discovery": discovery, "cycle_diff": diff}
+        event = _complete_event(root, cycle_id, 0, git_head_sha_at_cycle=git_head_sha_at_cycle)
+        state = {
+            "schema_version": 2,
+            "cycle_id": cycle_id,
+            "git_head_sha_at_cycle": git_head_sha_at_cycle,
+            "status": "completed",
+            "event": event,
+            "learning": learning,
+            "discovery": discovery,
+            "cycle_diff": diff,
+        }
         _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
         return state
 
@@ -111,10 +124,11 @@ def run_enterprise_cycle(
         base_dir=root,
     )
     dashboard = generate_observability_dashboard(cycle_id=cycle_id, base_dir=root)
-    event = _complete_event(root, cycle_id, len(decisions))
+    event = _complete_event(root, cycle_id, len(decisions), git_head_sha_at_cycle=git_head_sha_at_cycle)
     state = {
         "schema_version": 2,
         "cycle_id": cycle_id,
+        "git_head_sha_at_cycle": git_head_sha_at_cycle,
         "status": "completed",
         "event": event,
         "learning": learning,
@@ -133,12 +147,13 @@ def run_enterprise_cycle(
     return state
 
 
-def _complete_event(root: Path, cycle_id: str, decision_count: int) -> dict[str, Any]:
+def _complete_event(root: Path, cycle_id: str, decision_count: int, *, git_head_sha_at_cycle: str | None = None) -> dict[str, Any]:
     event = {
         "schema_version": 2,
         "at": utc_now(),
         "cycle_id": cycle_id,
         "event": "completed",
+        "git_head_sha_at_cycle": git_head_sha_at_cycle,
         "tool_decision_count": decision_count,
         "tool_governance_decision_count": decision_count,
     }
@@ -163,6 +178,7 @@ def _workspace_cycle_state(paths: WorkspacePaths, state: dict[str, Any]) -> dict
     return {
         "schema_version": 2,
         "cycle_id": state.get("cycle_id"),
+        "git_head_sha_at_cycle": state.get("git_head_sha_at_cycle"),
         "status": state.get("status"),
         "repo_root": str(paths.repo_root),
         "workspace_root": str(paths.workspace_root),
@@ -177,3 +193,21 @@ def _write_workspace_cycle_artifact(paths: WorkspacePaths, state: dict[str, Any]
         json.dumps(state, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _git_head_sha(repo_root: Path) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root.resolve(),
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    value = completed.stdout.strip()
+    return value or None

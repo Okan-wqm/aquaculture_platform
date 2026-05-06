@@ -4,10 +4,11 @@ import hashlib
 import json
 import subprocess
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, read_jsonl, write_index
+from .ledger import append_jsonl, file_hash, read_jsonl, write_index
 
 
 @dataclass(frozen=True)
@@ -95,14 +96,7 @@ def ensure_workspace(paths: WorkspacePaths) -> None:
                 "repo_hash": paths.workspace_root.name,
             },
         )
-        record_workspace_governance(
-            paths,
-            "vocabulary_loaded",
-            {
-                "source": "embedded",
-                "legacy_schema_detected": False,
-            },
-        )
+        record_workspace_governance(paths, "vocabulary_loaded", _failure_mode_vocabulary_marker(paths))
     _prepare_workspace_dirs(paths)
     write_index(paths.feedback_index, _index_state(paths), paths.ledgers)
 
@@ -203,6 +197,7 @@ def _index_state(paths: WorkspacePaths) -> dict[str, Any]:
         except json.JSONDecodeError:
             current = {}
     current.setdefault("pressure_evidence_fingerprints_emitted", _pressure_fingerprints(paths))
+    current.setdefault("failure_mode_vocabulary_loaded", _failure_mode_vocabulary_marker(paths))
     return current
 
 
@@ -213,3 +208,45 @@ def _pressure_fingerprints(paths: WorkspacePaths) -> list[str]:
         for row in rows
         if isinstance(row.get("evidence_fingerprint"), str) and row.get("evidence_fingerprint")
     )
+
+
+def _failure_mode_vocabulary_marker(paths: WorkspacePaths) -> dict[str, Any]:
+    try:
+        resource = resources.files("aria_kernel.data").joinpath("default_failure_modes.json")
+        payload = json.loads(resource.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ModuleNotFoundError):
+        payload = {"$schema": "aria/failure-mode-vocab/v3", "modes": []}
+    default_modes = _modes_from_payload(payload, ignore_feedback_kinds=False)
+    marker = {
+        "source": "embedded",
+        "schema": payload.get("$schema"),
+        "default_count": len(default_modes),
+        "override_count": 0,
+        "legacy_schema_detected": False,
+        "override_hash": None,
+    }
+    override_path = paths.workspace_root / "aria-config" / "failure_mode_vocabulary.json"
+    if not override_path.exists():
+        return marker
+    try:
+        override = json.loads(override_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return marker
+    legacy = str(override.get("$schema") or "").endswith("/v2")
+    marker["source"] = "legacy-v2-tolerated" if legacy else "override-merged"
+    marker["override_count"] = len(_modes_from_payload(override, ignore_feedback_kinds=legacy))
+    marker["legacy_schema_detected"] = legacy
+    marker["override_hash"] = file_hash(override_path)
+    return marker
+
+
+def _modes_from_payload(payload: dict[str, Any], *, ignore_feedback_kinds: bool) -> set[str]:
+    raw_modes = payload.get("modes", [])
+    modes = {
+        str(item.get("id") if isinstance(item, dict) else item)
+        for item in raw_modes
+        if item and str(item.get("id") if isinstance(item, dict) else item).strip()
+    }
+    if ignore_feedback_kinds:
+        modes.difference_update({"missed_signal", "false_positive", "confirmed_signal", "unknown_capability", "external_contradiction", "closed_signal"})
+    return modes

@@ -45,7 +45,9 @@ Hooks are idempotent. Hook-to-hook communication is ledger-only; no shared in-me
 
 Pressure decay thresholds default to `{faded: 90d, sleeping: 180d, archived: 365d}` and may be overridden by `<workspace>/aria-config/decay_thresholds.json` using integer day values or strings like `"90d"`. The cycle recomputes effective non-terminal pressure age and appends necessary `pressure_state.jsonl` transitions with reason `decay_recompute`. If any transitions are written, workspace governance records `pressure_decayed` with `{transitions, total, cycle_id}`. Terminal `closed` and `satisfied` pressures never decay.
 
-Artifact pruning archives only non-ledger cycle artifacts. Workspace cycle files matching `<workspace>/aria-state/cycles/cyc-*.json` use their filename timestamp. Tools discovery artifact directories under `<tools-dir>/discovery/<cycle_id>/` use cycle timestamp when present and filesystem mtime as fallback. Archives are moved under `<workspace|tools>/.archive/<year>/...`. Hash-covered ledgers are never archived by this hook. Each archive emits `cycle_artifact_archived` governance in the root that owns the artifact.
+Artifact pruning archives only non-ledger cycle artifacts with default TTL `365d`. Workspace cycle files matching `<workspace>/aria-state/cycles/cyc-*.json` use their filename timestamp. Tools discovery artifact directories under `<tools-dir>/discovery/<cycle_id>/` use cycle timestamp when present and filesystem mtime as fallback. Archives are moved under `<workspace|tools>/.archive/<year>/...`. Hash-covered ledgers are never archived by this hook. Each archive emits `cycle_artifact_archived` governance in the root that owns the artifact.
+
+Completed cycle outputs include `git_head_sha_at_cycle` in both the tools cycle completion event and workspace cycle artifact. The value is `git rev-parse HEAD` at cycle start, or `null` outside a Git worktree / on timeout.
 
 `vocabulary_reload_check` recomputes the failure-mode vocabulary marker. If the marker is unchanged it is a no-op; if it changes it writes `vocabulary_loaded` and updates the workspace integrity index.
 

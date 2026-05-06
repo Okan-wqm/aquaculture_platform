@@ -3,6 +3,8 @@
 # ARIA Phase-1 PoC runtime output (tools/aria-poc/poc.py is committed; outputs are not)
 .aria-poc/
 .aria-ci/
+aria-tools/.archive/
+aria-tools/.backups/
 
 # Cargo build artefacts (workspace + crate-level). Cargo.lock IS committed
 # (binaries land in apps/sensor-ingestion in Faz 2; reproducibility wins).

@@ -269,6 +269,17 @@ class V13ContractTests(unittest.TestCase):
         workspace_base = self.base / "vocab-workspaces"
         paths = workspace_paths(self.repo, workspace_base)
         ensure_workspace(paths)
+        initial_governance = read_jsonl(paths.ledgers["governance"])
+        vocabulary_events = [row for row in initial_governance if row["kind"] == "vocabulary_loaded"]
+        self.assertEqual(len(vocabulary_events), 1)
+        self.assertEqual(
+            sorted(vocabulary_events[0]["details"]),
+            ["default_count", "legacy_schema_detected", "override_count", "override_hash", "schema", "source"],
+        )
+        self.assertEqual(load_index(paths.feedback_index)["failure_mode_vocabulary_loaded"], vocabulary_events[0]["details"])
+        self.assertIn("adapter_missing", load_failure_modes(paths))
+        self.assertEqual(len([row for row in read_jsonl(paths.ledgers["governance"]) if row["kind"] == "vocabulary_loaded"]), 1)
+
         override = paths.workspace_root / "aria-config" / "failure_mode_vocabulary.json"
         override.parent.mkdir(parents=True)
         override.write_text(
@@ -287,6 +298,29 @@ class V13ContractTests(unittest.TestCase):
         self.assertEqual(governance[-1]["kind"], "vocabulary_loaded")
         self.assertEqual(governance[-1]["details"]["source"], "legacy-v2-tolerated")
         self.assertTrue(governance[-1]["details"]["legacy_schema_detected"])
+        self.assertEqual(len([row for row in governance if row["kind"] == "vocabulary_loaded"]), 2)
+
+    def test_cycle_records_git_head_sha_at_cycle(self):
+        tools_dir = self.base / "head-tools"
+        workspace_base = self.base / "head-workspaces"
+        expected = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+
+        result = run_cycle(
+            workspace_root=self.repo,
+            workspace_base=workspace_base,
+            cycle_id="cyc-20260506T000000Z",
+            base_dir=tools_dir,
+            discovery_only=True,
+        )
+
+        self.assertEqual(result["git_head_sha_at_cycle"], expected)
+        self.assertEqual(result["event"]["git_head_sha_at_cycle"], expected)
+        completed = [row for row in read_jsonl(tools_dir / "cycles.jsonl") if row.get("event") == "completed"][-1]
+        self.assertEqual(completed["git_head_sha_at_cycle"], expected)
+        artifact = json.loads(
+            (workspace_paths(self.repo, workspace_base).cycle_dir / "cyc-20260506T000000Z.json").read_text(encoding="utf-8"),
+        )
+        self.assertEqual(artifact["git_head_sha_at_cycle"], expected)
 
     def test_vocabulary_normalization_drift_is_audited_without_rewriting_old_rows(self):
         workspace_base = self.base / "drift-workspaces"

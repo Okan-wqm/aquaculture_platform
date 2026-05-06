@@ -9,15 +9,17 @@
 Affected CI lint reported hundreds of E2E errors, including unresolved `describe`, `beforeEach`, `expect`, and helper member access. The visible `566 errors` count was emitted by `@aquaculture/e2e-tests:lint`.
 
 ## Root Cause
-The root ESLint typed parser did not include `e2e/tsconfig.json` in `parserOptions.project`, so E2E files were linted without the TypeScript program that declares the Jest and Node test runtime. The E2E tsconfig also only included `jest.config.ts` and `tests/**/*.ts`, leaving helpers, fixtures, setup, teardown, Playwright config, and ambient declarations outside the typed lint project.
+The root ESLint typed parser did not include `e2e/tsconfig.json` in `parserOptions.project`, and the E2E tsconfig only included `jest.config.ts` plus `tests/**/*.ts`. That meant helpers, fixtures, setup, teardown, Playwright config, and ambient declarations were not modeled as one explicit E2E lint boundary.
+
+GitHub Actions later proved this was not the only cause of the `@aquaculture/e2e-tests:lint` failure: the latest affected run still reports 568 problems / 566 errors. Remaining E2E failures are real lint debt and unresolved type-import contracts, including import ordering, non-null assertions, unused fixtures, direct relative imports across Nx boundaries, unsafe YAML/Playwright call sites, and structured logging violations.
 
 ## Architectural Fix
 Make the E2E TypeScript program the single typed lint boundary for the E2E project. Root ESLint now includes `e2e/tsconfig.json`, and the E2E tsconfig includes all local TypeScript files so lint, Jest, Playwright helpers, fixtures, setup, and teardown are checked against the same runtime contract.
 
-This does not suppress any lint rule and does not exclude E2E files from CI. It removes the harness misconfiguration so remaining lint failures represent real code issues rather than missing type-program context.
+This does not suppress any lint rule and does not exclude E2E files from CI. It makes the E2E lint boundary explicit so remaining lint failures can be remediated as code issues instead of hidden by configuration.
 
 ## Verification
-- GitHub Actions `@aquaculture/e2e-tests:lint` in affected CI.
+- GitHub Actions `@aquaculture/e2e-tests:lint` in affected CI still fails with 568 problems / 566 errors.
 
 ## Status
-Fixed on 2026-05-05; pending GitHub Actions confirmation.
+Boundary corrected on 2026-05-05. E2E lint debt remains open and must be fixed at source.

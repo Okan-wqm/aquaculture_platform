@@ -372,6 +372,13 @@ jobs:
           AFFECTED_TEST_PROJECTS="$(npx nx show projects --affected --base="$BASE_REF" --head=HEAD --with-target=test)"
 
           if printf '%s\n' "$AFFECTED_TEST_PROJECTS" | grep -Fxq 'migration-harness'; then
+            # 2026-05-06: Pull the harness-owned pinned PG image before Jest
+            # starts. Otherwise a cold GitHub runner can spend the 90s
+            # beforeAll budget downloading the image, then continue async boot
+            # after Jest has torn the environment down.
+            MIGRATION_HARNESS_POSTGRES_IMAGE="$(node scripts/ci/print-migration-harness-postgres-image.mjs)"
+            echo "Prewarming migration-harness PostgreSQL image from canonical setup.ts"
+            docker pull "$MIGRATION_HARNESS_POSTGRES_IMAGE"
             npx nx run migration-harness:test
           else
             echo "migration-harness is not affected; skipping isolated Testcontainers gate."

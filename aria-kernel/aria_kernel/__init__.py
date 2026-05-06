@@ -31,6 +31,7 @@ _EXPORT_MODULES = (
     "impact",
     "impact_graph",
     "integrity",
+    "learning",
     "llm_bridge",
     "memory",
     "migration",

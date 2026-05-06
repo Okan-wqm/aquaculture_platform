@@ -222,6 +222,7 @@ def _main(argv: list[str] | None = None) -> int:
                 json.dumps(
                     run_cycle(
                         workspace_root=args.workspace_root,
+                        workspace_base=args.workspace_base,
                         cycle_id=args.cycle_id,
                         base_dir=args.tools_dir,
                         discovery_only=args.discovery_only,

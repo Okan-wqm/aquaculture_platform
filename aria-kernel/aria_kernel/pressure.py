@@ -30,6 +30,7 @@ DECAY_BUCKETS = (
     ("sleeping", 180),
     ("faded", 90),
 )
+DEFAULT_DECAY_THRESHOLDS = {"faded": 90, "sleeping": 180, "archived": 365}
 
 
 def run_pressure(
@@ -202,9 +203,10 @@ def list_workspace_pressures(
     *,
     include_states: set[str] | None = None,
     now: datetime | None = None,
+    decay_thresholds: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     include_states = include_states or {"active"}
-    records = effective_workspace_pressures(paths, now=now)
+    records = effective_workspace_pressures(paths, now=now, decay_thresholds=decay_thresholds)
     return [record for record in records if record.get("effective_state") in include_states]
 
 
@@ -213,8 +215,9 @@ def explain_workspace_pressure(
     pressure_event_id: str,
     *,
     now: datetime | None = None,
+    decay_thresholds: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    records = effective_workspace_pressures(paths, now=now)
+    records = effective_workspace_pressures(paths, now=now, decay_thresholds=decay_thresholds)
     for record in records:
         if record.get("event_id") == pressure_event_id:
             return record
@@ -230,6 +233,7 @@ def curate_workspace_pressures(
     reason: str | None = None,
     cycle_id: str | None = None,
     now: datetime | None = None,
+    decay_thresholds: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     if apply and not acknowledge:
         raise ValueError("curate_apply_requires_acknowledge")
@@ -237,7 +241,7 @@ def curate_workspace_pressures(
         raise ValueError("curate_apply_requires_reason")
     now = now or _utcnow_dt()
     threshold = now - timedelta(days=since_days)
-    records = effective_workspace_pressures(paths, now=now)
+    records = effective_workspace_pressures(paths, now=now, decay_thresholds=decay_thresholds)
     candidates = [
         record
         for record in records
@@ -275,6 +279,7 @@ def close_pressures_from_signals(
     *,
     cycle_id: str | None = None,
     now: datetime | None = None,
+    decay_thresholds: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     feedback = read_jsonl(paths.ledgers["external_feedback"])
     signals_by_gap: dict[str, list[dict[str, Any]]] = {}
@@ -285,7 +290,7 @@ def close_pressures_from_signals(
         if gap:
             signals_by_gap.setdefault(gap, []).append(row)
 
-    records = effective_workspace_pressures(paths, now=now)
+    records = effective_workspace_pressures(paths, now=now, decay_thresholds=decay_thresholds)
     emitted: list[dict[str, Any]] = []
     for gap, signals in sorted(signals_by_gap.items()):
         signal_ids = sorted({str(row.get("event_id")) for row in signals if row.get("event_id")})
@@ -324,8 +329,10 @@ def effective_workspace_pressures(
     paths: WorkspacePaths,
     *,
     now: datetime | None = None,
+    decay_thresholds: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     now = now or _utcnow_dt()
+    thresholds = decay_thresholds or DEFAULT_DECAY_THRESHOLDS
     pressures = read_jsonl(paths.ledgers["pressure"])
     feedback_by_id = _feedback_by_id(paths)
     states_by_pressure: dict[str, list[dict[str, Any]]] = {}
@@ -339,7 +346,7 @@ def effective_workspace_pressures(
         pressure_id = str(pressure.get("event_id") or pressure.get("pressure_id") or "")
         history = sorted(states_by_pressure.get(pressure_id, []), key=lambda row: str(row.get("ts") or ""))
         last_evidence_at, timestamp_missing = _last_evidence_at(pressure, feedback_by_id)
-        decay_state = _decayed_state(last_evidence_at, now)
+        decay_state = _decayed_state(last_evidence_at, now, thresholds)
         effective_state = decay_state
         if history:
             explicit_state = str(history[-1].get("to_state") or "")
@@ -354,7 +361,7 @@ def effective_workspace_pressures(
         record["decay_state"] = decay_state
         record["last_evidence_at"] = _format_dt(last_evidence_at)
         record["state_history"] = history
-        record["state_details"] = {"timestamp_missing": timestamp_missing}
+        record["state_details"] = {"timestamp_missing": timestamp_missing, "decay_thresholds": dict(thresholds)}
         records.append(record)
     records.sort(key=lambda row: (str(row.get("effective_state")), str(row.get("event_id") or row.get("pressure_id"))))
     return records
@@ -371,14 +378,15 @@ def append_pressure_state_event(
     feedback_event_ids: list[str] | None = None,
     details: dict[str, Any] | None = None,
     now: datetime | None = None,
+    decay_thresholds: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     if to_state not in PRESSURE_STATES:
         raise ValueError(f"unsupported pressure state: {to_state}")
     pressure_event_id = str(pressure.get("event_id") or pressure.get("pressure_event_id") or pressure.get("pressure_id") or "")
-    existing = effective_workspace_pressures(paths, now=now)
+    existing = effective_workspace_pressures(paths, now=now, decay_thresholds=decay_thresholds)
     by_id = {str(row.get("event_id") or row.get("pressure_id")): row for row in existing}
     current = by_id.get(pressure_event_id, pressure)
-    from_state = str(current.get("effective_state") or "active")
+    from_state = _explicit_pressure_state(current)
     payload = {
         "$schema": "aria/pressure-state-event/v1",
         "event_id": _stable_state_event_id(
@@ -482,11 +490,29 @@ def _last_evidence_at(pressure: dict[str, Any], feedback_by_id: dict[str, dict[s
     return _epoch(), True
 
 
-def _decayed_state(last_evidence_at: datetime, now: datetime) -> str:
+def _decayed_state(last_evidence_at: datetime, now: datetime, thresholds: dict[str, int] | None = None) -> str:
+    thresholds = thresholds or DEFAULT_DECAY_THRESHOLDS
     age_days = (now - last_evidence_at).days
-    for state, threshold in DECAY_BUCKETS:
+    buckets = sorted(
+        ((state, int(days)) for state, days in thresholds.items() if state in {"faded", "sleeping", "archived"}),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    for state, threshold in buckets:
         if age_days >= threshold:
             return state
+    return "active"
+
+
+def _explicit_pressure_state(record: dict[str, Any]) -> str:
+    history = record.get("state_history")
+    if isinstance(history, list) and history:
+        latest = history[-1]
+        if isinstance(latest, dict) and isinstance(latest.get("to_state"), str):
+            return latest["to_state"]
+    explicit = record.get("to_state")
+    if isinstance(explicit, str) and explicit in PRESSURE_STATES:
+        return explicit
     return "active"
 
 

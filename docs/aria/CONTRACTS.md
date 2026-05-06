@@ -33,6 +33,22 @@ Governance known kinds include `workspace_bootstrapped`, `tools_root_bootstrappe
 
 Default governance actor: if `ARIA_ACTOR` is set, parse it as JSON `{kind, id, session?}`. Otherwise use `{kind: "human", id: "<user>@<hostname>"}`.
 
+## 0.2 — Phase-2A Learning Pass Contract
+
+Each cycle runs an ordered learning pass before normal cycle work:
+
+1. `decay_recompute`
+2. `artifact_prune`
+3. `vocabulary_reload_check`
+
+Hooks are idempotent. Hook-to-hook communication is ledger-only; no shared in-memory hook state is authoritative. Workspace integrity drift, workspace precondition failures, and tools lock failures fail closed and abort the cycle. Local hook failures such as malformed hook config or unparsable hook-local files write workspace governance `learning_hook_failed` with `{hook_name, error_class, error_message, traceback_first_line?}` and the next hook continues.
+
+Pressure decay thresholds default to `{faded: 90d, sleeping: 180d, archived: 365d}` and may be overridden by `<workspace>/aria-config/decay_thresholds.json` using integer day values or strings like `"90d"`. The cycle recomputes effective non-terminal pressure age and appends necessary `pressure_state.jsonl` transitions with reason `decay_recompute`. If any transitions are written, workspace governance records `pressure_decayed` with `{transitions, total, cycle_id}`. Terminal `closed` and `satisfied` pressures never decay.
+
+Artifact pruning archives only non-ledger cycle artifacts. Workspace cycle files matching `<workspace>/aria-state/cycles/cyc-*.json` use their filename timestamp. Tools discovery artifact directories under `<tools-dir>/discovery/<cycle_id>/` use cycle timestamp when present and filesystem mtime as fallback. Archives are moved under `<workspace|tools>/.archive/<year>/...`. Hash-covered ledgers are never archived by this hook. Each archive emits `cycle_artifact_archived` governance in the root that owns the artifact.
+
+`vocabulary_reload_check` recomputes the failure-mode vocabulary marker. If the marker is unchanged it is a no-op; if it changes it writes `vocabulary_loaded` and updates the workspace integrity index.
+
 Snapshot mode enum is `{committed, working_tree, staged}`. `committed` is the default and CI mode; it reads the HEAD-tracked snapshot and ignores dirty/staged changes with a governance event. `working_tree` is Phase-1 supported and includes dirty/staged/untracked files. `staged` is Phase-2 reserved.
 
 Fail-closed bootstrap/migration codes are CLI error codes, not governance events, because the root lock/ownership is not trusted yet: `tools_migration_required = 10`, `ambiguous_tools_root = 11`, `workspace_migration_required = 12`, `binding_mismatch = 13`, `repo_resolution_failed = 14`.

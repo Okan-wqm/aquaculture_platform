@@ -1,0 +1,263 @@
+from __future__ import annotations
+
+import json
+import shutil
+import traceback
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Callable
+
+from .feedback import load_failure_mode_vocabulary
+from .ledger import LedgerIntegrityError, verify_index_hashes
+from .pressure import DEFAULT_DECAY_THRESHOLDS, TERMINAL_STATES, append_pressure_state_event, effective_workspace_pressures
+from .tool_registry import append_tools_governance
+from .workspace import WorkspacePaths, record_workspace_governance
+
+
+DEFAULT_ARTIFACT_TTL_DAYS = 365
+LEARNING_HOOK_ORDER = (
+    "decay_recompute",
+    "artifact_prune",
+    "vocabulary_reload_check",
+)
+
+
+def run_learning_pass(
+    paths: WorkspacePaths,
+    *,
+    cycle_id: str,
+    tools_root: str | Path | None = None,
+    now: datetime | None = None,
+    artifact_ttl_days: int = DEFAULT_ARTIFACT_TTL_DAYS,
+) -> dict[str, Any]:
+    """Run Phase-2A cycle learning hooks in contract order."""
+
+    now = now or datetime.now(timezone.utc)
+    verify_index_hashes(paths.feedback_index, paths.ledgers)
+    root = Path(tools_root) if tools_root is not None else None
+    hooks: tuple[tuple[str, Callable[[], dict[str, Any]]], ...] = (
+        ("decay_recompute", lambda: recompute_pressure_decay(paths, cycle_id=cycle_id, now=now)),
+        ("artifact_prune", lambda: prune_cycle_artifacts(paths, cycle_id=cycle_id, tools_root=root, now=now, ttl_days=artifact_ttl_days)),
+        ("vocabulary_reload_check", lambda: vocabulary_reload_check(paths)),
+    )
+    results: list[dict[str, Any]] = []
+    for hook_name, hook in hooks:
+        try:
+            payload = hook()
+            results.append({"hook_name": hook_name, "status": "ok", "result": payload})
+        except LedgerIntegrityError:
+            raise
+        except Exception as exc:  # local hook errors are recorded, then the cycle continues
+            event = record_workspace_governance(paths, "learning_hook_failed", _hook_failure_details(hook_name, exc))
+            results.append({"hook_name": hook_name, "status": "failed", "governance_event_id": event.get("event_id")})
+    return {"schema_version": 1, "cycle_id": cycle_id, "hooks": results}
+
+
+def recompute_pressure_decay(
+    paths: WorkspacePaths,
+    *,
+    cycle_id: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    now = now or datetime.now(timezone.utc)
+    thresholds = load_decay_thresholds(paths)
+    records = effective_workspace_pressures(paths, now=now, decay_thresholds=thresholds)
+    transitions: list[dict[str, Any]] = []
+    for record in records:
+        pressure_event_id = str(record.get("event_id") or record.get("pressure_id") or "")
+        if not pressure_event_id:
+            continue
+        explicit_state = _explicit_state(record)
+        if explicit_state in TERMINAL_STATES:
+            continue
+        target_state = str(record.get("decay_state") or "active")
+        if _state_rank(target_state) <= _state_rank(explicit_state):
+            continue
+        transition = append_pressure_state_event(
+            paths,
+            pressure=record,
+            to_state=target_state,
+            reason="decay_recompute",
+            cycle_id=cycle_id,
+            evidence_refs=[],
+            feedback_event_ids=[],
+            details={
+                "last_evidence_at": record.get("last_evidence_at"),
+                "age_days": _age_days(str(record.get("last_evidence_at") or ""), now),
+                "decay_thresholds": thresholds,
+            },
+            now=now,
+            decay_thresholds=thresholds,
+        )
+        if transition.get("ledger_hash"):
+            transitions.append(
+                {
+                    "pressure_event_id": pressure_event_id,
+                    "from_state": explicit_state,
+                    "to_state": target_state,
+                    "state_event_id": transition.get("event_id"),
+                    "last_evidence_at": record.get("last_evidence_at"),
+                    "age_days": _age_days(str(record.get("last_evidence_at") or ""), now),
+                },
+            )
+    if transitions:
+        record_workspace_governance(
+            paths,
+            "pressure_decayed",
+            {"transitions": transitions, "total": len(records), "cycle_id": cycle_id},
+        )
+    return {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "thresholds": thresholds,
+        "transition_count": len(transitions),
+        "total": len(records),
+        "transitions": transitions,
+    }
+
+
+def load_decay_thresholds(paths: WorkspacePaths) -> dict[str, int]:
+    config_path = paths.workspace_root / "aria-config" / "decay_thresholds.json"
+    if not config_path.exists():
+        return dict(DEFAULT_DECAY_THRESHOLDS)
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("decay_thresholds_must_be_object")
+    raw = payload.get("thresholds") if isinstance(payload.get("thresholds"), dict) else payload
+    thresholds = dict(DEFAULT_DECAY_THRESHOLDS)
+    for state in ("faded", "sleeping", "archived"):
+        if state in raw:
+            thresholds[state] = _parse_day_value(raw[state], key=state)
+    if not (thresholds["faded"] <= thresholds["sleeping"] <= thresholds["archived"]):
+        raise ValueError("decay_thresholds_must_be_monotonic")
+    return thresholds
+
+
+def prune_cycle_artifacts(
+    paths: WorkspacePaths,
+    *,
+    cycle_id: str,
+    tools_root: str | Path | None = None,
+    now: datetime | None = None,
+    ttl_days: int = DEFAULT_ARTIFACT_TTL_DAYS,
+) -> dict[str, Any]:
+    now = now or datetime.now(timezone.utc)
+    ttl = timedelta(days=ttl_days)
+    archived: list[dict[str, Any]] = []
+    for artifact in sorted(paths.cycle_dir.glob("cyc-*.json")):
+        if artifact.stem == cycle_id or not artifact.is_file():
+            continue
+        artifact_at = _timestamp_from_cycle_name(artifact.stem)
+        if artifact_at is None or now - artifact_at < ttl:
+            continue
+        archived.append(_archive_workspace_artifact(paths, artifact, artifact_at, cycle_id))
+    if tools_root is not None:
+        discovery_root = Path(tools_root) / "discovery"
+        for artifact in sorted(discovery_root.iterdir()) if discovery_root.exists() else []:
+            if artifact.name == cycle_id or not artifact.is_dir():
+                continue
+            artifact_at = _timestamp_from_cycle_name(artifact.name) or datetime.fromtimestamp(artifact.stat().st_mtime, timezone.utc)
+            if now - artifact_at < ttl:
+                continue
+            archived.append(_archive_tools_artifact(Path(tools_root), artifact, artifact_at, cycle_id))
+    return {"schema_version": 1, "cycle_id": cycle_id, "ttl_days": ttl_days, "archived_count": len(archived), "archived": archived}
+
+
+def vocabulary_reload_check(paths: WorkspacePaths) -> dict[str, Any]:
+    modes, metadata = load_failure_mode_vocabulary(paths)
+    return {"schema_version": 1, "mode_count": len(modes), "metadata": metadata}
+
+
+def _archive_workspace_artifact(paths: WorkspacePaths, artifact: Path, artifact_at: datetime, cycle_id: str) -> dict[str, Any]:
+    archive_path = _archive_destination(paths.workspace_root, artifact, artifact_at)
+    archive_path = _move_artifact(artifact, archive_path)
+    details = _archive_details("workspace", artifact, archive_path, cycle_id)
+    record_workspace_governance(paths, "cycle_artifact_archived", details)
+    return details
+
+
+def _archive_tools_artifact(tools_root: Path, artifact: Path, artifact_at: datetime, cycle_id: str) -> dict[str, Any]:
+    archive_path = _archive_destination(tools_root, artifact, artifact_at)
+    archive_path = _move_artifact(artifact, archive_path)
+    details = _archive_details("tools", artifact, archive_path, cycle_id)
+    append_tools_governance(tools_root, "cycle_artifact_archived", details)
+    return details
+
+
+def _archive_destination(root: Path, artifact: Path, artifact_at: datetime) -> Path:
+    relative = artifact.relative_to(root)
+    return root / ".archive" / str(artifact_at.year) / relative
+
+
+def _move_artifact(source: Path, destination: Path) -> Path:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        destination = destination.with_name(f"{destination.name}.{int(datetime.now(timezone.utc).timestamp())}")
+    shutil.move(str(source), str(destination))
+    return destination
+
+
+def _archive_details(scope: str, artifact: Path, archive_path: Path, cycle_id: str) -> dict[str, Any]:
+    return {
+        "scope": scope,
+        "artifact_path": artifact.as_posix(),
+        "archive_path": archive_path.as_posix(),
+        "archived_at_cycle": cycle_id,
+    }
+
+
+def _explicit_state(record: dict[str, Any]) -> str:
+    history = record.get("state_history")
+    if isinstance(history, list) and history:
+        latest = history[-1]
+        if isinstance(latest, dict) and isinstance(latest.get("to_state"), str):
+            return latest["to_state"]
+    return "active"
+
+
+def _state_rank(state: str) -> int:
+    ranks = {"active": 0, "faded": 1, "sleeping": 2, "archived": 3}
+    return ranks.get(state, 0)
+
+
+def _parse_day_value(value: Any, *, key: str) -> int:
+    if isinstance(value, str):
+        raw = value.strip().lower()
+        if raw.endswith("d"):
+            raw = raw[:-1]
+        value = raw
+    try:
+        days = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"decay_threshold_invalid:{key}") from exc
+    if days < 0:
+        raise ValueError(f"decay_threshold_invalid:{key}")
+    return days
+
+
+def _timestamp_from_cycle_name(name: str) -> datetime | None:
+    if not name.startswith("cyc-"):
+        return None
+    try:
+        return datetime.strptime(name, "cyc-%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _age_days(value: str, now: datetime) -> int:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max(0, (now - parsed.astimezone(timezone.utc)).days)
+
+
+def _hook_failure_details(hook_name: str, exc: Exception) -> dict[str, Any]:
+    return {
+        "hook_name": hook_name,
+        "error_class": exc.__class__.__name__,
+        "error_message": str(exc),
+        "traceback_first_line": (traceback.format_exception_only(type(exc), exc)[-1].strip() if exc else None),
+    }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 import time
 from datetime import datetime, timezone
@@ -8,7 +9,8 @@ from typing import Any
 
 from .feedback import derive_pressure
 from .ledger import verify_index_hashes, write_index
-from .workspace import WorkspacePaths
+from .learning import run_learning_pass
+from .workspace import WorkspacePaths, ensure_workspace, workspace_paths
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
 from .memory import update_memory
@@ -29,17 +31,16 @@ def run_cycle(paths: WorkspacePaths | None = None, **kwargs: Any) -> dict[str, o
     write_index(paths.feedback_index, index, paths.ledgers)
 
     cycle_id = datetime.now(timezone.utc).strftime("cyc-%Y%m%dT%H%M%SZ")
+    learning = run_learning_pass(paths, cycle_id=cycle_id)
     state = {
         "cycle_id": cycle_id,
         "repo_root": str(paths.repo_root),
         "workspace_root": str(paths.workspace_root),
         "feedback_pressure_emitted": len(emitted),
+        "learning": learning,
         "schema_version": 2,
     }
-    (paths.cycle_dir / f"{cycle_id}.json").write_text(
-        json.dumps(state, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    _write_workspace_cycle_artifact(paths, state)
     return state
 
 
@@ -47,6 +48,7 @@ def run_enterprise_cycle(
     *,
     workspace_root: str | Path,
     cycle_id: str,
+    workspace_base: str | Path | None = None,
     base_dir: str | Path | None = None,
     shadow_only: bool = False,
     discovery_only: bool = False,
@@ -56,12 +58,16 @@ def run_enterprise_cycle(
     root = ensure_tools_binding(base_dir, workspace_root=workspace_root)
     if (root / "ARIA_STOP").exists():
         return {"schema_version": 2, "cycle_id": cycle_id, "event": "stopped", "status": "stopped"}
+    workspace = _ensure_enterprise_workspace(workspace_root, workspace_base, root)
     append_jsonl(root / "cycles.jsonl", {"schema_version": 2, "at": utc_now(), "cycle_id": cycle_id, "event": "started"})
+    learning = run_learning_pass(workspace, cycle_id=cycle_id, tools_root=root)
     discovery = run_discovery(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root, snapshot_mode=snapshot_mode)
     diff = run_cycle_diff(cycle_id=cycle_id, base_dir=root)
     if discovery_only:
         event = _complete_event(root, cycle_id, 0)
-        return {"schema_version": 2, "cycle_id": cycle_id, "status": "completed", "event": event, "discovery": discovery, "cycle_diff": diff}
+        state = {"schema_version": 2, "cycle_id": cycle_id, "status": "completed", "event": event, "learning": learning, "discovery": discovery, "cycle_diff": diff}
+        _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
+        return state
 
     decisions = []
     run_summary = []
@@ -106,11 +112,12 @@ def run_enterprise_cycle(
     )
     dashboard = generate_observability_dashboard(cycle_id=cycle_id, base_dir=root)
     event = _complete_event(root, cycle_id, len(decisions))
-    return {
+    state = {
         "schema_version": 2,
         "cycle_id": cycle_id,
         "status": "completed",
         "event": event,
+        "learning": learning,
         "discovery": discovery,
         "cycle_diff": diff,
         "memory": memory,
@@ -122,6 +129,8 @@ def run_enterprise_cycle(
         "tool_governance_decisions": decisions,
         "tool_run_summary": run_summary,
     }
+    _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
+    return state
 
 
 def _complete_event(root: Path, cycle_id: str, decision_count: int) -> dict[str, Any]:
@@ -135,3 +144,36 @@ def _complete_event(root: Path, cycle_id: str, decision_count: int) -> dict[str,
     }
     append_jsonl(root / "cycles.jsonl", event)
     return event
+
+
+def _ensure_enterprise_workspace(workspace_root: str | Path, workspace_base: str | Path | None, tools_root: Path) -> WorkspacePaths:
+    paths = workspace_paths(Path(workspace_root), Path(workspace_base) if workspace_base else None)
+    try:
+        ensure_workspace(paths)
+        return paths
+    except OSError as exc:
+        if workspace_base is not None or exc.errno not in {errno.EROFS, errno.EACCES, errno.EPERM}:
+            raise
+    fallback = workspace_paths(Path(workspace_root), tools_root / "workspaces")
+    ensure_workspace(fallback)
+    return fallback
+
+
+def _workspace_cycle_state(paths: WorkspacePaths, state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": 2,
+        "cycle_id": state.get("cycle_id"),
+        "status": state.get("status"),
+        "repo_root": str(paths.repo_root),
+        "workspace_root": str(paths.workspace_root),
+        "learning": state.get("learning"),
+        "tools_event": state.get("event"),
+    }
+
+
+def _write_workspace_cycle_artifact(paths: WorkspacePaths, state: dict[str, Any]) -> None:
+    paths.cycle_dir.mkdir(parents=True, exist_ok=True)
+    (paths.cycle_dir / f"{state['cycle_id']}.json").write_text(
+        json.dumps(state, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )

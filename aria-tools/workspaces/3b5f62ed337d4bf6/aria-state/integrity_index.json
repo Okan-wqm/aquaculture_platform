@@ -1,0 +1,22 @@
+{
+  "failure_mode_vocabulary_loaded": {
+    "default_count": 9,
+    "legacy_schema_detected": false,
+    "override_count": 0,
+    "override_hash": null,
+    "schema": "aria/failure-mode-vocab/v3",
+    "source": "embedded"
+  },
+  "ledger_hashes": {
+    "external_feedback": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "governance": "6ac8d34370194701da1565f9cb9b03568db52f666a02e1c1b636d9c0e2aa0552",
+    "missed_signals": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pressure": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pressure_state": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "since_migration_events": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "unknowns": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "vocabulary_rejections": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "pressure_evidence_fingerprints_emitted": [],
+  "schema_version": 2
+}

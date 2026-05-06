@@ -1,0 +1,1639 @@
+{
+  "cycle_id": "aria-manual-debug-20260506T1353Z",
+  "git_head_sha_at_cycle": "18531efe426235fc68248de1d5c3e874b209f706",
+  "learning": {
+    "cycle_id": "aria-manual-debug-20260506T1353Z",
+    "hooks": [
+      {
+        "hook_name": "decay_recompute",
+        "result": {
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "schema_version": 1,
+          "thresholds": {
+            "archived": 365,
+            "faded": 90,
+            "sleeping": 180
+          },
+          "total": 0,
+          "transition_count": 0,
+          "transitions": []
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "artifact_prune",
+        "result": {
+          "archived": [],
+          "archived_count": 0,
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "schema_version": 1,
+          "ttl_days": 365
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "vocabulary_reload_check",
+        "result": {
+          "metadata": {
+            "default_count": 9,
+            "legacy_schema_detected": false,
+            "override_count": 0,
+            "schema": "aria/failure-mode-vocab/v3",
+            "source": "embedded"
+          },
+          "mode_count": 9,
+          "schema_version": 1
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "git_trailer_scan",
+        "result": {
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "scanned_commit_count": 0,
+          "schema_version": 1,
+          "status": "no_previous_head"
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "agent_satisfaction_scan",
+        "result": {
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "first_index": true,
+          "indexed_count": 63,
+          "removed_count": 0,
+          "satisfied_count": 0,
+          "schema_version": 1
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "report_ingestion_scan",
+        "result": {
+          "baseline_count": 259,
+          "cache_missing": true,
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "ingested_count": 0,
+          "malformed_count": 0,
+          "schema_version": 1,
+          "status": "baselined"
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "semantic_dedup_compute",
+        "result": {
+          "clusters": [],
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "merged_count": 0,
+          "schema_version": 1
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "trust_escalation_derive",
+        "result": {
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "escalated_count": 0,
+          "schema_version": 1
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "ref_staleness_check",
+        "result": {
+          "counts": {
+            "fresh": 0,
+            "missing": 0,
+            "stale": 0,
+            "unknown": 0
+          },
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "sampled_count": 0,
+          "schema_version": 1
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "triage_policy_apply",
+        "result": {
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "decisions": [],
+          "schema_version": 1,
+          "triaged_count": 0
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "agent_network_index",
+        "result": {
+          "agents": [
+            {
+              "claim_types": [
+                "tenant",
+                "compliance"
+              ],
+              "description": "WRITER-primary execution agent for GDPR Art 17 (right to erasure) cascade across 10 tenant-data-bearing services. Implements per-service eraseTenantData(tenantId, {dryRun}) handlers + outbox-emitted TenantErased proof event. Compliance-expert REVIEWS this agent's output; legal-hold-auditor enforces precedence. Invoked only via implement: token from compliance-expert or implementation-planner.",
+              "domain": "tenant",
+              "name": "gdpr-erasure-executor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/_maintenance/gdpr-erasure-executor.md",
+              "scope_globs": [
+                "apps/admin-api-service/src/gdpr/**",
+                "apps/ai-service/src/gdpr/**",
+                "apps/alert-engine/src/gdpr/**",
+                "apps/billing-service/src/gdpr/**",
+                "apps/farm-service/src/gdpr/**",
+                "apps/hr-service/src/gdpr/**",
+                "apps/hydroponics-service/src/gdpr/**",
+                "apps/messaging-service/src/gdpr/**",
+                "apps/notification-service/src/gdpr/**",
+                "apps/sensor-service/src/gdpr/**",
+                "libs/event-contracts/src/tenant-events.ts",
+                "tests/invariants/_constants.ts",
+                "tests/invariants/erasure-handler-coverage.spec.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Auxiliary post-review planning tool. Reads synthesized review outputs and produces a structured implementation plan under docs/plans/{YYYY-MM-DD}-{topic}/. Invoke only when a human explicitly requests remediation planning after the review is complete; not part of strict runtime review cycles.",
+              "domain": "general",
+              "name": "implementation-planner",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/_maintenance/implementation-planner.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Auxiliary maintenance tool that generates enterprise production-grade system prompts for specialized review sub-agents. Invoke when creating new agents or updating existing agent definitions for the aquaculture platform; not part of runtime review cycles.",
+              "domain": "general",
+              "name": "prompt-writer",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/_maintenance/prompt-writer.md",
+              "scope_globs": [
+                "tools/gates/banned-phrase.ts",
+                "tools/gates/commit-msg-validator.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "security",
+                "tenant"
+              ],
+              "description": "Invoke when reviewing admin-api-service backend, admin-panel (SUPER_ADMIN), or tenant-admin (TENANT_ADMIN) frontend modules \u2014 covers REST controllers, impersonation, database management, billing, security monitoring, tenant lifecycle, audit trails, and cross-tenant access controls.",
+              "domain": "security",
+              "name": "admin-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/admin-expert.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "tenant"
+              ],
+              "description": "Cross-cutting reviewer for Anthropic Claude SDK safety + cost discipline. Owns prompt injection defense, tool whitelisting, output PII scrub, prompt caching adoption, streaming backpressure, context-window budgeting, per-tenant cost cap reservation. Promoted from .claude/agents/product-audit/ai-tool-execution-auditor.md to enterprise-v2 runtime roster as part of Phase 9.3.",
+              "domain": "tenant",
+              "name": "ai-safety-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/ai-safety-auditor.md",
+              "scope_globs": [
+                "apps/ai-service/**",
+                "apps/ai-service/src/cost/**",
+                "libs/backend-common/src/ai/anthropic-client/**",
+                "libs/backend-common/src/ai/safety/**",
+                "libs/event-contracts/src/ai-events.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant",
+                "performance"
+              ],
+              "description": "Reviews apps/alert-engine correctness \u2014 rule evaluation performance, per-tenant alert rate-limit, escalation ladder discipline, duplicate suppression, life-safety alert priority semantics. Owns the alert-rule DSL and rule-engine hot-path; alert-consumer fan-out is shared with notification owner.",
+              "domain": "tenant",
+              "name": "alert-engine-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/alert-engine-expert.md",
+              "scope_globs": [
+                "apps/alert-engine/**",
+                "apps/notification-service/**",
+                "libs/event-contracts/src/alert-events.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Cross-agent conflict detector and architectural decision authority. Invoked when one agent's recommendation would break another agent's domain invariants, when two agents propose contradictory fixes in the same review cycle, or when a proposed fix requires an architectural decision that no single domain agent can make alone. Escalates irreducible conflicts to human review.",
+              "domain": "auth",
+              "name": "architectural-arbiter",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/architectural-arbiter.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Read-only adversarial ARIA judge that attempts to falsify sampled findings and identify stale, self-referential, or insufficient evidence.",
+              "domain": "general",
+              "name": "aria-adversarial-judge",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/aria-adversarial-judge.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Read-only ARIA change intelligence agent that analyzes PR/diff/merge events and plans impacted belief, finding, fixture, and adapter revalidation.",
+              "domain": "general",
+              "name": "aria-change-intelligence",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/aria-change-intelligence.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Read-only arbiter that combines independent ARIA judge verdicts and emits consensus only when agreement and confidence meet the gate.",
+              "domain": "general",
+              "name": "aria-consensus-arbiter",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/aria-consensus-arbiter.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Read-only ARIA judge that validates sampled findings or beliefs against repo evidence and emits structured verdicts for AI consensus.",
+              "domain": "general",
+              "name": "aria-evidence-judge",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/aria-evidence-judge.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Read-only curator that drafts semantic regression fixture candidates from confirmed ARIA TP/FP examples.",
+              "domain": "general",
+              "name": "aria-goldset-curator",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/aria-goldset-curator.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "security",
+                "compliance"
+              ],
+              "description": "Cross-cutting reviewer for audit log completeness on every regulated action (command handler, destructive action, impersonation, MFA step-up, legal-hold override, Stripe webhook, PII field read). SOC 2 CC4 + GDPR Art 30 alignment. Sibling of compliance-expert (SOC 2 evidence), legal-hold-auditor (override audit), auth-security-expert (primary on libs/backend-common/src/audit/**).",
+              "domain": "auth",
+              "name": "audit-trail-completeness-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/audit-trail-completeness-auditor.md",
+              "scope_globs": [
+                "libs/backend-common/src/audit/**",
+                "libs/backend-common/src/audit/audit-log.interceptor.ts",
+                "libs/backend-common/src/audit/audited-operation.decorator.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "security",
+                "tenant",
+                "compliance"
+              ],
+              "description": "Invoked when reviewing authentication flows, authorization guards, JWT lifecycle, tenant isolation, OWASP compliance, GDPR data handling, rate limiting, or any security-sensitive change across auth-service, gateway-api, and backend-common security modules.",
+              "domain": "auth",
+              "name": "auth-security-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/auth-security-expert.md",
+              "scope_globs": [
+                "apps/auth-service/**",
+                "apps/gateway-api/**",
+                "libs/backend-common/src/audit/**",
+                "libs/backend-common/src/auth/**",
+                "libs/backend-common/src/guards/**",
+                "libs/backend-common/src/middleware/**",
+                "libs/backend-common/src/redis/**",
+                "libs/backend-common/src/security/**",
+                "mcp/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant"
+              ],
+              "description": "Reviews billing-service correctness \u2014 Stripe webhook + metered billing + subscription lifecycle saga + invoice reconciliation + plan-tier enforcement. Owns Stripe API integration discipline, billing accuracy invariants, and revenue-leak vectors. Plan-tier semantic and per-tenant cap enforcement is shared with multi-tenant-saas-expert.",
+              "domain": "tenant",
+              "name": "billing-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/billing-expert.md",
+              "scope_globs": [
+                "apps/billing-service/**",
+                "apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts",
+                "apps/gateway-api/src/middleware/tenant-context.middleware.ts",
+                "libs/backend-common/src/monetary/decimal.transformer.ts",
+                "libs/event-contracts/src/billing-events.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Cross-cutting quality gate that runs `nx affected --target=build` and `npm run type-check` against the current diff. Dispatched on every cycle touching apps/, libs/, platform/, or web/. Owns the build + type-check ownership gap \u2014 no domain expert previously owned this quality gate.",
+              "domain": "general",
+              "name": "build-validator",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/build-validator.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "tenant"
+              ],
+              "description": "Cross-cutting reviewer for resilience pattern adoption \u2014 every external-dependency call (Stripe, SendGrid, Anthropic, MinIO, Twilio, NATS-as-external, third-party webhook) MUST be wrapped in a circuit breaker; per-tenant breakers prevent one-tenant-faulty cascades; fail-closed for billable/auth, fail-open-degraded for non-critical.",
+              "domain": "auth",
+              "name": "circuit-breaker-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/circuit-breaker-auditor.md",
+              "scope_globs": [
+                "libs/backend-common/src/circuit-breaker/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant",
+                "compliance"
+              ],
+              "description": "Single source of truth for GDPR (Art 17 erasure, Art 20 portability), KVKK alignment, and SOC 2 readiness across the platform. Cross-cutting CATCHER for tenant-data-bearing services on cascade fan-out, signed proof events, audit completeness, retention enforcement, dual-consent flows. Other agents delegate compliance topics here.",
+              "domain": "tenant",
+              "name": "compliance-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/compliance-expert.md",
+              "scope_globs": [
+                "apps/admin-api-service/src/security/{controllers,services}/{compliance,audit-trail}*.ts",
+                "apps/auth-service/src/{privacy,modules/gdpr}/**",
+                "libs/backend-common/src/audit/**",
+                "libs/backend-common/src/security/gdpr/**",
+                "web/modules/admin-panel/src/security/**",
+                "web/shell/src/pages/ConsentSettingsPage.tsx"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Meta-reviewer invoked by the orchestrator when multiple expert agents have produced reports in a single review cycle. Compacts reports without losing CRITICAL/HIGH findings, resolves cross-domain dependency graphs, detects systemic patterns across historical reviews, and reports token budget status. Does not review source code.",
+              "domain": "general",
+              "name": "context-manager",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/context-manager.md",
+              "scope_globs": [
+                "apps/**",
+                "database/**",
+                "infrastructure/**",
+                "libs/**",
+                "sens-api-gateway/**",
+                "web/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "schema",
+                "contract"
+              ],
+              "description": "Cross-cutting reviewer for API contract parity \u2014 OpenAPI \u2194 NestJS Router metadata, GraphQL subgraph schema \u2194 resolver, sensorprotocols/*.md \u2194 Rust adapter implementation, event contracts \u2194 consumer drift. Promoted from .claude/agents/product-audit/contract-parity-auditor.md and extended with OpenAPI + sensor protocol coverage.",
+              "domain": "general",
+              "name": "contract-parity-enforcer",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/contract-parity-enforcer.md",
+              "scope_globs": [
+                "apps/*/src/**/*.resolver.ts",
+                "apps/gateway-api/src/graphql/**",
+                "infra/openapi/**",
+                "libs/event-contracts/src/*-events.ts",
+                "sens-api-gateway/src/protocols/**",
+                "sens-api-gateway/src/protocols/modbus_tcp.rs",
+                "sensorprotocols/*.md",
+                "sensorprotocols/Modbus-TCP.md",
+                "sensorprotocols/mqtt-protocol.md",
+                "tests/invariants/contract-parity.spec.ts",
+                "web/shared-ui/src/generated/graphql-types.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant",
+                "schema",
+                "contract"
+              ],
+              "description": "Invoked when reviewing or auditing event contracts, database migrations, TypeORM entities, multi-tenant schema management, shared library internals, or cross-service data flow correctness in the aquaculture platform.",
+              "domain": "tenant",
+              "name": "data-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/data-expert.md",
+              "scope_globs": [
+                "apps/*/src/**/entities/*.entity.ts",
+                "database/migrations/**",
+                "database/scripts/**",
+                "libs/backend-common/src/database/**",
+                "libs/backend-common/src/nats/**",
+                "libs/event-contracts/**",
+                "libs/sdk/**",
+                "libs/shared/**",
+                "libs/storage/**",
+                "platform/libs/outbox/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "schema"
+              ],
+              "description": "Reviews the state health of PostgreSQL schemas, tables, columns, indexes, constraints, and row-level integrity rules across the aquaculture platform. Invoked when auditing schema quality, cross-service table naming consistency, index coverage, type discipline, normalization level, or when any agent flags a schema-state concern. Complements data-expert, which is delta/migration focused.",
+              "domain": "database",
+              "name": "database-reviewer",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/database-reviewer.md",
+              "scope_globs": [
+                "apps/*/src/**/entities/*.entity.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "schema"
+              ],
+              "description": "Produces API reference chapters for sens-api-gateway \u2014 Rust API (cargo doc), HTTP API (OpenAPI 3.1), MQTT topic tree (AsyncAPI 2.6), CLI command reference, RBAC permission manifest. Machine-parseable schemas are first-class outputs. Owns sens-api-gateway/docs/api/**. Invoked by edge-docs-orchestrator.",
+              "domain": "edge",
+              "name": "api-reference-writer",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/edge-docs/api-reference-writer.md",
+              "scope_globs": [
+                "libs/event-contracts/src/sensor-events.ts",
+                "sens-api-gateway/src/authz/**",
+                "sens-api-gateway/src/commands.rs",
+                "sens-api-gateway/src/config.rs",
+                "sens-api-gateway/src/health.rs",
+                "sens-api-gateway/src/mqtt.rs"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Produces architectural documentation for sens-api-gateway \u2014 C4 model (context, container, component, code views), deployment topology, data-flow diagrams, ADR index. Owns sens-api-gateway/docs/architecture/**. Invoked by edge-docs-orchestrator.",
+              "domain": "edge",
+              "name": "architecture-writer",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/edge-docs/architecture-writer.md",
+              "scope_globs": [
+                "sens-api-gateway/docs/ARCHITECTURE.md",
+                "sens-api-gateway/src/*.rs",
+                "sens-api-gateway/src/main.rs"
+              ]
+            },
+            {
+              "claim_types": [
+                "contract"
+              ],
+              "description": "Produces commercial and legal chapters \u2014 license model (proprietary + OSS attribution), source-code escrow clause template, support-tier structure, indemnification boilerplate, export-control ECCN classification, data-residency policy, third-party attribution notices. Template-level; does not negotiate actual contracts. Owns sens-api-gateway/docs/commercial/**. Invoked by edge-docs-orchestrator.",
+              "domain": "edge",
+              "name": "commercial-legal-writer",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/edge-docs/commercial-legal-writer.md",
+              "scope_globs": [
+                "sens-api-gateway/vendor/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "compliance"
+              ],
+              "description": "Produces compliance evidence chapters a Siemens vendor-assessment and a T\u00dcV S\u00dcD / Exida certification auditor both read \u2014 IEC 62443-4-1 SDLA evidence package, IEC 62443-4-2 FR1-FR7 gap table, IEC 61131-3 language coverage, ISA-18.2 alarm management KPIs, CE/UL/FCC/RED mapping, GDPR/KVKK DPIA. Owns sens-api-gateway/docs/compliance/**. Invoked by edge-docs-orchestrator.",
+              "domain": "edge",
+              "name": "compliance-evidence-writer",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/edge-docs/compliance-evidence-writer.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Produces the deployment runbooks a Siemens field engineer and a plant IT operator use to install, provision, upgrade, back up, restore, and tear down sens-api-gateway in single-site, multi-site, DMZ, and air-gapped topologies. Owns sens-api-gateway/docs/deployment/**. Invoked by edge-docs-orchestrator.",
+              "domain": "edge",
+              "name": "deployment-runbook-writer",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/edge-docs/deployment-runbook-writer.md",
+              "scope_globs": [
+                "sens-api-gateway/docs/SCADA_EDGE_DEPLOY.md",
+                "sens-api-gateway/scripts/**",
+                "sens-api-gateway/src/provisioning.rs",
+                "sens-api-gateway/systemd/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Coordinates the edge-docs producer team to generate Siemens-vendor-assessment-ready documentation for sens-api-gateway. Invoke for full RFP package builds, single chapter regeneration, or delta updates after a release. Does not write chapter content itself \u2014 dispatches the right producers in parallel, consolidates cross-references, produces the top-level docs/README.md + docs/index.md.",
+              "domain": "edge",
+              "name": "edge-docs-orchestrator",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/edge-docs/edge-docs-orchestrator.md",
+              "scope_globs": [
+                "sens-api-gateway/docs/**",
+                "sens-api-gateway/docs/README.md",
+                "sens-api-gateway/docs/_consolidation-report.md",
+                "sens-api-gateway/docs/index.md",
+                "sensorprotocols/*.md",
+                "tools/gates/banned-phrase.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "contract",
+                "observability"
+              ],
+              "description": "Produces the operations chapters a Siemens customer's plant-IT, shift operator, and service-contract lawyer all read \u2014 MTBF/MTTR targets, availability SLA, observability SLA (metric cardinality, log volume), monitoring runbook, alert rule catalogue, support-tier matrix, lifecycle & end-of-life policy. Owns sens-api-gateway/docs/operations/**. Invoked by edge-docs-orchestrator.",
+              "domain": "edge",
+              "name": "operations-sla-writer",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/edge-docs/operations-sla-writer.md",
+              "scope_globs": [
+                "infrastructure/monitoring/**",
+                "sens-api-gateway/src/health.rs"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Produces the product-level chapters for sens-api-gateway \u2014 executive summary, positioning, feature matrix, use cases. Owns sens-api-gateway/docs/product/**. Invoked by edge-docs-orchestrator only; do not invoke directly except for single-chapter refresh after a positioning change.",
+              "domain": "edge",
+              "name": "product-overview-writer",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/edge-docs/product-overview-writer.md",
+              "scope_globs": [
+                "sens-api-gateway/README.md",
+                "sens-api-gateway/docs/ARCHITECTURE.md",
+                "sens-api-gateway/docs/SCENARIOS_BEYOND_SCADA.md",
+                "sens-api-gateway/docs/product/feature-matrix.md",
+                "sens-api-gateway/docs/product/overview.md",
+                "sens-api-gateway/docs/product/positioning.md",
+                "sens-api-gateway/docs/product/use-cases.md"
+              ]
+            },
+            {
+              "claim_types": [
+                "contract"
+              ],
+              "description": "Produces normative per-protocol reference documentation for every wire protocol implemented by sens-api-gateway (Modbus-TCP/RTU, OPC UA, S7comm, EtherNet/IP, ADS, Codesys, LoRaWAN, MQTT, I2C, SPI, PWM, GPIO, Atlas EZO). Output is AsyncAPI/NodeSet/GSDML-grade contract documentation \u2014 the doc a third-party integrator uses to certify interoperability. Owns sens-api-gateway/docs/protocols/**.",
+              "domain": "general",
+              "name": "protocol-reference-writer",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/edge-docs/protocol-reference-writer.md",
+              "scope_globs": [
+                "sens-api-gateway/src/*.rs",
+                "sensorprotocols/*.md",
+                "sensorprotocols/Modbus-TCP.md",
+                "sensorprotocols/mqtt-protocol.md"
+              ]
+            },
+            {
+              "claim_types": [
+                "security"
+              ],
+              "description": "Produces the security documentation chapters a Siemens OT cyber-security reviewer demands \u2014 threat model (STRIDE), cryptography inventory, PKI hierarchy, secure-boot path, SBOM, Coordinated Vulnerability Disclosure policy, attack-surface analysis. Owns sens-api-gateway/docs/security/**. Invoked by edge-docs-orchestrator.",
+              "domain": "security",
+              "name": "security-architecture-writer",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/edge-docs/security-architecture-writer.md",
+              "scope_globs": [
+                "sens-api-gateway/src/security.rs"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Produces the Siemens-specific integration chapters \u2014 TIA Portal GSDML export, S7 area-code mapping, MindSphere / Insights Hub connector specification, WinCC tag bridge, PROFINET IRT readiness, SIMATIC SCADA integration paths. Owns sens-api-gateway/docs/integration/siemens/**. Invoked by edge-docs-orchestrator.",
+              "domain": "edge",
+              "name": "siemens-integration-writer",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/edge-docs/siemens-integration-writer.md",
+              "scope_globs": [
+                "sens-api-gateway/src/mqtt.rs",
+                "sens-api-gateway/src/plc_programming/s7comm.rs"
+              ]
+            },
+            {
+              "claim_types": [
+                "security",
+                "test"
+              ],
+              "description": "Produces the Siemens-specific RFP / vendor-assessment deliverables \u2014 Vendor Assessment Questionnaire (VAQ), Cyber Security Questionnaire (CSQ), PROFINET Conformance Class declaration, MindSphere readiness checklist, Siemens Code-of-Conduct attestation. Turns every other docs/ chapter into Siemens-section-mapped answers. Owns sens-api-gateway/docs/siemens-rfp/**. Invoked by edge-docs-orchestrator.",
+              "domain": "security",
+              "name": "siemens-rfp-responder",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/edge-docs/siemens-rfp-responder.md",
+              "scope_globs": [
+                "sens-api-gateway/docs/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "test",
+                "compliance"
+              ],
+              "description": "Produces the test-evidence chapters a Siemens quality auditor and a T\u00dcV S\u00dcD / Exida IEC 62443-4-1 SVV assessor read \u2014 test strategy, unit/integration/HIL coverage report, regression suite, soak/endurance protocol (1000h), EMC/environmental compliance plan (IEC 60068, IEC 61000-4). Documents tests that EXIST; does not author new Rust tests. Owns sens-api-gateway/docs/testing/**. Invoked by edge-docs-orchestrator.",
+              "domain": "auth",
+              "name": "test-evidence-writer",
+              "output_contract": "review_notes",
+              "path": ".claude/agents/edge-docs/test-evidence-writer.md",
+              "scope_globs": [
+                "sens-api-gateway/src/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "security",
+                "contract",
+                "compliance"
+              ],
+              "description": "Reviews the Rust edge agent codebase (`sens-api-gateway/`) plus protocol contract docs in `sensorprotocols/` for memory safety, async correctness, protocol compliance, TLS configuration, offline operation reliability, and IEC 62443 security standards. Invoke when changes touch the edge agent, protocol definitions, or device security.",
+              "domain": "security",
+              "name": "edge-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/edge-expert.md",
+              "scope_globs": [
+                "sens-api-gateway/**",
+                "sensorprotocols/**",
+                "sensorprotocols/Modbus-TCP.md",
+                "sensorprotocols/mqtt-protocol.md"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Invoked when reviewing, auditing, or analyzing the farm domain -- including batch lifecycle, feeding, growth, harvest, water quality, equipment, maintenance, storage, weather, sentinel-hub satellite imagery, and AI insights within apps/farm-service/ and web/modules/farm-module/.",
+              "domain": "farm",
+              "name": "farm-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/farm-expert.md",
+              "scope_globs": [
+                "apps/farm-service/**",
+                "libs/aquaculture-engines/**",
+                "libs/backend-common/**",
+                "libs/event-contracts/src/farm-events.ts",
+                "libs/farm-shared/**",
+                "web/modules/farm-module/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "security",
+                "performance"
+              ],
+              "description": "Invoke when reviewing, auditing, or analyzing the web shell, shared-ui library, dashboard module, or AquaMobil PWA for architecture, security, performance, accessibility, or Module Federation correctness issues.",
+              "domain": "security",
+              "name": "frontend-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/frontend-expert.md",
+              "scope_globs": [
+                "web/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "security",
+                "compliance"
+              ],
+              "description": "Reviews and analyzes the HR domain (hr-service backend + hr-module frontend) for correctness, security, PII compliance, payroll accuracy, scheduling integrity, and aquaculture-specific workforce management patterns. Invoke when HR code changes, leave/payroll/scheduling logic is modified, or periodic domain health audits are needed.",
+              "domain": "security",
+              "name": "hr-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/hr-expert.md",
+              "scope_globs": [
+                "libs/event-contracts/src/hr-events.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Reviews infrastructure configuration, CI/CD pipelines, GitHub composite actions, Docker assets, Kubernetes/Helm/ArgoCD manifests, Terraform IaC, monitoring stack, and nginx reverse proxy for the aquaculture platform. Invoke when infra, deploy, or delivery surfaces change, or when deployment reliability must be validated.",
+              "domain": "infra",
+              "name": "infra-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/infra-expert.md",
+              "scope_globs": [
+                "infra/**",
+                "infrastructure/**",
+                "libs/backend-common/**",
+                "libs/backend-common/src/config/**",
+                "nginx/**",
+                "platform/configs/**",
+                "platform/libs/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "compliance"
+              ],
+              "description": "Cross-service enforcement of legal hold precedence on every destructive action (delete, anonymize, retention-expiry, partition DROP, outbox GC, GDPR erasure). Litigation discovery risk + regulatory record retention non-negotiable. Sibling of compliance-expert, gdpr-erasure-executor, audit-trail-completeness-auditor.",
+              "domain": "general",
+              "name": "legal-hold-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/legal-hold-auditor.md",
+              "scope_globs": [
+                "apps/messaging-service/src/compliance/**",
+                "libs/backend-common/src/compliance/legal-hold/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant"
+              ],
+              "description": "Reviews MCP server implementations under `mcp/` for tool safety, session and tenant context isolation, backend-access boundaries, prompt/knowledge safety, and graceful degradation. Invoke when MCP servers, MCP prompts/tools, or MCP auth/runtime code changes.",
+              "domain": "auth",
+              "name": "mcp-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/mcp-expert.md",
+              "scope_globs": [
+                "mcp/**",
+                "mcp/*/src/config.ts",
+                "mcp/*/src/index.ts",
+                "mcp/*/src/server.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "performance"
+              ],
+              "description": "Cross-cutting reviewer for memory leak patterns \u2014 heap growth baseline, event listener orphans, unbounded Map/cache, WebSocket connection leaks, Rust spawn discipline (TaskTracker / CancellationToken). Sibling of performance-expert (handoff on heap-growth findings).",
+              "domain": "performance",
+              "name": "memory-leak-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/memory-leak-auditor.md",
+              "scope_globs": [
+                "*.controller.ts",
+                "*.gateway.ts",
+                "apps/*/src/**/*.service.ts",
+                "sens-api-gateway/src/**",
+                "sens-api-gateway/src/shutdown.rs",
+                "web/**",
+                "web/shared-ui/src/utils/tenant-query-keys.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "compliance"
+              ],
+              "description": "Invoked when reviewing, auditing, or analyzing the messaging domain \u2014 including channels, messages, attachments, reactions, receipts, compliance (retention policies, legal holds, audit logs), GDPR operations, outbox pattern, presence, and partitioning within apps/messaging-service/. AI chat bridge + agent runner review under apps/ai-service/ is owned primarily by ai-safety-auditor per the Lane-A routing table; messaging-expert is the secondary reviewer on that surface (chat-persistence roundtrip only).",
+              "domain": "messaging",
+              "name": "messaging-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/messaging-expert.md",
+              "scope_globs": [
+                "apps/ai-service/**",
+                "apps/messaging-service/**",
+                "platform/libs/outbox/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant",
+                "observability"
+              ],
+              "description": "Single source of truth for multi-tenant SaaS concerns \u2014 tenant isolation (DB/Redis/NATS/cache/guards), tenant lifecycle (provisioning/archival), plan tier gating, per-tenant quotas, noisy-neighbor isolation, cross-tenant access controls (impersonation), tenant data portability (GDPR Art 20), per-tenant observability/cost attribution, and tenant onboarding/offboarding. Other agents delegate tenant topics to this agent rather than duplicating rules.",
+              "domain": "tenant",
+              "name": "multi-tenant-saas-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/multi-tenant-saas-expert.md",
+              "scope_globs": [
+                "apps/**",
+                "apps/*/src/**/tenant*.ts",
+                "apps/admin-api-service/src/impersonation/services/impersonation.service.ts",
+                "apps/admin-api-service/src/tenant/services/provisioning-saga.service.ts",
+                "apps/admin-api-service/src/{tenant,impersonation}/**",
+                "apps/ai-service/src/cost/**",
+                "apps/auth-service/src/modules/tenant/**",
+                "apps/billing-service/**",
+                "apps/gateway-api/src/middleware/tenant-context.middleware.ts",
+                "apps/observability-service/**",
+                "apps/{admin-api,auth}-service/.../tenant.entity.ts",
+                "libs/backend-common/src/database/rls/tenant-rls.service.ts",
+                "libs/backend-common/src/database/tenant-scoped-repository.ts",
+                "libs/backend-common/src/database/{tenant-connection-bootstrap,schema-manager,watchdog}/**",
+                "libs/backend-common/src/guards/tenant*.ts",
+                "libs/backend-common/src/guards/tenant.guard.ts",
+                "libs/backend-common/src/middleware/tenant-context.middleware.ts",
+                "libs/backend-common/src/redis/tenant-redis.service.ts",
+                "libs/event-contracts/src/base-event.ts",
+                "libs/event-contracts/src/{tenant-events,base-event}.ts",
+                "tests/invariants/_constants.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "observability"
+              ],
+              "description": "Cross-cutting reviewer for platform observability discipline \u2014 Prometheus metric cardinality budget, OTEL span coverage, Loki label hygiene, alert runbook_url enforcement, RED/USE per-service coverage, Grafana dashboard ownership. Owns apps/observability-service as primary + cross-service metrics/spans/logs as delegated reviewer.",
+              "domain": "observability",
+              "name": "observability-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/observability-expert.md",
+              "scope_globs": [
+                "apps/observability-service/**",
+                "infrastructure/monitoring/grafana/**",
+                "infrastructure/monitoring/loki/**",
+                "infrastructure/monitoring/prometheus/**",
+                "libs/backend-common/src/logging/structured-logger.service.ts",
+                "libs/backend-common/src/metrics/**",
+                "libs/backend-common/src/metrics/route-normalizer.ts",
+                "libs/backend-common/src/telemetry/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Meta-agent that coordinates domain expert agents for comprehensive code review. Analyzes changed files, dispatches relevant agents in parallel, collects findings, resolves cross-domain dependencies, and produces a unified review report with deployment decision. Invoke for PR reviews, pre-merge quality gates, or full codebase audits.",
+              "domain": "general",
+              "name": "orchestrator",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/orchestrator.md",
+              "scope_globs": [
+                "tests/invariants/orchestrator-routing-coverage.spec.ts",
+                "web/shared-ui/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "performance"
+              ],
+              "description": "Cross-cutting reviewer for runtime performance \u2014 query plans (EXPLAIN ANALYZE), p99 latency SLO per endpoint, bundle size budget per MFE, memory footprint baseline, concurrency budget. NOT primary on any path; secondary reviewer dispatched in parallel with the domain expert on changes touching repositories, hot-path services, or bundle output.",
+              "domain": "performance",
+              "name": "performance-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/performance-expert.md",
+              "scope_globs": [
+                "apps/**/src/**/handlers/**",
+                "apps/**/src/**/repositories/**",
+                "apps/**/src/**/resolvers/**",
+                "database/migrations/**",
+                "libs/backend-common/src/database/schema-manager.service.ts",
+                "web/**/dist/**",
+                "web/**/vite.config.ts",
+                "web/**/webpack.config.ts",
+                "web/shell/vite.config.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "contract",
+                "observability"
+              ],
+              "description": "Reviews shared platform kernel code in `platform/libs/{cqrs,event-bus}`, `platform/configs`, and backend-common runtime foundations for contract stability, fail-fast config, observability correctness, and cross-service architectural integrity. Invoke when shared runtime abstractions or service bootstrap contracts change.",
+              "domain": "observability",
+              "name": "platform-kernel-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/platform-kernel-expert.md",
+              "scope_globs": [
+                "libs/backend-common/src/bootstrap/**",
+                "libs/backend-common/src/config/**",
+                "libs/backend-common/src/context/**",
+                "libs/backend-common/src/database/**",
+                "libs/backend-common/src/filters/**",
+                "libs/backend-common/src/health/**",
+                "libs/backend-common/src/logging/**",
+                "libs/backend-common/src/metrics/**",
+                "libs/backend-common/src/monetary/**",
+                "libs/backend-common/src/monitoring/**",
+                "libs/backend-common/src/pagination/**",
+                "libs/backend-common/src/telemetry/**",
+                "libs/backend-common/src/types/**",
+                "libs/backend-common/src/utils/**",
+                "libs/backend-common/src/websocket/**",
+                "libs/event-contracts/**",
+                "platform/**",
+                "platform/configs/**",
+                "platform/libs/**",
+                "platform/libs/cqrs/**",
+                "platform/libs/event-bus/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Reviews whether buttons, forms, pages, APIs, exports, live surfaces, and mobile entry points are correctly gated by roles, permissions, guards, impersonation state, and feature flags.",
+              "domain": "general",
+              "name": "access-boundary-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/access-boundary-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "libs/**",
+                "platform/**",
+                "web/**",
+                "web/apps/aquamobil/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Reviews keyboard reachability, focus management, semantic naming, live-region announcements, dialog behavior, and assistive-technology operability across critical product flows.",
+              "domain": "general",
+              "name": "accessibility-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/accessibility-auditor.md",
+              "scope_globs": [
+                "web/**",
+                "web/apps/aquamobil/**",
+                "web/modules/sensor-module/src/components/scada-builder/**",
+                "web/modules/tenant-admin/src/components/{common/DeleteConfirmModal,roles/RoleModal}.tsx",
+                "web/modules/tenant-admin/src/hooks/useFocusTrap.ts",
+                "web/modules/tenant-admin/src/pages/TenantRolesPage.tsx",
+                "web/shared-ui/**",
+                "web/shared-ui/src/components/Modal/{Modal,DeleteConfirmationDialog}.tsx",
+                "web/shared-ui/src/components/a11y/{FocusTrap,RouteAnnouncer,VisuallyHidden}.tsx",
+                "web/shared-ui/src/hooks/useToast.tsx",
+                "web/shell/src/components/NotificationPanel.tsx",
+                "web/shell/src/pages/ConsentSettingsPage.tsx"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Reviews invoice, payment, refund, subscription, metering, and Stripe-backed billing roundtrips to verify financially correct state transitions and operator-visible truth.",
+              "domain": "billing",
+              "name": "billing-reconciliation-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/billing-reconciliation-auditor.md",
+              "scope_globs": [
+                "apps/admin-api-service/src/billing/**",
+                "apps/admin-api-service/src/billing/services/{invoice-management,payment-management,usage-metering-management}.service.ts",
+                "apps/billing-service/**",
+                "apps/billing-service/src/billing/billing-scheduler.service.ts",
+                "apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts",
+                "apps/billing-service/src/billing/controllers/stripe-webhook.service.ts",
+                "apps/billing-service/src/billing/entities/{invoice,payment}.entity.ts",
+                "apps/billing-service/src/billing/handlers/{create-invoice,finalize-invoice,record-payment,refund-payment,void-invoice}.handler.ts",
+                "apps/billing-service/src/modules/metering/{usage-aggregator,usage-metering,metered-billing}.service.ts",
+                "web/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Reviews product buttons and non-form actions across `web/**` to verify that clicks trigger the correct backend behavior, respect lifecycle/role guards, and do not present false-success UX.",
+              "domain": "general",
+              "name": "button-action-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/button-action-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "libs/**",
+                "web/**",
+                "web/apps/aquamobil/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Reviews charts, KPI cards, widgets, dashboards, gauges, trend views, and drill-down surfaces to verify that displayed metrics, labels, units, and aggregates match the real backend or read-model truth.",
+              "domain": "general",
+              "name": "chart-widget-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/chart-widget-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "libs/**",
+                "web/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "test"
+              ],
+              "description": "Meta-reviewer for test-audit cycles that compacts specialist reports, preserves CRITICAL/HIGH findings, deduplicates overlapping root causes, builds the dependency graph, and prepares a unified product-audit handoff. Lane-B compaction agent \u2014 distinct from the Lane-A context-manager agent at .claude/agents/context-manager.md.",
+              "domain": "general",
+              "name": "product-audit-context-manager",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/context-manager.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Verifies that persisted data can be fetched back from the database through `apps/**` read paths and rendered correctly in `web/**` detail, edit, and summary views.",
+              "domain": "database",
+              "name": "data-readback-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/data-readback-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "database/**",
+                "libs/**",
+                "platform/**",
+                "web/**",
+                "web/apps/aquamobil/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Reviews Rust edge gateway, PLC and SCADA command paths, offline queue behavior, safe-state fallbacks, and industrial device roundtrips for truthful and safe field operation.",
+              "domain": "edge",
+              "name": "edge-industrial-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/edge-industrial-auditor.md",
+              "scope_globs": [
+                "apps/sensor-service/**",
+                "libs/**",
+                "platform/**",
+                "sens-api-gateway/**",
+                "sens-api-gateway/docs/ARCHITECTURE.md",
+                "sens-api-gateway/docs/SCENARIOS_BEYOND_SCADA.md",
+                "sens-api-gateway/docs/SECURITY_HARDENING_CHANGELOG.md",
+                "sens-api-gateway/docs/WEB_API.md",
+                "sens-api-gateway/src/modbus.rs",
+                "sens-api-gateway/src/offline_queue.rs",
+                "sens-api-gateway/src/plc_programming/{ads,codesys,ethernet_ip,opcua,s7comm}.rs",
+                "sens-api-gateway/src/safe_state.rs",
+                "sens-api-gateway/src/scada_server.rs",
+                "sens-api-gateway/src/security.rs",
+                "web/modules/sensor-module/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant"
+              ],
+              "description": "Reviews upload, attachment, import, export, preview, and download flows to verify correct persistence, retrieval, visibility, authorization, and tenant-safe file handling.",
+              "domain": "auth",
+              "name": "file-transfer-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/file-transfer-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "web/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "contract"
+              ],
+              "description": "Verifies that create/edit form inputs in `web/**` flow through API contracts in `apps/**`, survive validation and mapping, and persist correctly to the intended database rows or aggregates.",
+              "domain": "database",
+              "name": "form-write-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/form-write-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "database/**",
+                "libs/**",
+                "platform/**",
+                "web/**",
+                "web/apps/aquamobil/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant"
+              ],
+              "description": "Reviews queued, scheduled, retried, and dead-lettered work to verify that async jobs preserve tenant, idempotency, retry, and operator-visible truth across enqueue, execution, and read-back surfaces.",
+              "domain": "tenant",
+              "name": "job-queue-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/job-queue-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "apps/admin-api-service/**",
+                "apps/admin-api-service/src/system-management/controllers/job-queue.controller.ts",
+                "apps/admin-api-service/src/system-management/entities/job-queue.entity.ts",
+                "apps/admin-api-service/src/system-management/services/job-queue.service.ts",
+                "apps/billing-service/src/billing/event-handlers/tenant-subscription-requested.handler.ts",
+                "apps/farm-service/src/feeding/services/feeding-cron.service.ts",
+                "web/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant"
+              ],
+              "description": "Reviews whether saved or changed records become visible in the correct lists, detail pages, tabs, filters, searches, and cached views after writes, without stale or cross-tenant leakage.",
+              "domain": "tenant",
+              "name": "list-visibility-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/list-visibility-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "web/**",
+                "web/apps/aquamobil/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant"
+              ],
+              "description": "Reviews AquaMobil end-to-end flows for mobile-specific persistence, offline/reconnect behavior, action availability, read-back visibility, and tenant-safe local state under `web/apps/aquamobil/**`.",
+              "domain": "tenant",
+              "name": "mobile-app-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/mobile-app-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "web/**",
+                "web/apps/aquamobil/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant"
+              ],
+              "description": "Coordinates end-to-end product audit agents to verify web and mobile UI actions, form inputs, persistence, read-back visibility, and tenant isolation across web/** and apps/**. Lane-B product-quality dispatcher for two-lane cycles \u2014 distinct from the Lane-A orchestrator agent at .claude/agents/orchestrator.md.",
+              "domain": "tenant",
+              "name": "product-audit-orchestrator",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/orchestrator.md",
+              "scope_globs": [
+                "apps/**",
+                "database/**",
+                "libs/**",
+                "platform/**",
+                "web/**",
+                "web/apps/aquamobil/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "test"
+              ],
+              "description": "Resolves cross-agent conflicts in test-audit cycles when one specialist's recommendation would break another specialist's invariant or when multiple auditors disagree on the true root cause of a product-truth defect. Lane-B arbiter \u2014 distinct from the Lane-A architectural-arbiter agent at .claude/agents/architectural-arbiter.md.",
+              "domain": "general",
+              "name": "product-audit-arbiter",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/product-audit-arbiter.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Reviews polling, SSE, notifications, sync status, job progress, live dashboards, and post-write refresh behavior to ensure time-sensitive surfaces converge on backend truth without stale or cross-context leakage.",
+              "domain": "general",
+              "name": "realtime-sync-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/realtime-sync-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "web/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "schema"
+              ],
+              "description": "Audits the two-way parity between product surfaces and durable data models, detecting UI fields/actions with no real persistence counterpart and database entities/columns with no intended product-facing counterpart.",
+              "domain": "database",
+              "name": "schema-surface-parity-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/schema-surface-parity-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "database/**",
+                "database/migrations/**",
+                "libs/**",
+                "platform/**",
+                "web/**",
+                "web/apps/aquamobil/**",
+                "web/modules/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Reviews tables, data grids, row actions, sorting, filtering, pagination, bulk actions, and export-visible columns to ensure the rendered grid reflects real data and correct operator behavior.",
+              "domain": "general",
+              "name": "table-grid-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/table-grid-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "web/**",
+                "web/shared-ui/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant"
+              ],
+              "description": "Audits create/read/update/delete product flows for tenant isolation across UI state, API inputs, guards, caches, events, and database access.",
+              "domain": "tenant",
+              "name": "tenant-isolation-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/tenant-isolation-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "database/**",
+                "infra/**",
+                "libs/**",
+                "platform/**",
+                "web/**",
+                "web/apps/aquamobil/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Inventories forms, buttons, inputs, grids, modals, and user-triggered product actions across `web/**`, then maps each one to its backend/API/persistence counterpart or flags missing ownership.",
+              "domain": "general",
+              "name": "ui-action-mapper",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/ui-action-mapper.md",
+              "scope_globs": [
+                "apps/**",
+                "web/**",
+                "web/apps/**",
+                "web/apps/aquamobil/**",
+                "web/modules/**",
+                "web/shell/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "tenant"
+              ],
+              "description": "Reviews inbound webhook and callback endpoints for source authentication, raw-body integrity, replay and dedup protection, tenant-safe routing, and truthful downstream acknowledgment.",
+              "domain": "auth",
+              "name": "webhook-ingress-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/webhook-ingress-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts",
+                "apps/billing-service/src/billing/controllers/stripe-webhook.service.ts",
+                "libs/**",
+                "libs/backend-common/src/guards/service-identity.guard.ts",
+                "libs/backend-common/src/utils/service-identity.util.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Reviews whether buttons, forms, and backend handlers enforce valid lifecycle transitions, role gates, soft-delete rules, audit requirements, and required side effects across product workflows.",
+              "domain": "general",
+              "name": "workflow-state-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/product-audit/workflow-state-auditor.md",
+              "scope_globs": [
+                "apps/**",
+                "database/**",
+                "libs/**",
+                "platform/**",
+                "web/**",
+                "web/apps/aquamobil/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "architecture"
+              ],
+              "description": "Independent meta-auditor that verifies author-authored `// tier-N:` claims in the current diff and confirms prior-cycle architectural-arbiter rulings have actually been implemented in the current diff. Invoked by orchestrator Phase 4.5 on every cycle; emits `AUDIT-*` findings against over-classified tier claims and un-applied arbiter decisions.",
+              "domain": "auth",
+              "name": "root-cause-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/root-cause-auditor.md",
+              "scope_globs": [
+                "apps/**/src/**",
+                "tools/gates/tier-claim-lint.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "security"
+              ],
+              "description": "Quality gate agent that performs read-only security audits on any code change across the entire repository, producing structured findings and remediation recommendations. Invoked before any deployment or merge to main.",
+              "domain": "security",
+              "name": "security-reviewer",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/security-reviewer.md",
+              "scope_globs": [
+                "apps/**/src/**",
+                "libs/backend-common/src/security/**",
+                "web/**/src/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "security",
+                "performance",
+                "compliance"
+              ],
+              "description": "Reviews sensor-service backend and sensor-module frontend code for security, performance, architecture, and ICS/SCADA compliance. Invoke when sensor, edge-device, VFD, automation, PLC, SCADA, ingestion, protocol, dashboard, or device-group code is created, modified, or requires audit.",
+              "domain": "security",
+              "name": "sensor-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/sensor-expert.md",
+              "scope_globs": [
+                "apps/sensor-service/**",
+                "libs/event-contracts/src/sensor-events.ts",
+                "sensorprotocols/**",
+                "web/modules/sensor-module/**"
+              ]
+            },
+            {
+              "claim_types": [
+                "compliance"
+              ],
+              "description": "Cross-cutting reviewer for software supply chain integrity \u2014 npm audit gate, transitive dependency vulnerability triage, license compliance scan, SLSA provenance + commit signing, Docker base image CVE scan, --ignore-scripts discipline. Split from infra-expert (which retains GHA SHA-pinning + Dependabot).",
+              "domain": "infra",
+              "name": "supply-chain-auditor",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/supply-chain-auditor.md",
+              "scope_globs": []
+            },
+            {
+              "claim_types": [
+                "tenant",
+                "observability"
+              ],
+              "description": "Per-tenant cost attribution pipeline reviewer. Covers Prometheus cost-labeled metric emission, observability-service rollup, Stripe reconciliation, plan-tier margin SLO, cost explosion isolation per-tenant circuit breaker. Sibling of observability-expert (cardinality policy) and billing-expert (Stripe invoice reconciliation).",
+              "domain": "tenant",
+              "name": "tenant-cost-attribution-expert",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/tenant-cost-attribution-expert.md",
+              "scope_globs": [
+                "apps/ai-service/src/cost/**",
+                "apps/billing-service/src/billing/services/cost-reconciliation.service.ts",
+                "apps/observability-service/src/cost-attribution/**",
+                "apps/observability-service/src/database/migrations/1805000000000-AddTenantCostRollup.ts"
+              ]
+            },
+            {
+              "claim_types": [
+                "test"
+              ],
+              "description": "Quality gate agent that reviews test quality, coverage, correctness, and build health across the entire aquaculture platform. Invoke after code changes, before merges, or on demand for test health audits.",
+              "domain": "general",
+              "name": "test-runner",
+              "output_contract": "finding_with_severity",
+              "path": ".claude/agents/test-runner.md",
+              "scope_globs": [
+                "*.dto.ts",
+                "*.entity.ts",
+                "*.module.ts",
+                "*.test.ts",
+                "apps/*/src/**/*.integration.spec.ts",
+                "apps/*/src/**/*.spec.ts",
+                "e2e/tests/**/*.spec.ts",
+                "libs/*/src/**/*.spec.ts",
+                "libs/event-contracts/src/*.ts",
+                "tests/e2e/**/*.spec.ts"
+              ]
+            }
+          ],
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "dispatchable_agents": [
+            "access-boundary-auditor",
+            "accessibility-auditor",
+            "admin-expert",
+            "ai-safety-auditor",
+            "alert-engine-expert",
+            "api-reference-writer",
+            "architectural-arbiter",
+            "architecture-writer",
+            "aria-adversarial-judge",
+            "aria-change-intelligence",
+            "aria-consensus-arbiter",
+            "aria-evidence-judge",
+            "aria-goldset-curator",
+            "audit-trail-completeness-auditor",
+            "auth-security-expert",
+            "billing-expert",
+            "billing-reconciliation-auditor",
+            "build-validator",
+            "button-action-auditor",
+            "chart-widget-auditor",
+            "circuit-breaker-auditor",
+            "commercial-legal-writer",
+            "compliance-evidence-writer",
+            "compliance-expert",
+            "context-manager",
+            "contract-parity-enforcer",
+            "data-expert",
+            "data-readback-auditor",
+            "database-reviewer",
+            "deployment-runbook-writer",
+            "edge-docs-orchestrator",
+            "edge-expert",
+            "edge-industrial-auditor",
+            "farm-expert",
+            "file-transfer-auditor",
+            "form-write-auditor",
+            "frontend-expert",
+            "hr-expert",
+            "infra-expert",
+            "job-queue-auditor",
+            "legal-hold-auditor",
+            "list-visibility-auditor",
+            "mcp-expert",
+            "memory-leak-auditor",
+            "messaging-expert",
+            "mobile-app-auditor",
+            "multi-tenant-saas-expert",
+            "observability-expert",
+            "operations-sla-writer",
+            "orchestrator",
+            "performance-expert",
+            "platform-kernel-expert",
+            "product-audit-arbiter",
+            "product-audit-context-manager",
+            "product-audit-orchestrator",
+            "product-overview-writer",
+            "protocol-reference-writer",
+            "realtime-sync-auditor",
+            "root-cause-auditor",
+            "schema-surface-parity-auditor",
+            "security-architecture-writer",
+            "security-reviewer",
+            "sensor-expert",
+            "siemens-integration-writer",
+            "siemens-rfp-responder",
+            "supply-chain-auditor",
+            "table-grid-auditor",
+            "tenant-cost-attribution-expert",
+            "tenant-isolation-auditor",
+            "test-evidence-writer",
+            "test-runner",
+            "ui-action-mapper",
+            "webhook-ingress-auditor",
+            "workflow-state-auditor"
+          ],
+          "fitness_snapshot": {},
+          "index_hash": "sha256:f507d130df81504da40f3d3f2fcb8d0b07e084581df71b515e2ffe0c4532401e",
+          "legacy_agents": [
+            ".claude/agents.legacy/README.md",
+            ".claude/agents.legacy/admin-expert.md",
+            ".claude/agents.legacy/architectural-arbiter.md",
+            ".claude/agents.legacy/auth-security-expert.md",
+            ".claude/agents.legacy/context-manager.md",
+            ".claude/agents.legacy/data-expert.md",
+            ".claude/agents.legacy/database-reviewer.md",
+            ".claude/agents.legacy/edge-expert.md",
+            ".claude/agents.legacy/farm-expert.md",
+            ".claude/agents.legacy/frontend-expert.md",
+            ".claude/agents.legacy/hr-expert.md",
+            ".claude/agents.legacy/implementation-planner.md",
+            ".claude/agents.legacy/infra-expert.md",
+            ".claude/agents.legacy/messaging-expert.md",
+            ".claude/agents.legacy/multi-tenant-saas-expert.md",
+            ".claude/agents.legacy/orchestrator.md",
+            ".claude/agents.legacy/platform-services.md",
+            ".claude/agents.legacy/product-audit/ai-tool-execution-auditor.md",
+            ".claude/agents.legacy/product-audit/contract-parity-auditor.md",
+            ".claude/agents.legacy/product-audit/gdpr-compliance-auditor.md",
+            ".claude/agents.legacy/product-audit/soc2-readiness-auditor.md",
+            ".claude/agents.legacy/prompt-writer.md",
+            ".claude/agents.legacy/security-reviewer.md",
+            ".claude/agents.legacy/sensor-expert.md",
+            ".claude/agents.legacy/test-runner.md"
+          ],
+          "maintenance_agents": [
+            "gdpr-erasure-executor",
+            "implementation-planner",
+            "prompt-writer"
+          ],
+          "recorded_at": "2026-05-06T13:51:23+00:00",
+          "routes": [
+            ".claude/shared/orchestrator-routing-table.md",
+            ".claude/shared/product-audit-orchestrator-routing.md"
+          ],
+          "schema_version": 1,
+          "skills": [
+            ".claude/skills/README.md",
+            ".claude/skills/add-entity-field.md",
+            ".claude/skills/add-rls-policy.md",
+            ".claude/skills/add-shared-table.md",
+            ".claude/skills/change-event-contract.md",
+            ".claude/skills/pre-migration-restore-test.md",
+            ".claude/skills/provision-tenant.md",
+            ".claude/skills/run-migration-prod.md"
+          ],
+          "source_hashes": {
+            "agents": "sha256:b15a314032cd65f999f7695db0148cb910e1465ad4f16e118df260a2a4704950",
+            "fitness": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "routing": "sha256:c6c77b94d54a1e173f94b3b6dde256c021ed2449b87856a7a088bab880ef76d2",
+            "skills": "sha256:8817794ed5655a6c262d0bf7eb8bf375968fc2398eb40d0e0e8ca02c6b4d1dfc"
+          },
+          "status": "rebuilt"
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "capability_gap_detect",
+        "result": {
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "gap_count": 0,
+          "gaps": [],
+          "ledger_hash": "sha256:cea2b5f2a07e4a0a29781a067af94ca7397d4ebb0b6ab1a74ad49e7b0065b7a5",
+          "previous_ledger_hash": null,
+          "recorded_at": "2026-05-06T13:51:23+00:00",
+          "schema_version": 1
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "plan_convergence_advance",
+        "result": {
+          "active_plan_ids": [],
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "schema_version": 1,
+          "status": "ok"
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "impact_graph_compute",
+        "result": {
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "reason": "no_pending_dispatch",
+          "schema_version": 1,
+          "status": "skipped"
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "skill_or_agent_genesis",
+        "result": {
+          "actionable_gap_count": 0,
+          "capped_count": 0,
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "extension_audit_count": 0,
+          "policy": {
+            "enable_request_generation": true,
+            "fitness_staleness_threshold_days": 7,
+            "materialization_requires_acknowledge": true,
+            "max_requests_per_cycle": 5,
+            "schema_version": 1
+          },
+          "requested_count": 0,
+          "requests": [],
+          "schema_version": 1,
+          "skipped_already_requested": 0,
+          "status": "ok"
+        },
+        "status": "ok"
+      },
+      {
+        "hook_name": "agent_fitness_score",
+        "result": {
+          "agent_count": 0,
+          "agents": [],
+          "computed_at": "2026-05-06T13:51:23Z",
+          "cycle_id": "aria-manual-debug-20260506T1353Z",
+          "schema_version": 1,
+          "status": "computed"
+        },
+        "status": "ok"
+      }
+    ],
+    "schema_version": 1
+  },
+  "repo_root": "/var/aqua-saas/.worktrees/snowball",
+  "schema_version": 2,
+  "status": "completed",
+  "tools_event": {
+    "at": "2026-05-06T13:52:42+00:00",
+    "cycle_id": "aria-manual-debug-20260506T1353Z",
+    "event": "completed",
+    "git_head_sha_at_cycle": "18531efe426235fc68248de1d5c3e874b209f706",
+    "schema_version": 2,
+    "tool_decision_count": 5,
+    "tool_governance_decision_count": 5
+  },
+  "workspace_root": "/var/aqua-saas/.worktrees/snowball/aria-tools/workspaces/3b5f62ed337d4bf6"
+}

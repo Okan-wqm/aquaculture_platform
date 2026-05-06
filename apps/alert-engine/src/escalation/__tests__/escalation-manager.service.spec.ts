@@ -33,6 +33,7 @@ describe('EscalationManagerService', () => {
 
   // In-memory store for Redis mock
   const redisStore: Map<string, string> = new Map();
+  const redisSets: Map<string, Set<string>> = new Map();
 
   const mockLevel1: EscalationLevel = {
     level: 1,
@@ -91,9 +92,10 @@ describe('EscalationManagerService', () => {
   beforeEach(async () => {
     jest.useFakeTimers();
     redisStore.clear();
+    redisSets.clear();
 
     const mockRedisService = {
-      setJson: jest.fn().mockImplementation(async (key: string, value: any, ttl?: number) => {
+      setJson: jest.fn().mockImplementation(async (key: string, value: any, _ttl?: number) => {
         redisStore.set(key, JSON.stringify(value));
       }),
       getJson: jest.fn().mockImplementation(async (key: string) => {
@@ -101,12 +103,51 @@ describe('EscalationManagerService', () => {
         return value ? JSON.parse(value) : null;
       }),
       del: jest.fn().mockImplementation(async (key: string) => {
-        redisStore.delete(key);
-        return 1;
+        const hadValue = redisStore.delete(key);
+        const hadSet = redisSets.delete(key);
+        return hadValue || hadSet ? 1 : 0;
       }),
       keys: jest.fn().mockImplementation(async (pattern: string) => {
-        const regex = new RegExp(pattern.replace('*', '.*'));
+        const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
         return Array.from(redisStore.keys()).filter(k => regex.test(k));
+      }),
+      scan: jest.fn().mockImplementation(async (pattern: string) => {
+        const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
+        return Array.from(redisStore.keys()).filter(k => regex.test(k));
+      }),
+      setNx: jest.fn().mockImplementation(async (key: string, value: string, _ttl?: number) => {
+        if (redisStore.has(key)) return false;
+        redisStore.set(key, value);
+        return true;
+      }),
+      sadd: jest.fn().mockImplementation(async (key: string, ...members: string[]) => {
+        const set = redisSets.get(key) ?? new Set<string>();
+        let added = 0;
+        for (const member of members) {
+          if (!set.has(member)) {
+            added += 1;
+          }
+          set.add(member);
+        }
+        redisSets.set(key, set);
+        return added;
+      }),
+      srem: jest.fn().mockImplementation(async (key: string, ...members: string[]) => {
+        const set = redisSets.get(key);
+        if (!set) return 0;
+        let removed = 0;
+        for (const member of members) {
+          if (set.delete(member)) {
+            removed += 1;
+          }
+        }
+        if (set.size === 0) {
+          redisSets.delete(key);
+        }
+        return removed;
+      }),
+      smembers: jest.fn().mockImplementation(async (key: string) => {
+        return Array.from(redisSets.get(key) ?? []);
       }),
     };
 

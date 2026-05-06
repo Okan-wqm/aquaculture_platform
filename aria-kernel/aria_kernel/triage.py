@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from .workspace import WorkspacePaths
 
 
 TIERS = {"auto_fix_safe", "needs_review", "human_only", "observe", "blocked"}
+FITNESS_STALENESS_DAYS = 7
 
 
 def triage_policy_apply(
@@ -41,6 +43,10 @@ def triage_policy_apply(
         elif target_agent and fitness.get(target_agent, {}).get("tier") == "CALIBRATE" and tier == "auto_fix_safe":
             tier = "needs_review"
             reasons.append("agent_calibrating")
+        elif target_agent and _is_fitness_stale(fitness.get(target_agent, {})) and tier == "auto_fix_safe":
+            tier = "needs_review"
+            reasons.append("agent_fitness_stale")
+            append_tools_governance(root, "agent_fitness_stale_downgrade", {"cycle_id": cycle_id, "pressure_event_id": pressure_id, "target_agent": target_agent})
         row = {
             "$schema": "aria/triage-decision/v1",
             "schema_version": 1,
@@ -196,3 +202,23 @@ def explain_triage(
 
 def _decision_key(row: dict[str, Any]) -> str:
     return f"{row.get('pressure_event_id')}:{row.get('triage_tier')}:{row.get('target_agent')}"
+
+
+def _is_fitness_stale(row: dict[str, Any], threshold_days: int = FITNESS_STALENESS_DAYS) -> bool:
+    """Return True when the fitness row is older than threshold_days.
+
+    Defensive default: missing or unparseable recorded_at counts as stale so a
+    silent absence cannot promote auto_fix_safe.
+    """
+    if not row:
+        return False  # no agent fitness record → caller short-circuits earlier
+    recorded = row.get("recorded_at")
+    if not isinstance(recorded, str) or not recorded.strip():
+        return True
+    try:
+        parsed = datetime.fromisoformat(recorded.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)) > timedelta(days=threshold_days)

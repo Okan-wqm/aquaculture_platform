@@ -9,10 +9,17 @@ from typing import Any, Callable
 
 from .agent_satisfaction import agent_satisfaction_scan
 from .agent_network import agent_network_index
+from .agent_genesis import (
+    existing_genesis_request_keys,
+    record_extension_decision,
+    request_agent_genesis,
+)
 from .capability_gap import detect_capability_gaps, latest_capability_gaps
 from .feedback import load_failure_mode_vocabulary
 from .fitness import agent_fitness_score
-from .ledger import LedgerIntegrityError, verify_index_hashes
+from .genesis_policy import load_policy as load_genesis_policy
+from .impact_graph import plan_downstream_impact
+from .ledger import LedgerIntegrityError, load_jsonl, verify_index_hashes
 from .pressure import DEFAULT_DECAY_THRESHOLDS, TERMINAL_STATES, append_pressure_state_event, effective_workspace_pressures
 from .report_ingestion import report_ingestion_scan
 from .semantic_dedup import semantic_dedup_compute
@@ -20,7 +27,7 @@ from .plan_convergence import list_active_plans
 from .trailer_scan import git_trailer_scan
 from .trust import ref_staleness_check, trust_escalation_derive
 from .triage import triage_policy_apply
-from .tool_registry import append_tools_governance
+from .tool_registry import GovernanceError, append_tools_governance
 from .workspace import WorkspacePaths, record_workspace_governance
 
 
@@ -72,8 +79,8 @@ def run_learning_pass(
         ("agent_network_index", lambda: agent_network_index(workspace_root=paths.repo_root, base_dir=root, cycle_id=cycle_id) if root else _skipped(cycle_id, "tools_root_required")),
         ("capability_gap_detect", lambda: detect_capability_gaps(cycle_id=cycle_id, paths=paths, base_dir=root) if root else _skipped(cycle_id, "tools_root_required")),
         ("plan_convergence_advance", lambda: _plan_convergence_advance(cycle_id=cycle_id, tools_root=root)),
-        ("impact_graph_compute", lambda: _impact_graph_compute(cycle_id=cycle_id)),
-        ("skill_or_agent_genesis", lambda: _skill_or_agent_genesis(cycle_id=cycle_id, tools_root=root)),
+        ("impact_graph_compute", lambda: _impact_graph_compute(cycle_id=cycle_id, paths=paths, tools_root=root)),
+        ("skill_or_agent_genesis", lambda: _skill_or_agent_genesis(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("agent_fitness_score", lambda: agent_fitness_score(cycle_id=cycle_id, base_dir=root)),
     )
     results: list[dict[str, Any]] = []
@@ -99,16 +106,136 @@ def _plan_convergence_advance(*, cycle_id: str, tools_root: Path | None) -> dict
     return {"schema_version": 1, "cycle_id": cycle_id, "status": "ok", "active_plan_ids": list_active_plans(base_dir=tools_root)}
 
 
-def _impact_graph_compute(*, cycle_id: str) -> dict[str, Any]:
-    return {"schema_version": 1, "cycle_id": cycle_id, "status": "skipped", "reason": "no_active_dispatch_candidate"}
+def _impact_graph_compute(
+    *,
+    cycle_id: str,
+    paths: WorkspacePaths,
+    tools_root: Path | None,
+) -> dict[str, Any]:
+    """Compute downstream impact for every pending dispatch request.
 
-
-def _skill_or_agent_genesis(*, cycle_id: str, tools_root: Path | None) -> dict[str, Any]:
+    Why: convergence promotes to dispatch; the verification scope (direct vs
+    downstream Nx projects) must be known before the worker runs. The hook
+    drives this automatically using existing plan_downstream_impact.
+    """
     if tools_root is None:
         return _skipped(cycle_id, "tools_root_required")
+    pending = [
+        row for row in load_jsonl(tools_root / "dispatch" / "requests.jsonl")
+        if row.get("state") == "pending"
+    ]
+    if not pending:
+        return _skipped(cycle_id, "no_pending_dispatch")
+    pressures_by_id = {
+        str(row.get("event_id") or row.get("pressure_id") or ""): row
+        for row in load_jsonl(paths.ledgers["pressure"])
+    }
+    computed: list[dict[str, Any]] = []
+    skipped_no_evidence = 0
+    for dispatch in pending:
+        pressure_id = str(dispatch.get("pressure_event_id") or "")
+        pressure = pressures_by_id.get(pressure_id)
+        if pressure is None:
+            continue
+        evidence = [
+            ref for ref in pressure.get("evidence_refs", [])
+            if isinstance(ref, str) and ref.strip()
+            and not ref.startswith(("agent:", "manual:", "github:", "git:"))
+        ]
+        if not evidence:
+            skipped_no_evidence += 1
+            continue
+        try:
+            row = plan_downstream_impact(
+                changed_files=evidence,
+                workspace_root=paths.repo_root,
+                base_dir=tools_root,
+                cycle_id=cycle_id,
+            )
+        except GovernanceError:
+            skipped_no_evidence += 1
+            continue
+        computed.append({
+            "assignment_id": dispatch.get("assignment_id"),
+            "pressure_event_id": pressure_id,
+            "validation_scope": row.get("validation_scope"),
+            "graph_source": row.get("graph_source"),
+        })
+    return {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "status": "ok",
+        "computed_count": len(computed),
+        "skipped_no_evidence": skipped_no_evidence,
+        "dispatches": computed,
+    }
+
+
+def _skill_or_agent_genesis(
+    *,
+    cycle_id: str,
+    paths: WorkspacePaths,
+    tools_root: Path | None,
+) -> dict[str, Any]:
+    """Emit genesis request rows for actionable capability gaps.
+
+    Why: closing the autonomous learning loop requires a write surface that
+    surfaces unowned-pressure gaps to the operator without invoking the Agent
+    tool from the kernel. Operators or Claude Code sessions pick up rows from
+    agent-genesis/requests.jsonl and run draft → sandbox → materialize.
+    """
+    if tools_root is None:
+        return _skipped(cycle_id, "tools_root_required")
+    policy = load_genesis_policy(paths.repo_root)
+    if not policy.get("enable_request_generation", True):
+        return {
+            "schema_version": 1,
+            "cycle_id": cycle_id,
+            "status": "skipped",
+            "reason": "genesis_disabled",
+            "policy": policy,
+        }
     gaps = latest_capability_gaps(base_dir=tools_root)
     actionable = [gap for gap in gaps if not gap.get("blocked_by")]
-    return {"schema_version": 1, "cycle_id": cycle_id, "status": "ok", "actionable_gap_count": len(actionable), "request_generation": "operator_mediated"}
+    already_requested = existing_genesis_request_keys(base_dir=tools_root)
+    fresh = [
+        gap for gap in actionable
+        if str(gap.get("capability_gap_key") or gap.get("gap_id") or "") not in already_requested
+    ]
+    cap = int(policy.get("max_requests_per_cycle", 5))
+    capped = fresh[:cap]
+    requests_emitted: list[dict[str, Any]] = []
+    extension_audit_rows: list[dict[str, Any]] = []
+    for gap in capped:
+        gap_type = str(gap.get("gap_type") or "")
+        if gap_type == "existing_agent_extension":
+            row = record_extension_decision(gap, base_dir=tools_root, cycle_id=cycle_id)
+            extension_audit_rows.append(row)
+            append_tools_governance(
+                tools_root,
+                "genesis_extension_recorded",
+                {"cycle_id": cycle_id, "gap_id": gap.get("gap_id"), "capability_gap_key": gap.get("capability_gap_key")},
+            )
+        else:
+            row = request_agent_genesis(gap, base_dir=tools_root, cycle_id=cycle_id)
+            requests_emitted.append(row)
+            append_tools_governance(
+                tools_root,
+                "genesis_request_emitted",
+                {"cycle_id": cycle_id, "gap_id": gap.get("gap_id"), "capability_gap_key": gap.get("capability_gap_key")},
+            )
+    return {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "status": "ok",
+        "policy": policy,
+        "actionable_gap_count": len(actionable),
+        "skipped_already_requested": len(actionable) - len(fresh),
+        "capped_count": max(0, len(fresh) - len(capped)),
+        "requested_count": len(requests_emitted),
+        "extension_audit_count": len(extension_audit_rows),
+        "requests": requests_emitted,
+    }
 
 
 def recompute_pressure_decay(

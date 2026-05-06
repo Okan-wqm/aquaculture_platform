@@ -194,6 +194,80 @@ def materialize_agent_draft(
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "materializations.jsonl", row)
 
 
+def request_agent_genesis(
+    gap: dict[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """Append a genesis request row for an actionable capability gap.
+
+    Why: hook-driven autonomy needs a write surface that records *intent*
+    without invoking the Agent tool from the kernel. Operators or the
+    Claude Code session pick up `requested` rows and run agent-genesis draft.
+    """
+    gap_id = str(gap.get("gap_id") or "").strip()
+    capability_gap_key = str(gap.get("capability_gap_key") or gap_id).strip()
+    if not gap_id or not capability_gap_key:
+        raise GovernanceError("gap_id and capability_gap_key are required")
+    row = {
+        "$schema": "aria/agent-genesis-request/v1",
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "gap_id": gap_id,
+        "capability_gap_key": capability_gap_key,
+        "title": gap.get("title"),
+        "evidence_refs": gap.get("evidence_refs", []),
+        "score": gap.get("score"),
+        "index_hash_at_decision": gap.get("index_hash_at_decision"),
+        "status": "requested",
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "requests.jsonl", row)
+
+
+def record_extension_decision(
+    gap: dict[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """Append an audit row for gaps that should extend an existing agent.
+
+    Why: extension is an operator decision (≥80% coverage rubric); the kernel
+    only records the candidate so review surfaces remain auditable.
+    """
+    row = {
+        "$schema": "aria/agent-extension-decision/v1",
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "gap_id": gap.get("gap_id"),
+        "capability_gap_key": gap.get("capability_gap_key"),
+        "title": gap.get("title"),
+        "related_existing_agents": gap.get("related_existing_agents", []),
+        "evidence_refs": gap.get("evidence_refs", []),
+        "index_hash_at_decision": gap.get("index_hash_at_decision"),
+        "status": "operator_review_required",
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "extension-decisions.jsonl", row)
+
+
+def existing_genesis_request_keys(*, base_dir: str | Path | None = None) -> set[str]:
+    """Return capability_gap_keys already requested in agent-genesis or skill-genesis.
+
+    Used by the hook to avoid re-emitting requests for the same gap.
+    """
+    root = ensure_tools_dir(base_dir)
+    keys: set[str] = set()
+    for relpath in ("agent-genesis/requests.jsonl", "skill-genesis/requests.jsonl"):
+        for row in load_jsonl(root / relpath):
+            value = str(row.get("capability_gap_key") or "").strip()
+            if value:
+                keys.add(value)
+    return keys
+
+
 def list_agent_drafts(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "drafts.jsonl")
 

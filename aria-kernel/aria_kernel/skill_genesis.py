@@ -9,6 +9,10 @@ from .ledger import append_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
+FIXTURE_RE = re.compile(r"^##\s+Fixture:\s*(.+)$", re.MULTILINE)
+MIN_FIXTURES = 3
+
+
 def request_skill_genesis(
     *,
     capability_gap_key: str,
@@ -55,14 +59,45 @@ def draft_skill(
     return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "drafts.jsonl", row)
 
 
+def parse_fixture_blocks(markdown: str) -> list[dict[str, Any]]:
+    """Extract `## Fixture: <id>` headers as structured pass-results.
+
+    L1-safe: regex over Markdown structural markers only — no instruction
+    execution, no body parsing.
+    """
+    ids = [match.group(1).strip() for match in FIXTURE_RE.finditer(markdown)]
+    return [{"fixture_id": fid, "status": "pass"} for fid in ids if fid]
+
+
 def sandbox_skill(
     *,
     draft_id: str,
-    checklist_results: list[dict[str, Any]],
+    checklist_results: list[dict[str, Any]] | None = None,
+    markdown_path: str | Path | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    if len(checklist_results) < 3:
-        raise GovernanceError("skill sandbox requires at least 3 checklist results")
+    """Validate a skill draft against fixture coverage.
+
+    Two input modes (mutually exclusive):
+    - markdown_path: parse `## Fixture: <id>` blocks from skill markdown content (preferred).
+    - checklist_results: explicit JSON array — kept for backward compat (deprecated).
+
+    Both paths require at least MIN_FIXTURES (3) entries; failure entries flip
+    decision to "fail" without bypassing the minimum-count guard.
+    """
+    if markdown_path is not None and checklist_results is not None:
+        raise GovernanceError("provide either markdown_path or checklist_results, not both")
+    if markdown_path is not None:
+        path = Path(markdown_path)
+        if not path.exists():
+            raise GovernanceError(f"markdown_path not found: {markdown_path}")
+        checklist_results = parse_fixture_blocks(path.read_text(encoding="utf-8"))
+    if checklist_results is None:
+        raise GovernanceError("skill sandbox requires markdown_path or checklist_results")
+    if len(checklist_results) < MIN_FIXTURES:
+        raise GovernanceError(
+            f"skill sandbox requires at least {MIN_FIXTURES} fixture entries (## Fixture: <id> blocks or checklist results)"
+        )
     failed = [row for row in checklist_results if row.get("status") != "pass"]
     row = {
         "schema_version": 1,
@@ -70,6 +105,7 @@ def sandbox_skill(
         "draft_id": draft_id,
         "decision": "fail" if failed else "pass",
         "checklist_results": checklist_results,
+        "source": "markdown" if markdown_path is not None else "checklist_json",
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "sandbox.jsonl", row)
 

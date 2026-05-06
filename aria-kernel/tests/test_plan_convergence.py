@@ -127,6 +127,22 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual(result["event"]["payload"]["terminal_state"], "HUMAN_REQUIRED")
         self.assertIn("new_risk_category_round_3", result["event"]["payload"]["reason_codes"])
 
+    def test_submit_challenger_from_revised_state_enables_cross_review_redo(self):
+        # Phase-4.1 D1 — submit_challenger_plan accepts {DRAFT, REVISED}, not only DRAFT.
+        # Why: without REVISED a primary cannot start a fresh challenger after a critique
+        # round, blocking the cross-review re-do path required for late-discovered risks.
+        self.start()
+        self.request_round(1, "farm-expert")
+        self.critique("farm-expert", [self.risk("schema", "MEDIUM")])
+        self.revision("rev-1", "round one revision")
+        # State must be REVISED before submit_challenger.
+        self.assertEqual(plan_status(plan_id="plan-1", base_dir=self.tools_dir)["state"], "REVISED")
+        # Submit a challenger plan from REVISED — must transition to CHALLENGER_DRAFTED.
+        self.submit_challenger()
+        state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
+        self.assertEqual(state["state"], "CHALLENGER_DRAFTED")
+        self.assertIsNotNone(state.get("challenger_plan"))
+
     def test_cross_review_zero_risk_converges_from_cross_reviewed(self):
         self.start()
         self.submit_challenger()

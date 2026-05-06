@@ -105,7 +105,15 @@ def submit_agent_invocation_result(
     return append_jsonl(root / "agent-invocations" / "results.jsonl", row)
 
 
-def list_agent_invocation_requests(*, base_dir: str | Path | None = None, state: str | None = None, convergence_id: str | None = None, target_agent: str | None = None) -> list[dict[str, Any]]:
+def list_agent_invocation_requests(
+    *,
+    base_dir: str | Path | None = None,
+    state: str | None = None,
+    convergence_id: str | None = None,
+    target_agent: str | None = None,
+    request_id: str | None = None,
+    role: str | None = None,
+) -> list[dict[str, Any]]:
     rows = load_jsonl(ensure_tools_dir(base_dir) / "agent-invocations" / "requests.jsonl")
     if state is not None:
         rows = [row for row in rows if row.get("state") == state]
@@ -113,6 +121,10 @@ def list_agent_invocation_requests(*, base_dir: str | Path | None = None, state:
         rows = [row for row in rows if row.get("convergence_id") == convergence_id]
     if target_agent is not None:
         rows = [row for row in rows if row.get("target_agent") == target_agent]
+    if request_id is not None:
+        rows = [row for row in rows if row.get("request_id") == request_id]
+    if role is not None:
+        rows = [row for row in rows if row.get("role") == role]
     return rows
 
 

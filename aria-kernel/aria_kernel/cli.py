@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -417,6 +418,8 @@ def _main(argv: list[str] | None = None) -> int:
     inv_list.add_argument("--state", default=None)
     inv_list.add_argument("--convergence-id", default=None)
     inv_list.add_argument("--target-agent", default=None)
+    inv_list.add_argument("--request-id", default=None)
+    inv_list.add_argument("--role", default=None)
 
     agent_genesis_parser = sub.add_parser("agent-genesis")
     agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
@@ -454,7 +457,11 @@ def _main(argv: list[str] | None = None) -> int:
     sg_sandbox = skill_genesis_sub.add_parser("sandbox")
     add_tools_arg(sg_sandbox, required=True)
     sg_sandbox.add_argument("--draft-id", required=True)
-    sg_sandbox.add_argument("--checklist-results-file", required=True)
+    sg_sandbox_input = sg_sandbox.add_mutually_exclusive_group(required=True)
+    sg_sandbox_input.add_argument("--markdown-file", default=None,
+                                  help="Skill markdown source — parsed for ## Fixture: <id> blocks (preferred).")
+    sg_sandbox_input.add_argument("--checklist-results-file", default=None,
+                                  help="Explicit JSON checklist results array (deprecated; use --markdown-file).")
     sg_materialize = skill_genesis_sub.add_parser("materialize")
     add_workspace_args(sg_materialize)
     add_tools_arg(sg_materialize, required=True)
@@ -823,9 +830,22 @@ def _main(argv: list[str] | None = None) -> int:
         elif args.plan_command == "request-cross-review-retry":
             result = request_cross_review_retry(plan_id=args.plan_id, request=json.loads(Path(args.request_file).read_text(encoding="utf-8")), base_dir=args.tools_dir)
         elif args.plan_command == "record-cross-review":
+            review_path = Path(args.review_file)
+            review_bytes = review_path.read_bytes()
+            review_payload = json.loads(review_bytes.decode("utf-8"))
+            file_hash = "sha256:" + hashlib.sha256(review_bytes).hexdigest()
+            explicit_hash = review_payload.get("review_content_hash")
+            if explicit_hash and explicit_hash != file_hash:
+                # Operator passed an explicit review_content_hash that disagrees
+                # with the actual file bytes — refuse before record_cross_review
+                # so the governance reject signal points to the source mismatch.
+                raise GovernanceError(
+                    f"review_file_content_hash_mismatch: explicit={explicit_hash} file_bytes={file_hash}"
+                )
+            review_payload["review_content_hash"] = file_hash
             result = record_cross_review(
                 plan_id=args.plan_id,
-                review=json.loads(Path(args.review_file).read_text(encoding="utf-8")),
+                review=review_payload,
                 workspace_root=args.workspace_root,
                 base_dir=args.tools_dir,
             )
@@ -876,7 +896,14 @@ def _main(argv: list[str] | None = None) -> int:
                 base_dir=args.tools_dir,
             )
         elif args.agent_invocation_command == "list":
-            result = list_agent_invocation_requests(base_dir=args.tools_dir, state=args.state, convergence_id=args.convergence_id, target_agent=args.target_agent)
+            result = list_agent_invocation_requests(
+                base_dir=args.tools_dir,
+                state=args.state,
+                convergence_id=args.convergence_id,
+                target_agent=args.target_agent,
+                request_id=args.request_id,
+                role=args.role,
+            )
         else:
             parser.error("unknown agent-invocations command")
         print(json.dumps(result, indent=2, sort_keys=True))
@@ -920,11 +947,18 @@ def _main(argv: list[str] | None = None) -> int:
                 base_dir=args.tools_dir,
             )
         elif args.skill_genesis_command == "sandbox":
-            result = sandbox_skill(
-                draft_id=args.draft_id,
-                checklist_results=json.loads(Path(args.checklist_results_file).read_text(encoding="utf-8")),
-                base_dir=args.tools_dir,
-            )
+            if args.markdown_file is not None:
+                result = sandbox_skill(
+                    draft_id=args.draft_id,
+                    markdown_path=args.markdown_file,
+                    base_dir=args.tools_dir,
+                )
+            else:
+                result = sandbox_skill(
+                    draft_id=args.draft_id,
+                    checklist_results=json.loads(Path(args.checklist_results_file).read_text(encoding="utf-8")),
+                    base_dir=args.tools_dir,
+                )
         elif args.skill_genesis_command == "materialize":
             result = materialize_skill(
                 draft_id=args.draft_id,

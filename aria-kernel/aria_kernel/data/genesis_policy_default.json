@@ -1,0 +1,8 @@
+{
+  "$schema": "aria/genesis-policy/v1",
+  "schema_version": 1,
+  "enable_request_generation": true,
+  "max_requests_per_cycle": 5,
+  "materialization_requires_acknowledge": true,
+  "fitness_staleness_threshold_days": 7
+}

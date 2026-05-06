@@ -42,7 +42,8 @@
       "options": {
         "cwd": "web/modules/admin-panel",
         "command": "npm run test"
-      }
+      },
+      "dependsOn": ["shared-ui:build"]
     }
   },
   "implicitDependencies": ["shared-ui"]

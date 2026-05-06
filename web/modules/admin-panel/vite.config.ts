@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import federation from '@originjs/vite-plugin-federation';
@@ -37,4 +38,10 @@ export default defineConfig({
   preview: { port: 3004 },
   base: '/remotes/admin-panel/',
   build: { target: 'esnext' },
+  // 2026-05-06: React hook/component tests require DOM APIs. Keep this as a
+  // project-level runtime contract instead of per-spec environment pragmas.
+  test: {
+    environment: 'jsdom',
+    globals: true,
+  },
 });

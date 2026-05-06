@@ -1,6 +1,6 @@
 import React from 'react';
 import type { EquipmentSymbolProps } from '../types';
-import { EQUIPMENT_STATE_COLORS } from '../types';
+import { EQUIPMENT_STATE_COLORS, FaultOverlay, MaintenanceOverlay } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
 
@@ -125,6 +125,9 @@ const CentrifugalPumpSymbol: React.FC<EquipmentSymbolProps> = ({
           </text>
         )}
       </g>
+
+      <FaultOverlay state={state} viewBoxWidth={100} viewBoxHeight={100} />
+      <MaintenanceOverlay state={state} viewBoxWidth={100} viewBoxHeight={100} />
 
       {/* Connection points */}
       <ConnectionPoints

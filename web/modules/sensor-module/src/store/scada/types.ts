@@ -12,6 +12,12 @@
  *   templateSlice  — Widget templates save/load/apply
  *   projectSlice   — Package meta, automation, serialization, reset
  *
+ * Runtime slices (operator mode):
+ *   operatorSlice        — HMI shell UI state (layout, overlays, role)
+ *   alarmRuntimeSlice    — Live alarm instances & history
+ *   notificationSlice    — Notification configs (email/webhook)
+ *   scriptSlice          — Scripts & console output buffer
+ *
  * All slice implementations use zustand + immer middleware.
  * Each slice's StateCreator receives the full ScadaStore type so it can
  * read/write any field—slices are an organisational boundary, not an
@@ -26,8 +32,10 @@ import type {
   VariableBinding,
 } from '../../types/scada-package.types';
 import type { ScadaEdge, ScadaEdgeData } from '../../types/scada-edge.types';
-import type { OverlayEntry } from '../../engine/views/types';
-import type { ScadaScript } from '../../engine/events/types';
+import type { OperatorSlice } from './operatorSlice';
+import type { AlarmRuntimeSlice } from './alarmRuntimeSlice';
+import type { NotificationSlice } from './notificationSlice';
+import type { ScriptSlice } from './scriptSlice';
 
 /* ------------------------------------------------------------------ */
 /*  Re-exports (backward compatibility with old store imports)         */
@@ -42,6 +50,12 @@ export type {
 export type { ScadaWidgetType, WidgetPermissions } from '../../types/scada-widget.types';
 export type { ScadaEdge, ScadaEdgeData } from '../../types/scada-edge.types';
 export type { ScadaScript } from '../../engine/events/types';
+
+// Runtime slice re-exports
+export type { OperatorSlice } from './operatorSlice';
+export type { AlarmRuntimeSlice } from './alarmRuntimeSlice';
+export type { NotificationSlice } from './notificationSlice';
+export type { ScriptSlice, ScriptConsoleEntry } from './scriptSlice';
 
 /* ------------------------------------------------------------------ */
 /*  Domain Types                                                       */
@@ -471,7 +485,11 @@ export type ScadaStore =
   TemplateSlice &
   ProjectSlice &
   SimulationSlice &
-  ViewManagerSlice;
+  // Runtime slices (operator mode)
+  OperatorSlice &
+  AlarmRuntimeSlice &
+  NotificationSlice &
+  ScriptSlice;
 
 /* ------------------------------------------------------------------ */
 /*  Slice Creator Helper Type                                          */

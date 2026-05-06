@@ -72,6 +72,12 @@ export type EquipmentSubType =
   | 'pistonPump'
   | 'submersiblePump'
   | 'vacuumPump'
+  | 'turbinePump'
+  | 'screwPump'
+  | 'peristalticPump'
+  | 'blowerPump'
+  | 'jetPump'
+  | 'vanePump'
   // Valves
   | 'gateValve'
   | 'ballValve'
@@ -82,6 +88,10 @@ export type EquipmentSubType =
   | 'controlValve'
   | 'needleValve'
   | 'solenoidValve'
+  | 'threeWayValve'
+  | 'pinchValve'
+  | 'diaphragmValve'
+  | 'plugValve'
   // Tanks
   | 'verticalTank'
   | 'horizontalTank'
@@ -94,9 +104,46 @@ export type EquipmentSubType =
   | 'plateHeatExchanger'
   | 'airCooler'
   | 'condenser'
-  | 'evaporator';
+  | 'evaporator'
+  // Compressors
+  | 'pistonCompressor'
+  | 'screwCompressor'
+  | 'centrifugalCompressor'
+  | 'diaphragmCompressor'
+  // Motors
+  | 'acMotor'
+  | 'vfdMotor'
+  | 'servoMotor'
+  // Filters
+  | 'bagFilter'
+  | 'drumFilter'
+  | 'membraneFilter'
+  // Instruments
+  | 'pressureTransmitter'
+  | 'flowTransmitter'
+  | 'levelTransmitter'
+  | 'temperatureTransmitter'
+  // Animated
+  | 'animatedGear'
+  | 'animatedConveyor';
 
-export type EquipmentState = 'running' | 'stopped' | 'open' | 'closed' | 'fault';
+export type EquipmentState = 'running' | 'stopped' | 'open' | 'closed' | 'fault' | 'maintenance';
+
+/**
+ * Process widget types that have connection points but are not EquipmentSubType members.
+ * These correspond to ScadaWidgetType entries for domain-specific aquaculture equipment.
+ */
+export type ProcessWidgetType =
+  | 'feeder'
+  | 'radialFilter'
+  | 'cleanWaterTank'
+  | 'dirtyWaterTank'
+  | 'mbbr'
+  | 'hepaFilter'
+  | 'cornellDualDrain';
+
+/** Union key type for all connection point registrations. */
+export type ConnectionPointKey = EquipmentSubType | ProcessWidgetType;
 
 export interface EquipmentConnectionPoint {
   id: string;

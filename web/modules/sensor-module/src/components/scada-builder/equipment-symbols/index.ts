@@ -11,6 +11,12 @@ const symbolMap: Record<EquipmentSubType, React.LazyExoticComponent<React.Compon
   pistonPump: React.lazy(() => import('./pumps/PistonPumpSymbol')),
   submersiblePump: React.lazy(() => import('./pumps/SubmersiblePumpSymbol')),
   vacuumPump: React.lazy(() => import('./pumps/VacuumPumpSymbol')),
+  turbinePump: React.lazy(() => import('./pumps/TurbinePumpSymbol')),
+  screwPump: React.lazy(() => import('./pumps/ScrewPumpSymbol')),
+  peristalticPump: React.lazy(() => import('./pumps/PeristalticPumpSymbol')),
+  blowerPump: React.lazy(() => import('./pumps/BlowerPumpSymbol')),
+  jetPump: React.lazy(() => import('./pumps/JetPumpSymbol')),
+  vanePump: React.lazy(() => import('./pumps/VanePumpSymbol')),
   // Valves
   gateValve: React.lazy(() => import('./valves/GateValveSymbol')),
   ballValve: React.lazy(() => import('./valves/BallValveSymbol')),
@@ -21,6 +27,10 @@ const symbolMap: Record<EquipmentSubType, React.LazyExoticComponent<React.Compon
   controlValve: React.lazy(() => import('./valves/ControlValveSymbol')),
   needleValve: React.lazy(() => import('./valves/NeedleValveSymbol')),
   solenoidValve: React.lazy(() => import('./valves/SolenoidValveSymbol')),
+  threeWayValve: React.lazy(() => import('./valves/ThreeWayValveSymbol')),
+  pinchValve: React.lazy(() => import('./valves/PinchValveSymbol')),
+  diaphragmValve: React.lazy(() => import('./valves/DiaphragmValveSymbol')),
+  plugValve: React.lazy(() => import('./valves/PlugValveSymbol')),
   // Tanks
   verticalTank: React.lazy(() => import('./tanks/VerticalTankSymbol')),
   horizontalTank: React.lazy(() => import('./tanks/HorizontalTankSymbol')),
@@ -34,6 +44,27 @@ const symbolMap: Record<EquipmentSubType, React.LazyExoticComponent<React.Compon
   airCooler: React.lazy(() => import('./heat-exchangers/AirCoolerSymbol')),
   condenser: React.lazy(() => import('./heat-exchangers/CondenserSymbol')),
   evaporator: React.lazy(() => import('./heat-exchangers/EvaporatorSymbol')),
+  // Compressors
+  pistonCompressor: React.lazy(() => import('./compressors/PistonCompressorSymbol')),
+  screwCompressor: React.lazy(() => import('./compressors/ScrewCompressorSymbol')),
+  centrifugalCompressor: React.lazy(() => import('./compressors/CentrifugalCompressorSymbol')),
+  diaphragmCompressor: React.lazy(() => import('./compressors/DiaphragmCompressorSymbol')),
+  // Motors
+  acMotor: React.lazy(() => import('./motors/AcMotorSymbol')),
+  vfdMotor: React.lazy(() => import('./motors/VfdMotorSymbol')),
+  servoMotor: React.lazy(() => import('./motors/ServoMotorSymbol')),
+  // Filters
+  bagFilter: React.lazy(() => import('./filters/BagFilterSymbol')),
+  drumFilter: React.lazy(() => import('./filters/DrumFilterSymbol')),
+  membraneFilter: React.lazy(() => import('./filters/MembraneFilterSymbol')),
+  // Instruments
+  pressureTransmitter: React.lazy(() => import('./instruments/PressureTransmitterSymbol')),
+  flowTransmitter: React.lazy(() => import('./instruments/FlowTransmitterSymbol')),
+  levelTransmitter: React.lazy(() => import('./instruments/LevelTransmitterSymbol')),
+  temperatureTransmitter: React.lazy(() => import('./instruments/TemperatureTransmitterSymbol')),
+  // Animated
+  animatedGear: React.lazy(() => import('./animated/AnimatedGearSymbol')),
+  animatedConveyor: React.lazy(() => import('./animated/AnimatedConveyorSymbol')),
 };
 
 export { symbolMap };

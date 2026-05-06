@@ -46,7 +46,7 @@
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 
-import type { ScadaScript, ScriptSchedulingMode } from '../../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+import type { ScadaScript, ScriptSchedulingMode } from '../scada-types';
 
 import { ScriptEngineService } from './script-engine.service';
 
@@ -138,8 +138,8 @@ function validateCronExpression(expr: string): { valid: boolean; error?: string 
   }
 
   for (let i = 0; i < fields.length; i++) {
-    const [fieldName, min, max] = CRON_FIELD_DEFS[i];
-    const field = fields[i];
+    const [fieldName, min, max] = CRON_FIELD_DEFS[i]!;
+    const field = fields[i]!;
     const err = validateCronField(field, fieldName, min, max);
     if (err) return { valid: false, error: err };
   }

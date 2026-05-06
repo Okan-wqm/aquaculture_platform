@@ -10,7 +10,7 @@
  * while adding persistence-specific fields (id as UUID string, DB timestamps).
  */
 
-import type { AlarmSeverity, AlarmRuntimeStatus } from '../../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+import type { AlarmSeverity, AlarmRuntimeStatus } from '../scada-types';
 
 /* ------------------------------------------------------------------ */
 /*  Active Alarm                                                        */

@@ -86,9 +86,7 @@ use std::path::{Path, PathBuf};
 
 use tracing::{error, warn};
 
-use super::manifest::{
-    manifest_path_for_db, read_manifest, DbMigrationError,
-};
+use super::manifest::{DbMigrationError, manifest_path_for_db, read_manifest};
 use super::schema_version::DbKeySchemaVersion;
 
 /// One row in the migration-backlog report. Produced for
@@ -303,9 +301,7 @@ impl DbMigrationBacklogReport {
 /// DBs per agent (currently 4 SQLCipher consumers
 /// projected: offline_queue, license_cache, scripting/
 /// persistence, scripting/bytecode_retain) revisit.
-pub fn detect_db_migration_backlog(
-    db_paths: &[&Path],
-) -> DbMigrationBacklogReport {
+pub fn detect_db_migration_backlog(db_paths: &[&Path]) -> DbMigrationBacklogReport {
     let target = DbKeySchemaVersion::current_target();
     let mut backlog = Vec::new();
     let mut up_to_date_count: usize = 0;
@@ -370,9 +366,7 @@ pub fn detect_db_migration_backlog(
                         db_path: db_path.to_path_buf(),
                         current_version: manifest.schema_version,
                         target_version: target,
-                        last_updated_at_unix_secs: Some(
-                            manifest.last_updated_at_unix_secs,
-                        ),
+                        last_updated_at_unix_secs: Some(manifest.last_updated_at_unix_secs),
                     });
                 } else {
                     up_to_date_count += 1;
@@ -399,12 +393,10 @@ pub fn detect_db_migration_backlog(
                 // triage path. Track separately so the
                 // metric + WARN log distinguish the
                 // operator-actionable populations.
-                detection_failures.push(
-                    DbMigrationDetectionFailure {
-                        db_path: db_path.to_path_buf(),
-                        reason: classify_error_reason(&err),
-                    },
-                );
+                detection_failures.push(DbMigrationDetectionFailure {
+                    db_path: db_path.to_path_buf(),
+                    reason: classify_error_reason(&err),
+                });
             }
         }
     }
@@ -447,9 +439,7 @@ fn classify_error_reason(err: &DbMigrationError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db_migration::manifest::{
-        write_manifest, DbKeySourceManifest,
-    };
+    use crate::db_migration::manifest::{DbKeySourceManifest, write_manifest};
     use std::fs;
 
     /// Per-test tempdir for isolation. Returns the guard
@@ -508,14 +498,8 @@ mod tests {
             entry.current_version,
             DbKeySchemaVersion::V1MachineIdDerived
         );
-        assert_eq!(
-            entry.target_version,
-            DbKeySchemaVersion::V2KeystoreDerived
-        );
-        assert_eq!(
-            entry.last_updated_at_unix_secs,
-            Some(1_700_000_000)
-        );
+        assert_eq!(entry.target_version, DbKeySchemaVersion::V2KeystoreDerived);
+        assert_eq!(entry.last_updated_at_unix_secs, Some(1_700_000_000));
     }
 
     /// Single v2 manifest → up_to_date_count=1, backlog
@@ -561,10 +545,7 @@ mod tests {
             entry.current_version,
             DbKeySchemaVersion::V1MachineIdDerived
         );
-        assert_eq!(
-            entry.target_version,
-            DbKeySchemaVersion::V2KeystoreDerived
-        );
+        assert_eq!(entry.target_version, DbKeySchemaVersion::V2KeystoreDerived);
         // None timestamp signals "no manifest existed";
         // operator differentiates from a manifest-with-v1
         // (which has a timestamp).
@@ -610,9 +591,11 @@ mod tests {
 
         let report = detect_db_migration_backlog(&[db.as_path()]);
         assert_eq!(report.detection_failure_count(), 1);
-        assert!(report.detection_failures[0]
-            .reason
-            .contains("envelope_version_mismatch"));
+        assert!(
+            report.detection_failures[0]
+                .reason
+                .contains("envelope_version_mismatch")
+        );
     }
 
     /// Mixed input: 1 v1 + 1 v2 + 1 missing + 1 corrupt.
@@ -653,11 +636,7 @@ mod tests {
         // Corrupt manifest.
         let corrupt_db = dir.path().join("corrupt.db");
         touch_db(&corrupt_db);
-        fs::write(
-            manifest_path_for_db(&corrupt_db),
-            b"not valid JSON",
-        )
-        .expect("seed corrupt");
+        fs::write(manifest_path_for_db(&corrupt_db), b"not valid JSON").expect("seed corrupt");
 
         let report = detect_db_migration_backlog(&[
             v1_db.as_path(),
@@ -698,11 +677,7 @@ mod tests {
 
         let corrupt_db = dir.path().join("corrupt.db");
         touch_db(&corrupt_db);
-        fs::write(
-            manifest_path_for_db(&corrupt_db),
-            b"junk",
-        )
-        .expect("seed");
+        fs::write(manifest_path_for_db(&corrupt_db), b"junk").expect("seed");
 
         let v1_db = dir.path().join("v1.db");
         touch_db(&v1_db);
@@ -715,10 +690,7 @@ mod tests {
         )
         .expect("seed v1");
 
-        let report = detect_db_migration_backlog(&[
-            corrupt_db.as_path(),
-            v1_db.as_path(),
-        ]);
+        let report = detect_db_migration_backlog(&[corrupt_db.as_path(), v1_db.as_path()]);
         assert_eq!(report.backlog_count(), 1);
         assert_eq!(report.detection_failure_count(), 1);
     }

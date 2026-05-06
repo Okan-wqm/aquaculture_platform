@@ -33,7 +33,9 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use crate::audit::{AuditAction, AuditActor, AuditEntry, AuditOutcome, AuditPhase, AuditResource, AuditSink};
+use crate::audit::{
+    AuditAction, AuditActor, AuditEntry, AuditOutcome, AuditPhase, AuditResource, AuditSink,
+};
 use crate::authz::permission::TenantId;
 
 /// Map a command name to its semantic AuditAction. Unknown /
@@ -93,11 +95,12 @@ pub(super) fn action_for_command(cmd: &str, outcome: AuditOutcome) -> AuditActio
         },
 
         // Program deploy
-        "deploy_program" | "plc_upload" | "deploy_to_codesys" | "deploy_auto"
-        | "deploy_script" => match outcome {
-            AuditOutcome::Success => AuditAction::ProgramDeployApplied,
-            _ => AuditAction::ProgramDeployRequested,
-        },
+        "deploy_program" | "plc_upload" | "deploy_to_codesys" | "deploy_auto" | "deploy_script" => {
+            match outcome {
+                AuditOutcome::Success => AuditAction::ProgramDeployApplied,
+                _ => AuditAction::ProgramDeployRequested,
+            }
+        }
         "rollback_program" => AuditAction::ProgramDeployRollback,
 
         // Safety
@@ -109,8 +112,8 @@ pub(super) fn action_for_command(cmd: &str, outcome: AuditOutcome) -> AuditActio
         }
 
         // Reads
-        "read_modbus" | "read_gpio" | "get_hardware" | "scan_hardware"
-        | "get_info" | "get_config" | "ping" => AuditAction::TagRead,
+        "read_modbus" | "read_gpio" | "get_hardware" | "scan_hardware" | "get_info"
+        | "get_config" | "ping" => AuditAction::TagRead,
 
         // Everything else: catch-all. Both phases use this
         // same fallback regardless of outcome.
@@ -504,10 +507,7 @@ mod tests {
             }
         });
         let summary = summarize_result("confirm_slot", &result);
-        assert_eq!(
-            summary,
-            "confirmed_slot=a bootloader_clear=ok backend=noop"
-        );
+        assert_eq!(summary, "confirmed_slot=a bootloader_clear=ok backend=noop");
     }
 
     #[test]
@@ -660,10 +660,7 @@ mod tests {
             AuditAction::FirmwareDeployRequested
         ));
         assert!(matches!(
-            action_for_command(
-                "verify_signed_manifest",
-                AuditOutcome::AuthorizationDenied
-            ),
+            action_for_command("verify_signed_manifest", AuditOutcome::AuthorizationDenied),
             AuditAction::FirmwareDeployRequested
         ));
     }
@@ -679,10 +676,7 @@ mod tests {
             AuditAction::FirmwareDeployRequested
         ));
         assert!(matches!(
-            action_for_command(
-                "apply_signed_manifest",
-                AuditOutcome::AuthorizationDenied
-            ),
+            action_for_command("apply_signed_manifest", AuditOutcome::AuthorizationDenied),
             AuditAction::FirmwareDeployRequested
         ));
     }
@@ -719,8 +713,7 @@ mod tests {
             assert!(
                 matches!(
                     action,
-                    AuditAction::FirmwareDeployApplied
-                        | AuditAction::FirmwareDeployRequested
+                    AuditAction::FirmwareDeployApplied | AuditAction::FirmwareDeployRequested
                 ),
                 "command '{}' fell outside FirmwareDeploy* taxonomy: {:?}",
                 cmd,
@@ -737,10 +730,7 @@ mod tests {
         // detail field remains parseable.
         let result = serde_json::json!({});
         let s = summarize_result("confirm_slot", &result);
-        assert_eq!(
-            s,
-            "confirmed_slot=? bootloader_clear=unknown backend=?"
-        );
+        assert_eq!(s, "confirmed_slot=? bootloader_clear=unknown backend=?");
         let s = summarize_result("verify_signed_manifest", &result);
         assert_eq!(s, "verified=false gate=unknown");
         let s = summarize_result("apply_signed_manifest", &result);

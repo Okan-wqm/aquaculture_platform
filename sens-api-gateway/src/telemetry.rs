@@ -12,9 +12,7 @@ use tracing::{debug, info, warn};
 use crate::AppState;
 use crate::gpio::PinState;
 use crate::interning::{intern_register_name, resolve};
-use crate::mqtt::{
-    GpioPinData, ModbusDeviceData, ModbusRegisterData, TelemetryMetrics,
-};
+use crate::mqtt::{GpioPinData, ModbusDeviceData, ModbusRegisterData, TelemetryMetrics};
 
 /// Telemetry collector
 pub struct TelemetryCollector {

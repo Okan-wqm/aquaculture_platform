@@ -20,7 +20,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import type { TagValueChange } from '../../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+import type { TagValueChange } from '../scada-types';
 
 /* ------------------------------------------------------------------ */
 /*  Internal event names                                               */

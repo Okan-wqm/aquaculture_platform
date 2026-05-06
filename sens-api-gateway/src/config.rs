@@ -382,6 +382,14 @@ pub struct AgentConfig {
     /// agent configs.
     #[serde(default)]
     pub opc_ua_server: OpcUaServerConfig,
+
+    /// Direct PLC programming endpoint inventory.
+    ///
+    /// MQTT/HTTP PLC commands use these names as stable audit and
+    /// authorization targets. Default-empty keeps existing config files valid
+    /// while enabling boot-time validation for deployments that opt in.
+    #[serde(default)]
+    pub plc_programming: PlcProgrammingConfig,
 }
 
 /// MQTT TLS configuration (IEC 62443 SL2 FR4: Data Confidentiality)
@@ -2478,8 +2486,7 @@ impl OpcUaServerConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.bind.trim().is_empty() {
             return Err(
-                "opc_ua_server.bind must be a non-empty IP address (e.g. 0.0.0.0)"
-                    .to_string(),
+                "opc_ua_server.bind must be a non-empty IP address (e.g. 0.0.0.0)".to_string(),
             );
         }
         if std::net::IpAddr::from_str(self.bind.trim()).is_err() {
@@ -2489,10 +2496,7 @@ impl OpcUaServerConfig {
             ));
         }
         if self.port == 0 {
-            return Err(
-                "opc_ua_server.port must be non-zero (standard 4840)"
-                    .to_string(),
-            );
+            return Err("opc_ua_server.port must be non-zero (standard 4840)".to_string());
         }
         if self.max_sessions == 0 {
             return Err(
@@ -2548,15 +2552,11 @@ impl OpcUaServerConfig {
             ));
         }
         if self.own_pki_dir.trim().is_empty() {
-            return Err(
-                "opc_ua_server.own_pki_dir must be a non-empty directory path"
-                    .to_string(),
-            );
+            return Err("opc_ua_server.own_pki_dir must be a non-empty directory path".to_string());
         }
         if self.trusted_certs_dir.trim().is_empty() {
             return Err(
-                "opc_ua_server.trusted_certs_dir must be a non-empty directory path"
-                    .to_string(),
+                "opc_ua_server.trusted_certs_dir must be a non-empty directory path".to_string(),
             );
         }
         Ok(())
@@ -3818,9 +3818,7 @@ impl AgentConfig {
         // the SQLCipher tier's territory (Sprint 6.4 covers
         // 72-hour window) — operator likely confused about
         // which tier is which.
-        if self.envelope_dedup.moka_ttl_secs < 30
-            || self.envelope_dedup.moka_ttl_secs > 3600
-        {
+        if self.envelope_dedup.moka_ttl_secs < 30 || self.envelope_dedup.moka_ttl_secs > 3600 {
             anyhow::bail!(
                 "Config coherence: envelope_dedup.moka_ttl_secs ({}) must be in [30, 3600] seconds — hot-window tier bounds",
                 self.envelope_dedup.moka_ttl_secs
@@ -3878,7 +3876,11 @@ impl AgentConfig {
                      provide a valid filesystem path."
                 );
             }
-            if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
+            if path
+                .parent()
+                .map(|p| p.as_os_str().is_empty())
+                .unwrap_or(true)
+            {
                 anyhow::bail!(
                     "Config coherence: rbac_manifest.version_store_path={} has no parent directory. \
                      Provide an absolute path with a parent dir (e.g. /var/lib/suderra/rbac_version.sqlite).",
@@ -3915,9 +3917,7 @@ impl AgentConfig {
                 );
             }
             if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-                anyhow::bail!(
-                    "Config coherence: audit.hmac_key_hex contains non-hex characters"
-                );
+                anyhow::bail!("Config coherence: audit.hmac_key_hex contains non-hex characters");
             }
         }
 
@@ -3932,7 +3932,11 @@ impl AgentConfig {
                      provide a valid filesystem path."
                 );
             }
-            if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
+            if path
+                .parent()
+                .map(|p| p.as_os_str().is_empty())
+                .unwrap_or(true)
+            {
                 anyhow::bail!(
                     "Config coherence: audit.log_path={} has no parent directory. \
                      Provide an absolute path with a parent dir.",
@@ -3965,9 +3969,7 @@ impl AgentConfig {
                 );
             }
             if self.keystore.argon2_parallelism == 0 {
-                anyhow::bail!(
-                    "Config coherence: keystore.argon2_parallelism must be >= 1, got 0."
-                );
+                anyhow::bail!("Config coherence: keystore.argon2_parallelism must be >= 1, got 0.");
             }
         }
 
@@ -4042,7 +4044,8 @@ impl AgentConfig {
                  AND slot_b_mount set, or BOTH unset. Half-configured A/B mounts \
                  (slot_a_mount.is_some={}, slot_b_mount.is_some={}) would leave \
                  cmd_apply_signed_manifest unable to determine the target standby slot.",
-                a_set, b_set
+                a_set,
+                b_set
             );
         }
 
@@ -4250,10 +4253,7 @@ tasks:
         assert_eq!(cfg.tasks[0].name, "safety_alarms");
         assert_eq!(cfg.tasks[0].slo_tier, SloTier::SafetyCritical);
         assert_eq!(cfg.tasks[0].programs, vec!["o2_guard", "ph_guard"]);
-        assert_eq!(
-            cfg.tasks[0].kind,
-            TaskKind::Cyclic { period_ms: 500 }
-        );
+        assert_eq!(cfg.tasks[0].kind, TaskKind::Cyclic { period_ms: 500 });
 
         assert_eq!(cfg.tasks[1].name, "feed_schedule");
         assert_eq!(cfg.tasks[1].slo_tier, SloTier::Routine);
@@ -4573,8 +4573,14 @@ slot_a_mount: /mnt/slot-a
 slot_b_mount: /mnt/slot-b
 "#;
         let c: AbPartitionMountConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(c.slot_a_mount, Some(std::path::PathBuf::from("/mnt/slot-a")));
-        assert_eq!(c.slot_b_mount, Some(std::path::PathBuf::from("/mnt/slot-b")));
+        assert_eq!(
+            c.slot_a_mount,
+            Some(std::path::PathBuf::from("/mnt/slot-a"))
+        );
+        assert_eq!(
+            c.slot_b_mount,
+            Some(std::path::PathBuf::from("/mnt/slot-b"))
+        );
         assert!(c.is_fully_configured());
     }
 

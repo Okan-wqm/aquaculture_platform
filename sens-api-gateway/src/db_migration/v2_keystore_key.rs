@@ -91,10 +91,10 @@
 use zeroize::Zeroizing;
 
 use super::v1_legacy_key::format_sqlcipher_pragma_key_hex;
+use crate::keystore::Keystore;
 use crate::keystore::error::KeyDerivationError;
 use crate::keystore::purpose::KeyPurpose;
 use crate::keystore::secret::KeyMaterial;
-use crate::keystore::Keystore;
 
 /// Shim error type. Wraps `KeyDerivationError` for the
 /// keystore-side failures + adds a `WrongPurpose` variant
@@ -135,10 +135,9 @@ impl std::fmt::Display for V2DerivationError {
             // safety property without operator log
             // legibility cost (the kind prefix + canonical
             // message is still searchable).
-            Self::WrongPurpose { .. } => write!(
-                f,
-                "v2_derivation_wrong_purpose: not a SqlCipher* variant"
-            ),
+            Self::WrongPurpose { .. } => {
+                write!(f, "v2_derivation_wrong_purpose: not a SqlCipher* variant")
+            }
             Self::Keystore(e) => {
                 write!(f, "v2_derivation_keystore_error: {e}")
             }
@@ -199,8 +198,7 @@ pub async fn derive_v2_sqlcipher_key(
     if !is_sqlcipher_purpose(purpose) {
         return Err(V2DerivationError::WrongPurpose { got: purpose });
     }
-    let material: KeyMaterial =
-        keystore.derive_key(purpose, context).await?;
+    let material: KeyMaterial = keystore.derive_key(purpose, context).await?;
     // Copy the bytes into a Zeroizing<[u8; 32]> wrapper
     // so the caller's local copy gets scrubbed on Drop.
     // The source KeyMaterial is dropped at function
@@ -227,8 +225,7 @@ pub async fn derive_v2_sqlcipher_pragma_key_hex(
     purpose: KeyPurpose,
     context: &[u8],
 ) -> Result<Zeroizing<String>, V2DerivationError> {
-    let bytes =
-        derive_v2_sqlcipher_key(keystore, purpose, context).await?;
+    let bytes = derive_v2_sqlcipher_key(keystore, purpose, context).await?;
     // `format_sqlcipher_pragma_key_hex` returns a plain
     // String; wrapping it in Zeroizing transfers the
     // scrub-on-drop semantic to the hex form. The
@@ -251,10 +248,10 @@ pub async fn derive_v2_sqlcipher_pragma_key_hex(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
     use crate::keystore::error::{KeystoreError, KeystoreErrorKind};
     use crate::keystore::purpose::DerivedKeyId;
     use crate::keystore::{KeyBackend, RotationSource};
+    use async_trait::async_trait;
 
     /// Stub keystore. Returns a deterministic byte
     /// pattern based on the purpose so tests can verify
@@ -291,11 +288,7 @@ mod tests {
             Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
         }
 
-        fn derived_key_id(
-            &self,
-            _purpose: KeyPurpose,
-            _context: &[u8],
-        ) -> DerivedKeyId {
+        fn derived_key_id(&self, _purpose: KeyPurpose, _context: &[u8]) -> DerivedKeyId {
             DerivedKeyId([0u8; 16])
         }
 
@@ -324,13 +317,10 @@ mod tests {
     #[tokio::test]
     async fn shim_forwards_sqlcipher_offline_queue_purpose() {
         let stub = StubKeystore;
-        let bytes = derive_v2_sqlcipher_key(
-            &stub,
-            KeyPurpose::SqlCipherOfflineQueue,
-            b"some-context",
-        )
-        .await
-        .expect("derive ok");
+        let bytes =
+            derive_v2_sqlcipher_key(&stub, KeyPurpose::SqlCipherOfflineQueue, b"some-context")
+                .await
+                .expect("derive ok");
         // Zeroizing<[u8;32]> derefs to [u8;32]; index
         // access goes through the Deref impl.
         assert_eq!(bytes[0], 0xa1);
@@ -361,13 +351,10 @@ mod tests {
     #[tokio::test]
     async fn shim_returns_zeroize_wrapped_bytes() {
         let stub = StubKeystore;
-        let bytes: Zeroizing<[u8; 32]> = derive_v2_sqlcipher_key(
-            &stub,
-            KeyPurpose::SqlCipherOfflineQueue,
-            b"ctx",
-        )
-        .await
-        .expect("derive ok");
+        let bytes: Zeroizing<[u8; 32]> =
+            derive_v2_sqlcipher_key(&stub, KeyPurpose::SqlCipherOfflineQueue, b"ctx")
+                .await
+                .expect("derive ok");
         // Type-pin via let-binding above is the actual
         // architectural assertion. A refactor to plain
         // `[u8; 32]` makes the let-binding fail to
@@ -381,13 +368,9 @@ mod tests {
     #[tokio::test]
     async fn shim_rejects_non_sqlcipher_purpose() {
         let stub = StubKeystore;
-        let err = derive_v2_sqlcipher_key(
-            &stub,
-            KeyPurpose::AuditHmacChain,
-            b"context",
-        )
-        .await
-        .expect_err("non-sqlcipher purpose must error");
+        let err = derive_v2_sqlcipher_key(&stub, KeyPurpose::AuditHmacChain, b"context")
+            .await
+            .expect_err("non-sqlcipher purpose must error");
         match err {
             V2DerivationError::WrongPurpose { got } => {
                 assert_eq!(got, KeyPurpose::AuditHmacChain);
@@ -411,17 +394,10 @@ mod tests {
             KeyPurpose::DekEscrow,
             KeyPurpose::ConfigVerify,
         ] {
-            let err = derive_v2_sqlcipher_key(
-                &stub,
-                purpose,
-                b"context",
-            )
-            .await
-            .expect_err("non-sqlcipher purpose must error");
-            assert!(matches!(
-                err,
-                V2DerivationError::WrongPurpose { .. }
-            ));
+            let err = derive_v2_sqlcipher_key(&stub, purpose, b"context")
+                .await
+                .expect_err("non-sqlcipher purpose must error");
+            assert!(matches!(err, V2DerivationError::WrongPurpose { .. }));
         }
     }
 
@@ -433,13 +409,10 @@ mod tests {
     #[tokio::test]
     async fn pragma_hex_wrapper_returns_64_char_lower_hex() {
         let stub = StubKeystore;
-        let hex: Zeroizing<String> = derive_v2_sqlcipher_pragma_key_hex(
-            &stub,
-            KeyPurpose::SqlCipherOfflineQueue,
-            b"ctx",
-        )
-        .await
-        .expect("derive hex ok");
+        let hex: Zeroizing<String> =
+            derive_v2_sqlcipher_pragma_key_hex(&stub, KeyPurpose::SqlCipherOfflineQueue, b"ctx")
+                .await
+                .expect("derive hex ok");
         assert_eq!(hex.len(), 64);
         assert!(hex.starts_with("a1"));
         assert!(hex.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));

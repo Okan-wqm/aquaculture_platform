@@ -57,13 +57,11 @@ const REMOTE_SCRIPT_ALLOWLIST: RegExp[] = [
 // Format: { '/remotes/<module>/assets/remoteEntry.js': 'sha256-<base64>' }
 // ---------------------------------------------------------------------------
 let REMOTE_HASH_PINS: Record<string, string> = {};
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const generated = require('./generated/remoteHashes.json') as Record<string, string>;
-  REMOTE_HASH_PINS = generated;
-} catch {
-  // File absent in local dev or when CI hasn't run yet — hash verification skipped.
-}
+const generatedHashPins = import.meta.glob<Record<string, string>>(
+  './generated/remoteHashes.json',
+  { eager: true, import: 'default' },
+);
+REMOTE_HASH_PINS = Object.values(generatedHashPins)[0] ?? {};
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -253,7 +251,7 @@ export function installRemoteIntegrityGuard(): void {
     const element = originalCreateElement.call(this, tagName, options);
 
     if (tagName.toLowerCase() !== 'script') {
-      return element;
+      return element as HTMLElementTagNameMap[K];
     }
 
     const script = element as HTMLScriptElement;

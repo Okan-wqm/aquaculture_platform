@@ -268,7 +268,7 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
     // Strict mode fails boot when drift is present — escalates to Docker's
     // restart loop and the deploy asserter, surfacing the missing migration
     // before tenant requests start hitting the column path.
-    return process.env.STRICT_TENANT_SCHEMA_DRIFT === 'true';
+    return process.env['STRICT_TENANT_SCHEMA_DRIFT'] === 'true';
   }
 
   private emitReport(report: SyncReport): void {

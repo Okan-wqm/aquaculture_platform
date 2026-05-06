@@ -28,12 +28,13 @@ import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
-  AuditLogModule,
-  AuditLogInterceptor,
   RlsModule,
   SchemaDriftModule,
   PlatformJwtModule,
 } from '@aquaculture/backend-common';
+import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
 import { HydroponicsSetupModule } from './setup/setup.module';

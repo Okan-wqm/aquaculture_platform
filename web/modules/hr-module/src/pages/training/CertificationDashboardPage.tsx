@@ -37,12 +37,12 @@ import {
 import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
 import { CertificationExpiryAlert } from '../../components/certification';
 import type { Column } from '../../components/common';
+import { CertificationRequirement } from '../../types';
 import type {
   CertificationType,
   EmployeeCertification,
   CertificationCategory,
   CertificationStatus,
-  CertificationRequirement,
   PaginationInput,
 } from '../../types';
 
@@ -181,7 +181,7 @@ const CertificationTypeCard: React.FC<{
             <p className="text-sm text-gray-500 dark:text-gray-400">{categoryConfig.label}</p>
           </div>
         </div>
-        {type.requirement === 'mandatory' && (
+        {type.requirement === CertificationRequirement.MANDATORY && (
           <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
             Required
           </span>
@@ -254,7 +254,7 @@ export function CertificationDashboardPage() {
 
   // Calculate stats
   const totalCertTypes = certTypes?.length || 0;
-  const mandatoryCertTypes = certTypes?.filter((t) => t.requirement === 'mandatory').length || 0;
+  const mandatoryCertTypes = certTypes?.filter((t) => t.requirement === CertificationRequirement.MANDATORY).length || 0;
   const expiringIn30Days = expiring30?.length || 0;
   const expiringIn7Days = expiring7?.length || 0;
   const expiredCount = expiring30?.filter((c) => c.expiryDate ? new Date(c.expiryDate) < new Date() : false).length || 0;
@@ -264,7 +264,7 @@ export function CertificationDashboardPage() {
 
   // Calculate compliance rate
   const employeesWithMandatoryCerts = employees?.items?.filter((emp) => {
-    const mandatoryTypes = certTypes?.filter((t) => t.requirement === 'mandatory') || [];
+    const mandatoryTypes = certTypes?.filter((t) => t.requirement === CertificationRequirement.MANDATORY) || [];
     const empCertTypeIds = emp.certifications || [];
     return mandatoryTypes.every((mt) => empCertTypeIds.includes(mt.id));
   }).length || 0;
@@ -793,7 +793,7 @@ export function CertificationDashboardPage() {
             </h3>
             <div className="space-y-3">
               {certTypes
-                ?.filter((t) => t.requirement === 'mandatory')
+                ?.filter((t) => t.requirement === CertificationRequirement.MANDATORY)
                 .map((type) => {
                   const totalEmployees = employees?.total || 0;
                   const certifiedCount = allCertifications.filter(

@@ -17,10 +17,8 @@ export const initTelemetry = (serviceName: string) => {
     url: process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] || 'http://localhost:4318/v1/traces',
   });
 
-  // 2026-04-30: Use the OpenTelemetry v2 resource factory instead of the
-  // removed Resource constructor. WHY: telemetry dependency modernization must
-  // stay on the supported API surface, not compile only because old packages
-  // remain in node_modules.
+  // Use the installed OpenTelemetry resource factory API; Resource is exposed
+  // as a type-only interface in this package line.
   const sdk = new NodeSDK({
     resource: resourceFromAttributes({
       'service.name': serviceName,

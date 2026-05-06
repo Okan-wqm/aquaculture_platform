@@ -5,6 +5,7 @@ import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, PaymentRefundedEvent } from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { Money } from '@aquaculture/backend-common/monetary';
+import { maskAndTruncatePii } from '@aquaculture/backend-common/utils';
 import Decimal from 'decimal.js';
 import { RefundPaymentCommand } from '../commands/refund-payment.command';
 import { Payment, PaymentStatus, RefundInfo } from '../entities/payment.entity';

@@ -82,13 +82,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use super::cli::{MigrationArgs, KNOWN_SQLCIPHER_CONSUMERS};
+use super::cli::{KNOWN_SQLCIPHER_CONSUMERS, MigrationArgs};
 use super::cli_executor::{
-    execute_migration, CeremonyRuntime, ExecutionError, MigrationOutcome,
-    RuntimeError,
+    CeremonyRuntime, ExecutionError, MigrationOutcome, RuntimeError, execute_migration,
 };
-use crate::keystore::purpose::KeyPurpose;
 use crate::keystore::Keystore;
+use crate::keystore::purpose::KeyPurpose;
 
 /// Errors returned by `from_runtime_sources` when one
 /// of the IO reads fails. Distinct from the trait's
@@ -130,10 +129,9 @@ pub enum BootstrapError {
 impl std::fmt::Display for BootstrapError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MachineIdUnreadable { reason } => write!(
-                f,
-                "ceremony_bootstrap_machine_id_unreadable: {reason}"
-            ),
+            Self::MachineIdUnreadable { reason } => {
+                write!(f, "ceremony_bootstrap_machine_id_unreadable: {reason}")
+            }
             Self::SecretKeyMissing { path } => write!(
                 f,
                 "ceremony_bootstrap_secret_key_missing: {}",
@@ -149,10 +147,7 @@ impl std::fmt::Display for BootstrapError {
                 "ceremony_bootstrap_secret_key_too_short: {}: {len} bytes",
                 path.display()
             ),
-            Self::DeviceIdEmpty => write!(
-                f,
-                "ceremony_bootstrap_device_id_empty"
-            ),
+            Self::DeviceIdEmpty => write!(f, "ceremony_bootstrap_device_id_empty"),
         }
     }
 }
@@ -214,10 +209,8 @@ impl BootstrappedCeremonyRuntime {
         }
 
         let machine_id =
-            crate::machine_id::read().map_err(|e| {
-                BootstrapError::MachineIdUnreadable {
-                    reason: format!("{e}"),
-                }
+            crate::machine_id::read().map_err(|e| BootstrapError::MachineIdUnreadable {
+                reason: format!("{e}"),
             })?;
 
         let secret_key = read_secret_key_for_migration()?;
@@ -270,9 +263,7 @@ impl CeremonyRuntime for BootstrappedCeremonyRuntime {
         Ok(self.deployment_uuid.clone())
     }
 
-    async fn program_artifact_sha256(
-        &self,
-    ) -> Result<Option<Vec<u8>>, RuntimeError> {
+    async fn program_artifact_sha256(&self) -> Result<Option<Vec<u8>>, RuntimeError> {
         Ok(self.program_artifact_sha256.clone())
     }
 
@@ -311,11 +302,9 @@ fn read_secret_key_for_migration() -> Result<Vec<u8>, BootstrapError> {
         return Err(BootstrapError::SecretKeyMissing { path });
     }
 
-    let bytes = std::fs::read(&path).map_err(|e| {
-        BootstrapError::SecretKeyUnreadable {
-            path: path.clone(),
-            reason: format!("{e}"),
-        }
+    let bytes = std::fs::read(&path).map_err(|e| BootstrapError::SecretKeyUnreadable {
+        path: path.clone(),
+        reason: format!("{e}"),
     })?;
 
     if bytes.len() < 16 {
@@ -439,9 +428,7 @@ pub async fn execute_migration_ceremony(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keystore::error::{
-        KeyDerivationError, KeystoreError, KeystoreErrorKind,
-    };
+    use crate::keystore::error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
     use crate::keystore::purpose::DerivedKeyId;
     use crate::keystore::secret::KeyMaterial;
     use crate::keystore::{KeyBackend, RotationSource};
@@ -469,11 +456,7 @@ mod tests {
             Ok(KeyMaterial::from_derived_bytes(purpose, [0u8; 32]))
         }
 
-        fn derived_key_id(
-            &self,
-            _purpose: KeyPurpose,
-            _context: &[u8],
-        ) -> DerivedKeyId {
+        fn derived_key_id(&self, _purpose: KeyPurpose, _context: &[u8]) -> DerivedKeyId {
             DerivedKeyId([0u8; 16])
         }
 
@@ -506,10 +489,7 @@ mod tests {
             Arc::new(StubKeystore),
             dir.path().to_path_buf(),
         );
-        assert_eq!(
-            rt.machine_id().await.expect("ok"),
-            b"mid".to_vec()
-        );
+        assert_eq!(rt.machine_id().await.expect("ok"), b"mid".to_vec());
         assert_eq!(
             rt.secret_key().await.expect("ok"),
             b"secret-key-32-bytes-of-data!".to_vec()
@@ -685,10 +665,7 @@ mod tests {
             rt.machine_id().await.expect("ok"),
             b"machine-id-from-file".to_vec()
         );
-        assert_eq!(
-            rt.secret_key().await.expect("ok"),
-            vec![0xCD; 32]
-        );
+        assert_eq!(rt.secret_key().await.expect("ok"), vec![0xCD; 32]);
         assert_eq!(
             rt.deployment_uuid().await.expect("ok"),
             b"device-uuid-12345".to_vec()
@@ -703,9 +680,7 @@ mod tests {
     fn bootstrap_error_display_strings_pinned() {
         let cases: Vec<(BootstrapError, &str)> = vec![
             (
-                BootstrapError::MachineIdUnreadable {
-                    reason: "x".into(),
-                },
+                BootstrapError::MachineIdUnreadable { reason: "x".into() },
                 "ceremony_bootstrap_machine_id_unreadable",
             ),
             (
@@ -789,11 +764,7 @@ mod tests {
             Ok(RealKeyMaterial::from_derived_bytes(purpose, bytes))
         }
 
-        fn derived_key_id(
-            &self,
-            _purpose: KeyPurpose,
-            _context: &[u8],
-        ) -> DerivedKeyId {
+        fn derived_key_id(&self, _purpose: KeyPurpose, _context: &[u8]) -> DerivedKeyId {
             DerivedKeyId([0u8; 16])
         }
 
@@ -815,11 +786,7 @@ mod tests {
         }
     }
 
-    fn seed_v1_db_for_ceremony(
-        path: &std::path::Path,
-        machine_id: &[u8],
-        secret_key: &[u8],
-    ) {
+    fn seed_v1_db_for_ceremony(path: &std::path::Path, machine_id: &[u8], secret_key: &[u8]) {
         let v1_bytes = derive_v1_legacy_key(machine_id, secret_key);
         let v1_hex = format_sqlcipher_pragma_key_hex(&v1_bytes);
         let conn = Connection::open(path).expect("open db");
@@ -880,11 +847,7 @@ mod tests {
 
         // OfflineQueue is index 0 in KNOWN_SQLCIPHER_CONSUMERS.
         match &outcome.per_consumer[0] {
-            super::super::cli_executor::ConsumerOutcome::Migrated {
-                purpose,
-                from,
-                to,
-            } => {
+            super::super::cli_executor::ConsumerOutcome::Migrated { purpose, from, to } => {
                 assert_eq!(*purpose, KeyPurpose::SqlCipherOfflineQueue);
                 assert_eq!(*from, DbKeySchemaVersion::V1MachineIdDerived);
                 assert_eq!(*to, DbKeySchemaVersion::V2KeystoreDerived);
@@ -894,8 +857,7 @@ mod tests {
 
         // Manifest sidecar now declares v2.
         let sidecar = manifest_path_for_db(&db);
-        let manifest_str = std::fs::read_to_string(&sidecar)
-            .expect("read sidecar");
+        let manifest_str = std::fs::read_to_string(&sidecar).expect("read sidecar");
         assert!(
             manifest_str.contains("v2-keystore-derived"),
             "expected v2 manifest, got: {manifest_str}"
@@ -945,12 +907,10 @@ mod tests {
                 "ceremony_failed_at_bootstrap",
             ),
             (
-                CeremonyError::Execution(ExecutionError::Bootstrap(
-                    RuntimeError {
-                        source: "machine_id".into(),
-                        reason: "test".into(),
-                    },
-                )),
+                CeremonyError::Execution(ExecutionError::Bootstrap(RuntimeError {
+                    source: "machine_id".into(),
+                    reason: "test".into(),
+                })),
                 "ceremony_failed_at_execution",
             ),
         ];

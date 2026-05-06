@@ -58,8 +58,8 @@ pub mod crypto_provider;
 // telemetry posts). Closes the cipher dimension of ORPHAN-HIGH-035 —
 // HTTPS endpoints no longer inherit the unrestricted ring provider via
 // the install_default() global. Pinning dimension is Phase 1.1.3b.
-pub mod https_client_config;
 pub mod error;
+pub mod https_client_config;
 pub mod mode;
 pub mod pinning;
 // Batch 136 Sprint 6.6/6.8: rustls ServerCertVerifier impl
@@ -72,7 +72,11 @@ pub mod state_handle;
 pub mod verify;
 
 pub use cipher::{CIPHER_SUITE_ALLOWLIST, CipherSuite};
+pub use crypto_provider::{
+    build_suderra_crypto_provider, build_suderra_crypto_provider_or_default,
+};
 pub use error::MtlsVerifyError;
+pub use https_client_config::build_suderra_https_client_config;
 pub use mode::{
     MAX_LEAF_CERT_AGE_DAYS_LEGACY, MAX_LEAF_CERT_AGE_DAYS_STRICT, MAX_LEAF_CERT_AGE_DAYS_WARN,
     MtlsMode,
@@ -81,14 +85,12 @@ pub use pinning::{
     BridgeWindowError, CertRotationStage, LeafCertFingerprint, MIN_BRIDGE_WINDOW_SECS,
     PinnedLeafCert, PinnedLeafCertSet, validate_bridge_window,
 };
-pub use crypto_provider::{build_suderra_crypto_provider, build_suderra_crypto_provider_or_default};
-pub use https_client_config::build_suderra_https_client_config;
 pub use rustls_verifier::{
     SuderraServerCertVerifier, SuderraVerifierBuildError, build_rotation_stage_from_pins_hex,
     build_suderra_verifier, verify_cert_at_handshake,
 };
 pub use state_handle::{
-    build_fallback_webpki, MtlsDelegatingVerifier, MtlsRebuildError,
-    MtlsVerifierState, RebuildOutcome,
+    MtlsDelegatingVerifier, MtlsRebuildError, MtlsVerifierState, RebuildOutcome,
+    build_fallback_webpki,
 };
 pub use verify::verify_leaf_cert;

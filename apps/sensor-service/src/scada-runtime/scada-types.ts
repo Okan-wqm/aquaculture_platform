@@ -21,15 +21,6 @@
  */
 
 // Single well-documented relative import — the ONLY place this path appears.
-export type {
-  AlarmStatusSummary,
-  HmiRole,
-  TagValueChange,
-  HistoricalDataPoint,
-  DaqAggregation,
-  DaqResultPayload,
-  TagWritePayload,
-  DaqQueryPayload,
-} from '../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+export type * from '../../../../web/modules/sensor-module/src/types/scada-runtime.types';
 
 export { ScadaSocketEvent } from '../../../../web/modules/sensor-module/src/types/scada-runtime.types';

@@ -120,8 +120,8 @@ const drawScatterPaths: uPlot.Series.PathBuilder = (u, seriesIdx, idx0, idx1) =>
  */
 function buildZoneFill(
   zones: ChartLineZone[],
-): (self: uPlot, seriesIdx: number) => CanvasGradient | null {
-  return (self: uPlot, seriesIdx: number): CanvasGradient | null => {
+): (self: uPlot, seriesIdx: number) => string | CanvasGradient | CanvasPattern {
+  return (self: uPlot, seriesIdx: number): string | CanvasGradient | CanvasPattern => {
     const ctx = self.ctx;
     const plotTop = self.bbox.top;
     const plotHeight = self.bbox.height;
@@ -129,10 +129,10 @@ function buildZoneFill(
     const scale = self.series[seriesIdx]?.scale ?? '1';
     const minVal = self.scales[scale]?.min;
     const maxVal = self.scales[scale]?.max;
-    if (minVal == null || maxVal == null || plotHeight === 0) return null;
+    if (minVal == null || maxVal == null || plotHeight === 0) return 'transparent';
 
     const range = maxVal - minVal;
-    if (range === 0) return null;
+    if (range === 0) return 'transparent';
 
     const grad = ctx.createLinearGradient(0, plotTop, 0, plotTop + plotHeight);
     const sortedZones = [...zones].sort((a, b) => b.min - a.min);
@@ -493,7 +493,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     if (!container) return;
 
     const width = container.clientWidth || 600;
-    const height = options.panelHeight ?? container.clientHeight || 300;
+    const height = options.panelHeight ?? (container.clientHeight || 300);
 
     const uplotOpts = buildUPlotOptions(width, height);
     const emptyData: uPlot.AlignedData = [

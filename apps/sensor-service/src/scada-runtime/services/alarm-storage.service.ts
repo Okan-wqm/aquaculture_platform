@@ -22,7 +22,7 @@ import { DataSource } from 'typeorm';
 import type {
   AlarmHistoryFilter,
   AlarmInstance,
-} from '../../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+} from '../scada-types';
 import type { ScadaAlarm, ScadaAlarmChronicle } from '../entities/alarm.entity';
 
 /* ------------------------------------------------------------------ */

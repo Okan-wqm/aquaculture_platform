@@ -6,7 +6,7 @@
  * Retry policy: 3 attempts then permanent fail
  */
 
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // --------------------------------------------------------------------------
 // Mocks — idb-keyval
@@ -14,9 +14,6 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 const idbStore = new Map<string, unknown>();
 const cacheIdbStore = new Map<string, unknown>();
-
-// Track which store is being used
-let activeStore: Map<string, unknown> = idbStore;
 
 vi.mock('idb-keyval', () => {
   return {
@@ -42,7 +39,7 @@ vi.mock('idb-keyval', () => {
       const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
       return Promise.resolve(Array.from(target.entries()));
     }),
-    createStore: vi.fn((dbName: string, storeName: string) => {
+    createStore: vi.fn((dbName: string, _storeName: string) => {
       // Return a sentinel so the mock can distinguish stores
       if (dbName.includes('cache')) return 'cache-store';
       return 'queue-store';
@@ -112,7 +109,6 @@ import {
   getPendingCount,
   getOperation,
   updateOperation,
-  removeOperation,
   clearAllOperations,
   cacheData,
   getCachedData,
@@ -120,9 +116,6 @@ import {
   syncOperation,
   syncAllOperations,
 } from '../offline-queue';
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import type { QueuedOperation, OperationPayload } from '@/types';
 
 /** SECURITY (C11): All queue operations are tenant-scoped. Tests use a fixed tenant UUID. */
 const TEST_QUEUE_TENANT = 'tenant-queue-001';

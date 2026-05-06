@@ -385,10 +385,7 @@ mod tests {
         // ManageUserTokenManifest, NOT ManagePolicy — collapsing
         // the two would defeat the R-4 3-key segregation.
         assert!(matches!(
-            permission_for_command(
-                "update_user_token_manifest",
-                &json!({})
-            ),
+            permission_for_command("update_user_token_manifest", &json!({})),
             Some(Permission::ManageUserTokenManifest)
         ));
     }
@@ -399,10 +396,7 @@ mod tests {
         // ManagePolicy "for convenience", that collapses the key
         // segregation. Guard with an explicit negative assertion.
         assert!(!matches!(
-            permission_for_command(
-                "update_user_token_manifest",
-                &json!({})
-            ),
+            permission_for_command("update_user_token_manifest", &json!({})),
             Some(Permission::ManagePolicy)
         ));
     }

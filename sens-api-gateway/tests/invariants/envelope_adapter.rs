@@ -114,7 +114,8 @@ fn signature_verify_is_noop_until_sprint_6_1() {
     // from the pre-Batch-63 baseline; it adds ONE new
     // accept path (signed-valid) contingent on the
     // cooperating cloud signer.
-    let _contract = "Batch 63 verify_signature closure = NO-OP accept; Sprint 6.1 wires real ed25519";
+    let _contract =
+        "Batch 63 verify_signature closure = NO-OP accept; Sprint 6.1 wires real ed25519";
     assert!(!_contract.is_empty());
 }
 
@@ -142,6 +143,7 @@ fn envelope_verify_fires_before_command_id_dedup() {
     // unreachable for envelope payloads. Legacy
     // CommandMessage payloads still use the VecDeque
     // fallback when their command_id fails Jti::try_new.
-    let _contract = "verify_envelope gates run BEFORE Moka dedup; verified envelopes always have valid jti";
+    let _contract =
+        "verify_envelope gates run BEFORE Moka dedup; verified envelopes always have valid jti";
     assert!(!_contract.is_empty());
 }

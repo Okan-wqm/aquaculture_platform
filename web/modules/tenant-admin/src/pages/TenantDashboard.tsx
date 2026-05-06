@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   Users,
   Package,
@@ -138,17 +137,13 @@ const StatusBadge: React.FC<{ status: ModuleStatus['status'] }> = ({
 const TenantDashboard: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { tenantId } = useAuth();
 
   // Use TanStack Query for stats (PERF-001)
   const { data: tenantStats } = useTenantStats();
 
-  // BUG-4 FIX: Fetch module usage stats for real user counts per module
-  const { data: usageStatsMap } = useModuleUsageStats();
-
   // Modules query
   const modulesQuery = useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'dashboard', 'modules'),
+    queryKey: ['dashboard', 'modules'],
     queryFn: async () => {
       const modules = await getMyModules();
       return (modules || []).map((m: MyModule): ModuleStatus => {
@@ -161,46 +156,35 @@ const TenantDashboard: React.FC = () => {
           name: m.name,
           code,
           status: m.isEnabled ? 'active' : 'inactive',
-          users: 0, // placeholder — enriched below with usageStatsMap
+          users: 0,
           lastActivity: 'Active',
           icon: moduleIconMap[code] || m.icon || '📦',
         };
       });
     },
-    enabled: !!tenantId,
     staleTime: 2 * 60 * 1000,
   });
 
   // Users query
   const usersQuery = useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'dashboard', 'users'),
+    queryKey: ['dashboard', 'users'],
     queryFn: async () => {
       const users = await getTenantUsers();
       return users || [];
     },
     staleTime: 2 * 60 * 1000,
-    enabled: !!tenantId,
   });
 
   // Subscription query
   const subscriptionQuery = useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'dashboard', 'subscription'),
+    queryKey: ['dashboard', 'subscription'],
     queryFn: async () => {
       return getMySubscription();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: !!tenantId,
   });
 
-  // BUG-4 FIX: Enrich module list with real user counts from usage stats
-  const modules = useMemo(() => {
-    const rawModules = modulesQuery.data ?? [];
-    if (!usageStatsMap) return rawModules;
-    return rawModules.map(m => ({
-      ...m,
-      users: usageStatsMap[m.code]?.userCount ?? m.users,
-    }));
-  }, [modulesQuery.data, usageStatsMap]);
+  const modules = modulesQuery.data ?? [];
   const users = usersQuery.data ?? [];
   const subscription = subscriptionQuery.data ?? null;
   const loading = modulesQuery.isLoading || usersQuery.isLoading;
@@ -225,7 +209,7 @@ const TenantDashboard: React.FC = () => {
   );
 
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'dashboard') });
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
   // Calculate stats -- prefer TanStack Query stats if available (PERF-001)

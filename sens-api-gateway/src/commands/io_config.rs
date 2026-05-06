@@ -37,8 +37,8 @@
 //! an operator ack that they accept the non-persistent session.
 
 use serde_json::{Value, json};
-use tracing::{info, warn};
 use std::fs;
+use tracing::{info, warn};
 
 use crate::alarms::{AlarmDefinition, AlarmPriority};
 use crate::process_image::{
@@ -61,7 +61,11 @@ impl CommandHandler {
         let tag_configs = match self.parse_io_config_to_tags(params) {
             Ok(configs) => configs,
             Err(e) => {
-                return (false, json!(null), Some(format!("Failed to parse io_config: {}", e)));
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("Failed to parse io_config: {}", e)),
+                );
             }
         };
 
@@ -126,20 +130,29 @@ impl CommandHandler {
     /// successful physical write, the ProcessImage is updated so
     /// subsequent reads see the commanded value with
     /// `TagQuality::Good`.
-    pub(super) async fn cmd_set_output(
-        &mut self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_set_output(&mut self, params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing set_output command");
 
         let tag_name = match params.get("tag_name").and_then(|v| v.as_str()) {
             Some(name) => name.to_string(),
-            None => return (false, json!(null), Some("Missing tag_name parameter".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing tag_name parameter".to_string()),
+                );
+            }
         };
 
         let value = match params.get("value").and_then(|v| v.as_f64()) {
             Some(v) => v,
-            None => return (false, json!(null), Some("Missing or invalid value parameter".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing or invalid value parameter".to_string()),
+                );
+            }
         };
 
         let state = self.state.read().await;
@@ -147,7 +160,13 @@ impl CommandHandler {
         let config = state.process_image.get_config(&tag_name).await;
         let config = match config {
             Some(c) => c,
-            None => return (false, json!(null), Some(format!("Tag '{}' not found", tag_name))),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("Tag '{}' not found", tag_name)),
+                );
+            }
         };
 
         let write_result = match &config.protocol_config {
@@ -238,7 +257,11 @@ impl CommandHandler {
                     .and_then(|v| v.as_str())
                     .unwrap_or("input")
                     .to_string();
-                let io_type = if direction == "output" { IoType::DO } else { IoType::DI };
+                let io_type = if direction == "output" {
+                    IoType::DO
+                } else {
+                    IoType::DI
+                };
 
                 tags.push(TagConfig {
                     tag_name,
@@ -254,11 +277,26 @@ impl CommandHandler {
                     eng_min: None,
                     eng_max: None,
                     eng_unit: None,
-                    invert: item.get("invert").and_then(|v| v.as_bool()).unwrap_or(false),
-                    alarm_hh: item.get("alarmHH").or(item.get("alarm_hh")).and_then(|v| v.as_f64()),
-                    alarm_h: item.get("alarmH").or(item.get("alarm_h")).and_then(|v| v.as_f64()),
-                    alarm_l: item.get("alarmL").or(item.get("alarm_l")).and_then(|v| v.as_f64()),
-                    alarm_ll: item.get("alarmLL").or(item.get("alarm_ll")).and_then(|v| v.as_f64()),
+                    invert: item
+                        .get("invert")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    alarm_hh: item
+                        .get("alarmHH")
+                        .or(item.get("alarm_hh"))
+                        .and_then(|v| v.as_f64()),
+                    alarm_h: item
+                        .get("alarmH")
+                        .or(item.get("alarm_h"))
+                        .and_then(|v| v.as_f64()),
+                    alarm_l: item
+                        .get("alarmL")
+                        .or(item.get("alarm_l"))
+                        .and_then(|v| v.as_f64()),
+                    alarm_ll: item
+                        .get("alarmLL")
+                        .or(item.get("alarm_ll"))
+                        .and_then(|v| v.as_f64()),
                     deadband: item.get("deadband").and_then(|v| v.as_f64()),
                     protocol_config: ProtocolConfig::Gpio { pin, direction },
                 });
@@ -312,20 +350,47 @@ impl CommandHandler {
                         .get("pollIntervalMs")
                         .or(item.get("poll_interval_ms"))
                         .and_then(|v| v.as_u64()),
-                    raw_min: item.get("rawMin").or(item.get("raw_min")).and_then(|v| v.as_f64()),
-                    raw_max: item.get("rawMax").or(item.get("raw_max")).and_then(|v| v.as_f64()),
-                    eng_min: item.get("engMin").or(item.get("eng_min")).and_then(|v| v.as_f64()),
-                    eng_max: item.get("engMax").or(item.get("eng_max")).and_then(|v| v.as_f64()),
+                    raw_min: item
+                        .get("rawMin")
+                        .or(item.get("raw_min"))
+                        .and_then(|v| v.as_f64()),
+                    raw_max: item
+                        .get("rawMax")
+                        .or(item.get("raw_max"))
+                        .and_then(|v| v.as_f64()),
+                    eng_min: item
+                        .get("engMin")
+                        .or(item.get("eng_min"))
+                        .and_then(|v| v.as_f64()),
+                    eng_max: item
+                        .get("engMax")
+                        .or(item.get("eng_max"))
+                        .and_then(|v| v.as_f64()),
                     eng_unit: item
                         .get("engUnit")
                         .or(item.get("eng_unit"))
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string()),
-                    invert: item.get("invert").and_then(|v| v.as_bool()).unwrap_or(false),
-                    alarm_hh: item.get("alarmHH").or(item.get("alarm_hh")).and_then(|v| v.as_f64()),
-                    alarm_h: item.get("alarmH").or(item.get("alarm_h")).and_then(|v| v.as_f64()),
-                    alarm_l: item.get("alarmL").or(item.get("alarm_l")).and_then(|v| v.as_f64()),
-                    alarm_ll: item.get("alarmLL").or(item.get("alarm_ll")).and_then(|v| v.as_f64()),
+                    invert: item
+                        .get("invert")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    alarm_hh: item
+                        .get("alarmHH")
+                        .or(item.get("alarm_hh"))
+                        .and_then(|v| v.as_f64()),
+                    alarm_h: item
+                        .get("alarmH")
+                        .or(item.get("alarm_h"))
+                        .and_then(|v| v.as_f64()),
+                    alarm_l: item
+                        .get("alarmL")
+                        .or(item.get("alarm_l"))
+                        .and_then(|v| v.as_f64()),
+                    alarm_ll: item
+                        .get("alarmLL")
+                        .or(item.get("alarm_ll"))
+                        .and_then(|v| v.as_f64()),
                     deadband: item.get("deadband").and_then(|v| v.as_f64()),
                     protocol_config: ProtocolConfig::Modbus {
                         slave_id,
@@ -420,20 +485,47 @@ impl CommandHandler {
                         .get("pollIntervalMs")
                         .or(item.get("poll_interval_ms"))
                         .and_then(|v| v.as_u64()),
-                    raw_min: item.get("rawMin").or(item.get("raw_min")).and_then(|v| v.as_f64()),
-                    raw_max: item.get("rawMax").or(item.get("raw_max")).and_then(|v| v.as_f64()),
-                    eng_min: item.get("engMin").or(item.get("eng_min")).and_then(|v| v.as_f64()),
-                    eng_max: item.get("engMax").or(item.get("eng_max")).and_then(|v| v.as_f64()),
+                    raw_min: item
+                        .get("rawMin")
+                        .or(item.get("raw_min"))
+                        .and_then(|v| v.as_f64()),
+                    raw_max: item
+                        .get("rawMax")
+                        .or(item.get("raw_max"))
+                        .and_then(|v| v.as_f64()),
+                    eng_min: item
+                        .get("engMin")
+                        .or(item.get("eng_min"))
+                        .and_then(|v| v.as_f64()),
+                    eng_max: item
+                        .get("engMax")
+                        .or(item.get("eng_max"))
+                        .and_then(|v| v.as_f64()),
                     eng_unit: item
                         .get("engUnit")
                         .or(item.get("eng_unit"))
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string()),
-                    invert: item.get("invert").and_then(|v| v.as_bool()).unwrap_or(false),
-                    alarm_hh: item.get("alarmHH").or(item.get("alarm_hh")).and_then(|v| v.as_f64()),
-                    alarm_h: item.get("alarmH").or(item.get("alarm_h")).and_then(|v| v.as_f64()),
-                    alarm_l: item.get("alarmL").or(item.get("alarm_l")).and_then(|v| v.as_f64()),
-                    alarm_ll: item.get("alarmLL").or(item.get("alarm_ll")).and_then(|v| v.as_f64()),
+                    invert: item
+                        .get("invert")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    alarm_hh: item
+                        .get("alarmHH")
+                        .or(item.get("alarm_hh"))
+                        .and_then(|v| v.as_f64()),
+                    alarm_h: item
+                        .get("alarmH")
+                        .or(item.get("alarm_h"))
+                        .and_then(|v| v.as_f64()),
+                    alarm_l: item
+                        .get("alarmL")
+                        .or(item.get("alarm_l"))
+                        .and_then(|v| v.as_f64()),
+                    alarm_ll: item
+                        .get("alarmLL")
+                        .or(item.get("alarm_ll"))
+                        .and_then(|v| v.as_f64()),
                     deadband: item.get("deadband").and_then(|v| v.as_f64()),
                     protocol_config: ProtocolConfig::I2c {
                         bus,

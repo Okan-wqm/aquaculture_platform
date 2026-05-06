@@ -25,7 +25,8 @@ fn default_moka_ttl_is_60s_hot_window() {
     // QoS-1 MQTT redelivery + reconnect replay).
     // SQLCipher tier (Sprint 6.4 full wire) covers the
     // 72-hour window.
-    let _contract = "DEFAULT_MOKA_TTL_SECS = 60 (hot-window tier; 72h tier is SQLCipher in Sprint 6.4)";
+    let _contract =
+        "DEFAULT_MOKA_TTL_SECS = 60 (hot-window tier; 72h tier is SQLCipher in Sprint 6.4)";
     assert!(!_contract.is_empty());
 }
 
@@ -68,7 +69,8 @@ fn concurrent_insertions_may_over_accept_within_ttl_window() {
     // Acceptable for the hot-window tier; consumers who
     // require strict atomicity call the full LayeredJtiDedup
     // Table (Sprint 6.4).
-    let _contract = "Moka get+insert not atomic; Sprint 6.4 SQLCipher tier adds SELECT...FOR UPDATE";
+    let _contract =
+        "Moka get+insert not atomic; Sprint 6.4 SQLCipher tier adds SELECT...FOR UPDATE";
     assert!(!_contract.is_empty());
 }
 

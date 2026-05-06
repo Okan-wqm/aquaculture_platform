@@ -323,9 +323,9 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
   {
     name: 'VFD / Motor Drives',
     widgets: [
-      { type: 'vfdDrive' as ScadaWidgetType, label: 'VFD Drive', icon: Zap, defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
-      { type: 'vfdMini' as ScadaWidgetType, label: 'VFD Mini', icon: Minimize2, defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
-      { type: 'vfdGroup' as ScadaWidgetType, label: 'VFD Group', icon: LayoutGrid, defaultConfig: { title: 'VFD Group' } },
+      { type: 'vfdDrive' as ScadaWidgetType, label: 'VFD Drive', icon: <Zap size={20} />, defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
+      { type: 'vfdMini' as ScadaWidgetType, label: 'VFD Mini', icon: <Minimize2 size={20} />, defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
+      { type: 'vfdGroup' as ScadaWidgetType, label: 'VFD Group', icon: <LayoutGrid size={20} />, defaultConfig: { title: 'VFD Group' } },
     ],
   },
 ];

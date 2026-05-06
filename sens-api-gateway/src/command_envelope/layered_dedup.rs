@@ -90,10 +90,7 @@ impl LayeredJtiDedupTable {
     /// Construct with two tier implementations. Caller is
     /// responsible for passing a Moka impl first + SQLCipher
     /// second (or equivalent fast-then-persistent ordering).
-    pub fn new(
-        moka: Arc<dyn JtiDedupTable>,
-        sqlcipher: Arc<dyn JtiDedupTable>,
-    ) -> Self {
+    pub fn new(moka: Arc<dyn JtiDedupTable>, sqlcipher: Arc<dyn JtiDedupTable>) -> Self {
         Self { moka, sqlcipher }
     }
 }
@@ -152,9 +149,9 @@ impl JtiDedupTable for LayeredJtiDedupTable {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::moka_dedup::MokaJtiDedupTable;
     use super::super::sqlcipher_dedup::SqlCipherJtiDedupTable;
+    use super::*;
     use std::time::Duration;
 
     fn future(secs: u64) -> SystemTime {
@@ -202,12 +199,10 @@ mod tests {
         // Simulate cross-restart attack: SQLCipher has the
         // jti from a "prior process", Moka doesn't (empty
         // after "restart").
-        let moka: Arc<dyn JtiDedupTable> = Arc::new(
-            MokaJtiDedupTable::with_capacity_and_ttl(
-                1000,
-                Duration::from_secs(60),
-            ),
-        );
+        let moka: Arc<dyn JtiDedupTable> = Arc::new(MokaJtiDedupTable::with_capacity_and_ttl(
+            1000,
+            Duration::from_secs(60),
+        ));
         let sqlcipher: Arc<dyn JtiDedupTable> =
             Arc::new(SqlCipherJtiDedupTable::in_memory().expect("sqlcipher"));
 

@@ -56,6 +56,7 @@
  * contract is a contract change — review like an event shape change.
  */
 import { DataSource, MigrationExecutor } from 'typeorm';
+import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 
 /**
  * Safe SQL identifier regex — must match the regex used by
@@ -84,7 +85,7 @@ export interface RunSchemaOptions {
     username: string;
     password: string;
     database: string;
-    ssl?: boolean | Record<string, unknown>;
+    ssl?: PostgresConnectionOptions['ssl'];
   };
   /** Emit JSON log record. */
   log: (record: Record<string, unknown>) => void;

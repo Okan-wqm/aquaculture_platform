@@ -14,9 +14,9 @@ import depthLimit from 'graphql-depth-limit';
 import { RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
-import { UserContextMiddleware, TenantContextMiddleware } from '@aquaculture/backend-common/middleware';
+import { UserContextMiddleware, TenantContextMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
-import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
+import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 
 /**
  * BillingMigrationRunnerService — runs pending TypeORM migrations in the

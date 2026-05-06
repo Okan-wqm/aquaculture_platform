@@ -156,12 +156,10 @@ mod tests {
     /// against accidental rename refactors.
     #[test]
     fn schema_version_deserializes_from_kebab_case_string() {
-        let v1: DbKeySchemaVersion =
-            serde_json::from_str("\"v1-machine-id-derived\"").expect("de");
+        let v1: DbKeySchemaVersion = serde_json::from_str("\"v1-machine-id-derived\"").expect("de");
         assert_eq!(v1, DbKeySchemaVersion::V1MachineIdDerived);
 
-        let v2: DbKeySchemaVersion =
-            serde_json::from_str("\"v2-keystore-derived\"").expect("de");
+        let v2: DbKeySchemaVersion = serde_json::from_str("\"v2-keystore-derived\"").expect("de");
         assert_eq!(v2, DbKeySchemaVersion::V2KeystoreDerived);
     }
 
@@ -173,8 +171,7 @@ mod tests {
     /// key.
     #[test]
     fn schema_version_rejects_unknown_discriminator() {
-        let result: Result<DbKeySchemaVersion, _> =
-            serde_json::from_str("\"v99-future-format\"");
+        let result: Result<DbKeySchemaVersion, _> = serde_json::from_str("\"v99-future-format\"");
         assert!(
             result.is_err(),
             "unknown variant must fail-closed: {:?}",
@@ -216,13 +213,11 @@ mod tests {
     #[test]
     fn requires_migration_fires_for_v1_only() {
         assert!(
-            DbKeySchemaVersion::V1MachineIdDerived
-                .requires_migration_to_current_target(),
+            DbKeySchemaVersion::V1MachineIdDerived.requires_migration_to_current_target(),
             "v1 must require migration to v2 target"
         );
         assert!(
-            !DbKeySchemaVersion::V2KeystoreDerived
-                .requires_migration_to_current_target(),
+            !DbKeySchemaVersion::V2KeystoreDerived.requires_migration_to_current_target(),
             "v2 (current target) must NOT require migration"
         );
     }

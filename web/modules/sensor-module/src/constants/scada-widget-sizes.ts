@@ -143,7 +143,7 @@ export const WIDGET_SIZES: Record<string, WidgetSizeDef> = {
 /*  Equipment sub-type size definitions (grid units)                   */
 /* ------------------------------------------------------------------ */
 
-export const EQUIPMENT_SUBTYPE_SIZES: Record<EquipmentSubType, WidgetSizeDef> = {
+export const EQUIPMENT_SUBTYPE_SIZES: Partial<Record<EquipmentSubType, WidgetSizeDef>> = {
   // Pumps (2x2)
   centrifugalPump:    { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4, maxH: 4 },
   gearPump:           { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4, maxH: 4 },

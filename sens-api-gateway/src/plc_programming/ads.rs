@@ -250,24 +250,19 @@ impl AmsNetId {
     pub fn derive_from_ip(ip: &str) -> Result<Self> {
         // Parse IPv4 address and append .1.1
         let parts: Vec<&str> = ip.split('.').collect();
-        if parts.len() != 4 {
-            return Err(anyhow!(
-                "Invalid IPv4 address for AMS Net ID derivation: {}",
-                ip
-            ));
-        }
-        let a: u8 = parts[0]
-            .parse()
-            .map_err(|_| anyhow!("Invalid IP octet: {}", parts[0]))?;
-        let b: u8 = parts[1]
-            .parse()
-            .map_err(|_| anyhow!("Invalid IP octet: {}", parts[1]))?;
-        let c: u8 = parts[2]
-            .parse()
-            .map_err(|_| anyhow!("Invalid IP octet: {}", parts[2]))?;
-        let d: u8 = parts[3]
-            .parse()
-            .map_err(|_| anyhow!("Invalid IP octet: {}", parts[3]))?;
+        let [a_s, b_s, c_s, d_s]: [&str; 4] = parts
+            .as_slice()
+            .try_into()
+            .map_err(|_| anyhow!("Invalid IPv4 address for AMS Net ID derivation: {}", ip))?;
+        let parse_octet = |octet: &str| -> Result<u8> {
+            octet
+                .parse()
+                .map_err(|_| anyhow!("Invalid IP octet: {}", octet))
+        };
+        let a = parse_octet(a_s)?;
+        let b = parse_octet(b_s)?;
+        let c = parse_octet(c_s)?;
+        let d = parse_octet(d_s)?;
         Ok(Self::new(a, b, c, d, 1, 1))
     }
 
@@ -276,6 +271,18 @@ impl AmsNetId {
         // Would normally be read from system
         Self::new(192, 168, 1, 1, 1, 1)
     }
+}
+
+fn le_u32_at(data: &[u8], offset: usize) -> Result<u32> {
+    let end = offset
+        .checked_add(4)
+        .ok_or_else(|| anyhow!("ADS response offset overflow"))?;
+    let bytes: [u8; 4] = data
+        .get(offset..end)
+        .ok_or_else(|| anyhow!("ADS response truncated at offset {}", offset))?
+        .try_into()
+        .map_err(|_| anyhow!("ADS response slice length mismatch"))?;
+    Ok(u32::from_le_bytes(bytes))
 }
 
 impl std::fmt::Display for AmsNetId {
@@ -603,7 +610,7 @@ impl AdsClient {
         if response.len() < 12 {
             return Err(anyhow!("Invalid symbol handle response"));
         }
-        let result = u32::from_le_bytes([response[0], response[1], response[2], response[3]]);
+        let result = le_u32_at(&response, 0)?;
         if result != 0 {
             return Err(anyhow!(
                 "Get symbol handle failed: {}",
@@ -627,15 +634,14 @@ impl AdsClient {
         if response.len() < 8 {
             return Err(anyhow!("Invalid read-by-handle response"));
         }
-        let result = u32::from_le_bytes([response[0], response[1], response[2], response[3]]);
+        let result = le_u32_at(&response, 0)?;
         if result != 0 {
             return Err(anyhow!(
                 "Read by handle failed: {}",
                 ads_error_message(result)
             ));
         }
-        let length =
-            u32::from_le_bytes([response[4], response[5], response[6], response[7]]) as usize;
+        let length = le_u32_at(&response, 4)? as usize;
         if response.len() < 8 + length {
             return Err(anyhow!("Read-by-handle response data truncated"));
         }

@@ -45,11 +45,11 @@
 //! }
 //! ```
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::CommandHandler;
-use crate::scripting::bytecode_deploy::{verify_and_deploy, DeployError};
+use crate::scripting::bytecode_deploy::{DeployError, verify_and_deploy};
 use crate::scripting::bytecode_sig::SignedBytecode;
 use crate::security::sanitize_for_log;
 
@@ -150,37 +150,39 @@ impl CommandHandler {
             &license,
         ) {
             crate::license::DeployProgramBudget::WithinBudget { .. } => {}
-            crate::license::DeployProgramBudget::StProgramCountExceeded {
-                configured,
-                cap,
-            } => {
+            crate::license::DeployProgramBudget::StProgramCountExceeded { configured, cap } => {
                 warn!(
                     "deploy_bytecode_program rejected: ST program cap (pending={} cap={} tier={})",
-                    configured, cap, license.tier.as_str(),
+                    configured,
+                    cap,
+                    license.tier.as_str(),
                 );
                 return (
                     false,
                     json!(null),
                     Some(format!(
                         "deploy_bytecode_program: license ST program cap reached (pending={} cap={} tier={}) — delete an existing program or upgrade tier",
-                        configured, cap, license.tier.as_str(),
+                        configured,
+                        cap,
+                        license.tier.as_str(),
                     )),
                 );
             }
-            crate::license::DeployProgramBudget::FbInstanceCountExceeded {
-                configured,
-                cap,
-            } => {
+            crate::license::DeployProgramBudget::FbInstanceCountExceeded { configured, cap } => {
                 warn!(
                     "deploy_bytecode_program rejected: FB instance cap (pending={} cap={} tier={})",
-                    configured, cap, license.tier.as_str(),
+                    configured,
+                    cap,
+                    license.tier.as_str(),
                 );
                 return (
                     false,
                     json!(null),
                     Some(format!(
                         "deploy_bytecode_program: license FB instance cap reached (pending={} cap={} tier={}) — reduce FB usage or upgrade tier",
-                        configured, cap, license.tier.as_str(),
+                        configured,
+                        cap,
+                        license.tier.as_str(),
                     )),
                 );
             }
@@ -190,14 +192,18 @@ impl CommandHandler {
             } => {
                 warn!(
                     "deploy_bytecode_program rejected: scan_cycle below tier floor (configured_ms={} min_ms={} tier={})",
-                    configured_ms, min_ms, license.tier.as_str(),
+                    configured_ms,
+                    min_ms,
+                    license.tier.as_str(),
                 );
                 return (
                     false,
                     json!(null),
                     Some(format!(
                         "deploy_bytecode_program: scan_cycle_ms ({}) below license min ({}ms) for tier={} — raise scripting.default_scan_cycle_ms or upgrade tier",
-                        configured_ms, min_ms, license.tier.as_str(),
+                        configured_ms,
+                        min_ms,
+                        license.tier.as_str(),
                     )),
                 );
             }
@@ -212,14 +218,7 @@ impl CommandHandler {
             pubkey.verify(msg, &sig).is_ok()
         };
 
-        match verify_and_deploy(
-            &registry,
-            &signed,
-            tenant_str.as_deref(),
-            verify_closure,
-        )
-        .await
-        {
+        match verify_and_deploy(&registry, &signed, tenant_str.as_deref(), verify_closure).await {
             Ok(report) => {
                 info!(
                     "deploy_bytecode_program: program_id={} policy_version={} replaced_existing={}",
@@ -245,35 +244,33 @@ impl CommandHandler {
                 // the migration ceremony would use, ensuring
                 // the keystore yields the same v2 key.
                 let store = match registry.get(&report.program_id).await {
-                    Some(entry) => match crate::scripting::bytecode_sig::canonical_bytes(
-                        &entry.bytecode,
-                    ) {
-                        Ok(canonical) => {
-                            use sha2::{Digest, Sha256};
-                            let mut h = Sha256::new();
-                            h.update(&canonical);
-                            let program_sha = h.finalize().to_vec();
-                            let mut state_w = self.state.write().await;
-                            state_w
-                                .try_open_program_bound_dbs_under_program_sha(
-                                    program_sha,
-                                )
-                                .await;
-                            // Refresh the store handle —
-                            // try_open_program_bound_dbs_*
-                            // may have populated it from
-                            // None to Some.
-                            state_w.bytecode_registry_store.clone()
+                    Some(entry) => {
+                        match crate::scripting::bytecode_sig::canonical_bytes(&entry.bytecode) {
+                            Ok(canonical) => {
+                                use sha2::{Digest, Sha256};
+                                let mut h = Sha256::new();
+                                h.update(&canonical);
+                                let program_sha = h.finalize().to_vec();
+                                let mut state_w = self.state.write().await;
+                                state_w
+                                    .try_open_program_bound_dbs_under_program_sha(program_sha)
+                                    .await;
+                                // Refresh the store handle —
+                                // try_open_program_bound_dbs_*
+                                // may have populated it from
+                                // None to Some.
+                                state_w.bytecode_registry_store.clone()
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "deploy_bytecode_program: canonical_bytes failed for {}: {}; skipping option-3 post-deploy-open + falling back to pre-deploy store handle.",
+                                    sanitize_for_log(&report.program_id),
+                                    e
+                                );
+                                store
+                            }
                         }
-                        Err(e) => {
-                            warn!(
-                                "deploy_bytecode_program: canonical_bytes failed for {}: {}; skipping option-3 post-deploy-open + falling back to pre-deploy store handle.",
-                                sanitize_for_log(&report.program_id),
-                                e
-                            );
-                            store
-                        }
-                    },
+                    }
                     None => {
                         // Rare: registry insert succeeded but
                         // entry vanished. Skip post-deploy-open;
@@ -350,10 +347,9 @@ impl CommandHandler {
                     DeployError::CanonicalEncoding { what } => {
                         format!("canonical encoding failed: {}", what)
                     }
-                    DeployError::TenantMismatch { expected, got } => format!(
-                        "tenant mismatch (expected={:?}, got={:?})",
-                        expected, got
-                    ),
+                    DeployError::TenantMismatch { expected, got } => {
+                        format!("tenant mismatch (expected={:?}, got={:?})", expected, got)
+                    }
                     DeployError::Registry(inner) => inner.to_string(),
                     // Batch #298 ORPHAN-HIGH-020 closure variants —
                     // unreachable from cmd_deploy_bytecode_program
@@ -366,10 +362,17 @@ impl CommandHandler {
                     | DeployError::StSourceCanonicalEncoding { .. }
                     | DeployError::StSourceParseFailed { .. }
                     | DeployError::StSourceCompileFailed { .. } => {
-                        format!("unexpected st-source variant in bytecode deploy path: {}", e)
+                        format!(
+                            "unexpected st-source variant in bytecode deploy path: {}",
+                            e
+                        )
                     }
                 };
-                (false, json!(null), Some(format!("deploy_bytecode_program: {}", reason)))
+                (
+                    false,
+                    json!(null),
+                    Some(format!("deploy_bytecode_program: {}", reason)),
+                )
             }
         }
     }

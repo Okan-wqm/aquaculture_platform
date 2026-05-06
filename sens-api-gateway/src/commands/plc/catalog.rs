@@ -48,7 +48,10 @@ use tracing::info;
 use crate::plc_programming::{CodesysClient, PlcProgram, PlcProgrammer, S7Client};
 
 impl super::super::CommandHandler {
-    pub(in crate::commands) async fn cmd_plc_list(&self, params: &Value) -> (bool, Value, Option<String>) {
+    pub(in crate::commands) async fn cmd_plc_list(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing plc_list command");
 
         let protocol = match params.get("protocol").and_then(|v| v.as_str()) {
@@ -135,7 +138,10 @@ impl super::super::CommandHandler {
     }
 
     /// Download program from PLC
-    pub(in crate::commands) async fn cmd_plc_download(&self, params: &Value) -> (bool, Value, Option<String>) {
+    pub(in crate::commands) async fn cmd_plc_download(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing plc_download command");
 
         let protocol = match params.get("protocol").and_then(|v| v.as_str()) {
@@ -228,7 +234,10 @@ impl super::super::CommandHandler {
     }
 
     /// Delete program from PLC
-    pub(in crate::commands) async fn cmd_plc_delete(&self, params: &Value) -> (bool, Value, Option<String>) {
+    pub(in crate::commands) async fn cmd_plc_delete(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing plc_delete command");
 
         let protocol = match params.get("protocol").and_then(|v| v.as_str()) {

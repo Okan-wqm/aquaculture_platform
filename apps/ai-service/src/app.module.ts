@@ -27,14 +27,16 @@ import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
-  AuditLogModule,
-  AuditLogInterceptor,
   AuditColumnsModule,
   RlsModule,
   createMigrationRunnerService,
   SchemaDriftModule,
   PlatformJwtModule,
 } from '@aquaculture/backend-common';
+import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
 

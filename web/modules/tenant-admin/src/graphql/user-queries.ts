@@ -10,8 +10,6 @@
 // Queries
 // ============================================================================
 
-// WHY: Include accessType in the user list query so the UI can display
-// platform access badges and pre-populate the edit form.
 export const TENANT_USERS_QUERY = `
   query TenantUsers($status: String, $role: String, $limit: Int, $offset: Int) {
     tenantUsers(status: $status, role: $role, limit: $limit, offset: $offset) {
@@ -20,7 +18,6 @@ export const TENANT_USERS_QUERY = `
       firstName
       lastName
       role
-      accessType
       isActive
       isEmailVerified
       lastLoginAt
@@ -33,8 +30,6 @@ export const TENANT_USERS_QUERY = `
 // Mutations
 // ============================================================================
 
-// WHY: The mutation input now includes accessType so the backend can set
-// platform access level and auto-provision mobile settings on user creation.
 export const CREATE_TENANT_USER_MUTATION = `
   mutation CreateTenantUser($input: CreateTenantUserInput!) {
     createTenantUser(input: $input) {
@@ -49,7 +44,6 @@ export const CREATE_TENANT_USER_MUTATION = `
   }
 `;
 
-// WHY: Return accessType after update so the cache stays in sync with server state.
 export const UPDATE_USER_MUTATION = `
   mutation UpdateTenantUser($userId: ID!, $input: UpdateTenantUserInput!) {
     updateTenantUser(userId: $userId, input: $input) {
@@ -58,7 +52,6 @@ export const UPDATE_USER_MUTATION = `
       firstName
       lastName
       role
-      accessType
       isActive
     }
   }

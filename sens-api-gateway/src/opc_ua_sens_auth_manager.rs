@@ -81,22 +81,18 @@ use async_trait::async_trait;
 use opcua::crypto::Thumbprint;
 #[cfg(feature = "opc-ua-server")]
 use opcua::server::{
-    authenticator::{AuthManager, Password, UserToken},
     ServerEndpoint,
+    authenticator::{AuthManager, Password, UserToken},
 };
 #[cfg(feature = "opc-ua-server")]
-use opcua::types::{
-    ByteString, Error, StatusCode, UserTokenPolicy, UserTokenType,
-};
+use opcua::types::{ByteString, Error, StatusCode, UserTokenPolicy, UserTokenType};
 
 #[cfg(feature = "opc-ua-server")]
 use crate::authz::permission::OperatorId;
 #[cfg(feature = "opc-ua-server")]
 use crate::opc_ua_sens_node_manager::format_operator_token;
 #[cfg(feature = "opc-ua-server")]
-use crate::opc_ua_server_user_token_validator::{
-    UserTokenValidator, UserTokenValidatorError,
-};
+use crate::opc_ua_server_user_token_validator::{UserTokenValidator, UserTokenValidatorError};
 
 // =============================================================
 // SensAuthManager — primitive (Batch #266)
@@ -163,10 +159,7 @@ pub struct SensAuthManager {
     /// SensAuthManager API. See ORPHAN-MEDIUM-052.
     active_leases: Arc<
         std::sync::Mutex<
-            std::collections::HashMap<
-                String,
-                crate::opc_ua_server::session_quota::SessionLease,
-            >,
+            std::collections::HashMap<String, crate::opc_ua_server::session_quota::SessionLease>,
         >,
     >,
 }
@@ -189,9 +182,7 @@ impl SensAuthManager {
             policies: Self::default_policies(),
             throttle,
             session_quota,
-            active_leases: Arc::new(std::sync::Mutex::new(
-                std::collections::HashMap::new(),
-            )),
+            active_leases: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -208,16 +199,16 @@ impl SensAuthManager {
                 token_type: UserTokenType::UserName,
                 issued_token_type: opcua::types::UAString::null(),
                 issuer_endpoint_url: opcua::types::UAString::null(),
-                security_policy_uri:
-                    "http://opcfoundation.org/UA/SecurityPolicy#Basic256Sha256".into(),
+                security_policy_uri: "http://opcfoundation.org/UA/SecurityPolicy#Basic256Sha256"
+                    .into(),
             },
             UserTokenPolicy {
                 policy_id: "x509_basic256sha256".into(),
                 token_type: UserTokenType::Certificate,
                 issued_token_type: opcua::types::UAString::null(),
                 issuer_endpoint_url: opcua::types::UAString::null(),
-                security_policy_uri:
-                    "http://opcfoundation.org/UA/SecurityPolicy#Basic256Sha256".into(),
+                security_policy_uri: "http://opcfoundation.org/UA/SecurityPolicy#Basic256Sha256"
+                    .into(),
             },
         ]
     }
@@ -235,10 +226,7 @@ impl AuthManager for SensAuthManager {
     /// lifetime; future per-endpoint filtering would override
     /// this method but the v1 contract is "every endpoint sees
     /// the same policy set."
-    fn user_token_policies(
-        &self,
-        _endpoint: &ServerEndpoint,
-    ) -> Vec<UserTokenPolicy> {
+    fn user_token_policies(&self, _endpoint: &ServerEndpoint) -> Vec<UserTokenPolicy> {
         self.policies.clone()
     }
 
@@ -251,10 +239,7 @@ impl AuthManager for SensAuthManager {
     /// architectural gate that closes the "anonymous read"
     /// loophole — Plan §3 R-8 anonymous read-only path is
     /// deliberately NOT supported in v1.
-    async fn authenticate_anonymous_token(
-        &self,
-        _endpoint: &ServerEndpoint,
-    ) -> Result<(), Error> {
+    async fn authenticate_anonymous_token(&self, _endpoint: &ServerEndpoint) -> Result<(), Error> {
         tracing::warn!(
             "SensAuthManager: anonymous session REJECTED — \
              Suderra requires UserName/Password or X.509 \
@@ -340,8 +325,7 @@ impl AuthManager for SensAuthManager {
             ));
         }
 
-        let password_secret =
-            secrecy::Secret::new(password.get().as_bytes().to_vec());
+        let password_secret = secrecy::Secret::new(password.get().as_bytes().to_vec());
 
         match self
             .validator
@@ -653,8 +637,7 @@ mod tests {
     #[test]
     fn default_policies_omit_anonymous() {
         let policies = SensAuthManager::default_policies();
-        let kinds: Vec<UserTokenType> =
-            policies.iter().map(|p| p.token_type).collect();
+        let kinds: Vec<UserTokenType> = policies.iter().map(|p| p.token_type).collect();
         assert!(kinds.contains(&UserTokenType::UserName));
         assert!(kinds.contains(&UserTokenType::Certificate));
         assert!(!kinds.contains(&UserTokenType::Anonymous));

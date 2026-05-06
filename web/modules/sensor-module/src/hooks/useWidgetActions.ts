@@ -168,7 +168,12 @@ export function useWidgetActions(
 
         case 'animate': {
           const ap = action.params as AnimateParams;
-          result.animationDirection = ap.direction;
+          result.animationDirection =
+            ap.direction === 'clockwise'
+              ? 'forward'
+              : ap.direction === 'anticlockwise'
+                ? 'reverse'
+                : 'stop';
           break;
         }
 

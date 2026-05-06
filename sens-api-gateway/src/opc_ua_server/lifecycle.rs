@@ -242,16 +242,11 @@ impl OpcUaLifecycle {
     {
         // Phase 1 — pre-validate. Fail-closed: bad config does NOT
         // touch the running handle.
-        new_config
-            .validate()
-            .map_err(ReloadError::ConfigInvalid)?;
+        new_config.validate().map_err(ReloadError::ConfigInvalid)?;
 
         // Phase 2 — read the current handle (clone Arc, drop lock).
         let old_handle = {
-            let guard = self
-                .inner
-                .read()
-                .await;
+            let guard = self.inner.read().await;
             guard.clone()
         };
 

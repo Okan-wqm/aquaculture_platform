@@ -9,7 +9,8 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useCallback, useMemo } from 'react';
-import { getTenantAuditLogs } from '../lib/api';
+import { graphqlRequest } from '../services/tenant-api.service';
+import { TENANT_AUDIT_LOGS_QUERY } from '../graphql';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
@@ -92,8 +93,11 @@ export function useTenantAuditLog(pageSize = 20) {
     queryKey: auditLogKeys.list(filters, page, pageSize),
     queryFn: async (): Promise<AuditLogPage> => {
       try {
-        const result = await getTenantAuditLogs(variables as Record<string, string | number | undefined>);
-        return result as unknown as AuditLogPage;
+        const data = await graphqlRequest<{ tenantAuditLogs: AuditLogPage }>(
+          TENANT_AUDIT_LOGS_QUERY,
+          variables,
+        );
+        return data.tenantAuditLogs;
       } catch (err) {
         logError('useTenantAuditLog', err);
         // Return empty result on error so UI still renders
@@ -137,19 +141,10 @@ export function useTenantAuditLog(pageSize = 20) {
     queryClient.invalidateQueries({ queryKey: auditLogKeys.all });
   }, [queryClient]);
 
-  // CSV export -- MED-09: warn that only the current page is exported
+  // CSV export
   const exportCsv = useCallback(() => {
     const entries = query.data?.data;
     if (!entries || entries.length === 0) return;
-
-    const total = query.data?.total ?? 0;
-    if (total > entries.length) {
-      const proceed = window.confirm(
-        `Warning: Only the current page (${entries.length} of ${total} total records) will be exported. ` +
-        `Adjust filters or page size to export more records.\n\nContinue with export?`
-      );
-      if (!proceed) return;
-    }
 
     const headers = ['Timestamp', 'Action', 'User', 'IP Address', 'Severity', 'Entity Type', 'Details'];
     const rows = entries.map((entry) => [

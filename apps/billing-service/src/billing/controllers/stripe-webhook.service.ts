@@ -9,6 +9,7 @@ import {
 } from '@platform/event-contracts';
 import { Money } from '@aquaculture/backend-common/monetary';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { maskAndTruncatePii } from '@aquaculture/backend-common/utils';
 import Decimal from 'decimal.js';
 import { Payment, PaymentStatus, PaymentMethod } from '../entities/payment.entity';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';

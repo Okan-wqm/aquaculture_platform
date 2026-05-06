@@ -340,7 +340,9 @@ impl S7Address {
         // Timer (Batch #25 clippy::manual_strip cleanup —
         // strip_prefix replaces hardcoded slice indices).
         if let Some(rest) = addr.strip_prefix('T') {
-            let num: u16 = rest.parse().map_err(|_| anyhow!("Invalid timer number: {}", address))?;
+            let num: u16 = rest
+                .parse()
+                .map_err(|_| anyhow!("Invalid timer number: {}", address))?;
             return Ok(Self {
                 area_code: S7_AREA_TM,
                 db_number: 0,
@@ -353,7 +355,9 @@ impl S7Address {
 
         // Counter
         if let Some(rest) = addr.strip_prefix('C') {
-            let num: u16 = rest.parse().map_err(|_| anyhow!("Invalid counter number: {}", address))?;
+            let num: u16 = rest
+                .parse()
+                .map_err(|_| anyhow!("Invalid counter number: {}", address))?;
             return Ok(Self {
                 area_code: S7_AREA_CT,
                 db_number: 0,
@@ -398,14 +402,13 @@ impl S7Address {
         match size_char {
             "X" => {
                 // Bit access: DBX<byte>.<bit>
-                let parts: Vec<&str> = offset_str.split('.').collect();
-                if parts.len() != 2 {
-                    return Err(anyhow!("Invalid DB bit address: {}", addr));
-                }
-                let byte_off: u16 = parts[0]
+                let (byte_str, bit_str) = offset_str
+                    .split_once('.')
+                    .ok_or_else(|| anyhow!("Invalid DB bit address: {}", addr))?;
+                let byte_off: u16 = byte_str
                     .parse()
                     .map_err(|_| anyhow!("Invalid byte offset: {}", addr))?;
-                let bit_off: u8 = parts[1]
+                let bit_off: u8 = bit_str
                     .parse()
                     .map_err(|_| anyhow!("Invalid bit offset: {}", addr))?;
                 if bit_off > 7 {
@@ -516,14 +519,13 @@ impl S7Address {
             _ => {
                 // Bit access: <byte>.<bit> or just <byte> for byte access
                 if rest.contains('.') {
-                    let parts: Vec<&str> = rest.split('.').collect();
-                    if parts.len() != 2 {
-                        return Err(anyhow!("Invalid bit address: {}", original));
-                    }
-                    let byte_off: u16 = parts[0]
+                    let (byte_str, bit_str) = rest
+                        .split_once('.')
+                        .ok_or_else(|| anyhow!("Invalid bit address: {}", original))?;
+                    let byte_off: u16 = byte_str
                         .parse()
                         .map_err(|_| anyhow!("Invalid byte offset: {}", original))?;
-                    let bit_off: u8 = parts[1]
+                    let bit_off: u8 = bit_str
                         .parse()
                         .map_err(|_| anyhow!("Invalid bit offset: {}", original))?;
                     if bit_off > 7 {
@@ -1171,7 +1173,10 @@ impl S7Client {
         }
 
         // Data section: return_code(1) + transport_size(1) + length(2) + SZL data
-        let return_code = s7[data_start];
+        let return_code = s7
+            .get(data_start)
+            .copied()
+            .ok_or_else(|| anyhow!("S7 read response data item missing return code"))?;
         if return_code != 0xFF {
             return Err(anyhow!(
                 "SZL read failed with return code: 0x{:02X}",
@@ -1259,13 +1264,13 @@ impl PlcProgrammer for S7Client {
                 // Record format: szl_id(2) + index(2) + order_number(20) + firmware(8)
                 if szl_data.len() >= 32 {
                     // Firmware version is at offset 24, 8 bytes
-                    let fw_bytes = &szl_data[24..32.min(szl_data.len())];
+                    let fw_bytes = szl_data.get(24..32).unwrap_or(&[]);
                     let fw_end = fw_bytes
                         .iter()
                         .position(|&b| b == 0)
                         .unwrap_or(fw_bytes.len());
                     if fw_end > 0 {
-                        firmware = String::from_utf8_lossy(&fw_bytes[..fw_end])
+                        firmware = String::from_utf8_lossy(fw_bytes.get(..fw_end).unwrap_or(&[]))
                             .trim()
                             .to_string();
                     }
@@ -1476,8 +1481,12 @@ impl PlcProgrammer for S7Client {
                     if chunk.len() < 4 {
                         break;
                     }
-                    let block_type = ((chunk[0] as u16) << 8) | chunk[1] as u16;
-                    let count = ((chunk[2] as u16) << 8) | chunk[3] as u16;
+                    let [type_hi, type_lo, count_hi, count_lo]: [u8; 4] = match chunk.try_into() {
+                        Ok(bytes) => bytes,
+                        Err(_) => break,
+                    };
+                    let block_type = ((type_hi as u16) << 8) | type_lo as u16;
+                    let count = ((count_hi as u16) << 8) | count_lo as u16;
                     let name = block_type_names(block_type);
                     if !name.is_empty() && count > 0 {
                         for i in 1..=count.min(20) {
@@ -1557,7 +1566,12 @@ impl PlcProgrammer for S7Client {
         }
 
         // Parse data: skip header (12 bytes) + param section
-        let param_len = ((s7[6] as usize) << 8) | s7[7] as usize;
+        let param_len = s7
+            .get(6..8)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u16::from_be_bytes)
+            .ok_or_else(|| anyhow!("S7 write response missing parameter length"))?
+            as usize;
         let data_start = 12 + param_len;
         if s7.len() < data_start + 4 {
             return Err(anyhow!("S7 read response data too short"));
@@ -1613,8 +1627,20 @@ impl PlcProgrammer for S7Client {
         }
 
         // Check header error
-        if s7[1] == S7_ACK_DATA && s7[10] != 0x00 {
-            let error_msg = parse_s7_error(s7[10], s7[11]);
+        let response_type = s7
+            .get(1)
+            .copied()
+            .ok_or_else(|| anyhow!("S7 write response missing type"))?;
+        let error_class = s7
+            .get(10)
+            .copied()
+            .ok_or_else(|| anyhow!("S7 write response missing error class"))?;
+        if response_type == S7_ACK_DATA && error_class != 0x00 {
+            let error_code = s7
+                .get(11)
+                .copied()
+                .ok_or_else(|| anyhow!("S7 write response missing error code"))?;
+            let error_msg = parse_s7_error(error_class, error_code);
             return Err(anyhow!("S7 write variable failed: {}", error_msg));
         }
 
@@ -1622,7 +1648,10 @@ impl PlcProgrammer for S7Client {
         let param_len = ((s7[6] as usize) << 8) | s7[7] as usize;
         let data_start = 12 + param_len;
         if s7.len() > data_start {
-            let return_code = s7[data_start];
+            let return_code = s7
+                .get(data_start)
+                .copied()
+                .ok_or_else(|| anyhow!("S7 write response data item missing return code"))?;
             if return_code != 0xFF {
                 return Err(anyhow!(
                     "S7 write data error: return code 0x{:02X}",

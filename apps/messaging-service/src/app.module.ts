@@ -49,6 +49,9 @@ import {
   SchemaDriftModule,
   PlatformJwtModule,
 } from '@aquaculture/backend-common';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 
 // Tenant infrastructure — 'messaging' source schema for template tables
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('messaging');

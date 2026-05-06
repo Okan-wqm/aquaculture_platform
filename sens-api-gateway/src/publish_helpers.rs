@@ -96,9 +96,7 @@ async fn publish_routed(
     }
 
     if let Some(ref mqtt) = state.mqtt_client {
-        if let Err(e) =
-            mqtt.publish_raw(topic, &payload_bytes).await
-        {
+        if let Err(e) = mqtt.publish_raw(topic, &payload_bytes).await {
             warn!(
                 "publish_helpers: MqttClient.publish_raw({}) failed: {}",
                 legacy_label, e
@@ -112,10 +110,7 @@ async fn publish_routed(
 /// replays alarms BEFORE telemetry/status/etc. on reconnect —
 /// life-safety hot path (FDA 21 CFR 117.135, EU Machinery
 /// Directive alignment).
-pub async fn publish_alarms(
-    state: &crate::AppState,
-    payload: &impl Serialize,
-) {
+pub async fn publish_alarms(state: &crate::AppState, payload: &impl Serialize) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().alarms.clone(),
         None => return,
@@ -135,10 +130,7 @@ pub async fn publish_alarms(
 /// Publish telemetry metrics (CPU/memory/disk, etc.) at
 /// [`MessagePriority::Normal`]. High frequency, observability
 /// data — drains AFTER alarms + status on reconnect.
-pub async fn publish_telemetry<P: Serialize>(
-    state: &crate::AppState,
-    payload: &P,
-) {
+pub async fn publish_telemetry<P: Serialize>(state: &crate::AppState, payload: &P) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().telemetry.clone(),
         None => return,
@@ -159,10 +151,7 @@ pub async fn publish_telemetry<P: Serialize>(
 /// Maintenance / Error) at [`MessagePriority::High`] —
 /// connection lifecycle events that operators + cloud automation
 /// react to (e.g., alerting on stale device).
-pub async fn publish_status<P: Serialize>(
-    state: &crate::AppState,
-    payload: &P,
-) {
+pub async fn publish_status<P: Serialize>(state: &crate::AppState, payload: &P) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().status.clone(),
         None => return,
@@ -184,10 +173,7 @@ pub async fn publish_status<P: Serialize>(
 /// these by `command_id`; loss during outage breaks the
 /// request-response loop until a timeout fires the cloud-side
 /// retry — minimizing the response-loss window matters.
-pub async fn publish_response<P: Serialize>(
-    state: &crate::AppState,
-    payload: &P,
-) {
+pub async fn publish_response<P: Serialize>(state: &crate::AppState, payload: &P) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().responses.clone(),
         None => return,
@@ -206,10 +192,7 @@ pub async fn publish_response<P: Serialize>(
 
 /// Publish IO data tags at [`MessagePriority::Normal`]. High-
 /// frequency telemetry-class — drains in normal priority order.
-pub async fn publish_io_data<P: Serialize>(
-    state: &crate::AppState,
-    payload: &P,
-) {
+pub async fn publish_io_data<P: Serialize>(state: &crate::AppState, payload: &P) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().io_data.clone(),
         None => return,
@@ -240,10 +223,7 @@ pub async fn publish_io_data<P: Serialize>(
 /// unwarranted. Operators tolerating lower fidelity for the
 /// scheduler-stats stream is the canonical observability
 /// trade-off.
-pub async fn publish_task_stats<P: Serialize>(
-    state: &crate::AppState,
-    payload: &P,
-) {
+pub async fn publish_task_stats<P: Serialize>(state: &crate::AppState, payload: &P) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().task_stats.clone(),
         None => return,
@@ -262,10 +242,7 @@ pub async fn publish_task_stats<P: Serialize>(
 
 /// Publish a LoRaWAN event (uplink / join / downlink ack) at
 /// [`MessagePriority::Normal`].
-pub async fn publish_lora_event<P: Serialize>(
-    state: &crate::AppState,
-    payload: &P,
-) {
+pub async fn publish_lora_event<P: Serialize>(state: &crate::AppState, payload: &P) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().lora_events.clone(),
         None => return,
@@ -294,10 +271,7 @@ pub async fn publish_raw_bytes(
     priority: MessagePriority,
 ) {
     if let Some(ref publisher) = state.outbound_publisher {
-        if let Err(e) = publisher
-            .publish(topic, payload, priority, 1, false)
-            .await
-        {
+        if let Err(e) = publisher.publish(topic, payload, priority, 1, false).await {
             warn!(
                 "publish_helpers: OutboundPublisher.publish_raw({}) failed: {}",
                 topic, e

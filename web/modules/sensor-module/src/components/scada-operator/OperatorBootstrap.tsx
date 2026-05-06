@@ -38,6 +38,7 @@ import {
 } from '../../types/scada-runtime.types';
 import { getScadaSocketService } from '../../services/ScadaSocketService';
 import { useScadaStore } from '../../store/scada/createScadaStore';
+import { useOperatorStore } from '../../store/scada/operatorStore';
 
 /* ------------------------------------------------------------------ */
 /*  Error Boundary                                                      */
@@ -180,7 +181,7 @@ function OperatorBootstrapInner({
   const updateAlarmStatus = useScadaStore((s) => s.updateAlarmStatus);
   const addConsoleOutput   = useScadaStore((s) => s.addConsoleOutput);
   const setActiveScreen    = useScadaStore((s) => s.setActiveScreen);
-  const openOverlay        = useScadaStore((s) => s.openOverlay);
+  const openOverlay        = useOperatorStore((s) => s.openOverlay);
 
   // ── Socket service (singleton) ─────────────────────────────────────
   const initSocket = useCallback((): (() => void) => {
@@ -216,7 +217,7 @@ function OperatorBootstrapInner({
     };
 
     // --- COMMAND_TOAST → operatorSlice.openOverlay (dialog variant) ---
-    // Toast commands are surfaced as a temporary overlay that the
+    // Toast commands are surfaced as a transient overlay that the
     // ViewOverlayManager (or a toast renderer) can consume.
     const onToast = (payload: { message: string; type?: string }): void => {
       // Dispatch as a dialog-type overlay so the overlay manager can

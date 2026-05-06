@@ -1,9 +1,19 @@
-import { Injectable, Logger, ForbiddenException, Inject, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ForbiddenException,
+  Inject,
+  Optional,
+} from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, IsNull, EntityManager } from 'typeorm';
 import Redis from 'ioredis';
 
-import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  runInTenantTransaction,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 import { LegalHold } from '../entities/legal-hold.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 
@@ -252,8 +262,19 @@ export class LegalHoldService {
     holdId: string,
     tenantId: string,
     userId: string,
+    approverId: string,
+    releaseReason: string,
     manager?: EntityManager,
   ): Promise<LegalHold> {
+    if (approverId === userId) {
+      throw new BadRequestException('Legal hold release requires a distinct second approver');
+    }
+    if (releaseReason.trim().length < LEGAL_HOLD_MIN_REASON_CHARS) {
+      throw new BadRequestException(
+        `Legal hold release reason must be at least ${LEGAL_HOLD_MIN_REASON_CHARS} characters`,
+      );
+    }
+
     // tenantId is required so the find below cannot match a hold that
     // belongs to a different tenant than the caller. Without this scope,
     // a user from Tenant A who learned a hold's id (via leaked log,

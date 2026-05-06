@@ -1,3 +1,5 @@
+import type { ScriptParam, ScriptScheduling } from '../../types/scada-runtime.types';
+
 export type EventTrigger = 'click' | 'dblclick' | 'mousedown' | 'mouseup' | 'mouseover' | 'mouseout';
 
 /**
@@ -76,8 +78,11 @@ export interface ScadaScript {
   id: string;
   name: string;
   code: string;
-  trigger: ScriptTrigger;
+  trigger?: ScriptTrigger;
   enabled: boolean;
+  mode?: 'server' | 'client';
+  scheduling?: ScriptScheduling;
+  params?: ScriptParam[];
   /** Tag that triggers execution (only for tagChange trigger). */
   triggerTag?: string;
   /** Interval in milliseconds (only for interval trigger, min 1000). */

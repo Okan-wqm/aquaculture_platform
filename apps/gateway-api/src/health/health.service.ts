@@ -290,6 +290,9 @@ export class HealthService {
           ...buildSignedInternalHeaders({
             serviceName: 'gateway-api',
             tenantId: '',
+            method: 'GET',
+            path: new URL(healthUrl).pathname,
+            body: '',
           }),
         },
       });

@@ -231,9 +231,7 @@ impl PolicyEngine for InMemoryPolicyEngine {
                     None => continue,
                 };
                 // Role validity window.
-                if now_secs < role.valid_from_unix_secs
-                    || now_secs > role.valid_until_unix_secs
-                {
+                if now_secs < role.valid_from_unix_secs || now_secs > role.valid_until_unix_secs {
                     continue;
                 }
                 if role
@@ -298,9 +296,7 @@ mod tests {
         CustomRole, Ed25519PublicKeyBytes, OperatorBinding, RbacManifest,
     };
     use crate::authz::permission::{OperatorId, TagId, TenantId};
-    use crate::authz::policy::{
-        AuthorizationRequest, PolicyEngine, PolicyEngineError,
-    };
+    use crate::authz::policy::{AuthorizationRequest, PolicyEngine, PolicyEngineError};
     use std::sync::RwLock;
 
     fn canned_tenant() -> TenantId {
@@ -387,13 +383,7 @@ mod tests {
         } else {
             UNIX_EPOCH
         };
-        AuthorizationRequest::new(
-            actor,
-            Permission::ReadTag,
-            tenant,
-            claimed_version,
-            rx_at,
-        )
+        AuthorizationRequest::new(actor, Permission::ReadTag, tenant, claimed_version, rx_at)
     }
 
     #[tokio::test]
@@ -414,9 +404,8 @@ mod tests {
 
     #[tokio::test]
     async fn authorize_denies_on_tenant_mismatch() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         let wrong_tenant = TenantId::new_from_verified([0x99u8; 16]);
         let req = request_read_tag(
             ActorIdentity::Operator(canned_operator()),
@@ -432,9 +421,8 @@ mod tests {
 
     #[tokio::test]
     async fn authorize_denies_on_stale_policy_version() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         // claimed < current (10).
         let req = request_read_tag(
             ActorIdentity::Operator(canned_operator()),
@@ -443,9 +431,10 @@ mod tests {
             1_500_000_000,
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::StalePolicyVersion { claimed, highest_seen },
-            ) => {
+            AuthorizationDecision::Deny(AuthorizationDenyReason::StalePolicyVersion {
+                claimed,
+                highest_seen,
+            }) => {
                 assert_eq!(claimed, 5);
                 assert_eq!(highest_seen, 10);
             }
@@ -455,9 +444,8 @@ mod tests {
 
     #[tokio::test]
     async fn authorize_denies_outside_manifest_validity_window() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         // Before valid_from.
         let req = request_read_tag(
             ActorIdentity::Operator(canned_operator()),
@@ -473,9 +461,8 @@ mod tests {
 
     #[tokio::test]
     async fn authorize_denies_tpi_without_co_approver() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ForceValue,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ForceValue])));
         use std::time::{Duration, UNIX_EPOCH};
         let req = AuthorizationRequest::new(
             ActorIdentity::Operator(canned_operator()),
@@ -485,18 +472,15 @@ mod tests {
             UNIX_EPOCH + Duration::from_secs(1_500_000_000),
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::TwoPersonIntegrityMissing,
-            ) => {}
+            AuthorizationDecision::Deny(AuthorizationDenyReason::TwoPersonIntegrityMissing) => {}
             other => panic!("expected TwoPersonIntegrityMissing, got {:?}", other),
         }
     }
 
     #[tokio::test]
     async fn authorize_denies_machine_issuer_no_binding() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         let req = request_read_tag(
             ActorIdentity::MachineIssuer {
                 subject_cn: "auth-service".into(),
@@ -506,18 +490,15 @@ mod tests {
             1_500_000_000,
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::PermissionNotGranted,
-            ) => {}
+            AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted) => {}
             other => panic!("expected PermissionNotGranted, got {:?}", other),
         }
     }
 
     #[tokio::test]
     async fn authorize_denies_unknown_operator() {
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         let stranger = OperatorId::new_from_verified([0xDEu8; 16]);
         let req = request_read_tag(
             ActorIdentity::Operator(stranger),
@@ -526,9 +507,7 @@ mod tests {
             1_500_000_000,
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::PermissionNotGranted,
-            ) => {}
+            AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted) => {}
             other => panic!("expected PermissionNotGranted, got {:?}", other),
         }
     }
@@ -537,9 +516,8 @@ mod tests {
     async fn authorize_denies_operator_with_no_matching_permission() {
         // Operator has the "operator" role but that role
         // only has ReadTag, requested WriteTag.
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         use std::time::{Duration, UNIX_EPOCH};
         let req = AuthorizationRequest::new(
             ActorIdentity::Operator(canned_operator()),
@@ -551,9 +529,7 @@ mod tests {
             UNIX_EPOCH + Duration::from_secs(1_500_000_000),
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::PermissionNotGranted,
-            ) => {}
+            AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted) => {}
             other => panic!("expected PermissionNotGranted, got {:?}", other),
         }
     }
@@ -561,20 +537,26 @@ mod tests {
     #[tokio::test]
     async fn authorize_allows_when_role_has_requested_permission() {
         let tag = TagId::new("do_pump".into());
-        let engine = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::WriteTag { tag_id: tag.clone() },
-        ])));
+        let engine =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::WriteTag {
+                tag_id: tag.clone(),
+            }])));
         use std::time::{Duration, UNIX_EPOCH};
         let req = AuthorizationRequest::new(
             ActorIdentity::Operator(canned_operator()),
-            Permission::WriteTag { tag_id: tag.clone() },
+            Permission::WriteTag {
+                tag_id: tag.clone(),
+            },
             canned_tenant(),
             10,
             UNIX_EPOCH + Duration::from_secs(1_500_000_000),
         );
         match engine.authorize(req).await.unwrap() {
             AuthorizationDecision::Allow(ctx) => {
-                assert_eq!(ctx.granted_permission(), &Permission::WriteTag { tag_id: tag });
+                assert_eq!(
+                    ctx.granted_permission(),
+                    &Permission::WriteTag { tag_id: tag }
+                );
                 assert_eq!(ctx.policy_version(), 10);
             }
             other => panic!("expected Allow, got {:?}", other),
@@ -595,15 +577,15 @@ mod tests {
         use std::time::{Duration, UNIX_EPOCH};
         let req = AuthorizationRequest::new(
             ActorIdentity::Operator(canned_operator()),
-            Permission::WriteTag { tag_id: tag.clone() },
+            Permission::WriteTag {
+                tag_id: tag.clone(),
+            },
             canned_tenant(),
             10,
             UNIX_EPOCH + Duration::from_secs(1_500_000_000),
         );
         match engine.authorize(req).await.unwrap() {
-            AuthorizationDecision::Deny(
-                AuthorizationDenyReason::PermissionNotGranted,
-            ) => {}
+            AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted) => {}
             other => panic!(
                 "expected PermissionNotGranted for expired role, got {:?}",
                 other
@@ -616,9 +598,8 @@ mod tests {
         let engine_empty = InMemoryPolicyEngine::new(Arc::new(RbacManifestStore::new()));
         assert_eq!(engine_empty.current_policy_version(), 0);
 
-        let engine_loaded = InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![
-            Permission::ReadTag,
-        ])));
+        let engine_loaded =
+            InMemoryPolicyEngine::new(store_with(baseline_manifest(vec![Permission::ReadTag])));
         assert_eq!(engine_loaded.current_policy_version(), 10);
     }
 

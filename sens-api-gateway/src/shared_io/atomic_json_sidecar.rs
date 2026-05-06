@@ -182,20 +182,17 @@ pub fn write_atomic_json<T: Serialize>(
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
-    fs::create_dir_all(&parent).map_err(|e| {
-        AtomicJsonWriteError::ParentCreate {
-            path: path.to_path_buf(),
-            reason: format!("create_dir_all: {e}"),
-        }
+    fs::create_dir_all(&parent).map_err(|e| AtomicJsonWriteError::ParentCreate {
+        path: path.to_path_buf(),
+        reason: format!("create_dir_all: {e}"),
     })?;
 
     // Step 2: serialize.
-    let bytes = serde_json::to_vec_pretty(payload).map_err(|e| {
-        AtomicJsonWriteError::Serialize {
+    let bytes =
+        serde_json::to_vec_pretty(payload).map_err(|e| AtomicJsonWriteError::Serialize {
             path: path.to_path_buf(),
             reason: format!("json serialize: {e}"),
-        }
-    })?;
+        })?;
 
     // Step 3+4: temp file in the SAME directory; write +
     // fsync.
@@ -222,10 +219,11 @@ pub fn write_atomic_json<T: Serialize>(
                 temp_path: temp_path.clone(),
                 reason: format!("open temp: {e}"),
             })?;
-        f.write_all(&bytes).map_err(|e| AtomicJsonWriteError::TempIo {
-            temp_path: temp_path.clone(),
-            reason: format!("write_all: {e}"),
-        })?;
+        f.write_all(&bytes)
+            .map_err(|e| AtomicJsonWriteError::TempIo {
+                temp_path: temp_path.clone(),
+                reason: format!("write_all: {e}"),
+            })?;
         f.sync_all().map_err(|e| AtomicJsonWriteError::TempIo {
             temp_path: temp_path.clone(),
             reason: format!("fsync: {e}"),
@@ -246,11 +244,9 @@ pub fn write_atomic_json<T: Serialize>(
     // Step 6 (the missing step pre-Batch-#338): fsync the
     // parent directory so the rename's directory entry
     // is durable. The 6-step dance is now complete.
-    sync_parent_directory(&parent).map_err(|e| {
-        AtomicJsonWriteError::ParentFsync {
-            parent: parent.clone(),
-            reason: format!("parent dir fsync: {e}"),
-        }
+    sync_parent_directory(&parent).map_err(|e| AtomicJsonWriteError::ParentFsync {
+        parent: parent.clone(),
+        reason: format!("parent dir fsync: {e}"),
     })?;
 
     Ok(())
@@ -308,8 +304,7 @@ mod tests {
         write_atomic_json(&path, &original).expect("write");
 
         let bytes = fs::read(&path).expect("read");
-        let loaded: TestPayload =
-            serde_json::from_slice(&bytes).expect("parse");
+        let loaded: TestPayload = serde_json::from_slice(&bytes).expect("parse");
         assert_eq!(loaded, original);
     }
 
@@ -355,9 +350,7 @@ mod tests {
         let entries: Vec<_> = fs::read_dir(dir.path())
             .expect("readdir")
             .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.file_name().to_string_lossy().contains(".tmp-")
-            })
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp-"))
             .collect();
         assert!(
             entries.is_empty(),
@@ -389,8 +382,7 @@ mod tests {
         )
         .expect("write 2");
         let bytes = fs::read(&path).expect("read");
-        let loaded: TestPayload =
-            serde_json::from_slice(&bytes).expect("parse");
+        let loaded: TestPayload = serde_json::from_slice(&bytes).expect("parse");
         assert_eq!(loaded.schema_version, 2);
         assert_eq!(loaded.value, "second");
     }

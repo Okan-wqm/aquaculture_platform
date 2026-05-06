@@ -24,6 +24,10 @@ import {
   RlsModule,
   PlatformJwtModule,
 } from '@aquaculture/backend-common';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
 import { GraphQLError } from 'graphql';

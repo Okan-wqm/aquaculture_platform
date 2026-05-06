@@ -152,10 +152,7 @@ pub enum LedgerEntry {
     },
     /// 3-phase rotation transition (Legacy/Warn/Strict). The associated
     /// pre/post mode strings are written verbatim by `cert_rotation.rs`.
-    PhaseTransition {
-        from_mode: String,
-        to_mode: String,
-    },
+    PhaseTransition { from_mode: String, to_mode: String },
 }
 
 /// One full line of the ledger, as serialized to JSONL. Includes the
@@ -207,9 +204,9 @@ impl std::fmt::Display for PkiStoreError {
                 "PkiStore: cannot revoke fingerprint {fingerprint_hex} — \
                  not currently in the trusted set"
             ),
-            Self::LockPoisoned => f.write_str(
-                "PkiStore mutex poisoned (previous writer panicked); restart required",
-            ),
+            Self::LockPoisoned => {
+                f.write_str("PkiStore mutex poisoned (previous writer panicked); restart required")
+            }
         }
     }
 }
@@ -276,21 +273,14 @@ impl PkiStore {
     /// Returns `Err(LedgerCorrupted)` if a previously-written ledger fails
     /// chain-linkage verification on reload — fail-closed at boot rather
     /// than silently continuing on a corrupted chain.
-    pub fn open_or_initialize(
-        root: &Path,
-        device_code: String,
-    ) -> Result<Self, PkiStoreError> {
+    pub fn open_or_initialize(root: &Path, device_code: String) -> Result<Self, PkiStoreError> {
         // Ensure the directory layout exists.
         let trusted_dir = root.join("trusted").join("clients");
         let rejected_dir = root.join("rejected");
         let own_dir = root.join("own");
         for d in [&trusted_dir, &rejected_dir, &own_dir, &root.to_path_buf()] {
-            fs::create_dir_all(d).map_err(|e| {
-                PkiStoreError::OpenFailed(format!(
-                    "mkdir {}: {e}",
-                    d.display()
-                ))
-            })?;
+            fs::create_dir_all(d)
+                .map_err(|e| PkiStoreError::OpenFailed(format!("mkdir {}: {e}", d.display())))?;
         }
 
         let ledger_path = root.join("rotation_ledger.jsonl");
@@ -312,10 +302,7 @@ impl PkiStore {
             .append(true)
             .open(&ledger_path)
             .map_err(|e| {
-                PkiStoreError::OpenFailed(format!(
-                    "open ledger {}: {e}",
-                    ledger_path.display()
-                ))
+                PkiStoreError::OpenFailed(format!("open ledger {}: {e}", ledger_path.display()))
             })?;
         let ledger_writer = BufWriter::new(ledger_file);
 
@@ -349,10 +336,7 @@ impl PkiStore {
     /// in-memory `Vec<CertFingerprint>` pair (typical fleet has < 50
     /// trusted certs at any time).
     pub fn snapshot(&self) -> Result<PkiStoreSnapshot, PkiStoreError> {
-        let guard = self
-            .inner
-            .lock()
-            .map_err(|_| PkiStoreError::LockPoisoned)?;
+        let guard = self.inner.lock().map_err(|_| PkiStoreError::LockPoisoned)?;
         Ok(guard.snapshot.clone())
     }
 
@@ -385,10 +369,7 @@ impl PkiStore {
     ) -> Result<CertFingerprint, PkiStoreError> {
         let fingerprint = CertFingerprint::from_der(cert_der);
         {
-            let guard = self
-                .inner
-                .lock()
-                .map_err(|_| PkiStoreError::LockPoisoned)?;
+            let guard = self.inner.lock().map_err(|_| PkiStoreError::LockPoisoned)?;
             if guard.snapshot.is_revoked(&fingerprint) {
                 return Err(PkiStoreError::FingerprintWasRevoked {
                     fingerprint_hex: fingerprint.as_hex().to_string(),
@@ -432,10 +413,7 @@ impl PkiStore {
         reason: String,
     ) -> Result<(), PkiStoreError> {
         {
-            let guard = self
-                .inner
-                .lock()
-                .map_err(|_| PkiStoreError::LockPoisoned)?;
+            let guard = self.inner.lock().map_err(|_| PkiStoreError::LockPoisoned)?;
             if !guard.snapshot.is_trusted(fingerprint) {
                 return Err(PkiStoreError::FingerprintNotTrusted {
                     fingerprint_hex: fingerprint.as_hex().to_string(),
@@ -448,16 +426,9 @@ impl PkiStore {
             .join("trusted")
             .join("clients")
             .join(format!("{prefix}.der"));
-        let to = self
-            .root
-            .join("rejected")
-            .join(format!("{prefix}.der"));
+        let to = self.root.join("rejected").join(format!("{prefix}.der"));
         fs::rename(&from, &to).map_err(|e| {
-            PkiStoreError::WriteFailed(format!(
-                "rename {} → {}: {e}",
-                from.display(),
-                to.display()
-            ))
+            PkiStoreError::WriteFailed(format!("rename {} → {}: {e}", from.display(), to.display()))
         })?;
 
         self.append_locked(LedgerEntry::CertRevoked {
@@ -507,10 +478,7 @@ impl PkiStore {
 
     /// Number of distinct trusted fingerprints currently active.
     pub fn trusted_count(&self) -> Result<usize, PkiStoreError> {
-        let guard = self
-            .inner
-            .lock()
-            .map_err(|_| PkiStoreError::LockPoisoned)?;
+        let guard = self.inner.lock().map_err(|_| PkiStoreError::LockPoisoned)?;
         Ok(guard.snapshot.trusted.len())
     }
 
@@ -532,26 +500,21 @@ impl PkiStore {
     /// reads, so the walker observes a consistent prefix.
     pub fn ledger_entries(&self) -> Result<Vec<LedgerEntry>, PkiStoreError> {
         let ledger_path = self.root.join("rotation_ledger.jsonl");
-        let f = File::open(&ledger_path).map_err(|e| {
-            PkiStoreError::OpenFailed(format!("open ledger for walk: {e}"))
-        })?;
+        let f = File::open(&ledger_path)
+            .map_err(|e| PkiStoreError::OpenFailed(format!("open ledger for walk: {e}")))?;
         let reader = BufReader::new(f);
         let mut entries = Vec::new();
         let mut expected_seq = 1u64;
         let mut expected_prev = LedgerHash::genesis();
         for (line_no, line_res) in reader.lines().enumerate() {
             let line = line_res.map_err(|e| {
-                PkiStoreError::LedgerCorrupted(format!(
-                    "walk read line {line_no}: {e}"
-                ))
+                PkiStoreError::LedgerCorrupted(format!("walk read line {line_no}: {e}"))
             })?;
             if line.is_empty() {
                 continue;
             }
             let parsed: LedgerLine = serde_json::from_str(&line).map_err(|e| {
-                PkiStoreError::LedgerCorrupted(format!(
-                    "walk parse line {line_no}: {e}"
-                ))
+                PkiStoreError::LedgerCorrupted(format!("walk parse line {line_no}: {e}"))
             })?;
             if parsed.sequence != expected_seq {
                 return Err(PkiStoreError::LedgerCorrupted(format!(
@@ -577,10 +540,7 @@ impl PkiStore {
     // ------------------------------------------------------------------
 
     fn append_locked(&self, entry: LedgerEntry) -> Result<(), PkiStoreError> {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| PkiStoreError::LockPoisoned)?;
+        let mut guard = self.inner.lock().map_err(|_| PkiStoreError::LockPoisoned)?;
         let next_seq = guard.snapshot.last_sequence + 1;
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -590,9 +550,8 @@ impl PkiStore {
 
         // Compute current_hash over the canonical bytes:
         // be_u64(sequence) || be_i64(ts) || prev_hash_bytes || serde_json(entry)
-        let entry_json = serde_json::to_string(&entry).map_err(|e| {
-            PkiStoreError::WriteFailed(format!("serialize entry: {e}"))
-        })?;
+        let entry_json = serde_json::to_string(&entry)
+            .map_err(|e| PkiStoreError::WriteFailed(format!("serialize entry: {e}")))?;
         let mut hash_input = Vec::with_capacity(8 + 8 + 64 + entry_json.len());
         hash_input.extend_from_slice(&next_seq.to_be_bytes());
         hash_input.extend_from_slice(&now_secs.to_be_bytes());
@@ -607,9 +566,8 @@ impl PkiStore {
             prev_hash_hex: prev_hash.as_hex().to_string(),
             current_hash_hex: current_hash.as_hex().to_string(),
         };
-        let line_json = serde_json::to_string(&line).map_err(|e| {
-            PkiStoreError::WriteFailed(format!("serialize line: {e}"))
-        })?;
+        let line_json = serde_json::to_string(&line)
+            .map_err(|e| PkiStoreError::WriteFailed(format!("serialize line: {e}")))?;
 
         guard
             .ledger_writer
@@ -617,9 +575,11 @@ impl PkiStore {
             .and_then(|_| guard.ledger_writer.write_all(b"\n"))
             .and_then(|_| guard.ledger_writer.flush())
             .map_err(|e| PkiStoreError::WriteFailed(format!("ledger append: {e}")))?;
-        guard.ledger_writer.get_ref().sync_data().map_err(|e| {
-            PkiStoreError::WriteFailed(format!("ledger fsync: {e}"))
-        })?;
+        guard
+            .ledger_writer
+            .get_ref()
+            .sync_data()
+            .map_err(|e| PkiStoreError::WriteFailed(format!("ledger fsync: {e}")))?;
 
         // Update the in-memory snapshot AFTER successful fsync — the
         // chain hash on disk is the SSoT; in-memory state mirrors it.
@@ -627,13 +587,17 @@ impl PkiStore {
             LedgerEntry::Genesis { .. } => {
                 // Genesis does not mutate trusted/revoked sets.
             }
-            LedgerEntry::CertTrusted { fingerprint_hex, .. } => {
+            LedgerEntry::CertTrusted {
+                fingerprint_hex, ..
+            } => {
                 guard
                     .snapshot
                     .trusted
                     .push(CertFingerprint(fingerprint_hex.clone()));
             }
-            LedgerEntry::CertRevoked { fingerprint_hex, .. } => {
+            LedgerEntry::CertRevoked {
+                fingerprint_hex, ..
+            } => {
                 let fp = CertFingerprint(fingerprint_hex.clone());
                 guard.snapshot.trusted.retain(|f| f != &fp);
                 guard.snapshot.revoked.push(fp);
@@ -652,9 +616,8 @@ impl PkiStore {
         ledger_path: &Path,
         expected_device_code: &str,
     ) -> Result<PkiStoreSnapshot, PkiStoreError> {
-        let f = File::open(ledger_path).map_err(|e| {
-            PkiStoreError::OpenFailed(format!("open ledger: {e}"))
-        })?;
+        let f = File::open(ledger_path)
+            .map_err(|e| PkiStoreError::OpenFailed(format!("open ledger: {e}")))?;
         let reader = BufReader::new(f);
 
         let mut snapshot = PkiStoreSnapshot {
@@ -668,18 +631,13 @@ impl PkiStore {
         let mut saw_genesis = false;
 
         for (line_no, line_res) in reader.lines().enumerate() {
-            let line = line_res.map_err(|e| {
-                PkiStoreError::LedgerCorrupted(format!(
-                    "read line {line_no}: {e}"
-                ))
-            })?;
+            let line = line_res
+                .map_err(|e| PkiStoreError::LedgerCorrupted(format!("read line {line_no}: {e}")))?;
             if line.is_empty() {
                 continue;
             }
             let parsed: LedgerLine = serde_json::from_str(&line).map_err(|e| {
-                PkiStoreError::LedgerCorrupted(format!(
-                    "parse line {line_no}: {e}"
-                ))
+                PkiStoreError::LedgerCorrupted(format!("parse line {line_no}: {e}"))
             })?;
             // First entry must be the genesis.
             if !saw_genesis {
@@ -714,17 +672,13 @@ impl PkiStore {
                 )));
             }
             // Recompute current_hash + verify.
-            let mut hash_input = Vec::with_capacity(
-                8 + 8 + 64 + line.len(),
-            );
+            let mut hash_input = Vec::with_capacity(8 + 8 + 64 + line.len());
             hash_input.extend_from_slice(&parsed.sequence.to_be_bytes());
             hash_input.extend_from_slice(&parsed.timestamp_unix_secs.to_be_bytes());
             hash_input.extend_from_slice(parsed.prev_hash_hex.as_bytes());
             // `entry` JSON for chain input — re-serialize to canonical form.
             let entry_json = serde_json::to_string(&parsed.entry).map_err(|e| {
-                PkiStoreError::LedgerCorrupted(format!(
-                    "re-serialize entry at line {line_no}: {e}"
-                ))
+                PkiStoreError::LedgerCorrupted(format!("re-serialize entry at line {line_no}: {e}"))
             })?;
             hash_input.extend_from_slice(entry_json.as_bytes());
             let recomputed = LedgerHash::from_bytes_sha256(&hash_input);
@@ -740,12 +694,14 @@ impl PkiStore {
             // Apply to snapshot.
             match parsed.entry {
                 LedgerEntry::Genesis { .. } => {}
-                LedgerEntry::CertTrusted { fingerprint_hex, .. } => {
-                    snapshot
-                        .trusted
-                        .push(CertFingerprint(fingerprint_hex));
+                LedgerEntry::CertTrusted {
+                    fingerprint_hex, ..
+                } => {
+                    snapshot.trusted.push(CertFingerprint(fingerprint_hex));
                 }
-                LedgerEntry::CertRevoked { fingerprint_hex, .. } => {
+                LedgerEntry::CertRevoked {
+                    fingerprint_hex, ..
+                } => {
                     let fp = CertFingerprint(fingerprint_hex);
                     snapshot.trusted.retain(|f| f != &fp);
                     snapshot.revoked.push(fp);
@@ -780,20 +736,13 @@ impl PkiStore {
         let key_path = own_dir.join("key.pem");
         if cert_path.exists() && key_path.exists() {
             // Already initialized — re-use existing keypair.
-            let der = fs::read(&cert_path).map_err(|e| {
-                PkiStoreError::OpenFailed(format!(
-                    "read existing own cert: {e}"
-                ))
-            })?;
+            let der = fs::read(&cert_path)
+                .map_err(|e| PkiStoreError::OpenFailed(format!("read existing own cert: {e}")))?;
             return Ok(CertFingerprint::from_der(&der));
         }
         // Synthesize a fresh ed25519 self-signed cert via rcgen.
-        let cert = rcgen::generate_simple_self_signed(vec![
-            "suderra-edge.local".to_string(),
-        ])
-        .map_err(|e| {
-            PkiStoreError::OpenFailed(format!("rcgen self-signed: {e}"))
-        })?;
+        let cert = rcgen::generate_simple_self_signed(vec!["suderra-edge.local".to_string()])
+            .map_err(|e| PkiStoreError::OpenFailed(format!("rcgen self-signed: {e}")))?;
         let der_bytes = cert.cert.der().to_vec();
         let key_pem = cert.signing_key.serialize_pem();
         write_atomically(&cert_path, &der_bytes)?;
@@ -816,9 +765,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), PkiStoreError> {
     })?;
     let tmp_path = parent.join(format!(
         ".{}.tmp.{}",
-        path.file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("tmp"),
+        path.file_name().and_then(|s| s.to_str()).unwrap_or("tmp"),
         std::process::id()
     ));
     {
@@ -828,24 +775,15 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), PkiStoreError> {
             .truncate(true)
             .open(&tmp_path)
             .map_err(|e| {
-                PkiStoreError::WriteFailed(format!(
-                    "open tmp {}: {e}",
-                    tmp_path.display()
-                ))
+                PkiStoreError::WriteFailed(format!("open tmp {}: {e}", tmp_path.display()))
             })?;
-        f.write_all(bytes).map_err(|e| {
-            PkiStoreError::WriteFailed(format!("write tmp: {e}"))
-        })?;
-        f.sync_data().map_err(|e| {
-            PkiStoreError::WriteFailed(format!("fsync tmp: {e}"))
-        })?;
+        f.write_all(bytes)
+            .map_err(|e| PkiStoreError::WriteFailed(format!("write tmp: {e}")))?;
+        f.sync_data()
+            .map_err(|e| PkiStoreError::WriteFailed(format!("fsync tmp: {e}")))?;
     }
-    fs::rename(&tmp_path, path).map_err(|e| {
-        PkiStoreError::WriteFailed(format!(
-            "rename tmp → {}: {e}",
-            path.display()
-        ))
-    })?;
+    fs::rename(&tmp_path, path)
+        .map_err(|e| PkiStoreError::WriteFailed(format!("rename tmp → {}: {e}", path.display())))?;
     Ok(())
 }
 
@@ -856,9 +794,8 @@ mod tests {
 
     fn fresh_store() -> (TempDir, PkiStore) {
         let tmp = TempDir::new().expect("tempdir");
-        let store =
-            PkiStore::open_or_initialize(tmp.path(), "test-device-001".to_string())
-                .expect("first-boot init");
+        let store = PkiStore::open_or_initialize(tmp.path(), "test-device-001".to_string())
+            .expect("first-boot init");
         (tmp, store)
     }
 
@@ -908,10 +845,7 @@ mod tests {
         let err = store
             .add_trusted_cert(der.as_slice(), "hmi-2".to_string())
             .expect_err("re-add must fail");
-        assert!(matches!(
-            err,
-            PkiStoreError::FingerprintWasRevoked { .. }
-        ));
+        assert!(matches!(err, PkiStoreError::FingerprintWasRevoked { .. }));
     }
 
     /// Adding the same cert twice is idempotent — returns the existing
@@ -944,10 +878,7 @@ mod tests {
         let err = store
             .revoke_cert(&stranger, "test".to_string())
             .expect_err("must fail");
-        assert!(matches!(
-            err,
-            PkiStoreError::FingerprintNotTrusted { .. }
-        ));
+        assert!(matches!(err, PkiStoreError::FingerprintNotTrusted { .. }));
     }
 
     /// Reload from disk reconstructs the exact in-memory snapshot.
@@ -969,9 +900,8 @@ mod tests {
         let pre = store.snapshot().expect("snap");
         drop(store);
 
-        let store2 =
-            PkiStore::open_or_initialize(tmp.path(), "test-device-001".to_string())
-                .expect("reload");
+        let store2 = PkiStore::open_or_initialize(tmp.path(), "test-device-001".to_string())
+            .expect("reload");
         let post = store2.snapshot().expect("snap2");
         assert_eq!(pre.last_sequence, post.last_sequence);
         assert_eq!(pre.trusted, post.trusted);
@@ -999,11 +929,8 @@ mod tests {
         );
         fs::write(&ledger_path, tampered).expect("write");
 
-        let err = PkiStore::open_or_initialize(
-            tmp.path(),
-            "test-device-001".to_string(),
-        )
-        .expect_err("must fail");
+        let err = PkiStore::open_or_initialize(tmp.path(), "test-device-001".to_string())
+            .expect_err("must fail");
         assert!(matches!(err, PkiStoreError::LedgerCorrupted(_)));
     }
 
@@ -1012,12 +939,9 @@ mod tests {
     #[test]
     fn moved_device_detected_on_reload() {
         let (tmp, _store) = fresh_store();
-        let err =
-            PkiStore::open_or_initialize(tmp.path(), "different-device".to_string())
-                .expect_err("must fail");
-        assert!(
-            matches!(err, PkiStoreError::LedgerCorrupted(s) if s.contains("device_code"))
-        );
+        let err = PkiStore::open_or_initialize(tmp.path(), "different-device".to_string())
+            .expect_err("must fail");
+        assert!(matches!(err, PkiStoreError::LedgerCorrupted(s) if s.contains("device_code")));
     }
 
     /// Phase-transition entries chain correctly + don't mutate the

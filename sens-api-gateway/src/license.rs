@@ -300,9 +300,7 @@ pub fn check_signature_mode_consistency(
         return SignatureModeConsistency::LicenseDoesNotRequireSignedDeploy;
     }
     match signature_mode {
-        SignatureMode::Disabled => {
-            SignatureModeConsistency::CriticalMismatchDisabledSignatureMode
-        }
+        SignatureMode::Disabled => SignatureModeConsistency::CriticalMismatchDisabledSignatureMode,
         SignatureMode::Permissive | SignatureMode::Enforcing => {
             SignatureModeConsistency::Consistent
         }
@@ -427,10 +425,7 @@ pub enum ForceBudget {
     Exceeded { active: usize, cap: u32 },
 }
 
-pub fn check_force_budget(
-    active_forces: usize,
-    license: &EdgeLicenseLimits,
-) -> ForceBudget {
+pub fn check_force_budget(active_forces: usize, license: &EdgeLicenseLimits) -> ForceBudget {
     let cap = license.max_concurrent_forces;
     // `>=` because incoming force would make active+1 which
     // would exceed cap — reject BEFORE the registry grows.
@@ -594,8 +589,7 @@ mod tests {
         let json = serde_json::to_string(&src).expect("serialize");
         assert!(json.contains("\"tier\":\"enterprise\""));
         assert!(json.contains("\"signed_deploy_required\":true"));
-        let parsed: EdgeLicenseLimits =
-            serde_json::from_str(&json).expect("deserialize");
+        let parsed: EdgeLicenseLimits = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(src, parsed);
     }
 
@@ -618,7 +612,11 @@ mod tests {
         // conservative() has signed_deploy_required=false
         // so EVERY signature_mode is acceptable.
         let c = EdgeLicenseLimits::conservative();
-        for mode in [SignatureMode::Disabled, SignatureMode::Permissive, SignatureMode::Enforcing] {
+        for mode in [
+            SignatureMode::Disabled,
+            SignatureMode::Permissive,
+            SignatureMode::Enforcing,
+        ] {
             assert!(matches!(
                 check_signature_mode_consistency(&c, mode),
                 SignatureModeConsistency::LicenseDoesNotRequireSignedDeploy
@@ -992,13 +990,19 @@ i2c:
     #[test]
     fn opc_ua_gate_allows_when_license_enables() {
         let lic = limits_with(4, 16, 500, 3, 8, 5, true);
-        assert_eq!(check_opc_ua_server_gate(&lic), OpcUaServerGate::LicenseAllowsStart);
+        assert_eq!(
+            check_opc_ua_server_gate(&lic),
+            OpcUaServerGate::LicenseAllowsStart
+        );
     }
 
     #[test]
     fn opc_ua_gate_denies_when_license_disables() {
         let lic = limits_with(4, 16, 500, 3, 8, 5, false);
-        assert_eq!(check_opc_ua_server_gate(&lic), OpcUaServerGate::LicenseDisabled);
+        assert_eq!(
+            check_opc_ua_server_gate(&lic),
+            OpcUaServerGate::LicenseDisabled
+        );
     }
 
     #[test]
@@ -1129,23 +1133,14 @@ pub enum LicenseVerifyError {
     TenantMismatch,
     /// Inbound policy_version ≤ persisted
     /// highest_seen_policy_version → rollback attempt.
-    StalePolicyVersion {
-        claimed: u64,
-        highest_seen: u64,
-    },
+    StalePolicyVersion { claimed: u64, highest_seen: u64 },
     /// `now_unix_secs` is negative.
     InvalidNow,
     /// Validity window shape malformed
     /// (valid_from > valid_until).
-    InvalidValidityWindow {
-        valid_from: i64,
-        valid_until: i64,
-    },
+    InvalidValidityWindow { valid_from: i64, valid_until: i64 },
     /// Manifest not yet valid (now < valid_from).
-    NotYetValid {
-        now_unix_secs: i64,
-        valid_from: i64,
-    },
+    NotYetValid { now_unix_secs: i64, valid_from: i64 },
     /// Manifest expired (now > valid_until).
     Expired {
         now_unix_secs: i64,
@@ -1274,14 +1269,13 @@ mod verify_tests {
     fn sign(manifest: LicenseManifest, key: &SigningKey) -> SignedLicenseManifest {
         let canonical = manifest.canonical_bytes();
         let sig = key.sign(&canonical);
-        SignedLicenseManifest::from_body_and_signature_bytes(
-            manifest,
-            &sig.to_bytes(),
-        )
-        .expect("valid sig bytes")
+        SignedLicenseManifest::from_body_and_signature_bytes(manifest, &sig.to_bytes())
+            .expect("valid sig bytes")
     }
 
-    fn verify_with(pubkey: &ed25519_dalek::VerifyingKey) -> impl FnOnce(&[u8], &[u8; 64]) -> bool + '_ {
+    fn verify_with(
+        pubkey: &ed25519_dalek::VerifyingKey,
+    ) -> impl FnOnce(&[u8], &[u8; 64]) -> bool + '_ {
         move |canonical, sig_bytes| {
             let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
             pubkey.verify_strict(canonical, &sig).is_ok()
@@ -1330,14 +1324,9 @@ mod verify_tests {
         let signed = sign(canned_manifest(10), &signing_key);
 
         let foreign = TenantId::new_from_verified([0xBBu8; 16]);
-        let err = verify_license_manifest(
-            &signed,
-            &foreign,
-            5,
-            1_700_000_000,
-            verify_with(&pubkey),
-        )
-        .expect_err("must reject");
+        let err =
+            verify_license_manifest(&signed, &foreign, 5, 1_700_000_000, verify_with(&pubkey))
+                .expect_err("must reject");
         assert_eq!(err, LicenseVerifyError::TenantMismatch);
     }
 
@@ -1408,14 +1397,8 @@ mod verify_tests {
         let pubkey = signing_key.verifying_key();
         let signed = sign(canned_manifest(10), &signing_key);
 
-        let err = verify_license_manifest(
-            &signed,
-            &tenant_id(),
-            5,
-            -1,
-            verify_with(&pubkey),
-        )
-        .expect_err("must reject");
+        let err = verify_license_manifest(&signed, &tenant_id(), 5, -1, verify_with(&pubkey))
+            .expect_err("must reject");
         assert_eq!(err, LicenseVerifyError::InvalidNow);
     }
 
@@ -1437,7 +1420,10 @@ mod verify_tests {
             verify_with(&pubkey),
         )
         .expect_err("must reject");
-        assert!(matches!(err, LicenseVerifyError::InvalidValidityWindow { .. }));
+        assert!(matches!(
+            err,
+            LicenseVerifyError::InvalidValidityWindow { .. }
+        ));
     }
 
     #[test]
@@ -1458,11 +1444,9 @@ mod verify_tests {
             },
             ..genuine
         };
-        let signed = SignedLicenseManifest::from_body_and_signature_bytes(
-            tampered,
-            &sig.to_bytes(),
-        )
-        .expect("sig bytes");
+        let signed =
+            SignedLicenseManifest::from_body_and_signature_bytes(tampered, &sig.to_bytes())
+                .expect("sig bytes");
 
         let err = verify_license_manifest(
             &signed,

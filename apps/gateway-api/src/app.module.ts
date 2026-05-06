@@ -29,6 +29,8 @@ import {
   generateServiceIdentityHeaders,
   PlatformJwtModule,
 } from '@aquaculture/backend-common';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -218,13 +220,21 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       const signedTenantId = uuidRegex.test(resolvedTenantId ?? '')
         ? (resolvedTenantId as string)
         : '';
-      // Apollo's httpRequest exposes the to-be-sent verb, URL, and body.
+      // Apollo's runtime httpRequest exposes the to-be-sent verb, URL, and
+      // body, but its public type only guarantees the header mutator.
       // Path is extracted without the query string per v2 contract.
-      const subgraphUrl = new URL(httpRequest.url);
+      const outgoingRequest = httpRequest as typeof httpRequest & {
+        url?: string;
+        method?: string;
+        body?: unknown;
+      };
+      const subgraphUrl = new URL(outgoingRequest.url ?? '/graphql', 'http://subgraph.local');
       const subgraphPath = subgraphUrl.pathname;
-      const subgraphMethod = httpRequest.method ?? 'POST';
+      const subgraphMethod = outgoingRequest.method ?? 'POST';
       const subgraphBody =
-        typeof httpRequest.body === 'string' ? httpRequest.body : JSON.stringify(httpRequest.body ?? '');
+        typeof outgoingRequest.body === 'string'
+          ? outgoingRequest.body
+          : JSON.stringify(outgoingRequest.body ?? '');
       const identityHeaders = buildSignedInternalHeaders({
         serviceName: 'gateway-api',
         tenantId: signedTenantId,

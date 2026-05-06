@@ -140,6 +140,7 @@ export function createRlsConnectionBootstrap(serviceName: string) {
           'Cannot patch connection pool — pg Pool not found on DataSource driver. ' +
             'RLS GUC propagation is INACTIVE — tenant isolation policies will deny all queries!',
         );
+        return;
       }
 
       const originalConnect = pool.connect.bind(pool);

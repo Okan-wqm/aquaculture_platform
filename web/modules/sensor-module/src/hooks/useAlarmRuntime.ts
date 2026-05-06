@@ -34,13 +34,20 @@ import { getSocket, releaseSocket } from './socketFactory';
 // A dedicated small store keeps alarm runtime state self-contained and avoids
 // modifying the existing OperatorStore.
 import { create } from 'zustand';
+import type { StateCreator } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 
 export type AlarmRuntimeStore = AlarmRuntimeSlice;
+const createStandaloneAlarmRuntimeSlice = createAlarmRuntimeSlice as unknown as StateCreator<
+  AlarmRuntimeStore,
+  [['zustand/immer', never]],
+  [],
+  AlarmRuntimeStore
+>;
 
 export const useAlarmRuntimeStore = create<AlarmRuntimeStore>()(
   immer((...args) => ({
-    ...createAlarmRuntimeSlice(...args),
+    ...createStandaloneAlarmRuntimeSlice(...args),
   })),
 );
 
@@ -49,8 +56,8 @@ const SCADA_WS_URL: string =
   (() => {
     const base =
       (typeof import.meta !== 'undefined' &&
-        (import.meta as Record<string, unknown>).env != null
-        ? (import.meta as { env: Record<string, string> }).env.VITE_WS_URL
+        (import.meta as unknown as Record<string, unknown>).env != null
+        ? (import.meta as unknown as { env: Record<string, string> }).env.VITE_WS_URL
         : undefined) ??
       (typeof window !== 'undefined'
         ? (window as Window & { __RUNTIME_CONFIG__?: { WS_URL?: string } }).__RUNTIME_CONFIG__?.WS_URL

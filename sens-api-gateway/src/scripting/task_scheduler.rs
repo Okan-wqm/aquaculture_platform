@@ -85,10 +85,7 @@ use super::bytecode::StValueType;
 /// - Routine: 1200 ms (operational control loops).
 /// - LowPriority: 5000 ms (audit flush, RFID trend
 ///   sampling).
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash,
-    Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SloTier {
     /// Life-safety programs. Highest scheduling
@@ -137,9 +134,7 @@ impl SloTier {
 ///
 /// Batch 184 introduces the type shapes; the scheduler
 /// (Batch 185+) interprets each at runtime.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TaskKind {
     /// Run periodically at `period_ms` intervals.
@@ -221,11 +216,9 @@ impl std::fmt::Display for TaskConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyName => write!(f, "task config: name is empty"),
-            Self::ZeroCyclicPeriod { name } => write!(
-                f,
-                "task `{}`: Cyclic period_ms cannot be 0",
-                name
-            ),
+            Self::ZeroCyclicPeriod { name } => {
+                write!(f, "task `{}`: Cyclic period_ms cannot be 0", name)
+            }
             Self::EmptyEventTag { name } => write!(
                 f,
                 "task `{}`: Event task requires a non-empty event_tag",
@@ -320,11 +313,7 @@ impl TaskStats {
     /// counter + recordTick with `actual_ms` set to
     /// `watchdog_ms` so the overrun counter still
     /// reflects the event.
-    pub fn record_watchdog_kill(
-        &mut self,
-        watchdog_ms: u64,
-        target_cycle_ms: u64,
-    ) {
+    pub fn record_watchdog_kill(&mut self, watchdog_ms: u64, target_cycle_ms: u64) {
         self.watchdog_kill_count += 1;
         self.record_tick(watchdog_ms, target_cycle_ms);
     }
@@ -401,8 +390,7 @@ impl TaskScheduler {
     /// scheduler identifies tasks by name in metrics
     /// + admin commands so uniqueness is required.
     pub fn new(configs: Vec<TaskConfig>) -> Result<Self, SchedulerInitError> {
-        let mut seen_names: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
         for cfg in &configs {
             cfg.validate().map_err(SchedulerInitError::InvalidConfig)?;
             if !seen_names.insert(cfg.name.clone()) {
@@ -412,8 +400,7 @@ impl TaskScheduler {
             }
         }
 
-        let mut tasks: Vec<TaskState> =
-            configs.into_iter().map(TaskState::new).collect();
+        let mut tasks: Vec<TaskState> = configs.into_iter().map(TaskState::new).collect();
         // Sort tasks in deterministic priority order:
         // higher priority first; within same priority,
         // task name alphabetical.
@@ -443,8 +430,7 @@ impl TaskScheduler {
         for task in &self.tasks {
             if let TaskKind::Event { event_tag } = &task.config.kind {
                 if event_tag == changed_tag {
-                    self.pending_events
-                        .insert(task.config.name.clone());
+                    self.pending_events.insert(task.config.name.clone());
                 }
             }
         }
@@ -538,10 +524,7 @@ impl TaskScheduler {
     /// watchdog counter without advancing
     /// `last_fired_at_ms` — the task stays "not fired"
     /// so the scheduler re-attempts on the next tick.
-    pub fn record_watchdog_kill(
-        &mut self,
-        task_name: &str,
-    ) -> Result<(), SchedulerRuntimeError> {
+    pub fn record_watchdog_kill(&mut self, task_name: &str) -> Result<(), SchedulerRuntimeError> {
         let task = self
             .tasks
             .iter_mut()
@@ -634,15 +617,14 @@ pub async fn dispatch_scheduler_tick(
         //
         // When watchdog_ms == 0 (operator opt-out),
         // dispatch runs to completion with no timeout.
-        let dispatch_future =
-            super::bytecode_runner::run_scan_tick_for_programs(
-                registry,
-                pi,
-                declared_types,
-                persistence,
-                options,
-                &programs,
-            );
+        let dispatch_future = super::bytecode_runner::run_scan_tick_for_programs(
+            registry,
+            pi,
+            declared_types,
+            persistence,
+            options,
+            &programs,
+        );
         let (per_program, hard_killed) = if watchdog_ms > 0 {
             match tokio::time::timeout(
                 std::time::Duration::from_millis(watchdog_ms),
@@ -680,8 +662,7 @@ pub async fn dispatch_scheduler_tick(
         //     above the timeout). Both variants
         //     record a watchdog kill for operator
         //     visibility.
-        let soft_overrun =
-            watchdog_ms > 0 && elapsed_ms > watchdog_ms && !hard_killed;
+        let soft_overrun = watchdog_ms > 0 && elapsed_ms > watchdog_ms && !hard_killed;
         let tripped_watchdog = hard_killed || soft_overrun;
 
         if tripped_watchdog {
@@ -695,9 +676,7 @@ pub async fn dispatch_scheduler_tick(
             // watchdog_kill_count metric).
             let _ = scheduler.record_watchdog_kill(&task_name);
         } else {
-            let _ = scheduler.record_tick_fired(
-                &task_name, now_ms, elapsed_ms,
-            );
+            let _ = scheduler.record_tick_fired(&task_name, now_ms, elapsed_ms);
         }
 
         results.push(SchedulerDispatchResult {
@@ -715,8 +694,7 @@ pub async fn dispatch_scheduler_tick(
 #[derive(Debug, Clone, PartialEq)]
 pub struct SchedulerDispatchResult {
     pub task_name: String,
-    pub per_program:
-        Vec<(String, super::bytecode_runner::BytecodeRunResult)>,
+    pub per_program: Vec<(String, super::bytecode_runner::BytecodeRunResult)>,
     pub elapsed_ms: u64,
     pub tripped_watchdog: bool,
 }
@@ -912,9 +890,7 @@ pub async fn run_scheduler_cadence_loop(
                     super::bytecode_runner::BytecodeRunResult::Ok { .. } => {
                         summary.programs_ok += 1;
                     }
-                    super::bytecode_runner::BytecodeRunResult::Failed {
-                        ..
-                    } => {
+                    super::bytecode_runner::BytecodeRunResult::Failed { .. } => {
                         summary.programs_failed += 1;
                         tracing::warn!(
                             "scheduler cadence: task `{}` program `{}` \
@@ -985,9 +961,7 @@ pub struct SchedulerLoopSummary {
 /// fall before `now_ms`?
 fn should_fire(config: &TaskConfig, last_fired_at_ms: u64, now_ms: u64) -> bool {
     match &config.kind {
-        TaskKind::Cyclic { period_ms } => {
-            now_ms.saturating_sub(last_fired_at_ms) >= *period_ms
-        }
+        TaskKind::Cyclic { period_ms } => now_ms.saturating_sub(last_fired_at_ms) >= *period_ms,
         TaskKind::Freewheeling => true,
         TaskKind::Event { .. } => false,
     }
@@ -1055,12 +1029,8 @@ mod tests {
 
     #[test]
     fn slo_tier_priority_ordering_matches_enum_order() {
-        assert!(
-            SloTier::SafetyCritical.priority() > SloTier::Routine.priority()
-        );
-        assert!(
-            SloTier::Routine.priority() > SloTier::LowPriority.priority()
-        );
+        assert!(SloTier::SafetyCritical.priority() > SloTier::Routine.priority());
+        assert!(SloTier::Routine.priority() > SloTier::LowPriority.priority());
     }
 
     #[test]
@@ -1277,10 +1247,7 @@ mod tests {
             mk_cfg("routine", 1200, SloTier::Routine),
         ];
         let s = TaskScheduler::new(cfgs).expect("ok");
-        let names: Vec<String> = s
-            .tasks()
-            .map(|t| t.config.name.clone())
-            .collect();
+        let names: Vec<String> = s.tasks().map(|t| t.config.name.clone()).collect();
         // SafetyCritical first (alphabetical within
         // tier), then Routine, then LowPriority.
         assert_eq!(names, vec!["crit_a", "crit_b", "routine", "low_pri"]);
@@ -1547,12 +1514,8 @@ mod tests {
     // ====================================================================
 
     use super::super::bytecode::{Bytecode, Opcode, StValue};
-    use super::super::bytecode_registry::{
-        BytecodeProgramRegistry, ProgramEntry,
-    };
-    use super::super::bytecode_runner::{
-        BytecodeRunResult, ScanTickOptions,
-    };
+    use super::super::bytecode_registry::{BytecodeProgramRegistry, ProgramEntry};
+    use super::super::bytecode_runner::{BytecodeRunResult, ScanTickOptions};
     use crate::process_image::{ProcessImage, TagQuality, TagSource};
 
     fn mk_bc_write(program_id: &str, value: f64) -> Bytecode {
@@ -1567,7 +1530,9 @@ mod tests {
             allowed_write_tags: vec!["setpoint".into()],
             safe_state_pinned_tags: vec![],
             opcodes: vec![
-                Opcode::PushConst { value: StValue::Real(value) },
+                Opcode::PushConst {
+                    value: StValue::Real(value),
+                },
                 Opcode::WriteTag {
                     name: "setpoint".into(),
                 },
@@ -1591,20 +1556,21 @@ mod tests {
     async fn dispatch_scheduler_tick_runs_fired_tasks() {
         let reg = BytecodeProgramRegistry::new();
         let pi = ProcessImage::new();
-        pi.update_tag_raw(
-            "setpoint",
-            0.0,
-            TagQuality::Good,
-            TagSource::Modbus,
-        )
-        .await;
+        pi.update_tag_raw("setpoint", 0.0, TagQuality::Good, TagSource::Modbus)
+            .await;
 
-        reg.insert(mk_prog_entry("prog_safety", mk_bc_write("prog_safety", 100.0)))
-            .await
-            .expect("ok");
-        reg.insert(mk_prog_entry("prog_routine", mk_bc_write("prog_routine", 200.0)))
-            .await
-            .expect("ok");
+        reg.insert(mk_prog_entry(
+            "prog_safety",
+            mk_bc_write("prog_safety", 100.0),
+        ))
+        .await
+        .expect("ok");
+        reg.insert(mk_prog_entry(
+            "prog_routine",
+            mk_bc_write("prog_routine", 200.0),
+        ))
+        .await
+        .expect("ok");
 
         let safety_cfg = TaskConfig {
             name: "safety".into(),
@@ -1620,8 +1586,7 @@ mod tests {
             watchdog_ms: 2000,
             programs: vec!["prog_routine".into()],
         };
-        let mut scheduler =
-            TaskScheduler::new(vec![safety_cfg, routine_cfg]).expect("ok");
+        let mut scheduler = TaskScheduler::new(vec![safety_cfg, routine_cfg]).expect("ok");
 
         // At t=500: safety fires (period 500), routine
         // doesn't (period 1200 > elapsed 500).
@@ -1644,10 +1609,7 @@ mod tests {
             BytecodeRunResult::Ok { .. }
         ));
         // Setpoint reflects safety's write (100.0).
-        assert_eq!(
-            pi.get_tag("setpoint").await.expect("present").value,
-            100.0
-        );
+        assert_eq!(pi.get_tag("setpoint").await.expect("present").value, 100.0);
 
         // Scheduler advanced safety's timestamp.
         let stats = scheduler.stats_of("safety").expect("present");
@@ -1674,10 +1636,7 @@ mod tests {
         // (200.0) — ran AFTER safety per priority
         // order in a single call, so last-writer-
         // wins.
-        assert_eq!(
-            pi.get_tag("setpoint").await.expect("present").value,
-            200.0
-        );
+        assert_eq!(pi.get_tag("setpoint").await.expect("present").value, 200.0);
     }
 
     #[tokio::test]
@@ -1824,20 +1783,16 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let pi_clone = pi.clone();
         let sched_clone = scheduler.clone();
-        let handle = tokio::spawn(async move {
-            run_event_listener(&pi_clone, sched_clone, shutdown_rx).await
-        });
+        let handle =
+            tokio::spawn(
+                async move { run_event_listener(&pi_clone, sched_clone, shutdown_rx).await },
+            );
 
         // Give the listener a moment to subscribe.
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 
-        pi.update_tag_raw(
-            "water_temp",
-            22.5,
-            TagQuality::Good,
-            TagSource::I2c,
-        )
-        .await;
+        pi.update_tag_raw("water_temp", 22.5, TagQuality::Good, TagSource::I2c)
+            .await;
         // Let the listener process the event.
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 
@@ -1871,9 +1826,10 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let pi_clone = pi.clone();
         let sched_clone = scheduler.clone();
-        let handle = tokio::spawn(async move {
-            run_event_listener(&pi_clone, sched_clone, shutdown_rx).await
-        });
+        let handle =
+            tokio::spawn(
+                async move { run_event_listener(&pi_clone, sched_clone, shutdown_rx).await },
+            );
 
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         // Update a DIFFERENT tag — should not trigger the task.
@@ -1900,19 +1856,17 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let pi_clone = pi.clone();
         let sched_clone = scheduler.clone();
-        let handle = tokio::spawn(async move {
-            run_event_listener(&pi_clone, sched_clone, shutdown_rx).await
-        });
+        let handle =
+            tokio::spawn(
+                async move { run_event_listener(&pi_clone, sched_clone, shutdown_rx).await },
+            );
 
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         shutdown_tx.send(true).expect("signal");
-        let summary = tokio::time::timeout(
-            std::time::Duration::from_millis(500),
-            handle,
-        )
-        .await
-        .expect("no timeout")
-        .expect("join");
+        let summary = tokio::time::timeout(std::time::Duration::from_millis(500), handle)
+            .await
+            .expect("no timeout")
+            .expect("join");
         assert_eq!(summary.events_received, 0);
     }
 

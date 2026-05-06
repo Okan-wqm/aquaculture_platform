@@ -39,7 +39,8 @@
 //! than silently succeeding.
 
 use serde_json::{Value, json};
-#[allow(unused_imports)] // tracing imports: some handlers use debug only when scada-display feature enabled
+#[allow(unused_imports)]
+// tracing imports: some handlers use debug only when scada-display feature enabled
 use tracing::{error, info, warn};
 
 use crate::mqtt::CommandMessage;
@@ -57,10 +58,7 @@ impl CommandHandler {
     ///    (awaiting the task would deadlock — the task kills the
     ///    process).
     /// 3. Any panic is logged within the task itself.
-    pub(super) async fn cmd_reboot(
-        &self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_reboot(&self, params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing reboot command");
 
         let delay_secs = params
@@ -193,29 +191,33 @@ impl CommandHandler {
     /// and converts the nested tagMappings map into the flat
     /// `Vec<TagMapping>` used internally.
     #[cfg(feature = "scada-display")]
-    pub(super) async fn cmd_deploy_process(
-        &self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_deploy_process(&self, params: &Value) -> (bool, Value, Option<String>) {
         let _deploy_guard = self.deploy_lock.lock().await;
 
-        let process: crate::scada_server::ScadaProcess = match serde_json::from_value(params.clone()) {
-            Ok(p) => p,
-            Err(_) => {
-                match Self::convert_cloud_deploy_payload(params) {
+        let process: crate::scada_server::ScadaProcess =
+            match serde_json::from_value(params.clone()) {
+                Ok(p) => p,
+                Err(_) => match Self::convert_cloud_deploy_payload(params) {
                     Ok(p) => p,
                     Err(e) => {
-                        return (false, json!(null), Some(format!("Invalid process definition: {}", e)));
+                        return (
+                            false,
+                            json!(null),
+                            Some(format!("Invalid process definition: {}", e)),
+                        );
                     }
-                }
-            }
-        };
+                },
+            };
 
         let state_guard = self.state.read().await;
         let scada_state: crate::scada_server::ScadaState = match &state_guard.scada_state {
             Some(s) => s.clone(),
             None => {
-                return (false, json!(null), Some("SCADA display feature not initialized".to_string()));
+                return (
+                    false,
+                    json!(null),
+                    Some("SCADA display feature not initialized".to_string()),
+                );
             }
         };
         drop(state_guard);
@@ -251,22 +253,45 @@ impl CommandHandler {
         let _deploy_guard = self.deploy_lock.lock().await;
         info!("Executing deploy_scada_package command");
 
-        let package: crate::scada_types::ScadaPackage = match serde_json::from_value(params.clone()) {
+        let package: crate::scada_types::ScadaPackage = match serde_json::from_value(params.clone())
+        {
             Ok(p) => p,
             Err(e) => {
-                warn!("Direct SCADA package parse failed ({}), trying cloud format fallback", e);
+                warn!(
+                    "Direct SCADA package parse failed ({}), trying cloud format fallback",
+                    e
+                );
                 match params.get("packageData") {
                     Some(pd) => match serde_json::from_value(pd.clone()) {
                         Ok(p) => p,
-                        Err(e2) => return (false, json!(null), Some(format!("Invalid SCADA package (fallback also failed): {}", e2))),
+                        Err(e2) => {
+                            return (
+                                false,
+                                json!(null),
+                                Some(format!(
+                                    "Invalid SCADA package (fallback also failed): {}",
+                                    e2
+                                )),
+                            );
+                        }
                     },
-                    None => return (false, json!(null), Some(format!("Invalid SCADA package: {}", e))),
+                    None => {
+                        return (
+                            false,
+                            json!(null),
+                            Some(format!("Invalid SCADA package: {}", e)),
+                        );
+                    }
                 }
             }
         };
 
         if package.screens.is_empty() {
-            return (false, json!(null), Some("Package must have at least one screen".to_string()));
+            return (
+                false,
+                json!(null),
+                Some("Package must have at least one screen".to_string()),
+            );
         }
 
         let version = package.meta.version;
@@ -276,7 +301,13 @@ impl CommandHandler {
         let state_guard = self.state.read().await;
         let scada_state = match &state_guard.scada_state {
             Some(s) => s.clone(),
-            None => return (false, json!(null), Some("SCADA display not initialized".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("SCADA display not initialized".to_string()),
+                );
+            }
         };
         drop(state_guard);
 
@@ -286,12 +317,16 @@ impl CommandHandler {
                     "SCADA package deployed: version={}, screens={}, alarm_rules={}",
                     version, screen_count, alarm_count
                 );
-                (true, json!({
-                    "status": "deployed",
-                    "version": version,
-                    "screens": screen_count,
-                    "alarm_rules": alarm_count,
-                }), None)
+                (
+                    true,
+                    json!({
+                        "status": "deployed",
+                        "version": version,
+                        "screens": screen_count,
+                        "alarm_rules": alarm_count,
+                    }),
+                    None,
+                )
             }
             Err(e) => (false, json!(null), Some(e)),
         }
@@ -306,7 +341,11 @@ impl CommandHandler {
             info!("SCADA display turned ON");
             (true, json!({ "display": "on" }), None)
         } else {
-            (false, json!(null), Some("SCADA display feature not initialized".to_string()))
+            (
+                false,
+                json!(null),
+                Some("SCADA display feature not initialized".to_string()),
+            )
         }
     }
 
@@ -319,7 +358,11 @@ impl CommandHandler {
             info!("SCADA display turned OFF");
             (true, json!({ "display": "off" }), None)
         } else {
-            (false, json!(null), Some("SCADA display feature not initialized".to_string()))
+            (
+                false,
+                json!(null),
+                Some("SCADA display feature not initialized".to_string()),
+            )
         }
     }
 
@@ -329,7 +372,8 @@ impl CommandHandler {
         let state_guard = self.state.read().await;
         if let Some(ref scada_state) = state_guard.scada_state {
             let active = scada_state.is_display_active().await;
-            let process_opt: Option<crate::scada_server::ScadaProcess> = scada_state.get_process().await;
+            let process_opt: Option<crate::scada_server::ScadaProcess> =
+                scada_state.get_process().await;
             let has_process = process_opt.is_some();
             let process_info = if let Some(p) = process_opt {
                 json!({
@@ -354,7 +398,11 @@ impl CommandHandler {
                 None,
             )
         } else {
-            (false, json!(null), Some("SCADA display feature not initialized".to_string()))
+            (
+                false,
+                json!(null),
+                Some("SCADA display feature not initialized".to_string()),
+            )
         }
     }
 

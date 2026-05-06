@@ -8,7 +8,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { X, Activity, Zap, CircleDot } from 'lucide-react';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from './equipment-symbols/types';
-import type { EquipmentConnectionPoint } from '../../types/scada-widget.types';
+import type { ConnectionPointKey, EquipmentConnectionPoint } from '../../types/scada-widget.types';
 import { WidgetRenderer } from './WidgetRenderer';
 
 /* ------------------------------------------------------------------ */
@@ -90,7 +90,9 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
       widget.widgetType === 'equipment'
         ? (config.equipmentSubType as string) || ''
         : widget.widgetType;
-    return CONNECTION_POINTS[lookupKey] || [];
+    return lookupKey in CONNECTION_POINTS
+      ? CONNECTION_POINTS[lookupKey as ConnectionPointKey]
+      : [];
   }, [widget.widgetType, config.equipmentSubType]);
 
   // Derive labels
@@ -101,7 +103,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
 
   const state = config.state as string | undefined;
   const isEquipmentLike =
-    widget.widgetType === 'equipment' || CONNECTION_POINTS[widget.widgetType] != null;
+    widget.widgetType === 'equipment' || widget.widgetType in CONNECTION_POINTS;
 
   /* ---------- Property rows -------------------------------------- */
   const propertyRows: { label: string; value: string; color?: string }[] = [

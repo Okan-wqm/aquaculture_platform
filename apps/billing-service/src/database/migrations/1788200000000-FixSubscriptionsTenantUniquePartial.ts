@@ -51,7 +51,7 @@ export class FixSubscriptionsTenantUniquePartial1788200000000
   // billing.subscriptions is a pre-existing table — the migration-sql-lint
   // R3 rule rightly enforces CONCURRENTLY here to avoid an ACCESS EXCLUSIVE
   // lock that would stall live writers during a deploy.
-  transaction: 'none' = 'none';
+  transaction = false;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Pre-flight: detect rows that would violate even the partial unique.

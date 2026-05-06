@@ -81,9 +81,7 @@ pub enum BytecodeVerifyError {
     /// (e.g. a string longer than u32::MAX bytes). Defense-
     /// in-depth; the compiler should never produce such a
     /// bytecode, but a crafted wire input might.
-    CanonicalEncoding {
-        what: &'static str,
-    },
+    CanonicalEncoding { what: &'static str },
     /// ed25519 signature verification returned false.
     InvalidSignature,
 }
@@ -246,27 +244,19 @@ fn write_u32_len(
     len: usize,
     what: &'static str,
 ) -> Result<(), BytecodeVerifyError> {
-    let as_u32 = u32::try_from(len)
-        .map_err(|_| BytecodeVerifyError::CanonicalEncoding { what })?;
+    let as_u32 = u32::try_from(len).map_err(|_| BytecodeVerifyError::CanonicalEncoding { what })?;
     out.extend_from_slice(&as_u32.to_be_bytes());
     Ok(())
 }
 
-fn write_str(
-    out: &mut Vec<u8>,
-    s: &str,
-    what: &'static str,
-) -> Result<(), BytecodeVerifyError> {
+fn write_str(out: &mut Vec<u8>, s: &str, what: &'static str) -> Result<(), BytecodeVerifyError> {
     let bytes = s.as_bytes();
     write_u32_len(out, bytes.len(), what)?;
     out.extend_from_slice(bytes);
     Ok(())
 }
 
-fn write_opcode(
-    out: &mut Vec<u8>,
-    op: &Opcode,
-) -> Result<(), BytecodeVerifyError> {
+fn write_opcode(out: &mut Vec<u8>, op: &Opcode) -> Result<(), BytecodeVerifyError> {
     // Wire tag is the stable 1-byte identifier.
     out.push(op.wire_tag());
 
@@ -366,8 +356,8 @@ fn stdlib_wire_tag(fn_id: &StdlibFunctionId) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::bytecode::StValueType;
+    use super::*;
     use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 
     fn canned_bytecode() -> Bytecode {
@@ -470,8 +460,8 @@ mod tests {
         let key = signing_key_seed_1();
         let bc = canned_bytecode();
         let signed = sign(&bc, &key);
-        let verified = verify_signed_bytecode(&signed, verify_with(key.verifying_key()))
-            .expect("verify ok");
+        let verified =
+            verify_signed_bytecode(&signed, verify_with(key.verifying_key())).expect("verify ok");
         assert_eq!(verified, bc);
     }
 

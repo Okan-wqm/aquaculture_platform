@@ -33,6 +33,7 @@ import 'reactflow/dist/style.css';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import type { ConnectionPointKey } from '../../types/scada-widget.types';
 import { useScadaDataOptional } from '../../context/ScadaDataProvider';
 import type { ScreenWidget } from '../../types/scada-package.types';
 import type { ScadaWidgetNodeData, ScadaWidgetType } from '../../types/scada-widget.types';
@@ -255,7 +256,13 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
       const tagName = (w.config?.tagName || w.config?.tag) as string | undefined;
       let liveValue: number | string | boolean | undefined;
       if (isPreview && scadaData && deviceCode && tagName) {
-        liveValue = scadaData.getTagValue(deviceCode, tagName);
+        const rawValue = scadaData.getTagValue(deviceCode, tagName);
+        liveValue =
+          typeof rawValue === 'string' ||
+          typeof rawValue === 'number' ||
+          typeof rawValue === 'boolean'
+            ? rawValue
+            : undefined;
       }
       return {
         id: w.id,
@@ -598,8 +605,14 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
           ? (targetNode.config?.equipmentSubType as string) || ''
           : targetNode.widgetType;
 
-        const srcPoints = CONNECTION_POINTS[srcKey] || [];
-        const tgtPoints = CONNECTION_POINTS[tgtKey] || [];
+        const srcPoints =
+          srcKey in CONNECTION_POINTS
+            ? CONNECTION_POINTS[srcKey as ConnectionPointKey]
+            : [];
+        const tgtPoints =
+          tgtKey in CONNECTION_POINTS
+            ? CONNECTION_POINTS[tgtKey as ConnectionPointKey]
+            : [];
 
         // Find the source handle's direction
         const srcHandleId = connection.sourceHandle || '';

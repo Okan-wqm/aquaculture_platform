@@ -46,9 +46,6 @@ pub mod chrony_clock;
 
 pub use chrony_clock::{CHRONY_QUERY_FAILED_AGE_SENTINEL, ChronyNtsClockAuthority};
 pub use clock::{ClockAuthority, ClockError, MonotonicAnchor, WallClockReading};
-pub use retained_msg::{is_retained_command_rejected, RetainedMsgRejectionReason};
-pub use shutdown_phase::{
-    DrainState, ShutdownPhase, ShutdownTransition, ShutdownTransitionError,
-};
-pub use system_clock::{SystemClockAuthority, DEFAULT_NTS_SYNC_MAX_SKEW_SECS};
-pub use chrony_clock::{ChronyNtsClockAuthority, CHRONY_QUERY_FAILED_AGE_SENTINEL};
+pub use retained_msg::{RetainedMsgRejectionReason, is_retained_command_rejected};
+pub use shutdown_phase::{DrainState, ShutdownPhase, ShutdownTransition, ShutdownTransitionError};
+pub use system_clock::{DEFAULT_NTS_SYNC_MAX_SKEW_SECS, SystemClockAuthority};

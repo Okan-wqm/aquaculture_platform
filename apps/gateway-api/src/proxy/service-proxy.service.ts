@@ -358,6 +358,9 @@ export class ServiceProxyService {
         ...buildSignedInternalHeaders({
           serviceName: 'gateway-api',
           tenantId: resolveTenantIdFromRequest(req),
+          method: req.method,
+          path: req.path,
+          body: '',
         }),
       };
 
@@ -570,6 +573,12 @@ export class ServiceProxyService {
       const signedHeaders = buildSignedInternalHeaders({
         serviceName: 'gateway-api',
         tenantId: config.tenantId,
+        method: proxyRequest.method,
+        path: new URL(proxyRequest.url).pathname,
+        body:
+          typeof proxyRequest.body === 'string'
+            ? proxyRequest.body
+            : JSON.stringify(proxyRequest.body ?? ''),
       });
       const fetchOptions: RequestInit = {
         method: proxyRequest.method,

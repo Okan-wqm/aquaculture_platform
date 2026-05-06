@@ -24,15 +24,15 @@ import type { GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-p
 import { DEFAULT_GRADIENT, DEFAULT_FILTER, buildGradientId, buildFilterId } from '../../../types/scada-svg-properties.types';
 
 /**
- * Computes regular polygon vertices centered at (cx, cy) with the given
- * radius and side count. Returns an SVG-compatible points string.
+ * Computes regular polygon vertices within a width x height box using the
+ * box center, radius, and side count. Returns an SVG-compatible points string.
  *
  * When starMode is true, vertices alternate between outerRadius and
  * innerRadius * outerRadius, doubling the total vertex count.
  */
 function computePolygonPoints(
-  cx: number,
-  cy: number,
+  width: number,
+  height: number,
   outerRadius: number,
   sides: number,
   starMode: boolean,
@@ -40,6 +40,8 @@ function computePolygonPoints(
 ): string {
   const points: string[] = [];
   const totalVertices = starMode ? sides * 2 : sides;
+  const cx = width / 2;
+  const cy = height / 2;
 
   for (let i = 0; i < totalVertices; i++) {
     const angle = (2 * Math.PI * i) / totalVertices - Math.PI / 2;
@@ -103,8 +105,8 @@ const SvgPolygonRenderer: React.FC<WidgetRendererProps> = ({
   // Memoize points string to avoid recomputation on every render
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const pointsStr = useMemo(
-    () => computePolygonPoints(cx, cy, outerRadius, sides, starMode, innerRadiusRatio),
-    [cx, cy, outerRadius, sides, starMode, innerRadiusRatio],
+    () => computePolygonPoints(width, height, outerRadius, sides, starMode, innerRadiusRatio),
+    [width, height, outerRadius, sides, starMode, innerRadiusRatio],
   );
 
   return (

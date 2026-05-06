@@ -156,18 +156,11 @@ pub struct TaskStatsPublish {
 /// Snapshot every task's stats from the scheduler. Holds the
 /// lock briefly (clone semantics on TaskStats — no async
 /// work inside the lock).
-async fn snapshot_all_tasks(
-    scheduler: &Arc<Mutex<TaskScheduler>>,
-) -> Vec<TaskStatsSnapshot> {
+async fn snapshot_all_tasks(scheduler: &Arc<Mutex<TaskScheduler>>) -> Vec<TaskStatsSnapshot> {
     let guard = scheduler.lock().await;
     guard
         .tasks()
-        .map(|t| {
-            TaskStatsSnapshot::from_task_stats(
-                t.config.name.clone(),
-                &t.stats,
-            )
-        })
+        .map(|t| TaskStatsSnapshot::from_task_stats(t.config.name.clone(), &t.stats))
         .collect()
 }
 
@@ -244,28 +237,20 @@ pub async fn run_task_stats_publisher_loop(
             tasks: final_snapshots,
         };
         let state_guard = state.read().await;
-        crate::publish_helpers::publish_task_stats(
-            &state_guard,
-            &payload,
-        )
-        .await;
+        crate::publish_helpers::publish_task_stats(&state_guard, &payload).await;
         if let Some(_) = state_guard.mqtt_client.as_ref() {
             // No-op marker; keeping the read-guard scope
             // contained so the await above runs INSIDE it.
         }
     } else {
-        warn!(
-            "task_stats_publisher exiting with no scheduler tasks to snapshot"
-        );
+        warn!("task_stats_publisher exiting with no scheduler tasks to snapshot");
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scripting::task_scheduler::{
-        SloTier, TaskConfig, TaskKind,
-    };
+    use crate::scripting::task_scheduler::{SloTier, TaskConfig, TaskKind};
 
     fn cyclic_task(name: &str, period_ms: u64) -> TaskConfig {
         TaskConfig {
@@ -327,9 +312,7 @@ mod tests {
     /// case (config without tasks: []).
     #[tokio::test]
     async fn snapshot_empty_scheduler_produces_empty_vec() {
-        let scheduler = Arc::new(Mutex::new(
-            TaskScheduler::new(vec![]).expect("empty ok"),
-        ));
+        let scheduler = Arc::new(Mutex::new(TaskScheduler::new(vec![]).expect("empty ok")));
         let snapshots = snapshot_all_tasks(&scheduler).await;
         assert!(snapshots.is_empty());
     }
@@ -350,10 +333,7 @@ mod tests {
             jitter_ms_max: 50,
             jitter_ms_p99_approx: 45,
         };
-        let snapshot = TaskStatsSnapshot::from_task_stats(
-            "test".to_string(),
-            &stats,
-        );
+        let snapshot = TaskStatsSnapshot::from_task_stats("test".to_string(), &stats);
         let json = serde_json::to_string(&snapshot).expect("serde ok");
         // Pin every field name. A renamer must update both
         // this test AND the operator dashboards in lockstep.

@@ -80,7 +80,7 @@ export class AddAuditLogShapeExtension1788100000000
   name = 'AddAuditLogShapeExtension1788100000000';
 
   // CREATE INDEX CONCURRENTLY cannot run inside a transaction block.
-  transaction: 'none' = 'none';
+  transaction = false;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Step 1: ADD COLUMN for each of the 8 mandatory fields. Each is

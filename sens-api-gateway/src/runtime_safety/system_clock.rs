@@ -71,9 +71,7 @@ impl SystemClockAuthority {
     /// constructor.
     #[allow(dead_code)] // Sprint 6.7 config wire consumer.
     pub fn with_nts_threshold(nts_threshold_secs: u64) -> Self {
-        Self {
-            nts_threshold_secs,
-        }
+        Self { nts_threshold_secs }
     }
 }
 
@@ -128,10 +126,7 @@ impl ClockAuthority for SystemClockAuthority {
         // Pre-epoch guard — catches RTC-drained power-on
         // scenarios where SystemTime returns a time before
         // UNIX_EPOCH. Fail-closed for regulated-action paths.
-        if system_time
-            .duration_since(UNIX_EPOCH)
-            .is_err()
-        {
+        if system_time.duration_since(UNIX_EPOCH).is_err() {
             return Err(ClockError::PreEpochWallClock);
         }
 

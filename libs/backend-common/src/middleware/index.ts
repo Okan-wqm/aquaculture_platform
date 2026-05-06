@@ -23,3 +23,4 @@ export {
 } from './tenant-context.middleware';
 
 export { createTenantSchemaMiddleware } from './tenant-schema.middleware';
+export { StripInternalHeadersMiddleware } from './strip-internal-headers.middleware';

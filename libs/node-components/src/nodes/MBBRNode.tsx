@@ -53,7 +53,7 @@ const MBBRNode: React.FC<NodeProps<MBBRNodeData>> = ({ id, data, selected }) => 
   }, [id, leftType, rightType, bottomType, updateNodeInternals]);
 
   // Generate random media carriers
-  const carriers = Array.from({ length: 25 }, (_, i) => ({
+  const carriers = Array.from({ length: 25 }, () => ({
     cx: 35 + Math.random() * 110,
     cy: 60 + Math.random() * 100,
     r: 6 + Math.random() * 4,

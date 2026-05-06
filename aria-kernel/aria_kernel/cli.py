@@ -25,6 +25,8 @@ from aria_kernel.reverify import reverify_pressures
 from aria_kernel.telemetry import export_telemetry
 from aria_kernel.tool_registry import GovernanceError, list_tools, register_tool
 from aria_kernel.tool_runner import run_tool
+from aria_kernel.verification_gate import submit_worker_result, verify_worker_result
+from aria_kernel.worker_dispatch import create_dispatch_request
 from aria_kernel.workspace import ensure_workspace, require_workspace_v2, workspace_paths
 
 
@@ -213,6 +215,31 @@ def _main(argv: list[str] | None = None) -> int:
     telemetry_export.add_argument("--format", choices=["prometheus", "otel"], required=True)
     telemetry_export.add_argument("--output", default=None)
 
+    worker_parser = sub.add_parser("worker")
+    worker_sub = worker_parser.add_subparsers(dest="worker_command", required=True)
+    worker_dispatch = worker_sub.add_parser("dispatch")
+    add_workspace_args(worker_dispatch)
+    add_tools_arg(worker_dispatch)
+    worker_dispatch.add_argument("--pressure-event-id", required=True)
+    worker_dispatch.add_argument("--target-agent", default=None)
+    worker_dispatch.add_argument("--prepare-worktree", action="store_true")
+    worker_dispatch.add_argument("--acknowledge", action="store_true")
+
+    worker_result = sub.add_parser("worker-result")
+    worker_result_sub = worker_result.add_subparsers(dest="worker_result_command", required=True)
+    worker_result_submit = worker_result_sub.add_parser("submit")
+    add_tools_arg(worker_result_submit)
+    worker_result_submit.add_argument("--assignment-id", default=None)
+    worker_result_submit.add_argument("--from-worktree", required=True)
+    worker_result_submit.add_argument("--validation-command", action="append", default=[])
+
+    verification_parser = sub.add_parser("verification")
+    verification_sub = verification_parser.add_subparsers(dest="verification_command", required=True)
+    verification_verify = verification_sub.add_parser("verify")
+    add_tools_arg(verification_verify)
+    verification_verify.add_argument("--assignment-id", required=True)
+    verification_verify.add_argument("--auto-merge-eligible", action="store_true")
+
     curate_parser = sub.add_parser("curate")
     add_workspace_args(curate_parser)
     curate_parser.add_argument("--since", default="90d")
@@ -230,7 +257,7 @@ def _main(argv: list[str] | None = None) -> int:
     )
     paths = (
         resolve_paths(args)
-        if hasattr(args, "workspace_root") and args.command in {"feedback", "pressure", "curate", "telemetry"} and not legacy_pressure_explain
+        if hasattr(args, "workspace_root") and args.command in {"feedback", "pressure", "curate", "telemetry", "worker"} and not legacy_pressure_explain
         else None
     )
 
@@ -415,12 +442,43 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "telemetry" and args.telemetry_command == "export":
-        payload = export_telemetry(paths, format=args.format)
+        payload = export_telemetry(paths, format=args.format, tools_root=args.tools_dir)
         if args.output:
             Path(args.output).write_text(payload, encoding="utf-8")
         else:
             print(payload, end="")
         return 0
+
+    if args.command == "worker" and args.worker_command == "dispatch":
+        result = create_dispatch_request(
+            paths,
+            pressure_event_id=args.pressure_event_id,
+            tools_root=args.tools_dir,
+            target_agent=args.target_agent,
+            prepare_worktree=args.prepare_worktree,
+            acknowledge=args.acknowledge,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "worker-result" and args.worker_result_command == "submit":
+        result = submit_worker_result(
+            from_worktree=args.from_worktree,
+            assignment_id=args.assignment_id,
+            validation_commands=args.validation_command,
+            tools_root=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "verification" and args.verification_command == "verify":
+        result = verify_worker_result(
+            assignment_id=args.assignment_id,
+            tools_root=args.tools_dir,
+            auto_merge_eligible=args.auto_merge_eligible,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("status") == "passed" else 1
 
     if args.command == "integrity" and args.integrity_command == "rollback-tools-v2-to-v1":
         result = rollback_tools_v2_to_v1(

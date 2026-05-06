@@ -9,10 +9,14 @@ from typing import Any, Callable
 
 from .agent_satisfaction import agent_satisfaction_scan
 from .feedback import load_failure_mode_vocabulary
+from .fitness import agent_fitness_score
 from .ledger import LedgerIntegrityError, verify_index_hashes
 from .pressure import DEFAULT_DECAY_THRESHOLDS, TERMINAL_STATES, append_pressure_state_event, effective_workspace_pressures
+from .report_ingestion import report_ingestion_scan
+from .semantic_dedup import semantic_dedup_compute
 from .trailer_scan import git_trailer_scan
 from .trust import ref_staleness_check, trust_escalation_derive
+from .triage import triage_policy_apply
 from .tool_registry import append_tools_governance
 from .workspace import WorkspacePaths, record_workspace_governance
 
@@ -24,8 +28,12 @@ LEARNING_HOOK_ORDER = (
     "vocabulary_reload_check",
     "git_trailer_scan",
     "agent_satisfaction_scan",
+    "report_ingestion_scan",
+    "semantic_dedup_compute",
     "trust_escalation_derive",
     "ref_staleness_check",
+    "triage_policy_apply",
+    "agent_fitness_score",
 )
 
 
@@ -48,8 +56,12 @@ def run_learning_pass(
         ("vocabulary_reload_check", lambda: vocabulary_reload_check(paths)),
         ("git_trailer_scan", lambda: git_trailer_scan(paths, cycle_id=cycle_id, tools_root=root)),
         ("agent_satisfaction_scan", lambda: agent_satisfaction_scan(paths, cycle_id=cycle_id, tools_root=root)),
+        ("report_ingestion_scan", lambda: report_ingestion_scan(paths, cycle_id=cycle_id, tools_root=root)),
+        ("semantic_dedup_compute", lambda: semantic_dedup_compute(paths, cycle_id=cycle_id, tools_root=root)),
         ("trust_escalation_derive", lambda: trust_escalation_derive(paths, cycle_id=cycle_id)),
         ("ref_staleness_check", lambda: ref_staleness_check(paths, cycle_id=cycle_id)),
+        ("triage_policy_apply", lambda: triage_policy_apply(paths, cycle_id=cycle_id, tools_root=root)),
+        ("agent_fitness_score", lambda: agent_fitness_score(cycle_id=cycle_id, base_dir=root)),
     )
     results: list[dict[str, Any]] = []
     for hook_name, hook in hooks:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +118,104 @@ def generate_recommendation_candidate(
 
 def list_fitness_reports(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "fitness" / "fitness-reports.jsonl")
+
+
+def agent_fitness_score(
+    *,
+    cycle_id: str,
+    base_dir: str | Path | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    root = ensure_tools_dir(base_dir)
+    now = _agent_fitness_now()
+    previous = load_jsonl(root / "fitness" / "agent-fitness.jsonl")
+    last_at = _last_computed_at(previous)
+    if not force and last_at is not None and now - last_at < timedelta(days=6):
+        return {"schema_version": 1, "cycle_id": cycle_id, "status": "skipped", "reason": "weekly_gate", "last_computed_at": _format_dt(last_at)}
+    rows = _compute_agent_fitness(root, cycle_id=cycle_id, computed_at=now)
+    for row in rows:
+        append_jsonl(root / "fitness" / "agent-fitness.jsonl", row)
+    from .tool_registry import append_tools_governance, update_tools_index
+
+    update_tools_index(root)
+    append_tools_governance(root, "agent_fitness_computed", {"cycle_id": cycle_id, "agent_count": len(rows), "computed_at": _format_dt(now)})
+    return {"schema_version": 1, "cycle_id": cycle_id, "status": "computed", "computed_at": _format_dt(now), "agent_count": len(rows), "agents": rows}
+
+
+def latest_agent_fitness(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    root = ensure_tools_dir(base_dir)
+    latest: dict[str, dict[str, Any]] = {}
+    for row in load_jsonl(root / "fitness" / "agent-fitness.jsonl"):
+        name = row.get("agent_name")
+        if isinstance(name, str) and name:
+            latest[name] = row
+    return list(latest.values())
+
+
+def _compute_agent_fitness(root: Path, *, cycle_id: str, computed_at: datetime) -> list[dict[str, Any]]:
+    requests = load_jsonl(root / "dispatch" / "requests.jsonl")
+    verifications = load_jsonl(root / "dispatch" / "verification-results.jsonl")
+    by_assignment = {str(row.get("assignment_id")): row for row in verifications if row.get("assignment_id")}
+    agents = sorted({str(row.get("target_agent")) for row in requests if isinstance(row.get("target_agent"), str) and row.get("target_agent")})
+    rows: list[dict[str, Any]] = []
+    for agent in agents:
+        agent_requests = [row for row in requests if row.get("target_agent") == agent]
+        outcomes = [by_assignment.get(str(row.get("assignment_id"))) for row in agent_requests]
+        outcomes = [row for row in outcomes if row]
+        passed = sum(1 for row in outcomes if row.get("status") == "passed")
+        failed = sum(1 for row in outcomes if row.get("status") == "failed")
+        if not outcomes:
+            score = 0.4
+            tier = "CALIBRATE"
+            max_triage_tier = "needs_review"
+        else:
+            score = round(passed / max(1, passed + failed), 3)
+            tier = "ACTIVE" if score >= 0.5 else ("DOWNGRADED" if score >= 0.3 else "QUARANTINED")
+            max_triage_tier = "auto_fix_safe" if tier == "ACTIVE" else ("needs_review" if tier in {"CALIBRATE", "DOWNGRADED"} else "blocked")
+        rows.append(
+            {
+                "$schema": "aria/agent-fitness/v1",
+                "schema_version": 1,
+                "cycle_id": cycle_id,
+                "computed_at": _format_dt(computed_at),
+                "agent_name": agent,
+                "score": score,
+                "tier": tier,
+                "max_triage_tier": max_triage_tier,
+                "evidence": {"dispatch_count": len(agent_requests), "verification_passed": passed, "verification_failed": failed},
+            },
+        )
+    return rows
+
+
+def _agent_fitness_now() -> datetime:
+    override = os.environ.get("ARIA_FITNESS_CLOCK_OVERRIDE")
+    if override:
+        parsed = datetime.fromisoformat(override.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    return datetime.now(timezone.utc)
+
+
+def _last_computed_at(rows: list[dict[str, Any]]) -> datetime | None:
+    values = []
+    for row in rows:
+        value = row.get("computed_at")
+        if not isinstance(value, str) or not value:
+            continue
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        values.append(parsed.astimezone(timezone.utc))
+    return max(values) if values else None
+
+
+def _format_dt(value: datetime) -> str:
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _trend(previous_reports: list[dict[str, Any]], dimensions: dict[str, float], overall: float) -> dict[str, Any]:

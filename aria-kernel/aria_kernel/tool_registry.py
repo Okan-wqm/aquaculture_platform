@@ -129,12 +129,24 @@ def require_tools_v2(base_dir: str | os.PathLike[str] | None = None) -> None:
 
 
 def covered_tool_ledgers(root: Path) -> dict[str, Path]:
-    return {
+    ledgers = {
         "runs": root / "runs.jsonl",
         "health": root / "health.jsonl",
         "cycles": root / "cycles.jsonl",
         "governance": root / "governance.jsonl",
     }
+    optional = {
+        "problem_clusters": root / "problem_clusters.jsonl",
+        "triage_decisions": root / "triage" / "decisions.jsonl",
+        "dispatch_requests": root / "dispatch" / "requests.jsonl",
+        "worker_results": root / "dispatch" / "worker-results.jsonl",
+        "verification_results": root / "dispatch" / "verification-results.jsonl",
+        "agent_fitness": root / "fitness" / "agent-fitness.jsonl",
+    }
+    for name, path in optional.items():
+        if path.exists():
+            ledgers[name] = path
+    return ledgers
 
 
 def update_tools_index(root: Path) -> None:

@@ -23,13 +23,13 @@ Discovery does not touch workspace files. On a v1 workspace it writes only to th
 Covered ledgers are:
 
 - Workspace: `unknowns`, `missed_signals`, `external_feedback`, `pressure`, `pressure_state`, `since_migration_events`, `governance`.
-- Tools: `runs`, `health`, `cycles`, `governance`.
+- Tools: `runs`, `health`, `cycles`, `governance`. Optional tools ledgers become integrity-covered when present: `problem_clusters`, `triage_decisions`, `dispatch_requests`, `worker_results`, `verification_results`, and `agent_fitness`.
 
 Workspace rollback force-discard writes discarded rows to `<workspace>/aria-memory/since_migration_events.jsonl`; the file is a normal workspace ledger and is covered by `ledger_hashes`. Tools rollback force-discard writes `<tools-dir>/since_migration_events.jsonl`; it is covered by optional `integrity_index.json.file_hashes["since_migration_events.jsonl"]` when present. Missing `file_hashes` is valid for roots that have no file-level artifacts.
 
 Feedback and pressure rows use v2 schemas. Feedback IDs are stable `FB-...-<sha16>` values from canonical identity. Pressure dedup is based only on `pressure_evidence_fingerprints_emitted`, computed from primitive, subtype, and the set of feedback event IDs.
 
-Governance known kinds include `workspace_bootstrapped`, `tools_root_bootstrapped`, `tools_root_bound`, `vocabulary_loaded`, `vocabulary_normalization_drift`, `learning_hook_failed`, `pressure_decayed`, `cycle_artifact_archived`, `pressure_closed_via_trailer`, `pressure_addresses_recorded`, `pressure_trailer_ignored`, `pressure_satisfied_by_skill`, `agent_removed`, `feedback_escalated_to_trusted`, `ref_stale_detected`, `reverify_action_recorded`, `vocabulary_extension_proposed`, `vocabulary_extension_approved`, `discovery_dirty_tree_skipped`, `lock_reaped`, `migration_started`, `migration_phase`, `migration_completed`, `orphan_partial_backup_cleaned`, `rollback_started`, `rollback_phase`, `rollback_completed`, and `tool_unhealthy`. Unknown kinds remain additive-open and parse with warning semantics.
+Governance known kinds include `workspace_bootstrapped`, `tools_root_bootstrapped`, `tools_root_bound`, `vocabulary_loaded`, `vocabulary_normalization_drift`, `learning_hook_failed`, `pressure_decayed`, `cycle_artifact_archived`, `pressure_closed_via_trailer`, `pressure_addresses_recorded`, `pressure_trailer_ignored`, `pressure_satisfied_by_skill`, `agent_removed`, `feedback_escalated_to_trusted`, `ref_stale_detected`, `reverify_action_recorded`, `vocabulary_extension_proposed`, `vocabulary_extension_approved`, `agent_report_ingested`, `report_ingestion_skipped`, `report_ingestion_cache_missing`, `semantic_cluster_merged`, `pressure_triaged`, `dispatch_request_created`, `dispatch_request_state_changed`, `agent_resolution_failed`, `worker_result_accepted`, `worker_result_rejected`, `verification_gate_passed`, `verification_gate_failed`, `agent_fitness_computed`, `agent_dispatch_quarantined`, `worktree_pruned`, `discovery_dirty_tree_skipped`, `lock_reaped`, `migration_started`, `migration_phase`, `migration_completed`, `orphan_partial_backup_cleaned`, `rollback_started`, `rollback_phase`, `rollback_completed`, and `tool_unhealthy`. Unknown kinds remain additive-open and parse with warning semantics.
 
 Default governance actor: if `ARIA_ACTOR` is set, parse it as JSON `{kind, id, session?}`. Otherwise use `{kind: "human", id: "<user>@<hostname>"}`.
 
@@ -42,8 +42,12 @@ Each cycle runs an ordered learning pass before normal cycle work:
 3. `vocabulary_reload_check`
 4. `git_trailer_scan`
 5. `agent_satisfaction_scan`
-6. `trust_escalation_derive`
-7. `ref_staleness_check`
+6. `report_ingestion_scan`
+7. `semantic_dedup_compute`
+8. `trust_escalation_derive`
+9. `ref_staleness_check`
+10. `triage_policy_apply`
+11. `agent_fitness_score` (weekly-gated)
 
 Hooks are idempotent. Hook-to-hook communication is ledger-only; no shared in-memory hook state is authoritative. Workspace integrity drift, workspace precondition failures, and tools lock failures fail closed and abort the cycle. Local hook failures such as malformed hook config or unparsable hook-local files write workspace governance `learning_hook_failed` with `{hook_name, error_class, error_message, traceback_first_line?}` and the next hook continues.
 
@@ -65,9 +69,23 @@ Feedback v2 may include `observed_commit` and `evidence_chain`. `feedback add` r
 
 `vocabulary_rejections.jsonl` is a workspace ledger covered by integrity. Failure-mode validation rejection writes to it only when workspace paths are available. Three rejections in 90 days for the same surface/parser cluster emit one `vocabulary_extension_proposed`; `vocabulary_extension_approved` requires explicit operator approval and does not automatically edit vocabulary.
 
-`telemetry export --format prometheus|otel` writes to stdout by default, with optional `--output`. Required metrics include pressure state counts, effective magnitude, hook failures, decay transitions, trailer closes/addresses, satisfied pressures, removed agents, trusted pressure count, stale refs, reverify actions, vocabulary rejections/proposals, and archived artifacts.
+`telemetry export --format prometheus|otel` writes to stdout by default, with optional `--output`. Required metrics include pressure state counts, effective magnitude, hook failures, decay transitions, trailer closes/addresses, satisfied pressures, removed agents, trusted pressure count, stale refs, reverify actions, vocabulary rejections/proposals, archived artifacts, report ingestion, semantic cluster size, triage totals, dispatch request counts, worker result counts, verification gate totals, and per-agent fitness score.
 
 `auto_merge.py` remains explicit opt-in operational tooling. No learning hook, reverify path, trust path, satisfaction path, or default autonomous dispatcher path may call `merge_if_green`.
+
+### Phase-3 Autonomous Learning Closure
+
+`report_ingestion_scan` reads `docs/reviews/_registry/findings.jsonl` without modifying it. The first missing `<workspace>/aria-state/ingested_findings.json` creates a baseline only. A later missing cache writes `report_ingestion_cache_missing`, rebuilds the baseline, and emits no feedback. Default backfill is 100 rows; registries over 500 rows require `--confirm-large-backfill --acknowledge` at call sites that expose backfill.
+
+`semantic_dedup_compute` deterministically clusters active pressures using stdlib token cosine, same surface/parser from `capability_gap_key`, and overlapping evidence ref roots. It writes derived cluster rows to `<tools-dir>/problem_clusters.jsonl`; `capability_gap_key` remains authoritative.
+
+`triage_policy_apply` writes `<tools-dir>/triage/decisions.jsonl` with tier `auto_fix_safe`, `needs_review`, `human_only`, `observe`, or `blocked`. Stale-only evidence becomes `observe`; unsafe or unresolved cases become `human_only`/`blocked`, never auto-dispatch. New or calibrating agents are capped at `needs_review`; quarantined agents block dispatch.
+
+`worker dispatch --pressure-event-id PE-...` writes a dispatch request only. `--prepare-worktree --acknowledge` is required to create `aria-worktrees/<assignment_id>/`. Dispatch rows include `assignment_id`, `pressure_event_id`, `target_agent`, `triage_tier`, `worktree_path`, `base_sha`, `required_tests`, `expected_trailer`, and `state`. If the target agent cannot be resolved from an explicit argument, triage decision, or routing table, no dispatch row is created and `agent_resolution_failed` is emitted.
+
+`worker-result submit --from-worktree <path>` resolve-normalizes the path against the dispatch request. Mismatches write `worker_result_rejected` with reason `worktree_path_mismatch`. Accepted results store `worktree_path`, `base_sha`, `head_sha`, allowed validation commands, and an inline unified diff capped at 1 MB.
+
+`verification verify --assignment-id A-...` reruns allowed validation commands inside the worker worktree and checks the expected trailer. `auto_fix_safe` expects `Closes-Pressure: PE-...`; `needs_review` expects `Addresses-Pressure: PE-...`. Auto-merge evaluation is skipped unless `--auto-merge-eligible` is explicitly set, and even then remains bounded by the existing low-risk policy.
 
 Snapshot mode enum is `{committed, working_tree, staged}`. `committed` is the default and CI mode; it reads the HEAD-tracked snapshot and ignores dirty/staged changes with a governance event. `working_tree` is Phase-1 supported and includes dirty/staged/untracked files. `staged` is Phase-2 reserved.
 

@@ -9,8 +9,8 @@ from .pressure import effective_workspace_pressures
 from .workspace import WorkspacePaths
 
 
-def export_telemetry(paths: WorkspacePaths, *, format: str = "prometheus") -> str:
-    metrics = collect_metrics(paths)
+def export_telemetry(paths: WorkspacePaths, *, format: str = "prometheus", tools_root: str | Path | None = None) -> str:
+    metrics = collect_metrics(paths, tools_root=tools_root)
     if format == "prometheus":
         return _prometheus(metrics)
     if format == "otel":
@@ -18,7 +18,7 @@ def export_telemetry(paths: WorkspacePaths, *, format: str = "prometheus") -> st
     raise ValueError(f"unsupported telemetry format: {format}")
 
 
-def collect_metrics(paths: WorkspacePaths) -> list[dict[str, Any]]:
+def collect_metrics(paths: WorkspacePaths, *, tools_root: str | Path | None = None) -> list[dict[str, Any]]:
     pressures = effective_workspace_pressures(paths)
     governance = read_jsonl(paths.ledgers["governance"])
     rejections = read_jsonl(paths.ledgers["vocabulary_rejections"])
@@ -62,8 +62,34 @@ def collect_metrics(paths: WorkspacePaths) -> list[dict[str, Any]]:
             metrics.append(_metric("aria_vocabulary_extension_proposals_total", 1, {}))
         elif kind == "cycle_artifact_archived":
             metrics.append(_metric("aria_cycle_artifacts_archived_total", 1, {"scope": details.get("scope", "")}))
+        elif kind == "agent_report_ingested":
+            metrics.append(_metric("aria_agent_report_ingested_total", 1, {"owner_agent": details.get("owner_agent", ""), "severity": details.get("severity", "")}))
+        elif kind == "report_ingestion_skipped":
+            metrics.append(_metric("aria_report_ingestion_skipped_total", 1, {"reason": details.get("reason", "")}))
+        elif kind == "report_ingestion_cache_missing":
+            metrics.append(_metric("aria_report_ingestion_cache_missing_total", 1, {}))
     for row in rejections:
         metrics.append(_metric("aria_vocabulary_rejections_total", 1, {"surface": row.get("surface", ""), "parser_kind": row.get("parser_kind", "")}))
+    root = Path(tools_root) if tools_root is not None else paths.repo_root / "aria-tools"
+    if root.exists():
+        metrics.extend(_tools_metrics(root))
+    return metrics
+
+
+def _tools_metrics(root: Path) -> list[dict[str, Any]]:
+    metrics: list[dict[str, Any]] = []
+    for row in read_jsonl(root / "problem_clusters.jsonl"):
+        metrics.append(_metric("aria_semantic_cluster_size", len(row.get("member_pressures", []) or []), {"primary_pressure": row.get("primary_pressure", "")}))
+    for row in read_jsonl(root / "triage" / "decisions.jsonl"):
+        metrics.append(_metric("aria_pressure_triage_total", 1, {"tier": row.get("triage_tier", "")}))
+    for row in read_jsonl(root / "dispatch" / "requests.jsonl"):
+        metrics.append(_metric("aria_dispatch_requests_total", 1, {"state": row.get("state", ""), "target_agent": row.get("target_agent", "")}))
+    for row in read_jsonl(root / "dispatch" / "worker-results.jsonl"):
+        metrics.append(_metric("aria_worker_results_total", 1, {"result": row.get("state", ""), "target_agent": row.get("target_agent", "")}))
+    for row in read_jsonl(root / "dispatch" / "verification-results.jsonl"):
+        metrics.append(_metric("aria_verification_gate_total", 1, {"result": row.get("status", "")}))
+    for row in read_jsonl(root / "fitness" / "agent-fitness.jsonl"):
+        metrics.append(_metric("aria_agent_fitness_score", float(row.get("score") or 0), {"agent_name": row.get("agent_name", "")}))
     return metrics
 
 

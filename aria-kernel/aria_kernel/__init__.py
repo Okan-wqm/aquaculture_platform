@@ -47,17 +47,22 @@ _EXPORT_MODULES = (
     "quarantine",
     "readiness",
     "reflection",
+    "report_ingestion",
     "reverify",
     "research",
     "self_modification",
+    "semantic_dedup",
     "task",
     "telemetry",
     "tool_health",
     "tool_registry",
     "tool_runner",
     "trailer_scan",
+    "triage",
     "trust",
     "validation",
+    "verification_gate",
+    "worker_dispatch",
 )
 
 __all__: list[str] = ["__version__"]

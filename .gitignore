@@ -5,6 +5,12 @@
 .aria-ci/
 aria-tools/.archive/
 aria-tools/.backups/
+.claude/agents/.dispatch-log.jsonl
+.claude/scheduled_tasks.lock
+
+# Python runtime caches
+__pycache__/
+*.py[cod]
 
 # Cargo build artefacts (workspace + crate-level). Cargo.lock IS committed
 # (binaries land in apps/sensor-ingestion in Faz 2; reproducibility wins).
@@ -22,6 +28,7 @@ node_modules
 
 # Build outputs
 dist
+dev-dist
 build
 tmp
 out-tsc

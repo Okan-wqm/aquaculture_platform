@@ -19,11 +19,20 @@ from aria_kernel.migration import (
     rollback_workspace_v2_to_v1,
 )
 from aria_kernel.memory import withdraw_belief
-from aria_kernel.pressure import explain_pressure
+from aria_kernel.pressure import curate_workspace_pressures, explain_pressure, explain_workspace_pressure, list_workspace_pressures
 from aria_kernel.quarantine import quarantine_tool
-from aria_kernel.tool_registry import list_tools, register_tool
+from aria_kernel.tool_registry import GovernanceError, list_tools, register_tool
 from aria_kernel.tool_runner import run_tool
 from aria_kernel.workspace import ensure_workspace, require_workspace_v2, workspace_paths
+
+
+ERROR_EXIT_CODES = {
+    "tools_migration_required": 10,
+    "ambiguous_tools_root": 11,
+    "workspace_migration_required": 12,
+    "binding_mismatch": 13,
+    "repo_resolution_failed": 14,
+}
 
 
 def add_workspace_args(parser: argparse.ArgumentParser) -> None:
@@ -47,7 +56,28 @@ def resolve_paths(args: argparse.Namespace):
     return paths
 
 
+def _parse_days(value: str) -> int:
+    raw = value.strip().lower()
+    if raw.endswith("d"):
+        raw = raw[:-1]
+    days = int(raw)
+    if days < 0:
+        raise ValueError("days must be non-negative")
+    return days
+
+
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except (GovernanceError, RuntimeError) as exc:
+        message = str(exc)
+        if message in ERROR_EXIT_CODES:
+            print(message, file=sys.stderr)
+            return ERROR_EXIT_CODES[message]
+        raise
+
+
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aria-kernel")
     parser.add_argument("--tools-dir", default=None, help="Override ARIA tools directory")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -78,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
     add_parser.add_argument("--parser-kind", default=None)
     add_parser.add_argument("--capability-gap-key", default=None)
     add_parser.add_argument("--cycle-id", default=None)
+    add_parser.add_argument("--evidence-ref", action="append", default=[])
 
     import_parser = feedback_sub.add_parser("import")
     add_workspace_args(import_parser)
@@ -106,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     add_workspace_args(discovery_run)
     add_tools_arg(discovery_run)
     discovery_run.add_argument("--cycle-id", required=True)
-    discovery_run.add_argument("--snapshot-mode", default="committed", choices=["committed", "working-tree"])
+    discovery_run.add_argument("--snapshot-mode", default="committed", choices=["committed", "working_tree", "working-tree"])
 
     integrity_parser = sub.add_parser("integrity")
     integrity_sub = integrity_parser.add_subparsers(dest="integrity_command", required=True)
@@ -149,12 +180,41 @@ def main(argv: list[str] | None = None) -> int:
 
     pressure_parser = sub.add_parser("pressure")
     pressure_sub = pressure_parser.add_subparsers(dest="pressure_command", required=True)
+    pressure_list = pressure_sub.add_parser("list")
+    add_workspace_args(pressure_list)
+    pressure_list.add_argument("--age-buckets", action="store_true")
+    pressure_list.add_argument("--json", action="store_true")
+    pressure_list.add_argument("--include-faded", action="store_true")
+    pressure_list.add_argument("--include-sleeping", action="store_true")
+    pressure_list.add_argument("--include-archived", action="store_true")
+    pressure_list.add_argument("--include-closed", action="store_true")
+    pressure_list.add_argument("--include-satisfied", action="store_true")
     pressure_explain = pressure_sub.add_parser("explain")
-    pressure_explain.add_argument("--cycle-id", required=True)
-    pressure_explain.add_argument("--pressure-id", required=True)
+    add_workspace_args(pressure_explain)
+    pressure_explain.add_argument("pressure_event_id", nargs="?")
+    pressure_explain.add_argument("--cycle-id", default=None)
+    pressure_explain.add_argument("--pressure-id", default=None)
+
+    curate_parser = sub.add_parser("curate")
+    add_workspace_args(curate_parser)
+    curate_parser.add_argument("--since", default="90d")
+    curate_parser.add_argument("--apply", action="store_true")
+    curate_parser.add_argument("--acknowledge", action="store_true")
+    curate_parser.add_argument("--reason", default=None)
+    curate_parser.add_argument("--cycle-id", default=None)
 
     args = parser.parse_args(argv)
-    paths = resolve_paths(args) if hasattr(args, "workspace_root") and args.command == "feedback" else None
+    legacy_pressure_explain = (
+        args.command == "pressure"
+        and args.pressure_command == "explain"
+        and bool(args.cycle_id)
+        and bool(args.pressure_id)
+    )
+    paths = (
+        resolve_paths(args)
+        if hasattr(args, "workspace_root") and args.command in {"feedback", "pressure", "curate"} and not legacy_pressure_explain
+        else None
+    )
 
     if args.command == "cycle":
         if getattr(args, "cycle_command", None) == "run":
@@ -179,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "feedback" and args.feedback_command == "add":
         require_workspace_v2(paths)
-        event = build_feedback_event(args, cycle_id=args.cycle_id)
+        event = build_feedback_event(args, cycle_id=args.cycle_id, paths=paths)
         emitted = add_feedback(paths, event)
         print(json.dumps({"event": event, "pressure_emitted": emitted}, indent=2, sort_keys=True))
         return 0
@@ -280,7 +340,46 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "pressure" and args.pressure_command == "explain":
-        print(json.dumps(explain_pressure(cycle_id=args.cycle_id, pressure_id=args.pressure_id, base_dir=args.tools_dir), indent=2, sort_keys=True))
+        if args.cycle_id and args.pressure_id:
+            print(json.dumps(explain_pressure(cycle_id=args.cycle_id, pressure_id=args.pressure_id, base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        pressure_event_id = args.pressure_event_id or args.pressure_id
+        if not pressure_event_id:
+            raise ValueError("pressure explain requires a pressure id")
+        print(json.dumps(explain_workspace_pressure(paths, pressure_event_id), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "pressure" and args.pressure_command == "list":
+        include_states = {"active"}
+        if args.include_faded:
+            include_states.add("faded")
+        if args.include_sleeping:
+            include_states.add("sleeping")
+        if args.include_archived:
+            include_states.add("archived")
+        if args.include_closed:
+            include_states.add("closed")
+        if args.include_satisfied:
+            include_states.add("satisfied")
+        rows = list_workspace_pressures(paths, include_states=include_states)
+        if args.age_buckets:
+            buckets = {state: sum(1 for row in rows if row.get("effective_state") == state) for state in sorted(include_states)}
+            payload = {"schema_version": 1, "count": len(rows), "age_buckets": buckets, "pressures": rows}
+        else:
+            payload = rows
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "curate":
+        result = curate_workspace_pressures(
+            paths,
+            since_days=_parse_days(args.since),
+            apply=args.apply,
+            acknowledge=args.acknowledge,
+            reason=args.reason,
+            cycle_id=args.cycle_id,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
     if args.command == "integrity" and args.integrity_command == "rollback-tools-v2-to-v1":

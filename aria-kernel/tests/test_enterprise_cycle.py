@@ -6,7 +6,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
@@ -162,8 +162,13 @@ class EnterpriseCycleTests(unittest.TestCase):
     def test_committed_snapshot_blocks_dirty_git_workspace(self):
         self.init_git_repo()
         (self.root / "src/untracked.ts").write_text("export const dirty = true;\n", encoding="utf-8")
-        with self.assertRaisesRegex(GovernanceError, "workspace_dirty_blocked"):
-            run_discovery(workspace_root=self.root, cycle_id="cycle-dirty", base_dir=self.tools_dir)
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            result = run_discovery(workspace_root=self.root, cycle_id="cycle-dirty", base_dir=self.tools_dir)
+        self.assertIn("warning: committed snapshot ignores", stderr.getvalue())
+        self.assertFalse(result["completion_proof"]["dirty_snapshot"])
+        governance = (self.tools_dir / "governance.jsonl").read_text(encoding="utf-8")
+        self.assertIn("discovery_dirty_tree_skipped", governance)
 
     def test_working_tree_snapshot_includes_untracked_files(self):
         self.init_git_repo()

@@ -9,9 +9,9 @@
 
 ## 0.1 — v9 Enterprise Hardening Delta
 
-Snowball v9 preserves the two-root operating model: workspace state and tools state are independent contract owners. Mutating workspace commands require workspace v2; mutating tools commands require tools v2. `integrity verify` is read-only, verifies both roots together, and exits non-zero on drift.
+Snowball v9 preserves the two-root operating model: workspace state and tools state are independent contract owners. Mutating workspace commands require workspace v2; mutating tools commands require tools v2. `integrity verify` is read-only, verifies both roots together, bootstraps a fresh empty workspace as v2, and exits non-zero on drift.
 
-`discovery run --snapshot-mode committed` reads the HEAD-tracked snapshot. Dirty or staged paths are ignored for the snapshot, reported on stderr, and recorded as a tools governance event. Workspace cycle artifacts remain immutable files under workspace state, while lifecycle integrity is tracked by tools `cycles.jsonl`.
+`discovery run --snapshot-mode committed` reads the HEAD-tracked snapshot. Dirty or staged paths are ignored for the snapshot, reported on stderr, and recorded as a tools governance event. Discovery is tools-mutating only: it does not create or modify workspace identity, workspace integrity index, workspace governance, or workspace cycle artifacts. Lifecycle integrity is tracked by tools `cycles.jsonl`.
 
 ---
 

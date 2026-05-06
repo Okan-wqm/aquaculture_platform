@@ -1,17 +1,15 @@
 {
-  "$schema": "aria/failure-mode-vocab/v2",
-  "version": 2,
+  "$schema": "aria/failure-mode-vocab/v3",
+  "version": 3,
   "modes": [
-    {"id": "missed_signal"},
-    {"id": "false_positive"},
-    {"id": "confirmed_signal"},
-    {"id": "unknown_capability"},
-    {"id": "external_contradiction"},
+    {"id": "adapter_missing"},
     {"id": "dynamic_option_provider"},
+    {"id": "evidence_contradiction"},
+    {"id": "evidence_gap"},
     {"id": "framework_convention_false_positive"},
     {"id": "schema_drift"},
     {"id": "scope_violation"},
-    {"id": "evidence_gap"},
+    {"id": "tenant_isolation_bypass"},
     {"id": "tool_unhealthy"}
   ]
 }

@@ -49,6 +49,8 @@ def workspace_paths(repo_root: Path, workspace_base: Path | None = None) -> Work
         "missed_signals": memory / "missed_signals.jsonl",
         "external_feedback": memory / "external_feedback.jsonl",
         "pressure": memory / "pressure.jsonl",
+        "pressure_state": memory / "pressure_state.jsonl",
+        "since_migration_events": memory / "since_migration_events.jsonl",
         "governance": memory / "governance.jsonl",
     }
     return WorkspacePaths(
@@ -67,13 +69,6 @@ def workspace_paths(repo_root: Path, workspace_base: Path | None = None) -> Work
 def ensure_workspace(paths: WorkspacePaths) -> None:
     repo_root = paths.repo_root.resolve()
 
-    paths.memory_dir.mkdir(parents=True, exist_ok=True)
-    paths.state_dir.mkdir(parents=True, exist_ok=True)
-    paths.cycle_dir.mkdir(parents=True, exist_ok=True)
-    for ledger in paths.ledgers.values():
-        ledger.parent.mkdir(parents=True, exist_ok=True)
-        ledger.touch(exist_ok=True)
-
     identity = {
         "repo_root": str(repo_root),
         "repo_hash": paths.workspace_root.name,
@@ -87,8 +82,28 @@ def ensure_workspace(paths: WorkspacePaths) -> None:
         if workspace_contract_version(paths) < 2:
             return
     else:
-        paths.identity_file.write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        record_workspace_governance(paths, "workspace_root_bootstrapped", {"schema_from": None, "schema_to": 2})
+        if _workspace_has_covered_state(paths):
+            raise RuntimeError("workspace_migration_required")
+        _prepare_workspace_dirs(paths)
+        _atomic_write_json(paths.identity_file, identity)
+        record_workspace_governance(
+            paths,
+            "workspace_bootstrapped",
+            {
+                "workspace_root": paths.workspace_root.as_posix(),
+                "schema_version": 2,
+                "repo_hash": paths.workspace_root.name,
+            },
+        )
+        record_workspace_governance(
+            paths,
+            "vocabulary_loaded",
+            {
+                "source": "embedded",
+                "legacy_schema_detected": False,
+            },
+        )
+    _prepare_workspace_dirs(paths)
     write_index(paths.feedback_index, _index_state(paths), paths.ledgers)
 
 
@@ -117,12 +132,11 @@ def record_workspace_governance(paths: WorkspacePaths, kind: str, details: dict[
 
 
 def governance_event(kind: str, details: dict[str, Any]) -> dict[str, Any]:
-    import os
     import socket
     from datetime import datetime, timezone
 
     ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    actor = {"kind": "agent", "id": os.environ.get("USER") or "codex"}
+    actor = default_actor()
     canonical = {
         "actor": actor,
         "details": details,
@@ -143,6 +157,44 @@ def governance_event(kind: str, details: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def default_actor() -> dict[str, Any]:
+    import getpass
+    import os
+    import socket
+
+    raw = os.environ.get("ARIA_ACTOR")
+    if raw:
+        try:
+            actor = json.loads(raw)
+        except json.JSONDecodeError:
+            actor = {}
+        if isinstance(actor, dict) and isinstance(actor.get("kind"), str) and isinstance(actor.get("id"), str):
+            return actor
+    return {"kind": "human", "id": f"{getpass.getuser()}@{socket.gethostname()}"}
+
+
+def _prepare_workspace_dirs(paths: WorkspacePaths) -> None:
+    paths.memory_dir.mkdir(parents=True, exist_ok=True)
+    paths.state_dir.mkdir(parents=True, exist_ok=True)
+    paths.cycle_dir.mkdir(parents=True, exist_ok=True)
+    for ledger in paths.ledgers.values():
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        ledger.touch(exist_ok=True)
+
+
+def _workspace_has_covered_state(paths: WorkspacePaths) -> bool:
+    if paths.feedback_index.exists():
+        return True
+    return any(path.exists() and path.stat().st_size > 0 for path in paths.ledgers.values())
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
 def _index_state(paths: WorkspacePaths) -> dict[str, Any]:
     current: dict[str, Any] = {}
     if paths.feedback_index.exists():
@@ -150,7 +202,6 @@ def _index_state(paths: WorkspacePaths) -> dict[str, Any]:
             current = json.loads(paths.feedback_index.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             current = {}
-    current.setdefault("pressure_keys_emitted", [])
     current.setdefault("pressure_evidence_fingerprints_emitted", _pressure_fingerprints(paths))
     return current
 

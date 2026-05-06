@@ -119,7 +119,6 @@ def load_index(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {
             "ledger_hashes": {},
-            "pressure_keys_emitted": [],
             "pressure_evidence_fingerprints_emitted": [],
             "schema_version": 2,
         }
@@ -142,9 +141,17 @@ def verify_index_hashes(index_path: Path, ledgers: dict[str, Path]) -> dict[str,
 
 def write_index(index_path: Path, index: dict[str, Any], ledgers: dict[str, Path]) -> None:
     index_path.parent.mkdir(parents=True, exist_ok=True)
+    index.pop("pressure_keys_emitted", None)
     index["ledger_hashes"] = {name: file_hash(path) for name, path in ledgers.items()}
     index["schema_version"] = 2
-    index_path.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _atomic_write_text(index_path, json.dumps(index, indent=2, sort_keys=True) + "\n")
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
 
 
 def _refresh_adjacent_index(path: Path) -> None:
@@ -160,6 +167,8 @@ def _refresh_adjacent_index(path: Path) -> None:
             "missed_signals": path.parent / "missed_signals.jsonl",
             "external_feedback": path.parent / "external_feedback.jsonl",
             "pressure": path.parent / "pressure.jsonl",
+            "pressure_state": path.parent / "pressure_state.jsonl",
+            "since_migration_events": path.parent / "since_migration_events.jsonl",
             "governance": path.parent / "governance.jsonl",
         }
         index_path = path.parent.parent / "aria-state" / "integrity_index.json"

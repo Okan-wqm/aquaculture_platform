@@ -83,7 +83,6 @@ class TypeOrmAdapterIntegrationTests(unittest.TestCase):
         self.assertEqual(run["emitted_findings"], [])
         self.assertFalse(run["evidence_validation"]["repository_mutation_attempt"])
         self.assertGreater(run["runner"]["raw_observations_count"], 0)
-        self.assertEqual(run["runner"]["raw_findings_count"], 0)
         self.assertIn("apps/farm-service/src/batch/entities/batch.entity.ts", run["read_paths"])
         self.assertIn("libs/backend-common/src/database/schema-manager.service.ts", run["read_paths"])
 

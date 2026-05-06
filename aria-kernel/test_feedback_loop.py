@@ -5,7 +5,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.feedback import add_feedback, build_feedback_event, capability_gap_key, list_feedback
+from aria_kernel.feedback import (
+    SURFACE_PREFIXES,
+    SURFACE_ROOT_FILE_GLOBS,
+    add_feedback,
+    build_feedback_event,
+    capability_gap_key,
+    infer_surface,
+    list_feedback,
+)
 from aria_kernel.ledger import LedgerIntegrityError, read_jsonl
 from aria_kernel.workspace import ensure_workspace, workspace_paths
 
@@ -130,10 +138,115 @@ class FeedbackLoopTests(unittest.TestCase):
 class CliShapeTests(unittest.TestCase):
     def test_feedback_event_schema_contains_required_fields(self):
         event = build_feedback_event(args())
-        self.assertEqual(event["$schema"], "aria/feedback-event/v1")
+        self.assertEqual(event["$schema"], "aria/feedback-event/v2")
         self.assertIn("capability_gap_key", event)
         self.assertIn("evidence_refs", event)
-        self.assertEqual(event["schema_version"], 1)
+        self.assertEqual(event["schema_version"], 2)
+
+
+class SurfaceInferenceTests(unittest.TestCase):
+    """ARIA v13 Phase-1: 4-tier surface resolution (override→exact→prefix→repo).
+
+    Test invariants per plan v13:
+      - every declared prefix maps to its expected surface
+      - exact root-file matches (Dockerfile*, docker-compose*.yml) precede prefix iteration
+      - longest/most-specific prefix wins (platform/libs/ before libs/)
+      - trailing-slash optional on prefix paths
+      - unmapped root files fall back to "repo"
+      - line-suffix (":42") on refs does not break inference
+    """
+
+    def test_every_declared_prefix_maps_to_expected_surface(self):
+        cases = {
+            # platform layer
+            "platform/libs/cqrs/src/bus.ts:1": "platform",
+            # shared lib (must NOT be shadowed by platform/libs/)
+            "libs/backend-common/src/foo.ts:1": "shared_lib",
+            # ARIA itself
+            "aria-kernel/aria_kernel/cli.py:1": "aria",
+            "aria-tools/runs.jsonl:1": "aria",
+            # agent runtime
+            "agents/auth-validator.md:1": "agent_runtime",
+            "agent-workspace/seed_hints.md:1": "agent_runtime",
+            # mcp / edge / tooling / test / infra
+            "mcp/aquaculture/src/server.ts:1": "integration",
+            "sens-api-gateway/src/main.rs:1": "edge",
+            "tools/aria-poc/foo.py:1": "tooling",
+            "scripts/deploy.sh:1": "tooling",
+            "e2e/tests/foo.spec.ts:1": "test",
+            "tests/integration/bar.spec.ts:1": "test",
+            "infra/terraform/main.tf:1": "infra",
+            "infrastructure/droplet/variables.tf:1": "infra",
+            ".github/workflows/ci.yml:1": "infra",
+            "deploy/k8s.yaml:1": "infra",
+            "nginx/site.conf:1": "infra",
+            "database/seed.sql:1": "infra",
+            # frontend / backend
+            "web/modules/hr-module/src/page.tsx:1": "frontend",
+            "apps/farm-service/src/foo.ts:1": "backend",
+        }
+        for ref, expected in cases.items():
+            with self.subTest(ref=ref):
+                self.assertEqual(infer_surface(ref), expected)
+
+    def test_exact_root_file_match_runs_before_prefix(self):
+        # Dockerfile sits at repo root; prefix list does not contain "Dockerfile",
+        # so without exact-match tier this would fall through to "repo".
+        for ref in ("Dockerfile", "Dockerfile.dev", "Dockerfile.prod:1"):
+            with self.subTest(ref=ref):
+                self.assertEqual(infer_surface(ref), "infra")
+        for ref in ("docker-compose.yml", "docker-compose.dev.yml", "docker-compose.prod.yaml"):
+            with self.subTest(ref=ref):
+                self.assertEqual(infer_surface(ref), "infra")
+
+    def test_root_file_glob_does_not_match_nested_path(self):
+        # Exact-match tier must only fire for one-segment paths.
+        # apps/Dockerfile is inside apps/ and should map to "backend", not "infra".
+        self.assertEqual(infer_surface("apps/farm-service/Dockerfile"), "backend")
+
+    def test_longest_prefix_wins(self):
+        # platform/libs/ must shadow libs/.
+        self.assertEqual(infer_surface("platform/libs/cqrs/src/bus.ts"), "platform")
+        self.assertNotEqual(infer_surface("platform/libs/cqrs/src/bus.ts"), "shared_lib")
+
+    def test_trailing_slash_is_optional(self):
+        self.assertEqual(infer_surface("apps/farm-service"), "backend")
+        self.assertEqual(infer_surface("apps/farm-service/"), "backend")
+
+    def test_unmapped_root_files_fall_back_to_repo(self):
+        for ref in ("Cargo.toml", "package.json", "README.md", "LICENSE", "pyproject.toml:1"):
+            with self.subTest(ref=ref):
+                self.assertEqual(infer_surface(ref), "repo")
+
+    def test_unknown_top_level_directory_falls_back_to_repo(self):
+        self.assertEqual(infer_surface("nonexistent-top/inner/foo.ts:1"), "repo")
+
+    def test_line_suffix_does_not_affect_inference(self):
+        self.assertEqual(infer_surface("apps/foo.ts"), infer_surface("apps/foo.ts:42"))
+
+    def test_explicit_override_at_caller_wins(self):
+        # The override is applied at build_feedback_event, not infer_surface itself.
+        # Verify the integration: passing surface=... bypasses inference entirely.
+        event = build_feedback_event(args(surface="custom_override", ref="apps/x.ts:1"))
+        self.assertTrue(event["capability_gap_key"].startswith("custom_override:"))
+
+
+class SurfacePrefixOrderingTests(unittest.TestCase):
+    """Static invariants on the SURFACE_PREFIXES ordering — protect against accidental reordering."""
+
+    def test_platform_libs_appears_before_libs(self):
+        prefixes = [p for p, _ in SURFACE_PREFIXES]
+        self.assertLess(prefixes.index("platform/libs/"), prefixes.index("libs/"))
+
+    def test_all_prefixes_have_trailing_slash(self):
+        for prefix, _ in SURFACE_PREFIXES:
+            with self.subTest(prefix=prefix):
+                self.assertTrue(prefix.endswith("/"), f"prefix {prefix!r} must end with '/'")
+
+    def test_root_file_globs_are_one_segment(self):
+        for pattern, _ in SURFACE_ROOT_FILE_GLOBS:
+            with self.subTest(pattern=pattern):
+                self.assertNotIn("/", pattern, f"root-file glob {pattern!r} must be one-segment")
 
 
 if __name__ == "__main__":

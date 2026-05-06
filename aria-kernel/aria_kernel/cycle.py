@@ -34,7 +34,7 @@ def run_cycle(paths: WorkspacePaths | None = None, **kwargs: Any) -> dict[str, o
         "repo_root": str(paths.repo_root),
         "workspace_root": str(paths.workspace_root),
         "feedback_pressure_emitted": len(emitted),
-        "schema_version": 1,
+        "schema_version": 2,
     }
     (paths.cycle_dir / f"{cycle_id}.json").write_text(
         json.dumps(state, indent=2, sort_keys=True) + "\n",

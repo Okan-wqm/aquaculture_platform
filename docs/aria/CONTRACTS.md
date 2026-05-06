@@ -14,12 +14,32 @@ The kernel now has two separately bound v2 roots:
 
 Both roots have `repo_identity.json`. Workspace identity records `aria_workspace_contract_version: 2`; tools identity records `aria_tools_contract_version: 2`, `bound_repo_hash`, and `bound_repo_root`. `integrity verify` reports nested `workspace` and `tools` sections and returns drift when identities, versions, or covered ledger hashes disagree.
 
+Fresh bootstrap is symmetric. If `<workspace>/repo_identity.json` is absent and no covered workspace ledger exists, the first workspace-mutating or read-touching command bootstraps v2 and writes `workspace_bootstrapped` governance with `{workspace_root, schema_version, repo_hash}`. If `<tools-dir>/repo_identity.json` is absent and no covered tools ledger exists, the first tools-mutating command bootstraps v2 and writes `tools_root_bootstrapped` governance with `{tools_dir, schema_version, bound_repo_hash}`. If identity is absent but covered state exists, the command fails closed instead of guessing ownership.
+
+Bootstrap writes are atomic: temp file write, atomic rename, integrity index update, governance event. If a crash leaves `repo_identity.json` without `integrity_index.json`, `integrity verify` reports `bootstrap_incomplete`/index drift; the next bootstrap-capable command resumes by rebuilding the missing index.
+
+Discovery does not touch workspace files. On a v1 workspace it writes only to the tools root, and cycle lifecycle rows are tools-owned. Workspace cycle artifacts are not created by discovery.
+
 Covered ledgers are:
 
-- Workspace: `unknowns`, `missed_signals`, `external_feedback`, `pressure`, `governance`.
+- Workspace: `unknowns`, `missed_signals`, `external_feedback`, `pressure`, `pressure_state`, `since_migration_events`, `governance`.
 - Tools: `runs`, `health`, `cycles`, `governance`.
 
+Workspace rollback force-discard writes discarded rows to `<workspace>/aria-memory/since_migration_events.jsonl`; the file is a normal workspace ledger and is covered by `ledger_hashes`. Tools rollback force-discard writes `<tools-dir>/since_migration_events.jsonl`; it is covered by optional `integrity_index.json.file_hashes["since_migration_events.jsonl"]` when present. Missing `file_hashes` is valid for roots that have no file-level artifacts.
+
 Feedback and pressure rows use v2 schemas. Feedback IDs are stable `FB-...-<sha16>` values from canonical identity. Pressure dedup is based only on `pressure_evidence_fingerprints_emitted`, computed from primitive, subtype, and the set of feedback event IDs.
+
+Governance known kinds include `workspace_bootstrapped`, `tools_root_bootstrapped`, `tools_root_bound`, `vocabulary_loaded`, `vocabulary_normalization_drift`, `discovery_dirty_tree_skipped`, `lock_reaped`, `migration_started`, `migration_phase`, `migration_completed`, `orphan_partial_backup_cleaned`, `rollback_started`, `rollback_phase`, `rollback_completed`, and `tool_unhealthy`. Unknown kinds remain additive-open and parse with warning semantics.
+
+Default governance actor: if `ARIA_ACTOR` is set, parse it as JSON `{kind, id, session?}`. Otherwise use `{kind: "human", id: "<user>@<hostname>"}`.
+
+Snapshot mode enum is `{committed, working_tree, staged}`. `committed` is the default and CI mode; it reads the HEAD-tracked snapshot and ignores dirty/staged changes with a governance event. `working_tree` is Phase-1 supported and includes dirty/staged/untracked files. `staged` is Phase-2 reserved.
+
+Fail-closed bootstrap/migration codes are CLI error codes, not governance events, because the root lock/ownership is not trusted yet: `tools_migration_required = 10`, `ambiguous_tools_root = 11`, `workspace_migration_required = 12`, `binding_mismatch = 13`, `repo_resolution_failed = 14`.
+
+Tools migration and rollback run under `tools.lock`. Workspace migration and rollback are intentionally lock-less in Phase-1 stabilization and assume single-operator semantics; concurrent workspace migrate/rollback is operator responsibility until Phase-2 locking is specified.
+
+Run status enum owner is `aria-kernel/aria_kernel/tool_health.py::RUN_STATUSES`; new runner statuses must be added there before any producer emits them.
 
 ---
 

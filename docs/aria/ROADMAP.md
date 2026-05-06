@@ -23,6 +23,8 @@ The Phase 0 kernel now includes the enterprise hardening spine required before b
 - committed discovery snapshots that ignore dirty working-tree state with governance evidence;
 - CI smoke for unittest, discovery, and nested integrity verification.
 
+Push retry policy for the `snowball` branch is fail-closed: an automated retry may run `git fetch` and `git merge --ff-only`. If fast-forward is not possible, the push gate stops and the operator performs the rebase/merge manually before rerunning the gate. No force push is part of the retry path.
+
 ## Phase 0 Entry Condition
 
 Phase 0 starts only after the PoC decision gate says ARIA is worth building.

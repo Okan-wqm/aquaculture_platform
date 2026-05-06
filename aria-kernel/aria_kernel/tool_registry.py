@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-import hashlib
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, write_index
+from .ledger import append_jsonl, file_hash, write_index
 from .workspace import governance_event, repo_hash
 
 
@@ -68,20 +67,25 @@ def registry_path(base_dir: str | os.PathLike[str] | None = None) -> Path:
 def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
     root = tools_dir(base_dir)
     root.mkdir(parents=True, exist_ok=True)
-    (root / "fixtures").mkdir(parents=True, exist_ok=True)
-    for path in covered_tool_ledgers(root).values():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.touch(exist_ok=True)
+    _guard_tools_lock(root)
     identity_file = root / "repo_identity.json"
     if not identity_file.exists():
+        if _tools_has_covered_state(root):
+            raise GovernanceError("ambiguous_tools_root")
         identity = {
             "aria_tools_contract_version": 2,
             "bound_repo_hash": None,
             "bound_repo_root": None,
             "schema_version": 2,
         }
-        identity_file.write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        append_tools_governance(root, "tools_root_bootstrapped", {"schema_from": None, "schema_to": 2})
+        _prepare_tools_dirs(root)
+        _atomic_write_json(identity_file, identity)
+        append_tools_governance(
+            root,
+            "tools_root_bootstrapped",
+            {"tools_dir": root.as_posix(), "schema_version": 2, "bound_repo_hash": None},
+        )
+    _prepare_tools_dirs(root)
     update_tools_index(root)
     return root
 
@@ -103,7 +107,7 @@ def ensure_tools_binding(
         identity["bound_repo_root"] = str(repo_root)
         identity["aria_tools_contract_version"] = 2
         identity["schema_version"] = 2
-        identity_file.write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _atomic_write_json(identity_file, identity)
         append_tools_governance(root, "tools_root_bound", {"bound_repo_hash": expected_hash, "bound_repo_root": str(repo_root)})
     return root
 
@@ -134,7 +138,17 @@ def covered_tool_ledgers(root: Path) -> dict[str, Path]:
 
 
 def update_tools_index(root: Path) -> None:
-    write_index(root / "integrity_index.json", {}, covered_tool_ledgers(root))
+    index: dict[str, Any] = {}
+    file_hashes: dict[str, str] = {}
+    state_path = root / "migration_state.json"
+    if state_path.exists():
+        file_hashes["migration_state"] = file_hash(state_path)
+    since_path = root / "since_migration_events.jsonl"
+    if since_path.exists():
+        file_hashes["since_migration_events.jsonl"] = file_hash(since_path)
+    if file_hashes:
+        index["file_hashes"] = file_hashes
+    write_index(root / "integrity_index.json", index, covered_tool_ledgers(root))
 
 
 def append_tools_governance(
@@ -147,6 +161,62 @@ def append_tools_governance(
     row = append_jsonl(root / "governance.jsonl", governance_event(kind=kind, details=details))
     update_tools_index(root)
     return row
+
+
+def _prepare_tools_dirs(root: Path) -> None:
+    (root / "fixtures").mkdir(parents=True, exist_ok=True)
+    for path in covered_tool_ledgers(root).values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch(exist_ok=True)
+
+
+def _tools_has_covered_state(root: Path) -> bool:
+    if (root / "integrity_index.json").exists():
+        return True
+    return any(path.exists() and path.stat().st_size > 0 for path in covered_tool_ledgers(root).values())
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _guard_tools_lock(root: Path) -> None:
+    lock_path = root / "tools.lock"
+    if not lock_path.exists():
+        return
+    try:
+        payload = json.loads(lock_path.read_text(encoding="utf-8") or "{}")
+        started = datetime.fromisoformat(str(payload.get("started_at", "")).replace("Z", "+00:00"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        started = datetime.fromtimestamp(0, timezone.utc)
+        payload = {}
+    age = (datetime.now(timezone.utc) - started.astimezone(timezone.utc)).total_seconds()
+    pid = int(payload.get("pid") or 0)
+    if age >= 120 and (pid <= 0 or not _pid_exists(pid)):
+        try:
+            lock_path.unlink()
+            append_tools_governance(
+                root,
+                "lock_reaped",
+                {"stale_lock_pid": pid, "lock_age_seconds": int(age), "reaped_by_pid": os.getpid()},
+            )
+            return
+        except FileNotFoundError:
+            return
+    raise GovernanceError("tools_root_locked")
+
+
+def _pid_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def load_registry(base_dir: str | os.PathLike[str] | None = None) -> dict[str, Any]:

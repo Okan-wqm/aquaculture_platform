@@ -10,7 +10,7 @@ from typing import Any
 from .tool_registry import GovernanceError, utc_now
 
 
-SNAPSHOT_MODES = ("committed", "working-tree")
+SNAPSHOT_MODES = ("committed", "working_tree", "working-tree")
 DIRTY_IGNORE_PREFIXES = (
     "aria-tools/",
     "aria-kernel/aria_kernel/__pycache__/",
@@ -33,6 +33,7 @@ def build_repo_snapshot(
 ) -> dict[str, Any]:
     if mode not in SNAPSHOT_MODES:
         raise GovernanceError(f"unknown snapshot mode: {mode}")
+    mode = "working_tree" if mode == "working-tree" else mode
     root = Path(workspace_root).resolve()
     git_available = _git_available(root)
     dirty_paths = _dirty_paths(root) if git_available else []
@@ -46,7 +47,7 @@ def build_repo_snapshot(
         git_tracked_paths = _git_lines(root, ["ls-files"])
         working_tree_paths = sorted(set(git_tracked_paths + _git_lines(root, ["ls-files", "--others", "--exclude-standard"])))
         paths = git_tracked_paths
-        if mode == "working-tree":
+        if mode == "working_tree":
             paths = working_tree_paths
     else:
         paths = _filesystem_paths(root)
@@ -66,7 +67,7 @@ def build_repo_snapshot(
         "schema_version": 1,
         "generated_at": utc_now(),
         "snapshot_mode": mode,
-        "dirty_snapshot": mode == "working-tree" and bool(dirty_blockers),
+        "dirty_snapshot": mode == "working_tree" and bool(dirty_blockers),
         "base_commit_sha": _git_rev_parse(root, "HEAD") if git_available else None,
         "file_counts": file_counts,
         "tracked_file_count": legacy_tracked_file_count,

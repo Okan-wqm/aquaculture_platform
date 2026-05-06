@@ -8,12 +8,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .agent_satisfaction import agent_satisfaction_scan
+from .agent_network import agent_network_index
+from .capability_gap import detect_capability_gaps, latest_capability_gaps
 from .feedback import load_failure_mode_vocabulary
 from .fitness import agent_fitness_score
 from .ledger import LedgerIntegrityError, verify_index_hashes
 from .pressure import DEFAULT_DECAY_THRESHOLDS, TERMINAL_STATES, append_pressure_state_event, effective_workspace_pressures
 from .report_ingestion import report_ingestion_scan
 from .semantic_dedup import semantic_dedup_compute
+from .plan_convergence import list_active_plans
 from .trailer_scan import git_trailer_scan
 from .trust import ref_staleness_check, trust_escalation_derive
 from .triage import triage_policy_apply
@@ -33,6 +36,11 @@ LEARNING_HOOK_ORDER = (
     "trust_escalation_derive",
     "ref_staleness_check",
     "triage_policy_apply",
+    "agent_network_index",
+    "capability_gap_detect",
+    "plan_convergence_advance",
+    "impact_graph_compute",
+    "skill_or_agent_genesis",
     "agent_fitness_score",
 )
 
@@ -61,6 +69,11 @@ def run_learning_pass(
         ("trust_escalation_derive", lambda: trust_escalation_derive(paths, cycle_id=cycle_id)),
         ("ref_staleness_check", lambda: ref_staleness_check(paths, cycle_id=cycle_id)),
         ("triage_policy_apply", lambda: triage_policy_apply(paths, cycle_id=cycle_id, tools_root=root)),
+        ("agent_network_index", lambda: agent_network_index(workspace_root=paths.repo_root, base_dir=root, cycle_id=cycle_id) if root else _skipped(cycle_id, "tools_root_required")),
+        ("capability_gap_detect", lambda: detect_capability_gaps(cycle_id=cycle_id, paths=paths, base_dir=root) if root else _skipped(cycle_id, "tools_root_required")),
+        ("plan_convergence_advance", lambda: _plan_convergence_advance(cycle_id=cycle_id, tools_root=root)),
+        ("impact_graph_compute", lambda: _impact_graph_compute(cycle_id=cycle_id)),
+        ("skill_or_agent_genesis", lambda: _skill_or_agent_genesis(cycle_id=cycle_id, tools_root=root)),
         ("agent_fitness_score", lambda: agent_fitness_score(cycle_id=cycle_id, base_dir=root)),
     )
     results: list[dict[str, Any]] = []
@@ -74,6 +87,28 @@ def run_learning_pass(
             event = record_workspace_governance(paths, "learning_hook_failed", _hook_failure_details(hook_name, exc))
             results.append({"hook_name": hook_name, "status": "failed", "governance_event_id": event.get("event_id")})
     return {"schema_version": 1, "cycle_id": cycle_id, "hooks": results}
+
+
+def _skipped(cycle_id: str, reason: str) -> dict[str, Any]:
+    return {"schema_version": 1, "cycle_id": cycle_id, "status": "skipped", "reason": reason}
+
+
+def _plan_convergence_advance(*, cycle_id: str, tools_root: Path | None) -> dict[str, Any]:
+    if tools_root is None:
+        return _skipped(cycle_id, "tools_root_required")
+    return {"schema_version": 1, "cycle_id": cycle_id, "status": "ok", "active_plan_ids": list_active_plans(base_dir=tools_root)}
+
+
+def _impact_graph_compute(*, cycle_id: str) -> dict[str, Any]:
+    return {"schema_version": 1, "cycle_id": cycle_id, "status": "skipped", "reason": "no_active_dispatch_candidate"}
+
+
+def _skill_or_agent_genesis(*, cycle_id: str, tools_root: Path | None) -> dict[str, Any]:
+    if tools_root is None:
+        return _skipped(cycle_id, "tools_root_required")
+    gaps = latest_capability_gaps(base_dir=tools_root)
+    actionable = [gap for gap in gaps if not gap.get("blocked_by")]
+    return {"schema_version": 1, "cycle_id": cycle_id, "status": "ok", "actionable_gap_count": len(actionable), "request_generation": "operator_mediated"}
 
 
 def recompute_pressure_decay(

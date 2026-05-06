@@ -17,9 +17,13 @@ from aria_kernel.plan_convergence import (
     plan_status,
     reap_stale_tasks,
     record_critique,
+    record_cross_review,
     record_revision,
+    request_cross_review,
+    request_cross_review_retry,
     request_critics,
     start_plan,
+    submit_challenger_plan,
 )
 from aria_kernel.tool_registry import GovernanceError
 
@@ -122,6 +126,90 @@ class PlanConvergenceTests(unittest.TestCase):
         result = evaluate_plan(plan_id="plan-1", round_number=3, base_dir=self.tools_dir)
         self.assertEqual(result["event"]["payload"]["terminal_state"], "HUMAN_REQUIRED")
         self.assertIn("new_risk_category_round_3", result["event"]["payload"]["reason_codes"])
+
+    def test_cross_review_zero_risk_converges_from_cross_reviewed(self):
+        self.start()
+        self.submit_challenger()
+        self.request_cross_round(1)
+        self.cross_review("task-p2c-1", "farm-expert", "primary_to_challenger", [])
+        self.cross_review("task-c2p-1", "access-boundary-auditor", "challenger_to_primary", [])
+        self.assertEqual(plan_status(plan_id="plan-1", base_dir=self.tools_dir)["state"], "CROSS_REVIEWED")
+        result = evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools_dir)
+        self.assertEqual(result["status"], "evaluated")
+        self.assertEqual(result["event"]["payload"]["terminal_state"], "CONVERGED")
+
+    def test_cross_review_material_risk_requires_transient_next_round(self):
+        self.start()
+        self.submit_challenger()
+        self.request_cross_round(1)
+        self.cross_review("task-p2c-1", "farm-expert", "primary_to_challenger", [self.cross_risk("RISK-1", "material")])
+        self.cross_review("task-c2p-1", "access-boundary-auditor", "challenger_to_primary", [])
+        before = len(load_jsonl(events_path(self.tools_dir)))
+        result = evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools_dir)
+        after = len(load_jsonl(events_path(self.tools_dir)))
+        self.assertFalse(result["event_appended"])
+        self.assertEqual(result["status"], "next_round_required")
+        self.assertEqual(before, after)
+        self.revision("rev-1", "addresses risk", addresses_review_risk_ids=["RISK-1"])
+        self.assertEqual(plan_status(plan_id="plan-1", base_dir=self.tools_dir)["resolved_review_risk_ids"], ["RISK-1"])
+
+    def test_cross_review_retry_replaces_timed_out_task_in_same_round(self):
+        self.start()
+        self.submit_challenger()
+        self.request_cross_round(1, deadline=self.deadline(-60))
+        reap_stale_tasks(plan_id="plan-1", round_number=1, base_dir=self.tools_dir)
+        state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
+        self.assertEqual(state["state"], "CROSS_REVIEW_REQUESTED")
+        retry = request_cross_review_retry(
+            plan_id="plan-1",
+            request={
+                "round_number": 1,
+                "target_revision_id": state["latest_revision"]["revision_id"],
+                "target_plan_content_hash": state["latest_revision"]["content_hash"],
+                "replaces_task_ids": ["task-p2c-1", "task-c2p-1"],
+                "tasks": [
+                    self.cross_task("task-p2c-1b", "farm-expert", "primary_to_challenger", state["latest_revision"]["revision_id"], state["latest_revision"]["content_hash"]),
+                    self.cross_task("task-c2p-1b", "access-boundary-auditor", "challenger_to_primary", state["latest_revision"]["revision_id"], state["latest_revision"]["content_hash"]),
+                ],
+            },
+            base_dir=self.tools_dir,
+        )
+        self.assertTrue(retry["event_appended"])
+        self.cross_review("task-p2c-1b", "farm-expert", "primary_to_challenger", [])
+        self.cross_review("task-c2p-1b", "access-boundary-auditor", "challenger_to_primary", [])
+        self.assertEqual(plan_status(plan_id="plan-1", base_dir=self.tools_dir)["state"], "CROSS_REVIEWED")
+
+    def test_cross_review_hash_mismatch_rejects_without_event(self):
+        self.start()
+        self.submit_challenger()
+        self.request_cross_round(1)
+        append_jsonl(
+            self.tools_dir / "agent-invocations" / "results.jsonl",
+            {
+                "schema_version": 1,
+                "request_id": "AIR-1",
+                "content_hash": content_hash({"actual": "review"}),
+            },
+        )
+        state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
+        task = next(task for task in state["cross_reviews"][1]["tasks"].values() if task["task_id"] == "task-p2c-1")
+        result = record_cross_review(
+            plan_id="plan-1",
+            review={
+                "task_packet_hash": task["task_packet_hash"],
+                "target_revision_id": task["target_revision_id"],
+                "target_plan_content_hash": task["target_plan_content_hash"],
+                "reviewer_agent": "farm-expert",
+                "review_direction": "primary_to_challenger",
+                "risks": [],
+                "review_content_hash": content_hash({"wrong": "review"}),
+                "agent_invocation_request_id": "AIR-1",
+            },
+            workspace_root=self.root,
+            base_dir=self.tools_dir,
+        )
+        self.assertEqual(result["status"], "rejected")
+        self.assertFalse(result["event_appended"])
 
     def test_human_required_can_be_abandoned_as_soft_archive(self):
         self.start()
@@ -306,7 +394,59 @@ class PlanConvergenceTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
 
-    def revision(self, revision_id: str, content: str):
+    def submit_challenger(self):
+        state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
+        plan = self.plan()
+        plan["title"] = "Challenger Plan"
+        return submit_challenger_plan(
+            plan_id="plan-1",
+            challenger={
+                "challenger_agent": "access-boundary-auditor",
+                "challenger_revision_id": "challenger-rev-0",
+                "source_revision_id": state["latest_revision"]["revision_id"],
+                "source_plan_content_hash": state["latest_revision"]["content_hash"],
+                "plan_content": plan,
+            },
+            base_dir=self.tools_dir,
+        )
+
+    def request_cross_round(self, round_number: int, *, deadline: str | None = None):
+        state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
+        latest = state["latest_revision"]
+        return request_cross_review(
+            plan_id="plan-1",
+            request={
+                "round_number": round_number,
+                "target_revision_id": latest["revision_id"],
+                "target_plan_content_hash": latest["content_hash"],
+                "tasks": [
+                    self.cross_task(f"task-p2c-{round_number}", "farm-expert", "primary_to_challenger", latest["revision_id"], latest["content_hash"], deadline=deadline),
+                    self.cross_task(f"task-c2p-{round_number}", "access-boundary-auditor", "challenger_to_primary", latest["revision_id"], latest["content_hash"], deadline=deadline),
+                ],
+            },
+            base_dir=self.tools_dir,
+        )
+
+    def cross_review(self, task_id: str, reviewer: str, direction: str, risks: list[dict]):
+        state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
+        current = state["cross_reviews"][state["current_round"]]
+        task = next(task for task in current["tasks"].values() if task["task_id"] == task_id)
+        return record_cross_review(
+            plan_id="plan-1",
+            review={
+                "task_packet_hash": task["task_packet_hash"],
+                "target_revision_id": task["target_revision_id"],
+                "target_plan_content_hash": task["target_plan_content_hash"],
+                "reviewer_agent": reviewer,
+                "review_direction": direction,
+                "risks": risks,
+                "review_content_hash": content_hash({"reviewer": reviewer, "direction": direction, "risks": risks}),
+            },
+            workspace_root=self.root,
+            base_dir=self.tools_dir,
+        )
+
+    def revision(self, revision_id: str, content: str, *, addresses_review_risk_ids: list[str] | None = None):
         state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
         return record_revision(
             plan_id="plan-1",
@@ -316,6 +456,7 @@ class PlanConvergenceTests(unittest.TestCase):
                 "content_hash": content_hash({"content": content}),
                 "parent_revision_hash": state["latest_revision"]["content_hash"],
                 "content": content,
+                "addresses_review_risk_ids": addresses_review_risk_ids or [],
             },
             base_dir=self.tools_dir,
         )
@@ -341,11 +482,33 @@ class PlanConvergenceTests(unittest.TestCase):
             "sla_deadline": deadline or self.deadline(60),
         }
 
+    def cross_task(self, task_id: str, reviewer: str, direction: str, revision_id: str, plan_hash: str, *, deadline: str | None = None):
+        return {
+            "task_id": task_id,
+            "task_packet_hash": content_hash({"task_id": task_id, "reviewer_agent": reviewer, "review_direction": direction, "target_revision_id": revision_id}),
+            "reviewer_agent": reviewer,
+            "review_direction": direction,
+            "target_revision_id": revision_id,
+            "target_plan_content_hash": plan_hash,
+            "sla_deadline": deadline or self.deadline(60),
+        }
+
     def risk(self, category: str, severity: str):
         return {
             "risk_category": category,
             "severity": severity,
             "invariant": f"{category} invariant",
+            "affected_files": ["aria-kernel/aria_kernel/plan_convergence.py"],
+            "recommendation": "tighten validation",
+            "evidence_refs": ["docs/aria/SPEC.md"],
+        }
+
+    def cross_risk(self, risk_id: str, severity: str):
+        return {
+            "risk_id": risk_id,
+            "risk_category": "architecture",
+            "severity": severity,
+            "summary": "cross review risk",
             "affected_files": ["aria-kernel/aria_kernel/plan_convergence.py"],
             "recommendation": "tighten validation",
             "evidence_refs": ["docs/aria/SPEC.md"],

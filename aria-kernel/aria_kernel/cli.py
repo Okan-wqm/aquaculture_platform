@@ -9,6 +9,20 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from aria_kernel.cycle import run_cycle
+from aria_kernel.agent_invocations import (
+    create_agent_invocation_request,
+    list_agent_invocation_requests,
+    submit_agent_invocation_result,
+)
+from aria_kernel.agent_genesis import (
+    draft_agent_from_gap,
+    evaluate_genesis_sandbox,
+    list_agent_drafts,
+    list_agent_materializations,
+    materialize_agent_draft,
+)
+from aria_kernel.agent_network import agent_network_index
+from aria_kernel.capability_gap import detect_capability_gaps
 from aria_kernel.discovery import run_discovery
 from aria_kernel.feedback import add_feedback, build_feedback_event, import_feedback, list_feedback
 from aria_kernel.integrity import verify_integrity
@@ -19,12 +33,30 @@ from aria_kernel.migration import (
     rollback_workspace_v2_to_v1,
 )
 from aria_kernel.memory import withdraw_belief
+from aria_kernel.plan_convergence import (
+    evaluate_plan,
+    force_plan_human_required,
+    plan_status,
+    record_cross_review,
+    record_revision,
+    request_cross_review,
+    request_cross_review_retry,
+    start_plan,
+    submit_challenger_plan,
+)
 from aria_kernel.pressure import curate_workspace_pressures, explain_pressure, explain_workspace_pressure, list_workspace_pressures
 from aria_kernel.quarantine import quarantine_tool
 from aria_kernel.report_ingestion import (
     import_finding_file,
     list_ingested_findings,
     report_ingestion_scan,
+)
+from aria_kernel.skill_genesis import (
+    draft_skill,
+    list_skill_genesis,
+    materialize_skill,
+    request_skill_genesis,
+    sandbox_skill,
 )
 from aria_kernel.reverify import reverify_pressures
 from aria_kernel.telemetry import export_telemetry
@@ -298,6 +330,142 @@ def _main(argv: list[str] | None = None) -> int:
     add_tools_arg(triage_explain, required=True)
     triage_explain.add_argument("triage_id")
 
+    agent_network_parser = sub.add_parser("agent-network")
+    agent_network_sub = agent_network_parser.add_subparsers(dest="agent_network_command", required=True)
+    agent_network_build = agent_network_sub.add_parser("index")
+    add_workspace_args(agent_network_build)
+    add_tools_arg(agent_network_build, required=True)
+    agent_network_build.add_argument("--cycle-id", default=None)
+
+    capability_gap_parser = sub.add_parser("capability-gap")
+    capability_gap_sub = capability_gap_parser.add_subparsers(dest="capability_gap_command", required=True)
+    capability_gap_detect = capability_gap_sub.add_parser("detect")
+    add_workspace_args(capability_gap_detect)
+    add_tools_arg(capability_gap_detect, required=True)
+    capability_gap_detect.add_argument("--cycle-id", required=True)
+
+    plan_parser = sub.add_parser("plan")
+    plan_sub = plan_parser.add_subparsers(dest="plan_command", required=True)
+    plan_start = plan_sub.add_parser("start")
+    add_tools_arg(plan_start, required=True)
+    plan_start.add_argument("--plan-id", required=True)
+    plan_start.add_argument("--initial-revision-id", required=True)
+    plan_start.add_argument("--plan-file", required=True)
+    plan_challenger = plan_sub.add_parser("submit-challenger")
+    add_tools_arg(plan_challenger, required=True)
+    plan_challenger.add_argument("--plan-id", required=True)
+    plan_challenger.add_argument("--challenger-file", required=True)
+    plan_cross_request = plan_sub.add_parser("request-cross-review")
+    add_tools_arg(plan_cross_request, required=True)
+    plan_cross_request.add_argument("--plan-id", required=True)
+    plan_cross_request.add_argument("--request-file", required=True)
+    plan_cross_retry = plan_sub.add_parser("request-cross-review-retry")
+    add_tools_arg(plan_cross_retry, required=True)
+    plan_cross_retry.add_argument("--plan-id", required=True)
+    plan_cross_retry.add_argument("--request-file", required=True)
+    plan_cross_record = plan_sub.add_parser("record-cross-review")
+    add_workspace_args(plan_cross_record)
+    add_tools_arg(plan_cross_record, required=True)
+    plan_cross_record.add_argument("--plan-id", required=True)
+    plan_cross_record.add_argument("--review-file", required=True)
+    plan_revision = plan_sub.add_parser("record-revision")
+    add_tools_arg(plan_revision, required=True)
+    plan_revision.add_argument("--plan-id", required=True)
+    plan_revision.add_argument("--revision-file", required=True)
+    plan_advance = plan_sub.add_parser("advance")
+    add_tools_arg(plan_advance, required=True)
+    plan_advance.add_argument("--plan-id", required=True)
+    plan_advance.add_argument("--round-number", type=int, required=True)
+    plan_advance.add_argument("--max-rounds", type=int, default=5)
+    plan_promote = plan_sub.add_parser("promote-to-dispatch")
+    add_workspace_args(plan_promote)
+    add_tools_arg(plan_promote, required=True)
+    plan_promote.add_argument("--plan-id", required=True)
+    plan_promote.add_argument("--pressure-event-id", required=True)
+    plan_promote.add_argument("--target-agent", default=None)
+    plan_promote.add_argument("--prepare-worktree", action="store_true")
+    plan_promote.add_argument("--acknowledge", action="store_true")
+    plan_force = plan_sub.add_parser("force-human-required")
+    add_tools_arg(plan_force, required=True)
+    plan_force.add_argument("--plan-id", required=True)
+    plan_force.add_argument("--round-number", type=int, required=True)
+    plan_force.add_argument("--reason-code", action="append", required=True)
+    plan_status_parser = plan_sub.add_parser("status")
+    add_tools_arg(plan_status_parser, required=True)
+    plan_status_parser.add_argument("--plan-id", required=True)
+
+    inv_parser = sub.add_parser("agent-invocations")
+    inv_sub = inv_parser.add_subparsers(dest="agent_invocation_command", required=True)
+    inv_request = inv_sub.add_parser("request")
+    add_tools_arg(inv_request, required=True)
+    inv_request.add_argument("--target-agent", required=True)
+    inv_request.add_argument("--role", required=True)
+    inv_request.add_argument("--prompt-file", required=True)
+    inv_request.add_argument("--convergence-id", default=None)
+    inv_request.add_argument("--pressure-event-id", default=None)
+    inv_request.add_argument("--round-number", type=int, default=None)
+    inv_request.add_argument("--expected-output-path", default=None)
+    inv_submit = inv_sub.add_parser("submit-result")
+    add_tools_arg(inv_submit, required=True)
+    inv_submit.add_argument("--request-id", required=True)
+    inv_submit.add_argument("--output-path", required=True)
+    inv_submit.add_argument("--status", choices=["completed", "rejected", "partial"], default="completed")
+    inv_submit.add_argument("--by", default=None)
+    inv_submit.add_argument("--rejection-reason", default=None)
+    inv_list = inv_sub.add_parser("list")
+    add_tools_arg(inv_list, required=True)
+    inv_list.add_argument("--state", default=None)
+    inv_list.add_argument("--convergence-id", default=None)
+    inv_list.add_argument("--target-agent", default=None)
+
+    agent_genesis_parser = sub.add_parser("agent-genesis")
+    agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
+    ag_draft = agent_genesis_sub.add_parser("draft")
+    add_tools_arg(ag_draft, required=True)
+    ag_draft.add_argument("--gap-id", required=True)
+    ag_sandbox = agent_genesis_sub.add_parser("sandbox")
+    add_tools_arg(ag_sandbox, required=True)
+    ag_sandbox.add_argument("--draft-id", required=True)
+    ag_sandbox.add_argument("--fixture-results-file", required=True)
+    ag_materialize = agent_genesis_sub.add_parser("materialize")
+    add_workspace_args(ag_materialize)
+    add_tools_arg(ag_materialize, required=True)
+    ag_materialize.add_argument("--draft-id", required=True)
+    ag_materialize.add_argument("--assignment-id", required=True)
+    ag_materialize.add_argument("--acknowledge", action="store_true")
+    ag_materialize.add_argument("--run-invariants", action="store_true")
+    ag_list = agent_genesis_sub.add_parser("list")
+    add_tools_arg(ag_list, required=True)
+    ag_list.add_argument("--materializations", action="store_true")
+
+    skill_genesis_parser = sub.add_parser("skill-genesis")
+    skill_genesis_sub = skill_genesis_parser.add_subparsers(dest="skill_genesis_command", required=True)
+    sg_request = skill_genesis_sub.add_parser("request")
+    add_tools_arg(sg_request, required=True)
+    sg_request.add_argument("--capability-gap-key", required=True)
+    sg_request.add_argument("--title", required=True)
+    sg_draft = skill_genesis_sub.add_parser("draft")
+    add_tools_arg(sg_draft, required=True)
+    sg_draft.add_argument("--request-id", required=True)
+    sg_draft.add_argument("--name", required=True)
+    sg_draft.add_argument("--description", required=True)
+    sg_draft.add_argument("--owner", action="append", required=True)
+    sg_draft.add_argument("--handoff-agent", action="append", required=True)
+    sg_sandbox = skill_genesis_sub.add_parser("sandbox")
+    add_tools_arg(sg_sandbox, required=True)
+    sg_sandbox.add_argument("--draft-id", required=True)
+    sg_sandbox.add_argument("--checklist-results-file", required=True)
+    sg_materialize = skill_genesis_sub.add_parser("materialize")
+    add_workspace_args(sg_materialize)
+    add_tools_arg(sg_materialize, required=True)
+    sg_materialize.add_argument("--draft-id", required=True)
+    sg_materialize.add_argument("--assignment-id", required=True)
+    sg_materialize.add_argument("--acknowledge", action="store_true")
+    sg_materialize.add_argument("--run-invariants", action="store_true")
+    sg_list = skill_genesis_sub.add_parser("list")
+    add_tools_arg(sg_list, required=True)
+    sg_list.add_argument("--kind", choices=["requests", "drafts", "sandbox", "materializations"], default="drafts")
+
     worker_result = sub.add_parser("worker-result")
     worker_result_sub = worker_result.add_subparsers(dest="worker_result_command", required=True)
     worker_result_submit = worker_result_sub.add_parser("submit")
@@ -331,7 +499,7 @@ def _main(argv: list[str] | None = None) -> int:
     paths = (
         resolve_paths(args)
         if hasattr(args, "workspace_root")
-        and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune"}
+        and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune", "agent-network", "capability-gap", "plan", "agent-genesis", "skill-genesis"}
         and not legacy_pressure_explain
         else None
     )
@@ -633,6 +801,145 @@ def _main(argv: list[str] | None = None) -> int:
         result = explain_triage(args.tools_dir, args.triage_id)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("status") == "found" else 1
+
+    if args.command == "agent-network" and args.agent_network_command == "index":
+        result = agent_network_index(workspace_root=args.workspace_root, base_dir=args.tools_dir, cycle_id=args.cycle_id)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "capability-gap" and args.capability_gap_command == "detect":
+        result = detect_capability_gaps(cycle_id=args.cycle_id, paths=paths, base_dir=args.tools_dir)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "plan":
+        if args.plan_command == "start":
+            payload = json.loads(Path(args.plan_file).read_text(encoding="utf-8"))
+            result = start_plan(plan_id=args.plan_id, initial_revision_id=args.initial_revision_id, plan_content=payload, base_dir=args.tools_dir)
+        elif args.plan_command == "submit-challenger":
+            result = submit_challenger_plan(plan_id=args.plan_id, challenger=json.loads(Path(args.challenger_file).read_text(encoding="utf-8")), base_dir=args.tools_dir)
+        elif args.plan_command == "request-cross-review":
+            result = request_cross_review(plan_id=args.plan_id, request=json.loads(Path(args.request_file).read_text(encoding="utf-8")), base_dir=args.tools_dir)
+        elif args.plan_command == "request-cross-review-retry":
+            result = request_cross_review_retry(plan_id=args.plan_id, request=json.loads(Path(args.request_file).read_text(encoding="utf-8")), base_dir=args.tools_dir)
+        elif args.plan_command == "record-cross-review":
+            result = record_cross_review(
+                plan_id=args.plan_id,
+                review=json.loads(Path(args.review_file).read_text(encoding="utf-8")),
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+            )
+        elif args.plan_command == "record-revision":
+            result = record_revision(plan_id=args.plan_id, revision=json.loads(Path(args.revision_file).read_text(encoding="utf-8")), base_dir=args.tools_dir)
+        elif args.plan_command == "advance":
+            result = evaluate_plan(plan_id=args.plan_id, round_number=args.round_number, max_rounds=args.max_rounds, base_dir=args.tools_dir)
+        elif args.plan_command == "promote-to-dispatch":
+            state = plan_status(plan_id=args.plan_id, base_dir=args.tools_dir)
+            if state.get("state") != "CONVERGED":
+                raise GovernanceError("plan must be CONVERGED before promote-to-dispatch")
+            result = create_dispatch_request(
+                paths,
+                pressure_event_id=args.pressure_event_id,
+                tools_root=args.tools_dir,
+                target_agent=args.target_agent,
+                prepare_worktree=args.prepare_worktree,
+                acknowledge=args.acknowledge,
+            )
+        elif args.plan_command == "force-human-required":
+            result = force_plan_human_required(plan_id=args.plan_id, round_number=args.round_number, reason_codes=args.reason_code, base_dir=args.tools_dir)
+        elif args.plan_command == "status":
+            result = plan_status(plan_id=args.plan_id, base_dir=args.tools_dir)
+        else:
+            parser.error("unknown plan command")
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("status") != "rejected" else 1
+
+    if args.command == "agent-invocations":
+        if args.agent_invocation_command == "request":
+            result = create_agent_invocation_request(
+                target_agent=args.target_agent,
+                role=args.role,
+                suggested_prompt=Path(args.prompt_file).read_text(encoding="utf-8"),
+                convergence_id=args.convergence_id,
+                pressure_event_id=args.pressure_event_id,
+                round_number=args.round_number,
+                expected_output_path=args.expected_output_path,
+                base_dir=args.tools_dir,
+            )
+        elif args.agent_invocation_command == "submit-result":
+            result = submit_agent_invocation_result(
+                request_id=args.request_id,
+                output_path=args.output_path,
+                status=args.status,
+                by=args.by,
+                rejection_reason=args.rejection_reason,
+                base_dir=args.tools_dir,
+            )
+        elif args.agent_invocation_command == "list":
+            result = list_agent_invocation_requests(base_dir=args.tools_dir, state=args.state, convergence_id=args.convergence_id, target_agent=args.target_agent)
+        else:
+            parser.error("unknown agent-invocations command")
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if not isinstance(result, dict) or result.get("status") != "rejected" else 1
+
+    if args.command == "agent-genesis":
+        if args.agent_genesis_command == "draft":
+            result = draft_agent_from_gap(gap_id=args.gap_id, base_dir=args.tools_dir)
+        elif args.agent_genesis_command == "sandbox":
+            result = evaluate_genesis_sandbox(
+                draft_id=args.draft_id,
+                fixture_results=json.loads(Path(args.fixture_results_file).read_text(encoding="utf-8")),
+                base_dir=args.tools_dir,
+            )
+        elif args.agent_genesis_command == "materialize":
+            result = materialize_agent_draft(
+                draft_id=args.draft_id,
+                assignment_id=args.assignment_id,
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                acknowledge=args.acknowledge,
+                run_invariants=args.run_invariants,
+            )
+        elif args.agent_genesis_command == "list":
+            result = list_agent_materializations(base_dir=args.tools_dir) if args.materializations else list_agent_drafts(base_dir=args.tools_dir)
+        else:
+            parser.error("unknown agent-genesis command")
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if not isinstance(result, dict) or result.get("status") != "rejected" else 1
+
+    if args.command == "skill-genesis":
+        if args.skill_genesis_command == "request":
+            result = request_skill_genesis(capability_gap_key=args.capability_gap_key, title=args.title, base_dir=args.tools_dir)
+        elif args.skill_genesis_command == "draft":
+            result = draft_skill(
+                request_id=args.request_id,
+                name=args.name,
+                description=args.description,
+                owners=args.owner,
+                handoff_agents=args.handoff_agent,
+                base_dir=args.tools_dir,
+            )
+        elif args.skill_genesis_command == "sandbox":
+            result = sandbox_skill(
+                draft_id=args.draft_id,
+                checklist_results=json.loads(Path(args.checklist_results_file).read_text(encoding="utf-8")),
+                base_dir=args.tools_dir,
+            )
+        elif args.skill_genesis_command == "materialize":
+            result = materialize_skill(
+                draft_id=args.draft_id,
+                assignment_id=args.assignment_id,
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                acknowledge=args.acknowledge,
+                run_invariants=args.run_invariants,
+            )
+        elif args.skill_genesis_command == "list":
+            result = list_skill_genesis(base_dir=args.tools_dir, kind=args.kind)
+        else:
+            parser.error("unknown skill-genesis command")
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if not isinstance(result, dict) or result.get("status") != "rejected" else 1
 
     if args.command == "worker-result" and args.worker_result_command == "submit":
         result = submit_worker_result(

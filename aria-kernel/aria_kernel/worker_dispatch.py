@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, load_jsonl
+from .agent_network import latest_agent_network_hash
 from .pressure import effective_workspace_pressures
 from .tool_registry import append_tools_governance, ensure_tools_binding, update_tools_index
 from .triage import derive_required_tests, resolve_target_agent
@@ -61,6 +62,7 @@ def create_dispatch_request(
         "expected_trailer": ("Closes-Pressure: " if tier == "auto_fix_safe" else "Addresses-Pressure: ") + pressure_event_id,
         "state": "pending",
         "created_at": created_at,
+        "index_hash_at_decision": latest_agent_network_hash(base_dir=root),
     }
     if prepare_worktree:
         worktree_path.parent.mkdir(parents=True, exist_ok=True)

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .fitness import latest_agent_fitness
+from .agent_network import latest_agent_network_hash
 from .ledger import append_jsonl, load_jsonl
 from .pressure import effective_workspace_pressures
 from .tool_registry import append_tools_governance, update_tools_index
@@ -25,6 +26,7 @@ def triage_policy_apply(
     root = Path(tools_root)
     existing = {_decision_key(row) for row in load_jsonl(root / "triage" / "decisions.jsonl")}
     fitness = {row.get("agent_name"): row for row in latest_agent_fitness(base_dir=root)}
+    index_hash = latest_agent_network_hash(base_dir=root)
     decisions: list[dict[str, Any]] = []
     for pressure in effective_workspace_pressures(paths):
         pressure_id = str(pressure.get("event_id") or pressure.get("pressure_id") or "")
@@ -48,6 +50,7 @@ def triage_policy_apply(
             "target_agent": target_agent,
             "reasons": reasons,
             "required_tests": derive_required_tests(paths.repo_root, _evidence_paths(pressure)),
+            "index_hash_at_decision": index_hash,
         }
         if _decision_key(row) in existing:
             continue

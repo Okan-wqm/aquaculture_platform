@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+import subprocess
 from typing import Any
 
 from .capability_gap import latest_capability_gaps
@@ -145,6 +146,54 @@ def prepare_agent_pr_lane(
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "pr-lanes.jsonl", row)
 
 
+def materialize_agent_draft(
+    *,
+    draft_id: str,
+    assignment_id: str,
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+    acknowledge: bool = False,
+    run_invariants: bool = False,
+) -> dict[str, Any]:
+    if not acknowledge:
+        raise GovernanceError("materialize_agent_draft_requires_acknowledge")
+    draft = _find_draft(draft_id, base_dir)
+    dispatch = _find_dispatch(assignment_id, base_dir)
+    worktree = Path(str(dispatch.get("worktree_path") or ""))
+    if not worktree.is_absolute():
+        worktree = Path(workspace_root).resolve() / worktree
+    if not worktree.exists():
+        raise GovernanceError("dispatch_worktree_missing")
+    target_path = str(draft.get("target_path") or "")
+    if not target_path.startswith(".claude/agents/aria-") or not target_path.endswith(".md"):
+        raise GovernanceError("target_path_not_agent_scoped")
+    target = worktree / target_path
+    touched = [target_path]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f".{target.name}.tmp")
+    tmp.write_text(str(draft.get("content") or ""), encoding="utf-8")
+    tmp.replace(target)
+    status = "accepted"
+    validation = None
+    if run_invariants:
+        completed = subprocess.run(["npm", "run", "invariants:full"], cwd=worktree, text=True, capture_output=True, check=False)
+        validation = {"returncode": completed.returncode, "stdout": completed.stdout[-4000:], "stderr": completed.stderr[-4000:]}
+        if completed.returncode != 0:
+            subprocess.run(["git", "restore", "--", *touched], cwd=worktree, text=True, capture_output=True, check=False)
+            status = "rejected"
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "draft_id": draft_id,
+        "assignment_id": assignment_id,
+        "worktree_path": worktree.as_posix(),
+        "target_path": target_path,
+        "status": status,
+        "validation": validation,
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "materializations.jsonl", row)
+
+
 def list_agent_drafts(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "drafts.jsonl")
 
@@ -155,6 +204,10 @@ def list_genesis_sandbox_runs(*, base_dir: str | Path | None = None) -> list[dic
 
 def list_agent_pr_lanes(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "pr-lanes.jsonl")
+
+
+def list_agent_materializations(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "materializations.jsonl")
 
 
 def _find_gap(gap_id: str, base_dir: str | Path | None) -> dict[str, Any]:
@@ -176,6 +229,13 @@ def _latest_sandbox(draft_id: str, base_dir: str | Path | None) -> dict[str, Any
         if row.get("draft_id") == draft_id:
             return row
     return None
+
+
+def _find_dispatch(assignment_id: str, base_dir: str | Path | None) -> dict[str, Any]:
+    for row in reversed(load_jsonl(ensure_tools_dir(base_dir) / "dispatch" / "requests.jsonl")):
+        if row.get("assignment_id") == assignment_id:
+            return row
+    raise GovernanceError(f"dispatch request not found: {assignment_id}")
 
 
 def _agent_name(gap: dict[str, Any]) -> str:

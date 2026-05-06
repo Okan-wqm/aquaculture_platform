@@ -142,6 +142,9 @@ def covered_tool_ledgers(root: Path) -> dict[str, Path]:
         "worker_results": root / "dispatch" / "worker-results.jsonl",
         "verification_results": root / "dispatch" / "verification-results.jsonl",
         "agent_fitness": root / "fitness" / "agent-fitness.jsonl",
+        "plans_events": root / "plans" / "events.jsonl",
+        "agent_invocations_requests": root / "agent-invocations" / "requests.jsonl",
+        "agent_invocations_results": root / "agent-invocations" / "results.jsonl",
     }
     for name, path in optional.items():
         if path.exists():

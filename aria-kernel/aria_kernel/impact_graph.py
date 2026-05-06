@@ -131,7 +131,7 @@ def _project_for_import(specifier: str, projects: dict[str, dict[str, str]]) -> 
 
 
 def _project_for_path(path: str, projects: dict[str, dict[str, str]]) -> str | None:
-    normalized = path.replace("\\", "/").lstrip("./")
+    normalized = _normalize_path(path)
     candidates = sorted(projects.items(), key=lambda item: len(item[1]["root"]), reverse=True)
     for project, meta in candidates:
         root = meta["root"].rstrip("/")
@@ -169,7 +169,15 @@ def _validation_scope(changed: list[str], downstream: list[str], unknown: list[s
 
 
 def _normalize_paths(paths: list[str]) -> list[str]:
-    return [path.replace("\\", "/").lstrip("./") for path in paths]
+    return [_normalize_path(path) for path in paths]
+
+
+def _normalize_path(path: str) -> str:
+    clean = path.replace("\\", "/").split(":", 1)[0]
+    if clean.startswith("file://"):
+        clean = clean.removeprefix("file://")
+    clean = clean.removeprefix("./").rstrip("/")
+    return clean
 
 
 def _children(path: Path) -> list[Path]:

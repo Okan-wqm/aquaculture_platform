@@ -13,14 +13,17 @@ from typing import Any, Iterator
 
 from .agent_priors import reviewer_names
 from .ledger import append_jsonl, load_jsonl, verify_jsonl
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
 FINDING_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3,}$")
 EVENT_TYPES = {
     "plan_started",
+    "challenger_plan_drafted",
     "critic_tasks_requested",
     "critique_recorded",
+    "cross_review_tasks_requested",
+    "cross_review_recorded",
     "stale_tasks_reaped",
     "revision_recorded",
     "plan_evaluated",
@@ -29,6 +32,8 @@ EVENT_TYPES = {
 }
 TERMINAL_STATES = {"CONVERGED", "HUMAN_REQUIRED", "ABANDONED"}
 ANSWERED_STATES = {"ANSWERED", "TIMEOUT_ABORTED"}
+MAX_CROSS_REVIEW_ROUNDS = 5
+REQUIRED_CROSS_REVIEW_DIRECTIONS = {"primary_to_challenger", "challenger_to_primary"}
 KNOWN_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
 MAX_PLAN_BYTES = 1_000_000
 MAX_AFFECTED_PATHS = 200
@@ -81,6 +86,88 @@ def request_critics(
     )
 
 
+def submit_challenger_plan(
+    *,
+    plan_id: str,
+    challenger: dict[str, Any],
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    _validate_id(plan_id, "plan_id")
+    return _mutate(
+        plan_id=plan_id,
+        command_name="submit-challenger-plan",
+        canonical_payload=challenger,
+        event_type="challenger_plan_drafted",
+        payload=_normalize_challenger_plan(challenger),
+        base_dir=base_dir,
+        validator=_validate_challenger_plan,
+    )
+
+
+def request_cross_review(
+    *,
+    plan_id: str,
+    request: dict[str, Any],
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    _validate_id(plan_id, "plan_id")
+    return _mutate(
+        plan_id=plan_id,
+        command_name="request-cross-review",
+        canonical_payload=request,
+        event_type="cross_review_tasks_requested",
+        payload=_normalize_cross_review_request(request),
+        base_dir=base_dir,
+        validator=_validate_cross_review_request,
+    )
+
+
+def request_cross_review_retry(
+    *,
+    plan_id: str,
+    request: dict[str, Any],
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    _validate_id(plan_id, "plan_id")
+    payload = _normalize_cross_review_request(request)
+    if not payload.get("replaces_task_ids"):
+        raise GovernanceError("cross-review retry requires replaces_task_ids")
+    return _mutate(
+        plan_id=plan_id,
+        command_name="request-cross-review-retry",
+        canonical_payload=request,
+        event_type="cross_review_tasks_requested",
+        payload=payload,
+        base_dir=base_dir,
+        validator=_validate_cross_review_retry,
+    )
+
+
+def record_cross_review(
+    *,
+    plan_id: str,
+    review: dict[str, Any],
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    _validate_id(plan_id, "plan_id")
+    root = ensure_tools_dir(base_dir)
+    payload = _normalize_cross_review(review)
+    mismatch = _cross_review_hash_mismatch(root, payload)
+    if mismatch:
+        event = _append_rejection(root, "cross_review_content_hash_mismatch", {"plan_id": plan_id, **mismatch})
+        return {"schema_version": 1, "plan_id": plan_id, "event_appended": False, "status": "rejected", "governance_event_id": event.get("event_id"), "reason": "cross_review_content_hash_mismatch"}
+    return _mutate(
+        plan_id=plan_id,
+        command_name="record-cross-review",
+        canonical_payload=review,
+        event_type="cross_review_recorded",
+        payload=payload,
+        base_dir=root,
+        validator=lambda state, normalized: _validate_cross_review_record(state, normalized, workspace_root),
+    )
+
+
 def record_critique(
     *,
     plan_id: str,
@@ -113,10 +200,11 @@ def reap_stale_tasks(
     with _plan_lock(root):
         _verify_events_ledger(root)
         state = fold_plan_state(plan_id=plan_id, base_dir=root)
-        _require_state(state, {"CRITIQUE_REQUESTED"}, "reap stale tasks")
+        _require_state(state, {"CRITIQUE_REQUESTED", "CROSS_REVIEW_REQUESTED"}, "reap stale tasks")
         now = datetime.now(timezone.utc)
         reaped = []
-        for task in state["rounds"].get(round_number, {}).get("tasks", {}).values():
+        round_data = state["rounds"].get(round_number) or state["cross_reviews"].get(round_number, {})
+        for task in round_data.get("tasks", {}).values():
             if task.get("status") != "PENDING":
                 continue
             deadline = _parse_iso_datetime(str(task.get("sla_deadline") or ""))
@@ -164,6 +252,7 @@ def evaluate_plan(
     plan_id: str,
     round_number: int,
     base_dir: str | Path | None = None,
+    max_rounds: int = MAX_CROSS_REVIEW_ROUNDS,
 ) -> dict[str, Any]:
     _validate_id(plan_id, "plan_id")
     if not isinstance(round_number, int) or round_number <= 0:
@@ -172,10 +261,10 @@ def evaluate_plan(
     with _plan_lock(root):
         _verify_events_ledger(root)
         state = fold_plan_state(plan_id=plan_id, base_dir=root)
-        _require_state(state, {"CRITIQUED"}, "evaluate plan")
+        _require_state(state, {"CRITIQUED", "CROSS_REVIEWED"}, "evaluate plan")
         if state.get("current_round") != round_number:
             raise GovernanceError("round_number must match the current critique round")
-        decision = _evaluate_state(state, round_number)
+        decision = _evaluate_cross_review_state(state, round_number, max_rounds=max_rounds) if state.get("state") == "CROSS_REVIEWED" else _evaluate_state(state, round_number)
         if decision["terminal_state"] == "NEXT_ROUND_REQUIRED":
             return {
                 "schema_version": 1,
@@ -195,7 +284,64 @@ def evaluate_plan(
         key = _idempotency_key(plan_id, "evaluate", {"round_number": round_number})
         existing = _find_by_idempotency(root, key)
         if existing:
+            result = _event_result(existing, idempotent=True)
+            result["status"] = "evaluated"
+            return result
+        event = _append_event(root=root, plan_id=plan_id, event_type="plan_evaluated", payload=payload, idempotency_key=key)
+        result = _event_result(event, idempotent=False)
+        result["status"] = "evaluated"
+        return result
+
+
+def list_active_plans(*, base_dir: str | Path | None = None) -> list[str]:
+    root = ensure_tools_dir(base_dir)
+    path = events_path(root)
+    raw = path.read_bytes() if path.exists() else b""
+    events_hash = "sha256:" + hashlib.sha256(raw).hexdigest()
+    cache_path = root / "plans" / "active-plans-cache.json"
+    if cache_path.exists():
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if cached.get("events_hash") == events_hash and isinstance(cached.get("active_plan_ids"), list):
+                return [str(item) for item in cached["active_plan_ids"]]
+        except (OSError, json.JSONDecodeError):
+            pass
+    plan_ids = sorted({str(row.get("plan_id")) for row in load_jsonl(path) if row.get("plan_id")})
+    active = [plan_id for plan_id in plan_ids if fold_plan_state(plan_id=plan_id, base_dir=root).get("state") not in TERMINAL_STATES]
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps({"schema_version": 1, "events_hash": events_hash, "event_count": len(load_jsonl(path)), "active_plan_ids": active}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return active
+
+
+def force_plan_human_required(
+    *,
+    plan_id: str,
+    round_number: int,
+    reason_codes: list[str],
+    active_gap_count: int = 0,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    _validate_id(plan_id, "plan_id")
+    if not isinstance(round_number, int) or round_number <= 0:
+        raise GovernanceError("round_number must be a positive integer")
+    if not reason_codes:
+        raise GovernanceError("reason_codes must be non-empty")
+    root = ensure_tools_dir(base_dir)
+    payload = {
+        "round_number": round_number,
+        "terminal_state": "HUMAN_REQUIRED",
+        "risks_rollup_summary": {"max_rounds_reached": True, "active_gaps_unresolved": active_gap_count},
+        "gate_decisions": [{"gate": "max_rounds", "decision": "human_escalation", "reason_codes": reason_codes}],
+        "reason_codes": reason_codes,
+    }
+    key = _idempotency_key(plan_id, "force-human-required", payload)
+    with _plan_lock(root):
+        _verify_events_ledger(root)
+        existing = _find_by_idempotency(root, key)
+        if existing:
             return _event_result(existing, idempotent=True)
+        state = fold_plan_state(plan_id=plan_id, base_dir=root)
+        _require_started(state, "force human required")
         event = _append_event(root=root, plan_id=plan_id, event_type="plan_evaluated", payload=payload, idempotency_key=key)
         return _event_result(event, idempotent=False)
 
@@ -294,6 +440,10 @@ def _append_event(
     return append_jsonl(events_path(root), event)
 
 
+def _append_rejection(root: Path, kind: str, details: dict[str, Any]) -> dict[str, Any]:
+    return append_tools_governance(root, kind, details)
+
+
 def _event_result(event: dict[str, Any], *, idempotent: bool) -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -318,6 +468,20 @@ def _find_by_idempotency(root: Path, key: str) -> dict[str, Any] | None:
         if row.get("idempotency_key") == key:
             return row
     return None
+
+
+def _cross_review_hash_mismatch(root: Path, payload: dict[str, Any]) -> dict[str, Any] | None:
+    request_id = payload.get("agent_invocation_request_id")
+    if not request_id:
+        return None
+    expected = payload.get("review_content_hash")
+    for row in reversed(load_jsonl(root / "agent-invocations" / "results.jsonl")):
+        if row.get("request_id") == request_id:
+            actual = row.get("content_hash")
+            if actual != expected:
+                return {"agent_invocation_request_id": request_id, "expected_content_hash": actual, "provided_review_content_hash": expected}
+            return None
+    return {"agent_invocation_request_id": request_id, "reason": "agent_invocation_result_not_found", "provided_review_content_hash": expected}
 
 
 def _verify_events_ledger(root: Path) -> None:
@@ -389,8 +553,12 @@ def _initial_state(plan_id: str) -> dict[str, Any]:
         "events": [],
         "plan_started": None,
         "latest_revision": None,
+        "challenger_plan": None,
         "current_round": None,
         "rounds": {},
+        "cross_reviews": {},
+        "cross_review_risks_by_round": {},
+        "resolved_review_risk_ids": [],
         "terminal_state": None,
     }
 
@@ -406,6 +574,15 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             "revision_id": payload["initial_revision_id"],
             "content_hash": payload["content_hash"],
             "source": "plan_started",
+        }
+    elif event_type == "challenger_plan_drafted":
+        state["state"] = "CHALLENGER_DRAFTED"
+        state["challenger_plan"] = {
+            "challenger_revision_id": payload["challenger_revision_id"],
+            "content_hash": payload["content_hash"],
+            "source_revision_id": payload["source_revision_id"],
+            "source_plan_content_hash": payload["source_plan_content_hash"],
+            "challenger_agent": payload.get("challenger_agent"),
         }
     elif event_type == "critic_tasks_requested":
         round_number = payload["round_number"]
@@ -424,14 +601,48 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             },
             "critiques": [],
         }
+    elif event_type == "cross_review_tasks_requested":
+        round_number = payload["round_number"]
+        state["current_round"] = round_number
+        state["state"] = "CROSS_REVIEW_REQUESTED"
+        cross = state["cross_reviews"].setdefault(
+            round_number,
+            {
+                "target_revision_id": payload["target_revision_id"],
+                "target_plan_content_hash": payload["target_plan_content_hash"],
+                "tasks": {},
+                "reviews": [],
+                "replaces_task_ids": [],
+            },
+        )
+        replaced_by = {task_id: [] for task_id in payload.get("replaces_task_ids", [])}
+        for task in payload["tasks"]:
+            task_record = {**task, "status": task["status_after"], "review": None}
+            cross["tasks"][task["task_packet_hash"]] = task_record
+            for old_task_id in payload.get("replaces_task_ids", []):
+                replaced_by.setdefault(old_task_id, []).append(task["task_id"])
+        cross["replaces_task_ids"].extend(payload.get("replaces_task_ids", []))
+        task_by_id = {task["task_id"]: task for task in cross["tasks"].values()}
+        for old_task_id, new_task_ids in replaced_by.items():
+            if old_task_id in task_by_id:
+                task_by_id[old_task_id]["replaced_by_task_ids"] = sorted(set(new_task_ids))
     elif event_type == "critique_recorded":
         round_data = _round_for_target(state, payload["target_revision_id"], payload["target_plan_content_hash"])
         task = round_data["tasks"][payload["task_packet_hash"]]
         task["status"] = payload["status_after"]
         task["critique"] = payload
         round_data["critiques"].append(payload)
+    elif event_type == "cross_review_recorded":
+        cross = _cross_review_for_target(state, payload["target_revision_id"], payload["target_plan_content_hash"])
+        task = cross["tasks"][payload["task_packet_hash"]]
+        task["status"] = payload["status_after"]
+        task["review"] = payload
+        cross["reviews"].append(payload)
+        surfaced = state["cross_review_risks_by_round"].setdefault(state["current_round"], [])
+        for risk in payload.get("risks", []):
+            surfaced.append({**risk, "surfaced_in_revision_id": payload["target_revision_id"]})
     elif event_type == "stale_tasks_reaped":
-        round_data = state["rounds"].get(payload["round_number"], {})
+        round_data = state["rounds"].get(payload["round_number"]) or state["cross_reviews"].get(payload["round_number"], {})
         task_by_id = {task["task_id"]: task for task in round_data.get("tasks", {}).values()}
         for task_id in payload["reaped_task_ids"]:
             if task_id in task_by_id:
@@ -444,6 +655,9 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             "source": "revision_recorded",
             "round": payload["round"],
         }
+        resolved = set(state.get("resolved_review_risk_ids", []))
+        resolved.update(str(item) for item in payload.get("addresses_review_risk_ids", []) if isinstance(item, str) and item)
+        state["resolved_review_risk_ids"] = sorted(resolved)
     elif event_type == "plan_evaluated":
         state["state"] = payload["terminal_state"]
         state["terminal_state"] = payload["terminal_state"]
@@ -453,7 +667,14 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
 
 
 def _derive_state(state: dict[str, Any]) -> None:
-    if state["state"] in TERMINAL_STATES or state["state"] != "CRITIQUE_REQUESTED":
+    if state["state"] in TERMINAL_STATES:
+        return
+    if state["state"] == "CROSS_REVIEW_REQUESTED":
+        directions = _cross_review_direction_statuses(state, state.get("current_round"))
+        if directions and all(status == "answered" for status in directions.values()):
+            state["state"] = "CROSS_REVIEWED"
+        return
+    if state["state"] != "CRITIQUE_REQUESTED":
         return
     current_round = state.get("current_round")
     round_data = state["rounds"].get(current_round, {})
@@ -469,6 +690,13 @@ def _round_for_target(state: dict[str, Any], revision_id: str, content_hash_valu
     raise GovernanceError("target revision does not match an active critique round")
 
 
+def _cross_review_for_target(state: dict[str, Any], revision_id: str, content_hash_value: str) -> dict[str, Any]:
+    for round_data in state["cross_reviews"].values():
+        if round_data.get("target_revision_id") == revision_id and round_data.get("target_plan_content_hash") == content_hash_value:
+            return round_data
+    raise GovernanceError("target revision does not match an active cross-review round")
+
+
 def _normalize_critic_request(request: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(request, dict):
         raise GovernanceError("critic request must be a JSON object")
@@ -480,6 +708,52 @@ def _normalize_critic_request(request: dict[str, Any]) -> dict[str, Any]:
         "target_revision_id": request.get("target_revision_id"),
         "target_plan_content_hash": request.get("target_plan_content_hash"),
         "tasks": [{**task, "status_after": task.get("status_after", "PENDING")} for task in tasks],
+    }
+
+
+def _normalize_challenger_plan(challenger: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(challenger, dict):
+        raise GovernanceError("challenger plan must be a JSON object")
+    plan_content = challenger.get("plan_content")
+    _validate_plan_content(plan_content)
+    return {
+        "challenger_agent": challenger.get("challenger_agent"),
+        "challenger_revision_id": challenger.get("challenger_revision_id"),
+        "source_revision_id": challenger.get("source_revision_id"),
+        "source_plan_content_hash": challenger.get("source_plan_content_hash"),
+        "plan_content": plan_content,
+        "content_hash": content_hash(plan_content),
+    }
+
+
+def _normalize_cross_review_request(request: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(request, dict):
+        raise GovernanceError("cross-review request must be a JSON object")
+    tasks = request.get("tasks")
+    if not isinstance(tasks, list):
+        raise GovernanceError("cross-review request tasks must be an array")
+    return {
+        "round_number": request.get("round_number"),
+        "target_revision_id": request.get("target_revision_id"),
+        "target_plan_content_hash": request.get("target_plan_content_hash"),
+        "replaces_task_ids": [str(item) for item in request.get("replaces_task_ids", []) if isinstance(item, str) and item],
+        "tasks": [{**task, "status_after": task.get("status_after", "PENDING")} for task in tasks],
+    }
+
+
+def _normalize_cross_review(review: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(review, dict):
+        raise GovernanceError("cross-review must be a JSON object")
+    return {
+        "task_packet_hash": review.get("task_packet_hash"),
+        "target_revision_id": review.get("target_revision_id"),
+        "target_plan_content_hash": review.get("target_plan_content_hash"),
+        "reviewer_agent": review.get("reviewer_agent"),
+        "review_direction": review.get("review_direction"),
+        "risks": review.get("risks", []),
+        "review_content_hash": review.get("review_content_hash"),
+        "agent_invocation_request_id": review.get("agent_invocation_request_id"),
+        "status_after": review.get("status_after", "ANSWERED"),
     }
 
 
@@ -506,6 +780,7 @@ def _normalize_revision(revision: dict[str, Any]) -> dict[str, Any]:
         "content_hash": revision.get("content_hash"),
         "parent_revision_hash": revision.get("parent_revision_hash"),
         "content": revision.get("content"),
+        "addresses_review_risk_ids": [str(item) for item in revision.get("addresses_review_risk_ids", []) if isinstance(item, str) and item],
     }
 
 
@@ -515,7 +790,7 @@ def _validate_start(state: dict[str, Any]) -> None:
 
 
 def _validate_critic_request(state: dict[str, Any], payload: dict[str, Any]) -> None:
-    _require_state(state, {"DRAFT", "REVISED"}, "request critics")
+    _require_state(state, {"DRAFT", "REVISED", "CROSS_REVIEWED"}, "request critics")
     round_number = payload.get("round_number")
     if not isinstance(round_number, int) or round_number <= 0:
         raise GovernanceError("round_number must be a positive integer")
@@ -538,6 +813,71 @@ def _validate_critic_request(state: dict[str, Any], payload: dict[str, Any]) -> 
         if packet_hash in seen_hashes:
             raise GovernanceError("duplicate task_packet_hash")
         seen_hashes.add(packet_hash)
+
+
+def _validate_challenger_plan(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    _require_state(state, {"DRAFT", "REVISED"}, "submit challenger plan")
+    _validate_id(_require_non_empty(payload.get("challenger_revision_id"), "challenger_revision_id"), "challenger_revision_id")
+    _require_hash(payload.get("content_hash"), "content_hash")
+    source_revision_id = _require_non_empty(payload.get("source_revision_id"), "source_revision_id")
+    source_hash = _require_hash(payload.get("source_plan_content_hash"), "source_plan_content_hash")
+    latest = state["latest_revision"]
+    if source_revision_id != latest["revision_id"] or source_hash != latest["content_hash"]:
+        raise GovernanceError("challenger plan must target latest primary revision")
+
+
+def _validate_cross_review_request(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    _require_state(state, {"CHALLENGER_DRAFTED"}, "request cross-review")
+    _validate_cross_review_task_payload(state, payload, allow_replaces=False)
+
+
+def _validate_cross_review_retry(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    _require_state(state, {"CROSS_REVIEW_REQUESTED"}, "request cross-review retry")
+    _validate_cross_review_task_payload(state, payload, allow_replaces=True)
+    cross = state["cross_reviews"].get(payload["round_number"], {})
+    task_by_id = {task["task_id"]: task for task in cross.get("tasks", {}).values()}
+    for task_id in payload.get("replaces_task_ids", []):
+        if task_by_id.get(task_id, {}).get("status") != "TIMEOUT_ABORTED":
+            raise GovernanceError("replaces_task_ids must name timed-out cross-review tasks")
+
+
+def _validate_cross_review_task_payload(state: dict[str, Any], payload: dict[str, Any], *, allow_replaces: bool) -> None:
+    round_number = payload.get("round_number")
+    if not isinstance(round_number, int) or round_number <= 0:
+        raise GovernanceError("round_number must be a positive integer")
+    if not allow_replaces and round_number in state["cross_reviews"]:
+        raise GovernanceError("round has already requested cross-review")
+    target_revision_id = _require_non_empty(payload.get("target_revision_id"), "target_revision_id")
+    target_hash = _require_hash(payload.get("target_plan_content_hash"), "target_plan_content_hash")
+    latest = state["latest_revision"]
+    if target_revision_id != latest["revision_id"] or target_hash != latest["content_hash"]:
+        raise GovernanceError("cross-review request must target the latest revision")
+    tasks = payload.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        raise GovernanceError("tasks must contain at least one task")
+    if len(tasks) > MAX_TASKS_PER_ROUND:
+        raise GovernanceError("cross-review tasks per round limit exceeded")
+    existing = state["cross_reviews"].get(round_number, {}) if allow_replaces else {}
+    existing_task_ids = {task["task_id"] for task in existing.get("tasks", {}).values()}
+    existing_packet_hashes = set(existing.get("tasks", {}).keys())
+    seen_hashes = set()
+    seen_task_ids = set()
+    directions = set()
+    for task in tasks:
+        _validate_cross_review_task(task, target_revision_id, target_hash)
+        packet_hash = task["task_packet_hash"]
+        if packet_hash in seen_hashes:
+            raise GovernanceError("duplicate task_packet_hash")
+        if packet_hash in existing_packet_hashes:
+            raise GovernanceError("retry task_packet_hash must be new")
+        seen_hashes.add(packet_hash)
+        task_id = task["task_id"]
+        if task_id in seen_task_ids or task_id in existing_task_ids:
+            raise GovernanceError("retry task_id must be new")
+        seen_task_ids.add(task_id)
+        directions.add(task["review_direction"])
+    if not allow_replaces and not REQUIRED_CROSS_REVIEW_DIRECTIONS.issubset(directions):
+        raise GovernanceError("cross-review must request both review directions")
 
 
 def _validate_critique(state: dict[str, Any], payload: dict[str, Any], workspace_root: str | Path) -> None:
@@ -571,8 +911,41 @@ def _validate_critique(state: dict[str, Any], payload: dict[str, Any], workspace
         _validate_risk(risk)
 
 
+def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any], workspace_root: str | Path) -> None:
+    _require_state(state, {"CROSS_REVIEW_REQUESTED"}, "record cross-review")
+    packet_hash = _require_hash(payload.get("task_packet_hash"), "task_packet_hash")
+    target_revision_id = _require_non_empty(payload.get("target_revision_id"), "target_revision_id")
+    target_hash = _require_hash(payload.get("target_plan_content_hash"), "target_plan_content_hash")
+    reviewer = _require_non_empty(payload.get("reviewer_agent"), "reviewer_agent")
+    names = reviewer_names(workspace_root=workspace_root)
+    if reviewer not in names:
+        raise GovernanceError(f"unknown reviewer: {reviewer}")
+    cross = _cross_review_for_target(state, target_revision_id, target_hash)
+    task = cross["tasks"].get(packet_hash)
+    if task is None:
+        raise GovernanceError("task_packet_hash does not match an active cross-review task")
+    if task.get("status") == "TIMEOUT_ABORTED":
+        raise GovernanceError("late cross-review after timeout is rejected")
+    if task.get("status") != "PENDING":
+        raise GovernanceError("cross-review task is not pending")
+    if reviewer != task.get("reviewer_agent"):
+        raise GovernanceError("reviewer_agent must match task reviewer_agent")
+    if payload.get("review_direction") != task.get("review_direction"):
+        raise GovernanceError("review_direction must match task review_direction")
+    _require_hash(payload.get("review_content_hash"), "review_content_hash")
+    if payload.get("status_after") != "ANSWERED":
+        raise GovernanceError('cross_review_recorded status_after must be "ANSWERED"')
+    risks = payload.get("risks")
+    if not isinstance(risks, list):
+        raise GovernanceError("risks must be an array")
+    if len(risks) > MAX_RISKS:
+        raise GovernanceError("risks limit exceeded")
+    for risk in risks:
+        _validate_cross_review_risk(risk)
+
+
 def _validate_revision(state: dict[str, Any], payload: dict[str, Any]) -> None:
-    _require_state(state, {"CRITIQUED"}, "record revision")
+    _require_state(state, {"CRITIQUED", "CROSS_REVIEWED"}, "record revision")
     _validate_id(_require_non_empty(payload.get("revision_id"), "revision_id"), "revision_id")
     round_number = payload.get("round")
     if not isinstance(round_number, int) or round_number <= 0:
@@ -603,11 +976,45 @@ def _validate_task(task: dict[str, Any], target_revision_id: str, target_hash: s
         raise GovernanceError('task status_after must be "PENDING"')
 
 
+def _validate_cross_review_task(task: dict[str, Any], target_revision_id: str, target_hash: str) -> None:
+    if not isinstance(task, dict):
+        raise GovernanceError("each cross-review task must be a JSON object")
+    _validate_id(_require_non_empty(task.get("task_id"), "task_id"), "task_id")
+    _require_hash(task.get("task_packet_hash"), "task_packet_hash")
+    _require_non_empty(task.get("reviewer_agent"), "reviewer_agent")
+    if task.get("review_direction") not in REQUIRED_CROSS_REVIEW_DIRECTIONS:
+        raise GovernanceError("review_direction must be primary_to_challenger or challenger_to_primary")
+    if task.get("target_revision_id") != target_revision_id:
+        raise GovernanceError("task target_revision_id must match request target_revision_id")
+    if task.get("target_plan_content_hash") != target_hash:
+        raise GovernanceError("task target_plan_content_hash must match request target_plan_content_hash")
+    if _parse_iso_datetime(_require_non_empty(task.get("sla_deadline"), "sla_deadline")) is None:
+        raise GovernanceError("sla_deadline must be an ISO datetime")
+    if task.get("status_after") != "PENDING":
+        raise GovernanceError('task status_after must be "PENDING"')
+
+
 def _validate_risk(risk: dict[str, Any]) -> None:
     if not isinstance(risk, dict):
         raise GovernanceError("risk must be a JSON object")
     for field in ("risk_category", "severity", "invariant", "recommendation"):
         _require_non_empty(risk.get(field), field)
+    affected_files = risk.get("affected_files")
+    if not isinstance(affected_files, list) or not all(_valid_repo_path(item) for item in affected_files):
+        raise GovernanceError("affected_files must be repo-relative POSIX paths")
+    evidence_refs = risk.get("evidence_refs")
+    if not isinstance(evidence_refs, list) or not all(_valid_evidence_ref(item) for item in evidence_refs):
+        raise GovernanceError("evidence_refs contains invalid reference")
+
+
+def _validate_cross_review_risk(risk: dict[str, Any]) -> None:
+    if not isinstance(risk, dict):
+        raise GovernanceError("risk must be a JSON object")
+    _require_non_empty(risk.get("risk_id"), "risk_id")
+    for field in ("risk_category", "severity", "summary", "recommendation"):
+        _require_non_empty(risk.get(field), field)
+    if str(risk.get("severity")) not in {"blocking", "material", "nice_to_have", *KNOWN_SEVERITIES}:
+        raise GovernanceError("cross-review risk severity is invalid")
     affected_files = risk.get("affected_files")
     if not isinstance(affected_files, list) or not all(_valid_repo_path(item) for item in affected_files):
         raise GovernanceError("affected_files must be repo-relative POSIX paths")
@@ -670,6 +1077,12 @@ def _validate_event(event: dict[str, Any]) -> None:
         _validate_plan_content(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
         _require_non_empty(payload.get("initial_revision_id"), "initial_revision_id")
+    elif event_type == "challenger_plan_drafted":
+        _validate_plan_content(payload.get("plan_content"))
+        _require_hash(payload.get("content_hash"), "content_hash")
+        _require_non_empty(payload.get("challenger_revision_id"), "challenger_revision_id")
+        _require_non_empty(payload.get("source_revision_id"), "source_revision_id")
+        _require_hash(payload.get("source_plan_content_hash"), "source_plan_content_hash")
     elif event_type == "critic_tasks_requested":
         _require_hash(payload.get("target_plan_content_hash"), "target_plan_content_hash")
         _require_non_empty(payload.get("target_revision_id"), "target_revision_id")
@@ -677,6 +1090,15 @@ def _validate_event(event: dict[str, Any]) -> None:
             raise GovernanceError("round_number must be an integer")
         if not isinstance(payload.get("tasks"), list):
             raise GovernanceError("tasks must be an array")
+    elif event_type == "cross_review_tasks_requested":
+        _require_hash(payload.get("target_plan_content_hash"), "target_plan_content_hash")
+        _require_non_empty(payload.get("target_revision_id"), "target_revision_id")
+        if not isinstance(payload.get("round_number"), int):
+            raise GovernanceError("round_number must be an integer")
+        if not isinstance(payload.get("tasks"), list):
+            raise GovernanceError("tasks must be an array")
+        if not isinstance(payload.get("replaces_task_ids", []), list):
+            raise GovernanceError("replaces_task_ids must be an array")
     elif event_type == "critique_recorded":
         _require_hash(payload.get("task_packet_hash"), "task_packet_hash")
         _require_hash(payload.get("target_plan_content_hash"), "target_plan_content_hash")
@@ -685,6 +1107,16 @@ def _validate_event(event: dict[str, Any]) -> None:
         _require_hash(payload.get("critique_content_hash"), "critique_content_hash")
         if payload.get("status_after") != "ANSWERED":
             raise GovernanceError('critique_recorded status_after must be "ANSWERED"')
+    elif event_type == "cross_review_recorded":
+        _require_hash(payload.get("task_packet_hash"), "task_packet_hash")
+        _require_hash(payload.get("target_plan_content_hash"), "target_plan_content_hash")
+        _require_non_empty(payload.get("target_revision_id"), "target_revision_id")
+        _require_non_empty(payload.get("reviewer_agent"), "reviewer_agent")
+        if payload.get("review_direction") not in REQUIRED_CROSS_REVIEW_DIRECTIONS:
+            raise GovernanceError("review_direction must be primary_to_challenger or challenger_to_primary")
+        _require_hash(payload.get("review_content_hash"), "review_content_hash")
+        if payload.get("status_after") != "ANSWERED":
+            raise GovernanceError('cross_review_recorded status_after must be "ANSWERED"')
     elif event_type == "stale_tasks_reaped":
         if not isinstance(payload.get("round_number"), int):
             raise GovernanceError("round_number must be an integer")
@@ -698,6 +1130,8 @@ def _validate_event(event: dict[str, Any]) -> None:
         _require_hash(payload.get("content_hash"), "content_hash")
         _require_hash(payload.get("parent_revision_hash"), "parent_revision_hash")
         _require_non_empty(payload.get("content"), "content")
+        if not isinstance(payload.get("addresses_review_risk_ids", []), list):
+            raise GovernanceError("addresses_review_risk_ids must be an array")
     elif event_type == "plan_evaluated":
         if payload.get("terminal_state") not in {"CONVERGED", "HUMAN_REQUIRED"}:
             raise GovernanceError("plan_evaluated terminal_state must be CONVERGED or HUMAN_REQUIRED")
@@ -774,6 +1208,81 @@ def _evaluate_state(state: dict[str, Any], round_number: int) -> dict[str, Any]:
         "gate_decisions": gate_decisions,
         "reason_codes": ["convergence_gates_passed"],
     }
+
+
+def _evaluate_cross_review_state(state: dict[str, Any], round_number: int, *, max_rounds: int) -> dict[str, Any]:
+    cross = state["cross_reviews"][round_number]
+    risks = list(state.get("cross_review_risks_by_round", {}).get(round_number, []))
+    resolved = set(state.get("resolved_review_risk_ids", []))
+    active_risks = [risk for risk in risks if str(risk.get("risk_id")) not in resolved]
+    material = [
+        risk for risk in active_risks
+        if str(risk.get("severity")).lower() in {"blocking", "material", "critical", "high"}
+    ]
+    tasks = list(cross.get("tasks", {}).values())
+    directions = _cross_review_direction_statuses(state, round_number)
+    summary = {
+        "active_cross_review_risks": len(active_risks),
+        "material_cross_review_risks": len(material),
+        "partial_directions": sorted(direction for direction, status in directions.items() if status == "partial"),
+        "pending_tasks": sum(1 for task in tasks if task.get("status") == "PENDING"),
+        "timeout_aborted_tasks": sum(1 for task in tasks if task.get("status") == "TIMEOUT_ABORTED" and not task.get("replaced_by_task_ids")),
+        "resolved_review_risks": len(resolved),
+    }
+    blockers = []
+    if material:
+        blockers.append("material_cross_review_risks_present")
+    if summary["pending_tasks"]:
+        blockers.append("pending_tasks_present")
+    if summary["timeout_aborted_tasks"] or summary["partial_directions"]:
+        blockers.append("partial_cross_review_coverage")
+    gate_decisions = [
+        {"gate": "material_cross_review_zero", "passed": not material},
+        {"gate": "no_pending_tasks", "passed": summary["pending_tasks"] == 0},
+        {"gate": "no_partial_directions", "passed": not summary["partial_directions"] and summary["timeout_aborted_tasks"] == 0},
+        {"gate": "max_rounds", "passed": round_number < max_rounds, "max_rounds": max_rounds},
+    ]
+    if blockers:
+        if round_number >= max_rounds:
+            return {
+                "terminal_state": "HUMAN_REQUIRED",
+                "risks_rollup_summary": summary,
+                "gate_decisions": gate_decisions,
+                "reason_codes": sorted(set(blockers + ["max_rounds_reached"])),
+            }
+        return {
+            "terminal_state": "NEXT_ROUND_REQUIRED",
+            "risks_rollup_summary": summary,
+            "gate_decisions": gate_decisions,
+            "reason_codes": blockers,
+        }
+    return {
+        "terminal_state": "CONVERGED",
+        "risks_rollup_summary": summary,
+        "gate_decisions": gate_decisions,
+        "reason_codes": ["cross_review_convergence_gates_passed"],
+    }
+
+
+def _cross_review_direction_statuses(state: dict[str, Any], round_number: int | None) -> dict[str, str]:
+    if round_number is None or round_number not in state.get("cross_reviews", {}):
+        return {}
+    cross = state["cross_reviews"][round_number]
+    statuses: dict[str, str] = {}
+    for direction in REQUIRED_CROSS_REVIEW_DIRECTIONS:
+        tasks = [
+            task for task in cross.get("tasks", {}).values()
+            if task.get("review_direction") == direction and not task.get("replaced_by_task_ids")
+        ]
+        if not tasks:
+            statuses[direction] = "pending"
+        elif all(task.get("status") == "ANSWERED" for task in tasks):
+            statuses[direction] = "answered"
+        elif any(task.get("status") in {"ANSWERED", "TIMEOUT_ABORTED"} for task in tasks):
+            statuses[direction] = "partial"
+        else:
+            statuses[direction] = "pending"
+    return statuses
 
 
 def _new_categories(state: dict[str, Any], round_number: int) -> set[str]:

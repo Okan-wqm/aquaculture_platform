@@ -140,7 +140,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   -- the ALTER ensures ownership is correct regardless.
   -- ========================================================================
 
-  # BEGIN GENERATED — schema-registry
+  -- BEGIN GENERATED — schema-registry
   -- Source: apps/db-migrate/src/schema-registry.ts
   -- Regenerate with: npm run codegen:schema-registry
 
@@ -267,61 +267,14 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT USAGE ON SCHEMA shared TO observability_service;
   GRANT USAGE ON SCHEMA shared TO event_store_service;
 
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO auth_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO farm_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO sensor_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO hr_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO messaging_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO hydroponics_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO alert_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO billing_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO notification_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO ai_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO admin_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO observability_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO event_store_service;
-
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO auth_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO farm_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO sensor_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO hr_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO messaging_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO hydroponics_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO alert_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO billing_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO notification_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO ai_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO admin_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO observability_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO event_store_service;
-
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO auth_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO farm_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO sensor_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO hr_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO messaging_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO hydroponics_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO alert_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO billing_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO notification_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO ai_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO admin_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO observability_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO event_store_service;
-
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO auth_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO farm_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO sensor_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO hr_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO messaging_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO hydroponics_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO alert_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO billing_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO notification_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO ai_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO admin_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO observability_service;
-  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO event_store_service;
+  -- INIT-FIX: per-table GRANTs removed. The shared.audit_logs / gdpr_data_requests /
+  -- user_consents / user_permissions tables are created by 10-shared-schema.sql,
+  -- which runs AFTER this script. The grants here would have failed with
+  -- "relation does not exist" under ON_ERROR_STOP=1 and aborted init.
+  -- Coverage is provided by:
+  --   (a) ALTER DEFAULT PRIVILEGES below — applies to tables created later
+  --   (b) 10-shared-schema.sql's GRANT ... ON ALL TABLES IN SCHEMA shared TO PUBLIC
+  -- Both paths preserve the per-service read/write surface without ordering hazard.
 
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO auth_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO farm_service;
@@ -350,7 +303,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO admin_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO observability_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO event_store_service;
-  # END GENERATED — schema-registry
+  -- END GENERATED — schema-registry
 
   -- gateway-api is stateless today but reserves a `gateway` schema for
   -- future cached-config storage. Not in SCHEMA_REGISTRY — kept here

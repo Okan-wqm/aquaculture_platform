@@ -1,15 +1,15 @@
 {
   "added_paths": [],
-  "baseline": true,
+  "baseline": false,
   "changed_paths": [],
-  "cycle_id": "aria-shadow-snowball-v04-1777969786",
+  "cycle_id": "e2e-test",
   "file_counts_delta": {
     "allowed": 0,
     "fated": 0,
     "generated": 0,
     "git_tracked": 0,
     "unknown": 0,
-    "working_tree": 0
+    "working_tree": 8
   },
   "fingerprint_delta": {
     "adr_count": 0,
@@ -19,7 +19,7 @@
       "generated": 0,
       "git_tracked": 0,
       "unknown": 0,
-      "working_tree": 0
+      "working_tree": 8
     },
     "migration_count": 0,
     "platform_lib_count": 0,
@@ -28,24 +28,24 @@
     "tracked_file_count": 0,
     "web_module_count": 0
   },
-  "generated_at": "2026-05-05T08:29:49+00:00",
-  "previous_cycle_id": null,
+  "generated_at": "2026-05-06T05:26:40+00:00",
+  "previous_cycle_id": "e2e-2a-001",
   "removed_paths": [],
   "schema_version": 1,
   "summary": {
     "added_count": 0,
     "changed_count": 0,
-    "fated_file_count": 7203,
+    "fated_file_count": 7496,
     "file_counts": {
-      "allowed": 7175,
-      "fated": 7203,
+      "allowed": 7468,
+      "fated": 7496,
       "generated": 28,
-      "git_tracked": 7121,
+      "git_tracked": 7496,
       "unknown": 0,
-      "working_tree": 7203
+      "working_tree": 7562
     },
-    "legacy_tracked_file_count": 7203,
+    "legacy_tracked_file_count": 7496,
     "removed_count": 0,
-    "tracked_file_count": 7203
+    "tracked_file_count": 7496
   }
 }

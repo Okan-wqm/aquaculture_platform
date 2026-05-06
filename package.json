@@ -113,7 +113,11 @@
     "gates:tier-claim": "ts-node --project tools/gates/tsconfig.json tools/gates/tier-claim-lint.ts",
     "gates:deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/main-deletion-witness.ts",
     "gates:all": "npm run gates:banned-phrase && npm run gates:migration-sql && npm run gates:tier-claim",
-    "ripple": "npx ts-node --project tools/ripple-tracer/tsconfig.json tools/ripple-tracer/cli.ts"
+    "ripple": "npx ts-node --project tools/ripple-tracer/tsconfig.json tools/ripple-tracer/cli.ts",
+    "aria": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel cycle run --workspace-root .. --tools-dir ../aria-tools --cycle-id aria-$(date -u +%Y%m%dT%H%M%SZ)",
+    "aria:index": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel agent-network index --workspace-root .. --tools-dir ../aria-tools",
+    "aria:gaps": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel capability-gap detect --workspace-root .. --tools-dir ../aria-tools --cycle-id aria-manual",
+    "aria:requests": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel agent-invocations list --tools-dir ../aria-tools"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",

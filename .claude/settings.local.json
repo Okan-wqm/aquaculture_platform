@@ -556,7 +556,22 @@
       "Bash(bash /tmp/check_lane_b.sh)",
       "Bash(mkdir -p docs/reviews/prompt-writer/)",
       "Bash(mkdir -p /tmp/prompt-writer-stubs/)",
-      "Bash(awk -F/ '/^apps\\\\//{print $2}')"
+      "Bash(awk -F/ '/^apps\\\\//{print $2}')",
+      "Bash(rm -rf /root/.aria/workspaces/e5d674a6dc22eb25/)",
+      "Bash(PYTHONPATH=aria-kernel python3 -m aria_kernel cycle --workspace-root /var/aqua-saas)",
+      "Bash(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py')",
+      "Bash(agents/aria-*)",
+      "Bash(PYTHONPATH=aria-kernel python3 -m aria_kernel --help)",
+      "Bash(PYTHONPATH=aria-kernel python3 -m aria_kernel pressure reverify --help)",
+      "Bash(PYTHONPATH=aria-kernel python3 -m aria_kernel telemetry export --help)",
+      "Bash(PYTHONPATH=aria-kernel python3 -m aria_kernel feedback add --help)",
+      "Bash(docker stop *)",
+      "Bash(rm -rf /var/lib/docker/volumes/aqua-saas_postgres_data/_data/* /var/lib/docker/volumes/aqua-saas_postgres_data/_data/.[!.]*)",
+      "Read(//var/lib/docker/volumes/aqua-saas_postgres_data/_data/**)",
+      "Bash(sed -n '40,80p' aria-kernel/aria_kernel/plan_convergence.py)",
+      "Bash(sed -n '84,105p' aria-kernel/aria_kernel/plan_convergence.py)",
+      "Bash(sed -n '144,165p' aria-kernel/aria_kernel/plan_convergence.py)",
+      "Bash(git show *)"
     ],
     "deny": [],
     "ask": []

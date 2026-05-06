@@ -1,6 +1,6 @@
 {
-  "cycle_id": "aria-shadow-snowball-v04-1777969786",
-  "generated_at": "2026-05-05T08:29:54+00:00",
+  "cycle_id": "e2e-test",
+  "generated_at": "2026-05-06T05:26:53+00:00",
   "pressures": [
     {
       "belief_id": null,
@@ -8,7 +8,7 @@
       "candidate_tools": [
         "typeorm-entity-schema-adapter"
       ],
-      "cycle_id": "aria-shadow-snowball-v04-1777969786",
+      "cycle_id": "e2e-test",
       "evidence": [
         "apps/*/src/database/migrations/*.ts"
       ],
@@ -16,10 +16,10 @@
       "reason": "repository has repeated TypeORM migration surfaces",
       "recommended_action": "continue TypeORM schema drift checks",
       "schema_version": 1,
-      "score": 86.424,
+      "score": 87.572,
       "score_components": {
         "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
-        "occurrence_count": 76,
+        "occurrence_count": 83,
         "recency_decay": 1.0,
         "source_weight": 30
       },

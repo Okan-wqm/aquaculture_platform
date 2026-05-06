@@ -7,9 +7,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from .agent_satisfaction import agent_satisfaction_scan
 from .feedback import load_failure_mode_vocabulary
 from .ledger import LedgerIntegrityError, verify_index_hashes
 from .pressure import DEFAULT_DECAY_THRESHOLDS, TERMINAL_STATES, append_pressure_state_event, effective_workspace_pressures
+from .trailer_scan import git_trailer_scan
+from .trust import ref_staleness_check, trust_escalation_derive
 from .tool_registry import append_tools_governance
 from .workspace import WorkspacePaths, record_workspace_governance
 
@@ -19,6 +22,10 @@ LEARNING_HOOK_ORDER = (
     "decay_recompute",
     "artifact_prune",
     "vocabulary_reload_check",
+    "git_trailer_scan",
+    "agent_satisfaction_scan",
+    "trust_escalation_derive",
+    "ref_staleness_check",
 )
 
 
@@ -39,6 +46,10 @@ def run_learning_pass(
         ("decay_recompute", lambda: recompute_pressure_decay(paths, cycle_id=cycle_id, now=now)),
         ("artifact_prune", lambda: prune_cycle_artifacts(paths, cycle_id=cycle_id, tools_root=root, now=now, ttl_days=artifact_ttl_days)),
         ("vocabulary_reload_check", lambda: vocabulary_reload_check(paths)),
+        ("git_trailer_scan", lambda: git_trailer_scan(paths, cycle_id=cycle_id, tools_root=root)),
+        ("agent_satisfaction_scan", lambda: agent_satisfaction_scan(paths, cycle_id=cycle_id, tools_root=root)),
+        ("trust_escalation_derive", lambda: trust_escalation_derive(paths, cycle_id=cycle_id)),
+        ("ref_staleness_check", lambda: ref_staleness_check(paths, cycle_id=cycle_id)),
     )
     results: list[dict[str, Any]] = []
     for hook_name, hook in hooks:

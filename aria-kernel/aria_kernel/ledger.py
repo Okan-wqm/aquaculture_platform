@@ -168,6 +168,7 @@ def _refresh_adjacent_index(path: Path) -> None:
             "external_feedback": path.parent / "external_feedback.jsonl",
             "pressure": path.parent / "pressure.jsonl",
             "pressure_state": path.parent / "pressure_state.jsonl",
+            "vocabulary_rejections": path.parent / "vocabulary_rejections.jsonl",
             "since_migration_events": path.parent / "since_migration_events.jsonl",
             "governance": path.parent / "governance.jsonl",
         }

@@ -21,6 +21,8 @@ from aria_kernel.migration import (
 from aria_kernel.memory import withdraw_belief
 from aria_kernel.pressure import curate_workspace_pressures, explain_pressure, explain_workspace_pressure, list_workspace_pressures
 from aria_kernel.quarantine import quarantine_tool
+from aria_kernel.reverify import reverify_pressures
+from aria_kernel.telemetry import export_telemetry
 from aria_kernel.tool_registry import GovernanceError, list_tools, register_tool
 from aria_kernel.tool_runner import run_tool
 from aria_kernel.workspace import ensure_workspace, require_workspace_v2, workspace_paths
@@ -109,6 +111,7 @@ def _main(argv: list[str] | None = None) -> int:
     add_parser.add_argument("--capability-gap-key", default=None)
     add_parser.add_argument("--cycle-id", default=None)
     add_parser.add_argument("--evidence-ref", action="append", default=[])
+    add_parser.add_argument("--evidence-chain", action="append", default=[])
 
     import_parser = feedback_sub.add_parser("import")
     add_workspace_args(import_parser)
@@ -194,6 +197,21 @@ def _main(argv: list[str] | None = None) -> int:
     pressure_explain.add_argument("pressure_event_id", nargs="?")
     pressure_explain.add_argument("--cycle-id", default=None)
     pressure_explain.add_argument("--pressure-id", default=None)
+    pressure_reverify = pressure_sub.add_parser("reverify")
+    add_workspace_args(pressure_reverify)
+    pressure_reverify.add_argument("--sample-rate", type=float, default=0.10)
+    pressure_reverify.add_argument("--dry-run", action="store_true")
+    pressure_reverify.add_argument("--apply", action="store_true")
+    pressure_reverify.add_argument("--acknowledge", action="store_true")
+    pressure_reverify.add_argument("--reason", default=None)
+    pressure_reverify.add_argument("--reset-cursor", action="store_true")
+
+    telemetry_parser = sub.add_parser("telemetry")
+    telemetry_sub = telemetry_parser.add_subparsers(dest="telemetry_command", required=True)
+    telemetry_export = telemetry_sub.add_parser("export")
+    add_workspace_args(telemetry_export)
+    telemetry_export.add_argument("--format", choices=["prometheus", "otel"], required=True)
+    telemetry_export.add_argument("--output", default=None)
 
     curate_parser = sub.add_parser("curate")
     add_workspace_args(curate_parser)
@@ -212,7 +230,7 @@ def _main(argv: list[str] | None = None) -> int:
     )
     paths = (
         resolve_paths(args)
-        if hasattr(args, "workspace_root") and args.command in {"feedback", "pressure", "curate"} and not legacy_pressure_explain
+        if hasattr(args, "workspace_root") and args.command in {"feedback", "pressure", "curate", "telemetry"} and not legacy_pressure_explain
         else None
     )
 
@@ -371,6 +389,19 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
 
+    if args.command == "pressure" and args.pressure_command == "reverify":
+        result = reverify_pressures(
+            paths,
+            sample_rate=args.sample_rate,
+            dry_run=args.dry_run or not args.apply,
+            apply=args.apply,
+            acknowledge=args.acknowledge,
+            reason=args.reason,
+            reset_cursor=args.reset_cursor,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "curate":
         result = curate_workspace_pressures(
             paths,
@@ -381,6 +412,14 @@ def _main(argv: list[str] | None = None) -> int:
             cycle_id=args.cycle_id,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "telemetry" and args.telemetry_command == "export":
+        payload = export_telemetry(paths, format=args.format)
+        if args.output:
+            Path(args.output).write_text(payload, encoding="utf-8")
+        else:
+            print(payload, end="")
         return 0
 
     if args.command == "integrity" and args.integrity_command == "rollback-tools-v2-to-v1":

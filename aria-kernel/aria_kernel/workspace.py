@@ -51,6 +51,7 @@ def workspace_paths(repo_root: Path, workspace_base: Path | None = None) -> Work
         "external_feedback": memory / "external_feedback.jsonl",
         "pressure": memory / "pressure.jsonl",
         "pressure_state": memory / "pressure_state.jsonl",
+        "vocabulary_rejections": memory / "vocabulary_rejections.jsonl",
         "since_migration_events": memory / "since_migration_events.jsonl",
         "governance": memory / "governance.jsonl",
     }

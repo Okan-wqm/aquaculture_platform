@@ -7,11 +7,12 @@ import json
 import re
 from difflib import get_close_matches
 from importlib import resources
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, file_hash, load_index, read_jsonl, verify_index_hashes, write_index
+from .phase2_utils import git_head
 from .pressure import close_pressures_from_signals
 from .workspace import WorkspacePaths, record_workspace_governance, require_workspace_v2
 
@@ -126,10 +127,15 @@ def build_feedback_event(args: argparse.Namespace, cycle_id: str | None = None, 
     ref = args.ref
     surface = args.surface or infer_surface(ref)
     failure_mode = args.failure_mode or DEFAULT_FAILURE_MODE_BY_KIND[args.kind]
-    validate_failure_mode(failure_mode, paths=paths)
     parser_kind = args.parser_kind or infer_parser_kind(ref)
+    validate_failure_mode(
+        failure_mode,
+        paths=paths,
+        rejection_context={"refs": [ref], "surface": surface, "parser_kind": parser_kind},
+    )
     gap_key = args.capability_gap_key or capability_gap_key(surface, failure_mode, parser_kind)
     evidence_refs = _normalize_evidence_refs(getattr(args, "evidence_ref", None))
+    evidence_chain = _parse_evidence_chain_args(getattr(args, "evidence_chain", None))
     if args.kind == "closed_signal":
         _validate_closed_signal_evidence(evidence_refs)
     created_at = now_iso()
@@ -153,6 +159,8 @@ def build_feedback_event(args: argparse.Namespace, cycle_id: str | None = None, 
         "capability_gap_key": gap_key,
         "failure_mode": failure_mode,
         "evidence_refs": evidence_refs,
+        "evidence_chain": evidence_chain,
+        "observed_commit": git_head(paths.repo_root) if paths is not None else None,
         "legacy_event_ids": [],
         "trusted": False,
         "created_at": created_at,
@@ -175,7 +183,11 @@ def add_feedback(paths: WorkspacePaths, event: dict[str, Any]) -> list[dict[str,
 
 def import_feedback(paths: WorkspacePaths, source_file: Path, *, cycle_id: str | None = None) -> int:
     require_workspace_v2(paths)
-    records = [normalize_feedback_event(record, cycle_id=cycle_id, paths=paths) for record in read_jsonl(source_file)]
+    observed_commit = git_head(paths.repo_root)
+    records = [
+        normalize_feedback_event(record, cycle_id=cycle_id, paths=paths, observed_commit=observed_commit)
+        for record in read_jsonl(source_file)
+    ]
     index = verify_index_hashes(paths.feedback_index, paths.ledgers)
     _record_normalization_drift(paths, records)
     for record in records:
@@ -278,7 +290,13 @@ def list_feedback_without_integrity(paths: WorkspacePaths) -> list[dict[str, Any
     return records
 
 
-def normalize_feedback_event(record: dict[str, Any], *, cycle_id: str | None = None, paths: WorkspacePaths | None = None) -> dict[str, Any]:
+def normalize_feedback_event(
+    record: dict[str, Any],
+    *,
+    cycle_id: str | None = None,
+    paths: WorkspacePaths | None = None,
+    observed_commit: str | None = None,
+) -> dict[str, Any]:
     if record.get("kind") not in FEEDBACK_KINDS:
         raise ValueError(f"unsupported feedback kind in import: {record.get('kind')}")
     source = record.get("source") or "operator"
@@ -293,10 +311,20 @@ def normalize_feedback_event(record: dict[str, Any], *, cycle_id: str | None = N
         _validate_closed_signal_evidence(evidence_refs)
     gap_key = record.get("capability_gap_key")
     failure_mode = str(record.get("failure_mode") or _failure_mode_from_gap_key(gap_key) or DEFAULT_FAILURE_MODE_BY_KIND[str(record.get("kind"))])
-    validate_failure_mode(failure_mode, paths=paths)
     if not isinstance(gap_key, str) or not gap_key:
         ref = refs[0]
+        surface = infer_surface(ref)
+        parser_kind = infer_parser_kind(ref)
         gap_key = capability_gap_key(infer_surface(ref), failure_mode, infer_parser_kind(ref))
+    else:
+        surface = infer_surface(refs[0])
+        parser_kind = infer_parser_kind(refs[0])
+    validate_failure_mode(
+        failure_mode,
+        paths=paths,
+        rejection_context={"refs": refs, "surface": surface, "parser_kind": parser_kind},
+    )
+    evidence_chain = _normalize_evidence_chain(record.get("evidence_chain", []))
     event = dict(record)
     legacy_ids = list(event.get("legacy_event_ids") or [])
     existing_id = event.get("event_id")
@@ -322,6 +350,8 @@ def normalize_feedback_event(record: dict[str, Any], *, cycle_id: str | None = N
             "trusted": bool(event.get("trusted", False)),
             "created_at": event.get("created_at") or now_iso(),
             "evidence_refs": evidence_refs,
+            "evidence_chain": evidence_chain,
+            "observed_commit": event.get("observed_commit") if "observed_commit" in event else observed_commit,
             "legacy_event_ids": sorted(dict.fromkeys(legacy_ids)),
             "schema_version": 2,
         },
@@ -402,13 +432,120 @@ def load_failure_mode_vocabulary(paths: WorkspacePaths | None = None) -> tuple[s
     return merged, metadata
 
 
-def validate_failure_mode(value: str, *, paths: WorkspacePaths | None = None) -> None:
+def validate_failure_mode(
+    value: str,
+    *,
+    paths: WorkspacePaths | None = None,
+    rejection_context: dict[str, Any] | None = None,
+) -> None:
     vocabulary = load_failure_modes(paths)
     if value in vocabulary:
         return
+    if paths is not None and rejection_context is not None:
+        _record_vocabulary_rejection(paths, value, rejection_context)
     suggestions = get_close_matches(value, sorted(vocabulary), n=3, cutoff=0.4)
     suffix = f"; did you mean: {', '.join(suggestions)}" if suggestions else ""
     raise ValueError(f"unsupported failure mode: {value}{suffix}")
+
+
+def _parse_evidence_chain_args(values: Any) -> list[dict[str, Any]]:
+    if not values:
+        return []
+    parsed: list[dict[str, Any]] = []
+    for value in values:
+        try:
+            item = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid evidence_chain JSON: {exc}") from exc
+        parsed.append(item)
+    return _normalize_evidence_chain(parsed)
+
+
+def _normalize_evidence_chain(value: Any) -> list[dict[str, Any]]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, dict):
+        value = [value]
+    if not isinstance(value, list):
+        raise ValueError("evidence_chain_must_be_array")
+    normalized: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("evidence_chain_entry_must_be_object")
+        source_type = item.get("source_type")
+        reference = item.get("reference")
+        trust_level = item.get("trust_level")
+        if source_type not in FEEDBACK_SOURCES:
+            raise ValueError("evidence_chain_invalid_source_type")
+        if not isinstance(reference, str) or not reference.strip():
+            raise ValueError("evidence_chain_reference_required")
+        if trust_level not in {"low", "medium", "high"}:
+            raise ValueError("evidence_chain_invalid_trust_level")
+        normalized.append(
+            {
+                "source_type": source_type,
+                "reference": reference.strip(),
+                "trust_level": trust_level,
+            },
+        )
+    return normalized
+
+
+def _record_vocabulary_rejection(paths: WorkspacePaths, value: str, context: dict[str, Any]) -> None:
+    refs = [str(ref) for ref in context.get("refs", []) if isinstance(ref, str) and _looks_like_workspace_ref(ref)]
+    if not refs:
+        return
+    record = {
+        "$schema": "aria/vocabulary-rejection/v1",
+        "rejected_at": now_iso(),
+        "failure_mode": value,
+        "surface": str(context.get("surface") or infer_surface(refs[0])),
+        "parser_kind": str(context.get("parser_kind") or infer_parser_kind(refs[0])),
+        "refs": refs,
+        "schema_version": 1,
+    }
+    append_jsonl(paths.ledgers["vocabulary_rejections"], record)
+    _maybe_propose_vocabulary_extension(paths, record)
+
+
+def _looks_like_workspace_ref(ref: str) -> bool:
+    path = ref.split(":", 1)[0]
+    return bool(path and not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", path) and not Path(path).is_absolute())
+
+
+def _maybe_propose_vocabulary_extension(paths: WorkspacePaths, rejection: dict[str, Any]) -> None:
+    surface = rejection.get("surface")
+    parser_kind = rejection.get("parser_kind")
+    if not isinstance(surface, str) or not isinstance(parser_kind, str):
+        return
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+    cluster = []
+    for row in read_jsonl(paths.ledgers["vocabulary_rejections"]):
+        if row.get("surface") != surface or row.get("parser_kind") != parser_kind:
+            continue
+        ts = str(row.get("rejected_at") or "")
+        try:
+            parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        if parsed.astimezone(timezone.utc) >= cutoff:
+            cluster.append(row)
+    if len(cluster) < 3:
+        return
+    details = {
+        "surface": surface,
+        "parser_kind": parser_kind,
+        "rejection_count": len(cluster),
+        "failure_modes": sorted({str(row.get("failure_mode")) for row in cluster if row.get("failure_mode")}),
+    }
+    for row in read_jsonl(paths.ledgers["governance"]):
+        if row.get("kind") == "vocabulary_extension_proposed":
+            existing = row.get("details", {})
+            if existing.get("surface") == surface and existing.get("parser_kind") == parser_kind:
+                return
+    record_workspace_governance(paths, "vocabulary_extension_proposed", details)
 
 
 def _modes_from_payload(payload: dict[str, Any], *, ignore_feedback_kinds: bool) -> set[str]:

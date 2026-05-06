@@ -7,7 +7,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from aria_kernel.learning import load_decay_thresholds, run_learning_pass
+from aria_kernel.learning import LEARNING_HOOK_ORDER, load_decay_thresholds, run_learning_pass
 from aria_kernel.ledger import LedgerIntegrityError, append_jsonl, read_jsonl
 from aria_kernel.pressure import effective_workspace_pressures
 from aria_kernel.tool_registry import ensure_tools_binding
@@ -32,7 +32,7 @@ class LearningPhase2ATests(unittest.TestCase):
         append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-old", now - timedelta(days=190)))
 
         first = run_learning_pass(self.paths, cycle_id="cyc-20260505T000000Z", tools_root=self.tools_dir, now=now)
-        self.assertEqual([row["hook_name"] for row in first["hooks"]], ["decay_recompute", "artifact_prune", "vocabulary_reload_check"])
+        self.assertEqual([row["hook_name"] for row in first["hooks"]], list(LEARNING_HOOK_ORDER))
         self.assertTrue(all(row["status"] == "ok" for row in first["hooks"]))
         self.assertEqual(first["hooks"][0]["result"]["transition_count"], 1)
 

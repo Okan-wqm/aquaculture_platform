@@ -29,7 +29,7 @@ Workspace rollback force-discard writes discarded rows to `<workspace>/aria-memo
 
 Feedback and pressure rows use v2 schemas. Feedback IDs are stable `FB-...-<sha16>` values from canonical identity. Pressure dedup is based only on `pressure_evidence_fingerprints_emitted`, computed from primitive, subtype, and the set of feedback event IDs.
 
-Governance known kinds include `workspace_bootstrapped`, `tools_root_bootstrapped`, `tools_root_bound`, `vocabulary_loaded`, `vocabulary_normalization_drift`, `discovery_dirty_tree_skipped`, `lock_reaped`, `migration_started`, `migration_phase`, `migration_completed`, `orphan_partial_backup_cleaned`, `rollback_started`, `rollback_phase`, `rollback_completed`, and `tool_unhealthy`. Unknown kinds remain additive-open and parse with warning semantics.
+Governance known kinds include `workspace_bootstrapped`, `tools_root_bootstrapped`, `tools_root_bound`, `vocabulary_loaded`, `vocabulary_normalization_drift`, `learning_hook_failed`, `pressure_decayed`, `cycle_artifact_archived`, `pressure_closed_via_trailer`, `pressure_addresses_recorded`, `pressure_trailer_ignored`, `pressure_satisfied_by_skill`, `agent_removed`, `feedback_escalated_to_trusted`, `ref_stale_detected`, `reverify_action_recorded`, `vocabulary_extension_proposed`, `vocabulary_extension_approved`, `discovery_dirty_tree_skipped`, `lock_reaped`, `migration_started`, `migration_phase`, `migration_completed`, `orphan_partial_backup_cleaned`, `rollback_started`, `rollback_phase`, `rollback_completed`, and `tool_unhealthy`. Unknown kinds remain additive-open and parse with warning semantics.
 
 Default governance actor: if `ARIA_ACTOR` is set, parse it as JSON `{kind, id, session?}`. Otherwise use `{kind: "human", id: "<user>@<hostname>"}`.
 
@@ -40,6 +40,10 @@ Each cycle runs an ordered learning pass before normal cycle work:
 1. `decay_recompute`
 2. `artifact_prune`
 3. `vocabulary_reload_check`
+4. `git_trailer_scan`
+5. `agent_satisfaction_scan`
+6. `trust_escalation_derive`
+7. `ref_staleness_check`
 
 Hooks are idempotent. Hook-to-hook communication is ledger-only; no shared in-memory hook state is authoritative. Workspace integrity drift, workspace precondition failures, and tools lock failures fail closed and abort the cycle. Local hook failures such as malformed hook config or unparsable hook-local files write workspace governance `learning_hook_failed` with `{hook_name, error_class, error_message, traceback_first_line?}` and the next hook continues.
 
@@ -50,6 +54,20 @@ Artifact pruning archives only non-ledger cycle artifacts with default TTL `365d
 Completed cycle outputs include `git_head_sha_at_cycle` in both the tools cycle completion event and workspace cycle artifact. The value is `git rev-parse HEAD` at cycle start, or `null` outside a Git worktree / on timeout.
 
 `vocabulary_reload_check` recomputes the failure-mode vocabulary marker. If the marker is unchanged it is a no-op; if it changes it writes `vocabulary_loaded` and updates the workspace integrity index.
+
+`git_trailer_scan` scans from the previous completed cycle's non-null `git_head_sha_at_cycle` to `HEAD`. It supports strict `Closes-Pressure: PE-...` and `Addresses-Pressure: PE-...` trailer lines. `Closes-Pressure` writes a `closed_signal` feedback row and directly appends `pressure_state` with reason `commit_trailer_closed`; the existing manual `closed_signal` threshold path remains unchanged. `Addresses-Pressure` writes `pressure_addresses_recorded` with `{pressure_event_id, commit_sha, trailer_kind, changed_files, cycle_id}`. Unknown pressure IDs, malformed trailer lines, and comma-separated trailer values write `pressure_trailer_ignored`. Git timeout, non-zero git exit, OSError while reading commits, or cycle artifact parse errors are operational hook failures and write `learning_hook_failed`.
+
+`agent_satisfaction_scan` reads `.claude/agents/*.md`, `.claude/agents/product-audit/*.md`, and `agents/aria-*.md`, excluding `.claude/agents.legacy/**`. Missing directories and empty matches are no-ops. It parses a stdlib-only minimal frontmatter subset for `addresses_pressure` inline or block-list values. Frontmatter alone never satisfies pressure; satisfaction requires matching genesis/proposal evidence or `pressure_addresses_recorded` whose `changed_files` includes the agent path. `<workspace>/aria-state/agent_index.json` is rebuildable state; first build emits no removals, later missing agents emit `agent_removed`, and satisfied pressure is never reopened by agent deletion.
+
+Feedback v2 may include `observed_commit` and `evidence_chain`. `feedback add` records `git rev-parse HEAD` when available; `feedback import` reads HEAD once for rows missing `observed_commit`. Missing or null `observed_commit` means `ref_stale: unknown`. `--evidence-chain` accepts repeatable JSON objects with `source_type`, `reference`, and `trust_level`; one malformed entry fails the whole operation. `trust_escalation_derive` marks a capability gap trusted when three distinct feedback sources exist and emits `feedback_escalated_to_trusted`. `ref_staleness_check` samples at most 100 refs per cycle and emits `ref_stale_detected` for stale, missing, or unknown evidence.
+
+`pressure reverify` supports dry-run, apply with `--acknowledge --reason`, and cursor reset. Dry-run mutates nothing. Apply archives only faded/sleeping non-terminal pressures whose evidence refs are all stale or missing and whose feedback is older than 30 days; active pressures return `needs_operator_review` and are never auto-archived. The cursor lives at `<workspace>/aria-state/reverify_cursor.json`.
+
+`vocabulary_rejections.jsonl` is a workspace ledger covered by integrity. Failure-mode validation rejection writes to it only when workspace paths are available. Three rejections in 90 days for the same surface/parser cluster emit one `vocabulary_extension_proposed`; `vocabulary_extension_approved` requires explicit operator approval and does not automatically edit vocabulary.
+
+`telemetry export --format prometheus|otel` writes to stdout by default, with optional `--output`. Required metrics include pressure state counts, effective magnitude, hook failures, decay transitions, trailer closes/addresses, satisfied pressures, removed agents, trusted pressure count, stale refs, reverify actions, vocabulary rejections/proposals, and archived artifacts.
+
+`auto_merge.py` remains explicit opt-in operational tooling. No learning hook, reverify path, trust path, satisfaction path, or default autonomous dispatcher path may call `merge_if_green`.
 
 Snapshot mode enum is `{committed, working_tree, staged}`. `committed` is the default and CI mode; it reads the HEAD-tracked snapshot and ignores dirty/staged changes with a governance event. `working_tree` is Phase-1 supported and includes dirty/staged/untracked files. `staged` is Phase-2 reserved.
 

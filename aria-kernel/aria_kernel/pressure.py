@@ -335,6 +335,7 @@ def effective_workspace_pressures(
     thresholds = decay_thresholds or DEFAULT_DECAY_THRESHOLDS
     pressures = read_jsonl(paths.ledgers["pressure"])
     feedback_by_id = _feedback_by_id(paths)
+    trusted_gap_keys, ref_statuses = _phase2_effective_context(paths)
     states_by_pressure: dict[str, list[dict[str, Any]]] = {}
     for row in read_jsonl(paths.ledgers["pressure_state"]):
         pressure_event_id = str(row.get("pressure_event_id") or "")
@@ -362,6 +363,9 @@ def effective_workspace_pressures(
         record["last_evidence_at"] = _format_dt(last_evidence_at)
         record["state_history"] = history
         record["state_details"] = {"timestamp_missing": timestamp_missing, "decay_thresholds": dict(thresholds)}
+        record["trusted_effective"] = record.get("capability_gap_key") in trusted_gap_keys
+        record["ref_stale"] = _pressure_ref_stale(record, ref_statuses)
+        record["effective_magnitude"] = _effective_magnitude(record, ref_statuses)
         records.append(record)
     records.sort(key=lambda row: (str(row.get("effective_state")), str(row.get("event_id") or row.get("pressure_id"))))
     return records
@@ -472,6 +476,41 @@ def _feedback_by_id(paths: WorkspacePaths) -> dict[str, dict[str, Any]]:
     for name in ("unknowns", "missed_signals", "external_feedback"):
         rows.extend(read_jsonl(paths.ledgers[name]))
     return {str(row.get("event_id")): row for row in rows if row.get("event_id")}
+
+
+def _phase2_effective_context(paths: WorkspacePaths) -> tuple[set[str], dict[str, str]]:
+    try:
+        from .trust import ref_status_by_feedback_id, trusted_gap_keys
+
+        return trusted_gap_keys(paths), ref_status_by_feedback_id(paths)
+    except Exception:
+        return set(), {}
+
+
+def _pressure_ref_stale(pressure: dict[str, Any], ref_statuses: dict[str, str]) -> str:
+    statuses = [
+        ref_statuses[event_id]
+        for event_id in pressure.get("feedback_event_ids", [])
+        if isinstance(event_id, str) and event_id in ref_statuses
+    ]
+    if not statuses:
+        return "unknown"
+    if any(status == "fresh" for status in statuses):
+        return "fresh"
+    if all(status in {"stale", "missing"} for status in statuses):
+        return "stale"
+    if any(status in {"stale", "missing"} for status in statuses):
+        return "partial_stale"
+    return "unknown"
+
+
+def _effective_magnitude(pressure: dict[str, Any], ref_statuses: dict[str, str]) -> float:
+    base = float(pressure.get("magnitude") or 0)
+    event_ids = [event_id for event_id in pressure.get("feedback_event_ids", []) if isinstance(event_id, str)]
+    if event_ids:
+        weights = [0.5 if ref_statuses.get(event_id) in {"stale", "missing"} else 1.0 for event_id in event_ids]
+        base *= sum(weights) / len(weights)
+    return round(base * (2.0 if pressure.get("trusted_effective") else 1.0), 3)
 
 
 def _last_evidence_at(pressure: dict[str, Any], feedback_by_id: dict[str, dict[str, Any]]) -> tuple[datetime, bool]:

@@ -147,5 +147,49 @@ def _matches(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
 
 
+def list_triage_decisions(
+    tools_root: str | Path,
+    *,
+    tier: str | None = None,
+    target_agent: str | None = None,
+    cycle_id: str | None = None,
+) -> list[dict[str, Any]]:
+    rows = load_jsonl(Path(tools_root) / "triage" / "decisions.jsonl")
+    if tier is not None:
+        rows = [r for r in rows if r.get("triage_tier") == tier]
+    if target_agent is not None:
+        rows = [r for r in rows if r.get("target_agent") == target_agent]
+    if cycle_id is not None:
+        rows = [r for r in rows if r.get("cycle_id") == cycle_id]
+    return rows
+
+
+def explain_triage(
+    tools_root: str | Path,
+    triage_id: str,
+) -> dict[str, Any]:
+    rows = load_jsonl(Path(tools_root) / "triage" / "decisions.jsonl")
+    matches = [
+        row for row in rows
+        if row.get("pressure_event_id") == triage_id
+        or row.get("event_id") == triage_id
+        or _decision_key(row) == triage_id
+    ]
+    if not matches:
+        return {
+            "schema_version": 1,
+            "status": "not_found",
+            "triage_id": triage_id,
+            "decisions": [],
+        }
+    return {
+        "schema_version": 1,
+        "status": "found",
+        "triage_id": triage_id,
+        "latest": matches[-1],
+        "history": matches,
+    }
+
+
 def _decision_key(row: dict[str, Any]) -> str:
     return f"{row.get('pressure_event_id')}:{row.get('triage_tier')}:{row.get('target_agent')}"

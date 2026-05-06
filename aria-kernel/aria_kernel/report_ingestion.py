@@ -193,3 +193,107 @@ def _refs(row: dict[str, Any]) -> list[str]:
     if not isinstance(raw, list):
         return []
     return [str(item) for item in raw if isinstance(item, str) and item.strip()]
+
+
+def list_ingested_findings(paths: WorkspacePaths) -> dict[str, Any]:
+    cache_path = paths.state_dir / "ingested_findings.json"
+    if not cache_path.exists():
+        return {"schema_version": 1, "status": "no_cache", "cache_path": cache_path.as_posix(), "ingested_count": 0, "finding_keys": []}
+    payload = _read_cache(cache_path)
+    keys = payload.get("finding_keys", []) if isinstance(payload, dict) else []
+    return {
+        "schema_version": 1,
+        "status": "ok",
+        "cache_path": cache_path.as_posix(),
+        "rebuilt_at": payload.get("rebuilt_at") if isinstance(payload, dict) else None,
+        "ingested_count": len(keys),
+        "finding_keys": keys,
+    }
+
+
+def import_finding_file(
+    paths: WorkspacePaths,
+    file_path: str | Path,
+    *,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    src = Path(file_path)
+    if not src.exists():
+        raise FileNotFoundError(f"finding_file_not_found: {src}")
+    raw = src.read_text(encoding="utf-8").strip()
+    if not raw:
+        raise ValueError("finding_file_empty")
+    rows: list[dict[str, Any]] = []
+    if raw.startswith("["):
+        payload = json.loads(raw)
+        if isinstance(payload, list):
+            rows = [row for row in payload if isinstance(row, dict)]
+    elif raw.startswith("{"):
+        payload = json.loads(raw)
+        if isinstance(payload, dict):
+            rows = [payload]
+    else:
+        for line_no, line in enumerate(raw.splitlines(), start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                row = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"finding_file_invalid_jsonl_line_{line_no}: {exc}") from exc
+            if isinstance(row, dict):
+                rows.append(row)
+    if not rows:
+        raise ValueError("finding_file_no_rows")
+    cache_path = paths.state_dir / "ingested_findings.json"
+    cache = _read_cache(cache_path) if cache_path.exists() else {"schema_version": 1, "finding_keys": []}
+    known = set(cache.get("finding_keys", []))
+    effective_cycle_id = cycle_id or "manual-import"
+    ingested: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for row in rows:
+        key = _finding_key(row)
+        if not key:
+            skipped.append({"reason": "missing_key", "row": row})
+            continue
+        if key in known:
+            skipped.append({"reason": "already_ingested", "finding_key": key})
+            continue
+        if str(row.get("status") or row.get("state") or "").upper() not in {"OPEN", ""}:
+            skipped.append({"reason": "non_open_state", "finding_key": key, "state": row.get("status") or row.get("state")})
+            continue
+        event = _feedback_event_from_finding(paths, row, cycle_id=effective_cycle_id)
+        add_feedback(paths, event)
+        known.add(key)
+        ingested.append(
+            {
+                "finding_key": key,
+                "feedback_event_id": event["event_id"],
+                "owner_agent": _owner_agent(row),
+                "severity": _severity(row),
+            },
+        )
+        record_workspace_governance(
+            paths,
+            "agent_report_ingested",
+            {
+                "cycle_id": effective_cycle_id,
+                "finding_key": key,
+                "feedback_event_id": event["event_id"],
+                "owner_agent": _owner_agent(row),
+                "severity": _severity(row),
+                "source": "manual_import",
+                "file": src.as_posix(),
+            },
+        )
+    _write_cache(cache_path, sorted(known))
+    return {
+        "schema_version": 1,
+        "status": "ok",
+        "cycle_id": effective_cycle_id,
+        "file": src.as_posix(),
+        "ingested_count": len(ingested),
+        "skipped_count": len(skipped),
+        "ingested": ingested,
+        "skipped": skipped,
+    }

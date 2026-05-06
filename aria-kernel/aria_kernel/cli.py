@@ -21,12 +21,29 @@ from aria_kernel.migration import (
 from aria_kernel.memory import withdraw_belief
 from aria_kernel.pressure import curate_workspace_pressures, explain_pressure, explain_workspace_pressure, list_workspace_pressures
 from aria_kernel.quarantine import quarantine_tool
+from aria_kernel.report_ingestion import (
+    import_finding_file,
+    list_ingested_findings,
+    report_ingestion_scan,
+)
 from aria_kernel.reverify import reverify_pressures
 from aria_kernel.telemetry import export_telemetry
 from aria_kernel.tool_registry import GovernanceError, list_tools, register_tool
 from aria_kernel.tool_runner import run_tool
+from aria_kernel.triage import (
+    explain_triage,
+    list_triage_decisions,
+    triage_policy_apply,
+)
 from aria_kernel.verification_gate import submit_worker_result, verify_worker_result
-from aria_kernel.worker_dispatch import create_dispatch_request
+from aria_kernel.worker_dispatch import (
+    auto_batch_dispatch,
+    cancel_dispatch_request,
+    create_dispatch_request,
+    list_dispatch_requests,
+    mark_dispatch_picked_up,
+    prune_worktrees,
+)
 from aria_kernel.workspace import ensure_workspace, require_workspace_v2, workspace_paths
 
 
@@ -220,10 +237,66 @@ def _main(argv: list[str] | None = None) -> int:
     worker_dispatch = worker_sub.add_parser("dispatch")
     add_workspace_args(worker_dispatch)
     add_tools_arg(worker_dispatch)
-    worker_dispatch.add_argument("--pressure-event-id", required=True)
+    worker_dispatch.add_argument("--pressure-event-id", default=None)
     worker_dispatch.add_argument("--target-agent", default=None)
     worker_dispatch.add_argument("--prepare-worktree", action="store_true")
     worker_dispatch.add_argument("--acknowledge", action="store_true")
+    worker_dispatch.add_argument("--auto-batch", action="store_true")
+    worker_dispatch.add_argument("--limit", type=int, default=10)
+    worker_list = worker_sub.add_parser("list")
+    add_tools_arg(worker_list, required=True)
+    worker_list.add_argument("--state", default=None)
+    worker_list.add_argument("--target-agent", default=None)
+    worker_list.add_argument("--pressure-event-id", default=None)
+    worker_list.add_argument("--json", action="store_true")
+    worker_mark = worker_sub.add_parser("mark-picked-up")
+    add_tools_arg(worker_mark, required=True)
+    worker_mark.add_argument("pressure_event_id")
+    worker_mark.add_argument("--by", required=True)
+    worker_cancel = worker_sub.add_parser("cancel")
+    add_tools_arg(worker_cancel, required=True)
+    worker_cancel.add_argument("pressure_event_id")
+    worker_cancel.add_argument("--reason", required=True)
+
+    worktree_prune_parser = sub.add_parser("worktree-prune")
+    add_workspace_args(worktree_prune_parser)
+    add_tools_arg(worktree_prune_parser, required=True)
+    worktree_prune_parser.add_argument("--acknowledge", action="store_true")
+    worktree_prune_parser.add_argument("--ttl-days", type=int, default=7)
+
+    agent_report_parser = sub.add_parser("agent-report")
+    agent_report_sub = agent_report_parser.add_subparsers(dest="agent_report_command", required=True)
+    ar_scan = agent_report_sub.add_parser("scan-registry")
+    add_workspace_args(ar_scan)
+    add_tools_arg(ar_scan)
+    ar_scan.add_argument("--cycle-id", required=True)
+    ar_scan.add_argument("--backfill-open", action="store_true")
+    ar_scan.add_argument("--limit", type=int, default=100)
+    ar_scan.add_argument("--confirm-large-backfill", action="store_true")
+    ar_scan.add_argument("--acknowledge", action="store_true")
+    ar_import = agent_report_sub.add_parser("import")
+    add_workspace_args(ar_import)
+    ar_import.add_argument("--file", required=True)
+    ar_import.add_argument("--cycle-id", default=None)
+    ar_list = agent_report_sub.add_parser("list")
+    add_workspace_args(ar_list)
+    ar_list.add_argument("--json", action="store_true")
+
+    triage_parser = sub.add_parser("triage")
+    triage_sub = triage_parser.add_subparsers(dest="triage_command", required=True)
+    triage_run = triage_sub.add_parser("run")
+    add_workspace_args(triage_run)
+    add_tools_arg(triage_run, required=True)
+    triage_run.add_argument("--cycle-id", required=True)
+    triage_list = triage_sub.add_parser("list")
+    add_tools_arg(triage_list, required=True)
+    triage_list.add_argument("--tier", default=None)
+    triage_list.add_argument("--target-agent", default=None)
+    triage_list.add_argument("--cycle-id", default=None)
+    triage_list.add_argument("--json", action="store_true")
+    triage_explain = triage_sub.add_parser("explain")
+    add_tools_arg(triage_explain, required=True)
+    triage_explain.add_argument("triage_id")
 
     worker_result = sub.add_parser("worker-result")
     worker_result_sub = worker_result.add_subparsers(dest="worker_result_command", required=True)
@@ -257,7 +330,9 @@ def _main(argv: list[str] | None = None) -> int:
     )
     paths = (
         resolve_paths(args)
-        if hasattr(args, "workspace_root") and args.command in {"feedback", "pressure", "curate", "telemetry", "worker"} and not legacy_pressure_explain
+        if hasattr(args, "workspace_root")
+        and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune"}
+        and not legacy_pressure_explain
         else None
     )
 
@@ -450,16 +525,114 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "worker" and args.worker_command == "dispatch":
-        result = create_dispatch_request(
-            paths,
-            pressure_event_id=args.pressure_event_id,
-            tools_root=args.tools_dir,
+        if args.auto_batch:
+            result = auto_batch_dispatch(
+                paths,
+                tools_root=args.tools_dir,
+                limit=args.limit,
+                prepare_worktree=args.prepare_worktree,
+                acknowledge=args.acknowledge,
+            )
+        else:
+            if not args.pressure_event_id:
+                parser.error("worker dispatch requires --pressure-event-id or --auto-batch")
+            result = create_dispatch_request(
+                paths,
+                pressure_event_id=args.pressure_event_id,
+                tools_root=args.tools_dir,
+                target_agent=args.target_agent,
+                prepare_worktree=args.prepare_worktree,
+                acknowledge=args.acknowledge,
+            )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "worker" and args.worker_command == "list":
+        rows = list_dispatch_requests(
+            args.tools_dir,
+            state=args.state,
             target_agent=args.target_agent,
-            prepare_worktree=args.prepare_worktree,
+            pressure_event_id=args.pressure_event_id,
+        )
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "worker" and args.worker_command == "mark-picked-up":
+        result = mark_dispatch_picked_up(
+            args.tools_dir,
+            pressure_event_id=args.pressure_event_id,
+            actor=args.by,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("status") in {"marked"} else 1
+
+    if args.command == "worker" and args.worker_command == "cancel":
+        result = cancel_dispatch_request(
+            args.tools_dir,
+            pressure_event_id=args.pressure_event_id,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("status") in {"cancelled", "already_cancelled"} else 1
+
+    if args.command == "worktree-prune":
+        result = prune_worktrees(
+            paths.repo_root if paths is not None else Path(args.workspace_root).resolve(),
+            args.tools_dir,
+            acknowledge=args.acknowledge,
+            ttl_days=args.ttl_days,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("status") == "ok" else 1
+
+    if args.command == "agent-report" and args.agent_report_command == "scan-registry":
+        require_workspace_v2(paths)
+        result = report_ingestion_scan(
+            paths,
+            cycle_id=args.cycle_id,
+            tools_root=args.tools_dir,
+            backfill_limit=args.limit,
+            confirm_large_backfill=args.confirm_large_backfill,
             acknowledge=args.acknowledge,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+
+    if args.command == "agent-report" and args.agent_report_command == "import":
+        require_workspace_v2(paths)
+        result = import_finding_file(paths, Path(args.file), cycle_id=args.cycle_id)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "agent-report" and args.agent_report_command == "list":
+        result = list_ingested_findings(paths)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "triage" and args.triage_command == "run":
+        require_workspace_v2(paths)
+        result = triage_policy_apply(
+            paths,
+            cycle_id=args.cycle_id,
+            tools_root=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "triage" and args.triage_command == "list":
+        rows = list_triage_decisions(
+            args.tools_dir,
+            tier=args.tier,
+            target_agent=args.target_agent,
+            cycle_id=args.cycle_id,
+        )
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "triage" and args.triage_command == "explain":
+        result = explain_triage(args.tools_dir, args.triage_id)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("status") == "found" else 1
 
     if args.command == "worker-result" and args.worker_result_command == "submit":
         result = submit_worker_result(

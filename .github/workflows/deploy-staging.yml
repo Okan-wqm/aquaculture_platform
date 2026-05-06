@@ -434,7 +434,7 @@ jobs:
 
       - name: Deploy to Staging Droplet
         # SEC-CI-002: pinned to SHA
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.0.3
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
         with:
           host:     ${{ secrets.STAGING_DROPLET_HOST }}
           username: ${{ secrets.STAGING_DROPLET_USER }}

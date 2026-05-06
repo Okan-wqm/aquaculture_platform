@@ -817,7 +817,7 @@ jobs:
 
       - name: Deploy to DigitalOcean Droplet
         # SEC-CI-002: pinned to SHA
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.0.3
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
         env:
           # Expand GitHub expressions into runner env vars so the ssh-action
           # can forward them via `envs:` into the remote bash. Keeping the

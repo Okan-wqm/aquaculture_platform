@@ -86,7 +86,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"
 # DebuggingRecorder installs a programmable metrics recorder so unit
 # tests can assert counter increments without a Prometheus exporter —
 # proves the emitter actually fires on every flush, not just compiles.
-metrics-util = { version = "0.19", features = ["debugging"] }
+metrics-util = { version = "0.20", features = ["debugging"] }
 # ADR-031 PR-C #9 — live-wire integration tests for the policy
 # request-reply + subscriber path. Testcontainers spins up a
 # plaintext NATS broker per test; nats-client's `test-utils`

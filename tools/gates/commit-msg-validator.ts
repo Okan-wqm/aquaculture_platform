@@ -112,6 +112,68 @@ function isAriaFindingId(id: string): boolean {
 }
 
 /**
+ * Plan 018 Phase 4 (G5) — Closes-trailer ID-content cross-check.
+ *
+ * Reads the ARIA artifact JSON at `path` and returns the in-file ID field
+ * value (`finding_id` for aria-findings/, `debt_id` for aria-debts/). The
+ * caller compares the returned value against the trailer ID; a mismatch is
+ * a smuggled-trailer attempt the validator must fail-closed on.
+ *
+ * Why a separate read here: the existsSync gate before us proves the JSON
+ * file exists; the ARIA-shape pairing gate proves path-vs-ID kind agrees.
+ * Neither catches a trailer like
+ *   `Closes: aria-findings/F-001.json#F-002`
+ * — the file exists, the path is aria-findings/, the ID is F-NNN, all
+ * three structural gates pass, but the in-file `finding_id` is `F-001`
+ * while the trailer claims `F-002`. The audit (Plan 018 G5 [MEDIUM])
+ * caught this; the fix is to parse the JSON and compare the ID field.
+ *
+ * Returns `{ kind: 'ok', value }` on success, `{ kind: 'unreadable',
+ * reason }` if the file cannot be parsed (syntax error, EOF, missing
+ * field, wrong field type). The caller never silently falls through —
+ * every error path emits an explicit ARIA violation with a distinct
+ * message so operators can tell parse failure apart from mismatch.
+ */
+function readAriaArtifactId(
+  absPath: string,
+  path: string,
+): { kind: 'ok'; value: string } | { kind: 'unreadable'; reason: string } {
+  const expectedField = path.startsWith('aria-findings/') ? 'finding_id' : 'debt_id';
+  let raw: string;
+  try {
+    raw = readFileSync(absPath, 'utf8');
+  } catch (err) {
+    return {
+      kind: 'unreadable',
+      reason: `ARIA file unreadable (${(err as Error).message})`,
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return {
+      kind: 'unreadable',
+      reason: `ARIA file unreadable (JSON parse failed: ${(err as Error).message})`,
+    };
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return {
+      kind: 'unreadable',
+      reason: 'ARIA file unreadable (top-level value is not a JSON object)',
+    };
+  }
+  const value = (parsed as Record<string, unknown>)[expectedField];
+  if (typeof value !== 'string' || value.length === 0) {
+    return {
+      kind: 'unreadable',
+      reason: `ARIA file unreadable (missing or non-string ${expectedField} field)`,
+    };
+  }
+  return { kind: 'ok', value };
+}
+
+/**
  * Commits landed BEFORE the registry + this gate existed. Amending is
  * forbidden under the force-push ban, so these short SHAs are allow-
  * listed. Going forward, the set does not grow.
@@ -366,6 +428,28 @@ function validateCommit(
           subject: commit.subject,
           reason: `Closes: ARIA trailer path/ID mismatch — aria-findings/ requires F-NNN, aria-debts/ requires DEBT-YYYY-MM-DD-NNN; got path=${path} id=${findingId}`,
         });
+      } else if (existsSync(reviewFile)) {
+        // Plan 018 Phase 4 (G5) — Closes-trailer ID-content cross-check.
+        // Three earlier gates have passed: trailer regex match, file
+        // exists, ARIA path/ID kind agrees. The smuggled-trailer
+        // class the audit caught is a path/file-content disagreement
+        // (e.g. aria-findings/F-001.json#F-002 — file content says
+        // finding_id=F-001 but trailer claims F-002). Parse + compare.
+        const result = readAriaArtifactId(reviewFile, path);
+        if (result.kind === 'unreadable') {
+          out.push({
+            sha: commit.shortSha,
+            subject: commit.subject,
+            reason: `Closes: ${result.reason} (path=${path})`,
+          });
+        } else if (result.value !== findingId) {
+          const expectedField = path.startsWith('aria-findings/') ? 'finding_id' : 'debt_id';
+          out.push({
+            sha: commit.shortSha,
+            subject: commit.subject,
+            reason: `Closes: ARIA file's ${expectedField} (${result.value}) does not match trailer ID (${findingId}); path=${path}`,
+          });
+        }
       }
     } else if (findingId.startsWith('ORPHAN-')) {
       if (!orphanIds.has(findingId)) {
@@ -508,6 +592,7 @@ export {
   isAriaFindingId,
   loadOrphanIds,
   loadRegistryIds,
+  readAriaArtifactId,
   validateCommit,
   type Commit,
   type Trailer,

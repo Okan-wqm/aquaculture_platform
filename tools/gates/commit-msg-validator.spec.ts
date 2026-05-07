@@ -45,6 +45,9 @@
  */
 
 import { strict as assert } from 'node:assert';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { test } from 'node:test';
 
 import {
@@ -54,9 +57,21 @@ import {
   extractTrailers,
   isAriaArtifactPath,
   isAriaFindingId,
+  readAriaArtifactId,
   validateCommit,
   type Commit,
 } from './commit-msg-validator';
+
+// Plan 018 Phase 4 fixtures live under aria-findings/.test-fixtures/ +
+// aria-debts/.test-fixtures/. The kernel's _refresh_index globs
+// `F-*.json` / `DEBT-*.json` so dot-prefixed dirs are excluded; commit-
+// msg-validator references files by literal path so it sees them
+// regardless. Fixtures are written in `before` and removed in `after`.
+const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+  encoding: 'utf8',
+}).trim();
+const FIXTURE_FINDINGS_DIR = resolve(REPO_ROOT, 'aria-findings/.test-fixtures');
+const FIXTURE_DEBTS_DIR = resolve(REPO_ROOT, 'aria-debts/.test-fixtures');
 
 // ---------------------------------------------------------
 // CLOSES_TRAILER_REGEX
@@ -507,5 +522,120 @@ test('validateCommit: registry trailer still routes to registry (not ARIA)', () 
       /ARIA trailer/,
       `unexpected ARIA-routed violation on legacy registry trailer: ${v.reason}`,
     );
+  }
+});
+
+// ---------------------------------------------------------
+// Plan 018 Phase 4 — Closes-trailer ID-content cross-check (G5)
+// ---------------------------------------------------------
+//
+// Earlier gates (trailer regex, existsSync, ARIA path/ID kind agreement)
+// all pass on a smuggled trailer like
+//   `Closes: aria-findings/F-001.json#F-002`
+// because the file exists, the path is aria-findings/, and the trailer ID
+// is F-NNN-shaped. Plan 017 Phase 1.1 only added the structural checks;
+// the audit caught that no gate parsed the file content. These tests pin
+// the new ID-vs-content match, mismatch, and unreadable-file lanes.
+
+test('validateCommit: ARIA finding trailer with matching finding_id passes ID cross-check', () => {
+  // Setup: write a fixture file with finding_id=F-901 at a real on-disk
+  // path under aria-findings/.test-fixtures/. The validator reads the
+  // file, parses it, and compares the in-file finding_id to the trailer
+  // ID — equality means no ID-content violation surfaces.
+  mkdirSync(FIXTURE_FINDINGS_DIR, { recursive: true });
+  const fixturePath = resolve(FIXTURE_FINDINGS_DIR, 'F-901.json');
+  writeFileSync(
+    fixturePath,
+    JSON.stringify({ finding_id: 'F-901', severity: 'LOW', status: 'OPEN' }, null, 2),
+  );
+  try {
+    const commit: Commit = {
+      sha: 'abc123',
+      shortSha: 'abc123',
+      subject: 'feat(aria-kernel): id-match',
+      body: 'body\n\nCloses: aria-findings/.test-fixtures/F-901.json#F-901',
+    };
+    const violations = validateCommit(commit, new Set(), new Set(), () => false);
+    // No violations — the file exists, the path/ID kind agrees, and the
+    // in-file finding_id matches the trailer ID.
+    assert.strictEqual(
+      violations.length,
+      0,
+      `expected zero violations on ID match, got: ${JSON.stringify(violations)}`,
+    );
+  } finally {
+    rmSync(FIXTURE_FINDINGS_DIR, { recursive: true, force: true });
+  }
+});
+
+test('validateCommit: ARIA finding trailer with mismatched finding_id fires ID cross-check violation', () => {
+  // Setup: write a fixture file with finding_id=F-901 but craft a trailer
+  // claiming F-902. Earlier structural gates pass (file exists, path is
+  // aria-findings/, ID is F-NNN); the new ID-content check fires.
+  mkdirSync(FIXTURE_FINDINGS_DIR, { recursive: true });
+  const fixturePath = resolve(FIXTURE_FINDINGS_DIR, 'F-901.json');
+  writeFileSync(
+    fixturePath,
+    JSON.stringify({ finding_id: 'F-901', severity: 'LOW', status: 'OPEN' }, null, 2),
+  );
+  try {
+    const commit: Commit = {
+      sha: 'abc123',
+      shortSha: 'abc123',
+      subject: 'feat(aria-kernel): id-mismatch',
+      body: 'body\n\nCloses: aria-findings/.test-fixtures/F-901.json#F-902',
+    };
+    const violations = validateCommit(commit, new Set(), new Set(), () => false);
+    const idMismatch = violations.find((v) =>
+      /ARIA file's finding_id \(F-901\) does not match trailer ID \(F-902\)/.test(v.reason),
+    );
+    assert.notStrictEqual(
+      idMismatch,
+      undefined,
+      `expected ID mismatch violation, got: ${JSON.stringify(violations)}`,
+    );
+  } finally {
+    rmSync(FIXTURE_FINDINGS_DIR, { recursive: true, force: true });
+  }
+});
+
+test('validateCommit: ARIA debt trailer with malformed JSON fires unreadable violation', () => {
+  // Setup: write a non-JSON file at a debt path. Earlier structural gates
+  // pass (file exists, path is aria-debts/, ID is DEBT-shaped); the new
+  // unreadable lane fires.
+  mkdirSync(FIXTURE_DEBTS_DIR, { recursive: true });
+  const fixturePath = resolve(FIXTURE_DEBTS_DIR, 'DEBT-2026-05-07-901.json');
+  writeFileSync(fixturePath, 'this is not valid json {[');
+  try {
+    const commit: Commit = {
+      sha: 'abc123',
+      shortSha: 'abc123',
+      subject: 'feat(aria-kernel): malformed-json',
+      body: 'body\n\nCloses: aria-debts/.test-fixtures/DEBT-2026-05-07-901.json#DEBT-2026-05-07-901',
+    };
+    const violations = validateCommit(commit, new Set(), new Set(), () => false);
+    const unreadable = violations.find((v) =>
+      /ARIA file unreadable \(JSON parse failed/.test(v.reason),
+    );
+    assert.notStrictEqual(
+      unreadable,
+      undefined,
+      `expected unreadable violation, got: ${JSON.stringify(violations)}`,
+    );
+  } finally {
+    rmSync(FIXTURE_DEBTS_DIR, { recursive: true, force: true });
+  }
+});
+
+test('readAriaArtifactId returns finding_id for aria-findings/ path', () => {
+  // Direct unit-level coverage of the new helper.
+  mkdirSync(FIXTURE_FINDINGS_DIR, { recursive: true });
+  const fixturePath = resolve(FIXTURE_FINDINGS_DIR, 'F-902.json');
+  writeFileSync(fixturePath, JSON.stringify({ finding_id: 'F-902' }));
+  try {
+    const result = readAriaArtifactId(fixturePath, 'aria-findings/.test-fixtures/F-902.json');
+    assert.deepStrictEqual(result, { kind: 'ok', value: 'F-902' });
+  } finally {
+    rmSync(FIXTURE_FINDINGS_DIR, { recursive: true, force: true });
   }
 });

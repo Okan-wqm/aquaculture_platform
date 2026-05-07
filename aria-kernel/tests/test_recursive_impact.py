@@ -223,6 +223,83 @@ class StubSourceBehaviorTests(unittest.TestCase):
         self.assertTrue(exposed, f"expected exposes entry; got {mf_entries}")
         self.assertTrue(consumed, f"expected consumes entry; got {mf_entries}")
 
+    def test_graphql_api_source_picks_up_code_first_resolver(self) -> None:
+        # Plan 019 Phase 9.5 (operator critique #7) — repo uses code-first
+        # GraphQL: @Resolver/@Query/@Mutation decorators on plain *.ts
+        # files (no .resolver.ts naming). The widened glob must catch
+        # apps/**/*.ts that carries any of these decorators.
+        svc_dir = self.repo / "apps" / "foo-service" / "src" / "farm"
+        svc_dir.mkdir(parents=True, exist_ok=True)
+        resolver_path = svc_dir / "farm.controller.ts"
+        resolver_path.write_text(
+            "import { Resolver, Query, Mutation } from '@nestjs/graphql';\n"
+            "@Resolver(() => Farm)\n"
+            "export class FarmController {\n"
+            "  @Query(() => [Farm])\n"
+            "  async farms(): Promise<Farm[]> { return []; }\n"
+            "  @Mutation(() => Farm)\n"
+            "  async createFarm(input: any): Promise<Farm> { return null!; }\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        rel = resolver_path.relative_to(self.repo).as_posix()
+        result = compute_recursive_impact(
+            intended_files=[rel],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        gql_entries = [e for e in result["entries"] if e["source"] == "graphql_api"]
+        self.assertTrue(gql_entries, f"expected graphql_api entries on code-first resolver; got {result['entries']}")
+
+    def test_graphql_api_source_skips_non_decorator_apps_ts(self) -> None:
+        # An apps/**/*.ts file with NO GraphQL decorator must NOT trigger
+        # the graphql_api source (otherwise every backend file would
+        # match — false positive flood).
+        svc_dir = self.repo / "apps" / "foo-service" / "src" / "util"
+        svc_dir.mkdir(parents=True, exist_ok=True)
+        utility_path = svc_dir / "logger.ts"
+        utility_path.write_text(
+            "export class Logger { log(msg: string): void {} }\n",
+            encoding="utf-8",
+        )
+        rel = utility_path.relative_to(self.repo).as_posix()
+        result = compute_recursive_impact(
+            intended_files=[rel],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        gql_entries = [e for e in result["entries"] if e["source"] == "graphql_api"]
+        self.assertEqual(gql_entries, [],
+                         f"expected zero graphql_api entries on non-decorator ts; got {gql_entries}")
+
+    def test_frontend_module_source_picks_up_vite_config(self) -> None:
+        # Plan 019 Phase 9.5 (operator critique #7) — snowball web/ uses
+        # vite.config.ts as primary build config. The widened glob must
+        # catch *.vite.config.ts paths in addition to module-federation.
+        mod_dir = self.repo / "web" / "shared-ui"
+        mod_dir.mkdir(parents=True, exist_ok=True)
+        vite_path = mod_dir / "vite.config.ts"
+        vite_path.write_text(
+            "import { federation } from '@module-federation/vite';\n"
+            "export default {\n"
+            "  plugins: [federation({\n"
+            "    name: 'shared-ui',\n"
+            "    exposes: {\n"
+            "      './Button': './src/Button.tsx',\n"
+            "    },\n"
+            "  })],\n"
+            "};\n",
+            encoding="utf-8",
+        )
+        rel = vite_path.relative_to(self.repo).as_posix()
+        result = compute_recursive_impact(
+            intended_files=[rel],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        mf_entries = [e for e in result["entries"] if e["source"] == "frontend_module"]
+        self.assertTrue(mf_entries, f"expected frontend_module entry on vite.config.ts; got {result['entries']}")
+
 
 class ImportGraphTests(unittest.TestCase):
     def setUp(self) -> None:

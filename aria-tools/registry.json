@@ -440,16 +440,16 @@
     },
     {
       "allowed_read_globs": [
-        "apps/**/*.ts",
-        "libs/**/*.ts"
+        "apps/farm-service/src/**/*.ts",
+        "libs/backend-common/src/database/schema-manager.service.ts"
       ],
       "claim_types": [
         "schema_drift"
       ],
       "created_at": "2026-05-05T08:29:32+00:00",
       "declared_scope": [
-        "apps/**/entities/**/*.ts",
-        "libs/backend-common/**/*.ts"
+        "apps/farm-service/src/**/*.ts",
+        "libs/backend-common/src/database/schema-manager.service.ts"
       ],
       "default_input": {
         "roots": [
@@ -481,22 +481,24 @@
         "type": "object"
       },
       "owner": "platform",
-      "parse_window_signature": "sha256:d95c2aed9585659135670c663db6f6cedfb1ec43f6ef643c9a54b4c7ad76bfbc",
+      "parse_window_signature": "sha256:b9af930212c7f1bea96636eb4c9bdb486e03d845a3ab0aaf3b11e6f54cb9217c",
       "runner": {
         "argv": [
-          "python3",
-          "shadow_runner.py",
-          "schema-drift-adapter"
+          "npx",
+          "ts-node",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/typeorm-entity-schema-adapter.ts"
         ],
-        "cwd": "tools/aria-poc",
+        "cwd": ".",
         "stdin_json": true,
-        "timeout_ms": 15000,
+        "timeout_ms": 180000,
         "type": "subprocess"
       },
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "schema-drift-adapter",
-      "updated_at": "2026-05-05T08:29:32+00:00",
+      "updated_at": "2026-05-07T16:00:00Z",
       "version": "0.1.0"
     },
     {

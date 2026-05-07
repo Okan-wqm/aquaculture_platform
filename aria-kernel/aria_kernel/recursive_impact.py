@@ -433,17 +433,39 @@ _GRAPHQL_OP_FIELD_RE = re.compile(
 )
 
 
+_CODE_FIRST_GQL_DECORATOR_RE = re.compile(
+    r"@(?:Resolver|Query|Mutation|Subscription|ResolveField|ObjectType|InputType|Field)\b",
+)
+
+
 def _graphql_api_source(
     intended_files: list[str],
     workspace_root: Path,
 ) -> list[ImpactEntry]:
-    relevant = [
-        f for f in intended_files
-        if (f.endswith(".graphql")
-            or f.endswith(".resolver.ts")
-            or f.endswith(".subgraph.ts")
-            or "/codegen/" in f.replace("\\", "/"))
-    ]
+    # Plan 019 Phase 9.5 (operator critique #7) — repo uses code-first
+    # GraphQL: @Resolver/@Query/@Mutation/@ObjectType decorators on
+    # plain .ts files, not .graphql schema sources. Schema-first naming
+    # patterns (.graphql, .resolver.ts, .subgraph.ts, /codegen/) are
+    # preserved for backward-compat but the primary detection path is
+    # decorator-based via _CODE_FIRST_GQL_DECORATOR_RE on apps/**/*.ts.
+    def _is_relevant(path_str: str) -> bool:
+        normalized = path_str.replace("\\", "/")
+        if (path_str.endswith(".graphql")
+                or path_str.endswith(".resolver.ts")
+                or path_str.endswith(".subgraph.ts")
+                or "/codegen/" in normalized):
+            return True
+        # Code-first: any apps/**/*.ts that carries a GraphQL decorator.
+        if (normalized.startswith("apps/") and normalized.endswith(".ts")
+                and not normalized.endswith(".spec.ts")):
+            try:
+                content = (workspace_root / path_str).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                return False
+            return bool(_CODE_FIRST_GQL_DECORATOR_RE.search(content))
+        return False
+
+    relevant = [f for f in intended_files if _is_relevant(f)]
     if not relevant:
         return []
 
@@ -733,11 +755,25 @@ def _frontend_module_source(
     intended_files: list[str],
     workspace_root: Path,
 ) -> list[ImpactEntry]:
-    relevant = [
-        f for f in intended_files
-        if (f.endswith("/module-federation.config.ts")
-            or "/web/shell/src/router/" in f.replace("\\", "/"))
-    ]
+    # Plan 019 Phase 9.5 (operator critique #7) — snowball web/ surface
+    # uses vite.config.ts as primary build config; only web/shell carries
+    # module-federation.config.{ts,js}. Widen detection to either
+    # config family + the shell router. The same _MF_EXPOSES_RE /
+    # _MF_REMOTES_RE patterns work on vite.config.ts because vite's
+    # module-federation plugin uses identical exposes/remotes shape.
+    def _is_relevant(path_str: str) -> bool:
+        normalized = path_str.replace("\\", "/")
+        if normalized.endswith("/module-federation.config.ts"):
+            return True
+        if normalized.endswith("/module-federation.config.js"):
+            return True
+        if normalized.endswith("/vite.config.ts"):
+            return True
+        if "/web/shell/src/router/" in normalized:
+            return True
+        return False
+
+    relevant = [f for f in intended_files if _is_relevant(f)]
     if not relevant:
         return []
 

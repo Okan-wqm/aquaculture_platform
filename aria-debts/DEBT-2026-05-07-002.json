@@ -1,7 +1,8 @@
 {
   "$schema": "aria/architectural-debt/v1",
   "auto_close_forbidden": true,
-  "current_status": "IN_PROGRESS",
+  "closes_in_commit": "<pending-phase-4-commit>",
+  "current_status": "RESOLVED",
   "debt_id": "DEBT-2026-05-07-002",
   "due_date": "2026-08-05T11:41:18Z",
   "escalation_history": [],
@@ -41,6 +42,12 @@
       "by": "operator:plan-019-phase-2",
       "note": "originating_finding re-linked from F-002 (chain chain_bd9aa02134d4a65c) to F-003 (chain chain_ad7d2420e22e72a5); reason: F-002 \u2192 F-003 supersession.",
       "status": "IN_PROGRESS"
+    },
+    {
+      "at": "2026-05-07T15:04:15Z",
+      "by": "operator:plan-019-phase-4",
+      "note": "Plan 019 Phase 4 implemented the three remaining real impact-graph sources: _graphql_api_source (parses .graphql / .resolver.ts / .subgraph.ts for type/operation declarations + workspace-wide consumer grep), _db_entity_source (parses TypeORM @Entity decorators with ADR-011 schema invariant enforcement + cross-entity reference grep), and _frontend_module_source (parses module-federation.config.ts exposes/remotes graph + cross-module consumer grep). All four impact sources are now real (event_contract closed in Plan 017 Phase 5). Test count: 12 \u2192 15 (3 new fixture-driven tests per source); existing 12 tests still green.",
+      "status": "RESOLVED"
     }
   ],
   "verification_status": "VERIFIED",

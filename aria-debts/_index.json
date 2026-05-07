@@ -10,7 +10,7 @@
       "severity": "LOW"
     },
     {
-      "current_status": "IN_PROGRESS",
+      "current_status": "RESOLVED",
       "debt_id": "DEBT-2026-05-07-002",
       "due_date": "2026-08-05T11:41:18Z",
       "originating_finding_id": "F-003",
@@ -46,6 +46,6 @@
       "severity": "MEDIUM"
     }
   ],
-  "generated_at": "2026-05-07T14:02:04Z",
+  "generated_at": "2026-05-07T15:04:15Z",
   "schema_version": 1
 }

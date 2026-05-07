@@ -418,15 +418,446 @@ def _event_contract_source(
     return entries
 
 
-_graphql_api_source = _make_stub_source(
-    "graphql_api", "libs/*/codegen/**/*.ts"
+# Plan 019 Phase 4.A — real graphql_api source (DEBT-2026-05-07-002 closure step 1).
+# Scans .graphql schema files for `type Query/Mutation/Subscription { ... }`
+# and `extend type X { ... }` blocks, then greps the workspace for resolver
+# consumers (`@Resolver`, `@ResolveField`, `@Query`, `@Mutation` decorators).
+# Files outside *.graphql / *.resolver.ts / *.subgraph.ts are skipped.
+
+_GRAPHQL_TYPE_RE = re.compile(
+    r"(?:type|extend\s+type)\s+(\w+)\s*\{",
 )
-_db_entity_source = _make_stub_source(
-    "db_entity", "apps/*/src/**/entities/**/*.entity.ts"
+_GRAPHQL_OP_FIELD_RE = re.compile(
+    r"^\s*(\w+)\s*\(",  # field name with arguments — captures Query/Mutation field names
+    re.MULTILINE,
 )
-_frontend_module_source = _make_stub_source(
-    "frontend_module", "web/**/module-federation.config.ts"
+
+
+def _graphql_api_source(
+    intended_files: list[str],
+    workspace_root: Path,
+) -> list[ImpactEntry]:
+    relevant = [
+        f for f in intended_files
+        if (f.endswith(".graphql")
+            or f.endswith(".resolver.ts")
+            or f.endswith(".subgraph.ts")
+            or "/codegen/" in f.replace("\\", "/"))
+    ]
+    if not relevant:
+        return []
+
+    entries: list[ImpactEntry] = []
+    seen_paths: set[str] = set()
+
+    for source_file in relevant:
+        abs_path = workspace_root / source_file
+        try:
+            content = abs_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            entries.append(
+                ImpactEntry(
+                    path=source_file,
+                    project=_project_for_path(workspace_root, source_file),
+                    relationship="graphql_api_unreadable",
+                    status="unknown",
+                    source="graphql_api",
+                    block_reason="GraphQL source file could not be read at workspace SHA",
+                    validation_scope=(),
+                )
+            )
+            continue
+
+        type_names = sorted({m.group(1) for m in _GRAPHQL_TYPE_RE.finditer(content)})
+        if not type_names:
+            entries.append(
+                ImpactEntry(
+                    path=source_file,
+                    project=_project_for_path(workspace_root, source_file),
+                    relationship="graphql_api_no_types_declared",
+                    status="known",
+                    source="graphql_api",
+                    validation_scope=("nx affected --target=test --base=HEAD~1",),
+                )
+            )
+            continue
+
+        entries.append(
+            ImpactEntry(
+                path=source_file,
+                project=_project_for_path(workspace_root, source_file),
+                relationship=f"defines:{','.join(type_names)}",
+                status="known",
+                source="graphql_api",
+                validation_scope=("nx test gateway-api",),
+            )
+        )
+
+        # Consumer scan: grep each type name in resolver + frontend code.
+        search_roots = [
+            workspace_root / sub
+            for sub in ("apps", "libs", "web", "platform")
+            if (workspace_root / sub).exists()
+        ]
+        for type_name in type_names:
+            if not search_roots:
+                break
+            try:
+                proc = subprocess.run(
+                    [
+                        "grep", "-rln",
+                        "--include", "*.ts",
+                        "--include", "*.tsx",
+                        "--include", "*.graphql",
+                        "--exclude-dir", "node_modules",
+                        "--exclude-dir", ".git",
+                        "--exclude-dir", "dist",
+                        "--exclude-dir", "aria-tools",
+                        type_name,
+                        *(str(p) for p in search_roots),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+                hits = proc.stdout.splitlines() if proc.stdout else []
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                hits = []
+            for hit in hits:
+                rel_hit = (
+                    Path(hit).resolve().relative_to(workspace_root).as_posix()
+                    if Path(hit).is_absolute() else hit
+                )
+                if rel_hit == source_file or rel_hit in seen_paths:
+                    continue
+                seen_paths.add(rel_hit)
+                entries.append(
+                    ImpactEntry(
+                        path=rel_hit,
+                        project=_project_for_path(workspace_root, rel_hit),
+                        relationship=f"consumes:{type_name}",
+                        status="known",
+                        source="graphql_api",
+                        depth=1,
+                    )
+                )
+    return entries
+
+
+# Plan 019 Phase 4.B — real db_entity source (DEBT-2026-05-07-002 closure step 2).
+# Scans TypeORM `*.entity.ts` files for `@Entity('table', { schema: '<svc>' })`
+# decorators, then greps cross-entity references (`@ManyToOne(() => Foo)`,
+# `@OneToMany`, `@JoinColumn`) plus migration files that touch the same table.
+# ADR-011 invariant: every @Entity must declare schema; missing schema is
+# emitted as an `unknown` entry the convergent gate fails closed on.
+
+_TYPEORM_ENTITY_RE = re.compile(
+    r"@Entity\s*\(\s*['\"](?P<table>\w+)['\"](?:\s*,\s*\{\s*schema:\s*['\"](?P<schema>\w+)['\"])?",
 )
+_TYPEORM_RELATION_RE = re.compile(
+    r"@(?:ManyToOne|OneToMany|ManyToMany|OneToOne)\s*\(\s*\(?\s*\)?\s*=>\s*(\w+)",
+)
+
+
+def _db_entity_source(
+    intended_files: list[str],
+    workspace_root: Path,
+) -> list[ImpactEntry]:
+    relevant = [
+        f for f in intended_files
+        if (f.endswith(".entity.ts")
+            or "/migrations/" in f.replace("\\", "/"))
+    ]
+    if not relevant:
+        return []
+
+    entries: list[ImpactEntry] = []
+    seen_paths: set[str] = set()
+
+    for source_file in relevant:
+        abs_path = workspace_root / source_file
+        try:
+            content = abs_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            entries.append(
+                ImpactEntry(
+                    path=source_file,
+                    project=_project_for_path(workspace_root, source_file),
+                    relationship="db_entity_unreadable",
+                    status="unknown",
+                    source="db_entity",
+                    block_reason="entity/migration file could not be read at workspace SHA",
+                    validation_scope=(),
+                )
+            )
+            continue
+
+        # Migration files: extract referenced tables + emit consumes
+        # entries for entities that reference those tables. We don't try
+        # to fully parse SQL — a substring match on table names is enough
+        # to surface the impact graph.
+        if "/migrations/" in source_file.replace("\\", "/"):
+            entries.append(
+                ImpactEntry(
+                    path=source_file,
+                    project=_project_for_path(workspace_root, source_file),
+                    relationship="defines:migration",
+                    status="known",
+                    source="db_entity",
+                    validation_scope=("nx test schema-invariants",),
+                )
+            )
+            continue
+
+        # Entity files: enforce ADR-011 (schema declared) + cross-link
+        match = _TYPEORM_ENTITY_RE.search(content)
+        if not match:
+            entries.append(
+                ImpactEntry(
+                    path=source_file,
+                    project=_project_for_path(workspace_root, source_file),
+                    relationship="db_entity_no_decorator",
+                    status="known",
+                    source="db_entity",
+                    validation_scope=(),
+                )
+            )
+            continue
+
+        table = match.group("table")
+        schema = match.group("schema")
+        if not schema:
+            entries.append(
+                ImpactEntry(
+                    path=source_file,
+                    project=_project_for_path(workspace_root, source_file),
+                    relationship=f"defines:{table}_missing_schema_decl",
+                    status="unknown",
+                    source="db_entity",
+                    block_reason=(
+                        "ADR-011 violation: @Entity must declare schema. "
+                        "Add { schema: '<service>' } to the decorator."
+                    ),
+                    validation_scope=("nx test schema-invariants",),
+                )
+            )
+            continue
+
+        entries.append(
+            ImpactEntry(
+                path=source_file,
+                project=_project_for_path(workspace_root, source_file),
+                relationship=f"defines:{schema}.{table}",
+                status="known",
+                source="db_entity",
+                validation_scope=(f"nx test {_project_for_path(workspace_root, source_file) or 'aria'}",),
+            )
+        )
+
+        # Cross-entity scan: which other entity files reference this one
+        # via @ManyToOne / @OneToMany / @ManyToMany / @OneToOne?
+        # Identify the entity class name from the file path heuristic:
+        # the convention is `<EntityName>.entity.ts` -> class name from
+        # the @Entity decorator's class is below it; we use a quick
+        # match on `^export class (\w+)` near the decorator.
+        class_match = re.search(r"export\s+class\s+(\w+)", content)
+        entity_class = class_match.group(1) if class_match else None
+        if not entity_class:
+            continue
+        search_roots = [
+            workspace_root / sub
+            for sub in ("apps", "libs")
+            if (workspace_root / sub).exists()
+        ]
+        if not search_roots:
+            continue
+        try:
+            proc = subprocess.run(
+                [
+                    "grep", "-rln",
+                    "--include", "*.entity.ts",
+                    "--include", "*.repository.ts",
+                    "--include", "*.service.ts",
+                    "--exclude-dir", "node_modules",
+                    "--exclude-dir", ".git",
+                    "--exclude-dir", "dist",
+                    "--exclude-dir", "aria-tools",
+                    entity_class,
+                    *(str(p) for p in search_roots),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            hits = proc.stdout.splitlines() if proc.stdout else []
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            hits = []
+        for hit in hits:
+            rel_hit = (
+                Path(hit).resolve().relative_to(workspace_root).as_posix()
+                if Path(hit).is_absolute() else hit
+            )
+            if rel_hit == source_file or rel_hit in seen_paths:
+                continue
+            seen_paths.add(rel_hit)
+            entries.append(
+                ImpactEntry(
+                    path=rel_hit,
+                    project=_project_for_path(workspace_root, rel_hit),
+                    relationship=f"consumes:{entity_class}",
+                    status="known",
+                    source="db_entity",
+                    depth=1,
+                )
+            )
+    return entries
+
+
+# Plan 019 Phase 4.C — real frontend_module source (DEBT-2026-05-07-002 closure step 3).
+# Scans `web/**/module-federation.config.ts` for `exposes` + `remotes`
+# graph and `web/shell/src/router/*.ts` for route mounts. Cross-modules
+# that consume the same `remotes` entry are linked as consumers.
+
+_MF_EXPOSES_RE = re.compile(
+    r"exposes\s*:\s*\{([^}]*)\}",
+    re.DOTALL,
+)
+_MF_REMOTES_RE = re.compile(
+    r"remotes\s*:\s*\{([^}]*)\}",
+    re.DOTALL,
+)
+_MF_KEY_RE = re.compile(r"['\"]([^'\"]+)['\"]\s*:")
+
+
+def _frontend_module_source(
+    intended_files: list[str],
+    workspace_root: Path,
+) -> list[ImpactEntry]:
+    relevant = [
+        f for f in intended_files
+        if (f.endswith("/module-federation.config.ts")
+            or "/web/shell/src/router/" in f.replace("\\", "/"))
+    ]
+    if not relevant:
+        return []
+
+    entries: list[ImpactEntry] = []
+    seen_paths: set[str] = set()
+
+    for source_file in relevant:
+        abs_path = workspace_root / source_file
+        try:
+            content = abs_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            entries.append(
+                ImpactEntry(
+                    path=source_file,
+                    project=_project_for_path(workspace_root, source_file),
+                    relationship="frontend_module_unreadable",
+                    status="unknown",
+                    source="frontend_module",
+                    block_reason="module-federation/router file could not be read at workspace SHA",
+                    validation_scope=(),
+                )
+            )
+            continue
+
+        exposes_block = _MF_EXPOSES_RE.search(content)
+        remotes_block = _MF_REMOTES_RE.search(content)
+        exposed_keys = (
+            sorted({m.group(1) for m in _MF_KEY_RE.finditer(exposes_block.group(1))})
+            if exposes_block else []
+        )
+        remote_keys = (
+            sorted({m.group(1) for m in _MF_KEY_RE.finditer(remotes_block.group(1))})
+            if remotes_block else []
+        )
+
+        if exposed_keys:
+            entries.append(
+                ImpactEntry(
+                    path=source_file,
+                    project=_project_for_path(workspace_root, source_file),
+                    relationship=f"exposes:{','.join(exposed_keys)}",
+                    status="known",
+                    source="frontend_module",
+                    validation_scope=("nx test shared-ui",),
+                )
+            )
+        if remote_keys:
+            entries.append(
+                ImpactEntry(
+                    path=source_file,
+                    project=_project_for_path(workspace_root, source_file),
+                    relationship=f"consumes:{','.join(remote_keys)}",
+                    status="known",
+                    source="frontend_module",
+                    validation_scope=(),
+                )
+            )
+        if not exposed_keys and not remote_keys:
+            entries.append(
+                ImpactEntry(
+                    path=source_file,
+                    project=_project_for_path(workspace_root, source_file),
+                    relationship="frontend_module_empty_graph",
+                    status="known",
+                    source="frontend_module",
+                    validation_scope=(),
+                )
+            )
+            continue
+
+        # Cross-module consumer scan: any other module that lists this
+        # module's exposed keys as their `remotes` is a downstream consumer.
+        if exposed_keys:
+            search_roots = [
+                workspace_root / "web"
+                if (workspace_root / "web").exists() else None,
+            ]
+            search_roots = [r for r in search_roots if r is not None]
+            for exposed in exposed_keys:
+                if not search_roots:
+                    break
+                try:
+                    proc = subprocess.run(
+                        [
+                            "grep", "-rln",
+                            "--include", "module-federation.config.ts",
+                            "--include", "*.tsx",
+                            "--include", "*.ts",
+                            "--exclude-dir", "node_modules",
+                            "--exclude-dir", ".git",
+                            "--exclude-dir", "dist",
+                            exposed,
+                            *(str(p) for p in search_roots),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=20,
+                    )
+                    hits = proc.stdout.splitlines() if proc.stdout else []
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    hits = []
+                for hit in hits:
+                    rel_hit = (
+                        Path(hit).resolve().relative_to(workspace_root).as_posix()
+                        if Path(hit).is_absolute() else hit
+                    )
+                    if rel_hit == source_file or rel_hit in seen_paths:
+                        continue
+                    seen_paths.add(rel_hit)
+                    entries.append(
+                        ImpactEntry(
+                            path=rel_hit,
+                            project=_project_for_path(workspace_root, rel_hit),
+                            relationship=f"consumes:{exposed}",
+                            status="known",
+                            source="frontend_module",
+                            depth=1,
+                        )
+                    )
+    return entries
 
 
 _SOURCE_TABLE: tuple[tuple[str, Callable[[list[str], Path], list[ImpactEntry]]], ...] = (

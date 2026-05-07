@@ -97,36 +97,131 @@ class StubSourceBehaviorTests(unittest.TestCase):
         import shutil
         shutil.rmtree(self.repo, ignore_errors=True)
 
-    def test_stub_sources_emit_unknown_per_source(self) -> None:
+    def test_non_matching_files_produce_no_specialized_source_entries(self) -> None:
+        # Plan 019 Phase 4 — graphql_api, db_entity, frontend_module are
+        # now real sources (DEBT-2026-05-07-002 closure). Each filters
+        # intended_files to its domain glob and returns empty when
+        # nothing matches. event_contract was already real (Plan 017
+        # Phase 5.2). For a generic .ts file outside every domain glob,
+        # NO specialized source emits — only nx_graph / import_graph
+        # produce entries (and only when their dependencies are
+        # observable).
         result = compute_recursive_impact(
             intended_files=["apps/foo-service/src/x.ts"],
             workspace_root=self.repo,
             base_dir=self.tools,
         )
-        # graphql_api, db_entity, frontend_module each emit one unknown stub
-        # entry per intended file (they cannot resolve real refs in a fresh
-        # fixture repo). event_contract is no longer a stub (Plan 017 Phase
-        # 5.2); it returns no entries when intended_files do not include
-        # libs/event-contracts paths. nx_graph also returns "unknown" because
-        # no nx cache exists.
-        unknown = result["summary"]["by_status"]["unknown"]
-        self.assertGreaterEqual(unknown, 3, result["summary"])
-
-    def test_stub_sources_carry_block_reason(self) -> None:
-        result = compute_recursive_impact(
-            intended_files=["apps/foo-service/src/x.ts"],
-            workspace_root=self.repo,
-            base_dir=self.tools,
-        )
-        stub_entries = [
+        specialized = [
             e for e in result["entries"]
             if e["source"] in {"event_contract", "graphql_api", "db_entity", "frontend_module"}
         ]
-        self.assertGreater(len(stub_entries), 0)
-        for entry in stub_entries:
-            self.assertEqual(entry["status"], "unknown")
-            self.assertIsNotNone(entry["block_reason"])
-            self.assertIn("not yet implemented", entry["block_reason"])
+        self.assertEqual(
+            specialized, [],
+            f"specialized sources should not emit for non-domain files; got {specialized}",
+        )
+
+    def test_db_entity_source_emits_when_entity_file_in_intended(self) -> None:
+        # Seed a synthetic entity file in the fixture repo + run the
+        # compute. db_entity_source must produce at least one defines:
+        # entry. ADR-011-violating entity (no schema) produces an
+        # unknown entry with the block_reason naming the rule.
+        entity_dir = self.repo / "apps" / "foo-service" / "src" / "things" / "entities"
+        entity_dir.mkdir(parents=True, exist_ok=True)
+        entity_path = entity_dir / "thing.entity.ts"
+        entity_path.write_text(
+            "import { Entity, PrimaryGeneratedColumn } from 'typeorm';\n"
+            "@Entity('things', { schema: 'foo' })\n"
+            "export class ThingEntity {\n"
+            "  @PrimaryGeneratedColumn('uuid') id!: string;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        rel = entity_path.relative_to(self.repo).as_posix()
+        result = compute_recursive_impact(
+            intended_files=[rel],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        db_entries = [e for e in result["entries"] if e["source"] == "db_entity"]
+        self.assertTrue(any("defines:foo.things" in e["relationship"] for e in db_entries),
+                        f"expected defines:foo.things; got {db_entries}")
+
+    def test_db_entity_source_flags_missing_schema(self) -> None:
+        # ADR-011 invariant: missing schema in @Entity decorator is an
+        # architectural violation. The source emits an unknown entry
+        # with block_reason naming ADR-011.
+        entity_dir = self.repo / "apps" / "foo-service" / "src" / "things" / "entities"
+        entity_dir.mkdir(parents=True, exist_ok=True)
+        entity_path = entity_dir / "no_schema.entity.ts"
+        entity_path.write_text(
+            "import { Entity } from 'typeorm';\n"
+            "@Entity('orphans')\n"
+            "export class OrphanEntity {}\n",
+            encoding="utf-8",
+        )
+        rel = entity_path.relative_to(self.repo).as_posix()
+        result = compute_recursive_impact(
+            intended_files=[rel],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        db_entries = [e for e in result["entries"] if e["source"] == "db_entity"]
+        violation = next((e for e in db_entries if "missing_schema_decl" in e["relationship"]), None)
+        self.assertIsNotNone(violation, f"expected missing_schema entry; got {db_entries}")
+        self.assertEqual(violation["status"], "unknown")
+        self.assertIn("ADR-011", violation["block_reason"] or "")
+
+    def test_graphql_api_source_emits_when_graphql_file_in_intended(self) -> None:
+        # Seed a synthetic .graphql file + run compute.
+        gql_dir = self.repo / "apps" / "foo-service" / "src"
+        gql_dir.mkdir(parents=True, exist_ok=True)
+        gql_path = gql_dir / "schema.graphql"
+        gql_path.write_text(
+            "type Query {\n  things: [Thing!]!\n}\n"
+            "type Thing {\n  id: ID!\n  name: String!\n}\n",
+            encoding="utf-8",
+        )
+        rel = gql_path.relative_to(self.repo).as_posix()
+        result = compute_recursive_impact(
+            intended_files=[rel],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        gql_entries = [e for e in result["entries"] if e["source"] == "graphql_api"]
+        self.assertTrue(
+            any("defines:" in e["relationship"] for e in gql_entries),
+            f"expected defines: entry; got {gql_entries}",
+        )
+
+    def test_frontend_module_source_emits_when_module_federation_in_intended(self) -> None:
+        # Seed a synthetic module-federation.config.ts + run compute.
+        mod_dir = self.repo / "web" / "modules" / "foo"
+        mod_dir.mkdir(parents=True, exist_ok=True)
+        mf_path = mod_dir / "module-federation.config.ts"
+        mf_path.write_text(
+            "export default {\n"
+            "  name: 'foo',\n"
+            "  exposes: {\n"
+            "    './FooModule': './src/FooModule.tsx',\n"
+            "    './FooRoutes': './src/FooRoutes.tsx',\n"
+            "  },\n"
+            "  remotes: {\n"
+            "    'shell': 'shell@http://localhost:4200/remoteEntry.js',\n"
+            "  },\n"
+            "};\n",
+            encoding="utf-8",
+        )
+        rel = mf_path.relative_to(self.repo).as_posix()
+        result = compute_recursive_impact(
+            intended_files=[rel],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        mf_entries = [e for e in result["entries"] if e["source"] == "frontend_module"]
+        exposed = [e for e in mf_entries if "exposes:" in e["relationship"]]
+        consumed = [e for e in mf_entries if "consumes:" in e["relationship"]]
+        self.assertTrue(exposed, f"expected exposes entry; got {mf_entries}")
+        self.assertTrue(consumed, f"expected consumes entry; got {mf_entries}")
 
 
 class ImportGraphTests(unittest.TestCase):

@@ -86,7 +86,16 @@ def preflight(
 
     branch = _try_git(["rev-parse", "--abbrev-ref", "HEAD"], root) or "<unknown>"
     head_sha = _try_git(["rev-parse", "HEAD"], root) or "<unknown>"
-    porcelain = _try_git(["status", "--porcelain"], root) or ""
+    # Read porcelain via raw subprocess: _try_git's str.strip() removes the
+    # leading space on the first line, breaking the fixed-width status decoder.
+    porcelain_proc = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    porcelain = porcelain_proc.stdout if porcelain_proc.returncode == 0 else ""
     raw_dirty_lines = [line for line in porcelain.splitlines() if line.strip()]
     runtime_dirty_lines = [line for line in raw_dirty_lines if _is_runtime_path(line)]
     source_dirty_lines = [line for line in raw_dirty_lines if not _is_runtime_path(line)]

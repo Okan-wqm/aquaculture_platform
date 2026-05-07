@@ -358,6 +358,39 @@ class PersistenceTests(unittest.TestCase):
         kinds = {json.loads(line).get("kind") for line in gov if line.strip()}
         self.assertIn("impact_graph_computed", kinds)
 
+    def test_governance_event_carries_phase_7_5_fields(self) -> None:
+        # Plan 019 Phase 7.5 — operator critique #6 made the governance
+        # event the SSoT for impact-graph summaries (the local
+        # impact-graphs/*.json directory is gitignored runtime artifact).
+        # The event must carry source_breakdown + intended_files +
+        # known_count + explicitly_blocked_count alongside the original
+        # fingerprint + entry_count + unknown_count.
+        compute_recursive_impact(
+            intended_files=["apps/foo-service/src/x.ts"],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
+        events = [
+            json.loads(line) for line in gov if line.strip()
+        ]
+        impact_events = [e for e in events if e.get("kind") == "impact_graph_computed"]
+        self.assertGreaterEqual(len(impact_events), 1)
+        latest = impact_events[-1]
+        details = latest.get("details", {})
+        # Phase 7.5 added fields:
+        self.assertIn("source_breakdown", details)
+        self.assertIsInstance(details["source_breakdown"], dict)
+        self.assertIn("known_count", details)
+        self.assertIn("explicitly_blocked_count", details)
+        self.assertIn("intended_files", details)
+        self.assertEqual(details["intended_files"], ["apps/foo-service/src/x.ts"])
+        # Plan 016 D1 baseline fields preserved:
+        self.assertIn("fingerprint", details)
+        self.assertIn("entry_count", details)
+        self.assertIn("unknown_count", details)
+        self.assertIn("max_depth_reached", details)
+
 
 if __name__ == "__main__":
     unittest.main()

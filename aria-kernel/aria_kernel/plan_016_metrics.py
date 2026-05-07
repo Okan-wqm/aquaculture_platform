@@ -68,26 +68,39 @@ def _claim_active_count(tools_root: Path) -> int:
 
 
 def _impact_unknown_count(tools_root: Path) -> int:
-    """Count impact-graph entries with status='unknown' across all recorded graphs.
+    """Plan 019 Phase 7.5 — read latest impact-graph unknown count from governance.
 
-    Walks `aria-tools/impact-graphs/*.json` (when present); also tolerates
-    inline impact entries inside `aria-tools/cycle-diff/*.json`. Either
-    shape contributes to the unknown total without double-counting.
+    Operator critique #5+#6 caught the prior semantic: the function used
+    to walk `aria-tools/impact-graphs/*.json` and sum unknown entries
+    across ALL graphs, double-counting old runs and breaking when the
+    directory is gitignored (Plan 019 Phase 0.3). The governance event
+    `impact_graph_computed` is the hash-chained SSoT for graph summaries
+    (the local impact-graphs/ JSON is a runtime artifact). This function
+    now reads governance.jsonl and returns the LATEST event's
+    unknown_count, matching the Plan 019 acceptance ("latest graph
+    unknown=0", not directory aggregate).
+
+    Returns 0 when no impact_graph_computed event exists yet (clean slate).
     """
-    count = 0
-    impact_dir = tools_root / "impact-graphs"
-    if impact_dir.exists():
-        for path in impact_dir.glob("*.json"):
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            entries = payload.get("entries") or []
-            count += sum(
-                1 for e in entries
-                if isinstance(e, dict) and e.get("status") == "unknown"
-            )
-    return count
+    governance = tools_root / "governance.jsonl"
+    if not governance.exists():
+        return 0
+    latest_unknown = 0
+    latest_ts = ""
+    for line in governance.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if row.get("kind") != "impact_graph_computed":
+            continue
+        ts = str(row.get("ts") or "")
+        if ts >= latest_ts:
+            latest_ts = ts
+            latest_unknown = int(row.get("details", {}).get("unknown_count", 0) or 0)
+    return latest_unknown
 
 
 def _plan_round_total(tools_root: Path) -> int:

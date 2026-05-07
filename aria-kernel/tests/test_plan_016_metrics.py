@@ -99,6 +99,77 @@ class CounterIncrementTests(unittest.TestCase):
         self.assertEqual(metrics["aria_pr_created_total"], 2)
 
 
+class ImpactUnknownCountSemanticsTests(unittest.TestCase):
+    """Plan 019 Phase 7.5 — operator critique #5+#6 semantic fix.
+
+    The pre-Phase-7.5 implementation walked aria-tools/impact-graphs/*.json
+    and SUMMED unknown entries across ALL graphs (double-counting old
+    runs + breaking when the directory is gitignored). The corrected
+    semantic reads the LATEST impact_graph_computed governance event's
+    unknown_count field — governance.jsonl is the hash-chained SSoT for
+    graph summaries, the local directory is a runtime artifact.
+    """
+
+    def setUp(self) -> None:
+        self.tools = _seed_tools()
+        self.repo = self.tools.parent
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.repo, ignore_errors=True)
+
+    def test_no_governance_events_means_zero_unknown(self) -> None:
+        metrics = compute_plan_016_metrics(base_dir=self.tools)
+        self.assertEqual(metrics["aria_impact_unknown_total"], 0)
+
+    def test_latest_event_unknown_count_is_returned(self) -> None:
+        # Three sequential impact_graph_computed events with descending
+        # unknown counts (5 -> 3 -> 0). The metric should return the
+        # LATEST (0), not the sum (8) and not the first (5).
+        for unknown in (5, 3, 0):
+            append_tools_governance(
+                self.tools, "impact_graph_computed",
+                {
+                    "fingerprint": f"fp-{unknown}",
+                    "entry_count": 10,
+                    "unknown_count": unknown,
+                    "known_count": 10 - unknown,
+                    "explicitly_blocked_count": 0,
+                    "source_breakdown": {"event_contract": 10},
+                    "max_depth_reached": 1,
+                    "intended_files": [f"libs/event-contracts/src/file{unknown}.ts"],
+                    "path": f"impact-graphs/fp-{unknown}.json",
+                },
+            )
+        metrics = compute_plan_016_metrics(base_dir=self.tools)
+        self.assertEqual(metrics["aria_impact_unknown_total"], 0,
+                         "metric must reflect the LATEST event, not the sum")
+
+    def test_directory_artifacts_no_longer_consulted(self) -> None:
+        # Plan 019 Phase 7.5: after the semantic fix, even if a stale
+        # impact-graphs/<fp>.json file exists with status=unknown
+        # entries, the metric returns 0 because the governance event
+        # is the SSoT and no event has been emitted yet.
+        impact_dir = self.tools / "impact-graphs"
+        impact_dir.mkdir(parents=True, exist_ok=True)
+        (impact_dir / "stale.json").write_text(json.dumps({
+            "entries": [
+                {"status": "unknown", "source": "graphql_api", "path": "x.graphql"},
+                {"status": "unknown", "source": "db_entity", "path": "y.entity.ts"},
+            ],
+        }), encoding="utf-8")
+        metrics = compute_plan_016_metrics(base_dir=self.tools)
+        self.assertEqual(metrics["aria_impact_unknown_total"], 0)
+
+    def test_other_event_kinds_ignored(self) -> None:
+        # The metric must filter on kind == 'impact_graph_computed' and
+        # not pick up unknown_count fields from unrelated events.
+        append_tools_governance(self.tools, "debt_emitted", {"unknown_count": 99})
+        append_tools_governance(self.tools, "review_recorded", {"unknown_count": 99})
+        metrics = compute_plan_016_metrics(base_dir=self.tools)
+        self.assertEqual(metrics["aria_impact_unknown_total"], 0)
+
+
 class DashboardWriterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tools = _seed_tools()

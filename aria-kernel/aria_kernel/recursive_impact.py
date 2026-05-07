@@ -975,6 +975,10 @@ def compute_recursive_impact(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
+    # Plan 019 Phase 7.5 (operator critique #5+#6) — governance event is
+    # the SSoT for unknown_count. Adding source_breakdown lets the
+    # dashboard render per-source coverage without re-reading the local
+    # impact-graphs/ runtime artifact (now gitignored per Phase 0.3).
     append_tools_governance(
         tools_root,
         "impact_graph_computed",
@@ -982,7 +986,11 @@ def compute_recursive_impact(
             "fingerprint": fingerprint,
             "entry_count": summary["entry_count"],
             "unknown_count": summary["by_status"].get("unknown", 0),
+            "known_count": summary["by_status"].get("known", 0),
+            "explicitly_blocked_count": summary["by_status"].get("explicitly_blocked", 0),
+            "source_breakdown": dict(summary["by_source"]),
             "max_depth_reached": summary["max_depth_reached"],
+            "intended_files": list(intended_files),
             "path": out_path.relative_to(tools_root).as_posix(),
         },
     )

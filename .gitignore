@@ -5,6 +5,10 @@
 .aria-ci/
 aria-tools/.archive/
 aria-tools/.backups/
+# Plan 019 Phase 0.3 — recursive_impact runtime artifacts (live evidence
+# already lives in runs.jsonl + governance.jsonl; per-compute graph dumps
+# under aria-tools/impact-graphs/ are throwaway snapshots).
+aria-tools/impact-graphs/
 .claude/agents/.dispatch-log.jsonl
 .claude/scheduled_tasks.lock
 

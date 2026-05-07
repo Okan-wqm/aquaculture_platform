@@ -531,6 +531,72 @@ def _main(argv: list[str] | None = None) -> int:
     b_list = budget_sub.add_parser("list")
     add_tools_arg(b_list, required=True)
 
+    arch_parser = sub.add_parser(
+        "architecture",
+        help="Plan 016 Faz E1 — architecture-first review (fix_in_place / replace_with_adr / etc.).",
+    )
+    arch_sub = arch_parser.add_subparsers(dest="architecture_command", required=True)
+    arch_review = arch_sub.add_parser("review")
+    add_tools_arg(arch_review, required=True)
+    arch_review.add_argument("--technology", required=True)
+    arch_review.add_argument("--proposed-action", required=True)
+    arch_review.add_argument("--root-cause", required=True)
+    arch_review.add_argument("--evidence-ref", action="append", required=True)
+    arch_review.add_argument("--authoritative-ref", action="append", default=None)
+    arch_review.add_argument("--repo-prior-ref", action="append", default=None)
+    arch_review.add_argument("--replacement-ground", action="append", default=None)
+    arch_review.add_argument("--migration-plan", default="")
+    arch_review.add_argument("--rollback-plan", default="")
+    arch_review.add_argument("--cycle-id", default=None)
+    arch_list = arch_sub.add_parser("list")
+    add_tools_arg(arch_list, required=True)
+
+    research_parser = sub.add_parser(
+        "research",
+        help="Plan 016 Faz E2 — sanitized research fetch + source / policy ledger.",
+    )
+    research_sub = research_parser.add_subparsers(dest="research_command", required=True)
+    rs_fetch = research_sub.add_parser("fetch")
+    add_tools_arg(rs_fetch, required=True)
+    rs_fetch.add_argument("--url", required=True)
+    rs_fetch.add_argument("--source-tier", required=True)
+    rs_fetch.add_argument("--title", default="")
+    rs_fetch.add_argument("--allowed-domain", action="append", default=None)
+    rs_fetch.add_argument("--content-file", default=None,
+                           help="Optional: read fetch payload from a file (avoids real HTTP in tests).")
+    rs_list = research_sub.add_parser("list")
+    add_tools_arg(rs_list, required=True)
+    rs_policy = research_sub.add_parser("set-policy")
+    add_tools_arg(rs_policy, required=True)
+    rs_policy.add_argument("--allowed-domain", action="append", required=True)
+
+    co_parser = sub.add_parser(
+        "critical-observation",
+        help="Plan 016 Faz E3 — critical observation persistence + escalation surface.",
+    )
+    co_sub = co_parser.add_subparsers(dest="critical_observation_command", required=True)
+    co_record = co_sub.add_parser("record")
+    add_tools_arg(co_record, required=True)
+    co_record.add_argument("--severity", required=True, choices=["CRITICAL", "HIGH", "MEDIUM"])
+    co_record.add_argument("--category", required=True,
+                            choices=["security", "data_integrity", "regulatory", "production_affecting", "plc_safety"])
+    co_record.add_argument("--summary", required=True)
+    co_record.add_argument("--evidence-ref", required=True)
+    co_record.add_argument("--detail", default="")
+    co_record.add_argument("--cycle-id", default=None)
+    co_list = co_sub.add_parser("list")
+    add_tools_arg(co_list, required=True)
+    co_list.add_argument("--include-resolved", action="store_true")
+    co_ack = co_sub.add_parser("acknowledge")
+    add_tools_arg(co_ack, required=True)
+    co_ack.add_argument("--observation-id", required=True)
+    co_ack.add_argument("--acknowledged-by", required=True)
+    co_resolve = co_sub.add_parser("resolve")
+    add_tools_arg(co_resolve, required=True)
+    co_resolve.add_argument("--observation-id", required=True)
+    co_resolve.add_argument("--resolved-by", required=True)
+    co_resolve.add_argument("--resolution-note", required=True)
+
     cp_parser = sub.add_parser(
         "convergent-plan",
         help="Plan 016 Faz D2 — convergent planning loop with envelope wiring.",
@@ -1211,6 +1277,110 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(rows, indent=2, sort_keys=True))
             return 0
         parser.error("unknown budget command")
+
+    if args.command == "architecture":
+        from aria_kernel.architecture import (
+            list_architecture_reviews,
+            review_architecture_decision,
+        )
+
+        if args.architecture_command == "review":
+            row = review_architecture_decision(
+                technology=args.technology,
+                proposed_action=args.proposed_action,
+                evidence_refs=args.evidence_ref,
+                root_cause=args.root_cause,
+                authoritative_refs=args.authoritative_ref,
+                repo_prior_refs=args.repo_prior_ref,
+                replacement_grounds=args.replacement_ground,
+                migration_plan=args.migration_plan,
+                rollback_plan=args.rollback_plan,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.architecture_command == "list":
+            print(json.dumps(list_architecture_reviews(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown architecture command")
+
+    if args.command == "research":
+        from aria_kernel.research import (
+            fetch_research_source,
+            list_research_fetches,
+            record_research_policy,
+        )
+
+        if args.research_command == "fetch":
+            content_override = None
+            if args.content_file:
+                content_override = Path(args.content_file).read_text(encoding="utf-8")
+            row = fetch_research_source(
+                url=args.url,
+                source_tier=args.source_tier,
+                title=args.title,
+                allowed_domains=args.allowed_domain,
+                content_override=content_override,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.research_command == "list":
+            print(json.dumps(list_research_fetches(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        if args.research_command == "set-policy":
+            row = record_research_policy(
+                allowed_domains=args.allowed_domain, base_dir=args.tools_dir
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown research command")
+
+    if args.command == "critical-observation":
+        from aria_kernel.critical_observation import (
+            acknowledge_critical_observation,
+            list_critical_observations,
+            record_critical_observation,
+            resolve_critical_observation,
+        )
+
+        if args.critical_observation_command == "record":
+            row = record_critical_observation(
+                severity=args.severity,
+                category=args.category,
+                summary=args.summary,
+                evidence_ref=args.evidence_ref,
+                detail=args.detail,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.critical_observation_command == "list":
+            rows = list_critical_observations(
+                base_dir=args.tools_dir, include_resolved=args.include_resolved
+            )
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        if args.critical_observation_command == "acknowledge":
+            row = acknowledge_critical_observation(
+                observation_id=args.observation_id,
+                acknowledged_by=args.acknowledged_by,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.critical_observation_command == "resolve":
+            row = resolve_critical_observation(
+                observation_id=args.observation_id,
+                resolved_by=args.resolved_by,
+                resolution_note=args.resolution_note,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown critical-observation command")
 
     if args.command == "convergent-plan":
         from aria_kernel.convergent_planning_bridge import (

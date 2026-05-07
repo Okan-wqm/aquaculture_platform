@@ -1,4 +1,4 @@
-# ARIA Plan 016 Dashboard (2026-05-07T09:54:20+00:00)
+# ARIA Plan 016 Dashboard (2026-05-07T11:53:47+00:00)
 
 ## Active Plans
 
@@ -9,11 +9,11 @@
 
 - HUMAN_REQUIRED open: 0
 - Open findings: 1
-- Open debts: 1
+- Open debts: 3
 
 ## Pending Agent Requests
 
-- aria_agent_request_total: 0
+- aria_agent_request_total: 2
 - aria_agent_claim_active: 0
 - aria_agent_claim_expired_total: 0
 
@@ -31,4 +31,4 @@
 - aria_pr_created_total: 0
 
 ---
-_Computed at 2026-05-07T09:54:20+00:00 from append-only ledgers — safe to recompute._
+_Computed at 2026-05-07T11:53:47+00:00 from append-only ledgers — safe to recompute._

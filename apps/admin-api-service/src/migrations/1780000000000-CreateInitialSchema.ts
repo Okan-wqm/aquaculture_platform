@@ -6,46 +6,51 @@ import { MigrationLogger } from '@aquaculture/backend-common/database';
  * ============================================================================
  *
  * Restores the admin-api-service migration baseline that was lost when most
- * of the original `CREATE TABLE` migrations were squashed out of source. On a
- * fresh-volume bootstrap, the admin schema is provisioned by
- * `infrastructure/docker/init-scripts/00-init-schemas.sh` plus a partial set
- * of init-script CREATE TABLEs:
- *   - 04-billing-tables.sql:        admin.module_pricing,
- *                                   admin.analytics_snapshots,
- *                                   admin.report_definitions,
- *                                   admin.report_executions
- *   - 11-service-audit-tables.sql:  admin.audit_logs (admin-api SUPER_ADMIN trail)
+ * of the original `CREATE TABLE` migrations were squashed out of source. The
+ * admin schema is provisioned by
+ * `infrastructure/docker/init-scripts/00-init-schemas.sh` (CREATE SCHEMA
+ * only) and this migration creates EVERY `admin.*` table that admin-api
+ * entities declare — including the five tables that the original baseline
+ * draft delegated to init scripts 04 and 11. Wave 5 of the bootstrap-
+ * restoration plan rolls those tables into the migration so the SQL
+ * baseline is the single source of truth and the init scripts can be
+ * deleted in the next orchestrator step.
  *
- * The remaining ~36 admin.* tables that admin-api entities declare are
- * created by NO migration. The downstream chain (1781500000000+) ALTERs
- * those tables — most notably `1781500000000-ConvertTimestampToTimestamptz`
- * which converts ~48 columns across 19 admin.* tables. On a fresh DB the
- * tables don't exist, the converter's `tableExistsInCurrentSchema` defensive
- * check skips them, and TypeORM autoLoadEntities + the SchemaDriftValidator
- * surfaces the drift on every cold start.
+ * Without this consolidation, the downstream chain (1781500000000+) ALTERs
+ * tables that the migration runner has not seen — the converter's
+ * `tableExistsInCurrentSchema` defensive check would skip them — and
+ * TypeORM autoLoadEntities + the SchemaDriftValidator surface the drift on
+ * every cold start.
  *
  * # Scope
  *
- * Creates 36 baseline `admin.*` tables in topologically-sorted order
+ * Creates 49 baseline `admin.*` tables in topologically-sorted order
  * (parents before FK children). Idempotent via `CREATE TABLE IF NOT EXISTS`,
  * `DO $$ ... EXCEPTION WHEN duplicate_object` for enum/FK blocks, and
  * `IF NOT EXISTS` on every index.
  *
  * # Tables NOT created here (owned by another step)
  *
- *   - admin.module_pricing            (init-script 04-billing-tables.sql)
- *   - admin.analytics_snapshots       (same)
- *   - admin.report_definitions        (same)
- *   - admin.report_executions         (same)
- *   - admin.audit_logs                (init-script 11-service-audit-tables.sql
- *                                      + migration 1787100000000-CreateAdminAuditLogsTable
- *                                      idempotent fallback)
  *   - admin.ingest_backend_policy_state (migration 1787300000000 owns the
  *                                      CREATE + seed; that migration uses
  *                                      `CREATE TABLE IF NOT EXISTS` so the
  *                                      ordering is benign either way, but
  *                                      we leave the seed responsibility with
  *                                      its dedicated owner)
+ *
+ * # Tables shared with init scripts (init scripts deleted post-merge)
+ *
+ *   - admin.module_pricing            (was init-script 04-billing-tables.sql)
+ *   - admin.analytics_snapshots       (same)
+ *   - admin.report_definitions        (same)
+ *   - admin.report_executions         (same)
+ *   - admin.audit_logs                (was init-script 11-service-audit-tables.sql)
+ *
+ * Migration 1787100000000-CreateAdminAuditLogsTable continues to ship as a
+ * defensive idempotent re-run for legacy droplets that ran on bare
+ * init-script boot — its `CREATE TABLE IF NOT EXISTS` becomes a no-op once
+ * this baseline lands, but the migration row stays in the ledger so partial
+ * upgrades remain replay-safe.
  *
  * Cross-schema entities the service reads from but does NOT own
  * (`{ schema: 'auth' | 'billing' | 'shared', synchronize: false }`) are
@@ -199,6 +204,16 @@ export class CreateInitialSchema1780000000000 implements MigrationInterface {
     await this.createSupportTicketsTable(queryRunner);
     await this.createTicketCommentsTable(queryRunner);
 
+    // Init-script-owned analytics, billing-config & admin audit
+    // (folded in from 04-billing-tables.sql and 11-service-audit-tables.sql
+    // — those scripts are deleted in the same PR). No FKs to other admin
+    // tables, so order is independent.
+    await this.createModulePricingTable(queryRunner);
+    await this.createAnalyticsSnapshotsTable(queryRunner);
+    await this.createReportDefinitionsTable(queryRunner);
+    await this.createReportExecutionsTable(queryRunner);
+    await this.createAdminAuditLogsTable(queryRunner);
+
     this.logger.log('Baseline admin schema initialised.');
   }
 
@@ -210,6 +225,13 @@ export class CreateInitialSchema1780000000000 implements MigrationInterface {
 
     // Reverse FK order — children first, then parents, then enums.
     const tablesInDropOrder = [
+      // Init-script-owned analytics, billing-config & admin audit (no
+      // inbound FKs from other admin tables — drop in any order).
+      'audit_logs',
+      'report_executions',
+      'report_definitions',
+      'analytics_snapshots',
+      'module_pricing',
       // Forum/support children
       'ticket_comments',
       'support_tickets',
@@ -296,6 +318,8 @@ export class CreateInitialSchema1780000000000 implements MigrationInterface {
       'discount_codes_discounttype_enum',
       'discount_codes_appliesto_enum',
       'discount_codes_duration_enum',
+      // admin.audit_logs severity (folded in from 11-service-audit-tables.sql)
+      'audit_logs_severity_enum',
     ];
     for (const enumType of enumTypes) {
       await queryRunner.query(
@@ -414,6 +438,18 @@ export class CreateInitialSchema1780000000000 implements MigrationInterface {
       {
         name: 'discount_codes_duration_enum',
         values: ['once', 'repeating', 'forever'],
+      },
+      // audit.entity.ts (admin-api SUPER_ADMIN audit trail) — admin's
+      // AuditSeverity is INTENTIONALLY narrower than auth's (no 'error'
+      // value) per the entity decorator. Type name follows TypeORM's
+      // `{table}_{column}_enum` convention so SchemaDriftValidator's
+      // resolveEnumTypeName matches it without renaming. The
+      // 1787100000000-CreateAdminAuditLogsTable migration ships the same
+      // enum + table CREATE as a defensive idempotent re-run for legacy
+      // droplets that boot from the older init-script path.
+      {
+        name: 'audit_logs_severity_enum',
+        values: ['info', 'warning', 'critical'],
       },
     ];
 
@@ -2388,6 +2424,251 @@ export class CreateInitialSchema1780000000000 implements MigrationInterface {
           FOREIGN KEY ("ticketId") REFERENCES admin.support_tickets("id") ON DELETE CASCADE;
       EXCEPTION WHEN duplicate_object THEN NULL;
       END $$
+    `);
+  }
+
+  // ============================================================================
+  // Init-script-owned analytics, billing-config & admin audit
+  //
+  // Folded in from `infrastructure/docker/init-scripts/04-billing-tables.sql`
+  // and `infrastructure/docker/init-scripts/11-service-audit-tables.sql`.
+  // Those init scripts are removed in the same orchestrator commit; the
+  // migration is now the single source of truth for these admin.* tables
+  // (matches every other admin schema table that the migration owns).
+  //
+  // No FKs to / from the rest of the admin schema, so order between these
+  // five tables is irrelevant. Column shapes mirror the FINAL state after
+  // any later ALTER (currently none target these tables — checked at
+  // bootstrap-restoration time against the 1781500000000+ chain).
+  // ============================================================================
+
+  /**
+   * admin.module_pricing — billing/entities/module-pricing.entity.ts
+   *
+   * Per-module pricing configuration with tier multipliers (free/starter/
+   * professional/enterprise/custom) and effective-date windowing. Read by
+   * the billing-service across schemas with `synchronize: false`; the
+   * canonical writer is admin-api's ModulePricingService.
+   */
+  private async createModulePricingTable(
+    queryRunner: QueryRunner,
+  ): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS admin.module_pricing (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "moduleId" uuid NOT NULL,
+        "moduleCode" varchar(50) NOT NULL,
+        "pricingMetrics" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "tierMultipliers" jsonb NOT NULL DEFAULT '{}'::jsonb,
+        "currency" varchar(3) NOT NULL DEFAULT 'USD',
+        "effectiveFrom" timestamptz NOT NULL DEFAULT NOW(),
+        "effectiveTo" timestamptz,
+        "isActive" boolean NOT NULL DEFAULT true,
+        "notes" text,
+        "version" integer NOT NULL DEFAULT 1,
+        "createdAt" timestamptz NOT NULL DEFAULT NOW(),
+        "updatedAt" timestamptz NOT NULL DEFAULT NOW(),
+        "createdBy" uuid,
+        "updatedBy" uuid,
+        CONSTRAINT "UQ_module_pricing_module_effectiveFrom" UNIQUE ("moduleId", "effectiveFrom")
+      );
+      CREATE INDEX IF NOT EXISTS "idx_module_pricing_module_id"
+        ON admin.module_pricing ("moduleId");
+      CREATE INDEX IF NOT EXISTS "idx_module_pricing_is_active"
+        ON admin.module_pricing ("isActive");
+      CREATE INDEX IF NOT EXISTS "idx_module_pricing_effective_from"
+        ON admin.module_pricing ("effectiveFrom");
+    `);
+  }
+
+  /**
+   * admin.analytics_snapshots — analytics/entities/analytics-snapshot.entity.ts
+   *
+   * Daily/weekly/monthly snapshot of platform-level metrics by category.
+   * Append-only — written by the analytics aggregator cron, read by the
+   * admin dashboard.
+   */
+  private async createAnalyticsSnapshotsTable(
+    queryRunner: QueryRunner,
+  ): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS admin.analytics_snapshots (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "snapshotType" varchar(20) NOT NULL,
+        "category" varchar(20) NOT NULL,
+        "snapshotDate" date NOT NULL,
+        "metrics" jsonb NOT NULL,
+        "metadata" jsonb,
+        "createdAt" timestamptz NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS "idx_analytics_snapshots_type_date"
+        ON admin.analytics_snapshots ("snapshotType", "snapshotDate");
+      CREATE INDEX IF NOT EXISTS "idx_analytics_snapshots_category_date"
+        ON admin.analytics_snapshots ("category", "snapshotDate");
+    `);
+  }
+
+  /**
+   * admin.report_definitions — reporting/entities/report-definition.entity.ts
+   *
+   * Saved report templates (filters, format, schedule, recipients). The
+   * `lastRunAt` and `runCount` columns are timestamp-without-tz as the
+   * entity declares — the timestamptz converter (1781500000000) does NOT
+   * touch report_definitions or report_executions, by design.
+   */
+  private async createReportDefinitionsTable(
+    queryRunner: QueryRunner,
+  ): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS admin.report_definitions (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "name" varchar(200) NOT NULL,
+        "description" text,
+        "type" varchar(50) NOT NULL,
+        "defaultFormat" varchar(20) NOT NULL DEFAULT 'json',
+        "status" varchar(20) NOT NULL DEFAULT 'active',
+        "schedule" varchar(20) NOT NULL DEFAULT 'manual',
+        "defaultFilters" jsonb,
+        "recipients" jsonb,
+        "includeCharts" boolean NOT NULL DEFAULT false,
+        "createdBy" uuid,
+        "createdByEmail" varchar(255),
+        "lastRunAt" timestamp,
+        "runCount" integer NOT NULL DEFAULT 0,
+        "createdAt" timestamptz NOT NULL DEFAULT NOW(),
+        "updatedAt" timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS "idx_report_definitions_created_by"
+        ON admin.report_definitions ("createdBy");
+      CREATE INDEX IF NOT EXISTS "idx_report_definitions_status"
+        ON admin.report_definitions (status);
+    `);
+  }
+
+  /**
+   * admin.report_executions — reporting/entities/report-execution.entity.ts
+   *
+   * Each report run gets a row recording filters, format, status, output
+   * (download URL + size + row count) and timing. Append-only; cleaned by
+   * retention sweeps. `definitionId` is a logical reference to
+   * admin.report_definitions but no DB-level FK is declared (matches the
+   * original init-script and the entity decorator) so retention sweeps on
+   * report_definitions don't cascade-delete execution history.
+   */
+  private async createReportExecutionsTable(
+    queryRunner: QueryRunner,
+  ): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS admin.report_executions (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "definitionId" uuid,
+        "reportName" varchar(200) NOT NULL,
+        "reportType" varchar(50) NOT NULL,
+        "format" varchar(20) NOT NULL,
+        "status" varchar(20) NOT NULL DEFAULT 'pending',
+        "startDate" timestamp,
+        "endDate" timestamp,
+        "filters" jsonb,
+        "summary" jsonb,
+        "rowCount" integer,
+        "fileSizeBytes" integer,
+        "downloadUrl" varchar(500),
+        "downloadExpiresAt" timestamp,
+        "errorMessage" text,
+        "durationMs" integer,
+        "executedBy" uuid,
+        "executedByEmail" varchar(255),
+        "createdAt" timestamptz NOT NULL DEFAULT NOW(),
+        "completedAt" timestamp
+      );
+      CREATE INDEX IF NOT EXISTS "idx_report_executions_definition_id"
+        ON admin.report_executions ("definitionId");
+      CREATE INDEX IF NOT EXISTS "idx_report_executions_status"
+        ON admin.report_executions (status);
+      CREATE INDEX IF NOT EXISTS "idx_report_executions_created_at"
+        ON admin.report_executions ("createdAt");
+    `);
+  }
+
+  /**
+   * admin.audit_logs — audit/audit.entity.ts
+   *
+   * SUPER_ADMIN cross-tenant audit trail (impersonation start/stop, tenant
+   * suspension, plan changes, system setting changes) — DISTINCT from
+   * `shared.audit_logs` (cross-service trail, backend-common entity shape)
+   * and `auth.audit_logs` (auth-service login/MFA/token events).
+   *
+   * # Why three audit tables, three shapes
+   *
+   *   - admin.audit_logs   : extended fields (AuditAction enum, AuditSeverity,
+   *                          previousValue/newValue JSONB), cross-tenant by
+   *                          design — admin-api wraps every request under
+   *                          BypassRlsService.withBypass()
+   *   - auth.audit_logs    : login/MFA/token/permission events, narrower
+   *                          shape with auth.audit_log_severity (4 values
+   *                          incl. 'error')
+   *   - shared.audit_logs  : canonical cross-service trail used by
+   *                          backend-common's AuditLogModule.forRoot()
+   *                          (different column names — resource, userId,
+   *                          schemaName, correlationId, …)
+   *
+   * # `legalHold` column NOT created here
+   *
+   * Migration 1787800000000-AddAdminAuditLogsImmutability adds the
+   * `legalHold` column + immutability triggers. That migration's
+   * `ADD COLUMN IF NOT EXISTS` runs cleanly on top of this CREATE; we
+   * keep the trigger DDL in its dedicated migration so the security
+   * concern stays a single, audited unit (AUDITTRAIL-HIGH-006 cure).
+   *
+   * # Idempotent fallback by 1787100000000
+   *
+   * 1787100000000-CreateAdminAuditLogsTable continues to ship a full
+   * `CREATE TABLE IF NOT EXISTS` — it is now a no-op for fresh DBs (this
+   * migration runs first) but stays in the ledger for legacy droplets that
+   * booted before this baseline existed.
+   *
+   * # `ipAddress` column type
+   *
+   * Birthed as `varchar(45)` to match the pre-1788000000000 shape; the
+   * `ConvertAuditIpColumnsToInet1788000000000` migration converts it to
+   * native `inet`. Starting from `varchar(45)` keeps the migration replay
+   * idempotent (the converter does the rewrite once, on whichever shape
+   * exists).
+   */
+  private async createAdminAuditLogsTable(
+    queryRunner: QueryRunner,
+  ): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS admin.audit_logs (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "action" varchar(100) NOT NULL,
+        "entityType" varchar(50) NOT NULL,
+        "entityId" uuid,
+        "tenantId" uuid,
+        "performedBy" varchar(100) NOT NULL,
+        "performedByEmail" varchar(100),
+        "ipAddress" varchar(45),
+        "userAgent" varchar(500),
+        "details" jsonb,
+        "previousValue" jsonb,
+        "newValue" jsonb,
+        "severity" admin.audit_logs_severity_enum NOT NULL DEFAULT 'info',
+        "requestId" varchar(100),
+        "sessionId" varchar(100),
+        "createdAt" timestamptz NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_admin_audit_logs_action"
+        ON admin.audit_logs ("action");
+      CREATE INDEX IF NOT EXISTS "IDX_admin_audit_logs_entity"
+        ON admin.audit_logs ("entityType", "entityId");
+      CREATE INDEX IF NOT EXISTS "IDX_admin_audit_logs_performedBy"
+        ON admin.audit_logs ("performedBy");
+      CREATE INDEX IF NOT EXISTS "IDX_admin_audit_logs_tenantId"
+        ON admin.audit_logs ("tenantId");
+      CREATE INDEX IF NOT EXISTS "IDX_admin_audit_logs_createdAt"
+        ON admin.audit_logs ("createdAt");
+      CREATE INDEX IF NOT EXISTS "IDX_admin_audit_logs_severity"
+        ON admin.audit_logs ("severity");
     `);
   }
 }

@@ -3,317 +3,6 @@
   "tools": [
     {
       "allowed_read_globs": [
-        "apps/**/*.ts",
-        "libs/**/*.ts"
-      ],
-      "claim_types": [
-        "tenant_scoping"
-      ],
-      "created_at": "2026-05-05T08:29:32+00:00",
-      "declared_scope": [
-        "apps/**/*.ts",
-        "libs/**/*.ts"
-      ],
-      "default_input": {
-        "roots": [
-          "apps",
-          "libs"
-        ]
-      },
-      "fixture_set": "tools/aria-poc/fixtures/tenant-scoping",
-      "forbidden_read_globs": [
-        ".git/**",
-        "node_modules/**",
-        "dist/**",
-        "aria-tools/**"
-      ],
-      "freshness_window_hours": 168,
-      "health_thresholds": {
-        "crash_rate_last_10": 0.2,
-        "critical_false_positives": 0,
-        "non_critical_false_positives_30d": 3,
-        "precision_min": 0.85
-      },
-      "kind": "adapter",
-      "output_schema": {
-        "required": [
-          "observations",
-          "findings",
-          "read_paths",
-          "evidence_sources"
-        ],
-        "type": "object"
-      },
-      "owner": "platform",
-      "parse_window_signature": "sha256:751e6ca0b4938c91cc072ec305ea32829be8bb4751f7718d7680fd22692603e9",
-      "runner": {
-        "argv": [
-          "npx",
-          "ts-node",
-          "--project",
-          "tools/gates/tsconfig.json",
-          "tools/aria-adapters/tenant-scoping-adapter.ts"
-        ],
-        "cwd": ".",
-        "stdin_json": true,
-        "timeout_ms": 180000,
-        "type": "subprocess"
-      },
-      "schema_version": 1,
-      "status": "SHADOW",
-      "tool_id": "tenant-scoping-adapter",
-      "updated_at": "2026-05-07T15:00:00Z",
-      "version": "0.1.0"
-    },
-    {
-      "allowed_read_globs": [
-        "apps/**/*.ts",
-        "libs/**/*.ts"
-      ],
-      "claim_types": [
-        "schema_drift"
-      ],
-      "created_at": "2026-05-05T08:29:32+00:00",
-      "declared_scope": [
-        "apps/**/entities/**/*.ts",
-        "libs/backend-common/**/*.ts"
-      ],
-      "default_input": {
-        "roots": [
-          "apps"
-        ]
-      },
-      "fixture_set": "tools/aria-poc/fixtures/schema-drift",
-      "forbidden_read_globs": [
-        ".git/**",
-        "node_modules/**",
-        "dist/**",
-        "aria-tools/**"
-      ],
-      "freshness_window_hours": 168,
-      "health_thresholds": {
-        "crash_rate_last_10": 0.2,
-        "critical_false_positives": 0,
-        "non_critical_false_positives_30d": 3,
-        "precision_min": 0.85
-      },
-      "kind": "adapter",
-      "output_schema": {
-        "required": [
-          "observations",
-          "findings",
-          "read_paths",
-          "evidence_sources"
-        ],
-        "type": "object"
-      },
-      "owner": "platform",
-      "parse_window_signature": "sha256:d95c2aed9585659135670c663db6f6cedfb1ec43f6ef643c9a54b4c7ad76bfbc",
-      "runner": {
-        "argv": [
-          "python3",
-          "shadow_runner.py",
-          "schema-drift-adapter"
-        ],
-        "cwd": "tools/aria-poc",
-        "stdin_json": true,
-        "timeout_ms": 15000,
-        "type": "subprocess"
-      },
-      "schema_version": 1,
-      "status": "SHADOW",
-      "tool_id": "schema-drift-adapter",
-      "updated_at": "2026-05-05T08:29:32+00:00",
-      "version": "0.1.0"
-    },
-    {
-      "allowed_read_globs": [
-        "libs/**/*.ts",
-        "platform/libs/**/*.ts"
-      ],
-      "claim_types": [
-        "event_contracts"
-      ],
-      "created_at": "2026-05-05T08:29:32+00:00",
-      "declared_scope": [
-        "libs/event-contracts/**/*.ts",
-        "platform/libs/event-bus/**/*.ts"
-      ],
-      "default_input": {
-        "roots": [
-          "libs",
-          "platform/libs"
-        ]
-      },
-      "fixture_set": "tools/aria-poc/fixtures/event-contracts",
-      "forbidden_read_globs": [
-        ".git/**",
-        "node_modules/**",
-        "dist/**",
-        "aria-tools/**"
-      ],
-      "freshness_window_hours": 168,
-      "health_thresholds": {
-        "crash_rate_last_10": 0.2,
-        "critical_false_positives": 0,
-        "non_critical_false_positives_30d": 3,
-        "precision_min": 0.85
-      },
-      "kind": "adapter",
-      "output_schema": {
-        "required": [
-          "observations",
-          "findings",
-          "read_paths",
-          "evidence_sources"
-        ],
-        "type": "object"
-      },
-      "owner": "platform",
-      "parse_window_signature": "sha256:5a45e6f648f2498d190dca09775b5731a5e25208498ebe349408c3f0a06cff84",
-      "runner": {
-        "argv": [
-          "npx",
-          "ts-node",
-          "--project",
-          "tools/gates/tsconfig.json",
-          "tools/aria-adapters/event-contracts-adapter.ts"
-        ],
-        "cwd": ".",
-        "stdin_json": true,
-        "timeout_ms": 180000,
-        "type": "subprocess"
-      },
-      "schema_version": 1,
-      "status": "SHADOW",
-      "tool_id": "event-contracts-adapter",
-      "updated_at": "2026-05-07T15:00:00Z",
-      "version": "0.1.0"
-    },
-    {
-      "allowed_read_globs": [
-        "infrastructure/**",
-        "libs/**/*.ts"
-      ],
-      "claim_types": [
-        "nats_cert_identity"
-      ],
-      "created_at": "2026-05-05T08:29:32+00:00",
-      "declared_scope": [
-        "infrastructure/nats/**",
-        "libs/backend-common/src/nats/**"
-      ],
-      "default_input": {
-        "roots": [
-          "infrastructure/nats"
-        ]
-      },
-      "fixture_set": "tools/aria-poc/fixtures/nats-cert-identity",
-      "forbidden_read_globs": [
-        ".git/**",
-        "node_modules/**",
-        "dist/**",
-        "aria-tools/**"
-      ],
-      "freshness_window_hours": 168,
-      "health_thresholds": {
-        "crash_rate_last_10": 0.2,
-        "critical_false_positives": 0,
-        "non_critical_false_positives_30d": 3,
-        "precision_min": 0.85
-      },
-      "kind": "adapter",
-      "output_schema": {
-        "required": [
-          "observations",
-          "findings",
-          "read_paths",
-          "evidence_sources"
-        ],
-        "type": "object"
-      },
-      "owner": "platform",
-      "parse_window_signature": "sha256:ab133869f2a57c57cb5bda7de55078db039572332d130013dc9551c062522a3b",
-      "runner": {
-        "argv": [
-          "python3",
-          "shadow_runner.py",
-          "nats-cert-identity-adapter"
-        ],
-        "cwd": "tools/aria-poc",
-        "stdin_json": true,
-        "timeout_ms": 15000,
-        "type": "subprocess"
-      },
-      "schema_version": 1,
-      "status": "SHADOW",
-      "tool_id": "nats-cert-identity-adapter",
-      "updated_at": "2026-05-05T08:29:32+00:00",
-      "version": "0.1.0"
-    },
-    {
-      "allowed_read_globs": [
-        "apps/**/*.ts",
-        "libs/**/*.ts"
-      ],
-      "claim_types": [
-        "migration_runner"
-      ],
-      "created_at": "2026-05-05T08:29:32+00:00",
-      "declared_scope": [
-        "apps/*/src/database/migrations/**/*.ts",
-        "libs/backend-common/src/database/**/*.ts"
-      ],
-      "default_input": {
-        "roots": [
-          "apps"
-        ]
-      },
-      "fixture_set": "tools/aria-poc/fixtures/migration-runner",
-      "forbidden_read_globs": [
-        ".git/**",
-        "node_modules/**",
-        "dist/**",
-        "aria-tools/**"
-      ],
-      "freshness_window_hours": 168,
-      "health_thresholds": {
-        "crash_rate_last_10": 0.2,
-        "critical_false_positives": 0,
-        "non_critical_false_positives_30d": 3,
-        "precision_min": 0.85
-      },
-      "kind": "adapter",
-      "output_schema": {
-        "required": [
-          "observations",
-          "findings",
-          "read_paths",
-          "evidence_sources"
-        ],
-        "type": "object"
-      },
-      "owner": "platform",
-      "parse_window_signature": "sha256:434d4fd7f7d2337241d4ed11e31a7d2bbd14f883c2343f001b9d412201a249c3",
-      "runner": {
-        "argv": [
-          "python3",
-          "shadow_runner.py",
-          "migration-runner-adapter"
-        ],
-        "cwd": "tools/aria-poc",
-        "stdin_json": true,
-        "timeout_ms": 15000,
-        "type": "subprocess"
-      },
-      "schema_version": 1,
-      "status": "SHADOW",
-      "tool_id": "migration-runner-adapter",
-      "updated_at": "2026-05-05T08:29:32+00:00",
-      "version": "0.1.0"
-    },
-    {
-      "allowed_read_globs": [
         "**/*.md",
         "**/*.ts",
         "**/*.py"
@@ -442,6 +131,253 @@
     },
     {
       "allowed_read_globs": [
+        "libs/backend-common/**/*.ts",
+        "tsconfig*.json"
+      ],
+      "claim_types": [
+        "dual_alias_drift"
+      ],
+      "created_at": "2026-05-07T10:37:40+00:00",
+      "declared_scope": [
+        "libs/backend-common/**/*.ts",
+        "tsconfig*.json"
+      ],
+      "default_input": {
+        "roots": [
+          "libs/backend-common"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/dual-alias",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:13a58182e35b4b58d6f4a0237e04fb854825cef111f2ee346d6c1d44291e25d9",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "dual-alias-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 2,
+      "status": "SHADOW",
+      "tool_id": "dual-alias-adapter",
+      "updated_at": "2026-05-07T10:37:40+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "libs/**/*.ts",
+        "platform/libs/**/*.ts"
+      ],
+      "claim_types": [
+        "event_contracts"
+      ],
+      "created_at": "2026-05-05T08:29:32+00:00",
+      "declared_scope": [
+        "libs/event-contracts/**/*.ts",
+        "platform/libs/event-bus/**/*.ts"
+      ],
+      "default_input": {
+        "roots": [
+          "libs",
+          "platform/libs"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/event-contracts",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:5a45e6f648f2498d190dca09775b5731a5e25208498ebe349408c3f0a06cff84",
+      "runner": {
+        "argv": [
+          "npx",
+          "ts-node",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/event-contracts-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 180000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "event-contracts-adapter",
+      "updated_at": "2026-05-07T15:00:00Z",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "libs/**/*.ts"
+      ],
+      "claim_types": [
+        "migration_runner"
+      ],
+      "created_at": "2026-05-05T08:29:32+00:00",
+      "declared_scope": [
+        "apps/*/src/database/migrations/**/*.ts",
+        "libs/backend-common/src/database/**/*.ts"
+      ],
+      "default_input": {
+        "roots": [
+          "apps"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/migration-runner",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:434d4fd7f7d2337241d4ed11e31a7d2bbd14f883c2343f001b9d412201a249c3",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "migration-runner-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "migration-runner-adapter",
+      "updated_at": "2026-05-05T08:29:32+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "infrastructure/**",
+        "libs/**/*.ts"
+      ],
+      "claim_types": [
+        "nats_cert_identity"
+      ],
+      "created_at": "2026-05-05T08:29:32+00:00",
+      "declared_scope": [
+        "infrastructure/nats/**",
+        "libs/backend-common/src/nats/**"
+      ],
+      "default_input": {
+        "roots": [
+          "infrastructure/nats"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/nats-cert-identity",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:ab133869f2a57c57cb5bda7de55078db039572332d130013dc9551c062522a3b",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "nats-cert-identity-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "nats-cert-identity-adapter",
+      "updated_at": "2026-05-05T08:29:32+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
         "apps/**/outbox/**/*.ts",
         "platform/libs/outbox/**/*.ts"
       ],
@@ -504,23 +440,23 @@
     },
     {
       "allowed_read_globs": [
-        "libs/backend-common/**/*.ts",
-        "tsconfig*.json"
+        "apps/**/*.ts",
+        "libs/**/*.ts"
       ],
       "claim_types": [
-        "dual_alias_drift"
+        "schema_drift"
       ],
-      "created_at": "2026-05-07T10:37:40+00:00",
+      "created_at": "2026-05-05T08:29:32+00:00",
       "declared_scope": [
-        "libs/backend-common/**/*.ts",
-        "tsconfig*.json"
+        "apps/**/entities/**/*.ts",
+        "libs/backend-common/**/*.ts"
       ],
       "default_input": {
         "roots": [
-          "libs/backend-common"
+          "apps"
         ]
       },
-      "fixture_set": "tools/aria-poc/fixtures/dual-alias",
+      "fixture_set": "tools/aria-poc/fixtures/schema-drift",
       "forbidden_read_globs": [
         ".git/**",
         "node_modules/**",
@@ -545,22 +481,168 @@
         "type": "object"
       },
       "owner": "platform",
-      "parse_window_signature": "sha256:13a58182e35b4b58d6f4a0237e04fb854825cef111f2ee346d6c1d44291e25d9",
+      "parse_window_signature": "sha256:d95c2aed9585659135670c663db6f6cedfb1ec43f6ef643c9a54b4c7ad76bfbc",
       "runner": {
         "argv": [
           "python3",
           "shadow_runner.py",
-          "dual-alias-adapter"
+          "schema-drift-adapter"
         ],
         "cwd": "tools/aria-poc",
         "stdin_json": true,
         "timeout_ms": 15000,
         "type": "subprocess"
       },
-      "schema_version": 2,
+      "schema_version": 1,
       "status": "SHADOW",
-      "tool_id": "dual-alias-adapter",
-      "updated_at": "2026-05-07T10:37:40+00:00",
+      "tool_id": "schema-drift-adapter",
+      "updated_at": "2026-05-05T08:29:32+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "$schema": "aria/tool/v1",
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "libs/backend-common/src/**/*.ts",
+        "platform/libs/**/*.ts",
+        "web/**/*.ts",
+        "web/**/*.tsx",
+        "tools/eslint-rules/**/*.ts"
+      ],
+      "claim_types": [
+        "security_boundary"
+      ],
+      "created_at": "2026-05-07T15:30:00Z",
+      "declared_scope": [
+        "apps/**/*.ts",
+        "libs/backend-common/src/**/*.ts",
+        "platform/libs/**/*.ts",
+        "web/**/*.{ts,tsx}",
+        "tools/eslint-rules/**/*.ts"
+      ],
+      "default_input": {
+        "roots": [
+          "apps",
+          "libs/backend-common/src",
+          "platform/libs",
+          "web",
+          "tools/eslint-rules"
+        ]
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/security-boundary-adapter",
+      "forbidden_read_globs": [
+        ".claude/**",
+        ".git/**",
+        "agent-workspace/**",
+        ".aria-poc/**",
+        "aria-tools/**",
+        "node_modules/**",
+        "dist/**",
+        "coverage/**",
+        "build/**",
+        "tmp/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 5000,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:dd643c233f93aa7764d1356b6a819711d369dc0422fa81aa99c308997c370db0",
+      "runner": {
+        "argv": [
+          "npx",
+          "ts-node",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/security-boundary-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 180000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "security-boundary-adapter",
+      "updated_at": "2026-05-07T15:30:00Z",
+      "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "libs/**/*.ts"
+      ],
+      "claim_types": [
+        "tenant_scoping"
+      ],
+      "created_at": "2026-05-05T08:29:32+00:00",
+      "declared_scope": [
+        "apps/**/*.ts",
+        "libs/**/*.ts"
+      ],
+      "default_input": {
+        "roots": [
+          "apps",
+          "libs"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/tenant-scoping",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:751e6ca0b4938c91cc072ec305ea32829be8bb4751f7718d7680fd22692603e9",
+      "runner": {
+        "argv": [
+          "npx",
+          "ts-node",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/tenant-scoping-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 180000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "tenant-scoping-adapter",
+      "updated_at": "2026-05-07T15:00:00Z",
       "version": "0.1.0"
     }
   ]

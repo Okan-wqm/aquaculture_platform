@@ -335,6 +335,50 @@ class DefaultChecksSmokeTests(unittest.TestCase):
         ts_block = result["invariant_measurements"]["tenant_scoping"]["measurements"]
         self.assertEqual(ts_block.get("get_repository_callsite_count"), 0)
 
+    def test_auth_security_pending_when_no_adapter_runs(self) -> None:
+        # Plan 019 Phase 6.C — _check_auth_security reads the latest
+        # security-boundary-adapter run from runs.jsonl. With no run on
+        # disk (synthetic repo), the check returns pending=True with a
+        # 'no security-boundary-adapter run' reason.
+        result = take_baseline(
+            plan_id="auth-pending-smoke",
+            cycle_id="cyc-1",
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        auth_block = result["invariant_measurements"]["auth_security"]["measurements"]
+        self.assertTrue(auth_block.get("pending"))
+        self.assertIn("reason", auth_block)
+
+    def test_auth_security_reads_latest_adapter_run(self) -> None:
+        # Plan 019 Phase 6.C — when runs.jsonl carries a
+        # security-boundary-adapter row, _check_auth_security must
+        # surface its raw_observations + raw_findings counts as
+        # invariant measurements.
+        runs = self.tools / "runs.jsonl"
+        runs.write_text(json.dumps({
+            "tool_id": "security-boundary-adapter",
+            "status": "ok",
+            "recorded_at": "2026-05-07T16:00:00+00:00",
+            "run_id": "run-test-1",
+            "runner": {
+                "exit_code": 0,
+                "raw_observations_count": 1710,
+                "raw_findings_count": 14,
+            },
+        }) + "\n", encoding="utf-8")
+        result = take_baseline(
+            plan_id="auth-real-smoke",
+            cycle_id="cyc-1",
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        auth_block = result["invariant_measurements"]["auth_security"]["measurements"]
+        self.assertNotIn("pending", auth_block)
+        self.assertEqual(auth_block["raw_observations_count"], 1710)
+        self.assertEqual(auth_block["raw_findings_count"], 14)
+        self.assertEqual(auth_block["adapter_run_id"], "run-test-1")
+
 
 if __name__ == "__main__":
     unittest.main()

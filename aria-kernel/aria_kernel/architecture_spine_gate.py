@@ -235,22 +235,69 @@ def _check_schema_entity(workspace_root: Path) -> InvariantMeasurement:
 
 
 def _check_auth_security(workspace_root: Path) -> InvariantMeasurement:
-    """Phase 5.5 stub — Phase 6 will replace this with security-boundary-adapter.
+    """Plan 019 Phase 6.C — read latest security-boundary-adapter run from runs.jsonl.
 
-    Returns a sentinel pending=True measurement so the spine framework
-    is wired end-to-end but the round counter stays neutral on the auth
-    invariant until Phase 6 binds the real check. Drift detection
-    treats pending==pending as unchanged (NOT a regression), so adding
-    Phase 6 later does not trigger a false positive on prior baselines.
+    Operator critique #2: don't write a new auth-access-boundary-adapter;
+    the existing tools/aria-adapters/security-boundary-adapter.ts covers
+    @UseGuards / public-write-endpoint / dangerous-html / raw-security-
+    sensitive-import rules and was bound to the registry in Plan 019
+    Phase 6.0. This check reads the LATEST adapter run from runs.jsonl
+    (cheap, non-recursive) instead of invoking the adapter from inside
+    the spine gate.
+
+    Operator workflow:
+      aria-kernel tool run --tool-id security-boundary-adapter ...
+      aria-kernel spine baseline --plan-id X --cycle-id Y
+    The spine gate reads the most-recent run and surfaces its raw
+    findings/observations counts as the auth_security invariant.
+
+    Falls back to pending=True when no adapter run exists yet — the
+    operator must run the adapter at least once before the spine gate
+    can capture an auth baseline.
     """
+    runs_path = workspace_root / "aria-tools" / "runs.jsonl"
+    if not runs_path.exists():
+        return InvariantMeasurement(
+            invariant="auth_security",
+            measured_at=utc_now(),
+            measurements={
+                "pending": True,
+                "reason": "no aria-tools/runs.jsonl found",
+            },
+            source="stub:no_runs_ledger",
+        )
+    latest: dict[str, Any] | None = None
+    try:
+        for line in runs_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if row.get("tool_id") == "security-boundary-adapter":
+                latest = row
+    except (OSError, json.JSONDecodeError):
+        latest = None
+    if latest is None:
+        return InvariantMeasurement(
+            invariant="auth_security",
+            measured_at=utc_now(),
+            measurements={
+                "pending": True,
+                "reason": "no security-boundary-adapter run in runs.jsonl yet; run via tool_runner first",
+            },
+            source="stub:no_adapter_runs",
+        )
+    runner = latest.get("runner") or {}
     return InvariantMeasurement(
         invariant="auth_security",
         measured_at=utc_now(),
         measurements={
-            "pending": True,
-            "phase_6_will_fill": True,
+            "raw_observations_count": int(runner.get("raw_observations_count", 0) or 0),
+            "raw_findings_count": int(runner.get("raw_findings_count", 0) or 0),
+            "adapter_run_status": str(latest.get("status") or "unknown"),
+            "adapter_run_id": str(latest.get("run_id") or ""),
+            "adapter_recorded_at": str(latest.get("recorded_at") or ""),
         },
-        source="stub:phase_6_pending",
+        source="tool_runner:security-boundary-adapter",
     )
 
 

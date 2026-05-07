@@ -543,6 +543,18 @@ def _main(argv: list[str] | None = None) -> int:
     add_tools_arg(a_scan, required=True)
     a_scan.add_argument("--diff-file", required=True)
 
+    metrics_parser = sub.add_parser(
+        "metrics",
+        help="Plan 016 Faz D7 — nine-counter metric set + dashboard writer.",
+    )
+    metrics_sub = metrics_parser.add_subparsers(dest="metrics_command", required=True)
+    m_compute = metrics_sub.add_parser("plan-016")
+    add_tools_arg(m_compute, required=True)
+    m_dashboard = metrics_sub.add_parser("dashboard")
+    add_tools_arg(m_dashboard, required=True)
+    m_dashboard.add_argument("--workspace-root", default=None)
+    m_dashboard.add_argument("--out", default=None)
+
     cycle_guard_parser = sub.add_parser(
         "cycle-guard",
         help="Plan 016 Faz D8 — empty-cycle guard advisor.",
@@ -1181,6 +1193,22 @@ def _main(argv: list[str] | None = None) -> int:
         }
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["match_count"] == 0 else 1
+
+    if args.command == "metrics":
+        from aria_kernel.plan_016_metrics import compute_plan_016_metrics, write_dashboard
+
+        if args.metrics_command == "plan-016":
+            print(json.dumps(compute_plan_016_metrics(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        if args.metrics_command == "dashboard":
+            target = write_dashboard(
+                base_dir=args.tools_dir,
+                repo_root=args.workspace_root,
+                out_path=args.out,
+            )
+            print(json.dumps({"path": str(target)}, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown metrics command")
 
     if args.command == "cycle-guard" and args.cycle_guard_command == "evaluate":
         from aria_kernel.cycle_guard import DEFAULT_PRESSURE_THRESHOLD, evaluate_cycle_emptiness

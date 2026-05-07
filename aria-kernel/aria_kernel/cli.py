@@ -514,6 +514,26 @@ def _main(argv: list[str] | None = None) -> int:
     )
     add_tools_arg(a_reap, required=True)
 
+    hr_parser = sub.add_parser(
+        "human-required",
+        help="Plan 016 Faz D9 — operator triage queue for HUMAN_REQUIRED escalations.",
+    )
+    hr_sub = hr_parser.add_subparsers(dest="human_required_command", required=True)
+    hr_record = hr_sub.add_parser("record")
+    add_tools_arg(hr_record, required=True)
+    hr_record.add_argument("--request-id", required=True)
+    hr_record.add_argument("--severity", default=None)
+    hr_record.add_argument("--reason", required=True)
+    hr_list = hr_sub.add_parser("list")
+    add_tools_arg(hr_list, required=True)
+    hr_list.add_argument("--include-resolved", action="store_true")
+    hr_resolve = hr_sub.add_parser("resolve")
+    add_tools_arg(hr_resolve, required=True)
+    hr_resolve.add_argument("--request-id", required=True)
+    hr_resolve.add_argument("--resolution-note", required=True)
+    hr_sweep = hr_sub.add_parser("sweep")
+    add_tools_arg(hr_sweep, required=True)
+
     consensus_parser = sub.add_parser(
         "consensus",
         help="Plan 016 Faz C5/C6 — compute consensus over recorded ai_judge verdicts.",
@@ -1081,6 +1101,41 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("status") == "accepted" else 1
         parser.error("unknown agent command")
+
+    if args.command == "human-required":
+        from aria_kernel.human_required import (
+            list_human_required,
+            record_human_required,
+            resolve_human_required,
+            sweep_lease_lifecycle_for_human_required,
+        )
+
+        if args.human_required_command == "record":
+            row = record_human_required(
+                request_id=args.request_id,
+                severity=args.severity,
+                reason=args.reason,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.human_required_command == "list":
+            rows = list_human_required(base_dir=args.tools_dir, include_resolved=args.include_resolved)
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        if args.human_required_command == "resolve":
+            row = resolve_human_required(
+                request_id=args.request_id,
+                resolution_note=args.resolution_note,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.human_required_command == "sweep":
+            result = sweep_lease_lifecycle_for_human_required(base_dir=args.tools_dir)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown human-required command")
 
     if args.command == "consensus" and args.consensus_command == "run":
         from aria_kernel.feedback_store import CONSENSUS_MIN_CONFIDENCE

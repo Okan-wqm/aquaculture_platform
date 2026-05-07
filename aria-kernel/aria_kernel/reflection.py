@@ -27,6 +27,7 @@ def run_reflection(
     beliefs = _latest_by_id(load_jsonl(root / "memory" / "beliefs.jsonl"), "belief_id")
     top_pressures = pressure_payload.get("pressures", [])[:3] if isinstance(pressure_payload.get("pressures"), list) else []
     committed = _committed_findings_and_debts(root, repo_root_override=repo_root)
+    human_required = _human_required_summary(root)
     reflection = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -49,6 +50,7 @@ def run_reflection(
         "auto_merge_summary": _auto_merge_summary(auto_merge_decisions),
         "committed_findings": committed["findings"],
         "committed_debts": committed["debts"],
+        "human_required": human_required,
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -92,6 +94,31 @@ def _resolve_repo_root(tools_root: Path) -> Path | None:
         return None
     candidate = Path(bound)
     return candidate if candidate.exists() else None
+
+
+def _human_required_summary(tools_root: Path) -> dict[str, Any]:
+    """Plan 016 Faz D9 — surface the HUMAN_REQUIRED ledger at the top of daily reports.
+
+    Returns: {open: <int>, breaching_sla: <int>, items: [<sorted by deadline>...]}.
+    """
+    from .human_required import list_human_required
+
+    items = list_human_required(base_dir=tools_root, include_resolved=False)
+    if not items:
+        return {"open": 0, "breaching_sla": 0, "items": []}
+    now = datetime.now(timezone.utc)
+    breaching = 0
+    for item in items:
+        deadline = item.get("sla_deadline")
+        if not isinstance(deadline, str):
+            continue
+        try:
+            dt = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if dt < now:
+            breaching += 1
+    return {"open": len(items), "breaching_sla": breaching, "items": items[:5]}
 
 
 def _committed_findings_and_debts(
@@ -171,8 +198,23 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
     path = root / "reports" / "daily" / f"{day}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     file_counts = file_counts_from_payload(reflection.get("coverage", {}))
+    hr = reflection.get("human_required") or {"open": 0, "breaching_sla": 0, "items": []}
+    hr_open = hr.get("open", 0)
+    hr_breach = hr.get("breaching_sla", 0)
     lines = [
         f"# ARIA Daily Report {day}",
+        "",
+        "## HUMAN_REQUIRED",
+        "",
+        f"- Open: {hr_open}",
+        f"- Breaching SLA: {hr_breach}",
+        *(
+            [
+                f"- {item.get('request_id')} [{item.get('severity')}] sla {item.get('sla_deadline')} — {item.get('reason', '')[:80]}"
+                for item in hr.get("items") or []
+            ]
+            or ["- (no operator-triage queue items)"]
+        ),
         "",
         "## Coverage",
         "",

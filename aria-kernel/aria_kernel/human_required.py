@@ -1,0 +1,209 @@
+"""HUMAN_REQUIRED escalation surface (Plan 016 Faz D9).
+
+Plan 016 §HUMAN_REQUIRED operator SLA:
+- CRITICAL / HIGH severity: 72h response window;
+- MEDIUM severity: 7 days.
+
+The lease lifecycle (`agent_invocations.derive_request_state`) already
+emits a `human_required` event on the claims ledger when a request
+exceeds `DEFAULT_MAX_REQUEUES` requeues. This module adds the
+operator-facing surface: `aria-tools/human-required/<request_id>.json`
+files the operator reads first, plus a daily-report top-of-page
+section that surfaces any pending HUMAN_REQUIRED entries with their
+SLA status.
+
+Why a separate file per request_id (instead of a single jsonl): the
+operator opens this directory to triage; one file per request lets
+them resolve / archive entries individually without rewriting the
+whole ledger. The kernel emits a `human_required_recorded` governance
+event on creation so the audit chain still captures the escalation.
+"""
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+from .agent_invocations import _request_event_count, derive_request_state
+from .ledger import load_jsonl
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+
+
+# Plan 016 SLA windows per severity. CRITICAL/HIGH share the 72h window;
+# MEDIUM gets 7 days; everything else falls back to 14 days.
+SLA_WINDOWS = {
+    "CRITICAL": timedelta(hours=72),
+    "HIGH": timedelta(hours=72),
+    "MEDIUM": timedelta(days=7),
+    "LOW": timedelta(days=14),
+    "INFORMATIONAL": timedelta(days=14),
+}
+DEFAULT_SEVERITY = "HIGH"
+
+
+def _human_required_dir(tools_root: Path) -> Path:
+    return tools_root / "human-required"
+
+
+def _human_required_path(tools_root: Path, request_id: str) -> Path:
+    return _human_required_dir(tools_root) / f"{request_id}.json"
+
+
+def _resolve_severity(severity: str | None) -> str:
+    if isinstance(severity, str):
+        upper = severity.strip().upper()
+        if upper in SLA_WINDOWS:
+            return upper
+    return DEFAULT_SEVERITY
+
+
+def record_human_required(
+    *,
+    request_id: str,
+    severity: str | None = None,
+    reason: str,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Persist a HUMAN_REQUIRED operator-triage record.
+
+    Idempotent: if the record already exists, returns the existing row
+    without re-emitting the governance event. The lease lifecycle path
+    (reap_stale_claims / release_claim escalations) calls this when a
+    request crosses the requeue threshold; operators can also call it
+    via CLI to escalate manually before the threshold.
+    """
+    if not isinstance(reason, str) or not reason.strip():
+        raise GovernanceError("reason is required")
+    root = ensure_tools_dir(base_dir)
+    out_path = _human_required_path(root, request_id)
+    if out_path.exists():
+        try:
+            return json.loads(out_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass  # fall through and overwrite a corrupted file
+
+    sev = _resolve_severity(severity)
+    ts = now or datetime.now(timezone.utc)
+    sla_deadline = ts + SLA_WINDOWS[sev]
+    record = {
+        "$schema": "aria/human-required/v1",
+        "schema_version": 1,
+        "request_id": request_id,
+        "severity": sev,
+        "reason": reason,
+        "recorded_at": ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "sla_deadline": sla_deadline.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "status": "open",
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    append_tools_governance(
+        root,
+        "human_required_recorded",
+        {
+            "request_id": request_id,
+            "severity": sev,
+            "sla_deadline": record["sla_deadline"],
+            "path": out_path.relative_to(root).as_posix(),
+        },
+    )
+    return record
+
+
+def list_human_required(
+    *,
+    base_dir: str | Path | None = None,
+    include_resolved: bool = False,
+) -> list[dict[str, Any]]:
+    """List HUMAN_REQUIRED entries, sorted by SLA deadline (most urgent first)."""
+    root = ensure_tools_dir(base_dir)
+    directory = _human_required_dir(root)
+    if not directory.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for path in directory.glob("*.json"):
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not include_resolved and doc.get("status") != "open":
+            continue
+        rows.append(doc)
+    rows.sort(key=lambda r: r.get("sla_deadline", ""))
+    return rows
+
+
+def resolve_human_required(
+    *,
+    request_id: str,
+    resolution_note: str,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Mark a HUMAN_REQUIRED entry resolved. Operator-only — kernel never auto-resolves."""
+    if not isinstance(resolution_note, str) or not resolution_note.strip():
+        raise GovernanceError("resolution_note is required")
+    root = ensure_tools_dir(base_dir)
+    path = _human_required_path(root, request_id)
+    if not path.exists():
+        raise GovernanceError(f"human-required record not found: {request_id}")
+    record = json.loads(path.read_text(encoding="utf-8"))
+    if record.get("status") == "resolved":
+        return record
+    ts = now or datetime.now(timezone.utc)
+    record["status"] = "resolved"
+    record["resolved_at"] = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+    record["resolution_note"] = resolution_note
+    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    append_tools_governance(
+        root,
+        "human_required_resolved",
+        {"request_id": request_id, "resolved_at": record["resolved_at"]},
+    )
+    return record
+
+
+def sweep_lease_lifecycle_for_human_required(
+    *,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Find lease-lifecycle requests whose derived state is HUMAN_REQUIRED but
+    have no corresponding `aria-tools/human-required/<request_id>.json` file yet.
+    Records one for each, returns the lists. Idempotent.
+    """
+    root = ensure_tools_dir(base_dir)
+    requests = load_jsonl(root / "agent-invocations" / "requests.jsonl")
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for request in requests:
+        rid = request.get("request_id")
+        if not rid:
+            continue
+        try:
+            state = derive_request_state(request_id=rid, base_dir=root)
+        except GovernanceError:
+            continue
+        if state != "HUMAN_REQUIRED":
+            continue
+        existing = _human_required_path(root, rid)
+        if existing.exists():
+            skipped.append({"request_id": rid, "reason": "already_recorded"})
+            continue
+        # Look up the requeue count to surface in the reason text.
+        claims = load_jsonl(root / "agent-invocations" / "claims.jsonl")
+        requeue_count = _request_event_count(claims, rid, "requeued")
+        record = record_human_required(
+            request_id=rid,
+            severity=request.get("severity") or DEFAULT_SEVERITY,
+            reason=(
+                f"lease lifecycle exhausted requeues for request {rid!r} "
+                f"(requeue_count={requeue_count}); operator follow-up required."
+            ),
+            base_dir=root,
+            now=now,
+        )
+        created.append(record)
+    return {"created": created, "skipped": skipped}

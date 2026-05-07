@@ -1,7 +1,7 @@
 {
   "$schema": "aria/architectural-debt/v1",
   "auto_close_forbidden": true,
-  "closes_in_commit": "<pending-phase-7-commit>",
+  "closes_in_commit": "378d6fd5",
   "current_status": "RESOLVED",
   "debt_id": "DEBT-2026-05-07-005",
   "due_date": "2026-06-06T13:08:49Z",
@@ -28,6 +28,12 @@
       "at": "2026-05-07T13:24:48Z",
       "by": "operator:plan-018-phase-7",
       "note": "Real Claude Code Agent(subagent_type=aria-evidence-judge) and Agent(subagent_type=aria-adversarial-judge) invocations replaced the Phase 4 synthesized envelopes. Both responses ACCEPTED at submit_claim_result; judgment_bridge.record_judge_verdict_from_response wrote two ai_judge rows to operator-feedback.jsonl (verdicts: true_positive 0.78, false_positive 0.82); generate_ai_consensus produced a judge_disagreement uncertainty row (consensus_count=0, uncertainty_count=1). The pipeline surfaced a real model-driven dispute the synthesized walkthrough could not produce by construction.",
+      "status": "RESOLVED"
+    },
+    {
+      "at": "2026-05-07T13:26:31Z",
+      "by": "operator:plan-018-phase-7b",
+      "note": "closes_in_commit field set to Phase 7a SHA 378d6fd5",
       "status": "RESOLVED"
     }
   ],

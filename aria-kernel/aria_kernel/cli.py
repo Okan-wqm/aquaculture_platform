@@ -21,6 +21,7 @@ from aria_kernel.agent_invocations import (
     reap_stale_claims,
     release_claim,
     submit_agent_invocation_result,
+    submit_claim_result,
 )
 from aria_kernel.agent_genesis import (
     draft_agent_from_gap,
@@ -496,6 +497,17 @@ def _main(argv: list[str] | None = None) -> int:
     a_release.add_argument("--agent-id", required=True)
     a_release.add_argument("--reason", required=True)
 
+    a_submit = agent_sub.add_parser(
+        "submit-result",
+        help="Submit a claim result. Validates response schema, satisfaction matrix, and evidence refs.",
+    )
+    add_workspace_args(a_submit)
+    add_tools_arg(a_submit, required=True)
+    a_submit.add_argument("--claim-id", required=True)
+    a_submit.add_argument("--agent-id", required=True)
+    a_submit.add_argument("--lease-token", required=True)
+    a_submit.add_argument("--output-path", required=True)
+
     a_reap = agent_sub.add_parser(
         "reap-stale",
         help="Mark expired leases stale and emit requeue / human_required follow-ups.",
@@ -587,7 +599,7 @@ def _main(argv: list[str] | None = None) -> int:
     paths = (
         resolve_paths(args)
         if hasattr(args, "workspace_root")
-        and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune", "worktree", "agent-network", "capability-gap", "plan", "agent-genesis", "skill-genesis"}
+        and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune", "worktree", "agent", "agent-network", "capability-gap", "plan", "agent-genesis", "skill-genesis"}
         and not legacy_pressure_explain
         else None
     )
@@ -1042,6 +1054,18 @@ def _main(argv: list[str] | None = None) -> int:
             result = reap_stale_claims(base_dir=args.tools_dir)
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
+        if args.agent_command == "submit-result":
+            workspace = paths.repo_root if paths is not None else Path(args.workspace_root).resolve()
+            result = submit_claim_result(
+                claim_id=args.claim_id,
+                agent_id=args.agent_id,
+                lease_token=args.lease_token,
+                output_path=args.output_path,
+                workspace_root=workspace,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0 if result.get("status") == "accepted" else 1
         parser.error("unknown agent command")
 
     if args.command == "agent-genesis":

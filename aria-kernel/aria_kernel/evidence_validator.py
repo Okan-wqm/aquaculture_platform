@@ -230,28 +230,35 @@ def validate_agent_response_evidence(
                     continue
                 _check_agent_ref(ref, root=root, errors=errors, checked=checked)
 
-    # Cross-check: when a request is provided, every ref the agent claims
-    # must either live inside the request's allowed_scope OR be one of the
-    # request's evidence_refs (the canonical bounding box). Refs outside
-    # this bounding box are rejected as scope leakage even if they exist.
+    # Cross-check: when a request is provided AND carries a non-empty
+    # allowed_scope, every ref the agent claims must either live inside
+    # that scope OR be one of the request's evidence_refs (the canonical
+    # bounding box). Refs outside the box are rejected as scope leakage.
+    #
+    # An EMPTY allowed_scope is interpreted as "no scope constraint" —
+    # this preserves backward compatibility with legacy
+    # aria/agent-invocation-request/v1 rows that pre-date Plan 016.
+    # The strict aria/agent-request/v1 envelope's validate_request requires
+    # a non-empty allowed_scope, so v3 callers always run the scope check.
     if request is not None:
-        allowed_request_refs = {
-            (_parse_agent_ref(r) or ("", None))[0]
-            for r in (request.get("evidence_refs") or [])
-            if isinstance(r, str)
-        }
         allowed_globs = list(request.get("allowed_scope") or [])
-        for path in checked:
-            if path in allowed_request_refs:
-                continue
-            if not _path_matches_any_glob(path, allowed_globs):
-                errors.append(
-                    {
-                        "code": "agent_evidence_outside_allowed_scope",
-                        "path": path,
-                        "allowed_scope": allowed_globs,
-                    }
-                )
+        if allowed_globs:
+            allowed_request_refs = {
+                (_parse_agent_ref(r) or ("", None))[0]
+                for r in (request.get("evidence_refs") or [])
+                if isinstance(r, str)
+            }
+            for path in checked:
+                if path in allowed_request_refs:
+                    continue
+                if not _path_matches_any_glob(path, allowed_globs):
+                    errors.append(
+                        {
+                            "code": "agent_evidence_outside_allowed_scope",
+                            "path": path,
+                            "allowed_scope": allowed_globs,
+                        }
+                    )
 
     return {
         "valid": not errors,

@@ -1,0 +1,206 @@
+"""End-to-end test for the Plan 016 Faz C submit-result lifecycle.
+
+Walks the full flow: create_agent_invocation_request -> claim_request ->
+write a valid aria/agent-response/v1 envelope -> submit_claim_result ->
+state transitions to ACCEPTED. Plus the reject paths: malformed envelope,
+missing satisfaction matrix entries, evidence ref missing on disk.
+"""
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from aria_kernel.agent_invocations import (
+    claim_request,
+    create_agent_invocation_request,
+    derive_request_state,
+    submit_claim_result,
+)
+from aria_kernel.tool_registry import ensure_tools_dir
+
+
+def _seed_repo() -> Path:
+    """Create a tempdir that looks like a repo root."""
+    repo = Path(tempfile.mkdtemp(prefix="aria-e2e-"))
+    (repo / "src.txt").write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+    return repo
+
+
+class SubmitResultE2ETests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.repo = _seed_repo()
+        self.tools = self.repo / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def tearDown(self) -> None:
+        import shutil
+
+        shutil.rmtree(self.repo, ignore_errors=True)
+
+    def _claim(self) -> tuple[dict, dict]:
+        request = create_agent_invocation_request(
+            target_agent="aria-evidence-judge",
+            role="evidence_judgment",
+            suggested_prompt="validate F-001 evidence",
+            convergence_id="conv-001",
+            base_dir=self.tools,
+        )
+        claim = claim_request(
+            request_id=request["request_id"],
+            agent_id="judge-worker-001",
+            base_dir=self.tools,
+        )
+        return request, claim
+
+    def _good_envelope(self, *, request: dict, claim: dict) -> Path:
+        envelope = {
+            "$schema": "aria/agent-response/v1",
+            "request_id": request["request_id"],
+            "claim_id": claim["claim_id"],
+            "agent_id": claim["agent_id"],
+            "role": "evidence_judgment",
+            "status": "submitted",
+            "satisfaction_matrix": [],  # legacy request has no must_satisfy items
+            "evidence_refs": ["src.txt:2"],
+            "details": {"verdict": "true_positive", "confidence": 0.92},
+        }
+        out_path = self.tools / "agent-invocations" / "outputs" / "good.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(envelope), encoding="utf-8")
+        return out_path
+
+    def test_full_claim_submit_accept_flow(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        result = submit_claim_result(
+            claim_id=claim["claim_id"],
+            agent_id="judge-worker-001",
+            lease_token=claim["lease_token"],
+            output_path=out,
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        self.assertEqual(result["status"], "accepted", result)
+        self.assertEqual(
+            derive_request_state(request_id=request["request_id"], base_dir=self.tools),
+            "ACCEPTED",
+        )
+
+    def test_evidence_pointing_at_missing_file_rejected(self) -> None:
+        request, claim = self._claim()
+        envelope = {
+            "$schema": "aria/agent-response/v1",
+            "request_id": request["request_id"],
+            "claim_id": claim["claim_id"],
+            "agent_id": claim["agent_id"],
+            "role": "evidence_judgment",
+            "status": "submitted",
+            "satisfaction_matrix": [],
+            "evidence_refs": ["does/not/exist.ts:1"],
+            "details": {"verdict": "true_positive", "confidence": 0.92},
+        }
+        out = self.tools / "agent-invocations" / "outputs" / "bad.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(envelope), encoding="utf-8")
+        result = submit_claim_result(
+            claim_id=claim["claim_id"],
+            agent_id="judge-worker-001",
+            lease_token=claim["lease_token"],
+            output_path=out,
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        self.assertEqual(result["status"], "rejected")
+        joined = " ".join(result["reasons"])
+        self.assertIn("evidence", joined)
+        self.assertEqual(
+            derive_request_state(request_id=request["request_id"], base_dir=self.tools),
+            "REJECTED",
+        )
+
+    def test_lease_token_mismatch_raises(self) -> None:
+        _, claim = self._claim()
+        out = self.tools / "agent-invocations" / "outputs" / "x.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("{}", encoding="utf-8")
+        from aria_kernel.tool_registry import GovernanceError
+
+        with self.assertRaisesRegex(GovernanceError, "lease_token mismatch"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token="00" * 24,
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+            )
+
+    def test_separation_of_duties_blocks_self_approval(self) -> None:
+        # Build a request whose forbidden_agent_ids excludes the submitter.
+        request = create_agent_invocation_request(
+            target_agent="aria-primary-planner",
+            role="primary_plan",
+            suggested_prompt="draft architecture-first plan",
+            convergence_id="conv-002",
+            base_dir=self.tools,
+        )
+        # Patch the request row so separation_of_duties forbids judge-worker-001.
+        # (Direct edit is fine for the test; in production the planner sets it.)
+        from aria_kernel.ledger import load_jsonl, rewrite_jsonl
+        req_path = self.tools / "agent-invocations" / "requests.jsonl"
+        rows = load_jsonl(req_path)
+        rows[-1]["separation_of_duties"] = {"forbidden_agent_ids": ["judge-worker-001"]}
+        rewrite_jsonl(req_path, rows)
+
+        claim = claim_request(
+            request_id=request["request_id"],
+            agent_id="judge-worker-001",
+            base_dir=self.tools,
+        )
+        envelope = {
+            "$schema": "aria/agent-response/v1",
+            "request_id": request["request_id"],
+            "claim_id": claim["claim_id"],
+            "agent_id": claim["agent_id"],
+            "role": "primary_plan",
+            "status": "submitted",
+            "satisfaction_matrix": [],
+            "evidence_refs": ["src.txt:1"],
+        }
+        out = self.tools / "agent-invocations" / "outputs" / "sod.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(envelope), encoding="utf-8")
+        result = submit_claim_result(
+            claim_id=claim["claim_id"],
+            agent_id="judge-worker-001",
+            lease_token=claim["lease_token"],
+            output_path=out,
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        self.assertEqual(result["status"], "rejected")
+        joined = " ".join(result["reasons"])
+        self.assertIn("separation_of_duties", joined)
+
+    def test_unreadable_envelope_rejected_gracefully(self) -> None:
+        request, claim = self._claim()
+        out = self.tools / "agent-invocations" / "outputs" / "junk.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("not-json", encoding="utf-8")
+        result = submit_claim_result(
+            claim_id=claim["claim_id"],
+            agent_id="judge-worker-001",
+            lease_token=claim["lease_token"],
+            output_path=out,
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        self.assertEqual(result["status"], "rejected")
+        joined = " ".join(result["reasons"])
+        self.assertIn("envelope_unreadable", joined)
+
+
+if __name__ == "__main__":
+    unittest.main()

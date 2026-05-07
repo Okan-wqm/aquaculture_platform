@@ -303,15 +303,17 @@ def derive_request_state(
     results = load_jsonl(root / "agent-invocations" / "results.jsonl")
     claims = load_jsonl(_claims_path(root))
 
-    # Results dominate (terminal states first).
+    # Results dominate (terminal states first). The status vocabulary is
+    # the union of legacy aria/agent-invocation-result/v1 ("completed",
+    # "rejected", "partial") and Plan 016 aria/agent-claim-result/v1
+    # ("accepted", "rejected"). Both map onto the same derived states.
     request_results = _result_rows_for(results, request_id)
     if request_results:
-        # Latest result wins.
         last = request_results[-1]
         status = last.get("status")
         if status == "rejected":
             return "REJECTED"
-        if status == "completed":
+        if status in ("completed", "accepted"):
             return "ACCEPTED"
         if status == "partial":
             return "SUBMITTED"
@@ -540,6 +542,187 @@ def release_claim(
         {"claim_id": claim_id, "request_id": request_id, "requeue_count": requeue_count, "reason": reason},
     )
     return row
+
+
+def submit_claim_result(
+    *,
+    claim_id: str,
+    agent_id: str,
+    lease_token: str,
+    output_path: str | Path,
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Validate and persist an agent's submitted result against its leased claim.
+
+    Why: Plan 016 §Agent contract requires every ACCEPTED state to follow
+    a kernel-side validation chain — schema -> matrix -> evidence refs.
+    Without this, a claim can never reach ACCEPTED; the lease lifecycle
+    has no terminal success path. This function ties agent_contract.
+    validate_response and evidence_validator.validate_agent_response_
+    evidence to the claims ledger.
+
+    Returns: {"status": "accepted"|"rejected", "reasons": [...], "row": <persisted result row>}
+    """
+    from .agent_contract import enforce_separation_of_duties, validate_response  # local to avoid import cycle on cold start
+    from .evidence_validator import validate_agent_response_evidence
+
+    if not lease_token or not lease_token.strip():
+        raise GovernanceError("lease_token is required")
+    output = Path(output_path)
+    if not output.exists() or not output.is_file():
+        raise GovernanceError(f"output_path does not exist: {output_path}")
+
+    root = ensure_tools_dir(base_dir)
+    claims = load_jsonl(_claims_path(root))
+    claim_event = next(
+        (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),
+        None,
+    )
+    if claim_event is None:
+        raise GovernanceError(f"claim {claim_id} not found")
+    if claim_event.get("agent_id") != agent_id:
+        raise GovernanceError(
+            f"claim {claim_id} owned by {claim_event.get('agent_id')!r}, not {agent_id!r}"
+        )
+    if claim_event.get("lease_token_hash") != _hash_lease_token(lease_token):
+        raise GovernanceError(f"claim {claim_id} lease_token mismatch")
+    terminal = [
+        row for row in claims
+        if row.get("claim_id") == claim_id and row.get("event") in {"released", "stale", "human_required"}
+    ]
+    if terminal:
+        raise GovernanceError(
+            f"claim {claim_id} already terminal ({terminal[-1].get('event')})"
+        )
+
+    request_id = claim_event["request_id"]
+    request = _find_request(root, request_id)
+
+    # Read the response envelope.
+    try:
+        envelope = json.loads(output.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return _persist_rejection(
+            root=root,
+            claim_id=claim_id,
+            request_id=request_id,
+            agent_id=agent_id,
+            output_path=output,
+            reasons=[f"envelope_unreadable: {exc}"],
+        )
+
+    reasons: list[str] = []
+    try:
+        validate_response(envelope, request=_strict_request_view(request))
+    except GovernanceError as exc:
+        reasons.append(f"response_schema: {exc}")
+    try:
+        enforce_separation_of_duties(
+            request=_strict_request_view(request), submitter_agent_id=agent_id
+        )
+    except GovernanceError as exc:
+        reasons.append(f"separation_of_duties: {exc}")
+    revalidation = validate_agent_response_evidence(
+        response=envelope,
+        workspace_root=workspace_root,
+        request=_strict_request_view(request),
+    )
+    if not revalidation["valid"]:
+        reasons.extend(f"evidence: {error}" for error in revalidation["errors"])
+
+    if reasons:
+        return _persist_rejection(
+            root=root,
+            claim_id=claim_id,
+            request_id=request_id,
+            agent_id=agent_id,
+            output_path=output,
+            reasons=reasons,
+        )
+
+    # Accepted path.
+    output_hash = "sha256:" + hashlib.sha256(output.read_bytes()).hexdigest()
+    row = {
+        "$schema": "aria/agent-claim-result/v1",
+        "schema_version": 1,
+        "claim_id": claim_id,
+        "request_id": request_id,
+        "agent_id": agent_id,
+        "role": envelope.get("role"),
+        "status": "accepted",
+        "output_path": output.resolve().as_posix(),
+        "output_hash": output_hash,
+        "checked_evidence_count": len(revalidation["checked_refs"]),
+        "submitted_at": utc_now(),
+    }
+    persisted = append_jsonl(root / "agent-invocations" / "results.jsonl", row)
+    append_tools_governance(
+        root,
+        "agent_result_accepted",
+        {
+            "claim_id": claim_id,
+            "request_id": request_id,
+            "agent_id": agent_id,
+            "output_hash": output_hash,
+        },
+    )
+    return {"status": "accepted", "reasons": [], "row": persisted}
+
+
+def _persist_rejection(
+    *,
+    root: Path,
+    claim_id: str,
+    request_id: str,
+    agent_id: str,
+    output_path: Path,
+    reasons: list[str],
+) -> dict[str, Any]:
+    row = {
+        "$schema": "aria/agent-claim-result/v1",
+        "schema_version": 1,
+        "claim_id": claim_id,
+        "request_id": request_id,
+        "agent_id": agent_id,
+        "status": "rejected",
+        "output_path": output_path.resolve().as_posix(),
+        "rejection_reasons": reasons,
+        "submitted_at": utc_now(),
+    }
+    persisted = append_jsonl(root / "agent-invocations" / "results.jsonl", row)
+    append_tools_governance(
+        root,
+        "agent_result_rejected",
+        {
+            "claim_id": claim_id,
+            "request_id": request_id,
+            "agent_id": agent_id,
+            "rejection_reasons_count": len(reasons),
+        },
+    )
+    return {"status": "rejected", "reasons": reasons, "row": persisted}
+
+
+def _strict_request_view(legacy_request: dict[str, Any]) -> dict[str, Any]:
+    """Adapt a legacy `aria/agent-invocation-request/v1` row into the strict v1 view used by validators.
+
+    The legacy schema does not carry must_satisfy or evidence_refs; cross-
+    check against those fields is skipped when they are absent. This keeps
+    the new submit_claim_result function compatible with both the legacy
+    request shape (no must_satisfy required in the response) and a strict
+    v1 envelope when callers transition.
+    """
+    view = dict(legacy_request)
+    # When the request lacks must_satisfy / evidence_refs, the validate_response
+    # cross-check sees an empty required set and an empty allowed-ref set, so
+    # it accepts an empty matrix and allows any evidence ref the agent attaches
+    # (subject to evidence_validator's own scope rules).
+    view.setdefault("must_satisfy", [])
+    view.setdefault("evidence_refs", [])
+    view.setdefault("allowed_scope", view.get("allowed_scope") or [])
+    view.setdefault("expected_output_path", view.get("expected_output_path") or "")
+    return view
 
 
 def reap_stale_claims(

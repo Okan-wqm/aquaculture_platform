@@ -5,8 +5,10 @@ import unittest
 
 from aria_kernel.agent_contract import (
     DEFAULT_TARGET_AGENT_WHITELIST,
+    REQUEST_ROLES,
     REQUEST_SCHEMA,
     RESPONSE_SCHEMA,
+    ROLE_TARGET_PAIRING,
     enforce_separation_of_duties,
     envelope_hash,
     render_refusal,
@@ -253,6 +255,127 @@ class WhitelistTests(unittest.TestCase):
             "aria-goldset-curator",
         ):
             self.assertIn(agent, DEFAULT_TARGET_AGENT_WHITELIST)
+
+    def test_whitelist_includes_plan_019_domain_review_agents(self) -> None:
+        # Plan 019 Phase 2.5 adds 4 domain-review agents the auth lane
+        # (Phase 6) + Architecture Spine Gate (Phase 5.5) + CI executor
+        # (Phase 8) need to dispatch through the strict v1 envelope.
+        for agent in (
+            "architectural-arbiter",
+            "auth-security-expert",
+            "access-boundary-auditor",
+            "tenant-isolation-auditor",
+        ):
+            self.assertIn(
+                agent, DEFAULT_TARGET_AGENT_WHITELIST,
+                f"{agent} missing from DEFAULT_TARGET_AGENT_WHITELIST",
+            )
+
+
+class DomainRoleTests(unittest.TestCase):
+    """Plan 019 Phase 2.5 — domain review role + ROLE_TARGET_PAIRING tests.
+
+    The 4 new roles each pair strictly with one domain agent. A request
+    using the new role must target the paired agent; cross-routing is
+    rejected before the agent ever sees the envelope.
+    """
+
+    def test_request_roles_includes_4_domain_roles(self) -> None:
+        for role in (
+            "architectural_arbitration",
+            "auth_security_review",
+            "access_boundary_review",
+            "tenant_isolation_review",
+        ):
+            self.assertIn(role, REQUEST_ROLES, f"{role} missing from REQUEST_ROLES")
+
+    def test_pairing_map_covers_4_domain_roles(self) -> None:
+        pairing = ROLE_TARGET_PAIRING
+        self.assertEqual(pairing["architectural_arbitration"], ("architectural-arbiter",))
+        self.assertEqual(pairing["auth_security_review"], ("auth-security-expert",))
+        self.assertEqual(pairing["access_boundary_review"], ("access-boundary-auditor",))
+        self.assertEqual(pairing["tenant_isolation_review"], ("tenant-isolation-auditor",))
+
+    def test_architectural_arbitration_with_correct_target_passes(self) -> None:
+        validate_request(_good_request(
+            role="architectural_arbitration",
+            target_agent="architectural-arbiter",
+        ))
+
+    def test_auth_security_review_with_correct_target_passes(self) -> None:
+        validate_request(_good_request(
+            role="auth_security_review",
+            target_agent="auth-security-expert",
+        ))
+
+    def test_access_boundary_review_with_correct_target_passes(self) -> None:
+        validate_request(_good_request(
+            role="access_boundary_review",
+            target_agent="access-boundary-auditor",
+        ))
+
+    def test_tenant_isolation_review_with_correct_target_passes(self) -> None:
+        validate_request(_good_request(
+            role="tenant_isolation_review",
+            target_agent="tenant-isolation-auditor",
+        ))
+
+    def test_architectural_arbitration_with_wrong_target_rejected(self) -> None:
+        # Cross-routing: architectural_arbitration role pointed at the
+        # evidence judge. The whitelist accepts both agents individually
+        # but the strict pairing rejects the role/target mismatch.
+        with self.assertRaisesRegex(
+            GovernanceError,
+            r"role 'architectural_arbitration' requires target_agent in "
+            r"\('architectural-arbiter',\); got 'aria-evidence-judge'",
+        ):
+            validate_request(_good_request(
+                role="architectural_arbitration",
+                target_agent="aria-evidence-judge",
+            ))
+
+    def test_auth_security_review_with_unrelated_target_rejected(self) -> None:
+        with self.assertRaisesRegex(
+            GovernanceError,
+            r"role 'auth_security_review' requires target_agent in "
+            r"\('auth-security-expert',\); got 'tenant-isolation-auditor'",
+        ):
+            validate_request(_good_request(
+                role="auth_security_review",
+                target_agent="tenant-isolation-auditor",
+            ))
+
+    def test_existing_evidence_judgment_pairing_preserved(self) -> None:
+        # Plan 016 Faz C4 judges already had implicit 1:1 pairing via
+        # the whitelist + role naming. Phase 2.5 codifies this in the
+        # ROLE_TARGET_PAIRING map. Existing fixtures that use
+        # evidence_judgment + aria-evidence-judge must still pass.
+        validate_request(_good_request(
+            role="evidence_judgment",
+            target_agent="aria-evidence-judge",
+        ))
+
+    def test_existing_evidence_judgment_with_wrong_judge_rejected(self) -> None:
+        # The flip side: evidence_judgment served by adversarial judge
+        # was previously accepted (whitelist passed both). Phase 2.5
+        # now rejects the mismatch — this is a tightening, not a
+        # backward-compat break, because no existing kernel caller
+        # routes evidence_judgment to a non-evidence judge.
+        with self.assertRaisesRegex(
+            GovernanceError,
+            r"role 'evidence_judgment' requires target_agent in "
+            r"\('aria-evidence-judge',\); got 'aria-adversarial-judge'",
+        ):
+            validate_request(_good_request(
+                role="evidence_judgment",
+                target_agent="aria-adversarial-judge",
+            ))
+
+    def test_open_role_primary_plan_accepts_any_whitelisted_agent(self) -> None:
+        # primary_plan is NOT in ROLE_TARGET_PAIRING; convergent planning
+        # is many-to-many by design. The whitelist alone gates target.
+        for target in ("aria-primary-planner", "aria-challenger-planner", "aria-prompt-writer"):
+            validate_request(_good_request(role="primary_plan", target_agent=target))
 
 
 if __name__ == "__main__":

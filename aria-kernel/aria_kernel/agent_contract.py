@@ -57,6 +57,19 @@ REQUEST_ROLES = (
     "consensus_arbitration",
     "change_intelligence",
     "goldset_curation",
+    # Plan 019 Phase 2.5 — domain review roles.
+    # Why: Plan 019's auth lane (Phase 6), Architecture Spine Gate
+    # (Phase 5.5), and CI executor (Phase 8) need to dispatch domain
+    # agents through the strict v1 envelope, not just the maintenance
+    # /judge surface. Operator critique #3 (Plan v4.2): kernel-routed
+    # flows cannot reach architectural-arbiter / auth-security-expert /
+    # access-boundary-auditor / tenant-isolation-auditor until the
+    # whitelist is extended. Each new role pairs strictly with one
+    # domain agent (see ROLE_TARGET_PAIRING below).
+    "architectural_arbitration",
+    "auth_security_review",
+    "access_boundary_review",
+    "tenant_isolation_review",
 )
 
 REQUEST_REQUIRED_FIELDS = (
@@ -103,10 +116,11 @@ REQUEST_SCHEMA = "aria/agent-request/v1"
 RESPONSE_SCHEMA = "aria/agent-response/v1"
 REFUSAL_SCHEMA = "aria/agent-refusal/v1"
 
-# Maintenance + judge agents that may receive an agent-request envelope.
-# A request whose target_agent is outside this set is rejected at validation
-# time — this closes the prompt-injection vector where a malicious caller
-# tries to route a request to an arbitrary agent name.
+# Maintenance + judge + domain-review agents that may receive an
+# agent-request envelope. A request whose target_agent is outside this
+# set is rejected at validation time — this closes the prompt-injection
+# vector where a malicious caller tries to route a request to an
+# arbitrary agent name.
 DEFAULT_TARGET_AGENT_WHITELIST: tuple[str, ...] = (
     # Maintenance agents (Plan 016 §3 maintenance agents).
     "aria-prompt-writer",
@@ -118,7 +132,40 @@ DEFAULT_TARGET_AGENT_WHITELIST: tuple[str, ...] = (
     "aria-consensus-arbiter",
     "aria-change-intelligence",
     "aria-goldset-curator",
+    # Plan 019 Phase 2.5 — domain review agents (.claude/agents/*.md
+    # already present per CLAUDE.md agent map). Each pairs strictly
+    # with one Plan 019 role via ROLE_TARGET_PAIRING below.
+    "architectural-arbiter",
+    "auth-security-expert",
+    "access-boundary-auditor",
+    "tenant-isolation-auditor",
 )
+
+
+# Plan 019 Phase 2.5 — strict role↔target_agent pairing.
+# Why a separate map: target_agent_whitelist gates WHICH agents can be
+# targeted at all (anti-prompt-injection); ROLE_TARGET_PAIRING gates
+# WHICH role each agent may serve (separation-of-concerns / no
+# cross-routing). A request with role=evidence_judgment but
+# target_agent=architectural-arbiter is structurally wrong — the
+# pairing rejection surfaces the mismatch before the agent ever sees
+# the envelope.
+#
+# Roles NOT in this map (primary_plan, challenger_plan, etc.) accept
+# any whitelisted target_agent — convergent planning is many-to-many
+# by design.
+ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
+    # Plan 016 Faz C4 judges + Plan 019 Phase 2.5 domain reviewers.
+    "evidence_judgment": ("aria-evidence-judge",),
+    "adversarial_judgment": ("aria-adversarial-judge",),
+    "consensus_arbitration": ("aria-consensus-arbiter",),
+    "change_intelligence": ("aria-change-intelligence",),
+    "goldset_curation": ("aria-goldset-curator",),
+    "architectural_arbitration": ("architectural-arbiter",),
+    "auth_security_review": ("auth-security-expert",),
+    "access_boundary_review": ("access-boundary-auditor",),
+    "tenant_isolation_review": ("tenant-isolation-auditor",),
+}
 
 REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:-]{2,127}$")
 CLAIM_ID_RE = re.compile(r"^claim_[a-zA-Z0-9._:-]{4,128}$")
@@ -203,6 +250,18 @@ def validate_request(
         raise GovernanceError(
             f"agent-request.target_agent {target!r} not in whitelist; "
             f"allowed: {whitelist}"
+        )
+    # Plan 019 Phase 2.5 — strict role/target pairing.
+    # When the role appears in ROLE_TARGET_PAIRING, the request must
+    # target one of the paired agents. Cross-routing (e.g. evidence_
+    # judgment served by architectural-arbiter) is rejected here so a
+    # caller cannot smuggle a domain-review role into an unrelated
+    # agent's queue.
+    allowed_targets_for_role = ROLE_TARGET_PAIRING.get(role)
+    if allowed_targets_for_role is not None and target not in allowed_targets_for_role:
+        raise GovernanceError(
+            f"agent-request.role {role!r} requires target_agent in "
+            f"{allowed_targets_for_role}; got {target!r}"
         )
     _ensure_string_list(envelope["evidence_refs"], field="agent-request.evidence_refs")
     _ensure_string_list(envelope["allowed_scope"], field="agent-request.allowed_scope")

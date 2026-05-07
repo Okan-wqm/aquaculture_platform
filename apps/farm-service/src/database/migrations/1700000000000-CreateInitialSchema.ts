@@ -7,10 +7,8 @@ import { MigrationLogger } from '@aquaculture/backend-common/database';
  *
  * Restores the farm-service migration baseline that was lost when several
  * earlier `CREATE TABLE` migrations were squashed out of source. On a
- * fresh-volume bootstrap (init scripts mounted only `sites`, `departments`,
- * `systems`, `sub_systems`, `equipment_types`, `equipment`, `species`),
- * the remaining migration chain (1734336000000+) assumes baseline tables
- * that no longer have a creation step.
+ * fresh-volume bootstrap, the remaining migration chain (1734336000000+)
+ * assumes baseline tables that no longer have a creation step.
  *
  * Concrete failure on a fresh DB:
  * `1734500000000-AddBatchDocuments` ALTERs `batches_v2` to add the
@@ -19,23 +17,37 @@ import { MigrationLogger } from '@aquaculture/backend-common/database';
  * `batch_locations`, `batch_feed_assignments`, `tank_batches`,
  * `tank_allocations`.
  *
+ * Wave 5 ordering bug (closed by this revision):
+ *   The init script `03-farm-tables-and-seed.sql` historically created
+ *   `sites`, `departments`, `systems`, `sub_systems`, `equipment_types`,
+ *   `equipment`, `species` in `public` (then `1786000000000-MovePublicTablesToFarm`
+ *   was supposed to relocate them — except that migration only moves
+ *   weather/marine/feeder tables, never these). Meanwhile this baseline
+ *   migration creates `farm.tanks` with an FK to `farm.departments` and
+ *   `farm.batches_v2` with an FK to `farm.species` — both FK targets did
+ *   not exist in the `farm` schema at migration time, breaking fresh-DB
+ *   bootstrap with a foreign-key-target-missing error. The fix is to
+ *   create the seven seed tables in `farm.*` directly here, ahead of the
+ *   tables that depend on them.
+ *
  * # Scope
  *
- *   1. Create 8 missing `farm.*` tables idempotently in topological FK
+ *   1. Create 7 init-script-equivalent `farm.*` tables idempotently:
+ *        sites, departments, systems, sub_systems, equipment_types,
+ *        equipment, species.
+ *   2. Create 8 baseline `farm.*` tables idempotently in topological FK
  *      order:
  *        farms, ponds, tanks, batches_v2, batch_locations,
  *        batch_feed_assignments, tank_batches, tank_allocations.
- *   2. Create the 5 enum types those tables depend on idempotently:
- *        water_type, pond_status, tank_type, tank_material, tank_status,
- *        batch_status, batch_input_type, batch_type, location_type,
- *        transfer_reason, allocation_type.
- *
- * Tables already created by `infrastructure/docker/init-scripts/03-farm-tables-and-seed.sql`
- * (sites, departments, systems, sub_systems, equipment_types, equipment,
- * species) are NOT re-created here — that boundary is owned by the init
- * script and managed by `SourceSchemaBootstrapService`. This migration
- * only fills the gap between the init-script snapshot and the current
- * entity surface.
+ *   3. Create the 20 enum types those tables depend on idempotently:
+ *        farm_site_status, farm_system_type, farm_system_status,
+ *        farm_sub_system_type, farm_sub_system_status,
+ *        farm_equipment_category, farm_equipment_status,
+ *        farm_department_type, farm_department_status,
+ *        farm_water_type, farm_pond_status, farm_tank_type,
+ *        farm_tank_material, farm_tank_status, farm_batch_status,
+ *        farm_batch_input_type, farm_batch_type, farm_location_type,
+ *        farm_transfer_reason, farm_allocation_type.
  *
  * # Idempotency
  *
@@ -106,7 +118,7 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     this.logger.log(
-      'Creating baseline farm.* tables (8) and enum types (11)',
+      'Creating baseline farm.* tables (15) and enum types (20)',
     );
 
     // The farm schema itself is created by infrastructure/docker/init-scripts.
@@ -115,6 +127,20 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
     await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS farm`);
 
     await this.createEnumTypes(queryRunner);
+
+    // Init-script-equivalent tables (formerly created by
+    // 03-farm-tables-and-seed.sql in `public`). These come FIRST because
+    // farm.tanks has an FK to farm.departments and farm.batches_v2 has an
+    // FK to farm.species — the targets must exist before the dependents.
+    await this.createSitesTable(queryRunner);
+    await this.createDepartmentsTable(queryRunner);
+    await this.createSystemsTable(queryRunner);
+    await this.createSubSystemsTable(queryRunner);
+    await this.createEquipmentTypesTable(queryRunner);
+    await this.createEquipmentTable(queryRunner);
+    await this.createSpeciesTable(queryRunner);
+
+    // Baseline tables previously squashed out of source.
     await this.createFarmsTable(queryRunner);
     await this.createPondsTable(queryRunner);
     await this.createTanksTable(queryRunner);
@@ -135,6 +161,7 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
     );
 
     const tablesInDropOrder = [
+      // Baseline tables (children-first per FK direction)
       'tank_allocations',
       'tank_batches',
       'batch_feed_assignments',
@@ -143,6 +170,14 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
       'tanks',
       'ponds',
       'farms',
+      // Init-script-equivalent tables (children-first per FK direction)
+      'equipment',
+      'equipment_types',
+      'sub_systems',
+      'systems',
+      'departments',
+      'sites',
+      'species',
     ];
 
     for (const table of tablesInDropOrder) {
@@ -152,6 +187,7 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
     // Drop enum types last — table drops above already removed dependent
     // columns, so these should be free.
     const enumTypes = [
+      // Baseline enums
       'farm_water_type_enum',
       'farm_pond_status_enum',
       'farm_tank_type_enum',
@@ -163,6 +199,16 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
       'farm_location_type_enum',
       'farm_transfer_reason_enum',
       'farm_allocation_type_enum',
+      // Init-script-equivalent enums
+      'farm_site_status_enum',
+      'farm_system_type_enum',
+      'farm_system_status_enum',
+      'farm_sub_system_type_enum',
+      'farm_sub_system_status_enum',
+      'farm_equipment_category_enum',
+      'farm_equipment_status_enum',
+      'farm_department_type_enum',
+      'farm_department_status_enum',
     ];
     for (const enumType of enumTypes) {
       await queryRunner.query(
@@ -184,6 +230,24 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
    */
   private async createEnumTypes(queryRunner: QueryRunner): Promise<void> {
     const enums: ReadonlyArray<{ name: string; values: readonly string[] }> = [
+      // 03-farm-tables-and-seed.sql: site_status (init script literal values)
+      { name: 'farm_site_status_enum', values: ['active', 'maintenance', 'inactive', 'under_construction'] },
+      // 03-farm-tables-and-seed.sql: system_type
+      { name: 'farm_system_type_enum', values: ['ras', 'flow_through', 'pond', 'cage', 'raceway', 'hatchery', 'nursery', 'biofloc', 'aquaponics', 'other'] },
+      // 03-farm-tables-and-seed.sql: system_status
+      { name: 'farm_system_status_enum', values: ['active', 'maintenance', 'inactive', 'commissioning'] },
+      // 03-farm-tables-and-seed.sql: sub_system_type
+      { name: 'farm_sub_system_type_enum', values: ['grow_out', 'nursery', 'hatchery', 'broodstock', 'quarantine', 'treatment', 'filtration', 'aeration', 'heating_cooling', 'feeding', 'harvesting', 'storage', 'other'] },
+      // 03-farm-tables-and-seed.sql: sub_system_status
+      { name: 'farm_sub_system_status_enum', values: ['active', 'maintenance', 'inactive', 'cleaning', 'fallow'] },
+      // 03-farm-tables-and-seed.sql: equipment_category
+      { name: 'farm_equipment_category_enum', values: ['tank', 'pump', 'aeration', 'filtration', 'heating_cooling', 'feeding', 'monitoring', 'water_treatment', 'harvesting', 'transport', 'electrical', 'plumbing', 'safety', 'other'] },
+      // 03-farm-tables-and-seed.sql: equipment_status
+      { name: 'farm_equipment_status_enum', values: ['operational', 'maintenance', 'repair', 'out_of_service', 'decommissioned', 'standby', 'active', 'preparing', 'cleaning', 'harvesting', 'fallow', 'quarantine'] },
+      // 03-farm-tables-and-seed.sql: department_type
+      { name: 'farm_department_type_enum', values: ['production', 'grow_out', 'nursery', 'hatchery', 'broodstock', 'quarantine', 'processing', 'maintenance', 'administration', 'other'] },
+      // 03-farm-tables-and-seed.sql: department_status
+      { name: 'farm_department_status_enum', values: ['active', 'maintenance', 'inactive', 'under_construction'] },
       // pond.entity.ts: WaterType — also used by tank.entity.ts
       { name: 'farm_water_type_enum', values: ['freshwater', 'saltwater', 'brackish'] },
       // pond.entity.ts: PondStatus
@@ -719,6 +783,412 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
           FOREIGN KEY ("batchId") REFERENCES farm.batches_v2("id") ON DELETE CASCADE;
       EXCEPTION WHEN duplicate_object THEN NULL;
       END $$
+    `);
+  }
+
+  // ==========================================================================
+  // INIT-SCRIPT-EQUIVALENT TABLES
+  //
+  // The seven table creators below mirror the column shapes that
+  // `infrastructure/docker/init-scripts/03-farm-tables-and-seed.sql`
+  // produced in `public` on legacy environments. We re-create them in
+  // `farm.*` here so the FK targets `farm.departments` and `farm.species`
+  // (referenced by `createTanksTable` / `createBatchesV2Table`) are
+  // present at migration time on a fresh DB. Idempotency is on
+  // `IF NOT EXISTS` for every DDL statement, matching the same hook
+  // discipline as the baseline tables above (R3 sibling-index bundling,
+  // R5 enum DO blocks, FK ADD CONSTRAINT in a separate DO $$ block).
+  //
+  // The `equipment` table includes the columns that legacy init script
+  // `02-migrate-tanks-to-equipment.sql` used to bolt on (isTank, volume,
+  // currentBiomass, currentCount, subSystemId, isDeleted, deletedAt,
+  // deletedBy) — that init script was removed in commit e0d2f716 and the
+  // baseline must own those columns directly.
+  // ==========================================================================
+
+  /**
+   * farm.sites — init-script `sites` table.
+   *
+   * NOTE on entity drift: the Site entity (apps/farm-service/src/site/entities/site.entity.ts)
+   * carries additional columns the init script never produced (type, city,
+   * areaM2, waterCapacityM3, maxBiomassKg, establishedDate, facilities,
+   * notes, metadata, isDeleted/deletedAt/deletedBy) and uses different
+   * length constraints (name 150 vs 255, code 20 vs 50). This baseline
+   * faithfully reproduces the init script columns; the entity-vs-baseline
+   * drift is tracked separately and a follow-up migration is the right
+   * place to align them — rewriting the baseline would obscure history.
+   */
+  private async createSitesTable(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS farm.sites (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "tenantId" uuid NOT NULL,
+        "name" varchar(255) NOT NULL,
+        "code" varchar(50) NOT NULL,
+        "description" text,
+        "location" jsonb,
+        "address" jsonb,
+        "country" varchar(100),
+        "region" varchar(100),
+        "timezone" varchar(50) DEFAULT 'UTC',
+        "status" farm.farm_site_status_enum DEFAULT 'active',
+        "settings" jsonb,
+        "totalArea" decimal(15, 2),
+        "siteManager" varchar(100),
+        "contactEmail" varchar(255),
+        "contactPhone" varchar(50),
+        "isActive" boolean DEFAULT true,
+        "createdAt" timestamptz DEFAULT NOW(),
+        "updatedAt" timestamptz DEFAULT NOW(),
+        "createdBy" uuid,
+        "updatedBy" uuid,
+        "version" integer DEFAULT 1,
+        CONSTRAINT "UQ_sites_tenant_code" UNIQUE ("tenantId", "code"),
+        CONSTRAINT "UQ_sites_tenant_name" UNIQUE ("tenantId", "name")
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_sites_tenantId"
+        ON farm.sites ("tenantId");
+      CREATE INDEX IF NOT EXISTS "IDX_sites_tenant_status"
+        ON farm.sites ("tenantId", "status");
+      CREATE INDEX IF NOT EXISTS "IDX_sites_tenant_isActive"
+        ON farm.sites ("tenantId", "isActive");
+    `);
+  }
+
+  /**
+   * farm.departments — init-script `departments` table.
+   *
+   * FK to sites (CASCADE per init script). The departments-tank FK is
+   * added later by `createTanksTable` (RESTRICT per Tank entity).
+   */
+  private async createDepartmentsTable(
+    queryRunner: QueryRunner,
+  ): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS farm.departments (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "tenantId" uuid NOT NULL,
+        "siteId" uuid NOT NULL,
+        "name" varchar(255) NOT NULL,
+        "code" varchar(50) NOT NULL,
+        "description" text,
+        "type" farm.farm_department_type_enum DEFAULT 'other',
+        "status" farm.farm_department_status_enum DEFAULT 'active',
+        "settings" jsonb,
+        "managerId" uuid,
+        "managerName" varchar(255),
+        "equipmentCount" integer DEFAULT 0,
+        "isActive" boolean DEFAULT true,
+        "isDeleted" boolean DEFAULT false,
+        "deletedAt" timestamptz,
+        "deletedBy" uuid,
+        "createdAt" timestamptz DEFAULT NOW(),
+        "updatedAt" timestamptz DEFAULT NOW(),
+        "createdBy" uuid,
+        "updatedBy" uuid,
+        "version" integer DEFAULT 1,
+        CONSTRAINT "UQ_departments_tenant_site_code" UNIQUE ("tenantId", "siteId", "code"),
+        CONSTRAINT "UQ_departments_tenant_site_name" UNIQUE ("tenantId", "siteId", "name")
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_departments_tenantId"
+        ON farm.departments ("tenantId");
+      CREATE INDEX IF NOT EXISTS "IDX_departments_siteId"
+        ON farm.departments ("siteId");
+      CREATE INDEX IF NOT EXISTS "IDX_departments_tenant_type"
+        ON farm.departments ("tenantId", "type");
+      CREATE INDEX IF NOT EXISTS "IDX_departments_tenant_status"
+        ON farm.departments ("tenantId", "status");
+    `);
+
+    await queryRunner.query(`
+      DO $$ BEGIN
+        ALTER TABLE farm.departments
+          ADD CONSTRAINT "FK_departments_site"
+          FOREIGN KEY ("siteId") REFERENCES farm.sites("id") ON DELETE CASCADE;
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+  }
+
+  /**
+   * farm.systems — init-script `systems` table.
+   *
+   * FK to sites (CASCADE per init script). `parent_system_id` is added
+   * later by `1734336000000-AddSystemHierarchy`.
+   */
+  private async createSystemsTable(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS farm.systems (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "tenantId" uuid NOT NULL,
+        "siteId" uuid NOT NULL,
+        "name" varchar(255) NOT NULL,
+        "code" varchar(50) NOT NULL,
+        "description" text,
+        "type" farm.farm_system_type_enum DEFAULT 'other',
+        "status" farm.farm_system_status_enum DEFAULT 'active',
+        "specifications" jsonb,
+        "managerId" uuid,
+        "managerName" varchar(255),
+        "subSystemCount" integer DEFAULT 0,
+        "equipmentCount" integer DEFAULT 0,
+        "isActive" boolean DEFAULT true,
+        "isDeleted" boolean DEFAULT false,
+        "deletedAt" timestamptz,
+        "deletedBy" uuid,
+        "createdAt" timestamptz DEFAULT NOW(),
+        "updatedAt" timestamptz DEFAULT NOW(),
+        "createdBy" uuid,
+        "updatedBy" uuid,
+        "version" integer DEFAULT 1,
+        CONSTRAINT "UQ_systems_tenant_site_code" UNIQUE ("tenantId", "siteId", "code"),
+        CONSTRAINT "UQ_systems_tenant_site_name" UNIQUE ("tenantId", "siteId", "name")
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_systems_tenantId"
+        ON farm.systems ("tenantId");
+      CREATE INDEX IF NOT EXISTS "IDX_systems_siteId"
+        ON farm.systems ("siteId");
+      CREATE INDEX IF NOT EXISTS "IDX_systems_tenant_type"
+        ON farm.systems ("tenantId", "type");
+      CREATE INDEX IF NOT EXISTS "IDX_systems_tenant_status"
+        ON farm.systems ("tenantId", "status");
+    `);
+
+    await queryRunner.query(`
+      DO $$ BEGIN
+        ALTER TABLE farm.systems
+          ADD CONSTRAINT "FK_systems_site"
+          FOREIGN KEY ("siteId") REFERENCES farm.sites("id") ON DELETE CASCADE;
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+  }
+
+  /**
+   * farm.sub_systems — init-script `sub_systems` table.
+   *
+   * FK to systems (CASCADE per init script).
+   */
+  private async createSubSystemsTable(
+    queryRunner: QueryRunner,
+  ): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS farm.sub_systems (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "tenantId" uuid NOT NULL,
+        "systemId" uuid NOT NULL,
+        "name" varchar(255) NOT NULL,
+        "code" varchar(50) NOT NULL,
+        "description" text,
+        "type" farm.farm_sub_system_type_enum DEFAULT 'other',
+        "status" farm.farm_sub_system_status_enum DEFAULT 'active',
+        "specifications" jsonb,
+        "supervisorId" uuid,
+        "supervisorName" varchar(255),
+        "equipmentCount" integer DEFAULT 0,
+        "tankCount" integer DEFAULT 0,
+        "isActive" boolean DEFAULT true,
+        "isDeleted" boolean DEFAULT false,
+        "deletedAt" timestamptz,
+        "deletedBy" uuid,
+        "createdAt" timestamptz DEFAULT NOW(),
+        "updatedAt" timestamptz DEFAULT NOW(),
+        "createdBy" uuid,
+        "updatedBy" uuid,
+        "version" integer DEFAULT 1,
+        CONSTRAINT "UQ_sub_systems_tenant_system_code" UNIQUE ("tenantId", "systemId", "code"),
+        CONSTRAINT "UQ_sub_systems_tenant_system_name" UNIQUE ("tenantId", "systemId", "name")
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_sub_systems_tenantId"
+        ON farm.sub_systems ("tenantId");
+      CREATE INDEX IF NOT EXISTS "IDX_sub_systems_systemId"
+        ON farm.sub_systems ("systemId");
+      CREATE INDEX IF NOT EXISTS "IDX_sub_systems_tenant_type"
+        ON farm.sub_systems ("tenantId", "type");
+      CREATE INDEX IF NOT EXISTS "IDX_sub_systems_tenant_status"
+        ON farm.sub_systems ("tenantId", "status");
+    `);
+
+    await queryRunner.query(`
+      DO $$ BEGIN
+        ALTER TABLE farm.sub_systems
+          ADD CONSTRAINT "FK_sub_systems_system"
+          FOREIGN KEY ("systemId") REFERENCES farm.systems("id") ON DELETE CASCADE;
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+  }
+
+  /**
+   * farm.equipment_types — init-script `equipment_types` table (global,
+   * cross-tenant).
+   *
+   * No FK out. The init script also seeds 4 system equipment types
+   * (TANK / PUMP / AERATOR / FILTER); seeding is owned by application
+   * code (SeedService), NOT by this baseline migration.
+   */
+  private async createEquipmentTypesTable(
+    queryRunner: QueryRunner,
+  ): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS farm.equipment_types (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "name" varchar(100) NOT NULL,
+        "code" varchar(50) UNIQUE NOT NULL,
+        "description" text,
+        "category" farm.farm_equipment_category_enum DEFAULT 'other',
+        "icon" varchar(50),
+        "specificationSchema" jsonb NOT NULL,
+        "allowedSubEquipmentTypes" text[],
+        "isActive" boolean DEFAULT true,
+        "isSystem" boolean DEFAULT false,
+        "sortOrder" integer DEFAULT 0,
+        "createdAt" timestamptz DEFAULT NOW(),
+        "updatedAt" timestamptz DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_types_code"
+        ON farm.equipment_types ("code");
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_types_category"
+        ON farm.equipment_types ("category");
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_types_isActive"
+        ON farm.equipment_types ("isActive");
+    `);
+  }
+
+  /**
+   * farm.equipment — init-script `equipment` table, plus the columns
+   * that legacy init script `02-migrate-tanks-to-equipment.sql` added
+   * (isTank, volume, currentBiomass, currentCount, subSystemId,
+   * isDeleted, deletedAt, deletedBy). 02 was deleted in e0d2f716, so
+   * this baseline owns the merged column set directly.
+   *
+   * FKs:
+   *   - departmentId → farm.departments(id) ON DELETE CASCADE
+   *   - subSystemId  → farm.sub_systems(id) ON DELETE CASCADE
+   *   - equipmentTypeId → farm.equipment_types(id)
+   */
+  private async createEquipmentTable(
+    queryRunner: QueryRunner,
+  ): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS farm.equipment (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "tenantId" uuid NOT NULL,
+        "departmentId" uuid,
+        "subSystemId" uuid,
+        "equipmentTypeId" uuid NOT NULL,
+        "name" varchar(255) NOT NULL,
+        "code" varchar(50) NOT NULL,
+        "description" text,
+        "manufacturer" varchar(100),
+        "model" varchar(100),
+        "serialNumber" varchar(100),
+        "purchaseDate" date,
+        "installationDate" date,
+        "warrantyEndDate" date,
+        "purchasePrice" decimal(15, 2),
+        "currency" varchar(3) DEFAULT 'TRY',
+        "status" farm.farm_equipment_status_enum DEFAULT 'operational',
+        "location" jsonb,
+        "specifications" jsonb,
+        "maintenanceSchedule" jsonb,
+        "supplierId" uuid,
+        "subEquipmentCount" integer DEFAULT 0,
+        "operatingHours" decimal(10, 2),
+        "notes" text,
+        "isTank" boolean DEFAULT false,
+        "volume" decimal(15, 2),
+        "currentBiomass" decimal(15, 2),
+        "currentCount" integer,
+        "isActive" boolean DEFAULT true,
+        "isDeleted" boolean DEFAULT false,
+        "deletedAt" timestamptz,
+        "deletedBy" uuid,
+        "createdAt" timestamptz DEFAULT NOW(),
+        "updatedAt" timestamptz DEFAULT NOW(),
+        "createdBy" uuid,
+        "updatedBy" uuid,
+        "version" integer DEFAULT 1,
+        CONSTRAINT "UQ_equipment_tenant_code" UNIQUE ("tenantId", "code")
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_tenantId"
+        ON farm.equipment ("tenantId");
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_departmentId"
+        ON farm.equipment ("departmentId");
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_subSystemId"
+        ON farm.equipment ("subSystemId");
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_tenant_departmentId"
+        ON farm.equipment ("tenantId", "departmentId");
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_tenant_subSystemId"
+        ON farm.equipment ("tenantId", "subSystemId");
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_tenant_status"
+        ON farm.equipment ("tenantId", "status");
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_tenant_equipmentTypeId"
+        ON farm.equipment ("tenantId", "equipmentTypeId");
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_tenant_isTank"
+        ON farm.equipment ("tenantId", "isTank");
+      CREATE INDEX IF NOT EXISTS "IDX_equipment_serialNumber"
+        ON farm.equipment ("serialNumber");
+    `);
+
+    await queryRunner.query(`
+      DO $$ BEGIN
+        ALTER TABLE farm.equipment
+          ADD CONSTRAINT "FK_equipment_department"
+          FOREIGN KEY ("departmentId") REFERENCES farm.departments("id") ON DELETE CASCADE;
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+
+    await queryRunner.query(`
+      DO $$ BEGIN
+        ALTER TABLE farm.equipment
+          ADD CONSTRAINT "FK_equipment_sub_system"
+          FOREIGN KEY ("subSystemId") REFERENCES farm.sub_systems("id") ON DELETE CASCADE;
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+
+    await queryRunner.query(`
+      DO $$ BEGIN
+        ALTER TABLE farm.equipment
+          ADD CONSTRAINT "FK_equipment_equipment_type"
+          FOREIGN KEY ("equipmentTypeId") REFERENCES farm.equipment_types("id");
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+  }
+
+  /**
+   * farm.species — init-script `species` table.
+   *
+   * The Batch entity FK target (FK_batches_v2_species) lands later in
+   * createBatchesV2Table, so species must be created first.
+   */
+  private async createSpeciesTable(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS farm.species (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "tenantId" uuid NOT NULL,
+        "name" varchar(255) NOT NULL,
+        "scientificName" varchar(255),
+        "code" varchar(50) NOT NULL,
+        "category" varchar(50) DEFAULT 'finfish',
+        "description" text,
+        "optimalTemperature" jsonb,
+        "optimalPh" jsonb,
+        "optimalSalinity" jsonb,
+        "optimalOxygen" jsonb,
+        "growthCurve" jsonb,
+        "isActive" boolean DEFAULT true,
+        "createdAt" timestamptz DEFAULT NOW(),
+        "updatedAt" timestamptz DEFAULT NOW(),
+        CONSTRAINT "UQ_species_tenant_code" UNIQUE ("tenantId", "code")
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_species_tenantId"
+        ON farm.species ("tenantId");
+      CREATE INDEX IF NOT EXISTS "IDX_species_tenant_code"
+        ON farm.species ("tenantId", "code");
     `);
   }
 }

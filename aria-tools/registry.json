@@ -45,22 +45,24 @@
         "type": "object"
       },
       "owner": "platform",
-      "parse_window_signature": "sha256:5dfc9fbe998ba0592f05588f247d55495882139b5053c9adef4fe1296bd5f272",
+      "parse_window_signature": "sha256:751e6ca0b4938c91cc072ec305ea32829be8bb4751f7718d7680fd22692603e9",
       "runner": {
         "argv": [
-          "python3",
-          "shadow_runner.py",
-          "tenant-scoping-adapter"
+          "npx",
+          "ts-node",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/tenant-scoping-adapter.ts"
         ],
-        "cwd": "tools/aria-poc",
+        "cwd": ".",
         "stdin_json": true,
-        "timeout_ms": 15000,
+        "timeout_ms": 180000,
         "type": "subprocess"
       },
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "tenant-scoping-adapter",
-      "updated_at": "2026-05-05T08:29:32+00:00",
+      "updated_at": "2026-05-07T15:00:00Z",
       "version": "0.1.0"
     },
     {
@@ -168,22 +170,24 @@
         "type": "object"
       },
       "owner": "platform",
-      "parse_window_signature": "sha256:7bcf59cd2b78496c1afab2abdf9cad0198b789a0a944335dadfbcfd0bca37b32",
+      "parse_window_signature": "sha256:5a45e6f648f2498d190dca09775b5731a5e25208498ebe349408c3f0a06cff84",
       "runner": {
         "argv": [
-          "python3",
-          "shadow_runner.py",
-          "event-contracts-adapter"
+          "npx",
+          "ts-node",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/event-contracts-adapter.ts"
         ],
-        "cwd": "tools/aria-poc",
+        "cwd": ".",
         "stdin_json": true,
-        "timeout_ms": 15000,
+        "timeout_ms": 180000,
         "type": "subprocess"
       },
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "event-contracts-adapter",
-      "updated_at": "2026-05-05T08:29:32+00:00",
+      "updated_at": "2026-05-07T15:00:00Z",
       "version": "0.1.0"
     },
     {

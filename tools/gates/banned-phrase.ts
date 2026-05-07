@@ -180,6 +180,13 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^docs\/architecture\//,
   /^docs\/compliance\//,
   /^docs\/plans\//,
+  // ARIA review and plan documents legitimately quote the banned phrase
+  // list when they review the platform's compliance with CLAUDE.md or
+  // when they document the gate itself (Plan 016 + Plan 017 reviews).
+  // Same exemption rationale as docs/reviews/ and docs/plans/ above —
+  // the doc IS the meta-text describing the discipline.
+  /^docs\/aria\/reviews\//,
+  /^docs\/aria\/plans\//,
   /^CHANGELOG\.md$/,
   /^\.claude\/agents\.legacy\//,
   /^\.claude\/agents\//,

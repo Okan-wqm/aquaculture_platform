@@ -52,6 +52,8 @@ import {
   ORPHAN_HEADING_REGEX,
   REQUIRE_CLOSES_TYPES,
   extractTrailers,
+  isAriaArtifactPath,
+  isAriaFindingId,
   validateCommit,
   type Commit,
 } from './commit-msg-validator';
@@ -395,4 +397,115 @@ test('validateCommit: pre-gate predicate skips validation', () => {
     () => true, // pre-gate true = skip
   );
   assert.strictEqual(violations.length, 0);
+});
+
+// ---------------------------------------------------------
+// Plan 017 Phase 1.1 — ARIA artifact trailer routing
+// ---------------------------------------------------------
+
+test('CLOSES_TRAILER_REGEX matches aria-findings F-NNN trailer', () => {
+  const m = CLOSES_TRAILER_REGEX.exec('Closes: aria-findings/F-001.json#F-001');
+  assert.notStrictEqual(m, null);
+  assert.strictEqual(m?.[1], 'aria-findings/F-001.json');
+  assert.strictEqual(m?.[2], 'F-001');
+});
+
+test('CLOSES_TRAILER_REGEX matches aria-debts DEBT-YYYY-MM-DD-NNN trailer', () => {
+  const m = CLOSES_TRAILER_REGEX.exec(
+    'Closes: aria-debts/DEBT-2026-05-08-001.json#DEBT-2026-05-08-001',
+  );
+  assert.notStrictEqual(m, null);
+  assert.strictEqual(m?.[1], 'aria-debts/DEBT-2026-05-08-001.json');
+  assert.strictEqual(m?.[2], 'DEBT-2026-05-08-001');
+});
+
+test('isAriaArtifactPath / isAriaFindingId classify correctly', () => {
+  assert.strictEqual(isAriaArtifactPath('aria-findings/F-001.json'), true);
+  assert.strictEqual(isAriaArtifactPath('aria-debts/DEBT-2026-05-08-001.json'), true);
+  assert.strictEqual(isAriaArtifactPath('docs/reviews/x.md'), false);
+  assert.strictEqual(isAriaFindingId('F-001'), true);
+  assert.strictEqual(isAriaFindingId('DEBT-2026-05-08-001'), true);
+  assert.strictEqual(isAriaFindingId('UH-HIGH-091'), false);
+  assert.strictEqual(isAriaFindingId('ORPHAN-MEDIUM-031'), false);
+});
+
+test('validateCommit: ARIA finding trailer routes to filesystem (no registry lookup)', (t) => {
+  // Stub the file existence check via a real file in /tmp won't work in
+  // this test runner; instead rely on the actual snowball state's F-001
+  // file being present when the spec runs. The validator's existsSync
+  // check passes; the routing branch then validates ARIA shape pairing.
+  const commit: Commit = {
+    sha: 'abc123',
+    shortSha: 'abc123',
+    subject: 'feat(aria-kernel): close finding',
+    body: 'body\n\nCloses: aria-findings/F-001.json#F-001',
+  };
+  const violations = validateCommit(
+    commit,
+    new Set(), // empty registry — must not be consulted for ARIA path
+    new Set(), // empty orphan list — must not be consulted
+    () => false,
+  );
+  // The only possible violation here is "missing review file" if F-001.json
+  // is absent from the worktree. When it is present, ZERO violations.
+  for (const v of violations) {
+    assert.match(
+      v.reason,
+      /missing review file|ARIA trailer/,
+      `unexpected violation: ${v.reason}`,
+    );
+  }
+});
+
+test('validateCommit: ARIA path with non-ARIA ID is rejected', () => {
+  const commit: Commit = {
+    sha: 'abc123',
+    shortSha: 'abc123',
+    subject: 'feat(aria-kernel): mismatched',
+    body: 'Closes: aria-findings/F-001.json#UH-HIGH-001',
+  };
+  // The trailer regex still extracts; routing must reject the mismatch.
+  // First confirm extractTrailers caught it (UH-HIGH-001 matches alt 1).
+  const trailers = extractTrailers(commit.body);
+  assert.strictEqual(trailers.length, 1);
+  // Now validate — the mismatch lane fires.
+  const violations = validateCommit(commit, new Set(['UH-HIGH-001']), new Set(), () => false);
+  assert.ok(
+    violations.some((v) => /ARIA trailer/.test(v.reason)),
+    `expected ARIA trailer mismatch violation, got: ${JSON.stringify(violations)}`,
+  );
+});
+
+test('validateCommit: aria-findings path with DEBT-style ID is rejected', () => {
+  const commit: Commit = {
+    sha: 'abc123',
+    shortSha: 'abc123',
+    subject: 'feat(aria-kernel): wrong shape',
+    body: 'Closes: aria-findings/F-001.json#DEBT-2026-05-08-001',
+  };
+  const violations = validateCommit(commit, new Set(), new Set(), () => false);
+  assert.ok(
+    violations.some((v) => /path\/ID mismatch/.test(v.reason)),
+    `expected path/ID mismatch violation, got: ${JSON.stringify(violations)}`,
+  );
+});
+
+test('validateCommit: registry trailer still routes to registry (not ARIA)', () => {
+  const commit: Commit = {
+    sha: 'abc123',
+    shortSha: 'abc123',
+    subject: 'feat(non-aria): legacy',
+    body: 'Closes: docs/reviews/x.md#UH-HIGH-091',
+  };
+  // Registry lookup MUST still gate non-ARIA paths.
+  const violations = validateCommit(commit, new Set(['UH-HIGH-091']), new Set(), () => false);
+  // missing review file violation is fine (test fixture); only ARIA-routed
+  // violations would be wrong here.
+  for (const v of violations) {
+    assert.doesNotMatch(
+      v.reason,
+      /ARIA trailer/,
+      `unexpected ARIA-routed violation on legacy registry trailer: ${v.reason}`,
+    );
+  }
 });

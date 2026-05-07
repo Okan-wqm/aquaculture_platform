@@ -86,9 +86,30 @@ const REGISTRY_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findin
  */
 const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-|feat)/;
 
-/** Hard format for the trailer; stricter than a free-text "closes" mention. */
+/** Hard format for the trailer; stricter than a free-text "closes" mention.
+ *
+ * ID alternation (in order):
+ *   1. `<PREFIX>-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}` — registry / orphan IDs
+ *      (UH-HIGH-001, ORPHAN-MEDIUM-032, etc.).
+ *   2. `F-\d{3}` — ARIA finding IDs (e.g. F-001) under `aria-findings/`.
+ *   3. `DEBT-\d{4}-\d{2}-\d{2}-\d{3}` — ARIA debt IDs (e.g.
+ *      DEBT-2026-05-08-001) under `aria-debts/`.
+ *
+ * Routing based on path prefix happens in `validateCommit` so the gate
+ * never fakes-validates an ARIA ID against the registry or vice versa.
+ */
 const CLOSES_TRAILER_REGEX =
-  /^Closes:\s+(\S+?)#([A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3})\s*$/;
+  /^Closes:\s+(\S+?)#([A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}|F-\d{3}|DEBT-\d{4}-\d{2}-\d{2}-\d{3})\s*$/;
+
+/** True when the path points at an ARIA-owned artifact (finding or debt). */
+function isAriaArtifactPath(path: string): boolean {
+  return path.startsWith('aria-findings/') || path.startsWith('aria-debts/');
+}
+
+/** True when the finding ID is an ARIA-owned ID (F-NNN or DEBT-YYYY-MM-DD-NNN). */
+function isAriaFindingId(id: string): boolean {
+  return /^F-\d{3}$/.test(id) || /^DEBT-\d{4}-\d{2}-\d{2}-\d{3}$/.test(id);
+}
 
 /**
  * Commits landed BEFORE the registry + this gate existed. Amending is
@@ -304,16 +325,49 @@ function validateCommit(
         reason: `Closes: trailer references missing review file: ${path}`,
       });
     }
-    // Per-prefix routing (Batch #342 — closes
-    // ORPHAN-MEDIUM-032): ORPHAN-{SEV}-NNN IDs are
-    // validated against the orphan-findings.md heading
-    // index; all other prefixes (ULTRA-HIGH-*,
-    // AUDIT-*, DEPLOY-CRITICAL-*, etc.) continue to
-    // validate against the hash-chained registry. This
-    // unblocks commits that legitimately close BOTH a
-    // registry-tracked finding AND a referenced orphan
-    // finding in the same batch.
-    if (findingId.startsWith('ORPHAN-')) {
+    // Per-prefix routing. Three lanes:
+    //
+    //   1. ARIA findings + debts (Plan 017 — closes the
+    //      gap that forced the Plan 016 implementation
+    //      arc to use chore(...) bypass). Path must start
+    //      with aria-findings/ or aria-debts/ AND the ID
+    //      must be the matching ARIA shape. The JSON file
+    //      itself is the registry; the existsSync check
+    //      above already validated it.
+    //
+    //   2. ORPHAN-{SEV}-NNN IDs (Batch #342 — closes
+    //      ORPHAN-MEDIUM-032). Validate against the
+    //      orphan-findings.md heading index.
+    //
+    //   3. All other prefixes (UH-, AUDIT-,
+    //      DEPLOY-CRITICAL-, etc.). Validate against the
+    //      hash-chained registry.
+    //
+    // Mismatched lanes (ARIA path with non-ARIA ID, or
+    // non-ARIA path with ARIA ID) are rejected so a
+    // commit cannot smuggle in an ID through the wrong
+    // lane.
+    if (isAriaArtifactPath(path) || isAriaFindingId(findingId)) {
+      if (!isAriaArtifactPath(path) || !isAriaFindingId(findingId)) {
+        out.push({
+          sha: commit.shortSha,
+          subject: commit.subject,
+          reason: `Closes: ARIA trailer must pair an aria-findings/ or aria-debts/ path with a matching ARIA ID (F-NNN or DEBT-YYYY-MM-DD-NNN); got path=${path} id=${findingId}`,
+        });
+        continue;
+      }
+      // Path-and-ID pairing rule: aria-findings/ requires F-NNN,
+      // aria-debts/ requires DEBT-YYYY-MM-DD-NNN.
+      const wantsFinding = path.startsWith('aria-findings/');
+      const isFindingId = /^F-\d{3}$/.test(findingId);
+      if (wantsFinding !== isFindingId) {
+        out.push({
+          sha: commit.shortSha,
+          subject: commit.subject,
+          reason: `Closes: ARIA trailer path/ID mismatch — aria-findings/ requires F-NNN, aria-debts/ requires DEBT-YYYY-MM-DD-NNN; got path=${path} id=${findingId}`,
+        });
+      }
+    } else if (findingId.startsWith('ORPHAN-')) {
       if (!orphanIds.has(findingId)) {
         out.push({
           sha: commit.shortSha,
@@ -450,6 +504,8 @@ export {
   REQUIRE_CLOSES_TYPES,
   commitFromMsgFile,
   extractTrailers,
+  isAriaArtifactPath,
+  isAriaFindingId,
   loadOrphanIds,
   loadRegistryIds,
   validateCommit,

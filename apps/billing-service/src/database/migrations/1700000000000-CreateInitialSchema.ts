@@ -6,29 +6,51 @@ import { MigrationLogger } from '@aquaculture/backend-common/database';
  * ============================================================================
  *
  * Restores the billing-service migration baseline that never existed in
- * source. On a fresh-volume bootstrap (init scripts mounted, but only
- * supplying the legacy partial set: `subscriptions`, `subscription_module_items`,
- * `invoices` from `04-billing-tables.sql`), the remaining migration chain
+ * source. After the Wave-2-C init-script slim-down (the legacy
+ * `04-billing-tables.sql` is being retired), the migration chain
  * (1744400000000+) assumes baseline tables/columns that no creation step
- * ever provided. Concrete failure on a fresh DB:
+ * ever provides. Concrete failure on a fresh DB:
  * `1744400000000-AddPlanSoftDeleteColumns` ALTERs `billing.plans` which
  * was never created. Three downstream migrations have the same shape:
  * `1788400000000` adds FKs to `billing.scheduled_plan_changes`,
  * `1788500000000` creates `billing.stripe_webhook_events` (already
  * idempotent so re-running it is fine) and the entity surface assumes
- * `billing.payments` and `billing.tenant_usage_metrics` exist.
+ * `billing.payments`, `billing.tenant_usage_metrics`, `billing.subscriptions`,
+ * `billing.subscription_module_items`, and `billing.invoices` exist.
  *
  * # Scope
  *
- *   Create 5 missing `billing.*` tables idempotently:
+ *   Create 8 `billing.*` tables idempotently (Wave 4-A.1 extends the
+ *   original 5 with the 3 init-script-owned tables — subscriptions,
+ *   subscription_module_items, invoices — so ownership is unambiguous
+ *   after `04-billing-tables.sql` is retired):
  *     plans, payments, tenant_usage_metrics, scheduled_plan_changes,
- *     stripe_webhook_events.
+ *     stripe_webhook_events,
+ *     subscriptions, subscription_module_items, invoices.
  *
- * Tables already created by `infrastructure/docker/init-scripts/04-billing-tables.sql`
- * (subscriptions, subscription_module_items, invoices) are NOT re-created
- * here — that boundary is owned by the init script. This migration only
- * fills the gap between the init-script snapshot and the current entity
- * surface.
+ * The 4 admin.* tables that `04-billing-tables.sql` also created
+ * (module_pricing, analytics_snapshots, report_definitions,
+ * report_executions) are owned by admin-api-service's baseline migration
+ * and NOT touched here.
+ *
+ * # Why entity-canonical column names (snake_case)
+ *
+ * `subscription.entity.ts`, `invoice.entity.ts`, `payment.entity.ts`,
+ * `subscription-module-item.entity.ts` declare every persisted column
+ * with `@Column({ name: 'snake_case' })`. The legacy init script created
+ * the same tables with camelCase identifiers (`"tenantId"`, `"isDeleted"`,
+ * `"subscriptionId"`, ...) — this is documented schema drift that
+ * SchemaDriftValidator surfaces at every cold start. The baseline
+ * migration is the place to land the entity-canonical names so a fresh
+ * DB starts free of drift.
+ *
+ * KNOWN-DRIFT-OUT-OF-SCOPE: migration `1788200000000-FixSubscriptionsTenantUniquePartial`
+ * still queries `"tenantId"` / `"isDeleted"` (camelCase) — written
+ * against the legacy column names before the entity moved to snake_case.
+ * On a fresh DB built via THIS baseline, that migration's pre-flight
+ * `SELECT "tenantId" ...` fails with `column "tenantId" does not exist`.
+ * Fixing 1788200000000 is a separate orphan finding (BILLING-MIGR-DRIFT-001
+ * in `docs/reviews/orphan-findings.md`) — out of Wave 4-A.1 scope.
  *
  * # Idempotency
  *
@@ -41,13 +63,22 @@ import { MigrationLogger } from '@aquaculture/backend-common/database';
  * Likewise the `plans` table is created here WITH the soft-delete columns
  * (`is_deleted`, `deleted_at`, `deleted_by`) so the later
  * `1744400000000-AddPlanSoftDeleteColumns` `ADD COLUMN IF NOT EXISTS`
- * steps are no-ops.
+ * steps are no-ops, and `subscriptions` / `invoices` / `payments` carry
+ * `tenant_id uuid` + `deleted_at` + `deleted_by` inline so the later
+ * `1786300000000-ConvergeTenantIdAndAddSoftDelete` lookup-by-data-type
+ * branches are also no-ops.
  *
  * # Order
  *
  * Tables are created in topological order (parents before FK children):
  *   plans, tenant_usage_metrics, stripe_webhook_events  (no billing.* FKs)
- *     -> payments (FK to invoices, which the init script already created)
+ *   subscriptions                                       (parent of items, invoices, payments)
+ *     -> subscription_module_items (FK to subscriptions, ON DELETE CASCADE,
+ *        installed inline because no later migration touches this FK)
+ *     -> invoices (FK to subscriptions installed by
+ *        1788300000000-AddBillingFksExplicitOnDelete; created here without FK)
+ *     -> payments (FK to invoices installed by
+ *        1788300000000-AddBillingFksExplicitOnDelete; created here without FK)
  *     -> scheduled_plan_changes (FKs to subscriptions + plans installed
  *        by 1788400000000-AddScheduledPlanChangeFks; this migration only
  *        creates the table without FKs).
@@ -75,8 +106,9 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     this.logger.log(
-      'Creating baseline billing.* tables (5): plans, payments, ' +
-        'tenant_usage_metrics, scheduled_plan_changes, stripe_webhook_events',
+      'Creating baseline billing.* tables (8): plans, tenant_usage_metrics, ' +
+        'stripe_webhook_events, subscriptions, subscription_module_items, ' +
+        'invoices, payments, scheduled_plan_changes',
     );
 
     // The billing schema itself is created by infrastructure/docker/init-scripts.
@@ -88,6 +120,9 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
     await this.createPlansTable(queryRunner);
     await this.createTenantUsageMetricsTable(queryRunner);
     await this.createStripeWebhookEventsTable(queryRunner);
+    await this.createSubscriptionsTable(queryRunner);
+    await this.createSubscriptionModuleItemsTable(queryRunner);
+    await this.createInvoicesTable(queryRunner);
     await this.createPaymentsTable(queryRunner);
     await this.createScheduledPlanChangesTable(queryRunner);
 
@@ -96,16 +131,22 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     // Reverse FK order — children first, then parents, then the enum
-    // types. Init-script-owned tables (subscriptions, subscription_module_items,
-    // invoices) are NOT touched.
+    // types. Wave 4-A.1: subscriptions / subscription_module_items /
+    // invoices are now owned by THIS migration (init script no longer
+    // creates them) so we drop them too. CASCADE drops dependent FKs
+    // installed by 1788300000000 / 1788400000000 in the same step.
     this.logger.warn(
       'Reverting baseline billing.* tables. This is destructive and is ' +
         'intended for ephemeral test environments only.',
     );
 
     const tablesInDropOrder = [
+      // children first
       'scheduled_plan_changes',
       'payments',
+      'invoices',
+      'subscription_module_items',
+      'subscriptions',
       'stripe_webhook_events',
       'tenant_usage_metrics',
       'plans',
@@ -124,6 +165,12 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
       'payments_payment_method_enum',
       'tenant_usage_metrics_periodtype_enum',
       'scheduled_plan_changes_status_enum',
+      // Wave 4-A.1 enums (created in billing schema, not public)
+      'subscriptions_status_enum',
+      'subscriptions_billing_cycle_enum',
+      'subscriptions_plan_tier_enum',
+      'subscription_module_items_status_enum',
+      'invoices_status_enum',
     ];
     for (const enumType of enumTypes) {
       await queryRunner.query(
@@ -134,7 +181,8 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
 
   /**
    * Create Postgres enum types used by the plans / payments /
-   * tenant_usage_metrics / scheduled_plan_changes tables.
+   * tenant_usage_metrics / scheduled_plan_changes / subscriptions /
+   * subscription_module_items / invoices tables.
    *
    * Enum names follow TypeORM's `{table}_{column}_enum` auto-generation
    * convention (lowercase, no camelCase) so SchemaDriftValidator's
@@ -143,13 +191,22 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
    *
    * `DO $$ ... EXCEPTION WHEN duplicate_object` makes each block
    * idempotent without depending on `CREATE TYPE IF NOT EXISTS` (which
-   * Postgres does not support). Note: the `subscription_status`,
-   * `billing_cycle`, `plan_tier`, `invoice_status` enums in the public
-   * schema are created by `04-billing-tables.sql` for the subscriptions/
-   * invoices tables and are NOT re-created here. The plans table uses
-   * its own `billing.plans_tier_enum` / `billing.plans_billing_cycle_enum`
-   * so the schema-qualified entity decorator's TypeORM-generated names
-   * resolve correctly.
+   * Postgres does not support).
+   *
+   * # Schema decision: enums live in `billing`, NOT `public`
+   *
+   * The legacy `04-billing-tables.sql` created `subscription_status`,
+   * `billing_cycle`, `plan_tier`, `invoice_status` in the `public`
+   * schema (no schema qualifier). Wave 4-A.1 instead places every
+   * billing-owned enum in `billing.*` — this matches the
+   * schema-qualified entity decorator pattern (`@Entity('subscriptions',
+   * { schema: 'billing' })`) and avoids `public` namespace pollution
+   * (CLAUDE.md ADR-011: never add to `public`). TypeORM resolves
+   * unqualified enum names against the `search_path` which the
+   * MigrationRunnerService pins to `billing, public` — so
+   * `subscriptions_status_enum` resolves to `billing.subscriptions_status_enum`
+   * for both new entity-driven INSERTs and SchemaDriftValidator
+   * introspection.
    */
   private async createEnumTypes(queryRunner: QueryRunner): Promise<void> {
     const enums: ReadonlyArray<{ name: string; values: readonly string[] }> = [
@@ -185,6 +242,30 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
       {
         name: 'scheduled_plan_changes_status_enum',
         values: ['PENDING', 'APPLIED', 'CANCELLED'],
+      },
+      // subscription.entity.ts: SubscriptionStatus / BillingCycle / PlanTier
+      // (separate from plans_*_enum because TypeORM auto-names per table)
+      {
+        name: 'subscriptions_status_enum',
+        values: ['trial', 'active', 'past_due', 'cancelled', 'suspended', 'expired'],
+      },
+      {
+        name: 'subscriptions_billing_cycle_enum',
+        values: ['monthly', 'quarterly', 'semi_annual', 'annual'],
+      },
+      {
+        name: 'subscriptions_plan_tier_enum',
+        values: ['starter', 'professional', 'enterprise', 'custom'],
+      },
+      // subscription-module-item.entity.ts: SubscriptionModuleStatus
+      {
+        name: 'subscription_module_items_status_enum',
+        values: ['active', 'suspended', 'cancelled', 'upgraded', 'downgraded'],
+      },
+      // invoice.entity.ts: InvoiceStatus
+      {
+        name: 'invoices_status_enum',
+        values: ['draft', 'pending', 'sent', 'paid', 'partially_paid', 'overdue', 'void', 'refunded'],
       },
     ];
 
@@ -328,6 +409,243 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
       );
       CREATE INDEX IF NOT EXISTS idx_stripe_webhook_events_type_received
         ON billing.stripe_webhook_events ("event_type", "received_at" DESC);
+    `);
+  }
+
+  /**
+   * billing.subscriptions — billing/entities/subscription.entity.ts
+   *
+   * The "tenant subscription" aggregate root. Parent of:
+   *   - subscription_module_items (CASCADE on delete)
+   *   - invoices (RESTRICT on delete — installed by 1788300000000)
+   *   - scheduled_plan_changes (RESTRICT on delete — installed by 1788400000000)
+   *
+   * # Column shape: snake_case, entity-canonical
+   *
+   * Every persisted column on the entity declares `@Column({ name:
+   * 'snake_case' })`. This baseline matches that — `tenant_id` (uuid),
+   * `plan_id`, `plan_tier`, `plan_name`, `billing_cycle`, `start_date`,
+   * `end_date`, `current_period_start`, `current_period_end`,
+   * `trial_end_date`, `cancelled_at`, `cancellation_reason`, `auto_renew`,
+   * `stripe_subscription_id`, `stripe_customer_id`, `created_by`,
+   * `updated_by`, `is_deleted`, `deleted_at`, `deleted_by`. The legacy
+   * `04-billing-tables.sql` shape (camelCase `"tenantId"` text + no
+   * soft-delete) is replaced.
+   *
+   * # tenant_id is uuid, not varchar
+   *
+   * CLAUDE.md "Tenant row placement (D14)": the canonical tenant
+   * identifier type is uuid platform-wide. The entity declares
+   * `@Column({ name: 'tenant_id', type: 'uuid' })`. Creating uuid here
+   * makes `1786300000000-ConvergeTenantIdAndAddSoftDelete`'s
+   * varchar→uuid branch a no-op (its `colInfo[0]?.data_type === 'character
+   * varying'` check fails the truthy branch since it's already uuid).
+   *
+   * # No FKs installed inline (subscriptions has no outgoing FKs)
+   *
+   * Subscriptions is a parent — only the child tables (invoices,
+   * subscription_module_items, payments via invoice, scheduled_plan_changes)
+   * declare FKs. Entity has only `OneToMany` relations on this table.
+   *
+   * # Indexes match the entity decorators
+   *
+   *   - IDX_subscriptions_tenantId (non-unique, [tenantId])
+   *   - UQ_subscriptions_tenantId_active (UNIQUE, [tenantId], WHERE
+   *     is_deleted = false) — DBR-HIGH-001 cure for soft-delete-compatible
+   *     uniqueness. Re-installing this here makes the later
+   *     1788200000000-FixSubscriptionsTenantUniquePartial drop-and-recreate
+   *     a no-op-ish on fresh DBs.
+   *   - IDX_subscriptions_status (single status column)
+   *   - IDX_subscriptions_currentPeriodEnd
+   *   - IDX_subscriptions_isDeleted (entity bare @Index() on isDeleted)
+   *
+   * NOTE: the WHERE predicate of UQ_subscriptions_tenantId_active uses
+   * the actual snake_case column name `is_deleted` — the entity's
+   * `where: '"isDeleted" = false'` decorator string is INCORRECT (the
+   * persisted column is `is_deleted`, not `"isDeleted"`). Following the
+   * entity-canonical name aligns the index with the actual data and
+   * with the migration linter.
+   */
+  private async createSubscriptionsTable(
+    queryRunner: QueryRunner,
+  ): Promise<void> {
+    // CREATE TABLE + sibling indexes bundled per R3 lint chunk rule.
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS billing.subscriptions (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "tenant_id" uuid NOT NULL,
+        "plan_id" uuid NULL,
+        "plan_tier" billing.subscriptions_plan_tier_enum NOT NULL,
+        "plan_name" varchar NOT NULL,
+        "status" billing.subscriptions_status_enum NOT NULL DEFAULT 'trial',
+        "billing_cycle" billing.subscriptions_billing_cycle_enum NOT NULL,
+        "limits" jsonb NOT NULL,
+        "pricing" jsonb NOT NULL,
+        "start_date" timestamptz NOT NULL,
+        "end_date" timestamptz NULL,
+        "current_period_start" timestamptz NOT NULL,
+        "current_period_end" timestamptz NOT NULL,
+        "trial_end_date" timestamptz NULL,
+        "cancelled_at" timestamptz NULL,
+        "cancellation_reason" text NULL,
+        "auto_renew" boolean NOT NULL DEFAULT true,
+        "stripe_subscription_id" varchar NULL,
+        "stripe_customer_id" varchar NULL,
+        "createdAt" timestamptz NOT NULL DEFAULT NOW(),
+        "updatedAt" timestamptz NOT NULL DEFAULT NOW(),
+        "created_by" varchar NULL,
+        "updated_by" varchar NULL,
+        "version" integer NOT NULL DEFAULT 1,
+        "is_deleted" boolean NOT NULL DEFAULT false,
+        "deleted_at" timestamptz NULL,
+        "deleted_by" varchar NULL
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_subscriptions_tenantId"
+        ON billing.subscriptions ("tenant_id");
+      CREATE UNIQUE INDEX IF NOT EXISTS "UQ_subscriptions_tenantId_active"
+        ON billing.subscriptions ("tenant_id")
+        WHERE "is_deleted" = false;
+      CREATE INDEX IF NOT EXISTS "IDX_subscriptions_status"
+        ON billing.subscriptions ("status");
+      CREATE INDEX IF NOT EXISTS "IDX_subscriptions_currentPeriodEnd"
+        ON billing.subscriptions ("current_period_end");
+      CREATE INDEX IF NOT EXISTS "IDX_subscriptions_isDeleted"
+        ON billing.subscriptions ("is_deleted");
+    `);
+  }
+
+  /**
+   * billing.subscription_module_items — billing/entities/subscription-module-item.entity.ts
+   *
+   * Per-subscription per-module pricing line items (FK to subscriptions
+   * with ON DELETE CASCADE, matching `@ManyToOne('Subscription',
+   * 'moduleItems', { onDelete: 'CASCADE' })`).
+   *
+   * # FK installed inline
+   *
+   * Unlike invoices.subscription_id and payments.invoice_id (which
+   * 1788300000000 explicitly takes over), no later migration touches
+   * subscription_module_items.subscription_id. We therefore install the
+   * FK directly in the CREATE TABLE — entity intent + DB enforcement
+   * arrive together.
+   *
+   * # Composite UNIQUE matches @Unique(['subscriptionId', 'moduleId'])
+   *
+   * One module per subscription — no duplicates.
+   */
+  private async createSubscriptionModuleItemsTable(
+    queryRunner: QueryRunner,
+  ): Promise<void> {
+    // CREATE TABLE + sibling indexes bundled per R3 lint chunk rule.
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS billing.subscription_module_items (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "subscription_id" uuid NOT NULL REFERENCES billing.subscriptions(id) ON DELETE CASCADE,
+        "module_id" uuid NOT NULL,
+        "module_code" varchar(50) NOT NULL,
+        "module_name" varchar(100) NOT NULL,
+        "quantities" jsonb NOT NULL DEFAULT '{}'::jsonb,
+        "line_items" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "subtotal" numeric(19, 4) NOT NULL,
+        "discount_amount" numeric(19, 4) NOT NULL DEFAULT 0,
+        "total" numeric(19, 4) NOT NULL,
+        "currency" varchar(3) NOT NULL DEFAULT 'USD',
+        "status" billing.subscription_module_items_status_enum NOT NULL DEFAULT 'active',
+        "activated_at" timestamptz NOT NULL DEFAULT NOW(),
+        "cancelled_at" timestamptz NULL,
+        "configuration" jsonb NULL,
+        "notes" text NULL,
+        "createdAt" timestamptz NOT NULL DEFAULT NOW(),
+        "updatedAt" timestamptz NOT NULL DEFAULT NOW(),
+        CONSTRAINT "UQ_subscription_module_items_sub_module"
+          UNIQUE ("subscription_id", "module_id")
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_subscription_module_items_subscription_id"
+        ON billing.subscription_module_items ("subscription_id");
+      CREATE INDEX IF NOT EXISTS "IDX_subscription_module_items_module_id"
+        ON billing.subscription_module_items ("module_id");
+      CREATE INDEX IF NOT EXISTS "IDX_subscription_module_items_status"
+        ON billing.subscription_module_items ("status");
+    `);
+  }
+
+  /**
+   * billing.invoices — billing/entities/invoice.entity.ts
+   *
+   * Tenant invoice — finalized financial document. FK to subscriptions
+   * with ON DELETE RESTRICT is installed by
+   * 1788300000000-AddBillingFksExplicitOnDelete. We do NOT install the
+   * FK inline — same pattern as payments.invoice_id. That migration's
+   * lookup-and-replace pattern (drop auto-generated FK, install
+   * canonical-named FK) needs the FK to be absent at first run on
+   * fresh DBs.
+   *
+   * # MoneyColumn columns render as numeric(19, 4)
+   *
+   * subtotal, discount, total, amount_paid, amount_due — all use
+   * `@MoneyColumn()` which the @aquaculture/backend-common decorator
+   * renders as numeric(19, 4) with a Decimal.js transformer. Lossless
+   * arithmetic for tax / refund / balance calculations.
+   *
+   * # Soft-delete columns inline
+   *
+   * Same rationale as payments — `1786300000000-ConvergeTenantIdAndAddSoftDelete`
+   * `ADD COLUMN IF NOT EXISTS deleted_at / deleted_by` becomes a no-op
+   * on fresh DBs because the columns are already present.
+   *
+   * # Indexes match entity decorators
+   *
+   *   - UQ on (tenant_id, invoice_number) — invoice numbers are unique
+   *     per tenant, NOT globally; the index is composite, not single-column.
+   *   - IDX (tenant_id, status), (tenant_id, due_date), (subscription_id),
+   *     (is_deleted)
+   */
+  private async createInvoicesTable(queryRunner: QueryRunner): Promise<void> {
+    // CREATE TABLE + sibling indexes bundled per R3 lint chunk rule.
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS billing.invoices (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "tenant_id" uuid NOT NULL,
+        "invoice_number" varchar NOT NULL,
+        "subscription_id" uuid NULL,
+        "status" billing.invoices_status_enum NOT NULL DEFAULT 'draft',
+        "billing_address" jsonb NOT NULL,
+        "line_items" jsonb NOT NULL,
+        "subtotal" numeric(19, 4) NOT NULL,
+        "tax" jsonb NULL,
+        "discount" numeric(19, 4) NULL,
+        "discount_code" varchar NULL,
+        "total" numeric(19, 4) NOT NULL,
+        "amount_paid" numeric(19, 4) NOT NULL DEFAULT 0,
+        "amount_due" numeric(19, 4) NOT NULL,
+        "currency" varchar NOT NULL DEFAULT 'USD',
+        "issue_date" timestamptz NOT NULL,
+        "due_date" timestamptz NOT NULL,
+        "paid_at" timestamptz NULL,
+        "period_start" date NOT NULL,
+        "period_end" date NOT NULL,
+        "notes" text NULL,
+        "stripe_invoice_id" varchar NULL,
+        "pdf_url" varchar NULL,
+        "createdAt" timestamptz NOT NULL DEFAULT NOW(),
+        "updatedAt" timestamptz NOT NULL DEFAULT NOW(),
+        "created_by" varchar NULL,
+        "updated_by" varchar NULL,
+        "version" integer NOT NULL DEFAULT 1,
+        "is_deleted" boolean NOT NULL DEFAULT false,
+        "deleted_at" timestamptz NULL,
+        "deleted_by" varchar NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS "UQ_invoices_tenant_invoiceNumber"
+        ON billing.invoices ("tenant_id", "invoice_number");
+      CREATE INDEX IF NOT EXISTS "IDX_invoices_tenant_status"
+        ON billing.invoices ("tenant_id", "status");
+      CREATE INDEX IF NOT EXISTS "IDX_invoices_tenant_dueDate"
+        ON billing.invoices ("tenant_id", "due_date");
+      CREATE INDEX IF NOT EXISTS "IDX_invoices_subscriptionId"
+        ON billing.invoices ("subscription_id");
+      CREATE INDEX IF NOT EXISTS "IDX_invoices_isDeleted"
+        ON billing.invoices ("is_deleted");
     `);
   }
 

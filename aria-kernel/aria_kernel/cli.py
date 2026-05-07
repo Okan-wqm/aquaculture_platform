@@ -757,6 +757,47 @@ def _main(argv: list[str] | None = None) -> int:
     add_tools_arg(sp_status, required=True)
     sp_status.add_argument("--plan-id", default=None)
 
+    # Plan 019 Phase 7 — Change Ledger CLI surface.
+    change_parser = sub.add_parser(
+        "change",
+        help="Plan 019 Phase 7 — append-only change-ledger (planned/committed/validated chain).",
+    )
+    change_sub = change_parser.add_subparsers(dest="change_command", required=True)
+    ch_plan = change_sub.add_parser("plan", help="Open a change chain (change_planned event).")
+    add_tools_arg(ch_plan, required=True)
+    ch_plan.add_argument("--plan-id", required=True)
+    ch_plan.add_argument("--finding-id", required=True)
+    ch_plan.add_argument("--intended-file", action="append", required=True,
+                         help="Repeatable: each intended affected file.")
+    ch_plan.add_argument("--intended-validation-ref", action="append", default=None,
+                         help="Repeatable: validation refs the change will run.")
+    ch_plan.add_argument("--rollback-ref", default=None)
+    ch_plan.add_argument("--architectural-tier", type=int, required=True, choices=[1, 2, 3, 4])
+    ch_plan.add_argument("--intended-request-id", default=None)
+    ch_commit = change_sub.add_parser("commit", help="Record commit landing for a planned change.")
+    add_tools_arg(ch_commit, required=True)
+    ch_commit.add_argument("--change-id", required=True)
+    ch_commit.add_argument("--commit-sha", required=True)
+    ch_commit.add_argument("--actual-file", action="append", required=True)
+    ch_commit.add_argument("--claim-id", default=None)
+    ch_validate = change_sub.add_parser("validate", help="Close a change chain with validation refs.")
+    add_tools_arg(ch_validate, required=True)
+    ch_validate.add_argument("--change-id", required=True)
+    ch_validate.add_argument("--validation-ref", action="append", required=True)
+    ch_validate.add_argument("--baseline-comparison-ref", default=None)
+    ch_validate.add_argument("--invariants-file", default=None,
+                             help="Optional JSON file with post_remediation_invariants dict.")
+    ch_show = change_sub.add_parser("show", help="Get the {planned,committed,validated} blocks for a change_id.")
+    add_tools_arg(ch_show, required=True)
+    ch_show.add_argument("--change-id", required=True)
+    ch_list = change_sub.add_parser("list", help="List change chains, optionally filtered.")
+    add_tools_arg(ch_list, required=True)
+    ch_list.add_argument("--plan-id", default=None)
+    ch_list.add_argument("--finding-id", default=None)
+    ch_find = change_sub.add_parser("find", help="Find chains that touched a specific file.")
+    add_tools_arg(ch_find, required=True)
+    ch_find.add_argument("--file", required=True)
+
     metrics_parser = sub.add_parser(
         "metrics",
         help="Plan 016 Faz D7 — nine-counter metric set + dashboard writer.",
@@ -1689,6 +1730,71 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0
         parser.error("unknown pr command")
+
+    # Plan 019 Phase 7 — Change Ledger dispatch.
+    if args.command == "change":
+        from aria_kernel.change_ledger import (
+            emit_change_committed,
+            emit_change_planned,
+            emit_change_validated,
+            find_changes_by_file,
+            get_change_chain,
+            list_change_chains,
+        )
+        if args.change_command == "plan":
+            row = emit_change_planned(
+                plan_id=args.plan_id,
+                finding_id=args.finding_id,
+                intended_affected_files=args.intended_file,
+                intended_validation_refs=args.intended_validation_ref or [],
+                rollback_ref=args.rollback_ref,
+                architectural_tier=args.architectural_tier,
+                intended_request_id=args.intended_request_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.change_command == "commit":
+            row = emit_change_committed(
+                change_id=args.change_id,
+                commit_sha=args.commit_sha,
+                actual_affected_files=args.actual_file,
+                claim_id=args.claim_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.change_command == "validate":
+            invariants = (
+                json.loads(Path(args.invariants_file).read_text(encoding="utf-8"))
+                if args.invariants_file else None
+            )
+            row = emit_change_validated(
+                change_id=args.change_id,
+                validation_run_refs=args.validation_ref,
+                baseline_comparison_ref=args.baseline_comparison_ref,
+                post_remediation_invariants=invariants,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.change_command == "show":
+            chain = get_change_chain(change_id=args.change_id, base_dir=args.tools_dir)
+            print(json.dumps(chain, indent=2, sort_keys=True))
+            return 0
+        if args.change_command == "list":
+            chains = list_change_chains(
+                plan_id=args.plan_id,
+                finding_id=args.finding_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(chains, indent=2, sort_keys=True))
+            return 0
+        if args.change_command == "find":
+            chains = find_changes_by_file(file_path=args.file, base_dir=args.tools_dir)
+            print(json.dumps(chains, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown change command")
 
     # Plan 019 Phase 5.5 — Architecture Spine Gate dispatch.
     if args.command == "spine":

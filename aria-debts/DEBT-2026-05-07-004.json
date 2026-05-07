@@ -1,0 +1,29 @@
+{
+  "$schema": "aria/architectural-debt/v1",
+  "auto_close_forbidden": true,
+  "current_status": "OPEN",
+  "debt_id": "DEBT-2026-05-07-004",
+  "due_date": "2026-07-06T11:41:19Z",
+  "escalation_history": [],
+  "originating_finding_evidence_chain_id": "chain_c05abc8bbe3674be",
+  "originating_finding_id": "F-001",
+  "permanent_fix_owner": "platform-data-team",
+  "permanent_fix_required": "Integration test in aria-kernel/tests/test_pr_manager_e2e.py that walks open_pr_for_action via mock gh API factory; assertions: PR body 7-section format, base hardcoded to snowball, force-push rejected, gh API error path graceful. apply_engine.gate_apply_action gains optional diff_text kwarg routed through suppression scanner. pr_manager rejects base != snowball at the kernel boundary.",
+  "root_cause_summary": "aria_kernel/pr_manager.py:101-107 calls subprocess.run gh api with no test coverage. Plan 016 promises ARIA opens PRs through aria-kernel pr create --base snowball, but no unit or integration test exercises the full open_pr_for_action lifecycle. Convention lives in code; enforcement does not.",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "short_term_action_taken": {
+    "kind": "test_added",
+    "rationale": "Operator review documents the gap as Gap-3 with HIGH severity; Plan 017 Phase 3 lands the closing test in the same session.",
+    "ref": "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md"
+  },
+  "status_history": [
+    {
+      "at": "2026-05-07T11:41:19Z",
+      "by": "manual:operator",
+      "status": "OPEN"
+    }
+  ],
+  "verification_status": "VERIFIED",
+  "withdrawn_reason": null
+}

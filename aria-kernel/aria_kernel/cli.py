@@ -78,6 +78,7 @@ from aria_kernel.worker_dispatch import (
     prune_worktrees,
 )
 from aria_kernel.workspace import ensure_workspace, require_workspace_v2, workspace_paths
+from aria_kernel.worktree import preflight as worktree_preflight
 
 
 ERROR_EXIT_CODES = {
@@ -297,6 +298,28 @@ def _main(argv: list[str] | None = None) -> int:
     worktree_prune_parser.add_argument("--acknowledge", action="store_true")
     worktree_prune_parser.add_argument("--ttl-days", type=int, default=7)
 
+    worktree_parser = sub.add_parser(
+        "worktree",
+        help="Worktree-level operations (Plan 016 Faz 0 stable naming).",
+    )
+    worktree_sub = worktree_parser.add_subparsers(dest="worktree_command", required=True)
+    worktree_preflight_parser = worktree_sub.add_parser(
+        "preflight",
+        help="Record a hash-chained worktree_preflight governance event.",
+    )
+    add_workspace_args(worktree_preflight_parser)
+    add_tools_arg(worktree_preflight_parser, required=True)
+    worktree_preflight_parser.add_argument(
+        "--expected-branch",
+        default="snowball",
+        help="Branch the worktree must be checked out to (default: snowball).",
+    )
+    worktree_preflight_parser.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="Skip the best-effort origin fetch (offline mode).",
+    )
+
     agent_report_parser = sub.add_parser("agent-report")
     agent_report_sub = agent_report_parser.add_subparsers(dest="agent_report_command", required=True)
     ar_scan = agent_report_sub.add_parser("scan-registry")
@@ -506,7 +529,7 @@ def _main(argv: list[str] | None = None) -> int:
     paths = (
         resolve_paths(args)
         if hasattr(args, "workspace_root")
-        and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune", "agent-network", "capability-gap", "plan", "agent-genesis", "skill-genesis"}
+        and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune", "worktree", "agent-network", "capability-gap", "plan", "agent-genesis", "skill-genesis"}
         and not legacy_pressure_explain
         else None
     )
@@ -759,6 +782,17 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("status") == "ok" else 1
+
+    if args.command == "worktree" and args.worktree_command == "preflight":
+        repo_root = paths.repo_root if paths is not None else Path(args.workspace_root).resolve()
+        result = worktree_preflight(
+            workspace_root=repo_root,
+            base_dir=args.tools_dir,
+            expected_branch=args.expected_branch,
+            skip_fetch=args.no_fetch,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("gate_pass") else 1
 
     if args.command == "agent-report" and args.agent_report_command == "scan-registry":
         require_workspace_v2(paths)

@@ -1,0 +1,105 @@
+"""Mock gh API factory for Plan 017 Phase 3 PR pipeline tests.
+
+`pr_manager.open_pr_for_action` calls `subprocess.run(["gh", "pr",
+"create", ...])` directly. Real gh integration is operator-driven;
+unit tests mock the subprocess invocation through unittest.mock.patch
+so the entire PR lifecycle is exercisable without network access or
+live gh credentials.
+
+Usage:
+
+    from unittest.mock import patch
+    from aria_kernel.tests._gh_mock import gh_create_success, gh_create_failure
+
+    with patch("aria_kernel.pr_manager.subprocess.run", side_effect=gh_create_success):
+        result = pr_manager.open_pr_for_action(...)
+
+The factories assert that the gh argv contains `--base snowball` and
+the title/body kwargs are passed through; they fail loudly on any
+attempt to invoke gh with a different base.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+from unittest.mock import MagicMock
+
+
+@dataclass
+class _RecordedCall:
+    argv: list[str]
+    cwd: str | None = None
+    capture_output: bool = False
+    text: bool = False
+
+
+_recorded_calls: list[_RecordedCall] = []
+
+
+def reset_recorded() -> None:
+    """Clear the in-memory call log between tests."""
+    _recorded_calls.clear()
+
+
+def recorded_calls() -> list[_RecordedCall]:
+    return list(_recorded_calls)
+
+
+def _record(args: tuple[Any, ...], kwargs: dict[str, Any]) -> _RecordedCall:
+    argv = list(args[0]) if args else list(kwargs.get("args", []))
+    call = _RecordedCall(
+        argv=argv,
+        cwd=str(kwargs.get("cwd", "")) or None,
+        capture_output=bool(kwargs.get("capture_output", False)),
+        text=bool(kwargs.get("text", False)),
+    )
+    _recorded_calls.append(call)
+    return call
+
+
+def _assert_pr_create_invariants(call: _RecordedCall) -> None:
+    """Every gh pr create invocation MUST go to base=snowball and carry title + body."""
+    if call.argv[:3] != ["gh", "pr", "create"]:
+        raise AssertionError(f"unexpected gh argv: {call.argv!r}")
+    if "--base" not in call.argv:
+        raise AssertionError("gh pr create missing --base flag")
+    base_idx = call.argv.index("--base")
+    if call.argv[base_idx + 1] != "snowball":
+        raise AssertionError(
+            f"gh pr create --base must be 'snowball', got {call.argv[base_idx + 1]!r}"
+        )
+    if "--title" not in call.argv:
+        raise AssertionError("gh pr create missing --title")
+    if "--body" not in call.argv:
+        raise AssertionError("gh pr create missing --body")
+
+
+def gh_create_success(*args, **kwargs):
+    """Returns CompletedProcess(returncode=0, stdout=<fake-pr-url>) for gh pr create.
+
+    Asserts the invocation matches Plan 016 contract (--base snowball + title +
+    body). Records the call so tests can inspect it.
+    """
+    call = _record(args, kwargs)
+    if call.argv[:3] == ["gh", "pr", "create"]:
+        _assert_pr_create_invariants(call)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = "https://github.com/test/repo/pull/123\n"
+        result.stderr = ""
+        return result
+    # Allow pass-through for other subprocess calls (e.g. git rev-parse) —
+    # tests using this mock should narrow the patch to gh subset if needed.
+    raise AssertionError(f"gh_create_success only handles gh pr create; got: {call.argv!r}")
+
+
+def gh_create_failure(*args, **kwargs):
+    """Returns CompletedProcess(returncode=1, stderr=<error>) for gh pr create."""
+    call = _record(args, kwargs)
+    if call.argv[:3] == ["gh", "pr", "create"]:
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "gh: insufficient permissions to create pull request\n"
+        return result
+    raise AssertionError(f"gh_create_failure only handles gh pr create; got: {call.argv!r}")

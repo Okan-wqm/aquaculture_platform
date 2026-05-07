@@ -53,7 +53,17 @@ def gate_apply_action(
     validation_comparison_ref: str,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    diff_text: str | None = None,
 ) -> dict[str, Any]:
+    """Promote an apply action to `ready_for_pr` after validation gate passes.
+
+    Plan 017 Phase 3 adds the optional `diff_text` kwarg. When provided,
+    the apply gate runs the suppression scanner over the unified diff and
+    rejects the action when any banned suppression pattern (test skip,
+    CI masking, TS escape, runtime swallow, ARIA suppression honor)
+    appears in changed lines. Backward compatible: `diff_text=None`
+    preserves the original validation-gate-only behavior.
+    """
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if action is None:
         raise GovernanceError("no apply action exists for proposal")
@@ -61,6 +71,28 @@ def gate_apply_action(
         comparison_ref=validation_comparison_ref,
         base_dir=base_dir,
         cycle_id=cycle_id,
+    )
+    suppression_matches: list[dict[str, Any]] = []
+    if diff_text is not None:
+        from .suppression_scanner import scan_unified_diff_text
+
+        for match in scan_unified_diff_text(diff_text):
+            suppression_matches.append(
+                {
+                    "category": match.category,
+                    "detector": match.detector,
+                    "file": match.file,
+                    "line": match.line,
+                    "text": match.text,
+                }
+            )
+    blocked_by = list(gate["blocked_by"] or [])
+    if suppression_matches:
+        blocked_by.append("suppression_pattern")
+    final_status = (
+        "ready_for_pr"
+        if gate["status"] == "ready_for_pr" and not suppression_matches
+        else "blocked"
     )
     row = dict(action)
     row.update(
@@ -72,8 +104,9 @@ def gate_apply_action(
             "validation_gate_ref": gate["ledger_hash"],
             "validation_gate_status": gate["status"],
             "validation_gate_blocked_by": gate["blocked_by"],
-            "status": "ready_for_pr" if gate["status"] == "ready_for_pr" else "blocked",
-            "blocked_by": gate["blocked_by"],
+            "suppression_matches": suppression_matches,
+            "status": final_status,
+            "blocked_by": blocked_by,
         },
     )
     return append_jsonl(ensure_tools_dir(base_dir) / "apply" / "actions.jsonl", row)

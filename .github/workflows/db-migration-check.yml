@@ -90,11 +90,15 @@ on:
     paths:
       - 'apps/*/src/**/migrations/**'
       - 'apps/*/src/**/*.entity.ts'
+      - 'infrastructure/docker/init-scripts/**'
+      - 'e2e/tests/integration/bootstrap-from-scratch.spec.ts'
       - '.github/workflows/db-migration-check.yml'
   push:
     branches: [main, develop]
     paths:
       - 'apps/*/src/**/migrations/**'
+      - 'infrastructure/docker/init-scripts/**'
+      - 'e2e/tests/integration/bootstrap-from-scratch.spec.ts'
       - '.github/workflows/db-migration-check.yml'
 
 # SEC-CI-021: Minimum token permissions.
@@ -227,3 +231,44 @@ jobs:
       # conventions. The whole-service compile is no longer this
       # workflow's concern.
       # -------------------------------------------------------------------
+
+  # ===================================================================
+  # bootstrap-from-scratch — fresh-volume integration check.
+  #
+  # Runs the e2e/tests/integration/bootstrap-from-scratch.spec.ts test,
+  # which spins up an empty Postgres testcontainer with the production
+  # init-scripts mounted, runs every service's TypeORM migration chain
+  # against it, and asserts the resulting schema state is what the
+  # current entity surface expects.
+  #
+  # Why a separate job: this one needs a Docker daemon and ~5 minutes;
+  # the conventions checks above are pure-shell <30s. Splitting keeps
+  # PR feedback fast for the 99% case (filename/class-name regressions)
+  # while still gating the rarer-but-catastrophic squash regression.
+  #
+  # GHA runners have docker preinstalled and the testcontainers library
+  # autoreaches it; no extra setup beyond `npm ci`.
+  # ===================================================================
+  bootstrap-from-scratch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Run bootstrap-from-scratch test
+        run: npm run test:bootstrap
+        env:
+          # testcontainers reuse cuts seconds off subsequent runs and is
+          # safe in single-job CI (we don't reuse across jobs).
+          TESTCONTAINERS_REUSE_ENABLE: 'true'

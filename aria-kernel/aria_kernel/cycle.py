@@ -115,7 +115,7 @@ def run_enterprise_cycle(
         )
     memory = update_memory(cycle_id=cycle_id, base_dir=root)
     pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
-    reflection = run_reflection(cycle_id=cycle_id, base_dir=root)
+    reflection = run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
     metrics = record_cycle_metrics(
         cycle_id=cycle_id,
         phase_durations_ms={"cycle": int((time.monotonic() - started) * 1000)},

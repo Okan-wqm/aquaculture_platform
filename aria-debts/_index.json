@@ -1,0 +1,15 @@
+{
+  "debts": [
+    {
+      "current_status": "OPEN",
+      "debt_id": "DEBT-2026-05-07-001",
+      "due_date": "2026-07-06T07:37:04Z",
+      "originating_finding_id": "F-001",
+      "path": "DEBT-2026-05-07-001.json",
+      "permanent_fix_owner": "platform-data-team",
+      "severity": "LOW"
+    }
+  ],
+  "generated_at": "2026-05-07T07:37:04Z",
+  "schema_version": 1
+}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,7 @@ def run_reflection(
     *,
     cycle_id: str,
     base_dir: str | Path | None = None,
+    repo_root: str | Path | None = None,
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
     runs = [row for row in load_jsonl(runs_path(base_dir)) if row.get("cycle_id") == cycle_id]
@@ -23,6 +26,7 @@ def run_reflection(
     auto_merge_decisions = [row for row in load_jsonl(root / "auto-merge-decisions.jsonl") if row.get("cycle_id") == cycle_id]
     beliefs = _latest_by_id(load_jsonl(root / "memory" / "beliefs.jsonl"), "belief_id")
     top_pressures = pressure_payload.get("pressures", [])[:3] if isinstance(pressure_payload.get("pressures"), list) else []
+    committed = _committed_findings_and_debts(root, repo_root_override=repo_root)
     reflection = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -43,6 +47,8 @@ def run_reflection(
         "top_pressures": top_pressures,
         "tool_health": _tool_health(runs),
         "auto_merge_summary": _auto_merge_summary(auto_merge_decisions),
+        "committed_findings": committed["findings"],
+        "committed_debts": committed["debts"],
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -61,11 +67,103 @@ def _load_pressure(root: Path, cycle_id: str) -> dict[str, Any]:
     path = root / "pressure" / f"{cycle_id}.json"
     if not path.exists():
         return {}
-    import json
-
     with path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
     return payload if isinstance(payload, dict) else {}
+
+
+def _resolve_repo_root(tools_root: Path) -> Path | None:
+    """Read the bound repo_root from the tools-dir identity file.
+
+    Reflection is invoked with `base_dir` = tools-root only, but committed
+    findings/debts live under the repo root (`aria-findings/`, `aria-debts/`).
+    Use the bound identity to locate them; return None if the binding is
+    unset (no committed surfaces to report).
+    """
+    identity_path = tools_root / "repo_identity.json"
+    if not identity_path.exists():
+        return None
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    bound = identity.get("bound_repo_root")
+    if not bound:
+        return None
+    candidate = Path(bound)
+    return candidate if candidate.exists() else None
+
+
+def _committed_findings_and_debts(
+    tools_root: Path,
+    *,
+    repo_root_override: str | Path | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Load the operator-facing finding + debt indexes for the daily report.
+
+    Counts are derived from `aria-findings/_index.json` + `aria-debts/_index.json`.
+    Overdue debt detection uses the recorded `due_date` against current time.
+
+    `repo_root_override` lets a worktree-aware caller (e.g. cycle.py running on
+    snowball when tools-dir was first bound by main) point at the active
+    worktree directly. Without it, fall back to the recorded binding.
+    """
+    empty_findings = {"total": 0, "open": 0, "recent": []}
+    empty_debts = {"total": 0, "open": 0, "overdue": 0, "recent": []}
+    if repo_root_override is not None:
+        candidate = Path(repo_root_override)
+        repo_root = candidate if candidate.exists() else None
+    else:
+        repo_root = _resolve_repo_root(tools_root)
+    if repo_root is None:
+        return {"findings": empty_findings, "debts": empty_debts}
+
+    findings_index = repo_root / "aria-findings" / "_index.json"
+    debts_index = repo_root / "aria-debts" / "_index.json"
+
+    findings_summary = dict(empty_findings)
+    if findings_index.exists():
+        try:
+            payload = json.loads(findings_index.read_text(encoding="utf-8"))
+            rows = payload.get("findings", []) if isinstance(payload, dict) else []
+            findings_summary["total"] = len(rows)
+            findings_summary["open"] = sum(1 for r in rows if r.get("status") == "OPEN")
+            findings_summary["recent"] = sorted(
+                rows, key=lambda r: r.get("created_at", ""), reverse=True
+            )[:5]
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    debts_summary = dict(empty_debts)
+    if debts_index.exists():
+        try:
+            payload = json.loads(debts_index.read_text(encoding="utf-8"))
+            rows = payload.get("debts", []) if isinstance(payload, dict) else []
+            now = datetime.now(timezone.utc)
+            debts_summary["total"] = len(rows)
+            open_rows = [r for r in rows if r.get("current_status") in {"OPEN", "IN_PROGRESS"}]
+            debts_summary["open"] = len(open_rows)
+            overdue = 0
+            for row in open_rows:
+                due_iso = row.get("due_date")
+                if not due_iso:
+                    continue
+                try:
+                    due = datetime.fromisoformat(str(due_iso).replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                if due.tzinfo is None:
+                    due = due.replace(tzinfo=timezone.utc)
+                if due < now:
+                    overdue += 1
+            debts_summary["overdue"] = overdue
+            debts_summary["recent"] = sorted(
+                rows, key=lambda r: r.get("due_date", ""), reverse=False
+            )[:5]
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    return {"findings": findings_summary, "debts": debts_summary}
 
 
 def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
@@ -133,6 +231,27 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         f"- Blocked: {reflection['auto_merge_summary'].get('blocked', 0)}",
         f"- Merged: {reflection['auto_merge_summary'].get('merged', 0)}",
         f"- Failed: {reflection['auto_merge_summary'].get('failed', 0)}",
+        "",
+        "## Committed Findings",
+        "",
+        f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",
+        f"- Open: {reflection.get('committed_findings', {}).get('open', 0)}",
+        *(
+            [f"- Recent: {row.get('finding_id')} [{row.get('severity')}] ({row.get('claim_type')}) — {row.get('claim_summary', '')[:80]}"
+             for row in reflection.get('committed_findings', {}).get('recent', [])]
+            or ["- (no committed findings yet)"]
+        ),
+        "",
+        "## Open Debts",
+        "",
+        f"- Total: {reflection.get('committed_debts', {}).get('total', 0)}",
+        f"- Open: {reflection.get('committed_debts', {}).get('open', 0)}",
+        f"- Overdue: {reflection.get('committed_debts', {}).get('overdue', 0)}",
+        *(
+            [f"- {row.get('debt_id')} [{row.get('severity')}] due {row.get('due_date', '')} — owner {row.get('permanent_fix_owner')} (originating {row.get('originating_finding_id')})"
+             for row in reflection.get('committed_debts', {}).get('recent', [])]
+            or ["- (no committed debts yet)"]
+        ),
         "",
         "## Next Cycle Plan",
         "",

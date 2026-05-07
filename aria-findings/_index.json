@@ -1,0 +1,16 @@
+{
+  "findings": [
+    {
+      "claim_summary": "Adapter signal: TypeORM migration surfaces show repeated boilerplate across services \u2014 at least three migrations follow the same add-column-then-index pattern with no shared helper",
+      "claim_type": "duplication",
+      "created_at": "2026-05-07T07:37:04Z",
+      "evidence_chain_id": "chain_c05abc8bbe3674be",
+      "finding_id": "F-001",
+      "path": "F-001.json",
+      "severity": "LOW",
+      "status": "OPEN"
+    }
+  ],
+  "generated_at": "2026-05-07T07:37:04Z",
+  "schema_version": 1
+}

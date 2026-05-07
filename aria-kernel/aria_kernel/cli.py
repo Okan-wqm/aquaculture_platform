@@ -531,6 +531,24 @@ def _main(argv: list[str] | None = None) -> int:
     b_list = budget_sub.add_parser("list")
     add_tools_arg(b_list, required=True)
 
+    cp_parser = sub.add_parser(
+        "convergent-plan",
+        help="Plan 016 Faz D2 — convergent planning loop with envelope wiring.",
+    )
+    cp_sub = cp_parser.add_subparsers(dest="convergent_plan_command", required=True)
+    cp_start = cp_sub.add_parser("start")
+    add_tools_arg(cp_start, required=True)
+    cp_start.add_argument("--plan-id", required=True)
+    cp_start.add_argument("--initial-revision-id", required=True)
+    cp_start.add_argument("--plan-content-file", required=True)
+    cp_start.add_argument("--must-satisfy-file", required=True)
+    cp_start.add_argument("--evidence-ref", action="append", required=True)
+    cp_start.add_argument("--allowed-scope", action="append", required=True)
+    cp_challenger = cp_sub.add_parser("issue-challenger")
+    add_tools_arg(cp_challenger, required=True)
+    cp_challenger.add_argument("--plan-id", required=True)
+    cp_challenger.add_argument("--round-number", type=int, required=True)
+
     impact_parser = sub.add_parser(
         "impact",
         help="Plan 016 Faz D1 — recursive impact graph (six-source).",
@@ -1193,6 +1211,36 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(rows, indent=2, sort_keys=True))
             return 0
         parser.error("unknown budget command")
+
+    if args.command == "convergent-plan":
+        from aria_kernel.convergent_planning_bridge import (
+            issue_challenger_envelope,
+            start_convergent_plan_with_envelope,
+        )
+
+        if args.convergent_plan_command == "start":
+            content = json.loads(Path(args.plan_content_file).read_text(encoding="utf-8"))
+            must_satisfy = json.loads(Path(args.must_satisfy_file).read_text(encoding="utf-8"))
+            result = start_convergent_plan_with_envelope(
+                plan_id=args.plan_id,
+                plan_content=content,
+                initial_revision_id=args.initial_revision_id,
+                must_satisfy=must_satisfy,
+                evidence_refs=args.evidence_ref,
+                allowed_scope=args.allowed_scope,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.convergent_plan_command == "issue-challenger":
+            row = issue_challenger_envelope(
+                plan_id=args.plan_id,
+                round_number=args.round_number,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown convergent-plan command")
 
     if args.command == "impact" and args.impact_command == "compute":
         from aria_kernel.recursive_impact import DEFAULT_MAX_DEPTH, compute_recursive_impact

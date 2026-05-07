@@ -730,6 +730,33 @@ def _main(argv: list[str] | None = None) -> int:
     pr_split.add_argument("--cycle-id", default=None)
     pr_split.add_argument("--max-files-per-pr", type=int, default=12)
 
+    # Plan 019 Phase 5.5 — Architecture Spine Gate CLI surface.
+    # Operator runs `aria-kernel spine baseline` before a remediation
+    # round, then `aria-kernel spine postcheck` after. The kernel's
+    # 5-round HUMAN_REQUIRED escalation is automatic per call.
+    spine_parser = sub.add_parser(
+        "spine",
+        help="Plan 019 Phase 5.5 — Architecture Spine Gate baseline / postcheck / status.",
+    )
+    spine_sub = spine_parser.add_subparsers(dest="spine_command", required=True)
+    sp_baseline = spine_sub.add_parser("baseline",
+                                       help="Snapshot the 4 architectural invariants for plan_id.")
+    add_tools_arg(sp_baseline, required=True)
+    sp_baseline.add_argument("--plan-id", required=True)
+    sp_baseline.add_argument("--cycle-id", required=True)
+    sp_baseline.add_argument("--workspace-root", default=None)
+    sp_postcheck = spine_sub.add_parser("postcheck",
+                                        help="Re-snapshot + diff vs latest baseline; emit regression event if drift detected.")
+    add_tools_arg(sp_postcheck, required=True)
+    sp_postcheck.add_argument("--plan-id", required=True)
+    sp_postcheck.add_argument("--cycle-id", required=True)
+    sp_postcheck.add_argument("--workspace-root", default=None)
+    sp_postcheck.add_argument("--max-regression-rounds", type=int, default=5)
+    sp_status = spine_sub.add_parser("status",
+                                     help="List baseline / postcheck / regression events.")
+    add_tools_arg(sp_status, required=True)
+    sp_status.add_argument("--plan-id", default=None)
+
     metrics_parser = sub.add_parser(
         "metrics",
         help="Plan 016 Faz D7 — nine-counter metric set + dashboard writer.",
@@ -1662,6 +1689,41 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0
         parser.error("unknown pr command")
+
+    # Plan 019 Phase 5.5 — Architecture Spine Gate dispatch.
+    if args.command == "spine":
+        from aria_kernel.architecture_spine_gate import (
+            list_spine_events,
+            take_baseline,
+            take_postcheck,
+        )
+
+        workspace = args.workspace_root if hasattr(args, "workspace_root") and args.workspace_root else "."
+        if args.spine_command == "baseline":
+            row = take_baseline(
+                plan_id=args.plan_id,
+                cycle_id=args.cycle_id,
+                workspace_root=workspace,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.spine_command == "postcheck":
+            row = take_postcheck(
+                plan_id=args.plan_id,
+                cycle_id=args.cycle_id,
+                workspace_root=workspace,
+                base_dir=args.tools_dir,
+                max_regression_rounds=args.max_regression_rounds,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            # Exit 1 on regression so CI can fail-closed.
+            return 1 if row.get("regression_count", 0) > 0 else 0
+        if args.spine_command == "status":
+            events = list_spine_events(plan_id=args.plan_id, base_dir=args.tools_dir)
+            print(json.dumps(events, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown spine command")
 
     if args.command == "metrics":
         from aria_kernel.plan_016_metrics import compute_plan_016_metrics, write_dashboard

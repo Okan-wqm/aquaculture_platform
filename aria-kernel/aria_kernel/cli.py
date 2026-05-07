@@ -514,6 +514,20 @@ def _main(argv: list[str] | None = None) -> int:
     )
     add_tools_arg(a_reap, required=True)
 
+    consensus_parser = sub.add_parser(
+        "consensus",
+        help="Plan 016 Faz C5/C6 — compute consensus over recorded ai_judge verdicts.",
+    )
+    consensus_sub = consensus_parser.add_subparsers(dest="consensus_command", required=True)
+    c_run = consensus_sub.add_parser(
+        "run",
+        help="Compute consensus for a tool_id (and optional cycle_id) over the existing feedback ledger.",
+    )
+    add_tools_arg(c_run, required=True)
+    c_run.add_argument("--tool-id", required=True)
+    c_run.add_argument("--cycle-id", default=None)
+    c_run.add_argument("--min-confidence", type=float, default=None)
+
     agent_genesis_parser = sub.add_parser("agent-genesis")
     agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
     ag_draft = agent_genesis_sub.add_parser("draft")
@@ -1067,6 +1081,19 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("status") == "accepted" else 1
         parser.error("unknown agent command")
+
+    if args.command == "consensus" and args.consensus_command == "run":
+        from aria_kernel.feedback_store import CONSENSUS_MIN_CONFIDENCE
+        from aria_kernel.judgment_bridge import run_consensus
+
+        result = run_consensus(
+            tool_id=args.tool_id,
+            cycle_id=args.cycle_id,
+            min_confidence=args.min_confidence if args.min_confidence is not None else CONSENSUS_MIN_CONFIDENCE,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "agent-genesis":
         if args.agent_genesis_command == "draft":

@@ -667,7 +667,43 @@ def submit_claim_result(
             "output_hash": output_hash,
         },
     )
-    return {"status": "accepted", "reasons": [], "row": persisted}
+
+    # Plan 016 Faz C5/C6 bridge: route the accepted envelope to the
+    # consensus engine (judge roles) or the supporting payload store
+    # (Goldset / Change-Intelligence). Bridge errors are recorded as
+    # governance events but do NOT undo the accept — the response itself
+    # passed every gate; downstream wiring shortfalls become operator
+    # follow-ups, not silent re-rejections.
+    bridged = {"judge_feedback": None, "supporting_payload": None, "bridge_errors": []}
+    try:
+        from .judgment_bridge import persist_supporting_payload, record_judge_verdict_from_response
+
+        try:
+            bridged["judge_feedback"] = record_judge_verdict_from_response(
+                request=request, response=envelope, base_dir=base_dir
+            )
+        except GovernanceError as exc:
+            bridged["bridge_errors"].append(f"judge_bridge: {exc}")
+            append_tools_governance(
+                root,
+                "agent_bridge_warning",
+                {"claim_id": claim_id, "request_id": request_id, "kind": "judge_bridge", "error": str(exc)},
+            )
+        try:
+            bridged["supporting_payload"] = persist_supporting_payload(
+                request=request, response=envelope, base_dir=base_dir
+            )
+        except GovernanceError as exc:
+            bridged["bridge_errors"].append(f"supporting_bridge: {exc}")
+            append_tools_governance(
+                root,
+                "agent_bridge_warning",
+                {"claim_id": claim_id, "request_id": request_id, "kind": "supporting_bridge", "error": str(exc)},
+            )
+    except ImportError as exc:  # pragma: no cover — judgment_bridge is in tree
+        bridged["bridge_errors"].append(f"bridge_import: {exc}")
+
+    return {"status": "accepted", "reasons": [], "row": persisted, "bridged": bridged}
 
 
 def _persist_rejection(

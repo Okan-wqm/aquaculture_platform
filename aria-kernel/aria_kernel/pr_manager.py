@@ -60,13 +60,32 @@ def build_pr_body(*, proposal: dict[str, Any], action: dict[str, Any]) -> str:
     )
 
 
+ARIA_PR_BASE = "snowball"
+
+
 def open_pr_for_action(
     *,
     proposal_id: str,
     workspace_root: str | Path,
     base_dir: str | Path | None = None,
     dry_run: bool = True,
+    base: str = ARIA_PR_BASE,
 ) -> dict[str, Any]:
+    # Plan 018 Phase 6.2 (G7) — explicit base-branch guard.
+    #
+    # Why: previously the snowball-only invariant was enforced
+    # implicitly by the hardcoded `--base snowball` argv passed to
+    # `gh pr create`. Convention-only enforcement at the subprocess
+    # boundary leaves the function signature itself permissive — a
+    # caller cannot tell from the function contract that base=main is
+    # forbidden, and a future `gh` argv refactor could silently drop
+    # the constraint. The explicit `base` parameter + GovernanceError
+    # surfaces the rule structurally; the subprocess argv keeps
+    # `--base snowball` as defense-in-depth.
+    if base != ARIA_PR_BASE:
+        raise GovernanceError(
+            f"ARIA PRs MUST target {ARIA_PR_BASE!r}; got base={base!r}"
+        )
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if not action:
@@ -85,7 +104,7 @@ def open_pr_for_action(
     _validate_pr_body(body)
     payload = {
         "number": None,
-        "base_branch": "snowball",
+        "base_branch": ARIA_PR_BASE,
         "head_sha": action.get("base_sha"),
         "task_id": proposal.get("task_id"),
         "proposal_id": proposal_id,
@@ -99,7 +118,7 @@ def open_pr_for_action(
         row["body"] = body
         return row
     completed = subprocess.run(
-        ["gh", "pr", "create", "--base", "snowball", "--title", str(proposal.get("title")), "--body", body],
+        ["gh", "pr", "create", "--base", ARIA_PR_BASE, "--title", str(proposal.get("title")), "--body", body],
         cwd=Path(workspace_root).resolve(),
         capture_output=True,
         text=True,

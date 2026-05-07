@@ -444,31 +444,42 @@ test('isAriaArtifactPath / isAriaFindingId classify correctly', () => {
   assert.strictEqual(isAriaFindingId('ORPHAN-MEDIUM-031'), false);
 });
 
-test('validateCommit: ARIA finding trailer routes to filesystem (no registry lookup)', (t) => {
-  // Stub the file existence check via a real file in /tmp won't work in
-  // this test runner; instead rely on the actual snowball state's F-001
-  // file being present when the spec runs. The validator's existsSync
-  // check passes; the routing branch then validates ARIA shape pairing.
-  const commit: Commit = {
-    sha: 'abc123',
-    shortSha: 'abc123',
-    subject: 'feat(aria-kernel): close finding',
-    body: 'body\n\nCloses: aria-findings/F-001.json#F-001',
-  };
-  const violations = validateCommit(
-    commit,
-    new Set(), // empty registry — must not be consulted for ARIA path
-    new Set(), // empty orphan list — must not be consulted
-    () => false,
+test('validateCommit: ARIA finding trailer routes to filesystem (no registry lookup)', () => {
+  // Plan 018 Phase 6.1 (G6) — refactored to a self-contained tempfile
+  // fixture so the test no longer depends on snowball's working-tree
+  // state (the original implementation read aria-findings/F-001.json
+  // from disk and would behave differently if that file were renamed,
+  // moved, or removed by future ARIA work). The fixture lives under
+  // aria-findings/.test-fixtures/ — same dot-prefix carve-out the kernel
+  // _refresh_index excludes via `glob('F-*.json')`.
+  mkdirSync(FIXTURE_FINDINGS_DIR, { recursive: true });
+  const fixturePath = resolve(FIXTURE_FINDINGS_DIR, 'F-903.json');
+  writeFileSync(
+    fixturePath,
+    JSON.stringify({ finding_id: 'F-903', severity: 'LOW', status: 'OPEN' }),
   );
-  // The only possible violation here is "missing review file" if F-001.json
-  // is absent from the worktree. When it is present, ZERO violations.
-  for (const v of violations) {
-    assert.match(
-      v.reason,
-      /missing review file|ARIA trailer/,
-      `unexpected violation: ${v.reason}`,
+  try {
+    const commit: Commit = {
+      sha: 'abc123',
+      shortSha: 'abc123',
+      subject: 'feat(aria-kernel): close finding',
+      body: 'body\n\nCloses: aria-findings/.test-fixtures/F-903.json#F-903',
+    };
+    const violations = validateCommit(
+      commit,
+      new Set(), // empty registry — must not be consulted for ARIA path
+      new Set(), // empty orphan list — must not be consulted
+      () => false,
     );
+    // No violations — the fixture exists, the path/ID kind agrees, and
+    // the in-file finding_id matches the trailer ID.
+    assert.strictEqual(
+      violations.length,
+      0,
+      `expected zero violations on the ARIA finding routing happy path, got: ${JSON.stringify(violations)}`,
+    );
+  } finally {
+    rmSync(FIXTURE_FINDINGS_DIR, { recursive: true, force: true });
   }
 });
 

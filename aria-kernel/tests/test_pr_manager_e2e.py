@@ -197,6 +197,35 @@ class OpenPRForActionTests(unittest.TestCase):
                     dry_run=False,
                 )
 
+    def test_explicit_base_main_is_rejected_at_function_entry(self) -> None:
+        # Plan 018 Phase 6.2 (G7) — open_pr_for_action MUST surface the
+        # snowball-only invariant at the function boundary, not just at
+        # the gh argv hardcoded value. The explicit base parameter
+        # rejection runs BEFORE proposal lookup so a misconfigured
+        # caller cannot leak any state through the call.
+        with self.assertRaisesRegex(GovernanceError, "ARIA PRs MUST target 'snowball'; got base='main'"):
+            open_pr_for_action(
+                proposal_id="PROP-NONEXISTENT",  # unreachable — base check fires first
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                dry_run=True,
+                base="main",
+            )
+
+    def test_explicit_base_snowball_passes_through(self) -> None:
+        # The default value is snowball; explicit base="snowball" must
+        # behave identically to no-arg.
+        proposal = _seed_proposal(tools=self.tools)
+        _seed_apply_action(tools=self.tools, proposal_id=proposal["proposal_id"], status="ready_for_pr")
+        result = open_pr_for_action(
+            proposal_id=proposal["proposal_id"],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+            dry_run=True,
+            base="snowball",
+        )
+        self.assertEqual(result["base_branch"], "snowball")
+
 
 class PushBaseBranchProtectionTests(unittest.TestCase):
     def setUp(self) -> None:

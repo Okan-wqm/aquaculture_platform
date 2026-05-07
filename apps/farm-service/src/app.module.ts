@@ -97,6 +97,7 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
 // MigrationRunnerService (database.module) executes these on OnApplicationBootstrap
 // AFTER SourceSchemaBootstrapService.synchronize() has run, ensuring tables exist
 // before the migrations attempt to ALTER them.
+import { CreateInitialSchema1700000000000 } from './database/migrations/1700000000000-CreateInitialSchema';
 import { AddSystemHierarchy1734336000000 } from './database/migrations/1734336000000-AddSystemHierarchy';
 import { AddBatchDocuments1734500000000 } from './database/migrations/1734500000000-AddBatchDocuments';
 // `MakeDepartmentSiteIdNullable1765012800000` was deleted: its intent
@@ -204,6 +205,7 @@ import { AddBiomassReports1788300000000 } from './database/migrations/1788300000
           // so SourceSchemaBootstrapService.synchronize() (OnModuleInit)
           // creates base tables BEFORE any ALTER statement runs.
           migrations: [
+            CreateInitialSchema1700000000000,
             AddSystemHierarchy1734336000000,
             AddBatchDocuments1734500000000,
             AddRegulatorySettings1769000000000,

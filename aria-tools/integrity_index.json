@@ -1,7 +1,7 @@
 {
   "ledger_hashes": {
     "cycles": "8463bfc2811ba61bf0d975981a532d9404de68dcd774ffb137fad9e094c2ed00",
-    "governance": "8b22788d8a2e0cd3ff0854fdd3f5aabfeac77c272a87d5e624766b6b0074085a",
+    "governance": "bc4417fd4d3c84524f986a393865d9729bfbfb873314f569fdb34822a678eadf",
     "health": "33a2e3d4a27c3ecb7eea98480a4fc916c55e2f6d26c4ac430323cb8b98bc4edc",
     "runs": "af9ecd9186895ce4aec7148d1843941da2d3500ae5b8a39783fa41c3ca4bce2b"
   },

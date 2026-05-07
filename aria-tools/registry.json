@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "tools": [
     {
       "allowed_read_globs": [
@@ -27,6 +27,7 @@
         "dist/**",
         "aria-tools/**"
       ],
+      "freshness_window_hours": 168,
       "health_thresholds": {
         "crash_rate_last_10": 0.2,
         "critical_false_positives": 0,
@@ -44,6 +45,7 @@
         "type": "object"
       },
       "owner": "platform",
+      "parse_window_signature": "sha256:5dfc9fbe998ba0592f05588f247d55495882139b5053c9adef4fe1296bd5f272",
       "runner": {
         "argv": [
           "python3",
@@ -86,6 +88,7 @@
         "dist/**",
         "aria-tools/**"
       ],
+      "freshness_window_hours": 168,
       "health_thresholds": {
         "crash_rate_last_10": 0.2,
         "critical_false_positives": 0,
@@ -103,6 +106,7 @@
         "type": "object"
       },
       "owner": "platform",
+      "parse_window_signature": "sha256:d95c2aed9585659135670c663db6f6cedfb1ec43f6ef643c9a54b4c7ad76bfbc",
       "runner": {
         "argv": [
           "python3",
@@ -146,6 +150,7 @@
         "dist/**",
         "aria-tools/**"
       ],
+      "freshness_window_hours": 168,
       "health_thresholds": {
         "crash_rate_last_10": 0.2,
         "critical_false_positives": 0,
@@ -163,6 +168,7 @@
         "type": "object"
       },
       "owner": "platform",
+      "parse_window_signature": "sha256:7bcf59cd2b78496c1afab2abdf9cad0198b789a0a944335dadfbcfd0bca37b32",
       "runner": {
         "argv": [
           "python3",
@@ -205,6 +211,7 @@
         "dist/**",
         "aria-tools/**"
       ],
+      "freshness_window_hours": 168,
       "health_thresholds": {
         "crash_rate_last_10": 0.2,
         "critical_false_positives": 0,
@@ -222,6 +229,7 @@
         "type": "object"
       },
       "owner": "platform",
+      "parse_window_signature": "sha256:ab133869f2a57c57cb5bda7de55078db039572332d130013dc9551c062522a3b",
       "runner": {
         "argv": [
           "python3",
@@ -264,6 +272,7 @@
         "dist/**",
         "aria-tools/**"
       ],
+      "freshness_window_hours": 168,
       "health_thresholds": {
         "crash_rate_last_10": 0.2,
         "critical_false_positives": 0,
@@ -281,6 +290,7 @@
         "type": "object"
       },
       "owner": "platform",
+      "parse_window_signature": "sha256:434d4fd7f7d2337241d4ed11e31a7d2bbd14f883c2343f001b9d412201a249c3",
       "runner": {
         "argv": [
           "python3",
@@ -296,6 +306,258 @@
       "status": "SHADOW",
       "tool_id": "migration-runner-adapter",
       "updated_at": "2026-05-05T08:29:32+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "**/*.md",
+        "**/*.ts",
+        "**/*.py"
+      ],
+      "claim_types": [
+        "banned_phrase"
+      ],
+      "created_at": "2026-05-07T10:37:40+00:00",
+      "declared_scope": [
+        "**/*.md",
+        "**/*.ts",
+        "**/*.py"
+      ],
+      "default_input": {
+        "roots": [
+          "docs",
+          "apps",
+          "libs",
+          "platform",
+          "aria-findings"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/banned-phrase",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:c17c9da8071078bb4f063cc9d61e2a43258cf26cb161bba4dd5c60f707193d6c",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "banned-phrase-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 2,
+      "status": "SHADOW",
+      "tool_id": "banned-phrase-adapter",
+      "updated_at": "2026-05-07T10:37:40+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "platform/libs/cqrs/**/*.ts"
+      ],
+      "claim_types": [
+        "cqrs_layer_skip"
+      ],
+      "created_at": "2026-05-07T10:37:40+00:00",
+      "declared_scope": [
+        "apps/**/*.ts",
+        "platform/libs/cqrs/**/*.ts"
+      ],
+      "default_input": {
+        "roots": [
+          "apps",
+          "platform/libs/cqrs"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/cqrs",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:593745d257c6bbf18703a1e608390a3cd88fa58b7c63154eb80acb5a95440660",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "cqrs-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 2,
+      "status": "SHADOW",
+      "tool_id": "cqrs-adapter",
+      "updated_at": "2026-05-07T10:37:40+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/outbox/**/*.ts",
+        "platform/libs/outbox/**/*.ts"
+      ],
+      "claim_types": [
+        "outbox_emission"
+      ],
+      "created_at": "2026-05-07T10:37:40+00:00",
+      "declared_scope": [
+        "apps/**/outbox/**/*.ts",
+        "platform/libs/outbox/**/*.ts"
+      ],
+      "default_input": {
+        "roots": [
+          "apps",
+          "platform/libs/outbox"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/outbox",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:c7b174a6f70425cd5839b48723e0c8bd80743dca7452b823db2c9f13fbe8b257",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "outbox-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 2,
+      "status": "SHADOW",
+      "tool_id": "outbox-adapter",
+      "updated_at": "2026-05-07T10:37:40+00:00",
+      "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "libs/backend-common/**/*.ts",
+        "tsconfig*.json"
+      ],
+      "claim_types": [
+        "dual_alias_drift"
+      ],
+      "created_at": "2026-05-07T10:37:40+00:00",
+      "declared_scope": [
+        "libs/backend-common/**/*.ts",
+        "tsconfig*.json"
+      ],
+      "default_input": {
+        "roots": [
+          "libs/backend-common"
+        ]
+      },
+      "fixture_set": "tools/aria-poc/fixtures/dual-alias",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**",
+        "aria-tools/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:13a58182e35b4b58d6f4a0237e04fb854825cef111f2ee346d6c1d44291e25d9",
+      "runner": {
+        "argv": [
+          "python3",
+          "shadow_runner.py",
+          "dual-alias-adapter"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 15000,
+        "type": "subprocess"
+      },
+      "schema_version": 2,
+      "status": "SHADOW",
+      "tool_id": "dual-alias-adapter",
+      "updated_at": "2026-05-07T10:37:40+00:00",
       "version": "0.1.0"
     }
   ]

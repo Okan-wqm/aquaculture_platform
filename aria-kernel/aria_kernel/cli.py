@@ -531,6 +531,19 @@ def _main(argv: list[str] | None = None) -> int:
     b_list = budget_sub.add_parser("list")
     add_tools_arg(b_list, required=True)
 
+    adapter_parser = sub.add_parser(
+        "adapter-portfolio",
+        help="Plan 016 Faz F1+F2 — MVP adapter registration + parse-window signature backfill.",
+    )
+    adapter_sub = adapter_parser.add_subparsers(dest="adapter_portfolio_command", required=True)
+    ap_register = adapter_sub.add_parser("register-mvp")
+    add_tools_arg(ap_register, required=True)
+    ap_backfill = adapter_sub.add_parser("backfill-window-metadata")
+    add_tools_arg(ap_backfill, required=True)
+    ap_backfill.add_argument("--freshness-hours", type=int, default=None)
+    ap_status = adapter_sub.add_parser("status")
+    add_tools_arg(ap_status, required=True)
+
     arch_parser = sub.add_parser(
         "architecture",
         help="Plan 016 Faz E1 — architecture-first review (fix_in_place / replace_with_adr / etc.).",
@@ -1277,6 +1290,29 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(rows, indent=2, sort_keys=True))
             return 0
         parser.error("unknown budget command")
+
+    if args.command == "adapter-portfolio":
+        from aria_kernel.adapter_portfolio import (
+            DEFAULT_FRESHNESS_WINDOW_HOURS,
+            backfill_window_metadata,
+            list_mvp_status,
+            register_mvp_adapters,
+        )
+
+        if args.adapter_portfolio_command == "register-mvp":
+            result = register_mvp_adapters(base_dir=args.tools_dir)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.adapter_portfolio_command == "backfill-window-metadata":
+            freshness = args.freshness_hours if args.freshness_hours is not None else DEFAULT_FRESHNESS_WINDOW_HOURS
+            result = backfill_window_metadata(base_dir=args.tools_dir, freshness_hours=freshness)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.adapter_portfolio_command == "status":
+            result = list_mvp_status(base_dir=args.tools_dir)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0 if not result["missing"] else 2
+        parser.error("unknown adapter-portfolio command")
 
     if args.command == "architecture":
         from aria_kernel.architecture import (

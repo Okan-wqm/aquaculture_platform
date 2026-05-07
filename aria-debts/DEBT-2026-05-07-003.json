@@ -1,7 +1,7 @@
 {
   "$schema": "aria/architectural-debt/v1",
   "auto_close_forbidden": true,
-  "current_status": "OPEN",
+  "current_status": "IN_PROGRESS",
   "debt_id": "DEBT-2026-05-07-003",
   "due_date": "2026-08-05T11:41:18Z",
   "escalation_history": [],
@@ -22,6 +22,12 @@
       "at": "2026-05-07T11:41:19Z",
       "by": "manual:operator",
       "status": "OPEN"
+    },
+    {
+      "at": "2026-05-07T12:09:14Z",
+      "by": "operator:plan-017-phase-5",
+      "note": "banned-phrase-adapter runner.argv switched from shadow_runner.py to banned_phrase_adapter.py. Adapter wraps tools/gates/banned-phrase.ts CLI and emits real observations from violation output. 8 of 9 adapters still on shadow_runner.py.",
+      "status": "IN_PROGRESS"
     }
   ],
   "verification_status": "VERIFIED",

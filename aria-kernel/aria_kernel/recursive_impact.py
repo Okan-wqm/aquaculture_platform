@@ -291,9 +291,133 @@ def _make_stub_source(name: str, surface_hint: str) -> Callable[[list[str], Path
     return _stub
 
 
-_event_contract_source = _make_stub_source(
-    "event_contract", "libs/event-contracts/src/**/*.ts"
+# Plan 017 Phase 5.2 — real event_contract source (partial DEBT-2026-05-07-002 closure).
+# Scans changed event-contract files for `export interface XEvent extends BaseEvent`
+# declarations, then greps the workspace for consumers (files that import or
+# reference the event name). Emits known-status entries per consumer + a
+# defines-status entry for the source file itself. Files outside
+# libs/event-contracts/src/**/*.ts are skipped — the source remains a no-op
+# for non-event changes (no spurious unknown entries).
+
+_EVENT_INTERFACE_RE = re.compile(
+    r"export\s+interface\s+(\w+Event)\s+extends\s+BaseEvent",
 )
+
+
+def _event_contract_source(
+    intended_files: list[str],
+    workspace_root: Path,
+) -> list[ImpactEntry]:
+    contract_files = [
+        f for f in intended_files
+        if f.replace("\\", "/").startswith("libs/event-contracts/src/") and f.endswith(".ts")
+    ]
+    if not contract_files:
+        return []
+
+    entries: list[ImpactEntry] = []
+    seen_paths: set[str] = set()
+    for contract in contract_files:
+        contract_abs = workspace_root / contract
+        try:
+            content = contract_abs.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            entries.append(
+                ImpactEntry(
+                    path=contract,
+                    project="event-contracts",
+                    relationship="event_contract_unreadable",
+                    status="unknown",
+                    source="event_contract",
+                    block_reason="contract file could not be read at the workspace SHA",
+                    validation_scope=(),
+                )
+            )
+            continue
+        event_names = sorted({m.group(1) for m in _EVENT_INTERFACE_RE.finditer(content)})
+        if not event_names:
+            entries.append(
+                ImpactEntry(
+                    path=contract,
+                    project="event-contracts",
+                    relationship="event_contract_no_event_interfaces",
+                    status="known",
+                    source="event_contract",
+                    validation_scope=("nx affected --target=test --base=HEAD~1",),
+                )
+            )
+            continue
+
+        # The source file itself is a known impact entry.
+        entries.append(
+            ImpactEntry(
+                path=contract,
+                project="event-contracts",
+                relationship=f"defines:{','.join(event_names)}",
+                status="known",
+                source="event_contract",
+                validation_scope=("nx test event-contracts",),
+            )
+        )
+
+        # Consumer scan: grep each event name across the workspace.
+        # Existing search roots are filtered to those that exist so grep
+        # exits cleanly (returncode 0 with hits, 1 with no hits). When
+        # mixed-existence search roots are passed grep exits 2, and
+        # parsing the partial stdout matters — we accept any returncode
+        # that produced output rather than gating on returncode==0.
+        search_roots = [
+            workspace_root / sub
+            for sub in ("apps", "libs", "web", "platform")
+            if (workspace_root / sub).exists()
+        ]
+        for event_name in event_names:
+            if not search_roots:
+                break
+            try:
+                proc = subprocess.run(
+                    [
+                        "grep", "-rln",
+                        "--include", "*.ts",
+                        "--include", "*.tsx",
+                        "--exclude-dir", "node_modules",
+                        "--exclude-dir", ".git",
+                        "--exclude-dir", "dist",
+                        "--exclude-dir", "aria-tools",
+                        event_name,
+                        *(str(p) for p in search_roots),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+                # grep exit codes: 0 = matches found, 1 = no matches, 2 = error.
+                # Accept stdout when present regardless of returncode so partial
+                # results are not silently dropped.
+                hits = proc.stdout.splitlines() if proc.stdout else []
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                hits = []
+            for hit in hits:
+                rel_hit = (
+                    Path(hit).resolve().relative_to(workspace_root).as_posix()
+                    if Path(hit).is_absolute() else hit
+                )
+                if rel_hit == contract or rel_hit in seen_paths:
+                    continue
+                seen_paths.add(rel_hit)
+                entries.append(
+                    ImpactEntry(
+                        path=rel_hit,
+                        project=_project_for_path(workspace_root, rel_hit),
+                        relationship=f"consumes:{event_name}",
+                        status="known",
+                        source="event_contract",
+                        depth=1,
+                    )
+                )
+    return entries
+
+
 _graphql_api_source = _make_stub_source(
     "graphql_api", "libs/*/codegen/**/*.ts"
 )

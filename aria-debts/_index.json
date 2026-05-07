@@ -10,7 +10,7 @@
       "severity": "LOW"
     },
     {
-      "current_status": "OPEN",
+      "current_status": "IN_PROGRESS",
       "debt_id": "DEBT-2026-05-07-002",
       "due_date": "2026-08-05T11:41:18Z",
       "originating_finding_id": "F-001",
@@ -19,7 +19,7 @@
       "severity": "MEDIUM"
     },
     {
-      "current_status": "OPEN",
+      "current_status": "IN_PROGRESS",
       "debt_id": "DEBT-2026-05-07-003",
       "due_date": "2026-08-05T11:41:18Z",
       "originating_finding_id": "F-001",
@@ -37,6 +37,6 @@
       "severity": "HIGH"
     }
   ],
-  "generated_at": "2026-05-07T11:51:58Z",
+  "generated_at": "2026-05-07T12:09:14Z",
   "schema_version": 1
 }

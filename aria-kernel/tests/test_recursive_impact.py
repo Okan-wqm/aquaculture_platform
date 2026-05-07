@@ -103,12 +103,14 @@ class StubSourceBehaviorTests(unittest.TestCase):
             workspace_root=self.repo,
             base_dir=self.tools,
         )
-        # event_contract, graphql_api, db_entity, frontend_module each emit one
-        # unknown stub entry per intended file (they cannot resolve real refs
-        # in a fresh fixture repo). nx_graph also returns "unknown" because no
-        # nx cache exists.
+        # graphql_api, db_entity, frontend_module each emit one unknown stub
+        # entry per intended file (they cannot resolve real refs in a fresh
+        # fixture repo). event_contract is no longer a stub (Plan 017 Phase
+        # 5.2); it returns no entries when intended_files do not include
+        # libs/event-contracts paths. nx_graph also returns "unknown" because
+        # no nx cache exists.
         unknown = result["summary"]["by_status"]["unknown"]
-        self.assertGreaterEqual(unknown, 4, result["summary"])
+        self.assertGreaterEqual(unknown, 3, result["summary"])
 
     def test_stub_sources_carry_block_reason(self) -> None:
         result = compute_recursive_impact(
@@ -163,6 +165,69 @@ class ImportGraphTests(unittest.TestCase):
         # Both files that import helper should appear.
         self.assertIn("apps/foo-service/src/main.ts", importer_paths)
         self.assertIn("apps/bar-service/src/client.ts", importer_paths)
+
+
+class EventContractSourceTests(unittest.TestCase):
+    """Plan 017 Phase 5.2 — event_contract source replaces the stub."""
+
+    def setUp(self) -> None:
+        self.repo = _seed_repo()
+        self.tools = self.repo / "aria-tools"
+        ensure_tools_dir(self.tools)
+        _write_repo_identity(self.tools, self.repo)
+        # Seed an event-contract file with a BaseEvent interface and a consumer.
+        contract_dir = self.repo / "libs" / "event-contracts" / "src"
+        contract_dir.mkdir(parents=True, exist_ok=True)
+        (contract_dir / "base-event.ts").write_text(
+            "export interface BaseEvent { eventId: string; }\n", encoding="utf-8"
+        )
+        (contract_dir / "farm-events.ts").write_text(
+            "import { BaseEvent } from './base-event';\n"
+            "export interface FarmHarvestedEvent extends BaseEvent { batchId: string; }\n"
+            "export interface FarmStockedEvent extends BaseEvent { ponds: string[]; }\n",
+            encoding="utf-8",
+        )
+        consumer_dir = self.repo / "apps" / "farm-service" / "src"
+        consumer_dir.mkdir(parents=True, exist_ok=True)
+        (consumer_dir / "consumer.ts").write_text(
+            "import { FarmHarvestedEvent } from '../../libs/event-contracts/src/farm-events';\n"
+            "function handle(e: FarmHarvestedEvent) {}\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.repo, ignore_errors=True)
+
+    def test_event_contract_emits_known_entries(self) -> None:
+        result = compute_recursive_impact(
+            intended_files=["libs/event-contracts/src/farm-events.ts"],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+            max_depth=1,
+        )
+        # event_contract source must produce at least:
+        # - 1 defines:* entry for the source file
+        # - 1 consumes:FarmHarvestedEvent entry for the consumer
+        ec_entries = [e for e in result["entries"] if e["source"] == "event_contract"]
+        self.assertGreaterEqual(len(ec_entries), 2, ec_entries)
+        relationships = {e["relationship"] for e in ec_entries}
+        self.assertTrue(any(r.startswith("defines:") for r in relationships), ec_entries)
+        self.assertTrue(any(r.startswith("consumes:") for r in relationships), ec_entries)
+        # All event_contract entries are known status (no stubs).
+        for e in ec_entries:
+            self.assertEqual(e["status"], "known", e)
+
+    def test_event_contract_skips_non_contract_files(self) -> None:
+        result = compute_recursive_impact(
+            intended_files=["apps/farm-service/src/consumer.ts"],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+        )
+        ec_entries = [e for e in result["entries"] if e["source"] == "event_contract"]
+        # No event-contract file in intended; source emits zero entries
+        # (no spurious unknown stub).
+        self.assertEqual(ec_entries, [])
 
 
 class PersistenceTests(unittest.TestCase):

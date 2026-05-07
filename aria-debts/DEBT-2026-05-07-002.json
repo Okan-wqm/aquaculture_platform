@@ -1,7 +1,7 @@
 {
   "$schema": "aria/architectural-debt/v1",
   "auto_close_forbidden": true,
-  "current_status": "OPEN",
+  "current_status": "IN_PROGRESS",
   "debt_id": "DEBT-2026-05-07-002",
   "due_date": "2026-08-05T11:41:18Z",
   "escalation_history": [],
@@ -22,6 +22,12 @@
       "at": "2026-05-07T11:41:18Z",
       "by": "manual:operator",
       "status": "OPEN"
+    },
+    {
+      "at": "2026-05-07T12:09:14Z",
+      "by": "operator:plan-017-phase-5",
+      "note": "event_contract source replaced stub in recursive_impact.py; emits known entries for libs/event-contracts/src/* changes plus consumer file refs. Live impact compute on farm-events.ts produces 48 known entries. graphql_api, db_entity, frontend_module remain stubbed.",
+      "status": "IN_PROGRESS"
     }
   ],
   "verification_status": "VERIFIED",

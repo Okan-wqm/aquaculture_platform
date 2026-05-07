@@ -361,12 +361,11 @@
       "runner": {
         "argv": [
           "python3",
-          "shadow_runner.py",
-          "banned-phrase-adapter"
+          "banned_phrase_adapter.py"
         ],
         "cwd": "tools/aria-poc",
         "stdin_json": true,
-        "timeout_ms": 15000,
+        "timeout_ms": 90000,
         "type": "subprocess"
       },
       "schema_version": 2,

@@ -6,6 +6,7 @@
   "debt_id": "DEBT-2026-05-07-004",
   "due_date": "2026-07-06T11:41:19Z",
   "escalation_history": [],
+  "historical_note": "F-003 supersedes F-002 (Plan 019 Phase 2 architectural-arbiter ruling). This DEBT was already RESOLVED at Plan 017 Phase 3 (closes_in_commit 5e93c02a); originating_finding_id is preserved as F-002 to keep the closed history immutable. F-003 is the canonical successor for any future operator query.",
   "originating_finding_evidence_chain_id": "chain_bd9aa02134d4a65c",
   "originating_finding_id": "F-002",
   "permanent_fix_owner": "platform-data-team",

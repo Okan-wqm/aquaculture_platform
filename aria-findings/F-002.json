@@ -52,5 +52,19 @@
     ]
   },
   "severity": "MEDIUM",
-  "status": "OPEN"
+  "status": "WITHDRAWN",
+  "status_history": [
+    {
+      "adversarial_judge_verdict": "false_positive (confidence 0.82)",
+      "at": "2026-05-07T14:02:33Z",
+      "by": "operator:plan-019-phase-2",
+      "consensus_arbiter": "judge_disagreement uncertainty (no auto-promotion)",
+      "evidence_judge_verdict": "true_positive (confidence 0.78)",
+      "judge_disagreement_ref": "aria-tools/feedback-consensus-uncertainties.jsonl:1",
+      "note": "Architectural-arbiter ruling (Plan 019 Phase 2): supersession over in-place tighten preserves evidence-chain coherence under append-only audit semantics. F-002 stays as historical artifact; F-003 carries the tightened claim_summary.",
+      "status": "WITHDRAWN",
+      "superseded_by": "F-003"
+    }
+  ],
+  "withdrawn_reason": "Narrative staleness confirmed by aria-adversarial-judge (Plan 018 Phase 7, confidence 0.82): 4 claims invalidated \u2014 (1) DEBT cite-target re-linked in Plan 018 Phase 2 commit 1ec10945, (2) PR pipeline e2e coverage exists at aria-kernel/tests/test_pr_manager_e2e.py since commit 5e93c02a, (3) banned-phrase-adapter is concrete not SHADOW, (4) event_contract impact source is concrete not stub. Superseded by F-003."
 }

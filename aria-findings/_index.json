@@ -18,9 +18,19 @@
       "finding_id": "F-002",
       "path": "F-002.json",
       "severity": "MEDIUM",
+      "status": "WITHDRAWN"
+    },
+    {
+      "claim_summary": "Plan 016 implementation arc registered 9 adapters in aria-tools/registry.json and 4 impact graph sources in aria-kernel/aria_kernel/recursive_impact.py; as of HEAD 97fca751, 8 adapters still use the SHADOW shadow_runner.py and 3 sources still emit status: unknown stubs. Plan 019 Phase 4 + 5 + 9 close this finding by completing each parser implementation and each source mapping.",
+      "claim_type": "convention_inconsistency",
+      "created_at": "2026-05-07T14:01:39Z",
+      "evidence_chain_id": "chain_ad7d2420e22e72a5",
+      "finding_id": "F-003",
+      "path": "F-003.json",
+      "severity": "MEDIUM",
       "status": "OPEN"
     }
   ],
-  "generated_at": "2026-05-07T13:07:01Z",
+  "generated_at": "2026-05-07T14:02:33Z",
   "schema_version": 1
 }

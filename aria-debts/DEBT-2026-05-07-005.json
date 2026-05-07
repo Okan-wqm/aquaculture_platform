@@ -6,10 +6,11 @@
   "debt_id": "DEBT-2026-05-07-005",
   "due_date": "2026-06-06T13:08:49Z",
   "escalation_history": [],
-  "originating_finding_evidence_chain_id": "chain_bd9aa02134d4a65c",
-  "originating_finding_id": "F-002",
+  "originating_finding_evidence_chain_id": "chain_ad7d2420e22e72a5",
+  "originating_finding_id": "F-003",
   "permanent_fix_owner": "platform-data-team",
   "permanent_fix_required": "Re-walk the Phase 4 path under Plan 018 Phase 7 with real Claude Code Agent invocations. For each pending judge request, invoke Agent(subagent_type=aria-evidence-judge) and Agent(subagent_type=aria-adversarial-judge) inside a Claude Code session, capture the model-generated envelope into the response file, and submit via aria-kernel agent submit-result. Run consensus arbiter; verify dashboard counters move identically; mark this debt RESOLVED with the closing commit SHA and a status_history entry citing the new ai_judge / ai_consensus rows in operator-feedback.jsonl.",
+  "relink_reason": "F-002 \u2192 F-003 supersession per architectural-arbiter ruling (Plan 019 Phase 2). The Plan 018 Phase 2 originating_finding re-link mechanism is reused verbatim.",
   "root_cause_summary": "Plan 017 Phase 4 acceptance criterion required a live e2e walkthrough that exercised every bound-agent gate. The operator chose to walk the pipeline with synthesized envelope content so the consensus arbiter could be observed under controlled response shapes. The structural pipeline is proven; the model-in-the-loop substitution that the production path requires is tracked here so the lifecycle stays auditable.",
   "schema_version": 1,
   "severity": "MEDIUM",
@@ -34,6 +35,12 @@
       "at": "2026-05-07T13:26:31Z",
       "by": "operator:plan-018-phase-7b",
       "note": "closes_in_commit field set to Phase 7a SHA 378d6fd5",
+      "status": "RESOLVED"
+    },
+    {
+      "at": "2026-05-07T14:02:04Z",
+      "by": "operator:plan-019-phase-2",
+      "note": "originating_finding re-linked from F-002 (chain chain_bd9aa02134d4a65c) to F-003 (chain chain_ad7d2420e22e72a5); reason: F-002 \u2192 F-003 supersession.",
       "status": "RESOLVED"
     }
   ],

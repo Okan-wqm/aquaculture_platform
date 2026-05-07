@@ -11,8 +11,15 @@ if __package__ in {None, ""}:
 
 from aria_kernel.cycle import run_cycle
 from aria_kernel.agent_invocations import (
+    DEFAULT_HEARTBEAT_EXTEND_SECONDS,
+    DEFAULT_LEASE_SECONDS,
+    claim_request,
     create_agent_invocation_request,
+    heartbeat_claim,
     list_agent_invocation_requests,
+    next_pending_request,
+    reap_stale_claims,
+    release_claim,
     submit_agent_invocation_result,
 )
 from aria_kernel.agent_genesis import (
@@ -443,6 +450,57 @@ def _main(argv: list[str] | None = None) -> int:
     inv_list.add_argument("--target-agent", default=None)
     inv_list.add_argument("--request-id", default=None)
     inv_list.add_argument("--role", default=None)
+
+    # Plan 016 Faz C2 stable hierarchical CLI: `agent <action>`. The legacy
+    # `agent-invocations ...` sub-command stays for backward compatibility
+    # but is no longer advertised in v3 documentation.
+    agent_parser = sub.add_parser(
+        "agent",
+        help="Plan 016 bound-agent execution (next-pending / claim / heartbeat / submit-result / release / reap-stale).",
+    )
+    agent_sub = agent_parser.add_subparsers(dest="agent_command", required=True)
+
+    a_next = agent_sub.add_parser(
+        "next-pending",
+        help="Return the oldest unclaimed pending request matching role/target.",
+    )
+    add_tools_arg(a_next, required=True)
+    a_next.add_argument("--role", default=None)
+    a_next.add_argument("--target-agent", default=None)
+
+    a_claim = agent_sub.add_parser(
+        "claim",
+        help="Issue a lease on a pending request. Raw lease_token is returned once.",
+    )
+    add_tools_arg(a_claim, required=True)
+    a_claim.add_argument("--request-id", required=True)
+    a_claim.add_argument("--agent-id", required=True)
+    a_claim.add_argument("--lease-seconds", type=int, default=None)
+
+    a_heartbeat = agent_sub.add_parser(
+        "heartbeat",
+        help="Extend an active lease. Requires the raw lease_token from claim.",
+    )
+    add_tools_arg(a_heartbeat, required=True)
+    a_heartbeat.add_argument("--claim-id", required=True)
+    a_heartbeat.add_argument("--agent-id", required=True)
+    a_heartbeat.add_argument("--lease-token", required=True)
+    a_heartbeat.add_argument("--extend-seconds", type=int, default=None)
+
+    a_release = agent_sub.add_parser(
+        "release",
+        help="Release a claim before submission. Triggers requeue or HUMAN_REQUIRED.",
+    )
+    add_tools_arg(a_release, required=True)
+    a_release.add_argument("--claim-id", required=True)
+    a_release.add_argument("--agent-id", required=True)
+    a_release.add_argument("--reason", required=True)
+
+    a_reap = agent_sub.add_parser(
+        "reap-stale",
+        help="Mark expired leases stale and emit requeue / human_required follow-ups.",
+    )
+    add_tools_arg(a_reap, required=True)
 
     agent_genesis_parser = sub.add_parser("agent-genesis")
     agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
@@ -942,6 +1000,49 @@ def _main(argv: list[str] | None = None) -> int:
             parser.error("unknown agent-invocations command")
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if not isinstance(result, dict) or result.get("status") != "rejected" else 1
+
+    if args.command == "agent":
+        if args.agent_command == "next-pending":
+            row = next_pending_request(
+                role=args.role, target_agent=args.target_agent, base_dir=args.tools_dir
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0 if row is not None else 0
+        if args.agent_command == "claim":
+            lease_seconds = args.lease_seconds if args.lease_seconds is not None else DEFAULT_LEASE_SECONDS
+            row = claim_request(
+                request_id=args.request_id,
+                agent_id=args.agent_id,
+                base_dir=args.tools_dir,
+                lease_seconds=lease_seconds,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.agent_command == "heartbeat":
+            extend = args.extend_seconds if args.extend_seconds is not None else DEFAULT_HEARTBEAT_EXTEND_SECONDS
+            row = heartbeat_claim(
+                claim_id=args.claim_id,
+                agent_id=args.agent_id,
+                lease_token=args.lease_token,
+                base_dir=args.tools_dir,
+                extend_seconds=extend,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.agent_command == "release":
+            row = release_claim(
+                claim_id=args.claim_id,
+                agent_id=args.agent_id,
+                reason=args.reason,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.agent_command == "reap-stale":
+            result = reap_stale_claims(base_dir=args.tools_dir)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown agent command")
 
     if args.command == "agent-genesis":
         if args.agent_genesis_command == "draft":

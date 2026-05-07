@@ -22,6 +22,13 @@ ROLES = {
     "maintenance_utility",
     # Plan 016 adds two roles routed through the strict v1 envelope.
     "implementation_review",
+    # Plan 016 Faz C4 judge roles (envelope wraps existing
+    # feedback_store.generate_ai_consensus + plan_convergence logic).
+    "evidence_judgment",
+    "adversarial_judgment",
+    "consensus_arbitration",
+    "change_intelligence",
+    "goldset_curation",
 }
 STATUSES = {"completed", "rejected", "partial"}
 

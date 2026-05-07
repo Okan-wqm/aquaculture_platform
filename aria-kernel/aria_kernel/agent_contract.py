@@ -38,6 +38,7 @@ from .tool_registry import GovernanceError
 # authoritative list — when the two diverge, this list wins because the
 # strict envelope drives the convergent gate.
 REQUEST_ROLES = (
+    # Convergent planning roles (Plan 016 §Convergent planning).
     "primary_plan",
     "challenger_plan",
     "cross_review",
@@ -47,6 +48,15 @@ REQUEST_ROLES = (
     "gap_finding",
     "gap_closure",
     "maintenance_utility",
+    # Judge roles (Plan 016 Faz C4 — five existing judges wrapped by the
+    # strict v1 envelope; their internal verdict logic is preserved by
+    # feedback_store.generate_ai_consensus + plan_convergence per
+    # operator instruction).
+    "evidence_judgment",
+    "adversarial_judgment",
+    "consensus_arbitration",
+    "change_intelligence",
+    "goldset_curation",
 )
 
 REQUEST_REQUIRED_FIELDS = (

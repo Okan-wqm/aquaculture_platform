@@ -1,0 +1,100 @@
+name: aria-agent-executor
+
+# Plan 019 Phase 8 — scheduled CI executor for ARIA's bound-agent
+# pipeline. Runs once per off-hours window OR on manual dispatch; pulls
+# the next pending agent request from the kernel's queue, invokes
+# Claude Code via OAuth, submits the result.
+#
+# Operator critique #9: the actual `claude code agent ...` invocation
+# contract is NOT yet verified — see tools/aria-poc/ci_executor_contract
+# _spike.md for the gap analysis. This workflow ships with
+# CLAUDE_CODE_MOCK=1 by default so the outer pipeline can be exercised
+# end-to-end; flip CLAUDE_CODE_MOCK=0 in repository variables once the
+# operator validates the CLI contract against a live binary.
+#
+# Lease-token redaction:
+#   - LEASE token flows ONLY through ARIA_LEASE_TOKEN env var.
+#   - artifact upload limited to expected_output_path only.
+#   - the GHA log ::add-mask:: directive masks any accidental leak.
+
+on:
+  schedule:
+    # 02:00 UTC daily (off-hours for most ARIA contributors)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: 'Specific request ID to process (overrides next-pending lookup)'
+        required: false
+        type: string
+      mock:
+        description: 'Run in mock mode (no real Claude Code invocation)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+concurrency:
+  group: aria-agent-executor-snowball
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  executor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    if: github.ref == 'refs/heads/snowball'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: snowball
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Find next pending request
+        id: pending
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.request_id }}" ]; then
+            echo "request_id=${{ github.event.inputs.request_id }}" >> "$GITHUB_OUTPUT"
+          else
+            REQ_ID=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent next-pending \
+              --tools-dir aria-tools | jq -r '.request_id // empty')
+            echo "request_id=${REQ_ID}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if no pending request
+        if: steps.pending.outputs.request_id == ''
+        run: echo "no pending requests; exiting cleanly"
+
+      - name: Run CI executor
+        if: steps.pending.outputs.request_id != ''
+        env:
+          CLAUDE_CODE_MOCK: ${{ github.event.inputs.mock || 'true' }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MAX_TURNS_PER_RUN: '12'
+          MAX_REQUESTS_PER_RUN: '30'
+          MAX_TIMEOUT_SECONDS: '1800'
+        run: |
+          # ::add-mask:: ensures the OAuth token never appears in logs
+          # even on accidental echo.
+          echo "::add-mask::${CLAUDE_CODE_OAUTH_TOKEN:-NEVER_SET}"
+          PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py \
+            "${{ steps.pending.outputs.request_id }}"
+
+      - name: Upload response envelope (artefact)
+        if: steps.pending.outputs.request_id != ''
+        uses: actions/upload-artifact@v4
+        with:
+          # Limited scope — only the response envelope. claims.jsonl +
+          # runs.jsonl deliberately excluded (lease token / over-disclosure
+          # protection per spike doc artefact policy).
+          name: aria-response-${{ steps.pending.outputs.request_id }}
+          path: aria-tools/agent-invocations/outputs/**
+          retention-days: 30

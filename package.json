@@ -102,6 +102,7 @@
     "findings:export": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts export csv",
     "invariants:fast": "jest --config tests/invariants/jest.config.ts --maxWorkers=3 --selectProjects layer-1 layer-3",
     "invariants:full": "jest --config tests/invariants/jest.config.ts --maxWorkers=3",
+    "test:bootstrap": "jest --config e2e/jest.config.ts --runInBand --testPathPattern=bootstrap-from-scratch",
     "gates:banned-phrase": "ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.ts",
     "gates:apollo-csrf": "node scripts/ci/check-apollo-csrf-prevention.mjs",
     "gates:dependency-policy": "node scripts/ci/check-dependency-policy.mjs",
@@ -117,7 +118,9 @@
     "aria": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools cycle run --workspace-root .. --cycle-id aria-$(date -u +%Y%m%dT%H%M%SZ)",
     "aria:index": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools agent-network index --workspace-root ..",
     "aria:gaps": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools capability-gap detect --workspace-root .. --cycle-id aria-manual",
-    "aria:requests": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools agent-invocations list"
+    "aria:requests": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools agent-invocations list",
+    "factory:reset:dry": "node --experimental-strip-types tools/factory-reset/factory-reset.ts --dry-run",
+    "factory:reset:execute": "FACTORY_RESET_ALLOWED=1 node --experimental-strip-types tools/factory-reset/factory-reset.ts --execute"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",

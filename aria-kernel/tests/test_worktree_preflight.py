@@ -131,6 +131,46 @@ class WorktreePreflightTests(unittest.TestCase):
         self.assertFalse(result["details"]["branch_ok"])
         self.assertEqual(result["details"]["actual_branch"], "feature/other")
 
+    def test_runtime_dirty_paths_do_not_block_gate(self) -> None:
+        """Source-dirty vs runtime-dirty: only source dirty blocks the gate.
+
+        ARIA's own runtime ledgers (aria-tools/**, aria-findings/**, etc.) are
+        written by the kernel itself on every cycle. Counting them as dirty
+        creates a chicken-and-egg gate where preflight always fails.
+        """
+        (self.repo / "aria-tools").mkdir(exist_ok=True)
+        (self.repo / "aria-tools" / "scratch.jsonl").write_text("{}\n", encoding="utf-8")
+        (self.repo / "aria-findings").mkdir(exist_ok=True)
+        (self.repo / "aria-findings" / "F-001.md").write_text("# F-001\n", encoding="utf-8")
+
+        result = preflight(
+            workspace_root=self.repo,
+            base_dir=self.tools_dir,
+            expected_branch="snowball",
+            skip_fetch=True,
+        )
+        self.assertTrue(result["gate_pass"], result)
+        details = result["details"]
+        self.assertEqual(details["dirty_files_count"], 0)
+        self.assertEqual(details["runtime_dirty_count"], 2)
+        self.assertIn("runtime_dirty_sample", details)
+
+    def test_mixed_source_and_runtime_dirty_only_source_blocks(self) -> None:
+        (self.repo / "aria-tools").mkdir(exist_ok=True)
+        (self.repo / "aria-tools" / "runtime.jsonl").write_text("{}\n", encoding="utf-8")
+        (self.repo / "src.txt").write_text("real source change\n", encoding="utf-8")
+
+        result = preflight(
+            workspace_root=self.repo,
+            base_dir=self.tools_dir,
+            expected_branch="snowball",
+            skip_fetch=True,
+        )
+        self.assertFalse(result["gate_pass"])
+        self.assertEqual(result["details"]["dirty_files_count"], 1)
+        self.assertEqual(result["details"]["runtime_dirty_count"], 1)
+        self.assertIn("src.txt", result["details"]["dirty_sample"][0])
+
     def test_ahead_behind_recorded_when_upstream_known(self) -> None:
         # Add a local commit so HEAD is ahead of origin/snowball.
         (self.repo / "ahead.txt").write_text("ahead\n", encoding="utf-8")

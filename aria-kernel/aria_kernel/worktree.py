@@ -1,10 +1,17 @@
 """Worktree preflight gate (Plan 016 Faz 0, V-25).
 
 Records a hash-chained `worktree_preflight` governance event capturing the
-branch identity, dirty-file count, and ahead/behind state versus
+branch identity, source-dirty file count, and ahead/behind state versus
 `origin/<expected_branch>`. The event is always recorded so the gate state is
 auditable; callers (cycle, apply, pr-create) consult `gate_pass` before
 proceeding.
+
+Source-dirty vs runtime-dirty: the gate's purpose is to verify the SOURCE
+tree is in a known state before implementation work starts. The kernel
+itself appends to its runtime ledgers (`aria-tools/**`, `.aria-poc/**`,
+`aria-findings/**`, `aria-debts/**`, `agent-workspace/**`) on every cycle —
+those changes are not a sign of in-flight implementation work and must not
+block the gate.
 """
 from __future__ import annotations
 
@@ -13,6 +20,33 @@ from pathlib import Path
 from typing import Any
 
 from .tool_registry import append_tools_governance, ensure_tools_binding
+
+
+# Runtime artifacts the kernel itself produces; not "source dirty" by design.
+KERNEL_RUNTIME_PATH_PREFIXES: tuple[str, ...] = (
+    "aria-tools/",
+    ".aria-poc/",
+    "aria-findings/",
+    "aria-debts/",
+    "agent-workspace/",
+)
+
+
+def _is_runtime_path(porcelain_line: str) -> bool:
+    """Detect if a `git status --porcelain` line refers to a kernel-runtime path.
+
+    Porcelain v1 format: `XY <path>` (X=index status, Y=worktree status, two
+    chars then space, then optionally a quoted path). Untracked is `?? <path>`.
+    """
+    if len(porcelain_line) < 4:
+        return False
+    rest = porcelain_line[3:].strip()
+    if rest.startswith('"') and rest.endswith('"'):
+        rest = rest[1:-1]
+    # Renames render as `R  <old> -> <new>`; the worktree-relevant path is the new one.
+    if " -> " in rest:
+        rest = rest.split(" -> ", 1)[1]
+    return any(rest.startswith(prefix) for prefix in KERNEL_RUNTIME_PATH_PREFIXES)
 
 
 def _run_git(args: list[str], cwd: Path, *, timeout: int = 10) -> tuple[int, str, str]:
@@ -53,8 +87,12 @@ def preflight(
     branch = _try_git(["rev-parse", "--abbrev-ref", "HEAD"], root) or "<unknown>"
     head_sha = _try_git(["rev-parse", "HEAD"], root) or "<unknown>"
     porcelain = _try_git(["status", "--porcelain"], root) or ""
-    dirty_lines = [line for line in porcelain.splitlines() if line.strip()]
-    dirty_files_count = len(dirty_lines)
+    raw_dirty_lines = [line for line in porcelain.splitlines() if line.strip()]
+    runtime_dirty_lines = [line for line in raw_dirty_lines if _is_runtime_path(line)]
+    source_dirty_lines = [line for line in raw_dirty_lines if not _is_runtime_path(line)]
+    # Source-dirty drives the gate; runtime-dirty is recorded for auditability only.
+    dirty_lines = source_dirty_lines
+    dirty_files_count = len(source_dirty_lines)
 
     if not skip_fetch:
         # Best-effort upstream sync. Offline / auth failures must not crash preflight.
@@ -99,6 +137,11 @@ def preflight(
     if dirty_files_count > 0:
         # Bound the sample to keep governance rows compact.
         details["dirty_sample"] = dirty_lines[:20]
+    if runtime_dirty_lines:
+        # Auditability: record runtime-dirty paths so operators can see ARIA's
+        # own write activity without conflating it with source-state.
+        details["runtime_dirty_count"] = len(runtime_dirty_lines)
+        details["runtime_dirty_sample"] = runtime_dirty_lines[:10]
 
     event = append_tools_governance(tools_root, "worktree_preflight", details)
     return {"event": event, "gate_pass": gate_pass, "details": details}

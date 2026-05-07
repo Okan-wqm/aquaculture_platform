@@ -675,6 +675,61 @@ def _main(argv: list[str] | None = None) -> int:
     add_tools_arg(a_scan, required=True)
     a_scan.add_argument("--diff-file", required=True)
 
+    # Plan 019 Phase 3 — pr sub-command surface delegating to pr_manager.
+    # Why argparser-only: pr_manager.py already carries the load-bearing
+    # logic (12 e2e tests, ARIA_PR_BASE constant, Plan 018 explicit base
+    # guard). The CLI binding lets operators reach those functions
+    # without writing Python; no new kernel work is added beyond argv
+    # parsing + delegation.
+    pr_parser = sub.add_parser(
+        "pr",
+        help="Plan 016 §Snowball + Plan 019 Phase 3 — PR pipeline CLI (delegates to pr_manager).",
+    )
+    pr_sub = pr_parser.add_subparsers(dest="pr_command", required=True)
+    pr_prepare = pr_sub.add_parser("prepare", help="Prepare an aria/* branch for the proposal.")
+    add_tools_arg(pr_prepare, required=True)
+    pr_prepare.add_argument("--proposal-id", required=True)
+    pr_prepare.add_argument("--workspace-root", required=True)
+    pr_prepare.add_argument("--no-dry-run", action="store_true",
+                            help="Default is --dry-run (record only). Pass --no-dry-run to run real git checkout.")
+    pr_commit = pr_sub.add_parser("commit", help="Commit the prepared branch.")
+    add_tools_arg(pr_commit, required=True)
+    pr_commit.add_argument("--proposal-id", required=True)
+    pr_commit.add_argument("--workspace-root", required=True)
+    pr_commit.add_argument("--message", default=None)
+    pr_commit.add_argument("--no-dry-run", action="store_true")
+    pr_push = pr_sub.add_parser("push", help="Push the prepared branch to remote.")
+    add_tools_arg(pr_push, required=True)
+    pr_push.add_argument("--proposal-id", required=True)
+    pr_push.add_argument("--workspace-root", required=True)
+    pr_push.add_argument("--remote", default="origin")
+    pr_push.add_argument("--no-dry-run", action="store_true")
+    pr_create = pr_sub.add_parser("create", help="Open a PR for the proposal (gh pr create wrap).")
+    add_tools_arg(pr_create, required=True)
+    pr_create.add_argument("--proposal-id", required=True)
+    pr_create.add_argument("--workspace-root", required=True)
+    pr_create.add_argument("--base", default="snowball",
+                           help="ARIA invariant: base MUST be snowball; any other value rejected at function entry (Plan 018 Phase 6.2).")
+    pr_create.add_argument("--no-dry-run", action="store_true")
+    pr_status = pr_sub.add_parser("list-actions", help="List recorded pr lifecycle actions (prepare/commit/push).")
+    add_tools_arg(pr_status, required=True)
+    pr_lifecycle = pr_sub.add_parser("lifecycle-plan",
+                                     help="Plan stale/close recommendations for open PRs (read-only).")
+    add_tools_arg(pr_lifecycle, required=True)
+    pr_lifecycle.add_argument("--open-prs-file", required=True,
+                              help="JSON file with [{number, updated_at, title, proposal_id}, ...].")
+    pr_lifecycle.add_argument("--cycle-id", default=None)
+    pr_lifecycle.add_argument("--stale-after-days", type=int, default=7)
+    pr_lifecycle.add_argument("--close-after-days", type=int, default=30)
+    pr_split = pr_sub.add_parser("split-plan",
+                                 help="Plan a PR split when changed_files exceed max_files_per_pr.")
+    add_tools_arg(pr_split, required=True)
+    pr_split.add_argument("--proposal-id", required=True)
+    pr_split.add_argument("--changed-file", action="append", required=True,
+                          help="Repeatable: each changed file path.")
+    pr_split.add_argument("--cycle-id", default=None)
+    pr_split.add_argument("--max-files-per-pr", type=int, default=12)
+
     metrics_parser = sub.add_parser(
         "metrics",
         help="Plan 016 Faz D7 — nine-counter metric set + dashboard writer.",
@@ -1523,6 +1578,90 @@ def _main(argv: list[str] | None = None) -> int:
         }
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["match_count"] == 0 else 1
+
+    # Plan 019 Phase 3 — pr command dispatch (delegates to pr_manager).
+    if args.command == "pr":
+        from aria_kernel.pr_manager import (
+            ARIA_PR_BASE,
+            commit_prepared_branch,
+            list_pr_actions,
+            open_pr_for_action,
+            plan_pr_lifecycle,
+            plan_pr_split,
+            prepare_branch,
+            push_prepared_branch,
+        )
+
+        # CLI default is dry-run; --no-dry-run flips it.
+        dry_run = not args.no_dry_run if hasattr(args, "no_dry_run") else True
+
+        if args.pr_command == "prepare":
+            row = prepare_branch(
+                proposal_id=args.proposal_id,
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                dry_run=dry_run,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "commit":
+            row = commit_prepared_branch(
+                proposal_id=args.proposal_id,
+                workspace_root=args.workspace_root,
+                message=args.message,
+                base_dir=args.tools_dir,
+                dry_run=dry_run,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "push":
+            row = push_prepared_branch(
+                proposal_id=args.proposal_id,
+                workspace_root=args.workspace_root,
+                remote=args.remote,
+                base_dir=args.tools_dir,
+                dry_run=dry_run,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "create":
+            # Plan 018 Phase 6.2 — explicit base guard fires inside
+            # open_pr_for_action; we forward the operator's --base value
+            # verbatim so the kernel can fail-closed on base != snowball.
+            row = open_pr_for_action(
+                proposal_id=args.proposal_id,
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                dry_run=dry_run,
+                base=args.base,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "list-actions":
+            print(json.dumps(list_pr_actions(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "lifecycle-plan":
+            open_prs = json.loads(Path(args.open_prs_file).read_text(encoding="utf-8"))
+            row = plan_pr_lifecycle(
+                open_prs=open_prs,
+                base_dir=args.tools_dir,
+                cycle_id=args.cycle_id,
+                stale_after_days=args.stale_after_days,
+                close_after_days=args.close_after_days,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "split-plan":
+            row = plan_pr_split(
+                proposal_id=args.proposal_id,
+                changed_files=args.changed_file,
+                base_dir=args.tools_dir,
+                cycle_id=args.cycle_id,
+                max_files_per_pr=args.max_files_per_pr,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown pr command")
 
     if args.command == "metrics":
         from aria_kernel.plan_016_metrics import compute_plan_016_metrics, write_dashboard

@@ -544,6 +544,25 @@ def _main(argv: list[str] | None = None) -> int:
     ap_status = adapter_sub.add_parser("status")
     add_tools_arg(ap_status, required=True)
 
+    review_parser = sub.add_parser(
+        "review",
+        help="Plan 017 Phase 6.1 — operator review record ledger.",
+    )
+    review_sub = review_parser.add_subparsers(dest="review_command", required=True)
+    rv_record = review_sub.add_parser("record")
+    add_tools_arg(rv_record, required=True)
+    rv_record.add_argument("--scope", required=True)
+    rv_record.add_argument("--summary", required=True)
+    rv_record.add_argument("--reviewer", required=True)
+    rv_record.add_argument("--finding", action="append", default=None,
+                            help="Repeatable: F-NNN finding referenced by the review.")
+    rv_record.add_argument("--debt", action="append", default=None,
+                            help="Repeatable: DEBT-YYYY-MM-DD-NNN referenced by the review.")
+    rv_list = review_sub.add_parser("list")
+    add_tools_arg(rv_list, required=True)
+    rv_list.add_argument("--scope-substring", default=None)
+    rv_list.add_argument("--reviewer", default=None)
+
     arch_parser = sub.add_parser(
         "architecture",
         help="Plan 016 Faz E1 — architecture-first review (fix_in_place / replace_with_adr / etc.).",
@@ -1313,6 +1332,30 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if not result["missing"] else 2
         parser.error("unknown adapter-portfolio command")
+
+    if args.command == "review":
+        from aria_kernel.review_record import list_reviews, record_review
+
+        if args.review_command == "record":
+            row = record_review(
+                scope=args.scope,
+                summary=args.summary,
+                reviewer=args.reviewer,
+                findings_referenced=args.finding,
+                debts_referenced=args.debt,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.review_command == "list":
+            rows = list_reviews(
+                base_dir=args.tools_dir,
+                scope_substring=args.scope_substring,
+                reviewer=args.reviewer,
+            )
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown review command")
 
     if args.command == "architecture":
         from aria_kernel.architecture import (

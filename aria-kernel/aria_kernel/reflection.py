@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,7 @@ def run_reflection(
     top_pressures = pressure_payload.get("pressures", [])[:3] if isinstance(pressure_payload.get("pressures"), list) else []
     committed = _committed_findings_and_debts(root, repo_root_override=repo_root)
     human_required = _human_required_summary(root)
+    gate_activity = _gate_activity_summary(root)
     reflection = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -51,6 +52,7 @@ def run_reflection(
         "committed_findings": committed["findings"],
         "committed_debts": committed["debts"],
         "human_required": human_required,
+        "gate_activity": gate_activity,
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -94,6 +96,47 @@ def _resolve_repo_root(tools_root: Path) -> Path | None:
         return None
     candidate = Path(bound)
     return candidate if candidate.exists() else None
+
+
+def _gate_activity_summary(tools_root: Path, *, window_hours: int = 24) -> dict[str, Any]:
+    """Plan 017 Phase 6.2 — aggregate governance event counts by kind.
+
+    Walks aria-tools/governance.jsonl, partitions events by `kind`, and
+    returns top-N counts plus a 24h-window subset (events recorded within
+    the last `window_hours`). The daily report renders this so the
+    operator can see at a glance which gates fired in the cycle window.
+    """
+    governance = tools_root / "governance.jsonl"
+    if not governance.exists():
+        return {"total_events": 0, "by_kind": {}, "recent_24h": {}}
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    by_kind: dict[str, int] = {}
+    recent: dict[str, int] = {}
+    total = 0
+    for line in governance.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        kind = str(row.get("kind") or "?")
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+        total += 1
+        ts_str = row.get("ts")
+        if isinstance(ts_str, str):
+            try:
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            except ValueError:
+                ts = None
+            if ts is not None and ts >= cutoff:
+                recent[kind] = recent.get(kind, 0) + 1
+    return {
+        "total_events": total,
+        "by_kind": dict(sorted(by_kind.items(), key=lambda kv: kv[1], reverse=True)),
+        "recent_24h": dict(sorted(recent.items(), key=lambda kv: kv[1], reverse=True)),
+        "window_hours": window_hours,
+    }
 
 
 def _human_required_summary(tools_root: Path) -> dict[str, Any]:
@@ -201,8 +244,20 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
     hr = reflection.get("human_required") or {"open": 0, "breaching_sla": 0, "items": []}
     hr_open = hr.get("open", 0)
     hr_breach = hr.get("breaching_sla", 0)
+    ga = reflection.get("gate_activity") or {"total_events": 0, "by_kind": {}, "recent_24h": {}, "window_hours": 24}
+    ga_recent = ga.get("recent_24h") or {}
+    top_recent = list(ga_recent.items())[:8]
     lines = [
         f"# ARIA Daily Report {day}",
+        "",
+        "## Gate Activity",
+        "",
+        f"- Total governance events: {ga.get('total_events', 0)}",
+        f"- Events in last {ga.get('window_hours', 24)}h: {sum(ga_recent.values())}",
+        *(
+            [f"  - {kind}: {count}" for kind, count in top_recent]
+            or ["  - (no governance events in window)"]
+        ),
         "",
         "## HUMAN_REQUIRED",
         "",

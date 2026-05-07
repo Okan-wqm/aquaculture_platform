@@ -140,6 +140,27 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
     }
 
 
+def _gate_activity_for_dashboard(tools_root: Path) -> dict[str, int]:
+    """Plan 017 Phase 6.3 — read top governance event kinds for dashboard.
+
+    Returns {kind: count} sorted desc, top 12.
+    """
+    governance = tools_root / "governance.jsonl"
+    if not governance.exists():
+        return {}
+    counts: dict[str, int] = {}
+    for line in governance.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            kind = json.loads(line).get("kind") or "?"
+        except json.JSONDecodeError:
+            continue
+        counts[kind] = counts.get(kind, 0) + 1
+    sorted_items = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:12]
+    return dict(sorted_items)
+
+
 def render_dashboard_markdown(
     *,
     base_dir: str | Path | None = None,
@@ -167,6 +188,7 @@ def render_dashboard_markdown(
     open_findings = _open_finding_count(repo_path) if repo_path is not None else 0
     open_debts = _open_debt_count(repo_path) if repo_path is not None else 0
     hr_open = len(list_human_required(base_dir=tools_root))
+    gate_activity = _gate_activity_for_dashboard(tools_root)
 
     now = utc_now()
     lines = [
@@ -201,6 +223,13 @@ def render_dashboard_markdown(
         "## PR Readiness",
         "",
         f"- aria_pr_created_total: {metrics['aria_pr_created_total']}",
+        "",
+        "## Gate Activity (top 12 governance event kinds)",
+        "",
+        *(
+            [f"- {kind}: {count}" for kind, count in gate_activity.items()]
+            or ["- (no governance events)"]
+        ),
         "",
         "---",
         f"_Computed at {now} from append-only ledgers — safe to recompute._",

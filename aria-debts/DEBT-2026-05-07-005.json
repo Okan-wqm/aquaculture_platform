@@ -1,0 +1,29 @@
+{
+  "$schema": "aria/architectural-debt/v1",
+  "auto_close_forbidden": true,
+  "current_status": "OPEN",
+  "debt_id": "DEBT-2026-05-07-005",
+  "due_date": "2026-06-06T13:08:49Z",
+  "escalation_history": [],
+  "originating_finding_evidence_chain_id": "chain_bd9aa02134d4a65c",
+  "originating_finding_id": "F-002",
+  "permanent_fix_owner": "platform-data-team",
+  "permanent_fix_required": "Re-walk the Phase 4 path under Plan 018 Phase 7 with real Claude Code Agent invocations. For each pending judge request, invoke Agent(subagent_type=aria-evidence-judge) and Agent(subagent_type=aria-adversarial-judge) inside a Claude Code session, capture the model-generated envelope into the response file, and submit via aria-kernel agent submit-result. Run consensus arbiter; verify dashboard counters move identically; mark this debt RESOLVED with the closing commit SHA and a status_history entry citing the new ai_judge / ai_consensus rows in operator-feedback.jsonl.",
+  "root_cause_summary": "Plan 017 Phase 4 acceptance criterion required a live e2e walkthrough that exercised every bound-agent gate. The operator chose to walk the pipeline with synthesized envelope content so the consensus arbiter could be observed under controlled response shapes. The structural pipeline is proven; the model-in-the-loop substitution that the production path requires is tracked here so the lifecycle stays auditable.",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "short_term_action_taken": {
+    "kind": "code_marker",
+    "rationale": "Operator-supervised Python script wrote both evidence + adversarial judge envelope responses; the bound-agent pipeline (request -> claim -> submit -> consensus) was structurally walked end-to-end and every governance event fired with the correct shape, but the verdict text inside both response envelopes was authored by the operator script rather than by a real Claude Code Agent invocation.",
+    "ref": "aria-tools/agent-invocations/outputs/F-001-evidence.json + aria-tools/agent-invocations/outputs/F-001-adversarial.json"
+  },
+  "status_history": [
+    {
+      "at": "2026-05-07T13:08:49Z",
+      "by": "manual:operator",
+      "status": "OPEN"
+    }
+  ],
+  "verification_status": "VERIFIED",
+  "withdrawn_reason": null
+}

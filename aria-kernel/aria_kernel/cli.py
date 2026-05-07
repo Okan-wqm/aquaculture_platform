@@ -514,6 +514,46 @@ def _main(argv: list[str] | None = None) -> int:
     )
     add_tools_arg(a_reap, required=True)
 
+    budget_parser = sub.add_parser(
+        "budget",
+        help="Plan 016 Faz D6 — LLM budget check / record / list.",
+    )
+    budget_sub = budget_parser.add_subparsers(dest="budget_command", required=True)
+    b_check = budget_sub.add_parser("check")
+    add_tools_arg(b_check, required=True)
+    b_check.add_argument("--estimated-usd", type=float, required=True)
+    b_check.add_argument("--action", required=True)
+    b_record = budget_sub.add_parser("record")
+    add_tools_arg(b_record, required=True)
+    b_record.add_argument("--actual-usd", type=float, required=True)
+    b_record.add_argument("--action", required=True)
+    b_record.add_argument("--note", default="")
+    b_list = budget_sub.add_parser("list")
+    add_tools_arg(b_list, required=True)
+
+    apply_parser = sub.add_parser(
+        "apply",
+        help="Plan 016 Faz D5 — apply gate utilities (suppression scan, etc.).",
+    )
+    apply_sub = apply_parser.add_subparsers(dest="apply_command", required=True)
+    a_scan = apply_sub.add_parser(
+        "scan-diff",
+        help="Run the suppression-scanner against a unified-diff file.",
+    )
+    add_tools_arg(a_scan, required=True)
+    a_scan.add_argument("--diff-file", required=True)
+
+    cycle_guard_parser = sub.add_parser(
+        "cycle-guard",
+        help="Plan 016 Faz D8 — empty-cycle guard advisor.",
+    )
+    cg_sub = cycle_guard_parser.add_subparsers(dest="cycle_guard_command", required=True)
+    cg_eval = cg_sub.add_parser("evaluate")
+    add_tools_arg(cg_eval, required=True)
+    cg_eval.add_argument("--cycle-id", required=True)
+    cg_eval.add_argument("--pressure-threshold", type=float, default=None)
+    cg_eval.add_argument("--workspace-root", default=None)
+
     hr_parser = sub.add_parser(
         "human-required",
         help="Plan 016 Faz D9 — operator triage queue for HUMAN_REQUIRED escalations.",
@@ -1101,6 +1141,61 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("status") == "accepted" else 1
         parser.error("unknown agent command")
+
+    if args.command == "budget":
+        from aria_kernel.budget import check_budget, list_budget_usage, record_budget_usage
+
+        if args.budget_command == "check":
+            row = check_budget(
+                estimated_usd=args.estimated_usd, action=args.action, base_dir=args.tools_dir
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0 if row.get("status") == "ok" else 1
+        if args.budget_command == "record":
+            row = record_budget_usage(
+                actual_usd=args.actual_usd,
+                action=args.action,
+                note=args.note,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.budget_command == "list":
+            rows = list_budget_usage(base_dir=args.tools_dir)
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown budget command")
+
+    if args.command == "apply" and args.apply_command == "scan-diff":
+        from aria_kernel.suppression_scanner import scan_unified_diff_text
+
+        diff_text = Path(args.diff_file).read_text(encoding="utf-8")
+        matches = scan_unified_diff_text(diff_text)
+        result = {
+            "match_count": len(matches),
+            "matches": [
+                {"category": m.category, "detector": m.detector, "file": m.file, "line": m.line, "text": m.text}
+                for m in matches
+            ],
+            "blocked": len(matches) > 0,
+        }
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["match_count"] == 0 else 1
+
+    if args.command == "cycle-guard" and args.cycle_guard_command == "evaluate":
+        from aria_kernel.cycle_guard import DEFAULT_PRESSURE_THRESHOLD, evaluate_cycle_emptiness
+        from dataclasses import asdict
+
+        threshold = args.pressure_threshold if args.pressure_threshold is not None else DEFAULT_PRESSURE_THRESHOLD
+        verdict = evaluate_cycle_emptiness(
+            cycle_id=args.cycle_id,
+            base_dir=args.tools_dir,
+            pressure_threshold=threshold,
+            repo_root_override=args.workspace_root,
+        )
+        print(json.dumps(asdict(verdict), indent=2, sort_keys=True))
+        # Exit 0 when non-empty (work to do); 2 when empty (caller may skip).
+        return 0 if not verdict.is_empty else 2
 
     if args.command == "human-required":
         from aria_kernel.human_required import (

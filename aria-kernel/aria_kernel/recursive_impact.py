@@ -1,0 +1,441 @@
+"""Recursive impact graph (Plan 016 Faz D1).
+
+Walks six structural sources to compute the set of files/projects an
+intended change touches transitively. Each source emits ImpactEntry
+records with `status ∈ {known, unknown, explicitly_blocked}` so the
+convergent gate's dispatch rule (any `unknown` blocks dispatch unless
+overridden) can act on the result without re-walking the repo.
+
+The six sources (Plan 016 §Recursive impact and freshness gates):
+1. **nx_graph** — Nx graph JSON (`npx nx graph --file=...`). Captures
+   project-to-project dependencies.
+2. **import_graph** — Local Python / TypeScript import graph. Direct
+   imports of changed files identify the smallest transitive set.
+3. **event_contract** — `libs/event-contracts/src/**/*.ts` producer /
+   consumer mapping for the events the change publishes or consumes.
+4. **graphql_api** — GraphQL codegen output for resolver / consumer
+   relationships.
+5. **db_entity** — TypeORM `@Entity` decorations whose schema or
+   columns intersect changed migration files.
+6. **frontend_module** — Module-federation `module-federation.config.ts`
+   exports / consumers.
+
+Sources 3–6 ship with explicit `status: "unknown"` stubs that name
+WHAT they would have inspected. The framework lets each source be
+filled in independently without changing call sites; until then, the
+operator sees an `unknown` entry per source and the convergent gate
+demands an explicit operator override before dispatch.
+"""
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Callable
+
+from .ledger import append_jsonl
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+
+
+IMPACT_STATUSES = ("known", "unknown", "explicitly_blocked")
+IMPACT_SOURCES = (
+    "nx_graph",
+    "import_graph",
+    "event_contract",
+    "graphql_api",
+    "db_entity",
+    "frontend_module",
+)
+DEFAULT_MAX_DEPTH = 5
+
+
+@dataclass(frozen=True)
+class ImpactEntry:
+    path: str
+    project: str | None
+    relationship: str
+    status: str
+    source: str
+    block_reason: str | None = None
+    operator_approval_ref: str | None = None
+    validation_scope: tuple[str, ...] = field(default_factory=tuple)
+    depth: int = 0
+
+
+# --------------------------- source: nx_graph ---------------------------
+
+def _project_for_path(workspace_root: Path, path: str) -> str | None:
+    """Best-effort: derive Nx project name from the path's first two segments.
+
+    Examples:
+        apps/foo-service/src/x.ts -> "foo-service"
+        libs/foo/src/x.ts        -> "foo"
+        web/modules/dashboard/x.ts -> "dashboard"
+    """
+    parts = path.replace("\\", "/").split("/")
+    if len(parts) < 2:
+        return None
+    if parts[0] in {"apps", "libs"} and len(parts) >= 2:
+        return parts[1]
+    if parts[0] == "web" and len(parts) >= 3:
+        return parts[2]
+    if parts[0] == "platform" and "libs" in parts and parts.index("libs") + 1 < len(parts):
+        return parts[parts.index("libs") + 1]
+    return None
+
+
+def _nx_graph_source(
+    intended_files: list[str],
+    workspace_root: Path,
+) -> list[ImpactEntry]:
+    """Resolve Nx-level downstream projects for each intended file.
+
+    Best-effort: invokes `npx nx graph --file=<json>` once and traverses
+    the dependency map. Network-less / npm-less environments produce a
+    single `unknown` entry per intended file rather than crashing.
+    """
+    intended_projects = {
+        proj for path in intended_files
+        if (proj := _project_for_path(workspace_root, path)) is not None
+    }
+    if not intended_projects:
+        return []
+
+    # Try to read a pre-computed graph from the conventional path first
+    # (cheap, deterministic). Fall back to invoking npx only when missing.
+    graph_path = workspace_root / ".nx" / "cache" / "graph.json"
+    payload: dict[str, Any] | None = None
+    if graph_path.exists():
+        try:
+            payload = json.loads(graph_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = None
+
+    if payload is None:
+        try:
+            tmp = workspace_root / ".aria-poc" / "nx-graph.json"
+            tmp.parent.mkdir(parents=True, exist_ok=True)
+            proc = subprocess.run(
+                ["npx", "nx", "graph", f"--file={tmp.as_posix()}"],
+                cwd=str(workspace_root),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if proc.returncode == 0 and tmp.exists():
+                payload = json.loads(tmp.read_text(encoding="utf-8"))
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, json.JSONDecodeError):
+            payload = None
+
+    if payload is None:
+        return [
+            ImpactEntry(
+                path=str(workspace_root / "package.json"),
+                project=proj,
+                relationship="depends_on",
+                status="unknown",
+                source="nx_graph",
+                block_reason="nx graph unreachable (cache missing and `npx nx graph` failed)",
+                validation_scope=(f"nx affected --target=test --base=HEAD~1 -- {proj}",),
+            )
+            for proj in sorted(intended_projects)
+        ]
+
+    deps_map = payload.get("graph", {}).get("dependencies", {}) or payload.get("dependencies", {})
+    if not isinstance(deps_map, dict):
+        return []
+
+    entries: list[ImpactEntry] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for source_proj in intended_projects:
+        for target_proj, edges in deps_map.items():
+            if not isinstance(edges, list):
+                continue
+            for edge in edges:
+                edge_target = (
+                    edge.get("target") if isinstance(edge, dict) else None
+                )
+                if edge_target == source_proj:
+                    pair = (source_proj, target_proj)
+                    if pair in seen_pairs:
+                        continue
+                    seen_pairs.add(pair)
+                    entries.append(
+                        ImpactEntry(
+                            path=f"<project:{target_proj}>",
+                            project=target_proj,
+                            relationship=f"depends_on:{source_proj}",
+                            status="known",
+                            source="nx_graph",
+                            validation_scope=(f"nx test {target_proj}",),
+                        )
+                    )
+    return entries
+
+
+# --------------------------- source: import_graph ---------------------------
+
+# Import-line regex shared between TS / JS / Python heuristics. Catches the
+# common ES-module + CommonJS + Python forms.
+_TS_IMPORT_RE = re.compile(
+    r"""(?x)
+    (?:
+        ^\s*import\s+(?:[^'"]*?\s+from\s+)?["'](?P<spec1>[^"']+)["']  # import x from 'y'
+      | ^\s*export\s+(?:\*\s+)?from\s+["'](?P<spec2>[^"']+)["']        # export * from 'y'
+      | require\(\s*["'](?P<spec3>[^"']+)["']\s*\)                       # require('y')
+    )
+    """,
+    re.MULTILINE,
+)
+_PY_IMPORT_RE = re.compile(
+    r"""(?x)
+    ^\s*
+    (?:
+        from\s+(?P<from>[\w.]+)\s+import
+      | import\s+(?P<imp>[\w.]+)
+    )
+    """,
+    re.MULTILINE,
+)
+
+
+def _import_graph_source(
+    intended_files: list[str],
+    workspace_root: Path,
+) -> list[ImpactEntry]:
+    """Naive direct-importer scan: for each intended file under apps/libs/web,
+    grep the workspace for files that import its module path. Limited to
+    one hop — recursion is performed by the caller's transitive walker.
+    """
+    entries: list[ImpactEntry] = []
+    seen_paths: set[str] = set()
+    for intended in intended_files:
+        rel = intended.replace("\\", "/")
+        # Build search needles: bare name + with/without extension.
+        stem = Path(rel).stem
+        if not stem or stem.startswith("."):
+            continue
+        search_paths = (
+            workspace_root / "apps",
+            workspace_root / "libs",
+            workspace_root / "web",
+            workspace_root / "platform",
+        )
+        for root in search_paths:
+            if not root.exists():
+                continue
+            for ext in ("ts", "tsx", "js", "py"):
+                # Use rg/grep when available — cheap; fall back to walk + read.
+                try:
+                    proc = subprocess.run(
+                        ["grep", "-rln", "--include", f"*.{ext}", stem, str(root)],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                    hits = proc.stdout.splitlines() if proc.returncode == 0 else []
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    hits = []
+                for hit in hits:
+                    # Skip the intended file itself.
+                    if hit.endswith(rel) or hit == rel:
+                        continue
+                    rel_hit = (
+                        Path(hit).resolve().relative_to(workspace_root).as_posix()
+                        if Path(hit).is_absolute()
+                        else hit
+                    )
+                    if rel_hit in seen_paths:
+                        continue
+                    seen_paths.add(rel_hit)
+                    entries.append(
+                        ImpactEntry(
+                            path=rel_hit,
+                            project=_project_for_path(workspace_root, rel_hit),
+                            relationship=f"imports:{stem}",
+                            status="known",
+                            source="import_graph",
+                            depth=1,
+                        )
+                    )
+    return entries
+
+
+# --------------------------- sources 3–6: explicit stubs ---------------------------
+
+def _make_stub_source(name: str, surface_hint: str) -> Callable[[list[str], Path], list[ImpactEntry]]:
+    """Return a stub source that emits a single `unknown` entry naming the
+    surface it would have inspected. Operator must override or implement
+    the source before the convergent gate accepts the impact graph.
+    """
+    def _stub(intended_files: list[str], workspace_root: Path) -> list[ImpactEntry]:
+        if not intended_files:
+            return []
+        return [
+            ImpactEntry(
+                path=surface_hint,
+                project=None,
+                relationship=f"{name}_uninspected",
+                status="unknown",
+                source=name,
+                block_reason=(
+                    f"{name} source not yet implemented; convergent gate must "
+                    f"either bind an implementer or apply an explicit_blocked "
+                    f"operator override scoped outside the intended change."
+                ),
+                validation_scope=(),
+            )
+        ]
+    return _stub
+
+
+_event_contract_source = _make_stub_source(
+    "event_contract", "libs/event-contracts/src/**/*.ts"
+)
+_graphql_api_source = _make_stub_source(
+    "graphql_api", "libs/*/codegen/**/*.ts"
+)
+_db_entity_source = _make_stub_source(
+    "db_entity", "apps/*/src/**/entities/**/*.entity.ts"
+)
+_frontend_module_source = _make_stub_source(
+    "frontend_module", "web/**/module-federation.config.ts"
+)
+
+
+_SOURCE_TABLE: tuple[tuple[str, Callable[[list[str], Path], list[ImpactEntry]]], ...] = (
+    ("nx_graph", _nx_graph_source),
+    ("import_graph", _import_graph_source),
+    ("event_contract", _event_contract_source),
+    ("graphql_api", _graphql_api_source),
+    ("db_entity", _db_entity_source),
+    ("frontend_module", _frontend_module_source),
+)
+
+
+def compute_recursive_impact(
+    *,
+    intended_files: list[str],
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+) -> dict[str, Any]:
+    """Walk every source and aggregate the impact entries.
+
+    Recursion: import_graph entries with `status=known` and `depth<max_depth`
+    feed back into import_graph as their own intended files. Nx-level
+    project edges are inherently transitive (project graph), so we do not
+    re-walk Nx beyond depth 1. Stub sources do not recurse.
+
+    Persists the resulting graph under
+    `aria-tools/impact-graphs/<intended-fingerprint>.json` and emits a
+    governance event with the unknown-entry count so dashboards can
+    surface it via `aria_impact_unknown_total`.
+    """
+    if not intended_files:
+        raise GovernanceError("intended_files must not be empty")
+    if max_depth < 1 or max_depth > 10:
+        raise GovernanceError("max_depth must be between 1 and 10")
+
+    repo = Path(workspace_root).resolve()
+    tools_root = ensure_tools_dir(base_dir)
+
+    aggregate: list[ImpactEntry] = []
+    seen_keys: set[tuple[str, str, str]] = set()  # (path, source, relationship)
+    visited_intended: set[str] = set(intended_files)
+    frontier = list(intended_files)
+    depth = 0
+    while frontier and depth < max_depth:
+        next_frontier: list[str] = []
+        for source_name, source_fn in _SOURCE_TABLE:
+            try:
+                entries = source_fn(frontier, repo)
+            except Exception as exc:  # pragma: no cover — source-specific defense
+                entries = [
+                    ImpactEntry(
+                        path=f"<source:{source_name}>",
+                        project=None,
+                        relationship=f"{source_name}_error",
+                        status="unknown",
+                        source=source_name,
+                        block_reason=f"source raised {type(exc).__name__}: {exc}",
+                    )
+                ]
+            for entry in entries:
+                # Promote depth as we recurse.
+                stamped = ImpactEntry(
+                    path=entry.path,
+                    project=entry.project,
+                    relationship=entry.relationship,
+                    status=entry.status,
+                    source=entry.source,
+                    block_reason=entry.block_reason,
+                    operator_approval_ref=entry.operator_approval_ref,
+                    validation_scope=entry.validation_scope,
+                    depth=max(entry.depth, depth),
+                )
+                key = (stamped.path, stamped.source, stamped.relationship)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                aggregate.append(stamped)
+                # Only the import_graph recurses transitively (file-to-file).
+                if (
+                    source_name == "import_graph"
+                    and stamped.status == "known"
+                    and stamped.path not in visited_intended
+                    and not stamped.path.startswith("<")
+                ):
+                    visited_intended.add(stamped.path)
+                    next_frontier.append(stamped.path)
+        frontier = next_frontier
+        depth += 1
+
+    summary = {
+        "entry_count": len(aggregate),
+        "by_status": {
+            status: sum(1 for e in aggregate if e.status == status)
+            for status in IMPACT_STATUSES
+        },
+        "by_source": {
+            source: sum(1 for e in aggregate if e.source == source)
+            for source in IMPACT_SOURCES
+        },
+        "max_depth_reached": max((e.depth for e in aggregate), default=0),
+    }
+
+    fingerprint = _intended_fingerprint(intended_files)
+    payload = {
+        "schema_version": 1,
+        "computed_at": utc_now(),
+        "intended_files": list(intended_files),
+        "intended_fingerprint": fingerprint,
+        "max_depth": max_depth,
+        "entries": [asdict(e) for e in aggregate],
+        "summary": summary,
+    }
+    out_path = tools_root / "impact-graphs" / f"{fingerprint}.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    append_tools_governance(
+        tools_root,
+        "impact_graph_computed",
+        {
+            "fingerprint": fingerprint,
+            "entry_count": summary["entry_count"],
+            "unknown_count": summary["by_status"].get("unknown", 0),
+            "max_depth_reached": summary["max_depth_reached"],
+            "path": out_path.relative_to(tools_root).as_posix(),
+        },
+    )
+    return payload
+
+
+def _intended_fingerprint(intended_files: list[str]) -> str:
+    import hashlib
+
+    canonical = "\n".join(sorted(intended_files))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]

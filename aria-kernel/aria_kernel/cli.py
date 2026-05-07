@@ -531,6 +531,22 @@ def _main(argv: list[str] | None = None) -> int:
     b_list = budget_sub.add_parser("list")
     add_tools_arg(b_list, required=True)
 
+    impact_parser = sub.add_parser(
+        "impact",
+        help="Plan 016 Faz D1 — recursive impact graph (six-source).",
+    )
+    impact_sub = impact_parser.add_subparsers(dest="impact_command", required=True)
+    i_compute = impact_sub.add_parser("compute")
+    add_workspace_args(i_compute)
+    add_tools_arg(i_compute, required=True)
+    i_compute.add_argument(
+        "--intended-file",
+        action="append",
+        required=True,
+        help="Repeatable: paths the change intends to modify.",
+    )
+    i_compute.add_argument("--max-depth", type=int, default=None)
+
     apply_parser = sub.add_parser(
         "apply",
         help="Plan 016 Faz D5 — apply gate utilities (suppression scan, etc.).",
@@ -685,7 +701,7 @@ def _main(argv: list[str] | None = None) -> int:
     paths = (
         resolve_paths(args)
         if hasattr(args, "workspace_root")
-        and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune", "worktree", "agent", "agent-network", "capability-gap", "plan", "agent-genesis", "skill-genesis"}
+        and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune", "worktree", "agent", "impact", "agent-network", "capability-gap", "plan", "agent-genesis", "skill-genesis"}
         and not legacy_pressure_explain
         else None
     )
@@ -1177,6 +1193,23 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(rows, indent=2, sort_keys=True))
             return 0
         parser.error("unknown budget command")
+
+    if args.command == "impact" and args.impact_command == "compute":
+        from aria_kernel.recursive_impact import DEFAULT_MAX_DEPTH, compute_recursive_impact
+
+        depth = args.max_depth if args.max_depth is not None else DEFAULT_MAX_DEPTH
+        workspace = paths.repo_root if paths is not None else Path(args.workspace_root).resolve()
+        result = compute_recursive_impact(
+            intended_files=args.intended_file,
+            workspace_root=workspace,
+            base_dir=args.tools_dir,
+            max_depth=depth,
+        )
+        print(json.dumps({
+            "fingerprint": result["intended_fingerprint"],
+            "summary": result["summary"],
+        }, indent=2, sort_keys=True))
+        return 0 if result["summary"]["by_status"].get("unknown", 0) == 0 else 2
 
     if args.command == "apply" and args.apply_command == "scan-diff":
         from aria_kernel.suppression_scanner import scan_unified_diff_text

@@ -26,13 +26,13 @@ Skill and agent genesis begins only after Phase 0 is accepted. The allowed artef
 | Feedback ledgers | `~/.aria/workspaces/<repo_hash>/aria-memory/{unknowns,missed_signals,external_feedback}.jsonl` | Inputs that can produce pressure but are not findings or instructions. |
 | Skill birth requests | `~/.aria/workspaces/<repo_hash>/aria-skills/requests/*.json` | Precise capability gap and evidence for why a skill is needed. |
 | Skill drafts | `~/.aria/workspaces/<repo_hash>/aria-skills/drafts/<skill_id>/` | Draft detector, scope declaration, fixtures, and expected outputs. |
-| Skill registry | `~/.aria/workspaces/<repo_hash>/aria-skills/registry.json` | Lifecycle state: `DRAFT`, `SHADOW`, `ACTIVE`, `ARCHIVED`. |
+| Skill registry | `~/.aria/workspaces/<repo_hash>/aria-skills/registry.json` | Lifecycle state: see Plan 005 §Lifecycle for the canonical state list (`DRAFT -> SANDBOX -> SHADOW -> ACTIVE -> CALIBRATE -> QUARANTINED -> ARCHIVED`). The shorter `DRAFT/SHADOW/ACTIVE/ARCHIVED` summary previously published in this row is superseded by Plan 005. |
 | Fixture set | `~/.aria/workspaces/<repo_hash>/aria-skills/fixtures/<skill_id>/` | Minimal positive, negative, and false-positive fixtures. |
 | Shadow reports | `~/.aria/workspaces/<repo_hash>/aria-skills/shadow/<skill_id>/*.json` | Comparison between draft skill output and accepted human/operator judgment. |
 | Agent mapping draft | `~/.aria/workspaces/<repo_hash>/aria-agents/mapping.json` | Mapping from observed repo domain pressure to existing `.claude/agents/` files. |
 | Public summary | `docs/aria/reports/skill-genesis-*.md` | Optional sanitized summary of proposed capability birth; not an executable skill. |
 
-No `.claude/agents/aria-*.md` file is written until a later implementation plan explicitly permits agent materialization.
+No `.claude/agents/aria-*.md` file is written until a later implementation plan explicitly permits agent materialization. The authorized PR pathway is defined by Plan 016 §Snowball and PR ownership: ARIA prepares the diff with `aria-kernel pr create --base snowball`; the diff modifies `.claude/agents/aria-*.md` only through that gated lane after operator-issued `approved_for_agent_pr` per Plan 010.
 
 ## Decision gates
 

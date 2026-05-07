@@ -67,6 +67,10 @@ def create_agent_invocation_request(
     round_number: int | None = None,
     expected_output_path: str | None = None,
     base_dir: str | Path | None = None,
+    finding_id: str | None = None,
+    tool_id: str | None = None,
+    run_id: str | None = None,
+    judgment_group_id: str | None = None,
 ) -> dict[str, Any]:
     if role not in ROLES:
         raise GovernanceError(f"unknown invocation role: {role}")
@@ -77,7 +81,7 @@ def create_agent_invocation_request(
     root = ensure_tools_dir(base_dir)
     request_id = _request_id(target_agent, role, suggested_prompt, convergence_id, round_number)
     expected = expected_output_path or _default_expected_output_path(root, request_id, convergence_id, round_number, role)
-    row = {
+    row: dict[str, Any] = {
         "$schema": "aria/agent-invocation-request/v1",
         "schema_version": 1,
         "request_id": request_id,
@@ -91,6 +95,19 @@ def create_agent_invocation_request(
         "state": "pending",
         "created_at": utc_now(),
     }
+    # Plan 016 Faz C5/C6 — judgment_bridge.record_judge_verdict_from_response
+    # requires tool_id, run_id, finding_id on the request when role is one
+    # of JUDGE_ROLES. Persist them at request-creation time so the bridge
+    # is a one-way translator over a complete envelope rather than a
+    # caller-side patch-up.
+    if finding_id is not None:
+        row["finding_id"] = finding_id
+    if tool_id is not None:
+        row["tool_id"] = tool_id
+    if run_id is not None:
+        row["run_id"] = run_id
+    if judgment_group_id is not None:
+        row["judgment_group_id"] = judgment_group_id
     return append_jsonl(root / "agent-invocations" / "requests.jsonl", row)
 
 

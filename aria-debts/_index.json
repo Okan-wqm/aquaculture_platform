@@ -37,7 +37,7 @@
       "severity": "HIGH"
     },
     {
-      "current_status": "OPEN",
+      "current_status": "RESOLVED",
       "debt_id": "DEBT-2026-05-07-005",
       "due_date": "2026-06-06T13:08:49Z",
       "originating_finding_id": "F-002",
@@ -46,6 +46,6 @@
       "severity": "MEDIUM"
     }
   ],
-  "generated_at": "2026-05-07T13:08:49Z",
+  "generated_at": "2026-05-07T13:24:48Z",
   "schema_version": 1
 }

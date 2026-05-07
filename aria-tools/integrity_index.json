@@ -1,9 +1,9 @@
 {
   "ledger_hashes": {
-    "agent_invocations_requests": "c7d58d14d898f20f54c65753a77a626ac3385f8ef91bb8f392eb228289324650",
-    "agent_invocations_results": "65b216441a4651d31fded4fabb7719124042e5b356a79ad936736622e8ddb0b2",
+    "agent_invocations_requests": "a9498674a92a72558a8fa6322de6eab0958e41385406c5a4b72e1adf509fb4a0",
+    "agent_invocations_results": "1ade841dd698a03cc453e7853362cc867776fe7c39ed46b084d36165f7e2da8c",
     "cycles": "8463bfc2811ba61bf0d975981a532d9404de68dcd774ffb137fad9e094c2ed00",
-    "governance": "d6e417e4fb7cc9d2d4d40956843d7bce7ccdd271f05611f3a131a0fb674b77f6",
+    "governance": "bac841120a364e55cf2b48864d612c8b93a75567a37000c91c79423030aa7d3e",
     "health": "6aa749097c8313a0bfde60c345c59b979d1d7e20705ad6833f9d4f4b3d0214d4",
     "runs": "f638fd8798aef5b737b1290a73a76a970f569acaf68543418815ea7e9eadc727"
   },

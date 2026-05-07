@@ -13,7 +13,7 @@
       "current_status": "IN_PROGRESS",
       "debt_id": "DEBT-2026-05-07-002",
       "due_date": "2026-08-05T11:41:18Z",
-      "originating_finding_id": "F-001",
+      "originating_finding_id": "F-002",
       "path": "DEBT-2026-05-07-002.json",
       "permanent_fix_owner": "platform-data-team",
       "severity": "MEDIUM"
@@ -22,7 +22,7 @@
       "current_status": "IN_PROGRESS",
       "debt_id": "DEBT-2026-05-07-003",
       "due_date": "2026-08-05T11:41:18Z",
-      "originating_finding_id": "F-001",
+      "originating_finding_id": "F-002",
       "path": "DEBT-2026-05-07-003.json",
       "permanent_fix_owner": "platform-data-team",
       "severity": "MEDIUM"
@@ -31,12 +31,12 @@
       "current_status": "RESOLVED",
       "debt_id": "DEBT-2026-05-07-004",
       "due_date": "2026-07-06T11:41:19Z",
-      "originating_finding_id": "F-001",
+      "originating_finding_id": "F-002",
       "path": "DEBT-2026-05-07-004.json",
       "permanent_fix_owner": "platform-data-team",
       "severity": "HIGH"
     }
   ],
-  "generated_at": "2026-05-07T12:09:14Z",
+  "generated_at": "2026-05-07T13:07:43Z",
   "schema_version": 1
 }

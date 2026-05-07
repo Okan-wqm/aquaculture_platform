@@ -5,8 +5,8 @@
   "debt_id": "DEBT-2026-05-07-002",
   "due_date": "2026-08-05T11:41:18Z",
   "escalation_history": [],
-  "originating_finding_evidence_chain_id": "chain_c05abc8bbe3674be",
-  "originating_finding_id": "F-001",
+  "originating_finding_evidence_chain_id": "chain_bd9aa02134d4a65c",
+  "originating_finding_id": "F-002",
   "permanent_fix_owner": "platform-data-team",
   "permanent_fix_required": "Replace _make_stub_source() instances with real producer/consumer mapping \u2014 event_contract scans libs/event-contracts/src; graphql_api reads codegen output; db_entity walks TypeORM @Entity declarations; frontend_module reads module-federation.config.ts. Each lands in its own commit with adapter test fixtures.",
   "root_cause_summary": "aria_kernel/recursive_impact.py registers four sources that emit a single status: unknown stub each \u2014 event_contract, graphql_api, db_entity, and frontend_module. The convergent gate dispatch rule fires correctly (any unknown blocks dispatch), but every real impact graph computation will produce at least four unknown entries until the parser logic lands per source.",
@@ -27,6 +27,12 @@
       "at": "2026-05-07T12:09:14Z",
       "by": "operator:plan-017-phase-5",
       "note": "event_contract source replaced stub in recursive_impact.py; emits known entries for libs/event-contracts/src/* changes plus consumer file refs. Live impact compute on farm-events.ts produces 48 known entries. graphql_api, db_entity, frontend_module remain stubbed.",
+      "status": "IN_PROGRESS"
+    },
+    {
+      "at": "2026-05-07T13:07:43Z",
+      "by": "operator:plan-018-phase-2",
+      "note": "originating_finding re-linked from F-001 (chain chain_c05abc8bbe3674be) to F-002 (chain chain_bd9aa02134d4a65c); F-002 derives from docs/aria/reviews/2026-05-07-plan-016-implementation-review.md and is the operator-review-derived parent for the four impact-source / nine-adapter / PR-pipeline architectural debts.",
       "status": "IN_PROGRESS"
     }
   ],

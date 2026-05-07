@@ -6,8 +6,8 @@
   "debt_id": "DEBT-2026-05-07-004",
   "due_date": "2026-07-06T11:41:19Z",
   "escalation_history": [],
-  "originating_finding_evidence_chain_id": "chain_c05abc8bbe3674be",
-  "originating_finding_id": "F-001",
+  "originating_finding_evidence_chain_id": "chain_bd9aa02134d4a65c",
+  "originating_finding_id": "F-002",
   "permanent_fix_owner": "platform-data-team",
   "permanent_fix_required": "Integration test in aria-kernel/tests/test_pr_manager_e2e.py that walks open_pr_for_action via mock gh API factory; assertions: PR body 7-section format, base hardcoded to snowball, force-push rejected, gh API error path graceful. apply_engine.gate_apply_action gains optional diff_text kwarg routed through suppression scanner. pr_manager rejects base != snowball at the kernel boundary.",
   "resolved_at": "2026-05-07T11:51:58Z",
@@ -29,6 +29,12 @@
       "at": "2026-05-07T11:51:58Z",
       "by": "operator:plan-017-phase-3",
       "note": "Phase 3 landed test_pr_manager_e2e.py with 10 tests covering open_pr_for_action, build_pr_body, push_prepared_branch, and gate_apply_action diff_text suppression scan. Mock gh API factory enforces --base snowball at the assertion level.",
+      "status": "RESOLVED"
+    },
+    {
+      "at": "2026-05-07T13:07:43Z",
+      "by": "operator:plan-018-phase-2",
+      "note": "originating_finding re-linked from F-001 (chain chain_c05abc8bbe3674be) to F-002 (chain chain_bd9aa02134d4a65c); F-002 derives from docs/aria/reviews/2026-05-07-plan-016-implementation-review.md and is the operator-review-derived parent for the four impact-source / nine-adapter / PR-pipeline architectural debts.",
       "status": "RESOLVED"
     }
   ],

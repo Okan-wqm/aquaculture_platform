@@ -5,8 +5,8 @@
   "debt_id": "DEBT-2026-05-07-003",
   "due_date": "2026-08-05T11:41:18Z",
   "escalation_history": [],
-  "originating_finding_evidence_chain_id": "chain_c05abc8bbe3674be",
-  "originating_finding_id": "F-001",
+  "originating_finding_evidence_chain_id": "chain_bd9aa02134d4a65c",
+  "originating_finding_id": "F-002",
   "permanent_fix_owner": "platform-data-team",
   "permanent_fix_required": "Implement parser logic per adapter \u2014 banned-phrase first (Plan 017 Phase 5 covers this), then event-contracts, schema-drift, tenant-scoping, nats-cert-identity, cqrs, outbox, dual-alias. Each adapter gets its own Python module under tools/aria-poc/<adapter>.py and the registry row's runner.argv switches from shadow_runner.py to the adapter-specific script.",
   "root_cause_summary": "Every adapter row in aria-tools/registry.json points runner.argv at tools/aria-poc/shadow_runner.py, which returns an empty payload regardless of input. The 8 Plan 016 MVP adapters plus migration-runner all share this stub, so the SHADOW evidence count for the kernel's adapter portfolio is zero emitted observations across the board.",
@@ -27,6 +27,12 @@
       "at": "2026-05-07T12:09:14Z",
       "by": "operator:plan-017-phase-5",
       "note": "banned-phrase-adapter runner.argv switched from shadow_runner.py to banned_phrase_adapter.py. Adapter wraps tools/gates/banned-phrase.ts CLI and emits real observations from violation output. 8 of 9 adapters still on shadow_runner.py.",
+      "status": "IN_PROGRESS"
+    },
+    {
+      "at": "2026-05-07T13:07:43Z",
+      "by": "operator:plan-018-phase-2",
+      "note": "originating_finding re-linked from F-001 (chain chain_c05abc8bbe3674be) to F-002 (chain chain_bd9aa02134d4a65c); F-002 derives from docs/aria/reviews/2026-05-07-plan-016-implementation-review.md and is the operator-review-derived parent for the four impact-source / nine-adapter / PR-pipeline architectural debts.",
       "status": "IN_PROGRESS"
     }
   ],

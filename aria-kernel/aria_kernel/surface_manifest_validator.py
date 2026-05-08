@@ -84,6 +84,10 @@ VALIDATOR_NAMES: tuple[str, ...] = (
     "validate_registry_runner_paths",
     "validate_plan_doc_freshness",
     "validate_maintenance_agent_isolation",
+    # Plan 022 §M-6 — 7th validator. Enforces registry <-> adapter
+    # manifest sync; intentional shadow_runner stubs must be in the
+    # explicit allowlist (aria-tools/registry-stub-allowlist.json).
+    "validate_registry_adapter_sync",
 )
 
 REQUIRED_FRONTMATTER_FIELDS: tuple[str, ...] = ("name", "description", "tools")
@@ -289,6 +293,95 @@ def validate_maintenance_agent_isolation(*, repo_root: Path) -> list[dict[str, A
     return failures
 
 
+def validate_registry_adapter_sync(
+    *, repo_root: Path, base_dir: str | Path | None,
+) -> list[dict[str, Any]]:
+    """Plan 022 §M-6 — registry <-> adapter manifest sync invariant.
+
+    Pre-Plan-022 the v1 audit's "registry-adapter synchronized" verdict
+    missed deeper drift: tools/aria-adapters/typeorm-entity-schema-adapter
+    .tool.json existed on disk but was never bound to aria-tools/registry
+    .json, and aria_kernel/adapter_portfolio.py:43 carried admitted
+    stub-runner pattern. M-6 surfaces both:
+
+    1. Every tools/aria-adapters/*.tool.json MUST have a registry row
+       with a matching tool_id. Missing -> failure.
+    2. Every registry tool whose runner.argv resolves to
+       tools/aria-poc/shadow_runner.py MUST be in the explicit
+       aria-tools/registry-stub-allowlist.json. Allowlist entry
+       requires {tool_id, justification, plan_021_stream_a_owner}.
+       A stub OUTSIDE the allowlist is a failure (drift detection).
+    3. Manifest dosyası registry'de yoksa "missing_registry_row";
+       allowlist'te değil shadow_runner kullanıyorsa
+       "unallowlisted_stub_runner".
+
+    Failures are surface_validations.jsonl rows; the run_all_validators
+    aggregator wires this into the new 7th validator slot.
+    """
+    failures: list[dict[str, Any]] = []
+    registry_path = repo_root / (str(base_dir) if base_dir else "aria-tools") / "registry.json"
+    if not registry_path.exists():
+        return [{
+            "validator": "validate_registry_adapter_sync",
+            "reason": "registry_missing",
+            "expected_path": str(registry_path),
+        }]
+    try:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [{
+            "validator": "validate_registry_adapter_sync",
+            "reason": "registry_unreadable",
+            "error": str(exc),
+        }]
+    registry_tool_ids = {t.get("tool_id") for t in registry.get("tools", [])}
+
+    # Layer 1: every adapter manifest -> registry row.
+    adapters_dir = repo_root / "tools" / "aria-adapters"
+    if adapters_dir.exists():
+        for manifest_path in adapters_dir.glob("*.tool.json"):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            tool_id = manifest.get("tool_id")
+            if tool_id and tool_id not in registry_tool_ids:
+                failures.append({
+                    "validator": "validate_registry_adapter_sync",
+                    "manifest_path": manifest_path.relative_to(repo_root).as_posix(),
+                    "tool_id": tool_id,
+                    "reason": "missing_registry_row",
+                })
+
+    # Layer 2: shadow_runner stubs MUST be in allowlist.
+    allowlist_path = repo_root / "aria-tools" / "registry-stub-allowlist.json"
+    allowlist_ids: set[str] = set()
+    if allowlist_path.exists():
+        try:
+            allowlist = json.loads(allowlist_path.read_text(encoding="utf-8"))
+            allowlist_ids = {row.get("tool_id") for row in allowlist.get("entries", []) if row.get("tool_id")}
+        except (OSError, json.JSONDecodeError) as exc:
+            failures.append({
+                "validator": "validate_registry_adapter_sync",
+                "reason": "allowlist_unreadable",
+                "error": str(exc),
+            })
+
+    for tool in registry.get("tools", []):
+        runner = tool.get("runner") or {}
+        argv = runner.get("argv") or []
+        # Detect shadow_runner.py in argv.
+        if any(isinstance(a, str) and "shadow_runner.py" in a for a in argv):
+            tid = tool.get("tool_id")
+            if tid and tid not in allowlist_ids:
+                failures.append({
+                    "validator": "validate_registry_adapter_sync",
+                    "tool_id": tid,
+                    "reason": "unallowlisted_stub_runner",
+                })
+    return failures
+
+
 def run_all_validators(
     *,
     repo_root: str | Path | None = None,
@@ -309,6 +402,8 @@ def run_all_validators(
     failures.extend(validate_registry_runner_paths(repo_root=repo, base_dir=base_dir))
     failures.extend(validate_plan_doc_freshness(repo_root=repo))
     failures.extend(validate_maintenance_agent_isolation(repo_root=repo))
+    # Plan 022 §M-6 — 7th validator.
+    failures.extend(validate_registry_adapter_sync(repo_root=repo, base_dir=base_dir))
 
     summary: dict[str, Any] = {
         "$schema": "aria/surface-validation-summary/v1",

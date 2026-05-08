@@ -56,7 +56,8 @@ def _good_frontmatter(name: str = "x") -> str:
 
 class TaxonomyTests(unittest.TestCase):
     def test_six_validators_locked(self) -> None:
-        self.assertEqual(len(VALIDATOR_NAMES), 6)
+        # Plan 022 §M-6 — 7th validator added (validate_registry_adapter_sync).
+        self.assertEqual(len(VALIDATOR_NAMES), 7)
         self.assertEqual(REQUIRED_FRONTMATTER_FIELDS, ("name", "description", "tools"))
 
 
@@ -170,7 +171,8 @@ class RunAllValidatorsTests(unittest.TestCase):
         run_all_validators(repo_root=self.repo, base_dir=self.tools)
         rows = list_surface_validations(base_dir=self.tools)
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["validator_count"], 6)
+        # Plan 022 §M-6 — 7th validator added.
+        self.assertEqual(rows[0]["validator_count"], 7)
 
     def test_failure_emits_surface_validation_failed_event(self) -> None:
         # Force a failure: bad frontmatter agent.
@@ -199,7 +201,8 @@ class ProfileGateTests(unittest.TestCase):
                     base_dir=self.tools)
         # Observe is in OBSERVE_PERMITTED_SURFACES for surface_validations.
         result = run_all_validators(repo_root=self.repo, base_dir=self.tools)
-        self.assertEqual(result["validator_count"], 6)
+        # Plan 022 §M-6 — 7th validator added.
+        self.assertEqual(result["validator_count"], 7)
 
 
 if __name__ == "__main__":

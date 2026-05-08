@@ -16,6 +16,47 @@ from .workspace import WorkspacePaths
 TIERS = {"auto_fix_safe", "needs_review", "human_only", "observe", "blocked"}
 FITNESS_STALENESS_DAYS = 7
 
+# Plan 022 §H-6 — strictness order from most permissive (low rank) to
+# most restrictive (high rank). Used by _enforce_max_triage_tier to
+# demote a classification when the agent's max_triage_tier ceiling is
+# stricter than the path-class result.
+_TIER_STRICTNESS: dict[str, int] = {
+    "auto_fix_safe": 0,
+    "needs_review": 1,
+    "human_only": 2,
+    "observe": 3,  # "just observe" is more restrictive than human_only
+                   # in this rank because it forbids any action.
+    "blocked": 4,
+}
+
+
+def _enforce_max_triage_tier(
+    *, classified_tier: str, fitness_row: dict[str, Any] | None,
+) -> tuple[str, list[str]]:
+    """Plan 022 §H-6 — agent fitness max_triage_tier ceiling.
+
+    Pre-Plan-022 fitness.py wrote max_triage_tier on every fitness
+    row but triage.py never read it; an agent whose fitness ceiling
+    was 'human_only' could still be assigned 'auto_fix_safe' work via
+    classify_pressure path-class result.
+
+    Post-fix: when the fitness max_triage_tier is STRICTER than the
+    classification, demote to the ceiling. Returns the (possibly
+    demoted) tier + a reason list to append to the existing reasons.
+
+    Missing fitness row -> no demotion (caller's path-class stands).
+    Missing/unknown max_triage_tier on the row -> default cap of
+    'auto_fix_safe' (no effective demotion).
+    """
+    if not fitness_row:
+        return classified_tier, []
+    max_tier = fitness_row.get("max_triage_tier") or "auto_fix_safe"
+    if max_tier not in _TIER_STRICTNESS or classified_tier not in _TIER_STRICTNESS:
+        return classified_tier, []
+    if _TIER_STRICTNESS[max_tier] > _TIER_STRICTNESS[classified_tier]:
+        return max_tier, [f"agent_max_triage_tier_ceiling:{max_tier}"]
+    return classified_tier, []
+
 
 def triage_policy_apply(
     paths: WorkspacePaths,
@@ -47,6 +88,14 @@ def triage_policy_apply(
             tier = "needs_review"
             reasons.append("agent_fitness_stale")
             append_tools_governance(root, "agent_fitness_stale_downgrade", {"cycle_id": cycle_id, "pressure_event_id": pressure_id, "target_agent": target_agent})
+        # Plan 022 §H-6 — apply the agent's max_triage_tier ceiling AFTER
+        # all path-class + fitness-status downgrades. If fitness imposes
+        # a stricter ceiling than the current tier, demote.
+        if target_agent and target_agent in fitness:
+            tier, ceiling_reasons = _enforce_max_triage_tier(
+                classified_tier=tier, fitness_row=fitness[target_agent],
+            )
+            reasons.extend(ceiling_reasons)
         row = {
             "$schema": "aria/triage-decision/v1",
             "schema_version": 1,

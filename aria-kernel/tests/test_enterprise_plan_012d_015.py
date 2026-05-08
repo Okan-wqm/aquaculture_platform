@@ -114,10 +114,13 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
         )
         self.assertEqual(validation_gate["status"], "ready_for_pr")
 
+        # Plan 022 §H-1 — pass empty diff so suppression scan runs
+        # without triggering the diff-required fail-closed branch.
         gated = gate_apply_action(
             proposal_id=proposal["proposal_id"],
             validation_comparison_ref=comparison["ledger_hash"],
             base_dir=self.tools_dir,
+            diff_text="",
         )
         self.assertEqual(gated["status"], "ready_for_pr")
         pr = open_pr_for_action(

@@ -199,10 +199,16 @@ class AutoPrFoundationTests(unittest.TestCase):
             worktree_ref=candidate["ledger_hash"],
             base_dir=self.tools_dir,
         )
+        # Plan 022 §H-1 — gate_apply_action requires diff content; pass
+        # an empty diff string so the suppression scan runs (empty input
+        # yields zero matches) without triggering the new fail-closed
+        # branch that fires when diff_text is None and the action does
+        # not carry branch+base_sha.
         gate_apply_action(
             proposal_id=proposal["proposal_id"],
             validation_comparison_ref=comparison["ledger_hash"],
             base_dir=self.tools_dir,
+            diff_text="",
         )
         pr = open_pr_for_action(
             proposal_id=proposal["proposal_id"],

@@ -379,7 +379,37 @@ class ApplyGateSuppressionScanTests(unittest.TestCase):
         self.assertEqual(len(row["suppression_matches"]), 1)
         self.assertEqual(row["suppression_matches"][0]["category"], "ts_masking")
 
-    def test_no_diff_text_preserves_legacy_behavior(self) -> None:
+    def test_no_diff_text_now_fails_closed(self) -> None:
+        # Plan 022 §H-1 — pre-fix gate_apply_action(diff_text=None)
+        # silently skipped suppression scan and returned ready_for_pr.
+        # That was the bug. Post-fix: caller MUST either pass a diff
+        # explicitly OR seed the action with branch+base_sha so the
+        # fallback can run `git diff base..branch`. The test now
+        # asserts the new fail-closed contract.
+        pid = self._seed_proposal_and_action()
+        cmp_ref = self._seed_validation_gate_row()
+        with patch(
+            "aria_kernel.apply_engine.evaluate_validation_gate",
+            return_value={
+                "comparison_ref": cmp_ref,
+                "status": "ready_for_pr",
+                "blocked_by": [],
+                "ledger_hash": "sha256:gate-ledger-hash",
+            },
+        ):
+            with self.assertRaises(GovernanceError) as cm:
+                gate_apply_action(
+                    proposal_id=pid,
+                    validation_comparison_ref=cmp_ref,
+                    base_dir=self.tools,
+                    # diff_text=None implicit
+                )
+        self.assertIn("suppression_scan_requires_diff_content", str(cm.exception))
+
+    def test_empty_diff_text_passes_when_caller_explicit(self) -> None:
+        # When the caller is explicit about there being no diff (e.g.
+        # synthetic test fixture, recovery path), pass diff_text="".
+        # The suppression scan runs over empty input -> zero matches.
         pid = self._seed_proposal_and_action()
         cmp_ref = self._seed_validation_gate_row()
         with patch(
@@ -395,9 +425,8 @@ class ApplyGateSuppressionScanTests(unittest.TestCase):
                 proposal_id=pid,
                 validation_comparison_ref=cmp_ref,
                 base_dir=self.tools,
-                # diff_text=None implicit
+                diff_text="",
             )
-        # Backward compat: suppression_matches list still present but empty.
         self.assertEqual(row["status"], "ready_for_pr")
         self.assertEqual(row.get("suppression_matches", []), [])
 

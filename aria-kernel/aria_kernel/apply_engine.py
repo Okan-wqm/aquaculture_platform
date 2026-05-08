@@ -72,20 +72,35 @@ def gate_apply_action(
         base_dir=base_dir,
         cycle_id=cycle_id,
     )
-    suppression_matches: list[dict[str, Any]] = []
-    if diff_text is not None:
-        from .suppression_scanner import scan_unified_diff_text
-
-        for match in scan_unified_diff_text(diff_text):
-            suppression_matches.append(
-                {
-                    "category": match.category,
-                    "detector": match.detector,
-                    "file": match.file,
-                    "line": match.line,
-                    "text": match.text,
-                }
+    # Plan 022 §H-1 — suppression scan fail-closed when diff_text=None.
+    # Pre-fix: caller could omit diff_text and the suppression scan
+    # silently skipped entirely. Post-fix: try to fetch diff via
+    # `git diff base_sha..branch` from the action; if unavailable
+    # (no branch/base in action, or git command fails), raise so the
+    # gate cannot pass without diff coverage.
+    if diff_text is None:
+        diff_text = _read_diff_from_action(action)
+        if diff_text is None:
+            raise GovernanceError(
+                "suppression_scan_requires_diff_content: gate_apply_action "
+                "diff_text=None and the action does not carry branch+base_sha "
+                "to recover diff via git. Suppression scanner cannot run on "
+                "an empty diff; pass diff_text explicitly or ensure the "
+                "action has branch + base_sha set."
             )
+    suppression_matches: list[dict[str, Any]] = []
+    from .suppression_scanner import scan_unified_diff_text
+
+    for match in scan_unified_diff_text(diff_text):
+        suppression_matches.append(
+            {
+                "category": match.category,
+                "detector": match.detector,
+                "file": match.file,
+                "line": match.line,
+                "text": match.text,
+            }
+        )
     blocked_by = list(gate["blocked_by"] or [])
     if suppression_matches:
         blocked_by.append("suppression_pattern")
@@ -110,6 +125,29 @@ def gate_apply_action(
         },
     )
     return append_jsonl(ensure_tools_dir(base_dir) / "apply" / "actions.jsonl", row)
+
+
+def _read_diff_from_action(action: dict[str, Any]) -> str | None:
+    """Plan 022 §H-1 — recover unified diff from action via git when caller
+    omits diff_text. Returns the diff string or None when prerequisites
+    (workspace_root + branch + base_sha) are missing or git fails.
+    """
+    workspace_root = action.get("workspace_root")
+    branch = action.get("branch")
+    base_sha = action.get("base_sha")
+    if not (workspace_root and branch and base_sha):
+        return None
+    try:
+        completed = subprocess.run(
+            ["git", "diff", f"{base_sha}..{branch}"],
+            cwd=Path(workspace_root).resolve(),
+            capture_output=True, text=True, check=False,
+        )
+    except (FileNotFoundError, OSError):
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout
 
 
 def list_apply_actions(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

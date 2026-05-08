@@ -62,23 +62,31 @@ export class AddLoraDevicesEdgeDeviceFk1736800001000
     }
 
     // Align edge_device_id column type with edge_devices.id (UUID).
-    // information_schema check makes this idempotent + defensive on
-    // already-converted columns.
-    const columnTypeResult: Array<{ data_type: string }> = await queryRunner.query(
-      `SELECT data_type FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = 'lora_devices'
-          AND column_name = 'edge_device_id'`,
-    );
-    const currentType = columnTypeResult[0]?.data_type;
-    if (currentType && currentType !== 'uuid') {
-      await queryRunner.query(`
-        ALTER TABLE "lora_devices"
-          ALTER COLUMN "edge_device_id" TYPE uuid
-          USING "edge_device_id"::uuid
-      `);
-      this.logger.log('Converted lora_devices.edge_device_id to UUID');
-    }
+    // information_schema lookup + ALTER COLUMN are folded into a single
+    // DO $$ block so the idempotency probe and the mutation share one
+    // SQL chunk. This satisfies the R10 lint rule (alter-column-unguarded)
+    // which exempts ALTER COLUMN only when the same chunk also references
+    // information_schema.columns. The earlier two-step shape (separate
+    // SELECT + ALTER) was semantically guarded but tripped R10's chunk
+    // boundary heuristic.
+    await queryRunner.query(`
+      DO $$
+      DECLARE
+        current_type text;
+      BEGIN
+        SELECT data_type INTO current_type
+          FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'lora_devices'
+           AND column_name = 'edge_device_id';
+        IF current_type IS NOT NULL AND current_type <> 'uuid' THEN
+          ALTER TABLE "lora_devices"
+            ALTER COLUMN "edge_device_id" TYPE uuid
+            USING "edge_device_id"::uuid;
+          RAISE NOTICE 'Converted lora_devices.edge_device_id to UUID';
+        END IF;
+      END $$;
+    `);
 
     await queryRunner.query(`
       DO $$ BEGIN

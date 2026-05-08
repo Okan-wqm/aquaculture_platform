@@ -265,12 +265,32 @@ def emit_change_committed(
 def emit_change_validated(
     *,
     change_id: str,
-    validation_run_refs: list[str],
+    validation_run_refs: list[Any],
     baseline_comparison_ref: str | None = None,
     post_remediation_invariants: dict[str, Any] | None = None,
     base_dir: str | Path | None = None,
+    validation_mode: str = "enforced",
+    enforce_validation_matrix: bool = True,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Record the validation pass that closes a change chain."""
+    """Record the validation pass that closes a change chain.
+
+    Plan 020 Phase 8.B — validation_mode + enforce_validation_matrix
+    semantic split:
+
+    - validation_mode='enforced' (Plan 020+ default):
+        validation_run_refs MUST be a list of structured dicts
+        ({cmd, exit_code, log_path, ran_at}); enforce_validation_matrix=True
+        triggers the 3-layer matrix gate (existence + pattern + run-pass)
+        BEFORE persistence. Gate fail → GovernanceError, row NOT written.
+    - validation_mode='historical_attestation' (Plan 019 backfill only):
+        accepts legacy string refs; matrix gate bypassed; row IS written
+        (audit trail) but excluded from the aria_change_chain_validation
+        _pct numerator (Phase 9).
+    - enforce_validation_matrix=False overrides the gate (smoke tests
+      / synthetic backfill scripts that produce structured refs but do
+      not need full matrix coverage).
+    """
     if not change_id.strip():
         raise GovernanceError("change_id is required")
     if not validation_run_refs:
@@ -289,6 +309,19 @@ def emit_change_validated(
             f"change_validated sequence violation: no change_committed for {change_id!r}"
         )
 
+    # Plan 020 Phase 8.B — validation matrix gate fires BEFORE persistence.
+    matrix_result: dict[str, Any] | None = None
+    if enforce_validation_matrix:
+        from .validation_matrix_gate import enforce_validation_matrix as _enforce_matrix
+        # Raises GovernanceError on blocked; result returned only on pass.
+        matrix_result = _enforce_matrix(
+            change_id=change_id,
+            base_dir=base_dir,
+            repo_root=workspace_root,
+            candidate_refs=list(validation_run_refs),
+            validation_mode=validation_mode,
+        )
+
     row = {
         "$schema": CHANGE_RECORD_SCHEMA,
         "schema_version": 1,
@@ -298,11 +331,19 @@ def emit_change_validated(
         "finding_id": committed.get("finding_id"),
         "commit_sha": committed.get("commit_sha"),
         "validation_run_refs": list(validation_run_refs),
+        "validation_mode": validation_mode,
         "baseline_comparison_ref": baseline_comparison_ref,
         "post_remediation_invariants": dict(post_remediation_invariants or {}),
         "recorded_at": utc_now(),
     }
+    if matrix_result is not None:
+        row["validation_matrix_passed"] = matrix_result.get("passed", False)
+        row["validation_matrix_risk_types"] = matrix_result.get("risk_types", [])
     persisted = append_jsonl(_validated_path(tools_root), row)
+    # Plan v3.3 §"existing payload immutability": the change_validated
+    # governance event detail payload locked at Plan 019 stays unchanged.
+    # validation_mode lives ONLY on the validated.jsonl row + the new
+    # validation_matrix_check event detail; it is NOT added here.
     append_tools_governance(
         tools_root,
         "change_validated",

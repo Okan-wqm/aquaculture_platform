@@ -79,6 +79,11 @@ from aria_kernel.agent_compliance import (
     list_compliance_grades,
     record_compliance_grade,
 )
+from aria_kernel.validation_matrix_gate import (
+    detect_risk_types_for_change,
+    enforce_validation_matrix,
+    list_required_tests,
+)
 from aria_kernel.agent_eval import (
     add_fixture as eval_add_fixture,
     aggregate_eval_metrics,
@@ -263,6 +268,20 @@ def _main(argv: list[str] | None = None) -> int:
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+
+    # Plan 020 Phase 8.C — validation matrix CLI.
+    matrix_parser = sub.add_parser("validation-matrix")
+    matrix_sub = matrix_parser.add_subparsers(dest="validation_matrix_command", required=True)
+    matrix_check = matrix_sub.add_parser("check")
+    matrix_check.add_argument("--change-id", required=True)
+    matrix_check.add_argument("--repo-root", default=".")
+    matrix_check.add_argument("--validation-run-ref-json", default=None,
+        help="Path to JSON list of structured validation_run_refs (cmd, exit_code, log_path, ran_at).")
+    matrix_check.add_argument("--validation-mode", choices=["enforced", "historical_attestation"],
+        default="enforced")
+    matrix_required = matrix_sub.add_parser("list-required")
+    matrix_required.add_argument("--risk-type", action="append", required=True,
+        choices=["auth_change", "tenant_change", "schema_change", "event_change"])
 
     # Plan 020 Phase 7.C — agent compliance harness CLI.
     compliance_parser = sub.add_parser("agent-compliance")
@@ -1194,6 +1213,30 @@ def _main(argv: list[str] | None = None) -> int:
                 sort_keys=True,
             ),
         )
+        return 0
+
+    # Plan 020 Phase 8.C — validation matrix CLI dispatch.
+    if args.command == "validation-matrix" and args.validation_matrix_command == "check":
+        candidate_refs: list[Any] = []
+        if args.validation_run_ref_json:
+            candidate_refs = json.loads(Path(args.validation_run_ref_json).read_text(encoding="utf-8"))
+        try:
+            result = enforce_validation_matrix(
+                change_id=args.change_id,
+                base_dir=args.tools_dir,
+                repo_root=args.repo_root,
+                candidate_refs=candidate_refs,
+                validation_mode=args.validation_mode,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        except GovernanceError as exc:
+            # Surface the matrix detail for operator triage; CI fails-closed.
+            print(json.dumps({"blocked": True, "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+    if args.command == "validation-matrix" and args.validation_matrix_command == "list-required":
+        rows = list_required_tests(args.risk_type)
+        print(json.dumps(rows, indent=2, sort_keys=True))
         return 0
 
     # Plan 020 Phase 7.C — agent compliance CLI dispatch.

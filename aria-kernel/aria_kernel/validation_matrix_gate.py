@@ -1,0 +1,455 @@
+"""Plan 020 Phase 8 — validation matrix gate (risk-type-driven 3-layer enforcement).
+
+WHY this module exists
+----------------------
+Pre-Plan-020 the change ledger validated chain was opt-in: `change_validated`
+required `validation_run_refs` to be non-empty but did not enforce that the
+refs actually targeted the risk class implied by the diff. An auth change
+could land with a string ref like 'nx test:run-1' that targeted only an
+unrelated unit; the chain looked closed but the security-critical path was
+never exercised.
+
+Operator gap #3 (Plan v3.3 §Phase 8): risk-type-driven test matrix with
+three enforcement layers:
+
+1. EXISTENCE  — required test files exist on disk.
+2. PATTERN    — required test files contain the regex matching the
+                risk class (e.g. cross-tenant negative test mentions
+                `expect(...).rejects.toThrow.*tenant`).
+3. RUN-PASS   — structured validation_run_refs (cmd + exit_code 0 + log_path
+                + ran_at) prove the tests were EXECUTED.
+
+All three layers must pass for change_validated to land in 'enforced' mode.
+'historical_attestation' mode (Plan 019 backfill) bypasses the matrix
+gate — those rows are audit trail only and do NOT count toward
+aria_change_chain_validation_pct (Phase 9 metric).
+
+4 risk types (Plan v3.3 §Phase 8.A)
+------------------------------------
+- auth_change      — apps/auth-service/, *.guard.ts, *.strategy.ts
+                     required: @UseGuards test, JWT tenant-source negative
+                     test, public_endpoint allowlist test.
+- tenant_change    — tenant-context-middleware, *.tenant.repository.ts,
+                     getScopedRepository callers
+                     required: cross-tenant access negative test, scoped
+                     repo unit test, RLS policy test.
+- schema_change    — *.entity.ts, */migrations/*.ts
+                     required: migration parity test, ADR-011 schema
+                     invariant, blue-green safety (nullable → backfill →
+                     NOT NULL) markers.
+- event_change     — libs/event-contracts/src/**
+                     required: JSON Schema validator test, upcaster test,
+                     outbox transactional test, NATS publish test.
+
+Path traversal heuristics intentionally use containment matches; a file
+path that satisfies multiple heuristics surfaces as multiple risk types
+so the matrix enforces them all.
+
+Plan 020 surface gate
+---------------------
+validation_matrix is a writer-surface label (not a dedicated ledger file).
+The gate emits a `validation_matrix_check` governance event + the gate
+result is the load-bearing input that `change_ledger.emit_change_validated`
+consumes before persisting the validated row. Frozen profile blocks the
+write via enforce_profile_for_write('validation_matrix', ...).
+"""
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .runtime_profile import enforce_profile_for_write
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    ensure_tools_dir,
+)
+
+# Risk-type taxonomy locked per Plan v3.3 §Phase 8.A.
+RISK_TYPES: tuple[str, ...] = (
+    "auth_change",
+    "tenant_change",
+    "schema_change",
+    "event_change",
+)
+
+# validation_mode locks: enforced (Plan 020+ default; gate fires) vs
+# historical_attestation (Plan 019 backfill; audit trail only, no
+# matrix gate). Phase 9 metric counter aria_change_chain_validation_pct
+# only counts enforced rows in its numerator.
+VALIDATION_MODES: tuple[str, ...] = (
+    "enforced",
+    "historical_attestation",
+)
+DEFAULT_VALIDATION_MODE: str = "enforced"
+
+# Path heuristics for risk-type detection.
+# Order is fixed so an audit reviewer can predict which risk types fire
+# for a given file path. A file path may satisfy multiple heuristics —
+# the matrix enforces every implicated risk class.
+_RISK_PATH_HEURISTICS: dict[str, tuple[re.Pattern[str], ...]] = {
+    "auth_change": (
+        re.compile(r"^apps/auth-service/"),
+        re.compile(r"\.guard\.ts$"),
+        re.compile(r"\.strategy\.ts$"),
+        re.compile(r"jwt[\-_]middleware|tenant[\-_]context[\-_]middleware"),
+    ),
+    "tenant_change": (
+        re.compile(r"tenant[-_]context[-_]middleware"),
+        re.compile(r"\.tenant\.repository\.ts$"),
+        re.compile(r"getScopedRepository"),
+    ),
+    "schema_change": (
+        re.compile(r"\.entity\.ts$"),
+        re.compile(r"/migrations/.*\.ts$"),
+    ),
+    "event_change": (
+        re.compile(r"^libs/event-contracts/src/"),
+        re.compile(r"^platform/libs/event-contracts/src/"),
+    ),
+}
+
+# Required-test patterns per risk type.
+# Existence: at least one repo path containing the substring.
+# Pattern: the matched files must contain the regex.
+_REQUIRED_TESTS_BY_RISK: dict[str, tuple[dict[str, Any], ...]] = {
+    "auth_change": (
+        {"name": "use_guards_test",
+         "path_substr": "apps/auth-service",
+         "path_glob": "**/*.spec.ts",
+         "regex": re.compile(r"@UseGuards\(|UseGuards\(")},
+        {"name": "jwt_tenant_source_negative",
+         "path_substr": "apps/auth-service",
+         "path_glob": "**/*.spec.ts",
+         "regex": re.compile(r"tenant[-_]?(claim|source).*reject|reject.*tenant", re.I)},
+        {"name": "public_endpoint_allowlist",
+         "path_substr": "apps/auth-service",
+         "path_glob": "**/*.spec.ts",
+         "regex": re.compile(r"public[-_]?endpoint|allowlist", re.I)},
+    ),
+    "tenant_change": (
+        {"name": "cross_tenant_access_negative",
+         "path_substr": "apps/",
+         "path_glob": "**/__tests__/**/*.spec.ts",
+         "regex": re.compile(r"cross[-_]?tenant|expect.*rejects.*tenant", re.I)},
+        {"name": "scoped_repository_unit",
+         "path_substr": "libs/backend-common",
+         "path_glob": "**/*.spec.ts",
+         "regex": re.compile(r"getScopedRepository|scoped[-_]repository", re.I)},
+        {"name": "rls_policy_test",
+         "path_substr": "apps/",
+         "path_glob": "**/*.spec.ts",
+         "regex": re.compile(r"row[-_]level[-_]security|RLS|rls[-_]policy", re.I)},
+    ),
+    "schema_change": (
+        {"name": "migration_parity_test",
+         "path_substr": "e2e/tests/integration",
+         "path_glob": "**/*.spec.ts",
+         "regex": re.compile(r"migration[-_]parity|schema[-_]invariants", re.I)},
+        {"name": "adr_011_schema_invariant",
+         "path_substr": "e2e/tests/integration",
+         "path_glob": "**/*.spec.ts",
+         "regex": re.compile(r"schema[-_]invariants?\.spec|@Entity.*schema", re.I)},
+        {"name": "blue_green_safety_marker",
+         "path_substr": "apps/",
+         "path_glob": "**/migrations/*.ts",
+         "regex": re.compile(r"nullable|isNullable|backfill|NOT NULL|notNull", re.I)},
+    ),
+    "event_change": (
+        {"name": "json_schema_validator_test",
+         "path_substr": "libs/event-contracts",
+         "path_glob": "**/*.spec.ts",
+         "regex": re.compile(r"validate|schema", re.I)},
+        {"name": "upcaster_test",
+         "path_substr": "libs/event-contracts",
+         "path_glob": "**/upcasters/**/*.spec.ts",
+         "regex": re.compile(r"upcast", re.I)},
+        {"name": "outbox_transactional_test",
+         "path_substr": "platform/libs/outbox",
+         "path_glob": "**/*.spec.ts",
+         "regex": re.compile(r"transactional|outbox", re.I)},
+        {"name": "nats_publish_test",
+         "path_substr": "platform/libs/event-bus",
+         "path_glob": "**/*.spec.ts",
+         "regex": re.compile(r"publish|nats", re.I)},
+    ),
+}
+
+
+def list_required_tests(risk_types: list[str]) -> list[dict[str, Any]]:
+    """Return the union of required-test specs for the given risk types."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for rt in risk_types:
+        for spec in _REQUIRED_TESTS_BY_RISK.get(rt, ()):
+            key = f"{rt}:{spec['name']}"
+            if key in seen:
+                continue
+            seen.add(key)
+            # Convert regex to pattern string for serialisation.
+            out.append({
+                "risk_type": rt,
+                "name": spec["name"],
+                "path_substr": spec["path_substr"],
+                "path_glob": spec["path_glob"],
+                "regex_pattern": spec["regex"].pattern,
+            })
+    return out
+
+
+def detect_risk_types_for_change(
+    *,
+    change_id: str,
+    base_dir: str | Path | None = None,
+    affected_files_override: list[str] | None = None,
+) -> list[str]:
+    """Inspect a change_committed row for affected_files; detect risk types.
+
+    Use affected_files_override to bypass change_ledger lookup (smoke tests).
+    """
+    if affected_files_override is not None:
+        files = list(affected_files_override)
+    else:
+        from .change_ledger import get_change_chain
+        chain = get_change_chain(change_id=change_id, base_dir=base_dir)
+        committed = chain.get("committed") or {}
+        files = list(committed.get("actual_affected_files") or [])
+    detected: list[str] = []
+    for rt in RISK_TYPES:
+        for pattern in _RISK_PATH_HEURISTICS[rt]:
+            if any(pattern.search(f) for f in files):
+                detected.append(rt)
+                break
+    return detected
+
+
+def _check_existence_layer(
+    *,
+    repo_root: Path,
+    spec: dict[str, Any],
+) -> tuple[bool, list[str]]:
+    """Layer 1: at least one file matching path_substr + path_glob exists."""
+    matches: list[str] = []
+    if not repo_root.exists():
+        return False, []
+    for path in repo_root.glob(spec["path_glob"]):
+        rel = path.relative_to(repo_root).as_posix()
+        if spec["path_substr"] in rel:
+            matches.append(rel)
+    return bool(matches), matches
+
+
+def _check_pattern_layer(
+    *,
+    repo_root: Path,
+    spec: dict[str, Any],
+    files: list[str],
+) -> tuple[bool, list[str]]:
+    """Layer 2: at least one of the matched files contains the regex."""
+    pattern: re.Pattern[str] = spec["regex"]
+    hits: list[str] = []
+    for rel in files:
+        path = repo_root / rel
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if pattern.search(content):
+            hits.append(rel)
+    return bool(hits), hits
+
+
+def _check_run_pass_layer(
+    *,
+    candidate_refs: list[Any],
+) -> tuple[bool, list[dict[str, Any]], list[str]]:
+    """Layer 3: structured validation_run_refs prove EXECUTION + zero exit."""
+    failed: list[str] = []
+    structured: list[dict[str, Any]] = []
+    for ref in candidate_refs:
+        if isinstance(ref, str):
+            failed.append(f"string-only ref not permitted under enforced mode: {ref!r}")
+            continue
+        if not isinstance(ref, dict):
+            failed.append(f"unexpected ref shape: {type(ref).__name__}")
+            continue
+        cmd = ref.get("cmd")
+        exit_code = ref.get("exit_code")
+        log_path = ref.get("log_path")
+        ran_at = ref.get("ran_at")
+        if not isinstance(cmd, str) or not cmd:
+            failed.append(f"ref missing 'cmd': {ref!r}")
+            continue
+        if not isinstance(exit_code, int):
+            failed.append(f"ref missing 'exit_code' (int): {ref!r}")
+            continue
+        if exit_code != 0:
+            failed.append(f"ref exit_code != 0: cmd={cmd!r} exit={exit_code}")
+            continue
+        if not isinstance(log_path, str):
+            failed.append(f"ref missing 'log_path': {ref!r}")
+            continue
+        if not isinstance(ran_at, str):
+            failed.append(f"ref missing 'ran_at' ISO timestamp: {ref!r}")
+            continue
+        try:
+            datetime.fromisoformat(ran_at.replace("Z", "+00:00"))
+        except ValueError:
+            failed.append(f"ref ran_at not ISO8601: {ran_at!r}")
+            continue
+        structured.append({
+            "cmd": cmd, "exit_code": exit_code,
+            "log_path": log_path, "ran_at": ran_at,
+        })
+    return (not failed and bool(structured)), structured, failed
+
+
+def enforce_validation_matrix(
+    *,
+    change_id: str,
+    base_dir: str | Path | None = None,
+    repo_root: str | Path | None = None,
+    candidate_refs: list[Any],
+    affected_files_override: list[str] | None = None,
+    validation_mode: str = DEFAULT_VALIDATION_MODE,
+) -> dict[str, Any]:
+    """3-layer matrix gate. Returns {passed, blocked, ...detail}.
+
+    enforced mode: ALL three layers must pass. Returns blocked=True with
+    missing_required_tests + failed_runs detail when any layer fails.
+    Emits validation_matrix_check governance event with pass/blocked
+    breakdown.
+
+    historical_attestation mode: bypasses the matrix gate entirely; returns
+    passed=True with a notice that the row will be audit-only (Phase 9
+    metric counter excludes historical chains from the numerator).
+    """
+    if validation_mode not in VALIDATION_MODES:
+        raise GovernanceError(
+            f"unknown validation_mode {validation_mode!r}; expected one of {VALIDATION_MODES}"
+        )
+
+    enforce_profile_for_write("validation_matrix", base_dir=base_dir)
+
+    repo = Path(repo_root or Path.cwd()).resolve()
+    risk_types = detect_risk_types_for_change(
+        change_id=change_id, base_dir=base_dir,
+        affected_files_override=affected_files_override,
+    )
+
+    if validation_mode == "historical_attestation":
+        result = {
+            "change_id": change_id,
+            "validation_mode": validation_mode,
+            "passed": True,
+            "blocked": False,
+            "risk_types": risk_types,
+            "notice": "historical_attestation mode — matrix gate bypassed; row excluded from validation_pct numerator",
+        }
+        append_tools_governance(
+            ensure_tools_dir(base_dir),
+            "validation_matrix_check",
+            {**result, "trigger": "historical_attestation"},
+        )
+        return result
+
+    if not risk_types:
+        # No risk types implicated by this diff — matrix vacuously passes.
+        result = {
+            "change_id": change_id,
+            "validation_mode": validation_mode,
+            "passed": True,
+            "blocked": False,
+            "risk_types": [],
+            "notice": "no risk-type-implicating files in change diff",
+        }
+        append_tools_governance(
+            ensure_tools_dir(base_dir),
+            "validation_matrix_check",
+            {**result, "trigger": "no_risk_types"},
+        )
+        return result
+
+    required = list_required_tests(risk_types)
+    layer_results: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for spec_summary in required:
+        # Resolve the underlying spec (with compiled regex) for layer 2.
+        spec = next(
+            s for s in _REQUIRED_TESTS_BY_RISK[spec_summary["risk_type"]]
+            if s["name"] == spec_summary["name"]
+        )
+        existence_passed, existence_files = _check_existence_layer(
+            repo_root=repo, spec=spec,
+        )
+        if not existence_passed:
+            layer_results.append({**spec_summary, "existence_passed": False, "pattern_passed": False})
+            missing.append({**spec_summary, "reason": "existence_layer_failed"})
+            continue
+        pattern_passed, pattern_files = _check_pattern_layer(
+            repo_root=repo, spec=spec, files=existence_files,
+        )
+        if not pattern_passed:
+            layer_results.append({
+                **spec_summary, "existence_passed": True, "pattern_passed": False,
+                "existence_files": existence_files,
+            })
+            missing.append({**spec_summary, "reason": "pattern_layer_failed",
+                            "candidates": existence_files})
+            continue
+        layer_results.append({
+            **spec_summary, "existence_passed": True, "pattern_passed": True,
+            "matched_files": pattern_files,
+        })
+
+    run_passed, structured_refs, failed_runs = _check_run_pass_layer(
+        candidate_refs=candidate_refs,
+    )
+
+    blocked = bool(missing) or not run_passed
+    result = {
+        "change_id": change_id,
+        "validation_mode": validation_mode,
+        "risk_types": risk_types,
+        "required_tests": required,
+        "layer_results": layer_results,
+        "missing_required_tests": missing,
+        "structured_validation_run_refs": structured_refs,
+        "failed_runs": failed_runs,
+        "passed": not blocked,
+        "blocked": blocked,
+    }
+
+    append_tools_governance(
+        ensure_tools_dir(base_dir),
+        "validation_matrix_check",
+        {
+            "change_id": change_id,
+            "risk_types": risk_types,
+            "missing_count": len(missing),
+            "failed_run_count": len(failed_runs),
+            "passed": not blocked,
+            "blocked": blocked,
+        },
+    )
+
+    if blocked:
+        raise GovernanceError(
+            f"validation_matrix_blocked: change_id={change_id!r} "
+            f"missing={[m['name'] for m in missing]} "
+            f"failed_runs={failed_runs}"
+        )
+    return result
+
+
+__all__ = [
+    "RISK_TYPES",
+    "VALIDATION_MODES",
+    "DEFAULT_VALIDATION_MODE",
+    "list_required_tests",
+    "detect_risk_types_for_change",
+    "enforce_validation_matrix",
+]

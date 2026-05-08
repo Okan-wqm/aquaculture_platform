@@ -183,11 +183,16 @@ class EmitChangeValidatedTests(unittest.TestCase):
         shutil.rmtree(self.tools.parent, ignore_errors=True)
 
     def test_validated_requires_committed(self) -> None:
+        # Plan 020 Phase 8.B — historical_attestation mode bypasses the
+        # validation matrix gate so this test still exercises the
+        # sequence-violation guard (its actual subject) without needing
+        # structured run refs.
         with self.assertRaisesRegex(GovernanceError, "no change_committed for"):
             emit_change_validated(
                 change_id=self.planned["change_id"],
                 validation_run_refs=["nx test:run-1"],
                 base_dir=self.tools,
+                validation_mode="historical_attestation",
             )
 
     def test_validated_happy_path(self) -> None:
@@ -197,12 +202,16 @@ class EmitChangeValidatedTests(unittest.TestCase):
             actual_affected_files=["src/v.ts"],
             base_dir=self.tools,
         )
+        # historical_attestation: legacy string refs accepted (Plan 019
+        # backfill compat). The Plan 020 enforced-mode contract is
+        # exercised in test_validation_matrix_gate.py.
         row = emit_change_validated(
             change_id=self.planned["change_id"],
             validation_run_refs=["nx test:run-1", "spine_postcheck:event-id-1"],
             baseline_comparison_ref="sha256:baseline-fingerprint",
             post_remediation_invariants={"tenant_scoping": 5, "schema_entity": 80},
             base_dir=self.tools,
+            validation_mode="historical_attestation",
         )
         self.assertEqual(row["event"], "change_validated")
         self.assertEqual(len(row["validation_run_refs"]), 2)

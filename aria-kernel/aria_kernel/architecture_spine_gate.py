@@ -73,6 +73,13 @@ INVARIANT_KINDS = (
     "event_contracts",
     "schema_entity",
     "auth_security",
+    # Plan 020 Phase 10 — 5th invariant backed by agent-harness-security-
+    # adapter (7 detection rules over .claude/agents, .github/workflows,
+    # tools/aria-{poc,adapters}, aria-kernel surfaces). The spine gate
+    # reads the LATEST adapter run row from runs.jsonl; the fresh
+    # orchestrator (Phase 4) is responsible for ensuring that row was
+    # taken against the current repo_state_id.
+    "harness_security",
 )
 
 # 5 consecutive regressions for the same plan_id → HUMAN_REQUIRED
@@ -301,11 +308,67 @@ def _check_auth_security(workspace_root: Path) -> InvariantMeasurement:
     )
 
 
+def _check_harness_security(workspace_root: Path) -> InvariantMeasurement:
+    """Plan 020 Phase 10 — read latest agent-harness-security-adapter run.
+
+    Same pattern as _check_auth_security: read the LATEST adapter run from
+    runs.jsonl + surface the raw findings/observations counts as the
+    harness_security invariant. The Phase 4 fresh orchestrator ensures
+    that row matches the current repo_state_id when require_fresh_adapter
+    _runs=True.
+    """
+    runs_path = workspace_root / "aria-tools" / "runs.jsonl"
+    if not runs_path.exists():
+        return InvariantMeasurement(
+            invariant="harness_security",
+            measured_at=utc_now(),
+            measurements={
+                "pending": True,
+                "reason": "no aria-tools/runs.jsonl found",
+            },
+            source="stub:no_runs_ledger",
+        )
+    latest: dict[str, Any] | None = None
+    try:
+        for line in runs_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if row.get("tool_id") == "agent-harness-security-adapter":
+                latest = row
+    except (OSError, json.JSONDecodeError):
+        latest = None
+    if latest is None:
+        return InvariantMeasurement(
+            invariant="harness_security",
+            measured_at=utc_now(),
+            measurements={
+                "pending": True,
+                "reason": "no agent-harness-security-adapter run in runs.jsonl yet",
+            },
+            source="stub:no_adapter_runs",
+        )
+    runner = latest.get("runner") or {}
+    return InvariantMeasurement(
+        invariant="harness_security",
+        measured_at=utc_now(),
+        measurements={
+            "raw_observations_count": int(runner.get("raw_observations_count", 0) or 0),
+            "raw_findings_count": int(runner.get("raw_findings_count", 0) or 0),
+            "adapter_run_status": str(latest.get("status") or "unknown"),
+            "adapter_run_id": str(latest.get("run_id") or ""),
+            "adapter_recorded_at": str(latest.get("recorded_at") or ""),
+        },
+        source="tool_runner:agent-harness-security-adapter",
+    )
+
+
 DEFAULT_INVARIANT_CHECKS: dict[str, Callable[[Path], InvariantMeasurement]] = {
     "tenant_scoping": _check_tenant_scoping,
     "event_contracts": _check_event_contracts,
     "schema_entity": _check_schema_entity,
     "auth_security": _check_auth_security,
+    "harness_security": _check_harness_security,
 }
 
 

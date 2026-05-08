@@ -81,6 +81,11 @@ SPINE_ADAPTER_IDS: tuple[str, ...] = (
     "schema-drift-adapter",
     "event-contracts-adapter",
     "test-gap-adapter",
+    # Plan 020 Phase 10 — agent harness security adapter feeds the
+    # harness_security invariant added in architecture_spine_gate.
+    # Refresh chokepoint must include it so the spine baseline reads a
+    # fresh row when require_fresh_adapter_runs=True.
+    "agent-harness-security-adapter",
 )
 
 DEFAULT_FRESHNESS_MAX_AGE_SECONDS: int = 600

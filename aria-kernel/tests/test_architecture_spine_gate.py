@@ -37,8 +37,13 @@ def _fixture_check(invariant: str, measurements: dict) -> InvariantMeasurement:
 
 
 class FrameworkShapeTests(unittest.TestCase):
-    def test_invariant_kinds_is_four_strings(self) -> None:
-        self.assertEqual(len(INVARIANT_KINDS), 4)
+    def test_invariant_kinds_is_five_strings(self) -> None:
+        # Plan 020 Phase 10 — 5th invariant 'harness_security' added to
+        # cover .claude/agents/** + .github/workflows/** + tools/aria-{poc,
+        # adapters}/** + aria-kernel/aria_kernel/** secret/permission/
+        # prompt-injection rules.
+        self.assertEqual(len(INVARIANT_KINDS), 5)
+        self.assertIn("harness_security", INVARIANT_KINDS)
         for inv in INVARIANT_KINDS:
             self.assertIsInstance(inv, str)
             self.assertTrue(inv)
@@ -56,13 +61,15 @@ class TakeBaselineTests(unittest.TestCase):
             "event_contracts": lambda root: _fixture_check("event_contracts", {"declared_event_count": 10, "missing_schema_count": 2}),
             "schema_entity": lambda root: _fixture_check("schema_entity", {"missing_schema_violation_count": 1, "total_entities": 50}),
             "auth_security": lambda root: _fixture_check("auth_security", {"pending": True}),
+            # Plan 020 Phase 10 — 5th invariant.
+            "harness_security": lambda root: _fixture_check("harness_security", {"pending": True}),
         }
 
     def tearDown(self) -> None:
         import shutil
         shutil.rmtree(self.repo, ignore_errors=True)
 
-    def test_baseline_carries_all_four_invariants(self) -> None:
+    def test_baseline_carries_all_invariants(self) -> None:
         result = take_baseline(
             plan_id="plan-019-phase-5.5-test",
             cycle_id="cyc-1",

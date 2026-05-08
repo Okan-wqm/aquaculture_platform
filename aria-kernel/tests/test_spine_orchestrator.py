@@ -65,13 +65,17 @@ def _write_run_row(tools: Path, *, tool_id: str, repo_state_id: str, recorded_at
 
 
 class ScopeAndDefaultsTests(unittest.TestCase):
-    def test_5_adapter_scope_locked(self) -> None:
+    def test_spine_adapter_scope_locked(self) -> None:
+        # Plan 020 Phase 4 baseline: 5 adapters.
+        # Plan 020 Phase 10 extension: +1 (agent-harness-security-adapter
+        # feeds the harness_security invariant).
         self.assertEqual(SPINE_ADAPTER_IDS, (
             "security-boundary-adapter",
             "tenant-scoping-adapter",
             "schema-drift-adapter",
             "event-contracts-adapter",
             "test-gap-adapter",
+            "agent-harness-security-adapter",
         ))
 
     def test_default_freshness_window_is_600s(self) -> None:
@@ -102,7 +106,7 @@ class CacheHitTests(unittest.TestCase):
             summary = refresh_spine_adapters(
                 base_dir=self.tools, workspace_root=self.repo,
             )
-        self.assertEqual(summary["cached_count"], 5)
+        self.assertEqual(summary["cached_count"], len(SPINE_ADAPTER_IDS))
         self.assertEqual(summary["fresh_count"], 0)
         for adapter_id in SPINE_ADAPTER_IDS:
             self.assertEqual(summary["run_ids"][adapter_id], f"cached-{adapter_id}")
@@ -140,9 +144,9 @@ class CacheMissTests(unittest.TestCase):
             summary = refresh_spine_adapters(
                 base_dir=self.tools, workspace_root=self.repo,
             )
-        self.assertEqual(summary["fresh_count"], 5)
+        self.assertEqual(summary["fresh_count"], len(SPINE_ADAPTER_IDS))
         self.assertEqual(summary["cached_count"], 0)
-        self.assertEqual(mock_run.call_count, 5)
+        self.assertEqual(mock_run.call_count, len(SPINE_ADAPTER_IDS))
 
     def test_stale_recorded_at_triggers_fresh_run(self) -> None:
         # Cached row matches repo_state_id but is 2 hours old.
@@ -164,7 +168,7 @@ class CacheMissTests(unittest.TestCase):
                 base_dir=self.tools, workspace_root=self.repo,
                 freshness_max_age_seconds=600,
             )
-        self.assertEqual(summary["fresh_count"], 5)
+        self.assertEqual(summary["fresh_count"], len(SPINE_ADAPTER_IDS))
 
 
 class GovernanceEventTests(unittest.TestCase):
@@ -218,8 +222,8 @@ class FailedRunIsolationTests(unittest.TestCase):
         states_by_id = {s["adapter_id"]: s for s in summary["adapter_states"]}
         self.assertEqual(states_by_id["tenant-scoping-adapter"]["source"], "failed")
         self.assertIn("synthetic adapter failure", states_by_id["tenant-scoping-adapter"]["error"])
-        # The other 4 still ran.
-        self.assertEqual(summary["fresh_count"], 4)
+        # All other adapters (current scope - 1) still ran.
+        self.assertEqual(summary["fresh_count"], len(SPINE_ADAPTER_IDS) - 1)
 
 
 class ProfileGateTests(unittest.TestCase):

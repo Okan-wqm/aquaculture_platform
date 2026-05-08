@@ -66,7 +66,11 @@ class SubmitResultE2ETests(unittest.TestCase):
             "evidence_refs": ["src.txt:2"],
             "details": {"verdict": "true_positive", "confidence": 0.92},
         }
-        out_path = self.tools / "agent-invocations" / "outputs" / "good.json"
+        # Plan 020 Phase 7.B — output_path_match compliance check requires
+        # the response file to land at the request's expected_output_path
+        # (kernel-canonical location). Pre-Plan-020 tests wrote to custom
+        # paths because no gate enforced the contract; the new gate fires.
+        out_path = Path(request["expected_output_path"])
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(envelope), encoding="utf-8")
         return out_path

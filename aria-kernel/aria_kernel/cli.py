@@ -75,6 +75,10 @@ from aria_kernel.context_budget_gate import (
     enforce_context_budget,
     list_context_audits,
 )
+from aria_kernel.agent_compliance import (
+    list_compliance_grades,
+    record_compliance_grade,
+)
 from aria_kernel.agent_eval import (
     add_fixture as eval_add_fixture,
     aggregate_eval_metrics,
@@ -259,6 +263,21 @@ def _main(argv: list[str] | None = None) -> int:
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+
+    # Plan 020 Phase 7.C — agent compliance harness CLI.
+    compliance_parser = sub.add_parser("agent-compliance")
+    compliance_sub = compliance_parser.add_subparsers(dest="agent_compliance_command", required=True)
+    comp_grade = compliance_sub.add_parser("grade")
+    comp_grade.add_argument("--claim-id", required=True)
+    comp_grade.add_argument("--request-file", required=True)
+    comp_grade.add_argument("--response-file", required=True)
+    comp_grade.add_argument("--response-path", default=None,
+        help="Where the agent claims it wrote the response (output_path_match check).")
+    comp_grade.add_argument("--workspace-root", default=".")
+    comp_list = compliance_sub.add_parser("list")
+    comp_list.add_argument("--claim-id", default=None)
+    comp_list.add_argument("--rejected-only", action="store_true")
+    comp_list.add_argument("--limit", type=int, default=None)
 
     # Plan 020 Phase 6.C — agent eval harness CLI.
     eval_parser = sub.add_parser("agent-eval")
@@ -1175,6 +1194,31 @@ def _main(argv: list[str] | None = None) -> int:
                 sort_keys=True,
             ),
         )
+        return 0
+
+    # Plan 020 Phase 7.C — agent compliance CLI dispatch.
+    if args.command == "agent-compliance" and args.agent_compliance_command == "grade":
+        request = json.loads(Path(args.request_file).read_text(encoding="utf-8"))
+        response = json.loads(Path(args.response_file).read_text(encoding="utf-8"))
+        response_path = Path(args.response_path) if args.response_path else None
+        result = record_compliance_grade(
+            claim_id=args.claim_id,
+            request=request,
+            response=response,
+            response_path=response_path,
+            workspace_root=Path(args.workspace_root).resolve(),
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-compliance" and args.agent_compliance_command == "list":
+        rows = list_compliance_grades(
+            base_dir=args.tools_dir,
+            claim_id=args.claim_id,
+            rejected_only=args.rejected_only,
+            limit=args.limit,
+        )
+        print(json.dumps(rows, indent=2, sort_keys=True))
         return 0
 
     # Plan 020 Phase 6.C — agent eval CLI dispatch.

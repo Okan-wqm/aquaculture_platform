@@ -693,6 +693,42 @@ def submit_claim_result(
             reasons=reasons,
         )
 
+    # Plan 020 Phase 7.B — agent compliance gate.
+    # Why HERE (after validate_response succeeds, before result accepted):
+    # validate_response checks the schema + matrix + evidence references.
+    # Compliance grades whether the agent followed the response CONTRACT
+    # (must_satisfy completeness, evidence schema validity, output path
+    # match, banned-phrase in body, response order, refusal envelope).
+    # Compliance failure converts an otherwise-acceptable response into a
+    # REJECTED result with rejection_reason='compliance_rejected'. The
+    # 10-state lifecycle stays intact (rejection_reason annotates the
+    # existing REJECTED state; no 11th state added).
+    from .agent_compliance import (
+        COMPLIANCE_REJECTION_REASON,
+        record_compliance_grade,
+    )
+    compliance = record_compliance_grade(
+        claim_id=claim_id,
+        request=request,
+        response=envelope,
+        response_path=output,
+        workspace_root=Path(workspace_root).resolve() if workspace_root else None,
+        base_dir=base_dir,
+    )
+    if compliance.get("rejection"):
+        return _persist_rejection(
+            root=root,
+            claim_id=claim_id,
+            request_id=request_id,
+            agent_id=agent_id,
+            output_path=output,
+            reasons=[
+                f"compliance: {COMPLIANCE_REJECTION_REASON} "
+                f"(hard_fail={compliance.get('hard_fail_count', 0)}, "
+                f"soft_fail={compliance.get('soft_fail_count', 0)})"
+            ],
+        )
+
     # Accepted path.
     output_hash = "sha256:" + hashlib.sha256(output.read_bytes()).hexdigest()
     row = {

@@ -99,7 +99,9 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
         ev_request, ev_claim = self._claim_judge(
             target_agent="aria-evidence-judge", role="evidence_judgment"
         )
-        ev_out = self.tools / "agent-invocations" / "outputs" / "evidence.json"
+        # Plan 020 Phase 7.B compliance — write to expected_output_path.
+        ev_out = Path(ev_request["expected_output_path"])
+        ev_out.parent.mkdir(parents=True, exist_ok=True)
         _judge_envelope_at(
             out_path=ev_out,
             request_id=ev_request["request_id"],
@@ -124,7 +126,9 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
         ad_request, ad_claim = self._claim_judge(
             target_agent="aria-adversarial-judge", role="adversarial_judgment"
         )
-        ad_out = self.tools / "agent-invocations" / "outputs" / "adversarial.json"
+        # Plan 020 Phase 7.B compliance — write to expected_output_path.
+        ad_out = Path(ad_request["expected_output_path"])
+        ad_out.parent.mkdir(parents=True, exist_ok=True)
         _judge_envelope_at(
             out_path=ad_out,
             request_id=ad_request["request_id"],
@@ -170,7 +174,9 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
         ev_req, ev_claim = self._claim_judge(
             target_agent="aria-evidence-judge", role="evidence_judgment"
         )
-        ev_out = self.tools / "agent-invocations" / "outputs" / "ev.json"
+        # Plan 020 Phase 7.B compliance — write to expected_output_path.
+        ev_out = Path(ev_req["expected_output_path"])
+        ev_out.parent.mkdir(parents=True, exist_ok=True)
         _judge_envelope_at(
             out_path=ev_out,
             request_id=ev_req["request_id"],
@@ -189,7 +195,9 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
         ad_req, ad_claim = self._claim_judge(
             target_agent="aria-adversarial-judge", role="adversarial_judgment"
         )
-        ad_out = self.tools / "agent-invocations" / "outputs" / "ad.json"
+        # Plan 020 Phase 7.B compliance — write to expected_output_path.
+        ad_out = Path(ad_req["expected_output_path"])
+        ad_out.parent.mkdir(parents=True, exist_ok=True)
         _judge_envelope_at(
             out_path=ad_out,
             request_id=ad_req["request_id"],

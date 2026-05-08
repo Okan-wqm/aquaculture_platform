@@ -1,5 +1,9 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger, pinSearchPath } from '@aquaculture/backend-common/database';
+import {
+  MigrationLogger,
+  pinSearchPath,
+  tableExists,
+} from '@aquaculture/backend-common/database';
 
 /**
  * AddWaterQualitySensorReadingCorrelation1788200000000
@@ -128,6 +132,19 @@ export class AddWaterQualitySensorReadingCorrelation1788200000000
       schemaResult,
     );
 
+    // Wave 4-A.2 Dalga 3 bootstrap-restoration guard.
+    // `water_quality_measurements` is created by the source-schema
+    // baseline (or a sibling per-tenant migration on tenant fan-out).
+    // Skip the ALTER cleanly if the table has not landed yet on this
+    // DB — the column-add will run on the next migration pass once
+    // the parent table is in place.
+    if (!(await tableExists(queryRunner, 'water_quality_measurements'))) {
+      this.logger.log(
+        'Skipping AddWaterQualitySensorReadingCorrelation — water_quality_measurements not present on this DB (installed by sibling baseline migration)',
+      );
+      return;
+    }
+
     // The unqualified table name lets the migration runner re-execute
     // this body against each tenant_<hex16> schema's copy of the table.
     // current_schema() above logs which one we're in for traceability.
@@ -139,6 +156,10 @@ export class AddWaterQualitySensorReadingCorrelation1788200000000
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await pinSearchPath(queryRunner, 'farm');
+
+    if (!(await tableExists(queryRunner, 'water_quality_measurements'))) {
+      return;
+    }
 
     await queryRunner.query(`
       ALTER TABLE "water_quality_measurements"

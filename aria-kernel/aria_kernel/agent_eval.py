@@ -426,6 +426,121 @@ def count_eval_runs_by_mode(*, base_dir: str | Path | None = None) -> dict[str, 
     }
 
 
+# Plan 022 §H-5 — SHADOW raw findings sampling threshold (24-hour window).
+# When a SHADOW tool produces ≥ this many raw_findings in 24h, the
+# sampling CLI emits a shadow_findings_sampled governance event per
+# tool AND escalates via human_required_recorded so operators see the
+# build-up instead of the raw findings rotting in runs.jsonl.
+SHADOW_SAMPLE_THRESHOLD_24H: int = 5
+
+
+def sample_shadow_raw_findings(
+    *,
+    base_dir: str | Path | None = None,
+    threshold_24h: int = SHADOW_SAMPLE_THRESHOLD_24H,
+) -> dict[str, Any]:
+    """Plan 022 §H-5 — surface SHADOW raw_findings to operator review.
+
+    Pre-Plan-022 SHADOW tools emitted empty operator-facing
+    observations/findings (tool_runner.py:139-141 gates emission on
+    can_emit_operator_facing). raw_findings landed in the ledger but
+    operators never saw them; the dashboard's shadow_raw_delta pressure
+    only triggered when the count was abnormal — base-rate buried.
+
+    Fix: this function reads the last 24h of runs.jsonl, aggregates
+    raw_findings_count per SHADOW tool_id, and:
+    1. Emits a shadow_findings_sampled governance event per tool.
+    2. If the count meets or exceeds threshold_24h, also files a
+       human_required_recorded escalation so the operator dashboard
+       surfaces it as actionable.
+
+    Returns a summary dict {samples: [{tool_id, raw_findings_count_24h,
+    escalated: bool}, ...], escalation_count: int}.
+    """
+    from datetime import datetime, timedelta, timezone
+    from .human_required import record_human_required
+    from .tool_health import runs_path
+    from .ledger import load_jsonl
+    from .tool_registry import (
+        append_tools_governance,
+        ensure_tools_dir,
+        get_tool,
+    )
+
+    enforce_profile_for_write("agent_evals", base_dir=base_dir)
+    root = ensure_tools_dir(base_dir)
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    runs = load_jsonl(runs_path(base_dir))
+    by_tool: dict[str, int] = {}
+    for run in runs:
+        recorded = run.get("recorded_at") or run.get("at")
+        if not isinstance(recorded, str):
+            continue
+        try:
+            ts = datetime.fromisoformat(recorded.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if ts.astimezone(timezone.utc) < cutoff:
+            continue
+        tool_id = str(run.get("tool_id") or "")
+        if not tool_id:
+            continue
+        # Only sample tools currently in SHADOW status — ACTIVE tools
+        # already emit operator-facing findings, so sampling them
+        # would double-surface.
+        try:
+            tool = get_tool(tool_id, base_dir)
+        except GovernanceError:
+            continue
+        if tool.get("status") != "SHADOW":
+            continue
+        runner_block = run.get("runner") or {}
+        count = int(runner_block.get("raw_findings_count", 0) or 0)
+        by_tool[tool_id] = by_tool.get(tool_id, 0) + count
+
+    samples: list[dict[str, Any]] = []
+    escalation_count = 0
+    for tool_id, count in sorted(by_tool.items()):
+        escalated = count >= threshold_24h
+        samples.append({
+            "tool_id": tool_id,
+            "raw_findings_count_24h": count,
+            "escalated": escalated,
+            "threshold_24h": threshold_24h,
+        })
+        append_tools_governance(
+            root,
+            "shadow_findings_sampled",
+            {
+                "tool_id": tool_id,
+                "raw_findings_count_24h": count,
+                "threshold_24h": threshold_24h,
+                "escalated": escalated,
+            },
+        )
+        if escalated:
+            escalation_count += 1
+            record_human_required(
+                request_id=f"shadow-sample-{tool_id}-{int(cutoff.timestamp())}",
+                severity="MEDIUM",
+                reason=(
+                    f"SHADOW tool {tool_id!r} produced {count} raw_findings "
+                    f"in the last 24h (threshold={threshold_24h}); operator "
+                    f"review required to triage findings + decide on "
+                    f"SHADOW->CALIBRATE transition."
+                ),
+                base_dir=base_dir,
+            )
+    return {
+        "samples": samples,
+        "escalation_count": escalation_count,
+        "threshold_24h": threshold_24h,
+    }
+
+
 __all__ = [
     "EVAL_RUNS_PATH",
     "EVAL_FIXTURES_DIR",
@@ -433,10 +548,12 @@ __all__ = [
     "EVAL_RUN_SCHEMA",
     "REQUIRED_FIXTURE_FIELDS",
     "VERDICT_CLASSES",
+    "SHADOW_SAMPLE_THRESHOLD_24H",
     "add_fixture",
     "list_fixtures",
     "run_agent_eval",
     "list_eval_runs",
     "aggregate_eval_metrics",
     "count_eval_runs_by_mode",
+    "sample_shadow_raw_findings",
 ]

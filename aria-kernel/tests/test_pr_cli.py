@@ -178,9 +178,13 @@ class PrCliCreateTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         row = json.loads(stdout)
         self.assertEqual(row["base_branch"], "snowball")
+        # Plan 022 §C-4 — recorded_calls() now contains BOTH the
+        # `git rev-parse <branch>` head_sha resolution + the gh pr
+        # create invocation. Filter to gh_calls for the binding assertion.
         calls = recorded_calls()
-        self.assertEqual(len(calls), 1)
-        argv = calls[0].argv
+        gh_calls = [c for c in calls if c.argv[:3] == ["gh", "pr", "create"]]
+        self.assertEqual(len(gh_calls), 1)
+        argv = gh_calls[0].argv
         self.assertIn("--base", argv)
         self.assertEqual(argv[argv.index("--base") + 1], "snowball")
 

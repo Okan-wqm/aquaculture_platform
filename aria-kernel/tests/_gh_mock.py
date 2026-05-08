@@ -20,9 +20,16 @@ attempt to invoke gh with a different base.
 """
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import MagicMock
+
+# Plan 022 §C-4 — capture the unpatched subprocess.run before any test
+# patches aria_kernel.pr_manager.subprocess.run. open_pr_for_action now
+# calls `git rev-parse <branch>` to resolve the real head_sha; the mock
+# defers those calls to the real subprocess so existing tests keep working.
+_real_subprocess_run = subprocess.run
 
 
 @dataclass
@@ -88,8 +95,11 @@ def gh_create_success(*args, **kwargs):
         result.stdout = "https://github.com/test/repo/pull/123\n"
         result.stderr = ""
         return result
-    # Allow pass-through for other subprocess calls (e.g. git rev-parse) —
-    # tests using this mock should narrow the patch to gh subset if needed.
+    # Plan 022 §C-4 — pr_manager.open_pr_for_action now calls
+    # `git rev-parse <branch>` to resolve head_sha; defer to the real
+    # subprocess so existing test fixtures don't need invasive surgery.
+    if call.argv[:2] == ["git", "rev-parse"]:
+        return _real_subprocess_run(*args, **kwargs)
     raise AssertionError(f"gh_create_success only handles gh pr create; got: {call.argv!r}")
 
 
@@ -102,4 +112,6 @@ def gh_create_failure(*args, **kwargs):
         result.stdout = ""
         result.stderr = "gh: insufficient permissions to create pull request\n"
         return result
+    if call.argv[:2] == ["git", "rev-parse"]:
+        return _real_subprocess_run(*args, **kwargs)
     raise AssertionError(f"gh_create_failure only handles gh pr create; got: {call.argv!r}")

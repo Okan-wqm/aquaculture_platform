@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -107,10 +108,29 @@ def open_pr_for_action(
         action["validation_run_refs"] = latest_validation.get("run_refs", [])
     body = build_pr_body(proposal=proposal, action=action)
     _validate_pr_body(body)
+
+    # Plan 022 §C-4 — head_sha is the proposal commit (action.branch HEAD),
+    # not action.base_sha. Pre-fix conflated the two; auto-merge +
+    # provenance ledger consumed wrong commit identity. Resolve via
+    # `git rev-parse <branch>` so the lifecycle row carries the real
+    # head SHA. Keep base_sha in the payload as a separate field.
+    workspace_path = Path(workspace_root).resolve()
+    branch = action.get("branch")
+    resolved_head_sha: str | None = None
+    if branch:
+        rev_completed = subprocess.run(
+            ["git", "rev-parse", str(branch)],
+            cwd=workspace_path, capture_output=True, text=True, check=False,
+        )
+        if rev_completed.returncode == 0:
+            resolved_head_sha = rev_completed.stdout.strip() or None
+
     payload = {
         "number": None,
         "base_branch": ARIA_PR_BASE,
-        "head_sha": action.get("base_sha"),
+        "head_sha": resolved_head_sha,
+        "base_sha": action.get("base_sha"),
+        "branch": branch,
         "task_id": proposal.get("task_id"),
         "proposal_id": proposal_id,
         "changed_files": action.get("changed_files", []),
@@ -121,18 +141,44 @@ def open_pr_for_action(
     if dry_run:
         row = record_pr_lifecycle(payload, event="pr_dry_run", base_dir=base_dir)
         row["body"] = body
+        # Plan 022 §C-4 — surface base_sha alongside head_sha so callers
+        # can verify provenance distinct-ness without re-reading the
+        # source payload. record_pr_lifecycle persists pr_number /
+        # head_sha / base_branch but drops base_sha.
+        row["base_sha"] = payload.get("base_sha")
         return row
     completed = subprocess.run(
         ["gh", "pr", "create", "--base", ARIA_PR_BASE, "--title", str(proposal.get("title")), "--body", body],
-        cwd=Path(workspace_root).resolve(),
+        cwd=workspace_path,
         capture_output=True,
         text=True,
         check=False,
     )
     if completed.returncode != 0:
         raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh pr create failed")
-    payload["url"] = completed.stdout.strip()
+    stdout = completed.stdout or ""
+    payload["url"] = stdout.strip()
+
+    # Plan 022 §C-4 — robust PR number parse. Earlier `r"/pull/(\d+)$"`
+    # pattern failed on stdout with trailing newline, leading diagnostic
+    # lines, or mixed-content. The new regex tolerates whitespace or
+    # end-of-string after the digits.
+    pr_url_match = _PR_URL_RE.search(stdout)
+    if pr_url_match is None:
+        raise GovernanceError(
+            f"pr_create_url_unparseable: gh pr create stdout does not contain a "
+            f"GitHub /pull/<n> URL. stdout={stdout!r}"
+        )
+    payload["number"] = int(pr_url_match.group(1))
+    payload["url"] = pr_url_match.group(0)
     return record_pr_lifecycle(payload, event="opened", base_dir=base_dir)
+
+
+# Plan 022 §C-4 — robust GitHub PR URL regex. Matches https://github.com/
+# <owner>/<repo>/pull/<n> with permissive trailing context (whitespace or
+# end-of-string), so a `gh pr create` stdout that adds a newline or
+# diagnostic line still parses cleanly.
+_PR_URL_RE = re.compile(r"https?://[^\s]+/pull/(\d+)(?:\s|$)")
 
 
 def prepare_branch(

@@ -189,11 +189,15 @@ class OpenPRForActionTests(unittest.TestCase):
                 dry_run=False,
             )
         self.assertEqual(result["base_branch"], "snowball")
-        # Mock factory asserts --base snowball internally; recorded_calls() lets
-        # us also confirm the title arg was forwarded.
+        # Plan 022 §C-4 — open_pr_for_action now also calls
+        # `git rev-parse <branch>` to resolve the real head_sha; the
+        # call log captures BOTH that git call AND the gh pr create call.
         calls = recorded_calls()
-        self.assertEqual(len(calls), 1)
-        argv = calls[0].argv
+        gh_calls = [c for c in calls if c.argv[:3] == ["gh", "pr", "create"]]
+        git_calls = [c for c in calls if c.argv[:2] == ["git", "rev-parse"]]
+        self.assertEqual(len(gh_calls), 1)
+        self.assertEqual(len(git_calls), 1)
+        argv = gh_calls[0].argv
         self.assertIn("--title", argv)
         self.assertEqual(argv[argv.index("--title") + 1], proposal["title"])
 

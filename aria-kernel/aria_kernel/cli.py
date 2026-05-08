@@ -75,6 +75,11 @@ from aria_kernel.context_budget_gate import (
     enforce_context_budget,
     list_context_audits,
 )
+from aria_kernel.handoff_ledger import (
+    list_handoffs,
+    read_handoff,
+    take_handoff_snapshot,
+)
 from aria_kernel.runtime_profile import (
     PROFILES,
     get_profile,
@@ -247,6 +252,25 @@ def _main(argv: list[str] | None = None) -> int:
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+
+    # Plan 020 Phase 3.B — handoff snapshot sub-command.
+    # WHY a CLI surface: session_start + session_stop GHA workflow steps
+    # invoke this entry point. Operators use the same surface for manual
+    # handoff between session boundaries.
+    handoff_parser = sub.add_parser("handoff")
+    handoff_sub = handoff_parser.add_subparsers(dest="handoff_command", required=True)
+    handoff_snapshot = handoff_sub.add_parser("snapshot")
+    handoff_snapshot.add_argument("--session-id", required=True)
+    handoff_snapshot.add_argument("--trigger", required=True,
+        choices=["manual", "session_start", "pre_compact", "session_stop"])
+    handoff_snapshot.add_argument("--repo-root", default=".")
+    handoff_snapshot.add_argument("--operator-note", default=None)
+    handoff_list = handoff_sub.add_parser("list")
+    handoff_list.add_argument("--session-id", default=None)
+    handoff_list.add_argument("--trigger", default=None)
+    handoff_list.add_argument("--limit", type=int, default=None)
+    handoff_read = handoff_sub.add_parser("read")
+    handoff_read.add_argument("--session-id", required=True)
 
     # Plan 020 Phase 2.C — context budget audit / enforce sub-command.
     # WHY a CLI surface: operators inspecting why a planner packet got
@@ -1110,6 +1134,31 @@ def _main(argv: list[str] | None = None) -> int:
                 sort_keys=True,
             ),
         )
+        return 0
+
+    # Plan 020 Phase 3.B — handoff CLI dispatch.
+    if args.command == "handoff" and args.handoff_command == "snapshot":
+        snap = take_handoff_snapshot(
+            session_id=args.session_id,
+            trigger=args.trigger,
+            base_dir=args.tools_dir,
+            repo_root=args.repo_root,
+            operator_note=args.operator_note,
+        )
+        print(json.dumps(snap, indent=2, sort_keys=True))
+        return 0
+    if args.command == "handoff" and args.handoff_command == "list":
+        rows = list_handoffs(
+            base_dir=args.tools_dir,
+            session_id=args.session_id,
+            trigger=args.trigger,
+            limit=args.limit,
+        )
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    if args.command == "handoff" and args.handoff_command == "read":
+        snap = read_handoff(session_id=args.session_id, base_dir=args.tools_dir)
+        print(json.dumps(snap, indent=2, sort_keys=True))
         return 0
 
     # Plan 020 Phase 2.C — context budget CLI dispatch.

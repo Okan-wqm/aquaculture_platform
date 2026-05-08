@@ -57,6 +57,24 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Plan 020 Phase 3.C — session_start handoff snapshot.
+      # WHY here: every CI executor run is a discrete session boundary.
+      # Snapshotting at start captures "what was open before we touched
+      # anything" — the operator-readable diff against session_stop is
+      # how an audit reviewer reconstructs what the run actually changed
+      # without having to grep governance.jsonl by timestamp.
+      - name: Handoff snapshot — session_start
+        id: handoff_start
+        run: |
+          set -euo pipefail
+          SESSION_ID="gha-aria-agent-executor-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "session_id=${SESSION_ID}" >> "$GITHUB_OUTPUT"
+          PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
+            --session-id "${SESSION_ID}" \
+            --trigger session_start \
+            --tools-dir aria-tools \
+            --repo-root .
+
       - name: Find next pending request
         id: pending
         run: |
@@ -98,3 +116,20 @@ jobs:
           name: aria-response-${{ steps.pending.outputs.request_id }}
           path: aria-tools/agent-invocations/outputs/**
           retention-days: 30
+
+      # Plan 020 Phase 3.C — session_stop handoff snapshot.
+      # WHY here (post-upload, always): runs even when the executor
+      # short-circuits the request lookup ("no pending requests; exiting
+      # cleanly") so the audit trail still captures session boundary
+      # state. The if: always() pairs with handoff_start so an audit
+      # reviewer can diff session_start vs session_stop snapshots and
+      # see exactly what the run touched (or did not touch).
+      - name: Handoff snapshot — session_stop
+        if: always() && steps.handoff_start.outputs.session_id != ''
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
+            --session-id "${{ steps.handoff_start.outputs.session_id }}" \
+            --trigger session_stop \
+            --tools-dir aria-tools \
+            --repo-root .

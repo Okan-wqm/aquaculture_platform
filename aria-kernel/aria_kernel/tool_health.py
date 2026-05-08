@@ -176,7 +176,12 @@ def evaluate_health(
 
     calibrate_reason = auto_calibrate_reason(tool, runs, base_dir=base_dir)
     if calibrate_reason and tool["status"] not in ("CALIBRATE", "QUARANTINED", "ARCHIVED"):
-        updated = update_tool(
+        # Plan 022 §C-2b — kernel-internal auto-transition. tool_health is
+        # the audited health-monitor; it owns the auto-calibrate decision
+        # and writes via _update_tool_internal so the public update_tool()
+        # status guard does not self-block this trusted path.
+        from .tool_registry import _update_tool_internal
+        updated = _update_tool_internal(
             tool_id,
             {
                 "status": "CALIBRATE",

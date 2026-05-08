@@ -476,11 +476,31 @@ def list_tools(
     return deepcopy(tools)
 
 
-def update_tool(
+# Plan 022 §C-2b — runner/scope fields whose changes require an
+# explicit operator_approval_ref via update_tool. (status is handled
+# separately — it must route through transition_tool.)
+_OPERATOR_APPROVAL_GATED_FIELDS: tuple[str, ...] = (
+    "runner",
+    "allowed_read_globs",
+    "forbidden_read_globs",
+    "declared_scope",
+)
+
+
+def _update_tool_internal(
     tool_id: str,
     updates: dict[str, Any],
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
+    """Plan 022 §C-2b — unguarded merge primitive used by transition_tool.
+
+    Direct callers MUST go through public update_tool() which gates
+    status changes (must route through transition_tool) and runner/
+    scope changes (require operator_approval_ref). This private path
+    exists so transition_tool() — which is itself the audited state
+    machine — can write its own status + last_transition update without
+    self-blocking.
+    """
     registry = load_registry(base_dir)
     updated: dict[str, Any] | None = None
     next_tools = []
@@ -498,6 +518,94 @@ def update_tool(
     registry["tools"] = next_tools
     save_registry(registry, base_dir)
     return deepcopy(updated)
+
+
+def update_tool(
+    tool_id: str,
+    updates: dict[str, Any],
+    base_dir: str | os.PathLike[str] | None = None,
+    *,
+    operator_approval_ref: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Plan 022 §C-2b — guarded public update_tool.
+
+    Pre-Plan-022 update_tool() merged the updates dict directly without
+    revalidating, without enforcing the status transition matrix, and
+    without auditing runner/scope changes. A caller could promote a
+    tool to ACTIVE (skipping precision + evidence + approval checks) or
+    silently widen its scope just by passing the new fields here.
+
+    Guards:
+    1. Status changes are forbidden via update_tool — must route through
+       transition_tool() (which internally calls _update_tool_internal).
+       The error directs callers to the legitimate API.
+    2. Runner / allowed_read_globs / forbidden_read_globs / declared_scope
+       changes require operator_approval_ref + reason; emits
+       tool_runner_replaced governance event when runner.argv differs
+       so audit history captures the swap.
+    3. Merged candidate is re-validated via validate_tool_definition so
+       the post-update row is still well-formed.
+    """
+    if "status" in updates:
+        raise GovernanceError(
+            f"status_change_must_route_through_transition_tool: "
+            f"tool_id={tool_id!r} update_tool() does not accept status field; "
+            f"call transition_tool(tool_id, target_status, reason=...) instead"
+        )
+    gated_present = [f for f in _OPERATOR_APPROVAL_GATED_FIELDS if f in updates]
+    if gated_present:
+        if not (operator_approval_ref or "").strip():
+            raise GovernanceError(
+                f"runner_or_scope_change_requires_operator_approval: "
+                f"tool_id={tool_id!r} update_tool() touching {gated_present} "
+                f"requires operator_approval_ref kwarg"
+            )
+        if not (reason or "").strip():
+            raise GovernanceError(
+                f"runner_or_scope_change_requires_operator_approval: "
+                f"tool_id={tool_id!r} update_tool() touching {gated_present} "
+                f"requires reason kwarg"
+            )
+
+    # Capture pre-update runner argv so we can emit tool_runner_replaced
+    # only when it actually changes.
+    pre_runner_argv: list[str] | None = None
+    if "runner" in updates:
+        try:
+            pre_runner_argv = list((get_tool(tool_id, base_dir).get("runner") or {}).get("argv", []))
+        except GovernanceError:
+            pre_runner_argv = None
+
+    # Merge + re-validate.
+    pre = get_tool(tool_id, base_dir)
+    merged_for_validation = dict(pre)
+    merged_for_validation.update(updates)
+    validate_tool_definition(merged_for_validation)
+
+    result = _update_tool_internal(tool_id, updates, base_dir)
+
+    # Audit runner.argv swaps post-merge.
+    if "runner" in updates:
+        new_argv = list((result.get("runner") or {}).get("argv", []))
+        if pre_runner_argv != new_argv:
+            from .ledger import append_jsonl
+            tools_root = ensure_tools_dir(base_dir)
+            append_jsonl(
+                tools_root / "governance.jsonl",
+                governance_event(
+                    kind="tool_runner_replaced",
+                    details={
+                        "tool_id": tool_id,
+                        "previous_argv": pre_runner_argv,
+                        "new_argv": new_argv,
+                        "reason": reason,
+                        "operator_approval_ref": operator_approval_ref,
+                    },
+                ),
+            )
+
+    return result
 
 
 def transition_tool(
@@ -544,7 +652,10 @@ def transition_tool(
                     "SHADOW -> ACTIVE requires valid evidence chains and operator approval",
                 )
 
-    return update_tool(
+    # Plan 022 §C-2b — transition_tool is the audited state machine;
+    # write its own status + last_transition update via the internal
+    # primitive so the public update_tool() guard does not self-block.
+    return _update_tool_internal(
         tool_id,
         {
             "status": target_status,

@@ -32,6 +32,7 @@ from aria_kernel.tool_registry import (
     unquarantine_tool,
     update_tool,
 )
+from aria_kernel.tool_registry import _update_tool_internal  # noqa: PLC2701 — test fixture only
 
 
 def _seed_tools() -> Path:
@@ -89,7 +90,7 @@ class RegisterToolLifecycleGateTests(_LifecycleTestCase):
         register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
         # Force QUARANTINED status via direct update_tool (this is what a
         # tool_health quarantine action does on the disk row).
-        update_tool("fake-adapter", {"status": "QUARANTINED"}, base_dir=self.tools)
+        _update_tool_internal("fake-adapter", {"status": "QUARANTINED"}, base_dir=self.tools)
         # Act + Assert: bare re-register as ACTIVE blocked.
         with self.assertRaises(GovernanceError) as cm:
             register_tool(_manifest(status="ACTIVE"), base_dir=self.tools)
@@ -98,14 +99,14 @@ class RegisterToolLifecycleGateTests(_LifecycleTestCase):
 
     def test_shadow_to_active_re_register_blocked(self) -> None:
         register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
-        update_tool("fake-adapter", {"status": "SHADOW"}, base_dir=self.tools)
+        _update_tool_internal("fake-adapter", {"status": "SHADOW"}, base_dir=self.tools)
         with self.assertRaises(GovernanceError) as cm:
             register_tool(_manifest(status="ACTIVE"), base_dir=self.tools)
         self.assertIn("transition_tool", str(cm.exception))
 
     def test_active_to_shadow_re_register_blocked(self) -> None:
         register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
-        update_tool("fake-adapter", {"status": "ACTIVE"}, base_dir=self.tools)
+        _update_tool_internal("fake-adapter", {"status": "ACTIVE"}, base_dir=self.tools)
         with self.assertRaises(GovernanceError) as cm:
             register_tool(_manifest(status="SHADOW"), base_dir=self.tools)
         self.assertIn("demotion", str(cm.exception))
@@ -130,7 +131,7 @@ class RegisterToolLifecycleGateTests(_LifecycleTestCase):
 class UnquarantineToolTests(_LifecycleTestCase):
     def test_unquarantine_routes_to_calibrate_with_audit_trail(self) -> None:
         register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
-        update_tool("fake-adapter", {"status": "QUARANTINED"}, base_dir=self.tools)
+        _update_tool_internal("fake-adapter", {"status": "QUARANTINED"}, base_dir=self.tools)
         result = unquarantine_tool(
             "fake-adapter",
             operator_approval_ref="ops-2026-05-08-001",
@@ -146,7 +147,7 @@ class UnquarantineToolTests(_LifecycleTestCase):
 
     def test_unquarantine_requires_operator_approval_ref(self) -> None:
         register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
-        update_tool("fake-adapter", {"status": "QUARANTINED"}, base_dir=self.tools)
+        _update_tool_internal("fake-adapter", {"status": "QUARANTINED"}, base_dir=self.tools)
         with self.assertRaises(GovernanceError) as cm:
             unquarantine_tool(
                 "fake-adapter",

@@ -133,6 +133,21 @@ def ensure_tools_binding(
         identity["schema_version"] = 2
         _atomic_write_json(identity_file, identity)
         append_tools_governance(root, "tools_root_bound", {"bound_repo_hash": expected_hash, "bound_repo_root": str(repo_root)})
+    elif identity["bound_repo_hash"] != expected_hash:
+        # Plan 022 §C-3 — fail-closed on cross-repo aria-tools reuse.
+        # Pre-fix: function silently returned, allowing the same
+        # aria-tools root to be reused across repos and the ledger to
+        # accidentally merge events from different code histories.
+        # Post-fix: reject explicitly so the operator either binds a
+        # fresh aria-tools/ to repo B or proves the workspace_root
+        # mismatch was a typo.
+        raise GovernanceError(
+            f"tools_root_repo_hash_mismatch: "
+            f"bound={identity['bound_repo_hash']!r} "
+            f"current={expected_hash!r}; aria-tools cannot be reused across repos. "
+            f"bound_repo_root={identity.get('bound_repo_root')!r}, "
+            f"current workspace_root={str(repo_root)!r}"
+        )
     return root
 
 

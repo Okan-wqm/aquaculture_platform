@@ -14,7 +14,7 @@ import { AlertSeverity } from '../../database/entities/alert-rule.entity';
  * Records triggered alerts for audit and tracking
  */
 @ObjectType()
-@Entity('alert_history', { schema: 'alert' })
+@Entity('alert_history')
 @Index(['tenantId', 'triggeredAt'])
 // PE-02: Explicit descending composite index for the cooldown query
 // (ruleId equality + triggeredAt range with DESC ordering).

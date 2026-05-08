@@ -263,10 +263,13 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             "target_path": ".claude/agents/aria-demo.md",
         }
         append_jsonl(drafts_dir / "drafts.jsonl", draft)
+        # Plan 022 §H-4 — synthetic fixture_results without execution
+        # provenance require synthetic_test_mode=True opt-in.
         evaluate_genesis_sandbox(
             draft_id="draft-aria-demo",
             fixture_results=[{"status": "pass"}, {"status": "pass"}, {"status": "pass"}],
             base_dir=self.tools_dir,
+            synthetic_test_mode=True,
         )
         approve_agent_pr(
             draft_id="draft-aria-demo",

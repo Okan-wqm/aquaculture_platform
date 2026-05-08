@@ -101,6 +101,11 @@ class AgentGenesisFoundationTests(unittest.TestCase):
         self.assertTrue(Path(draft["draft_path"]).exists())
         self.assertEqual(len(draft["draft"]["validation_fixtures"]), 3)
 
+        # Plan 022 §H-4 — synthetic fixture_results (without execution
+        # provenance) are forbidden in default mode. This test exercises
+        # the genesis flow with synthetic input so opt into
+        # synthetic_test_mode=True; real-execution provenance is
+        # exercised by test_agent_genesis_h4_real_exec.py.
         sandbox = evaluate_genesis_sandbox(
             draft_id=draft["draft_id"],
             fixture_results=[
@@ -109,6 +114,7 @@ class AgentGenesisFoundationTests(unittest.TestCase):
                 {"name": "scope-violation-guard", "status": "pass"},
             ],
             base_dir=self.tools_dir,
+            synthetic_test_mode=True,
         )
         self.assertEqual(sandbox["decision"], "pass")
         approved = approve_agent_pr(

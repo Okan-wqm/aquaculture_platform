@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from .capability_gap import latest_capability_gaps
@@ -63,15 +64,77 @@ def draft_agent_from_gap(
     return append_jsonl(root / "agent-genesis" / "drafts.jsonl", row)
 
 
+def _fixture_result_has_real_execution_provenance(result: dict[str, Any]) -> bool:
+    """Plan 022 §H-4 — a fixture result must carry execution provenance
+    proving the fixture actually ran. Bare {status: 'pass'} dicts are
+    forbidden in non-test mode because they let a caller fabricate a
+    sandbox-pass without the fixture runner ever firing.
+
+    Required provenance shape:
+      result["provenance"] == {
+        "executed_at": "<ISO8601 timestamp>",
+        "execution_run_id": "<non-empty string>",
+      }
+    """
+    prov = result.get("provenance")
+    if not isinstance(prov, dict):
+        return False
+    executed_at = prov.get("executed_at")
+    run_id = prov.get("execution_run_id")
+    return (
+        isinstance(executed_at, str) and bool(executed_at.strip())
+        and isinstance(run_id, str) and bool(run_id.strip())
+    )
+
+
 def evaluate_genesis_sandbox(
     *,
     draft_id: str,
     fixture_results: list[dict[str, Any]],
     base_dir: str | Path | None = None,
+    synthetic_test_mode: bool = False,
 ) -> dict[str, Any]:
+    """Evaluate a genesis sandbox run.
+
+    Plan 022 §H-4 — pre-fix this function only counted fixture_results
+    and checked status filter. A caller could pass synthetic
+    [{status:'pass'}, {status:'pass'}, {status:'pass'}] and the sandbox
+    would record 'pass' even though no fixture had ever executed.
+    Result: fake-promoted agents could land via genesis without a real
+    adversarial run.
+
+    Post-fix: each fixture_result MUST carry execution provenance
+    (provenance.executed_at + provenance.execution_run_id) proving the
+    fixture actually ran. Missing provenance -> GovernanceError.
+
+    synthetic_test_mode (or env var ARIA_GENESIS_TEST_SYNTHETIC=1)
+    explicitly opts into synthetic input — operator test path only,
+    NOT for prod use. The field is captured in the sandbox row so
+    audit reviewers can distinguish real-execution sandboxes from
+    test-mode synthetic ones.
+    """
     draft = _find_draft(draft_id, base_dir)
     if len(fixture_results) < 3:
         raise GovernanceError("genesis sandbox requires at least 3 fixture results")
+
+    # Plan 022 §H-4 — gate synthetic input.
+    test_mode_env = os.environ.get("ARIA_GENESIS_TEST_SYNTHETIC", "").lower() in ("1", "true", "yes")
+    in_test_mode = bool(synthetic_test_mode or test_mode_env)
+    if not in_test_mode:
+        missing_provenance = [
+            i for i, r in enumerate(fixture_results)
+            if not _fixture_result_has_real_execution_provenance(r)
+        ]
+        if missing_provenance:
+            raise GovernanceError(
+                f"genesis_synthetic_input_forbidden_outside_test_mode: "
+                f"fixture_results indices {missing_provenance} lack "
+                f"provenance.executed_at + provenance.execution_run_id. "
+                f"Either run the fixtures via fixture_runner so each result "
+                f"carries real provenance, or pass synthetic_test_mode=True "
+                f"(operator-test-only path)."
+            )
+
     failed = [result for result in fixture_results if result.get("status") != "pass"]
     duplicate = bool(draft.get("draft", {}).get("related_existing_agents"))
     decision = "duplicate_existing_agent" if duplicate else ("fail" if failed else "pass")
@@ -81,6 +144,7 @@ def evaluate_genesis_sandbox(
         "draft_id": draft_id,
         "decision": decision,
         "fixture_results": fixture_results,
+        "synthetic_test_mode": in_test_mode,
         "blocked_by": _sandbox_blockers(decision),
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "genesis-sandbox" / "runs.jsonl", row)

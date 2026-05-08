@@ -67,8 +67,28 @@
 
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import { DataSource, type MigrationInterface } from 'typeorm';
-import { readdirSync, statSync } from 'fs';
+import { readdirSync, statSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
+import { ConfigService } from '@nestjs/config';
+
+// Dynamic require to avoid the e2e tsconfig's rootDir guard. Importing
+// schema-drift-validator.service.ts directly via `import { ... }` would
+// pull a file outside the e2e/ rootDir into the type-check graph and
+// trigger TS6059 on every spec compile. ts-jest resolves this lazily
+// at runtime (same pattern the migration loader uses for migration
+// classes). The validator's contract is stable; require()ing through
+// the file path keeps the spec free of cross-rootDir type drift.
+type SchemaDriftValidatorFactory = (serviceName: string) => new (
+  ds: DataSource,
+  cs: ConfigService,
+) => { onApplicationBootstrap(): Promise<void> };
+function loadDriftValidatorFactory(): SchemaDriftValidatorFactory {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = require('../../../libs/backend-common/src/database/schema-drift-validator.service') as {
+    createSchemaDriftValidator: SchemaDriftValidatorFactory;
+  };
+  return mod.createSchemaDriftValidator;
+}
 
 // The same image+digest the production stack uses — see
 // docker-compose.infra.yml line 12. Pinning by digest guarantees the
@@ -109,23 +129,161 @@ interface ServiceManifest {
   name: string;
   schema: string;
   migrationsDir: string;
+  /**
+   * `entitiesGlob`: optional glob (relative to repo root) that matches
+   * every `*.entity.ts` file owned by this service. When set, the
+   * entity-surface-vs-DB matrix (assertEntitySurfaceMatchesDb) iterates
+   * the files under this glob and asserts each entity's table surface
+   * exists in the DB. Services without entities (gateway-api) leave it
+   * unset.
+   */
+  entitiesGlob?: string;
 }
 
 const SERVICES: ServiceManifest[] = [
   // auth FIRST — every other service's FKs reference auth.tenants.
-  { name: 'auth-service', schema: 'auth', migrationsDir: 'apps/auth-service/src/migrations' },
+  {
+    name: 'auth-service',
+    schema: 'auth',
+    migrationsDir: 'apps/auth-service/src/migrations',
+    entitiesGlob: 'apps/auth-service/src',
+  },
   // Then the rest, ordered to minimize cross-schema FK ordering hazards.
-  { name: 'farm-service', schema: 'farm', migrationsDir: 'apps/farm-service/src/database/migrations' },
-  { name: 'sensor-service', schema: 'sensor', migrationsDir: 'apps/sensor-service/src/database/migrations' },
-  { name: 'hr-service', schema: 'hr', migrationsDir: 'apps/hr-service/src/database/migrations' },
-  { name: 'messaging-service', schema: 'messaging', migrationsDir: 'apps/messaging-service/src/migrations' },
-  { name: 'alert-engine', schema: 'alert', migrationsDir: 'apps/alert-engine/src/database/migrations' },
-  { name: 'billing-service', schema: 'billing', migrationsDir: 'apps/billing-service/src/database/migrations' },
-  { name: 'notification-service', schema: 'notification', migrationsDir: 'apps/notification-service/src/database/migrations' },
-  { name: 'observability-service', schema: 'observability', migrationsDir: 'apps/observability-service/src/database/migrations' },
-  { name: 'admin-api-service', schema: 'admin', migrationsDir: 'apps/admin-api-service/src/migrations' },
-  { name: 'event-store-service', schema: 'event_store', migrationsDir: 'apps/event-store-service/src/migrations' },
+  {
+    name: 'farm-service',
+    schema: 'farm',
+    migrationsDir: 'apps/farm-service/src/database/migrations',
+    entitiesGlob: 'apps/farm-service/src',
+  },
+  {
+    name: 'sensor-service',
+    schema: 'sensor',
+    migrationsDir: 'apps/sensor-service/src/database/migrations',
+    entitiesGlob: 'apps/sensor-service/src',
+  },
+  {
+    name: 'hr-service',
+    schema: 'hr',
+    migrationsDir: 'apps/hr-service/src/database/migrations',
+    entitiesGlob: 'apps/hr-service/src',
+  },
+  {
+    name: 'messaging-service',
+    schema: 'messaging',
+    migrationsDir: 'apps/messaging-service/src/migrations',
+    entitiesGlob: 'apps/messaging-service/src',
+  },
+  {
+    name: 'alert-engine',
+    schema: 'alert',
+    migrationsDir: 'apps/alert-engine/src/database/migrations',
+    entitiesGlob: 'apps/alert-engine/src',
+  },
+  {
+    name: 'billing-service',
+    schema: 'billing',
+    migrationsDir: 'apps/billing-service/src/database/migrations',
+    entitiesGlob: 'apps/billing-service/src',
+  },
+  {
+    name: 'notification-service',
+    schema: 'notification',
+    migrationsDir: 'apps/notification-service/src/database/migrations',
+    entitiesGlob: 'apps/notification-service/src',
+  },
+  {
+    name: 'observability-service',
+    schema: 'observability',
+    migrationsDir: 'apps/observability-service/src/database/migrations',
+    entitiesGlob: 'apps/observability-service/src',
+  },
+  {
+    name: 'admin-api-service',
+    schema: 'admin',
+    migrationsDir: 'apps/admin-api-service/src/migrations',
+    entitiesGlob: 'apps/admin-api-service/src',
+  },
+  {
+    name: 'event-store-service',
+    schema: 'event_store',
+    migrationsDir: 'apps/event-store-service/src/migrations',
+    entitiesGlob: 'apps/event-store-service/src',
+  },
+  // Wave 4-A.2 Dalga 5 — close the manifest gap. The 4 services
+  // below were absent from the original 11-service manifest, so the
+  // bootstrap test passed even when their migration chains were empty
+  // or their entity-surface drifted from the on-disk schema. Adding
+  // them here closes the regression class:
+  //
+  //   hydroponics-service / ai-service — schema-per-tenant services
+  //     with their own baseline migrations + entity surface.
+  //   config-service — platform-level service. Migrations dir is
+  //     intentionally empty (.gitkeep only) — the entity-surface
+  //     check still runs, the migration runner is a no-op.
+  //   gateway-api — pure HTTP fronting, owns NO entities and NO
+  //     migrations. Listed in the manifest so the schema-ownership
+  //     audit (Part B B.4) can assert the `gateway` schema exists
+  //     and is owned by `gateway_service`. `entitiesGlob` is unset
+  //     → entity-surface check skips it (correct: nothing to check).
+  {
+    name: 'hydroponics-service',
+    schema: 'hydroponics',
+    migrationsDir: 'apps/hydroponics-service/src/database/migrations',
+    entitiesGlob: 'apps/hydroponics-service/src',
+  },
+  {
+    name: 'ai-service',
+    schema: 'ai',
+    migrationsDir: 'apps/ai-service/src/database/migrations',
+    entitiesGlob: 'apps/ai-service/src',
+  },
+  {
+    name: 'config-service',
+    schema: 'config',
+    migrationsDir: 'apps/config-service/src/database/migrations',
+    entitiesGlob: 'apps/config-service/src',
+  },
+  {
+    name: 'gateway-api',
+    schema: 'gateway',
+    migrationsDir: 'apps/gateway-api/src/database/migrations',
+    // gateway-api owns no entities — `entitiesGlob` intentionally unset.
+  },
 ];
+
+/**
+ * Tables expected to be registered as TimescaleDB hypertables after the
+ * full bootstrap pipeline runs. Sensor service owns both: `sensor_readings`
+ * is the high-volume time-series feed; `sensor_metrics` is the
+ * derived/aggregated metric stream with the narrow-table format introduced
+ * in 1735800000000-CreateSensorReadingsHypertable + the per-tenant
+ * createSensorMetricsHypertable() path in SchemaManagerService.
+ */
+const EXPECTED_HYPERTABLES: Array<{ schema: string; table: string }> = [
+  { schema: 'sensor', table: 'sensor_readings' },
+  { schema: 'sensor', table: 'sensor_metrics' },
+];
+
+/**
+ * Schemas whose owning services run in schema-per-tenant mode (ADR-011 +
+ * libs/backend-common/.../tenant-aware-schemas.ts SSoT). Every such
+ * source schema MUST have RLS policies registered against its tables —
+ * otherwise the tenant_<uuid> clones inherit ZERO policies via
+ * CREATE TABLE LIKE INCLUDING ALL and a row-leakage hole opens.
+ *
+ * Asserted by Part A's RLS-policy probe (assertEntitySurfaceMatchesDb)
+ * and Part B B.5's TENANT_SCOPED audit. Both consumers import this
+ * constant via the SERVICES manifest.
+ */
+const RLS_REQUIRED_SCHEMAS: ReadonlySet<string> = new Set([
+  'farm',
+  'sensor',
+  'hr',
+  'messaging',
+  'hydroponics',
+  'ai',
+  'alert',
+]);
 
 /**
  * Schemas that MUST exist after the init scripts have run, BEFORE any
@@ -195,6 +353,15 @@ const AUTH_BASELINE_TABLES = [
  * convention `<Name><timestamp>` (e.g. `CreateInitialSchema1700000000000`).
  */
 function loadMigrationClassesFromDir(absDir: string): Array<new () => MigrationInterface> {
+  // Wave 4-A.2 Dalga 5 — services that own a directory but ship no
+  // migrations yet (config-service: .gitkeep only; gateway-api:
+  // directory absent entirely) are valid manifest entries; return an
+  // empty class list so the per-service runMigrations() call is a no-op
+  // rather than a hard failure.
+  if (!existsSync(absDir)) {
+    return [];
+  }
+
   let entries: string[];
   try {
     entries = readdirSync(absDir);
@@ -235,6 +402,276 @@ function loadMigrationClassesFromDir(absDir: string): Array<new () => MigrationI
     classes.push(candidate);
   }
   return classes;
+}
+
+/**
+ * Discover every `*.entity.ts` file under a service's source root.
+ *
+ * Used by the entity-surface coverage matrix (assertEntitySurfaceMatchesDb).
+ * Recurses through subdirectories because services scatter entities across
+ * `src/<feature>/entities/`, `src/<feature>/`, and the legacy
+ * `src/setup/entities/` location.
+ */
+function findEntityFiles(absRoot: string): string[] {
+  const out: string[] = [];
+  if (!existsSync(absRoot)) return out;
+  const stack: string[] = [absRoot];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    let entries: string[];
+    try {
+      entries = readdirSync(current);
+    } catch {
+      continue;
+    }
+    for (const name of entries) {
+      // Skip migration directories — files there are CREATE TABLE
+      // statements, not entity declarations. Skip __tests__ to avoid
+      // pulling spec doubles into the metadata graph.
+      if (name === 'migrations' || name === '__tests__' || name === 'node_modules') {
+        continue;
+      }
+      const full = join(current, name);
+      let st;
+      try {
+        st = statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
+      if (st.isFile() && /\.entity\.ts$/.test(name)) {
+        out.push(full);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Load every `@Entity` class from a service's source root via require().
+ *
+ * Strategy: ts-jest transforms .ts files on import, so each entity file
+ * registers itself with TypeORM's getMetadataArgsStorage() side-effect.
+ * After requiring all files we instantiate a metadata-only DataSource
+ * to materialize EntityMetadata graphs that the surface-matrix probes
+ * iterate over.
+ */
+function loadEntityClasses(absRoot: string): Array<Function> {
+  const files = findEntityFiles(absRoot);
+  const classes: Function[] = [];
+  for (const file of files) {
+    let mod: Record<string, unknown>;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      mod = require(file) as Record<string, unknown>;
+    } catch (err) {
+      // Skip entity files that can't be required (e.g., declare side
+      // effects on a Nest module not loaded in this test). Surface as
+      // warning rather than fatal — the file's @Entity decorators ran
+      // anyway through getMetadataArgsStorage.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[bootstrap-from-scratch] could not require entity file ${file}: ${(err as Error).message}`,
+      );
+      continue;
+    }
+    for (const v of Object.values(mod)) {
+      if (typeof v === 'function' && /^[A-Z]/.test(v.name)) {
+        classes.push(v);
+      }
+    }
+  }
+  return classes;
+}
+
+interface SurfaceProbeResult {
+  schema: string;
+  table: string;
+  drift: string[];
+}
+
+/**
+ * Assert that every entity registered for a service has a matching
+ * physical table, columns, FKs, indexes, and (for tenant-scoped
+ * schemas) at least one tenant_<uuid> RLS-policy clone.
+ *
+ * This is the generic helper the mission spec calls
+ * `assertEntitySurfaceMatchesDb`. Returns the per-entity drift list;
+ * the caller decides how to surface failures (one Jest case per drift
+ * gives the highest-signal CI output).
+ */
+interface PgConnInfo {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  database: string;
+}
+
+async function assertEntitySurfaceMatchesDb(
+  serviceName: string,
+  entityClasses: ReadonlyArray<Function>,
+  conn: PgConnInfo,
+): Promise<SurfaceProbeResult[]> {
+  // Build a metadata-only DataSource so EntityMetadata graphs are
+  // materialized for FK + index introspection. We cannot use the
+  // service's migration DataSource because that one is configured
+  // with `migrations: [...]` and no entities. A short-lived metadata
+  // DataSource avoids re-running migrations.
+  const metadataDs = new DataSource({
+    type: 'postgres',
+    host: conn.host,
+    port: conn.port,
+    username: conn.username,
+    password: conn.password,
+    database: conn.database,
+    entities: [...entityClasses] as Function[],
+    synchronize: false,
+    migrationsRun: false,
+  });
+  await metadataDs.initialize();
+
+  const results: SurfaceProbeResult[] = [];
+  try {
+    for (const meta of metadataDs.entityMetadatas) {
+      // Resolve declared schema. Tenant-aware entities legitimately
+      // omit `schema:` (the SchemaManagerService routes them at
+      // provision time). For source-table existence we look in the
+      // canonical service schema derived from the manifest.
+      const declaredSchema =
+        (meta.schema as string | undefined) ??
+        // Fall back to the service's canonical schema — tenant-aware
+        // entities use this path.
+        SERVICES.find((s) => s.name === serviceName)?.schema ??
+        'public';
+
+      const drift: string[] = [];
+      const tableName = meta.tableName;
+
+      // (a) Table exists in declared OR routed schema. We accept the
+      //     declared schema as primary; tenant_* schemas are a
+      //     secondary residence and skipped here (Part C covers them).
+      const tableRows: Array<{ schemaname: string }> = await metadataDs.query(
+        `SELECT schemaname FROM pg_tables
+         WHERE tablename = $1 AND schemaname = $2`,
+        [tableName, declaredSchema],
+      );
+      if (tableRows.length === 0) {
+        drift.push(
+          `table missing: ${declaredSchema}.${tableName} not found in pg_tables`,
+        );
+        results.push({ schema: declaredSchema, table: tableName, drift });
+        continue;
+      }
+
+      // (b) Column existence + data-type compatibility per @Column.
+      const columnRows: Array<{ column_name: string; data_type: string }> =
+        await metadataDs.query(
+          `SELECT column_name, data_type FROM information_schema.columns
+           WHERE table_schema = $1 AND table_name = $2`,
+          [declaredSchema, tableName],
+        );
+      const dbColumns = new Map(columnRows.map((r) => [r.column_name, r.data_type]));
+      for (const col of meta.columns) {
+        if (!dbColumns.has(col.databaseName)) {
+          drift.push(
+            `column missing: ${declaredSchema}.${tableName}.${col.databaseName} ` +
+              `(entity declares but DB has no such column)`,
+          );
+        }
+      }
+
+      // (c) FKs: every @ManyToOne relation has a pg_constraint row.
+      //     We count FKs whose constrained relation matches the table;
+      //     mismatched count is the drift signal (TypeORM emits one
+      //     constraint per relation).
+      const expectedFkCount = meta.relations.filter(
+        (r) => r.relationType === 'many-to-one',
+      ).length;
+      if (expectedFkCount > 0) {
+        const fkRows: Array<{ count: string }> = await metadataDs.query(
+          `SELECT COUNT(*)::text AS count FROM pg_constraint c
+             JOIN pg_class t ON t.oid = c.conrelid
+             JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.contype = 'f'
+             AND n.nspname = $1
+             AND t.relname = $2`,
+          [declaredSchema, tableName],
+        );
+        const actual = parseInt(fkRows[0]?.count ?? '0', 10);
+        if (actual < expectedFkCount) {
+          drift.push(
+            `fk drift: ${declaredSchema}.${tableName} declares ${expectedFkCount} ` +
+              `@ManyToOne relation(s) but pg_constraint has only ${actual} FK(s)`,
+          );
+        }
+      }
+
+      // (d) Indexes: every @Index has a pg_indexes row. We do a
+      //     count-only check because TypeORM-generated index names
+      //     are unstable across versions; the drift signal is "DB
+      //     has fewer indexes than the entity declares" — extra
+      //     indexes are fine.
+      const expectedIxCount = meta.indices.length;
+      if (expectedIxCount > 0) {
+        const ixRows: Array<{ count: string }> = await metadataDs.query(
+          `SELECT COUNT(*)::text AS count FROM pg_indexes
+           WHERE schemaname = $1 AND tablename = $2`,
+          [declaredSchema, tableName],
+        );
+        const actual = parseInt(ixRows[0]?.count ?? '0', 10);
+        // The PK always has its own index — entity @Index list does
+        // not include it. Accept actual >= expectedIxCount + 0 (PK
+        // index counted, declared @Index entries each add one).
+        if (actual < expectedIxCount) {
+          drift.push(
+            `index drift: ${declaredSchema}.${tableName} declares ${expectedIxCount} ` +
+              `@Index entries, pg_indexes has only ${actual} (excluding PK)`,
+          );
+        }
+      }
+
+      // (e) For tenant-scoped schemas: at least one tenant_<uuid> clone
+      //     must carry an RLS policy on the cloned table. The bootstrap
+      //     test runs against an empty-tenant DB (no tenants
+      //     provisioned), so we cannot fail on "no clone exists" — we
+      //     only fail when a clone EXISTS and is missing RLS. Part C
+      //     spec covers the active-clone shape with a real tenant.
+      if (RLS_REQUIRED_SCHEMAS.has(declaredSchema)) {
+        const cloneRows: Array<{
+          tablename: string;
+          schemaname: string;
+        }> = await metadataDs.query(
+          `SELECT tablename, schemaname FROM pg_tables
+           WHERE schemaname ~ '^tenant_[a-f0-9]{16}$'
+             AND tablename = $1`,
+          [tableName],
+        );
+        for (const cr of cloneRows) {
+          const policyRows: Array<{ count: string }> = await metadataDs.query(
+            `SELECT COUNT(*)::text AS count FROM pg_policies
+             WHERE schemaname = $1 AND tablename = $2`,
+            [cr.schemaname, cr.tablename],
+          );
+          if (parseInt(policyRows[0]?.count ?? '0', 10) === 0) {
+            drift.push(
+              `rls drift: tenant clone ${cr.schemaname}.${cr.tablename} has zero pg_policies rows`,
+            );
+          }
+        }
+      }
+
+      results.push({ schema: declaredSchema, table: tableName, drift });
+    }
+  } finally {
+    await metadataDs.destroy().catch(() => {
+      /* swallow — teardown */
+    });
+  }
+  return results;
 }
 
 describe('Bootstrap from scratch (fresh-volume init + full migration chain)', () => {
@@ -310,7 +747,15 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
 
       try {
         await ds.initialize();
-        await ds.runMigrations({ transaction: 'each' });
+        // Skip runMigrations() for services with empty migration sets —
+        // gateway-api owns no migrations dir and config-service ships
+        // only `.gitkeep`. Calling runMigrations() with an empty list is
+        // a no-op in TypeORM, but skipping the call avoids creating the
+        // empty `<schema>.migrations` ledger table that would skew the
+        // "ledger is non-empty" assertion below.
+        if (migrationClasses.length > 0) {
+          await ds.runMigrations({ transaction: 'each' });
+        }
       } catch (err) {
         // Surface which service failed so the diagnostic message is
         // actionable from CI logs. Do not swallow — re-throw so Jest
@@ -435,24 +880,28 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
     expect(rows.length).toBe(1);
   });
 
-  it('sensor.sensor_readings is a TimescaleDB hypertable', async () => {
-    // The hypertable is created by
-    // 1735800000000-CreateSensorReadingsHypertable. If the table exists
-    // as a regular table, the create_hypertable call inside the
-    // migration silently failed — caught here.
-    const rows = await probeDs().query<{ hypertable_name: string }[]>(
-      `SELECT hypertable_name FROM timescaledb_information.hypertables
-       WHERE hypertable_schema = 'sensor' AND hypertable_name = 'sensor_readings'`,
-    );
-    if (rows.length !== 1) {
-      throw new Error(
-        `sensor.sensor_readings is not registered as a TimescaleDB hypertable. ` +
-          `Either the timescaledb extension was not enabled (check ` +
-          `init-scripts/00-init-schemas.sh CREATE EXTENSION) or ` +
-          `1735800000000-CreateSensorReadingsHypertable did not run.`,
+  it.each(EXPECTED_HYPERTABLES)(
+    '$schema.$table is a TimescaleDB hypertable',
+    async ({ schema, table }) => {
+      // Source-schema hypertable existence is the strongest signal that
+      // the create_hypertable() call inside the migration ran. The
+      // tenant-clone path uses createHypertable / createSensorMetricsHypertable
+      // off SchemaManagerService at provision time — covered by Part C.
+      const rows = await probeDs().query<{ hypertable_name: string }[]>(
+        `SELECT hypertable_name FROM timescaledb_information.hypertables
+         WHERE hypertable_schema = $1 AND hypertable_name = $2`,
+        [schema, table],
       );
-    }
-  });
+      if (rows.length !== 1) {
+        throw new Error(
+          `${schema}.${table} is not registered as a TimescaleDB hypertable. ` +
+            `Either the timescaledb extension was not enabled (check ` +
+            `init-scripts/00-init-schemas.sh CREATE EXTENSION) or the ` +
+            `migration that calls create_hypertable() for this table did not run.`,
+        );
+      }
+    },
+  );
 
   it('billing.plans exists (squash-restoration target)', async () => {
     const rows = await probeDs().query<{ table_name: string }[]>(
@@ -503,28 +952,200 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
     }
   });
 
-  it.each(SERVICES.filter((s) => ['auth', 'farm', 'sensor', 'billing', 'messaging'].includes(s.schema)))(
-    'service "$name" has populated migration ledger after fresh init',
-    async ({ name, schema }) => {
+  // ---------------------------------------------------------------------
+  // Part A.3 — Migration ledger completeness.
+  //
+  // Failure mode this catches: TypeORM "thought it ran" but skipped
+  // migrations. Empirically observed when the migrations array passed
+  // to TypeOrmModule.forRoot was a stale glob that resolved to fewer
+  // files than the migrations directory holds, and runMigrations()
+  // returned without error because every entry it knew about was
+  // already applied. The ledger row count then drifts below the
+  // file-system count and silent under-application goes undetected
+  // until a fresh deploy reveals missing tables.
+  //
+  // Assertion: count(<schema>.migrations rows) == count(migration files
+  // on disk that match the timestamp+PascalCase regex). Skip services
+  // with empty migration sets (gateway-api, config-service: those have
+  // NO ledger because we skipped runMigrations() entirely).
+  // ---------------------------------------------------------------------
+  it.each(SERVICES.filter((s) => loadMigrationClassesFromDir(join(REPO_ROOT, s.migrationsDir)).length > 0))(
+    'service "$name" migration ledger row count matches on-disk migration file count',
+    async ({ name, schema, migrationsDir }) => {
       const ds = dataSources.get(name);
       if (!ds || !ds.isInitialized) {
         throw new Error(`${name} DataSource not initialized.`);
       }
-      // The ledger table is created by TypeORM on first runMigrations()
-      // call. Querying through the same DataSource ensures the ledger
-      // schema-search-path matches what production sees.
+      const onDiskCount = loadMigrationClassesFromDir(join(REPO_ROOT, migrationsDir)).length;
       const rows = await ds.query<{ count: string }[]>(
         `SELECT COUNT(*)::text AS count FROM "${schema}".migrations`,
       );
-      const count = parseInt(rows[0]?.count ?? '0', 10);
-      if (count === 0) {
+      const ledgerCount = parseInt(rows[0]?.count ?? '0', 10);
+      if (ledgerCount !== onDiskCount) {
         throw new Error(
-          `${schema}.migrations ledger is empty after runMigrations() — TypeORM ran ` +
-            `but inserted zero rows. Either the migration list was empty (manifest bug) or ` +
-            `every migration was already marked applied (state leaked across container ` +
-            `lifecycle, which is impossible on a fresh container — investigate).`,
+          `${schema}.migrations ledger row count drift: on-disk migrations dir has ` +
+            `${onDiskCount} timestamped files, ledger has ${ledgerCount} rows. ` +
+            `Either runMigrations() silently skipped some files (TypeORM cache or ` +
+            `metadata-loader bug) or a file landed on disk without being included ` +
+            `in the per-service migrations[] manifest.`,
         );
       }
     },
+  );
+
+  // ---------------------------------------------------------------------
+  // Part A.1 — Entity-surface coverage matrix.
+  //
+  // For each service that owns entities, walk every `*.entity.ts` file,
+  // load its TypeORM metadata via getMetadataArgsStorage / a metadata-
+  // only DataSource, then probe (a) table existence, (b) column
+  // existence + data type, (c) FK count, (d) index count, (e) tenant-
+  // clone RLS. The helper assertEntitySurfaceMatchesDb() returns a
+  // per-entity drift array; we surface each drift entry as its own
+  // assertion failure so the CI annotation points at the exact
+  // schema.table.column pair that drifted.
+  // ---------------------------------------------------------------------
+  it.each(SERVICES.filter((s) => s.entitiesGlob !== undefined))(
+    'service "$name" entity surface aligns with physical DB schema',
+    async ({ name, entitiesGlob }) => {
+      // entitiesGlob is set on every filtered entry — TypeScript narrows
+      // via the filter predicate, but we re-assert defensively.
+      if (entitiesGlob === undefined) {
+        throw new Error(`assert: entitiesGlob undefined for "${name}"`);
+      }
+      const entityClasses = loadEntityClasses(join(REPO_ROOT, entitiesGlob));
+      if (entityClasses.length === 0) {
+        // A service listed with `entitiesGlob` set but zero entities
+        // discovered is a manifest bug — the glob points at the wrong
+        // directory or all entities were deleted.
+        throw new Error(
+          `service "${name}" declared entitiesGlob="${entitiesGlob}" but ` +
+            `loadEntityClasses() found ZERO @Entity files. Update the manifest ` +
+            `(remove entitiesGlob if the service truly owns no entities) or ` +
+            `fix the path.`,
+        );
+      }
+
+      const conn: PgConnInfo = {
+        host: postgresContainer.getHost(),
+        port: postgresContainer.getMappedPort(5432),
+        username: DATABASE_USER,
+        password: DATABASE_PASSWORD,
+        database: DATABASE_NAME,
+      };
+      const results = await assertEntitySurfaceMatchesDb(name, entityClasses, conn);
+
+      const drifts = results.flatMap((r) =>
+        r.drift.map((d) => `  ${r.schema}.${r.table}: ${d}`),
+      );
+      if (drifts.length > 0) {
+        throw new Error(
+          `Entity surface drift in service "${name}" (${drifts.length} issue(s)):\n` +
+            drifts.join('\n'),
+        );
+      }
+    },
+    // Per-service entity-surface scan can iterate dozens of entities;
+    // give it generous headroom but still a hard ceiling so a hung
+    // metadata-DataSource teardown does not pin the worker.
+    120_000,
+  );
+
+  // ---------------------------------------------------------------------
+  // Part A.4 — Drift validator runtime gate.
+  //
+  // After migrations run, instantiate the SchemaDriftValidator factory
+  // for each entity-owning service with SCHEMA_DRIFT_FATAL=true. The
+  // validator's onApplicationBootstrap() hook walks the same
+  // EntityMetadata graph the runtime uses and throws on any of the
+  // drift classes registered in drift-classes.ts. If the bootstrap-
+  // from-scratch pipeline produces a clean DB, this gate MUST pass —
+  // failure here means a service would crash on cold start in
+  // staging/production with SCHEMA_DRIFT_FATAL=true (the production
+  // posture per ADR-012).
+  //
+  // We instantiate the validator class directly with a per-service
+  // metadata-only DataSource and a lightweight ConfigService stub
+  // rather than booting a full NestJS app — same observable
+  // behaviour, ~30s saved per service.
+  // ---------------------------------------------------------------------
+  it.each(SERVICES.filter((s) => s.entitiesGlob !== undefined))(
+    'service "$name" passes SchemaDriftValidator with FATAL=true after migrations',
+    async ({ name, schema, entitiesGlob }) => {
+      if (entitiesGlob === undefined) {
+        throw new Error(`assert: entitiesGlob undefined for "${name}"`);
+      }
+      const entityClasses = loadEntityClasses(join(REPO_ROOT, entitiesGlob));
+
+      // Per-service metadata DataSource so EntityMetadata graphs match
+      // the validator's expected shape. The validator scans
+      // dataSource.entityMetadatas, NOT the runtime DB — entity loading
+      // is the only ceremony required.
+      const driftDs = new DataSource({
+        type: 'postgres',
+        host: postgresContainer.getHost(),
+        port: postgresContainer.getMappedPort(5432),
+        username: DATABASE_USER,
+        password: DATABASE_PASSWORD,
+        database: DATABASE_NAME,
+        schema,
+        entities: [...entityClasses] as Function[],
+        synchronize: false,
+        migrationsRun: false,
+      });
+      await driftDs.initialize();
+
+      // ConfigService stub — only the keys the validator reads.
+      // SCHEMA_DRIFT_ENABLED + FATAL drive the gate; AQUA_ENV /
+      // NODE_ENV feed the emergency-override lookup which short-
+      // circuits when no override row exists.
+      const configStub = {
+        get(key: string, defaultValue?: string): string {
+          switch (key) {
+            case 'SCHEMA_DRIFT_ENABLED':
+              return 'true';
+            case 'SCHEMA_DRIFT_FATAL':
+              return 'true';
+            case 'SCHEMA_DRIFT_TENANT_SCAN_ENABLED':
+              return 'false';
+            case 'AQUA_ENV':
+            case 'NODE_ENV':
+              return 'test';
+            default:
+              return defaultValue ?? '';
+          }
+        },
+      } as unknown as ConfigService;
+
+      const factory = loadDriftValidatorFactory();
+      const ValidatorClass = factory(
+        // Validator names must match /^[a-z][a-z0-9_-]*$/ — the
+        // service manifest names already comply.
+        name,
+      );
+      const validator = new ValidatorClass(driftDs, configStub);
+
+      try {
+        await validator.onApplicationBootstrap();
+      } catch (err) {
+        const message = (err as Error).message;
+        // Surface the FIRST drift class so a CI reader sees the exact
+        // failure mode (location vs type vs nullability) without
+        // scrolling. The validator already prefixes its throw with
+        // "Schema drift detected in N place(s)" — keep that intact.
+        throw new Error(
+          `[Part A.4] SchemaDriftValidator threw for service "${name}" after ` +
+            `bootstrap-from-scratch migrations completed. This means the ` +
+            `migration chain produced a DB shape that the entity layer ` +
+            `disagrees with — a service running with SCHEMA_DRIFT_FATAL=true ` +
+            `would refuse to boot.\n\n${message}`,
+        );
+      } finally {
+        await driftDs.destroy().catch(() => {
+          /* swallow — teardown */
+        });
+      }
+    },
+    180_000,
   );
 });

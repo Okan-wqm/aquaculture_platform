@@ -231,6 +231,16 @@ def immediate_quarantine_reason(tool: dict[str, Any], run: dict[str, Any]) -> st
         return "invalid output schema"
     if run["status"] == "evidence_error" or has_self_output_evidence(run):
         return "self-output evidence or invalid evidence chain"
+    # Plan 022 §C-5 — scope-out write detection. The pre-fix
+    # repository_mutation_attempt path catches ANY mutation; this finer
+    # check distinguishes scope-out writes (a hard sandbox-escape signal)
+    # from in-scope writes that may still be intentional. Surfaces a
+    # specific reason so operator audit can triage faster.
+    runner_block = run.get("runner") or {}
+    scope_out = runner_block.get("scope_out_mutations") or []
+    if scope_out:
+        sample = ", ".join(scope_out[:3])
+        return f"scope-out mutation: adapter wrote outside declared scope ({sample})"
     if run["evidence_validation"].get("repository_mutation_attempt"):
         return "repository mutation attempt"
     if run["status"] == "crash" and run["evidence_validation"].get("ledger_corruption"):

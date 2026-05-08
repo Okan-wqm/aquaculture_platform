@@ -63,6 +63,14 @@ def run_tool(
 
     input_bytes = _canonical_json_bytes(input_payload)
     before = _workspace_snapshot(root, tool)
+    # Plan 022 §C-5 — capture an unfiltered raw snapshot alongside the
+    # scoped view. The pre-fix mutation comparison ran on the
+    # tool-scope-filtered status output, so a buggy/malicious adapter
+    # mutating files OUTSIDE its declared scope (package.json, CI
+    # configs, registry.json) was invisible. Raw snapshots let us
+    # partition the diff into scoped vs scope_out mutations and surface
+    # the latter as a hard quarantine signal.
+    before_raw = _workspace_snapshot_raw(root)
     started = time.monotonic()
     stdout = ""
     stderr = ""
@@ -107,7 +115,15 @@ def run_tool(
 
     duration_ms = int(round((time.monotonic() - started) * 1000))
     after = _workspace_snapshot(root, tool)
-    mutated = before != after
+    after_raw = _workspace_snapshot_raw(root)
+    # Plan 022 §C-5 — partition every mutated path into scoped vs
+    # scope-out using the raw before/after. `mutated` retains its
+    # original semantic for backward-compat with downstream consumers
+    # that only care whether ANY files changed.
+    scoped_mutations, scope_out_mutations = _partition_mutations(
+        before_raw=before_raw, after_raw=after_raw, tool=tool,
+    )
+    mutated = before != after or bool(scope_out_mutations)
 
     if output is None:
         output = {}
@@ -153,6 +169,15 @@ def run_tool(
             "raw_observations_count": len(_array_or_empty(raw_observations)),
             "raw_findings_count": len(_array_or_empty(raw_findings)),
             "raw_findings_sample": _raw_finding_sample(_array_or_empty(raw_findings)),
+            # Plan 022 §C-5 — partitioned mutation lists.
+            # scoped_mutations: paths inside the tool's declared scope
+            # (expected/permitted writes). scope_out_mutations: writes
+            # outside the declared scope — a hard signal that the
+            # adapter exceeded its sandbox. tool_health.record_run
+            # treats non-empty scope_out_mutations as a quarantine
+            # trigger via the immediate_quarantine_reason path.
+            "scoped_mutations": list(scoped_mutations),
+            "scope_out_mutations": list(scope_out_mutations),
         },
         "repo_snapshot": _compact_snapshot(repo_snapshot),
     }
@@ -257,6 +282,84 @@ def _workspace_snapshot(root: Path, tool: dict[str, Any] | None = None) -> Any:
         if completed.returncode == 0:
             return ("git", _normalized_git_status(completed.stdout, tool))
     return ("dir", _directory_snapshot(root))
+
+
+def _workspace_snapshot_raw(root: Path) -> Any:
+    """Plan 022 §C-5 — unfiltered workspace snapshot.
+
+    Mirrors _workspace_snapshot but does NOT apply the tool-scope
+    filter. The raw view is the load-bearing input for scope-out
+    mutation detection: comparing before_raw vs after_raw catches
+    every mutation regardless of declared scope.
+    """
+    git_dir = root / ".git"
+    if git_dir.exists():
+        completed = subprocess.run(
+            ["git", "status", "--porcelain", "-z"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode == 0:
+            return ("git", _normalized_git_status_raw(completed.stdout))
+    return ("dir", _directory_snapshot(root))
+
+
+def _normalized_git_status_raw(stdout: bytes) -> tuple[str, ...]:
+    """Like _normalized_git_status but never applies the tool-scope filter."""
+    entries = [entry.decode("utf-8", errors="replace") for entry in stdout.split(b"\0") if entry]
+    paths: list[str] = []
+    skip_next = False
+    for entry in entries:
+        if skip_next:
+            skip_next = False
+            continue
+        status = entry[:2]
+        path = entry[3:] if len(entry) > 3 else entry
+        if status.startswith("R") or status.startswith("C"):
+            skip_next = True
+        normalized = normalize_path(path)
+        if normalized and not ignored_dirty_path(normalized):
+            paths.append(f"{status} {normalized}")
+    return tuple(sorted(paths))
+
+
+def _partition_mutations(
+    *,
+    before_raw: Any,
+    after_raw: Any,
+    tool: dict[str, Any] | None,
+) -> tuple[list[str], list[str]]:
+    """Plan 022 §C-5 — partition raw mutation diff into scoped vs scope-out.
+
+    Both before_raw and after_raw are the tuple-shaped output of
+    _workspace_snapshot_raw. The diff is the symmetric difference
+    interpreted as path-string set; partitioning applies the tool's
+    allowed_read_globs / declared_scope via find_scope_violations.
+
+    Returns (scoped, scope_out) lists sorted for stable envelope shape.
+    """
+    if before_raw == after_raw:
+        return [], []
+    before_set = set(before_raw[1] if isinstance(before_raw, tuple) and len(before_raw) > 1 else ())
+    after_set = set(after_raw[1] if isinstance(after_raw, tuple) and len(after_raw) > 1 else ())
+    diff = sorted(before_set ^ after_set)
+    scoped: list[str] = []
+    scope_out: list[str] = []
+    for entry in diff:
+        # entry shape from _normalized_git_status_raw mirrors git status
+        # --porcelain output: "<2-char status><space><path>". Strip the
+        # 3-char prefix to recover the path; fall back to the rsplit
+        # result for any unexpected shape.
+        if len(entry) > 3 and entry[2] == " ":
+            path = entry[3:]
+        else:
+            path = entry.rsplit(" ", 1)[-1]
+        if _mutation_path_in_tool_scope(tool, path):
+            scoped.append(entry)
+        else:
+            scope_out.append(entry)
+    return scoped, scope_out
 
 
 def _normalized_git_status(stdout: bytes, tool: dict[str, Any] | None = None) -> tuple[str, ...]:

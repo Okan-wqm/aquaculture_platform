@@ -24,6 +24,28 @@ export class ConvertAuthAuditIpToInet1787400000000
   name = 'ConvertAuthAuditIpToInet1787400000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Idempotency guard — on fresh DBs the Wave 1 baseline migration
+    // (1700000000000-CreateInitialSchema) creates auth.audit_logs.ipAddress
+    // as `inet` directly, so this migration is a no-op there. The pre-flight
+    // regex scan below uses the `~` operator which does not exist for inet
+    // (`operator does not exist: inet ~ unknown`), so we MUST short-circuit
+    // before attempting to scan when the column is already inet. Legacy DBs
+    // (where the column was originally varchar(45)) still hit the scan +
+    // ALTER path below.
+    const colType: Array<{ data_type: string }> = await queryRunner.query(`
+      SELECT data_type
+        FROM information_schema.columns
+       WHERE table_schema = 'auth'
+         AND table_name = 'audit_logs'
+         AND column_name = 'ipAddress'
+    `);
+    const currentType = colType[0]?.data_type;
+    if (currentType === 'inet') {
+      // Already in target type — Wave 1 baseline path. Skip both the
+      // varchar-only regex scan and the ALTER.
+      return;
+    }
+
     // Pre-flight scan — fail-loud on malformed values before the
     // type-cast rewrite. See sibling migration docstring for the
     // architectural rationale.

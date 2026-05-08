@@ -9,6 +9,12 @@ const DEFAULT_DATABASE_URL =
 
 /**
  * Row type for a user record from auth.users.
+ *
+ * Index signature satisfies the `T extends Record<string, unknown>`
+ * constraint on `query<T>()` — pg's `QueryResult<T>` row shape is
+ * structurally a record, and downstream tests treat it that way.
+ * Without the signature, ts-jest under e2e/tsconfig's stricter
+ * settings rejects `query<UserRow>(...)` with TS2344.
  */
 export interface UserRow {
   id: string;
@@ -21,10 +27,12 @@ export interface UserRow {
   lastName: string | null;
   createdAt: Date;
   updatedAt: Date;
+  [key: string]: unknown;
 }
 
 /**
  * Row type for a tenant record from auth.tenants.
+ * See UserRow for the index-signature rationale.
  */
 export interface TenantRow {
   id: string;
@@ -36,6 +44,7 @@ export interface TenantRow {
   userCount: number;
   createdAt: Date;
   updatedAt: Date;
+  [key: string]: unknown;
 }
 
 /**

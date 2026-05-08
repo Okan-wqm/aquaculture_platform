@@ -31,6 +31,7 @@ from aria_kernel import (
 from aria_kernel.agent_genesis import approve_agent_pr, evaluate_genesis_sandbox
 from aria_kernel.ledger import append_jsonl
 from aria_kernel.fixture_runner import fixture_runs_path, tool_manifest_hash
+from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import get_tool
 from aria_kernel.tool_registry import GovernanceError
 
@@ -47,6 +48,18 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
         subprocess.run(["git", "add", "README.md"], cwd=self.root, check=True)
         subprocess.run(["git", "commit", "-m", "init"], cwd=self.root, check=True, capture_output=True)
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
+        # Plan 020 Phase 1.B — Enterprise 012D->015 exercises the full
+        # apply_action -> validation gate -> open_pr_for_action pipeline,
+        # including the assertion that PR open without a validation gate
+        # raises. The runtime profile gate would otherwise short-circuit
+        # the test by raising profile_violation FIRST. Setting strict
+        # preserves the original assertion target (missing validation gate).
+        set_profile(
+            "strict",
+            operator_approval_ref="test:plan-020-phase-1.B:enterprise-012d",
+            base_dir=self.tools_dir,
+            set_by="test-fixture",
+        )
 
     def tearDown(self):
         self.tmp.cleanup()

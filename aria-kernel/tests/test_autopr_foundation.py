@@ -23,6 +23,7 @@ from aria_kernel import (
 )
 from aria_kernel.ledger import append_jsonl
 from aria_kernel.proposal import proposal_packet_from_task, record_proposal_from_amplification
+from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError
 
@@ -33,6 +34,17 @@ class AutoPrFoundationTests(unittest.TestCase):
         self.root = Path(self.tmp.name) / "workspace"
         self.root.mkdir()
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
+        # Plan 020 Phase 1.B — pr_open is strict-only under the runtime
+        # profile gate. AutoPR foundation exercises the full pipeline
+        # including open_pr_for_action, so the test setUp opts into strict
+        # via an explicit operator_approval_ref. Strict permits a strict
+        # superset of standard's actions, so non-PR test methods stay green.
+        set_profile(
+            "strict",
+            operator_approval_ref="test:plan-020-phase-1.B:autopr-foundation",
+            base_dir=self.tools_dir,
+            set_by="test-fixture",
+        )
 
     def tearDown(self):
         self.tmp.cleanup()

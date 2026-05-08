@@ -9,6 +9,7 @@ from .apply_engine import list_apply_actions
 from .auto_merge import record_pr_lifecycle
 from .ledger import append_jsonl, load_jsonl
 from .proposal import get_proposal
+from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
 
@@ -86,6 +87,10 @@ def open_pr_for_action(
         raise GovernanceError(
             f"ARIA PRs MUST target {ARIA_PR_BASE!r}; got base={base!r}"
         )
+    # Plan 020 Phase 1.B — runtime profile dispatch gate.
+    # Why: PR open is the strict-pipeline tail; standard profile must commit
+    # but not auto-PR, observe must not PR at all, frozen must not PR at all.
+    enforce_profile_for_action("pr_open", base_dir=base_dir)
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if not action:

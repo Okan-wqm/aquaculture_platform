@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .evidence_validator import validate_tool_output_evidence
+from .runtime_profile import enforce_profile_for_write
 from .snapshot import build_repo_snapshot, ignored_dirty_path, normalize_path, snapshot_allowed_set
 from .tool_health import can_emit_operator_facing, find_scope_violations, record_run
 from .tool_registry import GovernanceError, get_tool
@@ -27,6 +28,15 @@ def run_tool(
     workspace_root: str | os.PathLike[str] | None = None,
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
+    # Plan 020 Phase 1.B — runtime profile write gate (single chokepoint).
+    # Why: every adapter / spine_orchestrator invocation routes through
+    # run_tool, and each invocation appends to runs.jsonl. Frozen profile
+    # forbids tool-run writes; observe profile blocks all tool runs since
+    # adapters mutate scan output beyond observation class. Gating at the
+    # top of run_tool is the single chokepoint that covers Phase 4 spine
+    # orchestrator + Phase 10 agent-harness-security adapter + every
+    # backend adapter without each call site having to remember the gate.
+    enforce_profile_for_write("tool_runs", base_dir=base_dir)
     tool = get_tool(tool_id, base_dir)
     if tool["status"] == "QUARANTINED":
         raise GovernanceError("QUARANTINED tool cannot be run by the normal runner")

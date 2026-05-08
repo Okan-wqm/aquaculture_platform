@@ -32,6 +32,7 @@ from aria_kernel.pr_manager import (
     push_prepared_branch,
 )
 from aria_kernel.proposal import approve_proposal, record_proposal
+from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._gh_mock import (
     gh_create_failure,
@@ -45,6 +46,17 @@ def _seed_tools() -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="aria-pr-e2e-"))
     tools = tmp / "aria-tools"
     ensure_tools_dir(tools)
+    # Plan 020 Phase 1.B — pr_open is strict-only under the new runtime
+    # profile gate. PR-manager tests intentionally exercise the open_pr
+    # path, so the seed bumps the profile to strict (with an explicit
+    # test-fixture operator_approval_ref). Profile gate is the safety
+    # boundary; the test explicitly opts into the boundary it is testing.
+    set_profile(
+        "strict",
+        operator_approval_ref="test:plan-020-phase-1.B:pr-manager-e2e",
+        base_dir=tools,
+        set_by="test-fixture",
+    )
     return tools
 
 

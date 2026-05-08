@@ -23,6 +23,7 @@ from unittest.mock import patch
 from aria_kernel.cli import main as cli_main
 from aria_kernel.ledger import append_jsonl
 from aria_kernel.proposal import approve_proposal, record_proposal
+from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._gh_mock import gh_create_success, recorded_calls, reset_recorded
 
@@ -31,6 +32,16 @@ def _seed_tools() -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="aria-pr-cli-"))
     tools = tmp / "aria-tools"
     ensure_tools_dir(tools)
+    # Plan 020 Phase 1.B — pr_open is strict-only under the runtime
+    # profile gate. The pr CLI tests intentionally drive the open_pr
+    # path; opt into strict here so the gate does not short-circuit
+    # before the test can exercise its argv-binding assertions.
+    set_profile(
+        "strict",
+        operator_approval_ref="test:plan-020-phase-1.B:pr-cli",
+        base_dir=tools,
+        set_by="test-fixture",
+    )
     return tmp
 
 

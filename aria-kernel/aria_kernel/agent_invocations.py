@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, load_jsonl
+from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -423,6 +424,11 @@ def claim_request(
         raise GovernanceError("lease_seconds must be positive")
     if not agent_id or not agent_id.strip():
         raise GovernanceError("agent_id is required")
+    # Plan 020 Phase 1.B — runtime profile dispatch gate.
+    # Why: claim_request is the entry point of the agent execution pipeline;
+    # gating it here prevents observe/frozen profiles from leasing work that
+    # the profile bans from being submitted later.
+    enforce_profile_for_action("agent_claim", base_dir=base_dir)
     root = ensure_tools_dir(base_dir)
     state = derive_request_state(request_id=request_id, base_dir=root)
     if state not in {"PENDING", "REQUEUED"}:

@@ -61,6 +61,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, load_jsonl
+from .runtime_profile import enforce_profile_for_action
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
@@ -210,6 +211,11 @@ def emit_change_committed(
         raise GovernanceError("commit_sha is required")
     if not actual_affected_files:
         raise GovernanceError("actual_affected_files must not be empty")
+    # Plan 020 Phase 1.B — runtime profile dispatch gate.
+    # Why: change_committed is the durable record of a remediation landing;
+    # observe profiles must not be able to record fake commits, and frozen
+    # profiles must not record any state mutation in Plan 020's surface.
+    enforce_profile_for_action("change_committed", base_dir=base_dir)
     tools_root = ensure_tools_dir(base_dir)
     _ledger_dir(tools_root).mkdir(parents=True, exist_ok=True)
 
@@ -269,6 +275,11 @@ def emit_change_validated(
         raise GovernanceError("change_id is required")
     if not validation_run_refs:
         raise GovernanceError("validation_run_refs must not be empty")
+    # Plan 020 Phase 1.B — runtime profile dispatch gate.
+    # Why: change_validated closes the change chain. Frozen profiles must
+    # not be able to mark a change "validated" without an explicit operator
+    # thaw transition.
+    enforce_profile_for_action("change_validated", base_dir=base_dir)
     tools_root = ensure_tools_dir(base_dir)
     _ledger_dir(tools_root).mkdir(parents=True, exist_ok=True)
 

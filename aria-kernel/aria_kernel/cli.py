@@ -69,6 +69,12 @@ from aria_kernel.skill_genesis import (
 )
 from aria_kernel.reverify import reverify_pressures
 from aria_kernel.telemetry import export_telemetry
+from aria_kernel.runtime_profile import (
+    PROFILES,
+    get_profile,
+    list_profile_history,
+    set_profile,
+)
 from aria_kernel.tool_registry import GovernanceError, list_tools, register_tool
 from aria_kernel.tool_runner import run_tool
 from aria_kernel.triage import (
@@ -235,6 +241,21 @@ def _main(argv: list[str] | None = None) -> int:
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+
+    # Plan 020 Phase 1.C — runtime profile sub-command (set/get/history).
+    # WHY a dedicated sub-command exists: every profile transition is a
+    # control-plane operation that bypasses enforce_profile_for_write so
+    # operators can THAW a frozen surface. The CLI surface keeps the
+    # operator_approval_ref REQUIRED at parse time so a forgotten flag
+    # is not silently swapped for an empty string at the kernel boundary.
+    profile_parser = sub.add_parser("profile")
+    profile_sub = profile_parser.add_subparsers(dest="profile_command", required=True)
+    profile_set = profile_sub.add_parser("set")
+    profile_set.add_argument("--profile", required=True, choices=list(PROFILES))
+    profile_set.add_argument("--operator-approval-ref", required=True)
+    profile_set.add_argument("--set-by", default="operator")
+    profile_get = profile_sub.add_parser("get")
+    profile_history = profile_sub.add_parser("history")
 
     memory_parser = sub.add_parser("memory")
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
@@ -1063,6 +1084,23 @@ def _main(argv: list[str] | None = None) -> int:
                 sort_keys=True,
             ),
         )
+        return 0
+
+    # Plan 020 Phase 1.C — runtime profile CLI dispatch.
+    if args.command == "profile" and args.profile_command == "set":
+        result = set_profile(
+            args.profile,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+            set_by=args.set_by,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "profile" and args.profile_command == "get":
+        print(json.dumps({"active_profile": get_profile(base_dir=args.tools_dir)}, indent=2, sort_keys=True))
+        return 0
+    if args.command == "profile" and args.profile_command == "history":
+        print(json.dumps(list_profile_history(base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
 
     if args.command == "memory" and args.memory_command == "withdraw":

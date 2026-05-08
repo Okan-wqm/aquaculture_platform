@@ -249,9 +249,19 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertTrue(run["output_hash"].startswith("sha256:"))
 
     def test_tool_runner_allowed_read_path_keeps_active_tool_healthy(self):
+        # Plan 022 §M-2 — evidence_refs MUST be a subset of read_paths.
+        # The fixture override sets read_paths to main.ts, so the
+        # finding's evidence + evidence_sources must also point at
+        # main.ts (not the default app.module.ts) for the run to stay
+        # clean. Pre-Plan-022 the mismatch silently passed.
         (self.root / "apps/farm-service/src/main.ts").write_text("export const main = true;\n", encoding="utf-8")
         register_tool(
-            valid_tool(runner=runner(fake_tool_argv(valid_tool_output(read_paths=["apps/farm-service/src/main.ts"])))),
+            valid_tool(runner=runner(fake_tool_argv(valid_tool_output(
+                read_paths=["apps/farm-service/src/main.ts"],
+                findings=[{"id": "finding-1",
+                           "evidence": [{"path": "apps/farm-service/src/main.ts", "line": 1}]}],
+                evidence_sources=["apps/farm-service/src/main.ts"],
+            )))),
             base_dir=self.tools_dir,
         )
         decision = run_tool(

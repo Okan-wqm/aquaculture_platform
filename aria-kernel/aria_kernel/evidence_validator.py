@@ -28,9 +28,16 @@ def validate_tool_output_evidence(
     allowed_paths = snapshot_allowed_set(repo_snapshot)
 
     read_paths = output.get("read_paths", [])
+    # Plan 022 §M-2 — capture the normalized read_paths set so finding
+    # evidence references can be checked against it. Pre-fix the tool
+    # could surface evidence_refs pointing at files it never declared
+    # reading; the dispatch path trusted the self-report read_paths
+    # without verifying the evidence stayed inside it.
+    declared_read_paths: set[str] = set()
     if isinstance(read_paths, list):
         for path in read_paths:
             normalized = normalize_path(path)
+            declared_read_paths.add(normalized)
             if allowed_paths and normalized not in allowed_paths:
                 errors.append({"code": "read_path_outside_snapshot", "path": normalized})
     else:
@@ -52,11 +59,32 @@ def validate_tool_output_evidence(
                 continue
             for ref in evidence:
                 validate_evidence_ref(tool, root, ref, errors, checked_sources, allowed_paths=allowed_paths)
+                # Plan 022 §M-2 — additionally enforce evidence path is
+                # within the tool's declared read_paths. read_paths is
+                # the load-bearing self-report for what the adapter
+                # actually inspected; an evidence_ref outside this set
+                # is a contract violation.
+                if isinstance(ref, dict) and isinstance(ref.get("path"), str) and declared_read_paths:
+                    norm = normalize_path(ref["path"])
+                    if norm not in declared_read_paths:
+                        errors.append({
+                            "code": "evidence_outside_declared_read_paths",
+                            "path": norm,
+                            "finding_id": finding.get("id"),
+                        })
 
     sources = output.get("evidence_sources", [])
     if isinstance(sources, list):
         for source in sources:
             validate_evidence_path(tool, root, source, None, errors, checked_sources, allowed_paths=allowed_paths)
+            # Plan 022 §M-2 — same subset check for evidence_sources.
+            if isinstance(source, str) and declared_read_paths:
+                norm = normalize_path(source)
+                if norm not in declared_read_paths:
+                    errors.append({
+                        "code": "evidence_outside_declared_read_paths",
+                        "path": norm,
+                    })
     else:
         errors.append({"code": "evidence_sources_not_array"})
 

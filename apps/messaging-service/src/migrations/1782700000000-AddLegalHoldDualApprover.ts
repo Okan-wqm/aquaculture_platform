@@ -51,6 +51,16 @@ export class AddLegalHoldDualApprover1782700000000 implements MigrationInterface
       `Applying LEGAL-MEDIUM-002 dual-approver schema (schema=${schema})`,
     );
 
+    // Wave 4-A.2 Dalga 3 bootstrap-restoration guard: legal_holds is
+    // installed by sibling migration 1711800000003-CreateComplianceTables.
+    // Skip cleanly when the parent table is absent on this DB.
+    if (!(await this.tableExistsHere(queryRunner, 'legal_holds'))) {
+      this.logger.log(
+        'Skipping AddLegalHoldDualApprover — legal_holds not present on this DB (installed by sibling baseline migration)',
+      );
+      return;
+    }
+
     // 1. Add releasedByApprover (idempotent — re-run safe).
     if (!(await this.columnExists(queryRunner, 'legal_holds', 'releasedByApprover'))) {
       await queryRunner.query(
@@ -119,6 +129,21 @@ export class AddLegalHoldDualApprover1782700000000 implements MigrationInterface
            AND column_name = $2
        ) AS exists`,
       [table, column],
+    );
+    return rows[0]?.exists === true;
+  }
+
+  private async tableExistsHere(
+    queryRunner: QueryRunner,
+    table: string,
+  ): Promise<boolean> {
+    const rows: Array<{ exists: boolean }> = await queryRunner.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.tables
+         WHERE table_schema = current_schema()
+           AND table_name = $1
+       ) AS exists`,
+      [table],
     );
     return rows[0]?.exists === true;
   }

@@ -1,4 +1,8 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import {
+  MigrationLogger,
+  tableExists,
+} from '@aquaculture/backend-common/database';
 
 /**
  * Adds columns to messaging_outbox that OutboxEntityBase declares but
@@ -14,11 +18,31 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * were added to the base class after the initial messaging_outbox migration.
  * Production may already have some via synchronize:true or manual ALTER.
  * Each ADD COLUMN uses IF NOT EXISTS for idempotent reruns.
+ *
+ * # Bootstrap-restoration guard (Wave 4-A.2 Dalga 3)
+ *
+ * `messaging_outbox` is created by sibling migration
+ * 1711800000000-CreateMessagingTables. On a fresh-volume bootstrap that
+ * runs this migration before the baseline lands the table, the ALTER
+ * blocks crash with `relation "messaging_outbox" does not exist`. The
+ * up()/down() bodies are guarded with `tableExists` so the migration
+ * skips cleanly when the parent table is absent.
  */
 export class AddMissingOutboxColumns1782200000000 implements MigrationInterface {
   name = 'AddMissingOutboxColumns1782200000000';
 
+  private readonly logger = new MigrationLogger(
+    'AddMissingOutboxColumns1782200000000',
+  );
+
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (!(await tableExists(queryRunner, 'messaging_outbox'))) {
+      this.logger.log(
+        'Skipping AddMissingOutboxColumns — messaging_outbox not present on this DB (installed by sibling baseline migration)',
+      );
+      return;
+    }
+
     // All columns use IF NOT EXISTS — safe to run even if some columns
     // were already added manually in production.
     const columns = [
@@ -53,6 +77,9 @@ export class AddMissingOutboxColumns1782200000000 implements MigrationInterface 
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    if (!(await tableExists(queryRunner, 'messaging_outbox'))) {
+      return;
+    }
     await queryRunner.query(`DROP INDEX IF EXISTS "idx_outbox_poll"`);
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "idx_outbox_poll"

@@ -1,5 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 import { Logger } from '@nestjs/common';
+import { tableExists } from '@aquaculture/backend-common/database';
 
 /**
  * Migration: Add `tenantId` column to the 7 child tables that still lack it.
@@ -75,120 +76,149 @@ export class AddTenantIdToMessageChildren1782300000000 implements MigrationInter
     // but the explicit SET here is defense-in-depth for ad-hoc CLI use.
     await queryRunner.query(`SET search_path TO "messaging", public`);
 
+    // Wave 4-A.2 Dalga 3 bootstrap-restoration guard: every block below
+    // assumes the parent table exists; the parent CREATE TABLE for
+    // message_attachments / message_receipts / etc. lives in the
+    // squashed-out baseline. On fresh-volume bootstrap the body crashes
+    // unless we skip when the parent table is absent.
+    if (!(await tableExists(queryRunner, 'messages'))) {
+      this.logger.log(
+        'Skipping AddTenantIdToMessageChildren — messages table not present on this DB (installed by sibling baseline migration)',
+      );
+      return;
+    }
+
     // ── 1. message_attachments ──
-    await queryRunner.query(`ALTER TABLE "message_attachments" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
-    await queryRunner.query(`
-      UPDATE "message_attachments" ma
-      SET "tenantId" = m."tenantId"
-      FROM "messages" m
-      WHERE ma."messageId" = m."id"
-        AND ma."messageCreatedAt" = m."createdAt"
-        AND ma."tenantId" IS NULL
-    `);
-    await this.assertNoNulls(queryRunner, 'message_attachments');
-    await queryRunner.query(`ALTER TABLE "message_attachments" ALTER COLUMN "tenantId" SET NOT NULL`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_attachments_tenant" ON "message_attachments" ("tenantId")`);
+    if (await tableExists(queryRunner, 'message_attachments')) {
+      await queryRunner.query(`ALTER TABLE "message_attachments" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
+      await queryRunner.query(`
+        UPDATE "message_attachments" ma
+        SET "tenantId" = m."tenantId"
+        FROM "messages" m
+        WHERE ma."messageId" = m."id"
+          AND ma."messageCreatedAt" = m."createdAt"
+          AND ma."tenantId" IS NULL
+      `);
+      await this.assertNoNulls(queryRunner, 'message_attachments');
+      await queryRunner.query(`ALTER TABLE "message_attachments" ALTER COLUMN "tenantId" SET NOT NULL`);
+      await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_attachments_tenant" ON "message_attachments" ("tenantId")`);
+    }
 
     // ── 2. message_receipts (partitioned; ADD COLUMN cascades to partitions) ──
-    await queryRunner.query(`ALTER TABLE "message_receipts" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
-    await queryRunner.query(`
-      UPDATE "message_receipts" mr
-      SET "tenantId" = m."tenantId"
-      FROM "messages" m
-      WHERE mr."messageId" = m."id"
-        AND mr."messageCreatedAt" = m."createdAt"
-        AND mr."tenantId" IS NULL
-    `);
-    await this.assertNoNulls(queryRunner, 'message_receipts');
-    await queryRunner.query(`ALTER TABLE "message_receipts" ALTER COLUMN "tenantId" SET NOT NULL`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_receipts_tenant" ON "message_receipts" ("tenantId")`);
+    if (await tableExists(queryRunner, 'message_receipts')) {
+      await queryRunner.query(`ALTER TABLE "message_receipts" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
+      await queryRunner.query(`
+        UPDATE "message_receipts" mr
+        SET "tenantId" = m."tenantId"
+        FROM "messages" m
+        WHERE mr."messageId" = m."id"
+          AND mr."messageCreatedAt" = m."createdAt"
+          AND mr."tenantId" IS NULL
+      `);
+      await this.assertNoNulls(queryRunner, 'message_receipts');
+      await queryRunner.query(`ALTER TABLE "message_receipts" ALTER COLUMN "tenantId" SET NOT NULL`);
+      await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_receipts_tenant" ON "message_receipts" ("tenantId")`);
+    }
 
     // ── 3. message_reactions ──
-    await queryRunner.query(`ALTER TABLE "message_reactions" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
-    await queryRunner.query(`
-      UPDATE "message_reactions" mr
-      SET "tenantId" = m."tenantId"
-      FROM "messages" m
-      WHERE mr."messageId" = m."id"
-        AND mr."messageCreatedAt" = m."createdAt"
-        AND mr."tenantId" IS NULL
-    `);
-    await this.assertNoNulls(queryRunner, 'message_reactions');
-    await queryRunner.query(`ALTER TABLE "message_reactions" ALTER COLUMN "tenantId" SET NOT NULL`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_reactions_tenant" ON "message_reactions" ("tenantId")`);
+    if (await tableExists(queryRunner, 'message_reactions')) {
+      await queryRunner.query(`ALTER TABLE "message_reactions" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
+      await queryRunner.query(`
+        UPDATE "message_reactions" mr
+        SET "tenantId" = m."tenantId"
+        FROM "messages" m
+        WHERE mr."messageId" = m."id"
+          AND mr."messageCreatedAt" = m."createdAt"
+          AND mr."tenantId" IS NULL
+      `);
+      await this.assertNoNulls(queryRunner, 'message_reactions');
+      await queryRunner.query(`ALTER TABLE "message_reactions" ALTER COLUMN "tenantId" SET NOT NULL`);
+      await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_reactions_tenant" ON "message_reactions" ("tenantId")`);
+    }
 
     // ── 4. pinned_messages (FK to channels AND messages; use channels — simpler) ──
-    await queryRunner.query(`ALTER TABLE "pinned_messages" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
-    await queryRunner.query(`
-      UPDATE "pinned_messages" pm
-      SET "tenantId" = c."tenantId"
-      FROM "channels" c
-      WHERE pm."channelId" = c."id"
-        AND pm."tenantId" IS NULL
-    `);
-    await this.assertNoNulls(queryRunner, 'pinned_messages');
-    await queryRunner.query(`ALTER TABLE "pinned_messages" ALTER COLUMN "tenantId" SET NOT NULL`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_pins_tenant" ON "pinned_messages" ("tenantId")`);
+    if (
+      (await tableExists(queryRunner, 'pinned_messages')) &&
+      (await tableExists(queryRunner, 'channels'))
+    ) {
+      await queryRunner.query(`ALTER TABLE "pinned_messages" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
+      await queryRunner.query(`
+        UPDATE "pinned_messages" pm
+        SET "tenantId" = c."tenantId"
+        FROM "channels" c
+        WHERE pm."channelId" = c."id"
+          AND pm."tenantId" IS NULL
+      `);
+      await this.assertNoNulls(queryRunner, 'pinned_messages');
+      await queryRunner.query(`ALTER TABLE "pinned_messages" ALTER COLUMN "tenantId" SET NOT NULL`);
+      await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_pins_tenant" ON "pinned_messages" ("tenantId")`);
+    }
 
     // ── 5. message_analysis ──
-    await queryRunner.query(`ALTER TABLE "message_analysis" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
-    await queryRunner.query(`
-      UPDATE "message_analysis" ma
-      SET "tenantId" = m."tenantId"
-      FROM "messages" m
-      WHERE ma."messageId" = m."id"
-        AND ma."messageCreatedAt" = m."createdAt"
-        AND ma."tenantId" IS NULL
-    `);
-    await this.assertNoNulls(queryRunner, 'message_analysis');
-    await queryRunner.query(`ALTER TABLE "message_analysis" ALTER COLUMN "tenantId" SET NOT NULL`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_analysis_tenant" ON "message_analysis" ("tenantId")`);
+    if (await tableExists(queryRunner, 'message_analysis')) {
+      await queryRunner.query(`ALTER TABLE "message_analysis" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
+      await queryRunner.query(`
+        UPDATE "message_analysis" ma
+        SET "tenantId" = m."tenantId"
+        FROM "messages" m
+        WHERE ma."messageId" = m."id"
+          AND ma."messageCreatedAt" = m."createdAt"
+          AND ma."tenantId" IS NULL
+      `);
+      await this.assertNoNulls(queryRunner, 'message_analysis');
+      await queryRunner.query(`ALTER TABLE "message_analysis" ALTER COLUMN "tenantId" SET NOT NULL`);
+      await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_analysis_tenant" ON "message_analysis" ("tenantId")`);
+    }
 
     // ── 6. message_entity_references ──
-    await queryRunner.query(`ALTER TABLE "message_entity_references" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
-    await queryRunner.query(`
-      UPDATE "message_entity_references" mer
-      SET "tenantId" = m."tenantId"
-      FROM "messages" m
-      WHERE mer."messageId" = m."id"
-        AND mer."messageCreatedAt" = m."createdAt"
-        AND mer."tenantId" IS NULL
-    `);
-    await this.assertNoNulls(queryRunner, 'message_entity_references');
-    await queryRunner.query(`ALTER TABLE "message_entity_references" ALTER COLUMN "tenantId" SET NOT NULL`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_entity_refs_tenant" ON "message_entity_references" ("tenantId")`);
+    if (await tableExists(queryRunner, 'message_entity_references')) {
+      await queryRunner.query(`ALTER TABLE "message_entity_references" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
+      await queryRunner.query(`
+        UPDATE "message_entity_references" mer
+        SET "tenantId" = m."tenantId"
+        FROM "messages" m
+        WHERE mer."messageId" = m."id"
+          AND mer."messageCreatedAt" = m."createdAt"
+          AND mer."tenantId" IS NULL
+      `);
+      await this.assertNoNulls(queryRunner, 'message_entity_references');
+      await queryRunner.query(`ALTER TABLE "message_entity_references" ALTER COLUMN "tenantId" SET NOT NULL`);
+      await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_entity_refs_tenant" ON "message_entity_references" ("tenantId")`);
+    }
 
     // ── 7. knowledge_entries (sourceMessageId nullable → orphan handling) ──
-    await queryRunner.query(`ALTER TABLE "knowledge_entries" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
-    // Backfill from source message when available
-    await queryRunner.query(`
-      UPDATE "knowledge_entries" ke
-      SET "tenantId" = m."tenantId"
-      FROM "messages" m
-      WHERE ke."sourceMessageId" = m."id"
-        AND ke."sourceMessageCreatedAt" = m."createdAt"
-        AND ke."tenantId" IS NULL
-    `);
-    // Orphans (no sourceMessageId) — delete with warning.
-    // Rationale: in the ADR-011 model every tenant-scoped row MUST have
-    // a tenant discriminator. Knowledge entries with no derivable tenant
-    // are a pre-existing data-quality defect (the FK ON DELETE SET NULL
-    // leaves rows pointing at deleted messages). They must not survive
-    // into the RLS-enforced world.
-    const orphans: Array<{ count: string }> = await queryRunner.query(`
-      SELECT count(*)::text AS count FROM "knowledge_entries" WHERE "tenantId" IS NULL
-    `);
-    const orphanCount = parseInt(orphans[0]?.count ?? '0', 10);
-    if (orphanCount > 0) {
-      this.logger.warn(
-        `Deleting ${orphanCount} orphan knowledge_entries rows (sourceMessageId IS NULL after FK cascade). ` +
-          `These rows have no derivable tenant context and cannot survive into RLS.`,
-      );
-      await queryRunner.query(`DELETE FROM "knowledge_entries" WHERE "tenantId" IS NULL`);
+    if (await tableExists(queryRunner, 'knowledge_entries')) {
+      await queryRunner.query(`ALTER TABLE "knowledge_entries" ADD COLUMN IF NOT EXISTS "tenantId" uuid`);
+      // Backfill from source message when available
+      await queryRunner.query(`
+        UPDATE "knowledge_entries" ke
+        SET "tenantId" = m."tenantId"
+        FROM "messages" m
+        WHERE ke."sourceMessageId" = m."id"
+          AND ke."sourceMessageCreatedAt" = m."createdAt"
+          AND ke."tenantId" IS NULL
+      `);
+      // Orphans (no sourceMessageId) — delete with warning.
+      // Rationale: in the ADR-011 model every tenant-scoped row MUST have
+      // a tenant discriminator. Knowledge entries with no derivable tenant
+      // are a pre-existing data-quality defect (the FK ON DELETE SET NULL
+      // leaves rows pointing at deleted messages). They must not survive
+      // into the RLS-enforced world.
+      const orphans: Array<{ count: string }> = await queryRunner.query(`
+        SELECT count(*)::text AS count FROM "knowledge_entries" WHERE "tenantId" IS NULL
+      `);
+      const orphanCount = parseInt(orphans[0]?.count ?? '0', 10);
+      if (orphanCount > 0) {
+        this.logger.warn(
+          `Deleting ${orphanCount} orphan knowledge_entries rows (sourceMessageId IS NULL after FK cascade). ` +
+            `These rows have no derivable tenant context and cannot survive into RLS.`,
+        );
+        await queryRunner.query(`DELETE FROM "knowledge_entries" WHERE "tenantId" IS NULL`);
+      }
+      await this.assertNoNulls(queryRunner, 'knowledge_entries');
+      await queryRunner.query(`ALTER TABLE "knowledge_entries" ALTER COLUMN "tenantId" SET NOT NULL`);
+      await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_knowledge_tenant" ON "knowledge_entries" ("tenantId")`);
     }
-    await this.assertNoNulls(queryRunner, 'knowledge_entries');
-    await queryRunner.query(`ALTER TABLE "knowledge_entries" ALTER COLUMN "tenantId" SET NOT NULL`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_knowledge_tenant" ON "knowledge_entries" ("tenantId")`);
 
     this.logger.log('Added tenantId to 7 child tables; ready for EnableRowLevelSecurity migration.');
   }

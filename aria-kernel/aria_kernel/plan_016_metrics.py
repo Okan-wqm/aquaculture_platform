@@ -58,10 +58,15 @@ PLAN_020_PHASE_6_METRIC_NAMES = (
 PLAN_020_PHASE_9_METRIC_NAMES = (
     "aria_change_chain_validation_pct",
 )
+# Plan 020 Phase 13 — dispatch rationale telemetry counter.
+PLAN_020_PHASE_13_METRIC_NAMES = (
+    "aria_dispatch_rationale_total",
+)
 PLAN_016_METRIC_NAMES = (
     PLAN_016_BASELINE_METRIC_NAMES
     + PLAN_020_PHASE_6_METRIC_NAMES
     + PLAN_020_PHASE_9_METRIC_NAMES
+    + PLAN_020_PHASE_13_METRIC_NAMES
 )
 
 
@@ -162,8 +167,10 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
     results = load_jsonl(tools_root / "agent-invocations" / "results.jsonl")
     claims = load_jsonl(tools_root / "agent-invocations" / "claims.jsonl")
     kinds = _governance_kinds(tools_root)
+    from .cost_telemetry import count_dispatch_rationales
     eval_counts = count_eval_runs_by_mode(base_dir=tools_root)
     chain_pct = _change_chain_validation_pct(tools_root)
+    dispatch_total = count_dispatch_rationales(base_dir=tools_root)
 
     return {
         "aria_agent_request_total": len(requests),
@@ -190,6 +197,8 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
         # enforced rows / committed rows). historical_attestation rows
         # excluded from numerator (audit trail only).
         "aria_change_chain_validation_pct": chain_pct,
+        # Plan 020 Phase 13 — total dispatch_rationale rows recorded.
+        "aria_dispatch_rationale_total": dispatch_total,
     }
 
 

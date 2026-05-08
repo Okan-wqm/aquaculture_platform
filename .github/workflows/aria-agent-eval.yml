@@ -1,0 +1,81 @@
+name: aria-agent-eval
+
+# Plan 020 Phase 6.D — weekly off-hours agent eval harness.
+#
+# Mock-mode is the only path running in CI today (Plan 020 Phase 5
+# left the OAuth contract closure as DEBT-2026-05-08-001, operator-
+# supervised). The workflow re-runs every committed fixture under
+# aria-tools/agent-evals/fixtures/*.json against the kernel's
+# run_agent_eval() in mock mode + asserts every run passes.
+#
+# Once the operator closes DEBT-006 and the OAuth contract surface is
+# verified, an additional matrix entry (mock_mode=false) will run the
+# real-mode evaluator. Until then the mock-mode counter
+# aria_agent_eval_mock_only_total is the only one that ticks.
+
+on:
+  schedule:
+    # 03:30 UTC weekly Sunday (off-hours; non-overlap with daily executor).
+    - cron: '30 3 * * 0'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: github.ref == 'refs/heads/snowball'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: snowball
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run all eval fixtures (mock mode)
+        id: run
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/aria-tests /tmp/aria-workspaces
+          export ARIA_TEST_TMPDIR=/tmp/aria-tests
+          export ARIA_WORKSPACE_BASE=/tmp/aria-workspaces
+          fail_count=0
+          for fixture_file in aria-tools/agent-evals/fixtures/*.json; do
+            fid=$(basename "${fixture_file}" .json)
+            echo "::group::eval ${fid}"
+            PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval add-fixture \
+              --fixture-file "${fixture_file}" \
+              --tools-dir aria-tools >/dev/null
+            run_json=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval run \
+              --fixture-id "${fid}" \
+              --tools-dir aria-tools)
+            echo "${run_json}" | jq .
+            passed=$(echo "${run_json}" | jq -r '.passed')
+            if [ "${passed}" != "true" ]; then
+              fail_count=$((fail_count + 1))
+            fi
+            echo "::endgroup::"
+          done
+          echo "fail_count=${fail_count}" >> "$GITHUB_OUTPUT"
+          if [ "${fail_count}" -gt 0 ]; then
+            echo "::error::${fail_count} fixture(s) failed mock-mode eval"
+            exit 1
+          fi
+
+      - name: Aggregate eval metrics per agent
+        run: |
+          set -euo pipefail
+          for agent in aria-evidence-judge aria-adversarial-judge \
+                       aria-consensus-arbiter architectural-arbiter \
+                       auth-security-expert; do
+            echo "::group::aggregate ${agent}"
+            PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval aggregate \
+              --target-agent "${agent}" \
+              --window-days 30 \
+              --mock-mode true \
+              --tools-dir aria-tools | jq .
+            echo "::endgroup::"
+          done

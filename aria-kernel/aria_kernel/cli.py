@@ -75,6 +75,13 @@ from aria_kernel.context_budget_gate import (
     enforce_context_budget,
     list_context_audits,
 )
+from aria_kernel.agent_eval import (
+    add_fixture as eval_add_fixture,
+    aggregate_eval_metrics,
+    list_eval_runs,
+    list_fixtures as eval_list_fixtures_fn,
+    run_agent_eval,
+)
 from aria_kernel.handoff_ledger import (
     list_handoffs,
     read_handoff,
@@ -252,6 +259,31 @@ def _main(argv: list[str] | None = None) -> int:
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+
+    # Plan 020 Phase 6.C — agent eval harness CLI.
+    eval_parser = sub.add_parser("agent-eval")
+    eval_sub = eval_parser.add_subparsers(dest="agent_eval_command", required=True)
+    eval_add = eval_sub.add_parser("add-fixture")
+    eval_add.add_argument("--fixture-file", required=True,
+        help="Path to JSON fixture file conforming to aria/agent-eval-fixture/v1.")
+    eval_run = eval_sub.add_parser("run")
+    eval_run.add_argument("--fixture-id", required=True)
+    eval_run.add_argument("--mock-mode", action="store_true", default=True,
+        help="Run mock-mode (default; produces deterministic envelope).")
+    eval_run.add_argument("--real-envelope-file", default=None,
+        help="JSON file with real_response_envelope (required when --mock-mode is unset).")
+    eval_run.add_argument("--no-mock-mode", action="store_true",
+        help="Disable mock mode; requires --real-envelope-file.")
+    eval_aggregate = eval_sub.add_parser("aggregate")
+    eval_aggregate.add_argument("--target-agent", required=True)
+    eval_aggregate.add_argument("--window-days", type=int, default=30)
+    eval_aggregate.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    eval_list = eval_sub.add_parser("list")
+    eval_list.add_argument("--target-agent", default=None)
+    eval_list.add_argument("--fixture-id", default=None)
+    eval_list.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    eval_list.add_argument("--limit", type=int, default=None)
+    eval_list_fixtures = eval_sub.add_parser("list-fixtures")
 
     # Plan 020 Phase 3.B — handoff snapshot sub-command.
     # WHY a CLI surface: session_start + session_stop GHA workflow steps
@@ -1143,6 +1175,61 @@ def _main(argv: list[str] | None = None) -> int:
                 sort_keys=True,
             ),
         )
+        return 0
+
+    # Plan 020 Phase 6.C — agent eval CLI dispatch.
+    if args.command == "agent-eval" and args.agent_eval_command == "add-fixture":
+        fixture = json.loads(Path(args.fixture_file).read_text(encoding="utf-8"))
+        result = eval_add_fixture(fixture=fixture, base_dir=args.tools_dir)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "run":
+        mock_mode = not args.no_mock_mode
+        envelope = None
+        if not mock_mode:
+            if not args.real_envelope_file:
+                parser.error("--no-mock-mode requires --real-envelope-file")
+            envelope = json.loads(Path(args.real_envelope_file).read_text(encoding="utf-8"))
+        run = run_agent_eval(
+            fixture_id=args.fixture_id,
+            base_dir=args.tools_dir,
+            mock_mode=mock_mode,
+            real_response_envelope=envelope,
+        )
+        print(json.dumps(run, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "aggregate":
+        mock_filter: Any = None
+        if args.mock_mode == "true":
+            mock_filter = True
+        elif args.mock_mode == "false":
+            mock_filter = False
+        result = aggregate_eval_metrics(
+            target_agent=args.target_agent,
+            base_dir=args.tools_dir,
+            window_days=args.window_days,
+            mock_mode=mock_filter,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "list":
+        mock_filter = None
+        if args.mock_mode == "true":
+            mock_filter = True
+        elif args.mock_mode == "false":
+            mock_filter = False
+        rows = list_eval_runs(
+            base_dir=args.tools_dir,
+            target_agent=args.target_agent,
+            fixture_id=args.fixture_id,
+            mock_mode=mock_filter,
+            limit=args.limit,
+        )
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "list-fixtures":
+        rows = eval_list_fixtures_fn(base_dir=args.tools_dir)
+        print(json.dumps(rows, indent=2, sort_keys=True))
         return 0
 
     # Plan 020 Phase 3.B — handoff CLI dispatch.

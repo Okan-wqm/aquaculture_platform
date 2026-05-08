@@ -32,7 +32,10 @@ from .ledger import load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
-PLAN_016_METRIC_NAMES = (
+# Plan 016 baseline counters (9). Plan 020 adds 4 (Phase 6 ×2 + Phase 9
+# + Phase 13); the union is exposed as PLAN_016_METRIC_NAMES so the
+# dashboard renderer + invariant test cover the full surface.
+PLAN_016_BASELINE_METRIC_NAMES = (
     "aria_agent_request_total",
     "aria_agent_claim_active",
     "aria_agent_claim_expired_total",
@@ -43,6 +46,12 @@ PLAN_016_METRIC_NAMES = (
     "aria_self_approval_rejected_total",
     "aria_pr_created_total",
 )
+# Plan 020 Phase 6 — mock vs real eval counter segregation.
+PLAN_020_PHASE_6_METRIC_NAMES = (
+    "aria_agent_eval_mock_only_total",
+    "aria_agent_eval_real_total",
+)
+PLAN_016_METRIC_NAMES = PLAN_016_BASELINE_METRIC_NAMES + PLAN_020_PHASE_6_METRIC_NAMES
 
 
 def _governance_kinds(tools_root: Path) -> list[str]:
@@ -121,16 +130,28 @@ def _plan_round_total(tools_root: Path) -> int:
 
 
 def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str, int]:
-    """Return the nine Plan 016 counters as a flat dict {metric_name: int}.
+    """Return the Plan 016 + Plan 020 counter set as a flat dict.
 
     Pure read over append-only ledgers — safe to call repeatedly without
     side effects.
+
+    Counter set:
+    - 9 Plan 016 baseline counters.
+    - Plan 020 Phase 6: aria_agent_eval_mock_only_total + aria_agent_eval
+      _real_total (segregated mock vs real eval streams; never conflated
+      so historical mock data does not retroactively pollute real-mode
+      averages).
+    - Plan 020 Phase 9: aria_change_chain_validation_pct (added there).
+    - Plan 020 Phase 13: aria_dispatch_rationale_total (added there).
     """
+    from .agent_eval import count_eval_runs_by_mode
+
     tools_root = ensure_tools_dir(base_dir)
     requests = load_jsonl(tools_root / "agent-invocations" / "requests.jsonl")
     results = load_jsonl(tools_root / "agent-invocations" / "results.jsonl")
     claims = load_jsonl(tools_root / "agent-invocations" / "claims.jsonl")
     kinds = _governance_kinds(tools_root)
+    eval_counts = count_eval_runs_by_mode(base_dir=tools_root)
 
     return {
         "aria_agent_request_total": len(requests),
@@ -150,6 +171,9 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
             1 for k in kinds if k == "self_approval_rejected"
         ),
         "aria_pr_created_total": sum(1 for k in kinds if k == "pr_created"),
+        # Plan 020 Phase 6 — mock vs real eval segregation.
+        "aria_agent_eval_mock_only_total": eval_counts["aria_agent_eval_mock_only_total"],
+        "aria_agent_eval_real_total": eval_counts["aria_agent_eval_real_total"],
     }
 
 

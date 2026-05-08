@@ -28,8 +28,17 @@ def _seed_tools() -> Path:
 
 
 class CounterShapeTests(unittest.TestCase):
-    def test_metric_set_has_nine_named_counters(self) -> None:
-        self.assertEqual(len(PLAN_016_METRIC_NAMES), 9)
+    def test_metric_set_has_nine_baseline_counters_plus_plan020_extensions(self) -> None:
+        # Plan 016 baseline: 9. Plan 020 Phase 6 extension: +2 (mock/real
+        # eval segregation). Total today: 11. Plan 020 Phase 9 +1 and
+        # Phase 13 +1 will lift to 13 when those phases land.
+        from aria_kernel.plan_016_metrics import (
+            PLAN_016_BASELINE_METRIC_NAMES,
+            PLAN_020_PHASE_6_METRIC_NAMES,
+        )
+        self.assertEqual(len(PLAN_016_BASELINE_METRIC_NAMES), 9)
+        self.assertEqual(len(PLAN_020_PHASE_6_METRIC_NAMES), 2)
+        self.assertEqual(len(PLAN_016_METRIC_NAMES), 11)
 
     def test_compute_returns_zero_baseline_on_fresh_tools(self) -> None:
         tools = _seed_tools()

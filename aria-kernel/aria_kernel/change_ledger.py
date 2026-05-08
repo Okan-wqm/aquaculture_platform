@@ -125,6 +125,67 @@ def _find_committed(tools_root: Path, change_id: str) -> dict[str, Any] | None:
 # ---------------------------- public API ----------------------------
 
 
+# Plan 020 Phase 9.B — change_chain_stale detection.
+# Strict-mode rule: a committed chain that has not validated within
+# CHAIN_STALE_DAYS days emits change_chain_stale governance event so the
+# operator dashboard surfaces it for cleanup.
+CHAIN_STALE_DAYS: int = 7
+
+
+def detect_stale_change_chains(
+    *,
+    base_dir: str | Path | None = None,
+    stale_days: int = CHAIN_STALE_DAYS,
+) -> list[dict[str, Any]]:
+    """Return committed-but-not-validated chains older than stale_days.
+
+    Read-only — DOES NOT emit governance events. Use
+    emit_stale_chain_warnings(...) for the side-effecting variant.
+    """
+    from datetime import datetime, timedelta, timezone
+    tools_root = ensure_tools_dir(base_dir)
+    committed = load_jsonl(_committed_path(tools_root))
+    validated = load_jsonl(_validated_path(tools_root))
+    validated_ids = {row.get("change_id") for row in validated if row.get("change_id")}
+    cutoff = datetime.now(timezone.utc) - timedelta(days=stale_days)
+    stale: list[dict[str, Any]] = []
+    for row in committed:
+        cid = row.get("change_id")
+        if not cid or cid in validated_ids:
+            continue
+        try:
+            recorded = datetime.fromisoformat(
+                str(row.get("recorded_at", "")).replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError):
+            continue
+        if recorded < cutoff:
+            stale.append({
+                "change_id": cid,
+                "commit_sha": row.get("commit_sha"),
+                "plan_id": row.get("plan_id"),
+                "committed_at": row.get("recorded_at"),
+                "age_days": (datetime.now(timezone.utc) - recorded).days,
+            })
+    return stale
+
+
+def emit_stale_chain_warnings(
+    *,
+    base_dir: str | Path | None = None,
+    stale_days: int = CHAIN_STALE_DAYS,
+) -> list[dict[str, Any]]:
+    """Detect stale chains + emit one change_chain_stale event per chain.
+
+    Side-effecting variant for the strict-mode operator dashboard.
+    """
+    stale = detect_stale_change_chains(base_dir=base_dir, stale_days=stale_days)
+    tools_root = ensure_tools_dir(base_dir)
+    for row in stale:
+        append_tools_governance(tools_root, "change_chain_stale", row)
+    return stale
+
+
 def emit_change_planned(
     *,
     plan_id: str,

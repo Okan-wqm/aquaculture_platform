@@ -51,7 +51,18 @@ PLAN_020_PHASE_6_METRIC_NAMES = (
     "aria_agent_eval_mock_only_total",
     "aria_agent_eval_real_total",
 )
-PLAN_016_METRIC_NAMES = PLAN_016_BASELINE_METRIC_NAMES + PLAN_020_PHASE_6_METRIC_NAMES
+# Plan 020 Phase 9 — change-chain validation percentage.
+# Numerator: enforced-mode validated chains; denominator: committed chains.
+# historical_attestation rows are EXCLUDED from the numerator (audit trail
+# only; not a real validation closure per Plan v3.3 §Phase 9).
+PLAN_020_PHASE_9_METRIC_NAMES = (
+    "aria_change_chain_validation_pct",
+)
+PLAN_016_METRIC_NAMES = (
+    PLAN_016_BASELINE_METRIC_NAMES
+    + PLAN_020_PHASE_6_METRIC_NAMES
+    + PLAN_020_PHASE_9_METRIC_NAMES
+)
 
 
 def _governance_kinds(tools_root: Path) -> list[str]:
@@ -152,6 +163,7 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
     claims = load_jsonl(tools_root / "agent-invocations" / "claims.jsonl")
     kinds = _governance_kinds(tools_root)
     eval_counts = count_eval_runs_by_mode(base_dir=tools_root)
+    chain_pct = _change_chain_validation_pct(tools_root)
 
     return {
         "aria_agent_request_total": len(requests),
@@ -174,7 +186,38 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
         # Plan 020 Phase 6 — mock vs real eval segregation.
         "aria_agent_eval_mock_only_total": eval_counts["aria_agent_eval_mock_only_total"],
         "aria_agent_eval_real_total": eval_counts["aria_agent_eval_real_total"],
+        # Plan 020 Phase 9 — change-chain validation percentage (0..100,
+        # enforced rows / committed rows). historical_attestation rows
+        # excluded from numerator (audit trail only).
+        "aria_change_chain_validation_pct": chain_pct,
     }
+
+
+def _change_chain_validation_pct(tools_root: Path) -> int:
+    """Plan 020 Phase 9 metric: percentage of committed chains validated
+    in 'enforced' mode (NOT historical_attestation).
+
+    0 when no committed chains. Returned as int 0..100 to keep the
+    counter set int-typed.
+    """
+    committed_path = tools_root / "change-ledger" / "committed.jsonl"
+    validated_path = tools_root / "change-ledger" / "validated.jsonl"
+    if not committed_path.exists():
+        return 0
+    committed = load_jsonl(committed_path)
+    if not committed:
+        return 0
+    validated = load_jsonl(validated_path) if validated_path.exists() else []
+    enforced_change_ids = {
+        row.get("change_id") for row in validated
+        if row.get("validation_mode") == "enforced"
+    }
+    if not enforced_change_ids:
+        return 0
+    enforced_committed = sum(
+        1 for c in committed if c.get("change_id") in enforced_change_ids
+    )
+    return int(round((enforced_committed / len(committed)) * 100))
 
 
 def _gate_activity_for_dashboard(tools_root: Path) -> dict[str, int]:

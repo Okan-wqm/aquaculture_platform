@@ -309,8 +309,10 @@ class Plan016MetricsExtensionTests(unittest.TestCase):
         metrics = compute_plan_016_metrics(base_dir=self.tools)
         self.assertIn("aria_agent_eval_mock_only_total", metrics)
         self.assertIn("aria_agent_eval_real_total", metrics)
-        # Plan 020 baseline 9 + Phase 6 adds 2 = 11.
-        self.assertEqual(len(metrics), 11)
+        # Plan 016 baseline 9 + Plan 020 Phase 6 (+2) + Phase 9 (+1) = 12.
+        # Phase 13 will lift this to 13 when the dispatch_rationale
+        # counter lands.
+        self.assertEqual(len(metrics), 12)
 
 
 class FrozenProfileBlocksEvalTests(unittest.TestCase):

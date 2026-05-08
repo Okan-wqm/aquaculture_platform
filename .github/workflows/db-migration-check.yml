@@ -368,6 +368,22 @@ jobs:
       - name: Run init-scripts against test DB
         env:
           PGPASSWORD: aquaculture-test
+          # PGHOST/PGUSER/PGDATABASE: every psql invocation inside the
+          # .sh init-scripts inherits these via libpq env. Without
+          # PGHOST psql falls back to the unix socket which doesn't
+          # exist on the GHA runner (postgres is exposed via TCP from
+          # the `services:` container). POSTGRES_USER/POSTGRES_DB:
+          # 00-init-schemas.sh reads these to wire its internal psql
+          # `--username` / `--dbname` flags — defaults are `postgres`
+          # but the GHA service was provisioned with `aquaculture`,
+          # so the defaults would crash with `role "postgres" does
+          # not exist`. Setting both at the step env layer keeps the
+          # script source untouched.
+          PGHOST: localhost
+          PGUSER: aquaculture
+          PGDATABASE: aquaculture
+          POSTGRES_USER: aquaculture
+          POSTGRES_DB: aquaculture
         run: |
           # Apply the production init scripts to the e2e DB so the
           # source-schema table inventory matches what tenant-clone-

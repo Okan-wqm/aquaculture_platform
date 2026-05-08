@@ -743,6 +743,22 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
         // Migration table inside the service schema; the production
         // MigrationRunnerService uses the same convention.
         migrationsTableName: 'migrations',
+        // Pin search_path on every connection acquired from this pool.
+        // Why: TypeORM's built-in MigrationExecutor (invoked by
+        // ds.runMigrations() below) does NOT pin search_path —
+        // production MigrationRunnerService does, but this test bypasses
+        // the runner and goes straight to the executor. Migrations that
+        // use unqualified table references (e.g. `ALTER TABLE "users"`,
+        // `FROM "users"`) then resolve against the connection's default
+        // search_path (`public`) and fail with `relation "users" does
+        // not exist` on a fresh DB where auth tables only live in the
+        // auth schema. The libpq `-c search_path=...` option sets the
+        // path at session-start time, before any migration SQL runs,
+        // and survives across the BEGIN/COMMIT cycles MigrationExecutor
+        // uses in `transaction: 'each'` mode.
+        extra: {
+          options: `-c search_path="${svc.schema}",public`,
+        },
       });
 
       try {

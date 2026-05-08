@@ -357,10 +357,55 @@ def register_tool(
     tool: dict[str, Any],
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
+    """Register a new tool or refresh an existing manifest.
+
+    Plan 022 §C-2 — re-registration is gated against the status transition
+    matrix so a manifest reload cannot bypass QUARANTINED -> ACTIVE
+    discipline:
+
+    - QUARANTINED on disk + any non-QUARANTINED in candidate -> reject.
+      Use unquarantine_tool() (which delegates through transition_tool)
+      to legitimately move a quarantined tool back into circulation.
+    - ACTIVE/CALIBRATE on disk + SHADOW/SANDBOX/DRAFT in candidate ->
+      reject. Use transition_tool(target_status='SHADOW', ...) for an
+      explicit demotion with reason audit trail.
+    - Same status (manifest hash drift) -> allow. Parser/runner update
+      path; transition matrix preserved.
+    - Forward progression (DRAFT -> SANDBOX/SHADOW) -> allow.
+    """
     candidate = validate_tool_definition(tool)
     registry = load_registry(base_dir)
-    existing = [t for t in registry["tools"] if t.get("tool_id") == candidate["tool_id"]]
-    if existing:
+    existing_rows = [t for t in registry["tools"] if t.get("tool_id") == candidate["tool_id"]]
+    if existing_rows:
+        existing = existing_rows[0]
+        existing_status = existing.get("status")
+        candidate_status = candidate.get("status")
+        # QUARANTINED is a terminal-ish state; anything but a quarantined
+        # re-register requires the operator-driven unquarantine path.
+        if existing_status == "QUARANTINED" and candidate_status != "QUARANTINED":
+            raise GovernanceError(
+                f"register_tool blocked: tool_id={candidate['tool_id']!r} is "
+                f"QUARANTINED on disk; cannot re-register as {candidate_status!r} via "
+                f"manifest reload. Use unquarantine_tool() for an audited "
+                f"QUARANTINED -> CALIBRATE transition."
+            )
+        # Promotions through SHADOW -> ACTIVE require precision/evidence
+        # validation that only transition_tool() performs. Block bare
+        # re-registration that tries to skip the matrix.
+        if existing_status in {"SHADOW", "CALIBRATE"} and candidate_status == "ACTIVE":
+            raise GovernanceError(
+                f"register_tool blocked: tool_id={candidate['tool_id']!r} promotion "
+                f"{existing_status!r} -> 'ACTIVE' must route through transition_tool() "
+                f"with precision + evidence_chains_valid + operator_approval."
+            )
+        # Demotions from ACTIVE/CALIBRATE down to early-lifecycle states
+        # similarly require an explicit reason audit trail.
+        if existing_status in {"ACTIVE", "CALIBRATE"} and candidate_status in {"SHADOW", "SANDBOX", "DRAFT"}:
+            raise GovernanceError(
+                f"register_tool blocked: tool_id={candidate['tool_id']!r} demotion "
+                f"{existing_status!r} -> {candidate_status!r} must route through "
+                f"transition_tool() with an explicit reason."
+            )
         registry["tools"] = [
             candidate if t.get("tool_id") == candidate["tool_id"] else t for t in registry["tools"]
         ]
@@ -369,6 +414,44 @@ def register_tool(
     registry["schema_version"] = SCHEMA_VERSION
     save_registry(registry, base_dir)
     return candidate
+
+
+def unquarantine_tool(
+    tool_id: str,
+    *,
+    operator_approval_ref: str,
+    reason: str,
+    root_cause_note: str,
+    fixture_update_ref: str,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Plan 022 §C-2 — operator-driven QUARANTINED -> CALIBRATE transition.
+
+    Companion to the register_tool guard: when a tool is QUARANTINED, the
+    only legitimate path back into circulation is through this API, which
+    routes through transition_tool() so the lifecycle audit trail
+    (root_cause_note + fixture_update_ref + last_transition entry) is
+    preserved.
+    """
+    if not (operator_approval_ref or "").strip():
+        raise GovernanceError("unquarantine_tool requires operator_approval_ref")
+    if not (reason or "").strip():
+        raise GovernanceError("unquarantine_tool requires reason")
+    tool = get_tool(tool_id, base_dir)
+    if tool.get("status") != "QUARANTINED":
+        raise GovernanceError(
+            f"unquarantine_tool: tool_id={tool_id!r} is not QUARANTINED "
+            f"(current status={tool.get('status')!r})"
+        )
+    return transition_tool(
+        tool_id,
+        target_status="CALIBRATE",
+        reason=f"unquarantine: {reason} (operator_approval_ref={operator_approval_ref})",
+        root_cause_note=root_cause_note,
+        fixture_update_ref=fixture_update_ref,
+        operator_approval=True,
+        base_dir=base_dir,
+    )
 
 
 def get_tool(

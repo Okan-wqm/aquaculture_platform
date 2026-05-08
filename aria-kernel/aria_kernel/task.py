@@ -83,7 +83,12 @@ def _candidate_from_pressure(cycle_id: str, pressure: dict[str, Any]) -> dict[st
         "source_authority": "deterministic_pressure",
         "title": str(pressure.get("recommended_action") or pressure.get("reason") or source_id),
         "problem": str(pressure.get("reason") or source_id),
-        "evidence_refs": _strings(pressure.get("evidence")),
+        # Plan 022 C-1b — pressure schema v2 carries `evidence_refs`
+        # (path-string list) populated by derive_pressure (Plan 022 C-1).
+        # Legacy schema v1 used `evidence` for the same data. Read the
+        # canonical field first; fall back to legacy for backward-compat
+        # historical pressures still in the ledger.
+        "evidence_refs": _strings(pressure.get("evidence_refs") or pressure.get("evidence")),
         "candidate_tools": _strings(pressure.get("candidate_tools")),
         "risk_class": _risk_from_pressure(pressure),
         "validation_commands": ["PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify"],

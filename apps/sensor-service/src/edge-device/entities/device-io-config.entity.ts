@@ -57,7 +57,7 @@ registerEnumType(IoDataType, {
  * DeviceIoConfig entity - represents an I/O point configuration on an edge device
  */
 @ObjectType()
-@Entity('device_io_configs', { schema: 'sensor' })
+@Entity('device_io_configs')
 @Index(['deviceId', 'tagName'], { unique: true })
 @Index(['deviceId', 'moduleAddress', 'channel'])
 export class DeviceIoConfig {

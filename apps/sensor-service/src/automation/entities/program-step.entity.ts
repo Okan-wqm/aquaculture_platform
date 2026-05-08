@@ -50,7 +50,7 @@ registerEnumType(TimeoutBehavior, {
  * The main SFC definition is stored as JSONB in AutomationProgram.
  */
 @ObjectType()
-@Entity('program_steps', { schema: 'sensor' })
+@Entity('program_steps')
 @Index(['programId', 'stepCode'], { unique: true })
 @Index(['programId', 'stepType'])
 export class ProgramStep {

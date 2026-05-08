@@ -33,7 +33,7 @@ registerEnumType(ScadaPackageStatus, {
  * ScadaPackage entity - stores a full SCADA HMI package (screens, alarms, controls, trends)
  */
 @ObjectType()
-@Entity('scada_packages', { schema: 'sensor' })
+@Entity('scada_packages')
 @Index(['tenantId', 'status'])
 export class ScadaPackage {
   @Field(() => ID)

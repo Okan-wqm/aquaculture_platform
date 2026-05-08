@@ -60,7 +60,7 @@ registerEnumType(VariableScope, {
  * ProgramVariable entity - IEC 61131-3 program variables with I/O mapping
  */
 @ObjectType()
-@Entity('program_variables', { schema: 'sensor' })
+@Entity('program_variables')
 @Index(['programId', 'varName'], { unique: true })
 @Index(['programId', 'scope'])
 @Index(['ioConfigId'])

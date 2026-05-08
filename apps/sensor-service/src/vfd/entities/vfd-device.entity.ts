@@ -100,7 +100,7 @@ export type VfdProtocolConfiguration =
  */
 @Auditable()
 @ObjectType({ description: 'VFD (Variable Frequency Drive) device' })
-@Entity('vfd_devices', { schema: 'sensor' })
+@Entity('vfd_devices')
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'brand'])
 @Index(['tenantId', 'protocol'])

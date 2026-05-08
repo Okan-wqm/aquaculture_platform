@@ -95,7 +95,7 @@ export class VfdSettings {
 
 @Auditable()
 @ObjectType()
-@Entity('feeding_parameters', { schema: 'sensor' })
+@Entity('feeding_parameters')
 @Index(['tenantId', 'plcConnectionId'])
 @Index(['tenantId', 'status'])
 export class FeedingParameter {

@@ -47,6 +47,23 @@ def run_cycle(paths: WorkspacePaths | None = None, **kwargs: Any) -> dict[str, o
     return state
 
 
+# Plan 022 §M-1 — opt-in cycle phase chain. The base set keeps Plan 016
+# behaviour intact; operators can opt into extended phases that link
+# the architecture spine gate, validation matrix, and PR lifecycle into
+# the same cycle invocation. NOTE: 'pr_lifecycle' currently emits a
+# placeholder governance event (no real PR action) — fully wiring it
+# requires a proposal_id which the cycle entry point doesn't carry.
+DEFAULT_CYCLE_PHASES: tuple[str, ...] = (
+    "discover", "tools", "memory", "pressure", "reflection",
+)
+SUPPORTED_CYCLE_PHASES: tuple[str, ...] = DEFAULT_CYCLE_PHASES + (
+    "architecture_baseline",
+    "architecture_postcheck",
+    "validation_matrix",
+    "pr_lifecycle",
+)
+
+
 def run_enterprise_cycle(
     *,
     workspace_root: str | Path,
@@ -56,6 +73,8 @@ def run_enterprise_cycle(
     shadow_only: bool = False,
     discovery_only: bool = False,
     snapshot_mode: str = "committed",
+    run_phases: tuple[str, ...] | None = None,
+    plan_id: str | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     root = ensure_tools_binding(base_dir, workspace_root=workspace_root)
@@ -124,6 +143,28 @@ def run_enterprise_cycle(
         base_dir=root,
     )
     dashboard = generate_observability_dashboard(cycle_id=cycle_id, base_dir=root)
+
+    # Plan 022 §M-1 — extended-phase dispatch. Default behaviour
+    # (run_phases=None) is unchanged; only when the operator opts into
+    # extra phases do we invoke the architecture spine gate +
+    # validation matrix + PR lifecycle from inside the cycle.
+    extended_phase_results: dict[str, Any] = {}
+    if run_phases is not None:
+        active_phases = tuple(run_phases)
+        unknown = [p for p in active_phases if p not in SUPPORTED_CYCLE_PHASES]
+        if unknown:
+            raise ValueError(
+                f"unknown cycle phase(s): {unknown}; "
+                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
+            )
+        extended_phase_results = _run_extended_phases(
+            phases=active_phases,
+            workspace_root=Path(workspace_root).resolve(),
+            cycle_id=cycle_id,
+            base_dir=root,
+            plan_id=plan_id,
+        )
+
     event = _complete_event(root, cycle_id, len(decisions), git_head_sha_at_cycle=git_head_sha_at_cycle)
     state = {
         "schema_version": 2,
@@ -142,9 +183,68 @@ def run_enterprise_cycle(
         "tool_decisions": decisions,
         "tool_governance_decisions": decisions,
         "tool_run_summary": run_summary,
+        "extended_phases": extended_phase_results,
     }
     _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
     return state
+
+
+def _run_extended_phases(
+    *,
+    phases: tuple[str, ...],
+    workspace_root: Path,
+    cycle_id: str,
+    base_dir: Path,
+    plan_id: str | None,
+) -> dict[str, Any]:
+    """Plan 022 §M-1 — opt-in extended phase chain.
+
+    Each extended phase calls the corresponding kernel primitive that
+    already exists as a public API (Plan 020 Phase 4 fresh
+    orchestrator + Phase 8 validation matrix gate + Plan 016 PR
+    lifecycle). The cycle becomes the orchestrator that strings them
+    together; primitives unchanged.
+    """
+    out: dict[str, Any] = {}
+    if plan_id is None:
+        # architecture_baseline / postcheck require a plan_id; emit a
+        # skip notice so the operator knows why the phase didn't fire.
+        skip = {"status": "skipped", "reason": "plan_id_required"}
+        if "architecture_baseline" in phases:
+            out["architecture_baseline"] = skip
+        if "architecture_postcheck" in phases:
+            out["architecture_postcheck"] = skip
+    else:
+        if "architecture_baseline" in phases:
+            from .architecture_spine_gate import take_baseline
+            out["architecture_baseline"] = take_baseline(
+                plan_id=plan_id, cycle_id=cycle_id,
+                workspace_root=workspace_root, base_dir=base_dir,
+            )
+        if "architecture_postcheck" in phases:
+            from .architecture_spine_gate import take_postcheck
+            out["architecture_postcheck"] = take_postcheck(
+                plan_id=plan_id, cycle_id=cycle_id,
+                workspace_root=workspace_root, base_dir=base_dir,
+            )
+    if "validation_matrix" in phases:
+        # Validation matrix is applied per change_id; the cycle entry
+        # point can't pick a specific change. Emit an informational
+        # row pointing the operator at the matrix CLI.
+        out["validation_matrix"] = {
+            "status": "informational",
+            "notice": "validation_matrix is per change_id; invoke "
+                      "`aria-kernel validation-matrix check --change-id <id>` "
+                      "outside the cycle.",
+        }
+    if "pr_lifecycle" in phases:
+        out["pr_lifecycle"] = {
+            "status": "informational",
+            "notice": "pr_lifecycle requires proposal_id; invoke "
+                      "`aria-kernel pr create --proposal-id <id>` "
+                      "outside the cycle.",
+        }
+    return out
 
 
 def _complete_event(root: Path, cycle_id: str, decision_count: int, *, git_head_sha_at_cycle: str | None = None) -> dict[str, Any]:

@@ -650,16 +650,58 @@ def _gh_pr_snapshot(*, pr_number: int, workspace_root: str | Path) -> dict[str, 
     root = Path(workspace_root).resolve()
     pr = _gh_json(root, ["pr", "view", str(pr_number), "--json", "number,baseRefName,headRefOid,files"])
     checks = _gh_json(root, ["pr", "checks", str(pr_number), "--json", "name,state,link,workflow"])
+    # Map gh-cli state strings -> CompletedProcess-style (status,
+    # conclusion) tuples used by the auto-merge / verification gates.
     runs = [
         {
             "name": item.get("workflow") or item.get("name"),
-            "status": "completed" if item.get("state") in ("SUCCESS", "FAILURE") else "in_progress",
-            "conclusion": "success" if item.get("state") == "SUCCESS" else ("failure" if item.get("state") == "FAILURE" else None),
+            "status": "completed" if item.get("state") in ("SUCCESS", "FAILURE", "SKIPPED", "CANCELLED") else "in_progress",
+            "conclusion": (
+                "success" if item.get("state") == "SUCCESS"
+                else "failure" if item.get("state") == "FAILURE"
+                else "skipped" if item.get("state") == "SKIPPED"
+                else "cancelled" if item.get("state") == "CANCELLED"
+                else None
+            ),
             "url": item.get("link"),
         }
         for item in checks if isinstance(item, dict)
     ]
     required = [str(item.get("name")) for item in checks if isinstance(item, dict) and item.get("name")]
+
+    # Plan 022 §C-7 — required-check runs MUST reflect real gh state.
+    # Pre-fix this list was synthesized as `[{name, status:'completed',
+    # conclusion:'success'} for name in required]` regardless of the
+    # actual check outcome. Auto-merge gates that consumed
+    # github.checks.runs (rather than workflow_runs) saw pending /
+    # failing checks as success and could greenlight a merge over a
+    # broken CI baseline.
+    runs_by_name: dict[str, dict[str, Any]] = {}
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not name:
+            continue
+        state = item.get("state")
+        runs_by_name[str(name)] = {
+            "name": str(name),
+            "status": "completed" if state in ("SUCCESS", "FAILURE", "SKIPPED", "CANCELLED") else "in_progress",
+            "conclusion": (
+                "success" if state == "SUCCESS"
+                else "failure" if state == "FAILURE"
+                else "skipped" if state == "SKIPPED"
+                else "cancelled" if state == "CANCELLED"
+                else None
+            ),
+        }
+    required_runs = [
+        runs_by_name[name] if name in runs_by_name else {
+            "name": name, "status": "in_progress", "conclusion": None,
+        }
+        for name in required
+    ]
+
     return {
         "pr": {
             "number": pr.get("number"),
@@ -670,7 +712,7 @@ def _gh_pr_snapshot(*, pr_number: int, workspace_root: str | Path) -> dict[str, 
         "github": {
             "latest_head_sha": pr.get("headRefOid"),
             "branch_protection": {"readable": True, "required_checks": required},
-            "checks": {"readable": True, "runs": [{"name": item, "status": "completed", "conclusion": "success"} for item in required]},
+            "checks": {"readable": True, "runs": required_runs},
             "workflow_runs": runs,
             "reviews": {"readable": True, "items": []},
             "conversations": {"readable": True, "unresolved_count": 0},

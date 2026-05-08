@@ -120,7 +120,7 @@ import { AddTenantIdToMessageChildren1782300000000 } from './migrations/17823000
 // via TenantRlsSyncService (wired by RlsModule.forPoolService syncTenantSchemas: true).
 import { EnableRowLevelSecurity1782400000000 } from './migrations/1782400000000-EnableRowLevelSecurity';
 import { AlignMessagingEntityDrift1782600000000 } from './migrations/1782600000000-AlignMessagingEntityDrift';
-import { AddLegalHoldDualApprover1782700000000 } from './migrations/1782700000000-AddLegalHoldDualApprover';
+import { AddLegalHoldDualApprover1782700000001 } from './migrations/1782700000001-AddLegalHoldDualApprover';
 import { AddMessageAttachmentIsDeletedIndex1782800000000 } from './migrations/1782800000000-AddMessageAttachmentIsDeletedIndex';
 
 // Feature modules
@@ -206,7 +206,7 @@ const complexityCache = new Map<string, number>();
             AddTenantIdToMessageChildren1782300000000,
             EnableRowLevelSecurity1782400000000,
             AlignMessagingEntityDrift1782600000000,
-            AddLegalHoldDualApprover1782700000000,
+            AddLegalHoldDualApprover1782700000001,
             AddMessageAttachmentIsDeletedIndex1782800000000,
           ],
         }),

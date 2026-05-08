@@ -2681,7 +2681,7 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
     `);
 
     // farm_audit_logs — cross-tenant audit log (immutability triggers
-    // installed by 1788300000000-AddFarmAuditLogsImmutability).
+    // installed by 1788300000001-AddFarmAuditLogsImmutability).
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS farm.farm_audit_logs (
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),

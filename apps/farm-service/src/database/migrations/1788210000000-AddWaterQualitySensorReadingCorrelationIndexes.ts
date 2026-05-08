@@ -7,7 +7,7 @@ import { MigrationLogger } from '@aquaculture/backend-common/database';
  *
  * Phase 7.4 finishing slice — closes FARM-MEDIUM-005. Lands the two
  * indexes the sibling column-add migration
- * (AddWaterQualitySensorReadingCorrelation1788200000000) intentionally
+ * (AddWaterQualitySensorReadingCorrelation1788200000001) intentionally
  * left unindexed.
  *
  * # The two indexes

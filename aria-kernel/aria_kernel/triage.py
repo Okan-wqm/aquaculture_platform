@@ -207,12 +207,16 @@ def _decision_key(row: dict[str, Any]) -> str:
 def _is_fitness_stale(row: dict[str, Any], threshold_days: int = FITNESS_STALENESS_DAYS) -> bool:
     """Return True when the fitness row is older than threshold_days.
 
-    Defensive default: missing or unparseable recorded_at counts as stale so a
-    silent absence cannot promote auto_fix_safe.
+    Plan 022 §H-3 — alias-aware read. Pre-fix this read only `recorded_at`
+    while fitness.py wrote `computed_at`, causing fresh fitness rows to
+    register as stale and silently demote auto_fix_safe -> needs_review.
+    Now reads canonical `recorded_at` first with legacy `computed_at`
+    fallback. Defensive default: missing/unparseable timestamp counts
+    as stale so a silent absence cannot promote auto_fix_safe.
     """
     if not row:
         return False  # no agent fitness record → caller short-circuits earlier
-    recorded = row.get("recorded_at")
+    recorded = row.get("recorded_at") or row.get("computed_at")
     if not isinstance(recorded, str) or not recorded.strip():
         return True
     try:

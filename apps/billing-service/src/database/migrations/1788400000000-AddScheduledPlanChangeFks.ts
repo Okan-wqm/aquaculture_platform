@@ -57,6 +57,17 @@ export class AddScheduledPlanChangeFks1788400000000
     // operators get a generic FK violation error instead of an actionable
     // count. Pre-flight surfaces the problem fail-loud with a triage
     // pointer.
+    // The W4-A2 billing baseline (1700000000000-CreateInitialSchema)
+    // creates `scheduled_plan_changes.currentPlanId` and `newPlanId` as
+    // `uuid` directly (matching `billing.plans.id`'s uuid PK) even
+    // though the entity declares plain `@Column() … !: string`. The
+    // baseline docblock at lines 731-755 codifies this deliberate
+    // override of TypeORM's varchar default. The original migration
+    // was authored against legacy DBs where these columns were varchar
+    // and `plans.id::text` was the cast bridge — on a fresh post-W4-A2
+    // DB both sides are uuid, so the cast triggers
+    // `operator does not exist: uuid = text`. Drop the cast: both sides
+    // are uuid now and the IN comparison resolves natively.
     const orphans: Array<{
       orphan_subs: string;
       orphan_current: string;
@@ -67,10 +78,10 @@ export class AddScheduledPlanChangeFks1788400000000
           WHERE spc."subscriptionId" NOT IN (SELECT id FROM billing.subscriptions)
         )::text AS orphan_subs,
         COUNT(*) FILTER (
-          WHERE spc."currentPlanId" NOT IN (SELECT id::text FROM billing.plans)
+          WHERE spc."currentPlanId" NOT IN (SELECT id FROM billing.plans)
         )::text AS orphan_current,
         COUNT(*) FILTER (
-          WHERE spc."newPlanId" NOT IN (SELECT id::text FROM billing.plans)
+          WHERE spc."newPlanId" NOT IN (SELECT id FROM billing.plans)
         )::text AS orphan_new
       FROM billing.scheduled_plan_changes spc
     `);
@@ -107,9 +118,11 @@ export class AddScheduledPlanChangeFks1788400000000
       END $$;
     `);
 
-    // Step 3: currentPlanId FK. The currentPlanId column is varchar
-    // (matches plans.id text-form); the CAST keeps the constraint
-    // typed correctly.
+    // Step 3: currentPlanId FK. Both currentPlanId and plans.id are
+    // uuid in fresh W4-A2 DBs (baseline migration codifies the column
+    // type override at apps/billing-service/src/database/migrations/
+    // 1700000000000-CreateInitialSchema.ts:759). Native uuid-to-uuid
+    // FK resolution; no cast required.
     await queryRunner.query(`
       DO $$
       BEGIN

@@ -392,8 +392,13 @@ function scanContent(content: string, sourceLabel: string, allowIfWindow: number
   return violations;
 }
 
-function scanFile(relPath: string): Violation[] {
-  if (isExempt(relPath)) return [];
+function scanFile(relPath: string, ignoreExemptions = false): Violation[] {
+  // Plan 020 Phase 0.4 — operator gap: fixture-mode flag bypasses
+  // EXEMPT_PATHS. Default behaviour preserved (husky/CI gate paths
+  // continue to honour exemptions); --ignore-exemptions flag turns
+  // every path into a scan target so verification fixtures under
+  // tests/invariants/fixtures/ surface as violations as designed.
+  if (!ignoreExemptions && isExempt(relPath)) return [];
   const abs = resolve(REPO_ROOT, relPath);
   if (!existsSync(abs)) return [];
   const content = readFileSync(abs, 'utf8');
@@ -407,8 +412,12 @@ function scanFile(relPath: string): Violation[] {
  * so that a reference line one or two lines away (outside the hit set)
  * still exempts the hit.
  */
-function scanFileAddedLinesOnly(relPath: string, onlyLines: ReadonlySet<number>): Violation[] {
-  if (isExempt(relPath)) return [];
+function scanFileAddedLinesOnly(
+  relPath: string,
+  onlyLines: ReadonlySet<number>,
+  ignoreExemptions = false,
+): Violation[] {
+  if (!ignoreExemptions && isExempt(relPath)) return [];
   if (onlyLines.size === 0) return [];
   const abs = resolve(REPO_ROOT, relPath);
   if (!existsSync(abs)) return [];
@@ -496,44 +505,79 @@ function scanRangeCommitBodies(baseRef: string, headRef: string): Violation[] {
   return violations;
 }
 
+/**
+ * Plan 020 Phase 0.4 — two-stage argv parser.
+ *
+ * Splits raw argv into mode/flags/positional groups so flags like
+ * --ignore-exemptions can appear before OR after the mode/positional
+ * tokens without the parser confusing them with file paths. Earlier
+ * positional-only parser would treat
+ *   --mode=file --ignore-exemptions <path>
+ * as positional[0]=--ignore-exemptions, positional[1]=<path>, which
+ * silently broke the verification command.
+ */
+function parseArgv(rawArgv: string[]): {
+  mode: string;
+  flags: Set<string>;
+  positional: string[];
+  modeExplicit: boolean;
+} {
+  const flags = new Set<string>();
+  const positional: string[] = [];
+  let modeArg: string | null = null;
+  for (const tok of rawArgv) {
+    if (tok.startsWith('--mode=')) {
+      modeArg = tok.replace(/^--mode=/, '');
+      continue;
+    }
+    if (tok.startsWith('--')) {
+      flags.add(tok.replace(/^--/, ''));
+      continue;
+    }
+    positional.push(tok);
+  }
+  return {
+    mode: modeArg ?? 'staged',
+    flags,
+    positional,
+    modeExplicit: modeArg !== null,
+  };
+}
+
 function main(): void {
-  const [, , rawModeFlag, ...args] = process.argv;
-  // Default mode when invoked via `npm run gates:all` or a bare shell:
-  // scan the git-staged files. CI always supplies --mode=range <base>
-  // <head> explicitly, so the default only fires for local developer
-  // ergonomics — not a silent fallback for the CI path.
-  const modeFlag = rawModeFlag ?? '--mode=staged';
-  if (!rawModeFlag) {
+  const rawArgv = process.argv.slice(2);
+  const { mode, flags, positional, modeExplicit } = parseArgv(rawArgv);
+  if (!modeExplicit) {
     console.error('[banned-phrase] no --mode supplied; defaulting to --mode=staged.');
   }
+  const ignoreExemptions = flags.has('ignore-exemptions');
 
-  const mode = modeFlag.replace(/^--mode=/, '');
   const violations: Violation[] = [];
 
   if (mode === 'staged') {
     for (const f of stagedFiles()) {
-      violations.push(...scanFile(f));
+      violations.push(...scanFile(f, ignoreExemptions));
     }
   } else if (mode === 'range') {
-    const [baseRef, headRef] = args;
+    const [baseRef, headRef] = positional;
     if (!baseRef || !headRef) {
       console.error('range mode requires two refs: --mode=range <base> <head>');
       process.exit(2);
     }
     for (const f of rangeFiles(baseRef, headRef)) {
       const added = addedLinesInRange(baseRef, headRef, f);
-      violations.push(...scanFileAddedLinesOnly(f, added));
+      violations.push(...scanFileAddedLinesOnly(f, added, ignoreExemptions));
     }
     violations.push(...scanRangeCommitBodies(baseRef, headRef));
   } else if (mode === 'commit') {
     violations.push(...scanCommitBody());
   } else if (mode === 'file') {
-    const [fp] = args;
+    const [fp] = positional;
     if (!fp) {
       console.error('file mode requires a path: --mode=file <path>');
       process.exit(2);
     }
-    violations.push(...scanFile(relative(REPO_ROOT, resolve(fp))));
+    violations.push(...scanFile(relative(REPO_ROOT, resolve(fp)), ignoreExemptions));
   } else {
     console.error(`Unknown mode: ${mode}`);
     process.exit(2);

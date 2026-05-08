@@ -110,6 +110,7 @@
     "gates:clippy-affected": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.ts",
     "gates:clippy-affected:test": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.spec.ts",
     "gates:commit-msg:test": "ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.spec.ts",
+    "gates:banned-phrase:test": "ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.spec.ts",
     "gates:tier-claim": "ts-node --project tools/gates/tsconfig.json tools/gates/tier-claim-lint.ts",
     "gates:deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/main-deletion-witness.ts",
     "gates:all": "npm run gates:banned-phrase && npm run gates:migration-sql && npm run gates:tier-claim",

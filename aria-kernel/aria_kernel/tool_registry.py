@@ -90,6 +90,30 @@ def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
     return root
 
 
+def ensure_tools_dir_readonly(base_dir: str | os.PathLike[str] | None = None) -> Path | None:
+    """Plan 020 Phase 0 — frozen profile read path helper.
+
+    Returns the tools_dir Path if it already exists with a valid
+    repo_identity.json (bound state), else None. Does NOT create the
+    directory, write the identity file, or emit governance events.
+
+    Why: frozen runtime profile semantic is "no ledger/governance
+    write". Read commands (spine status, change show, dashboard render)
+    that call ensure_tools_dir() under frozen would silently break the
+    no-write invariant by emitting tools_root_bootstrapped events on a
+    fresh sandbox. This helper lets read paths fail-closed rather than
+    write-init under frozen — caller checks None and raises a profile-
+    aware error.
+    """
+    root = tools_dir(base_dir)
+    if not root.exists() or not root.is_dir():
+        return None
+    identity_file = root / "repo_identity.json"
+    if not identity_file.exists():
+        return None
+    return root
+
+
 def ensure_tools_binding(
     base_dir: str | os.PathLike[str] | None = None,
     *,

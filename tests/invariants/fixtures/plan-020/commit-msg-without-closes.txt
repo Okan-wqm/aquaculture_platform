@@ -1,0 +1,9 @@
+feat(test): plan 020 fixture commit message without Closes trailer
+
+This commit message intentionally omits the required `Closes:` trailer
+so Plan 020 verification can confirm `tools/gates/commit-msg-validator.ts
+--mode=msg-file <this-file>` rejects with exit code 1.
+
+The body deliberately mentions no finding ID, no plan-phase reference,
+and no architectural decision pointer. Phase 0.4 verification expects
+the validator to report 'missing Closes: trailer'.

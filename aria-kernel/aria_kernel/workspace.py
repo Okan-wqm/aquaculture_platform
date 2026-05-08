@@ -41,7 +41,16 @@ def repo_hash(repo_root: Path) -> str:
 
 
 def workspace_paths(repo_root: Path, workspace_base: Path | None = None) -> WorkspacePaths:
-    base = workspace_base or Path.home() / ".aria" / "workspaces"
+    # Plan 020 Phase 0 — operator gap #6: sandbox /root/.aria/... read-only
+    # nedeniyle test env'de workspace creation fail oluyordu. ARIA_WORKSPACE_BASE
+    # env var override eklendi; explicit kwarg > env var > Path.home() fallback.
+    import os
+    if workspace_base is not None:
+        base = workspace_base
+    elif os.environ.get("ARIA_WORKSPACE_BASE"):
+        base = Path(os.environ["ARIA_WORKSPACE_BASE"])
+    else:
+        base = Path.home() / ".aria" / "workspaces"
     root = base.expanduser().resolve() / repo_hash(repo_root)
     memory = root / "aria-memory"
     state = root / "aria-state"

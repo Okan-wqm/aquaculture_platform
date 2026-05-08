@@ -242,14 +242,14 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   },
   {
     service: 'config-service',
-    schema: 'public',
+    schema: 'config',
     migrationsGlob: [
       'apps/config-service/src/database/migrations/*{.ts,.js}',
     ],
     reason:
-      'Dynamic configuration keys. Lives in `public` as the only ' +
-      'service that intentionally shares public tables (legacy — ' +
-      'migration path tracked under ADR-011 consolidation).',
+      'Dynamic configuration keys. Wave 4-A.2 (2026-05-08) canonicalized ' +
+      'the dedicated `config` schema + `config_service` role per ADR-011 ' +
+      'update. Configuration entity declares schema: \'config\'.',
   },
   {
     service: 'observability-service',

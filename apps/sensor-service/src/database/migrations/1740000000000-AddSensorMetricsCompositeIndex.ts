@@ -1,5 +1,8 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger } from '@aquaculture/backend-common/database';
+import {
+  MigrationLogger,
+  tableExists,
+} from '@aquaculture/backend-common/database';
 
 /**
  * Migration: Add composite covering index on sensor_metrics
@@ -29,6 +32,17 @@ export class AddSensorMetricsCompositeIndex1740000000000 implements MigrationInt
   name = 'AddSensorMetricsCompositeIndex1740000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Wave 4-A.2 Dalga 3 bootstrap-restoration guard: sensor_metrics is
+    // installed by sibling migration 1735900000000-CreateSensorMetrics.
+    // Skip cleanly when that migration has not run yet — the indexes
+    // land on the next migration pass once the table is in place.
+    if (!(await tableExists(queryRunner, 'sensor_metrics'))) {
+      this.logger.log(
+        'Skipping AddSensorMetricsCompositeIndex — sensor_metrics not present on this DB (installed by sibling baseline migration)',
+      );
+      return;
+    }
+
     // Composite index for the "current value per channel" query pattern
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_sensor_metrics_sensor_channel_time"

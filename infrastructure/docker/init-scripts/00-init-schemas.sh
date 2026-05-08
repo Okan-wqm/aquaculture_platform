@@ -12,6 +12,15 @@
 # ============================================================================
 set -euo pipefail
 
+# Bind POSTGRES_USER / POSTGRES_DB defaults BEFORE any heredoc expansion
+# so `set -u` mode does not abort when the docker-entrypoint context is
+# absent (e.g. testcontainer setups that bind-mount this script with a
+# different env-var convention). The postgres docker image entrypoint
+# always sets these when running under the official image; the defaults
+# matter only for ad-hoc CI runs that bypass the entrypoint.
+: "${POSTGRES_USER:=postgres}"
+: "${POSTGRES_DB:=postgres}"
+
 # ============================================================================
 # Generate secure passwords from env vars (fall back to random)
 # ============================================================================
@@ -57,7 +66,7 @@ done
 # ============================================================================
 # Execute SQL via psql
 # ============================================================================
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-postgres}" --dbname "${POSTGRES_DB:-postgres}" <<-EOSQL
 
   -- ========================================================================
   -- TimescaleDB Extension

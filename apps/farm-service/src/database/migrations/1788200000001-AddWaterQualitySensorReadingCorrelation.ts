@@ -6,7 +6,7 @@ import {
 } from '@aquaculture/backend-common/database';
 
 /**
- * AddWaterQualitySensorReadingCorrelation1788200000000
+ * AddWaterQualitySensorReadingCorrelation1788200000001
  * ============================================================================
  *
  * Phase 7.4 of the "Farm modülü kalan kör noktalar" plan — the
@@ -115,13 +115,13 @@ import {
  * into stricter cross-service event-driven correlation (rather than
  * shared-DB), removing the FK would already be a no-op.
  */
-export class AddWaterQualitySensorReadingCorrelation1788200000000
+export class AddWaterQualitySensorReadingCorrelation1788200000001
   implements MigrationInterface
 {
   private readonly logger = new MigrationLogger(
-    'AddWaterQualitySensorReadingCorrelation1788200000000',
+    'AddWaterQualitySensorReadingCorrelation1788200000001',
   );
-  name = 'AddWaterQualitySensorReadingCorrelation1788200000000';
+  name = 'AddWaterQualitySensorReadingCorrelation1788200000001';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await pinSearchPath(queryRunner, 'farm');

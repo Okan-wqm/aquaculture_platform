@@ -41,9 +41,9 @@ import { Logger } from '@nestjs/common';
  *
  * @see docs/reviews/legal-hold-auditor/2026-04-28-core-platform-review.md#LEGAL-MEDIUM-002
  */
-export class AddLegalHoldDualApprover1782700000000 implements MigrationInterface {
-  name = 'AddLegalHoldDualApprover1782700000000';
-  private readonly logger = new Logger(AddLegalHoldDualApprover1782700000000.name);
+export class AddLegalHoldDualApprover1782700000001 implements MigrationInterface {
+  name = 'AddLegalHoldDualApprover1782700000001';
+  private readonly logger = new Logger(AddLegalHoldDualApprover1782700000001.name);
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     const schema = await this.currentSchema(queryRunner);

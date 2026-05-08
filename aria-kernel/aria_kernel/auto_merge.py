@@ -164,6 +164,7 @@ def evaluate_auto_merge(
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     dry_run: bool = True,
+    diff_text: str | None = None,
 ) -> dict[str, Any]:
     active_policy = normalize_policy(policy)
     reasons: list[str] = []
@@ -175,6 +176,39 @@ def evaluate_auto_merge(
     if not isinstance(changed_files, list):
         changed_files = []
     risk = classify_changed_files(changed_files, policy=active_policy)
+
+    # Plan 022 §H-2 — diff content scan. classify_changed_files only
+    # looks at path globs; pre-fix a low-risk path (apps/**/*.ts) could
+    # carry suppression patterns (`as any`, `// @ts-ignore`, `.skip`)
+    # that auto-merge would silently approve. Now the diff is scanned
+    # via suppression_scanner.scan_unified_diff_text and any hit
+    # demotes the risk to 'unknown'.
+    suppression_hits: list[dict[str, Any]] = []
+    if diff_text is None and pr.get("diff_text"):
+        diff_text = pr.get("diff_text")
+    if diff_text is None:
+        # Diff content REQUIRED for auto-merge. Fail-closed: caller
+        # must supply diff (typically via gh pr diff <pr_number>) so
+        # path-class + content-class AND-merge can run.
+        reasons.append("diff_text missing — auto_merge_requires_diff_content")
+    else:
+        from .suppression_scanner import scan_unified_diff_text
+        for match in scan_unified_diff_text(diff_text):
+            suppression_hits.append({
+                "category": match.category,
+                "detector": match.detector,
+                "file": match.file,
+                "line": match.line,
+                "text": match.text,
+            })
+        if suppression_hits:
+            # Path-class + content-class AND merge: any suppression hit
+            # demotes the eligibility regardless of path classification.
+            risk = {**risk, "eligible": False,
+                    "risk_class": "unknown",
+                    "suppression_hits": suppression_hits}
+            reasons.append(f"diff carries {len(suppression_hits)} suppression "
+                           f"pattern(s); auto-merge blocked")
 
     if active_policy.get("enabled") is not True:
         reasons.append("policy disabled")
@@ -277,10 +311,23 @@ def merge_if_green(
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     dry_run: bool = True,
+    diff_text: str | None = None,
 ) -> dict[str, Any]:
     pr = adapter.get_pr(pr_number)
     record_pr_lifecycle(pr, event="observed", base_dir=base_dir, cycle_id=cycle_id)
     github = collect_github_snapshot(adapter, pr)
+    # Plan 022 §H-2 — auto-merge content scan requires diff_text. If
+    # caller didn't pass it, fall back to pr.diff_text (some adapters
+    # surface it directly), then to the adapter if it exposes a
+    # get_pr_diff() optional method. Otherwise pass None and let
+    # evaluate_auto_merge fail-closed.
+    if diff_text is None:
+        diff_text = pr.get("diff_text")
+        if diff_text is None and hasattr(adapter, "get_pr_diff"):
+            try:
+                diff_text = adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
+            except Exception:
+                diff_text = None
     decision = evaluate_auto_merge(
         pr=pr,
         github=github,
@@ -288,6 +335,7 @@ def merge_if_green(
         base_dir=base_dir,
         cycle_id=cycle_id,
         dry_run=dry_run,
+        diff_text=diff_text,
     )
     if not decision["eligible"] or dry_run:
         return decision

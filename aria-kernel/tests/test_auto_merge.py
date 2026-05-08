@@ -22,6 +22,17 @@ def pr(**overrides):
         "head_sha": "abc123",
         "changed_files": ["docs/aria/plans/008-auto-merge.md"],
         "reviews": [],
+        # Plan 022 §H-2 — evaluate_auto_merge requires diff_text. The
+        # default fixture supplies a clean docs-only patch so existing
+        # tests stay green without invasive surgery; tests that target
+        # a specific suppression or empty-diff scenario override.
+        "diff_text": (
+            "--- a/docs/aria/plans/008-auto-merge.md\n"
+            "+++ b/docs/aria/plans/008-auto-merge.md\n"
+            "@@ -1 +1,2 @@\n"
+            " existing line\n"
+            "+New paragraph added by Plan 022 H-2 fixture.\n"
+        ),
     }
     payload.update(overrides)
     return payload

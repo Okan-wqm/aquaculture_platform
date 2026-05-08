@@ -828,6 +828,15 @@ def _main(argv: list[str] | None = None) -> int:
     add_tools_arg(sp_status, required=True)
     sp_status.add_argument("--plan-id", default=None)
 
+    # Plan 020 Phase 4.C — fresh adapter orchestrator manual invocation.
+    sp_refresh = spine_sub.add_parser("refresh",
+                                      help="Plan 020 Phase 4 — re-run any spine adapter whose latest run is stale.")
+    add_tools_arg(sp_refresh, required=True)
+    sp_refresh.add_argument("--workspace-root", default=".")
+    sp_refresh.add_argument("--cycle-id", default=None)
+    sp_refresh.add_argument("--freshness-max-age-seconds", type=int, default=600)
+    sp_refresh.add_argument("--max-workers", type=int, default=1)
+
     # Plan 019 Phase 7 — Change Ledger CLI surface.
     change_parser = sub.add_parser(
         "change",
@@ -1966,6 +1975,17 @@ def _main(argv: list[str] | None = None) -> int:
         if args.spine_command == "status":
             events = list_spine_events(plan_id=args.plan_id, base_dir=args.tools_dir)
             print(json.dumps(events, indent=2, sort_keys=True))
+            return 0
+        if args.spine_command == "refresh":
+            from aria_kernel.spine_orchestrator import refresh_spine_adapters
+            summary = refresh_spine_adapters(
+                base_dir=args.tools_dir,
+                workspace_root=workspace,
+                freshness_max_age_seconds=args.freshness_max_age_seconds,
+                cycle_id=args.cycle_id,
+                max_workers=args.max_workers,
+            )
+            print(json.dumps(summary, indent=2, sort_keys=True))
             return 0
         parser.error("unknown spine command")
 

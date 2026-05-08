@@ -646,6 +646,86 @@
       "tool_id": "tenant-scoping-adapter",
       "updated_at": "2026-05-07T15:00:00Z",
       "version": "0.1.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "apps/**/*.tsx",
+        "libs/**/*.ts",
+        "libs/**/*.tsx",
+        "platform/libs/**/*.ts",
+        "platform/libs/**/*.tsx",
+        "web/**/*.ts",
+        "web/**/*.tsx"
+      ],
+      "claim_types": [
+        "test_gap"
+      ],
+      "created_at": "2026-05-08T09:07:21+00:00",
+      "declared_scope": [
+        "apps/**/*.{ts,tsx}",
+        "libs/**/*.{ts,tsx}",
+        "platform/libs/**/*.{ts,tsx}",
+        "web/**/*.{ts,tsx}"
+      ],
+      "default_input": {
+        "includeWriteBoundaryFindings": false,
+        "roots": [
+          "apps",
+          "libs",
+          "platform/libs",
+          "web"
+        ]
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/test-gap-adapter",
+      "forbidden_read_globs": [
+        ".claude/**",
+        ".git/**",
+        "agent-workspace/**",
+        ".aria-poc/**",
+        "aria-tools/**",
+        "node_modules/**",
+        "dist/**",
+        "coverage/**",
+        "build/**",
+        "tmp/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 5500,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "node",
+          "./node_modules/ts-node/dist/bin.js",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/test-gap-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 180000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "test-gap-adapter",
+      "updated_at": "2026-05-08T09:07:21+00:00",
+      "version": "1.0.0"
     }
   ]
 }

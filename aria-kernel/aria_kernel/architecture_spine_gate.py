@@ -359,6 +359,8 @@ def take_baseline(
     workspace_root: str | Path,
     base_dir: str | Path | None = None,
     invariant_checks: dict[str, Callable[[Path], InvariantMeasurement]] | None = None,
+    require_fresh_adapter_runs: bool = True,
+    freshness_max_age_seconds: int | None = None,
 ) -> dict[str, Any]:
     """Snapshot all four invariants + persist a hash-chained governance event.
 
@@ -367,6 +369,21 @@ def take_baseline(
     dict to thread the baseline_hash through the remediation work; the
     matching `take_postcheck` call uses plan_id to resolve the latest
     baseline automatically.
+
+    Plan 020 Phase 4.B — require_fresh_adapter_runs (default True):
+      When True, calls spine_orchestrator.refresh_spine_adapters BEFORE
+      running invariant checks. The orchestrator re-runs any of the
+      5 spine adapters whose latest row is stale (different repo_state_id
+      OR older than freshness_max_age_seconds) so the invariant readers
+      downstream see fresh rows by construction.
+
+      Set False for smoke tests / backward-compat callers that genuinely
+      want the cached-row behaviour. Frozen profile callers must set
+      False (or pre-warm caches), because the orchestrator itself routes
+      through tool_runner.run_tool which is profile-gated.
+
+      freshness_max_age_seconds defaults to the orchestrator's own
+      DEFAULT_FRESHNESS_MAX_AGE_SECONDS (600) when None.
     """
     if not plan_id.strip():
         raise GovernanceError("plan_id is required")
@@ -374,6 +391,32 @@ def take_baseline(
         raise GovernanceError("cycle_id is required")
     repo = Path(workspace_root).resolve()
     tools_root = ensure_tools_dir(base_dir)
+
+    # Plan 020 Phase 4.B — fresh adapter orchestrator chokepoint.
+    # require_fresh_adapter_runs=True (default) AND invariant_checks is None
+    # → run the orchestrator. When invariant_checks is provided (smoke
+    # tests / fixture overrides), the caller is by definition feeding
+    # synthetic measurements; running real adapters would pollute the
+    # test snapshot with unrelated data + force every test to register
+    # 5 adapters in its isolated tools dir. Tier-2 "make it automatic"
+    # — caller's intent (real vs synthetic) drives the default.
+    if require_fresh_adapter_runs and invariant_checks is None:
+        # Local import keeps the spine_orchestrator pull lazy — callers
+        # that explicitly opt out of fresh runs (smoke tests, frozen
+        # profile cached-baseline path) avoid importing the orchestrator
+        # at all.
+        from .spine_orchestrator import (
+            DEFAULT_FRESHNESS_MAX_AGE_SECONDS,
+            refresh_spine_adapters,
+        )
+        refresh_spine_adapters(
+            base_dir=base_dir,
+            workspace_root=repo,
+            freshness_max_age_seconds=(
+                freshness_max_age_seconds or DEFAULT_FRESHNESS_MAX_AGE_SECONDS
+            ),
+            cycle_id=cycle_id,
+        )
 
     measurements = _run_invariant_checks(
         workspace_root=repo, invariant_checks=invariant_checks,
@@ -384,6 +427,7 @@ def take_baseline(
         "cycle_id": cycle_id,
         "baseline_hash": bh,
         "invariant_measurements": _measurements_to_dict(measurements),
+        "fresh_adapter_runs_required": require_fresh_adapter_runs,
     }
     append_tools_governance(tools_root, "architecture_spine_baseline", details)
     return details
@@ -500,6 +544,8 @@ def take_postcheck(
     base_dir: str | Path | None = None,
     invariant_checks: dict[str, Callable[[Path], InvariantMeasurement]] | None = None,
     max_regression_rounds: int = DEFAULT_MAX_REGRESSION_ROUNDS,
+    require_fresh_adapter_runs: bool = True,
+    freshness_max_age_seconds: int | None = None,
 ) -> dict[str, Any]:
     """Snapshot invariants again + diff vs latest baseline for the same plan_id.
 
@@ -510,6 +556,10 @@ def take_postcheck(
     After `max_regression_rounds` consecutive regressions for the same
     plan_id (without an intervening clean postcheck), also emits a
     HUMAN_REQUIRED record via record_human_required().
+
+    Plan 020 Phase 4.B — require_fresh_adapter_runs (default True): see
+    take_baseline; same orchestrator chokepoint applies so the postcheck
+    invariants read freshly-produced adapter rows.
     """
     if not plan_id.strip():
         raise GovernanceError("plan_id is required")
@@ -519,6 +569,22 @@ def take_postcheck(
         raise GovernanceError("max_regression_rounds must be >= 1")
     repo = Path(workspace_root).resolve()
     tools_root = ensure_tools_dir(base_dir)
+
+    # Same tier-2 "make it automatic" rule as take_baseline: synthetic
+    # invariant_checks bypass orchestrator; real callers go through it.
+    if require_fresh_adapter_runs and invariant_checks is None:
+        from .spine_orchestrator import (
+            DEFAULT_FRESHNESS_MAX_AGE_SECONDS,
+            refresh_spine_adapters,
+        )
+        refresh_spine_adapters(
+            base_dir=base_dir,
+            workspace_root=repo,
+            freshness_max_age_seconds=(
+                freshness_max_age_seconds or DEFAULT_FRESHNESS_MAX_AGE_SECONDS
+            ),
+            cycle_id=cycle_id,
+        )
 
     baseline = _latest_baseline_for_plan(tools_root, plan_id)
     if baseline is None:

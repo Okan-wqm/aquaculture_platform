@@ -184,6 +184,18 @@ def review_executor_diff(
     cycle_id: str | None = None,
 ) -> dict[str, Any]:
     packet = get_executor_packet(packet_id=packet_id, base_dir=base_dir)
+    # Plan 022 §C-6 — separation-of-duties enforcement at the kernel
+    # boundary. Pre-fix the executor allowed the same agent that
+    # produced a packet to also review it (so long as can_review=True
+    # in the registry). Plan 016's separation-of-duties contract was
+    # advisory only. Self-review is now a hard reject.
+    source_agent = str(packet.get("source_agent") or "").strip()
+    if source_agent and source_agent == str(reviewer or "").strip():
+        raise GovernanceError(
+            f"self_review_violation: reviewer={reviewer!r} is the same agent "
+            f"that produced packet={packet_id!r} (source_agent={source_agent!r}). "
+            f"Plan 016 separation-of-duties contract requires a different reviewer."
+        )
     reviewer_row = _registered_executor(reviewer, base_dir)
     if reviewer_row.get("can_review") is not True:
         raise GovernanceError("reviewer_must_be_registered")

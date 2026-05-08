@@ -43,7 +43,7 @@ export class BreakPeriod {
 }
 
 @ObjectType()
-@Entity('shifts', { schema: 'hr' })
+@Entity('shifts')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'isActive'])
 @Index(['tenantId', 'shiftType'])

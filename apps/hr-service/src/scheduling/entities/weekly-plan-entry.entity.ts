@@ -25,7 +25,7 @@ export enum WeeklyPlanEntryType {
 registerEnumType(WeeklyPlanEntryType, { name: 'WeeklyPlanEntryType' });
 
 @ObjectType()
-@Entity('weekly_plan_entries', { schema: 'hr' })
+@Entity('weekly_plan_entries')
 @Index(['tenantId', 'weeklyPlanId'])
 @Index(['tenantId', 'employeeId', 'date'], { unique: true })
 @Index(['tenantId', 'date'])

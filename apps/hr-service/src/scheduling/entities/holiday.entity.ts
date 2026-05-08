@@ -22,7 +22,7 @@ registerEnumType(HolidayType, { name: 'HolidayType' });
  * Tracks holidays that affect work scheduling
  */
 @ObjectType()
-@Entity('holidays', { schema: 'hr' })
+@Entity('holidays')
 @Index(['tenantId', 'date'])
 @Index(['tenantId', 'startDate', 'endDate'])
 @Index(['tenantId', 'isActive', 'affectsScheduling']) // For conflict detection queries

@@ -136,3 +136,47 @@ The audit row written by phase 7 captures the full reset envelope. Query it afte
 docker exec aqua-postgres psql -U aquaculture -d aquaculture -c \
   "SELECT \"createdAt\", action, metadata FROM shared.audit_logs WHERE action='PLATFORM_FACTORY_RESET' ORDER BY \"createdAt\" DESC LIMIT 1;"
 ```
+
+---
+
+## Wave 4-A.2 additions (post-reset verification matrix)
+
+The `verify-seed` phase was extended in Wave 4-A.2 to assert four independent invariants. Each maps to a class of regression that has historically slipped past a count-only check.
+
+| Check | Expected | Source of truth |
+|-------|----------|-----------------|
+| `auth.users` row count | 1 (the SUPER_ADMIN) | `auth-service` SeedService |
+| `auth.users[0]` shape | email=`by-okan@live.com`, role=`SUPER_ADMIN`, tenantId IS NULL | `SUPER_ADMIN_EMAIL` env |
+| `auth.modules` row count | 6 (`farm`, `hr`, `sensor`, `hydroponics`, `alert`, `ai`) | SeedService canonical list |
+| `auth.tenants` row count | 0 | factory-reset purge |
+| `tenant_<uuid>` schema count | 0 | factory-reset purge |
+| Canonical schema presence | 17 schemas (14 services + `gateway` + `shared` + `public`) | service migration runners |
+
+The verify-seed phase aborts with a diagnostic dump on the first failing check. The 17 canonical schemas are: `auth`, `farm`, `sensor`, `hr`, `messaging`, `hydroponics`, `alert`, `billing`, `notification`, `ai`, `admin`, `observability`, `event_store`, `config`, `gateway`, `shared`, `public`.
+
+### Tenant-clone smoke test (optional follow-up)
+
+After a successful factory-reset, an operator may run the tenant-clone smoke test to verify the tenant-onboarding code path is wired end-to-end:
+
+```bash
+TENANT_CLONE_SMOKE_ALLOWED=1 \
+  node --experimental-strip-types -e \
+  "import('./tools/factory-reset/lib/verify-tenant-clone.ts').then(m => m.verifyTenantClone({ dryRun: false }))"
+```
+
+This provisions a test tenant named `factory-reset-smoke-<timestamp>`, waits for its `tenant_<16hex>` schema to appear, asserts the schema contains a known subset of canonical per-tenant tables (`farms`, `ponds`, `batches`, `sensors`, `employees`, `alert_rules`), and tears the test tenant down. It is gated by `TENANT_CLONE_SMOKE_ALLOWED=1` so it cannot run accidentally in production.
+
+The smoke test is intentionally NOT part of the seven-phase factory-reset pipeline. The pipeline asserts post-reset shape; the smoke test asserts post-reset *behaviour* — the two concerns are decoupled so a failed smoke test does not block the reset itself.
+
+### Production deploy runbook reference
+
+For legacy droplets where the Wave 4-A.2 baseline tables already exist (created by manual psql, an out-of-band migration, or an init-script run that pre-dates the new migration runners), run `tools/bootstrap-restore/insert-baseline-as-applied.sql` BEFORE the next `db-migrate` invocation:
+
+```bash
+docker exec -i aqua-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -f /var/aqua-saas/tools/bootstrap-restore/insert-baseline-as-applied.sql
+```
+
+The script inserts 10 idempotent rows (`WHERE NOT EXISTS` guards) into the per-service `<schema>.migrations` ledgers so the runner skips the baseline migrations on the first boot. Greenfield droplets can run the script too — every INSERT is a no-op when the baseline has already been applied.
+
+See `docs/adr/012-schema-drift-prevention.md` (Wave 4-A.2 update section) for the matching architectural context.

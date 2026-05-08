@@ -115,19 +115,18 @@
       "runner": {
         "argv": [
           "python3",
-          "shadow_runner.py",
-          "cqrs-adapter"
+          "cqrs_adapter.py"
         ],
         "cwd": "tools/aria-poc",
         "stdin_json": true,
-        "timeout_ms": 15000,
+        "timeout_ms": 90000,
         "type": "subprocess"
       },
       "schema_version": 2,
       "status": "SHADOW",
       "tool_id": "cqrs-adapter",
       "updated_at": "2026-05-07T10:37:40+00:00",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "allowed_read_globs": [
@@ -424,19 +423,18 @@
       "runner": {
         "argv": [
           "python3",
-          "shadow_runner.py",
-          "outbox-adapter"
+          "outbox_adapter.py"
         ],
         "cwd": "tools/aria-poc",
         "stdin_json": true,
-        "timeout_ms": 15000,
+        "timeout_ms": 90000,
         "type": "subprocess"
       },
       "schema_version": 2,
       "status": "SHADOW",
       "tool_id": "outbox-adapter",
       "updated_at": "2026-05-07T10:37:40+00:00",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "allowed_read_globs": [

@@ -5,6 +5,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -69,6 +70,11 @@ from aria_kernel.skill_genesis import (
 )
 from aria_kernel.reverify import reverify_pressures
 from aria_kernel.telemetry import export_telemetry
+from aria_kernel.context_budget_gate import (
+    audit_dispatch_context,
+    enforce_context_budget,
+    list_context_audits,
+)
 from aria_kernel.runtime_profile import (
     PROFILES,
     get_profile,
@@ -241,6 +247,26 @@ def _main(argv: list[str] | None = None) -> int:
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+
+    # Plan 020 Phase 2.C — context budget audit / enforce sub-command.
+    # WHY a CLI surface: operators inspecting why a planner packet got
+    # rejected need a one-shot audit ('aria-kernel context audit
+    # --target-agent X --role Y --request-file ...') that mirrors the
+    # in-pipeline gate. The list sub-command surfaces audit history.
+    context_parser = sub.add_parser("context")
+    context_sub = context_parser.add_subparsers(dest="context_command", required=True)
+    context_audit = context_sub.add_parser("audit")
+    context_audit.add_argument("--target-agent", required=True)
+    context_audit.add_argument("--role", required=True)
+    context_audit.add_argument("--request-file", default=None,
+        help="Path to JSON file with the request envelope (defaults to empty).")
+    context_audit.add_argument("--repo-root", default=".")
+    context_audit.add_argument("--context-window-tokens", type=int, default=None)
+    context_audit.add_argument("--enforce", action="store_true",
+        help="Raise GovernanceError on cap breach (vs read-only audit).")
+    context_list = context_sub.add_parser("list")
+    context_list.add_argument("--target-agent", default=None)
+    context_list.add_argument("--limit", type=int, default=None)
 
     # Plan 020 Phase 1.C — runtime profile sub-command (set/get/history).
     # WHY a dedicated sub-command exists: every profile transition is a
@@ -1084,6 +1110,31 @@ def _main(argv: list[str] | None = None) -> int:
                 sort_keys=True,
             ),
         )
+        return 0
+
+    # Plan 020 Phase 2.C — context budget CLI dispatch.
+    if args.command == "context" and args.context_command == "audit":
+        request_payload: Any = {}
+        if args.request_file:
+            request_payload = json.loads(Path(args.request_file).read_text(encoding="utf-8"))
+        runner = enforce_context_budget if args.enforce else audit_dispatch_context
+        result = runner(
+            request=request_payload,
+            target_agent=args.target_agent,
+            role=args.role,
+            base_dir=args.tools_dir,
+            repo_root=args.repo_root,
+            context_window_tokens_override=args.context_window_tokens,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "context" and args.context_command == "list":
+        rows = list_context_audits(
+            base_dir=args.tools_dir,
+            target_agent=args.target_agent,
+            limit=args.limit,
+        )
+        print(json.dumps(rows, indent=2, sort_keys=True))
         return 0
 
     # Plan 020 Phase 1.C — runtime profile CLI dispatch.

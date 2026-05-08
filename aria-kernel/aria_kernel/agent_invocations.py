@@ -72,6 +72,10 @@ def create_agent_invocation_request(
     tool_id: str | None = None,
     run_id: str | None = None,
     judgment_group_id: str | None = None,
+    enforce_context_budget: bool = False,
+    context_repo_root: str | Path | None = None,
+    context_window_tokens_override: int | None = None,
+    role_cap_override: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     if role not in ROLES:
         raise GovernanceError(f"unknown invocation role: {role}")
@@ -79,6 +83,31 @@ def create_agent_invocation_request(
         raise GovernanceError("target_agent is required")
     if not suggested_prompt.strip():
         raise GovernanceError("suggested_prompt is required")
+    # Plan 020 Phase 2.B — opt-in context budget gate.
+    # Default off (backward-compat for every existing caller). When True,
+    # the gate audits request + agent .md + knowledge bookmark tokens
+    # against the role-class cap (judges 0.35 / planners 0.55 / executors
+    # 0.45 / emergency 0.65 / default 0.40) and raises GovernanceError on
+    # cap aimed. Audit row goes to aria-tools/context-audits.jsonl
+    # regardless of enforcement (read-only audit + write-ledger=True path).
+    if enforce_context_budget:
+        # Local import keeps the module-level import graph free of a
+        # cycle: context_budget_gate imports runtime_profile which is fine,
+        # but importing context_budget_gate at module level here would
+        # bake in a hard dependency on the entire token-estimation path
+        # for every legacy caller (each create_agent_invocation_request
+        # call would pull tiktoken probing). Lazy import keeps the cost
+        # to opt-in callers.
+        from .context_budget_gate import enforce_context_budget as _enforce_ctx
+        _enforce_ctx(
+            request={"suggested_prompt": suggested_prompt, "must_satisfy": []},
+            target_agent=target_agent,
+            role=role,
+            base_dir=base_dir,
+            repo_root=context_repo_root,
+            context_window_tokens_override=context_window_tokens_override,
+            role_cap_override=role_cap_override,
+        )
     root = ensure_tools_dir(base_dir)
     request_id = _request_id(target_agent, role, suggested_prompt, convergence_id, round_number)
     expected = expected_output_path or _default_expected_output_path(root, request_id, convergence_id, round_number, role)

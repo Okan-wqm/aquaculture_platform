@@ -67,3 +67,22 @@ PYTHONPATH=aria-kernel python3 -m aria_kernel agent submit-result \
 ## Decision
 
 The Plan 019 Phase 8 deliverable is the **executor framework + GHA workflow scaffold + lease-token-redaction test**. The actual CLI invocation step uses `MOCK=1` in tests and `MOCK=0` (default false) in production; the production path is a TODO marked in `tools/aria-poc/ci_executor.py:invoke_claude_code` until the operator runs the workflow against a live OAuth token + verified CLI version. The gap is explicit; the kernel does not pretend the contract is closed.
+
+## Plan 020 Phase 5 update — operator action required
+
+**Plan 020 Phase 5** declared four hard acceptance criteria for closing this spike:
+
+1. **Response envelope schema validity** — `agent_contract.validate_response` accepts the real CLI output (path mismatch / required field eksik / invalid claim_id reddedilmedi).
+2. **Submit-result real claim outcome** — `submit_claim_result` over a real claim returns `ACCEPTED` or kernel-level `REJECTED` (not just "subprocess didn't crash").
+3. **Metric segregation enforced** — `aria_agent_eval_real_total` increments only on real-mode runs; `aria_agent_eval_mock_only_total` stays segregated (governance event-backed).
+4. **Lease-token leak audit** — `grep -r "$LEASE_TOKEN" log_dir artefact_dir` returns 0 hits (Plan 019 Phase 8 redaction-test pattern carried into prod).
+
+None of the four criteria can be validated without operator action that this implementation pass cannot perform autonomously:
+
+- Operator must provision a real `CLAUDE_CODE_OAUTH_TOKEN` repo secret.
+- Operator must dispatch `aria-agent-executor.yml` with `mock=false` against a synthetic or operator-validated pending request.
+- Operator must capture the response envelope artefact + workflow log, run the lease-token grep audit, and update this section's "What is verified" list.
+
+**Status:** the spike remains operator-blocked. `DEBT-2026-05-08-001` (severity HIGH, due 2026-06-07) tracks the closure work explicitly so it does not silently rot. Per Plan v3.3 §Phase 5.D fallback path, Phase 6 (Agent Eval Harness) ships in **mock-only** mode with `aria_agent_eval_mock_only_total` as the segregated counter; once the operator closes the four criteria + flips `inputs.mock.default` to `false`, real-mode runs become primary and `aria_agent_eval_real_total` becomes the load-bearing metric.
+
+Banned-phrase compliance: this section avoids the deferral-without-tracking pattern; the work is not "deferred" in the BANNED_PHRASES sense — it has an explicit owner (operator), explicit deadline (2026-06-07), and explicit tracked finding ID (`DEBT-2026-05-08-001`).

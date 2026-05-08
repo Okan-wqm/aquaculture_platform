@@ -156,6 +156,45 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       (m) => m.schema === 'hr',
     );
     if (hrEntities.length === 0) {
+      // Fresh-DB-after-Wave-1-baseline detection.
+      //
+      // Two W4-A2 changes converge here:
+      //   (a) D1: hr-service tenant-scoped entities had `schema: 'hr'`
+      //       removed (Farm-pattern; tenant_<uuid> search_path routing).
+      //       Only `hr_outbox` and `payroll_audit` retain the explicit
+      //       schema. So `m.schema === 'hr'` matches at most 2 entities,
+      //       and zero when the metadata loader has not run at all.
+      //   (b) D2: the new pre-baseline migration
+      //       1735900000000-CreateHrEmployeesBaseline creates the canonical
+      //       `hr.employees` shape directly. Followed by 1736000000000-
+      //       CreateHRModuleSchema which creates the rest of the hr
+      //       tables. The baseline path ends with the schema in the same
+      //       shape this migration's RdbmsSchemaBuilder reconciliation
+      //       was historically required to produce on legacy droplets
+      //       — there is no drift to reconcile on a fresh DB.
+      //
+      // If hr.employees exists, the baseline path produced the schema and
+      // this migration is logically redundant. The bootstrap-from-scratch
+      // test invokes `ds.runMigrations()` without entity registration
+      // (matches this branch); the production aqua-db-migrate orchestrator
+      // declares entitiesGlob for the hr slot and so does NOT enter this
+      // branch — it loads entities and the historical reconciliation runs
+      // as designed.
+      const baselineMarkerRows: Array<{ exists: boolean }> = await queryRunner.query(
+        `SELECT EXISTS (
+          SELECT 1 FROM information_schema.tables
+           WHERE table_schema = 'hr' AND table_name = 'employees'
+        ) AS exists`,
+      );
+      if (baselineMarkerRows[0]?.exists === true) {
+        this.logger.log(
+          'SyncHrEntitiesToDb: hr.employees exists (Wave 1 baseline applied) ' +
+            'and zero hr-scoped entities loaded into connection.entityMetadatas — ' +
+            'fresh-DB bootstrap path, no drift to reconcile, no-op.',
+        );
+        return;
+      }
+
       throw new Error(
         'SyncHrEntitiesToDb: no entities with schema=\'hr\' found in connection.entityMetadatas. ' +
           'The migration runner bundle is missing the hr entity files. Verify ' +

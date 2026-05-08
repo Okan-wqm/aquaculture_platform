@@ -72,7 +72,7 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     this.logger.log(
-      'Creating baseline auth.* tables (12) and adding missing auth.users columns (5)',
+      'Creating baseline auth.* tables (17) — full ownership of every auth.* template',
     );
 
     // The auth schema itself is created by infrastructure/docker/init-scripts.
@@ -81,7 +81,22 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
     await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS auth`);
 
     await this.createEnumTypes(queryRunner);
+
+    // 5 init-script-owned tables now folded into the baseline (Wave 4-A.2
+    // landed when 01-init-databases.sql was stripped to extensions-only).
+    // These create the canonical auth identity surface that every other
+    // table FKs against (users → tenants, invitations → tenants, etc.).
+    await this.createTenantsTable(queryRunner);
+    await this.createUsersTable(queryRunner);
+    await this.createInvitationsTable(queryRunner);
+    await this.createTenantModulesTable(queryRunner);
+    await this.createTenantRolesTable(queryRunner);
+
+    // ALTER block kept for legacy droplets where the older init-script
+    // shape lives in the DB; on fresh DB the columns are already in
+    // createUsersTable so every ADD COLUMN IF NOT EXISTS is a no-op.
     await this.alterAuthUsersAddMissingColumns(queryRunner);
+
     await this.createModulesTable(queryRunner);
     await this.createMobileUserSettingsTable(queryRunner);
     await this.createUserModuleAssignmentsTable(queryRunner);
@@ -119,6 +134,14 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
       'user_module_assignments',
       'mobile_user_settings',
       'modules',
+      // 5 init-script-owned tables folded into Wave 1 baseline by Wave 4-A.2.
+      // Drop order: tenant_roles + tenant_modules first (FK to tenants), then
+      // invitations, users, then tenants last.
+      'tenant_roles',
+      'tenant_modules',
+      'invitations',
+      'users',
+      'tenants',
     ];
 
     for (const table of tablesInDropOrder) {
@@ -159,6 +182,184 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
         `DROP TYPE IF EXISTS auth."${enumType}" CASCADE`,
       );
     }
+  }
+
+  /**
+   * auth.tenants — canonical tenant identity. FK target for users,
+   * invitations, tenant_modules, tenant_roles, and every per-tenant
+   * scope across the platform. Folded into Wave 1 baseline when
+   * Wave 4-A.2 stripped 01-init-databases.sql to extensions-only.
+   */
+  private async createTenantsTable(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS auth.tenants (
+        id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        name                VARCHAR(255) NOT NULL,
+        slug                VARCHAR(100) NOT NULL,
+        description         TEXT,
+        "logoUrl"           VARCHAR(500),
+        "contactEmail"      VARCHAR(255),
+        "contactPhone"      VARCHAR(50),
+        address             TEXT,
+        "taxId"             VARCHAR(100),
+        status              VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+        plan                VARCHAR(20) NOT NULL DEFAULT 'starter',
+        "maxUsers"          INTEGER NOT NULL DEFAULT 5,
+        max_storage         INTEGER NOT NULL DEFAULT -1,
+        is_trial_active     BOOLEAN NOT NULL DEFAULT false,
+        user_count          INTEGER NOT NULL DEFAULT 0,
+        farm_count          INTEGER NOT NULL DEFAULT 0,
+        sensor_count        INTEGER NOT NULL DEFAULT 0,
+        "trialEndsAt"       TIMESTAMP,
+        "subscriptionEndsAt" TIMESTAMP,
+        "customDomain"      VARCHAR(255),
+        settings            JSONB,
+        "createdBy"         UUID,
+        "createdAt"         TIMESTAMP NOT NULL DEFAULT NOW(),
+        "updatedAt"         TIMESTAMP NOT NULL DEFAULT NOW(),
+        version             INTEGER NOT NULL DEFAULT 1,
+        CONSTRAINT "UQ_tenants_slug" UNIQUE (slug)
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_tenants_slug" ON auth.tenants (slug);
+      CREATE INDEX IF NOT EXISTS "IDX_tenants_status" ON auth.tenants (status);
+    `);
+  }
+
+  /**
+   * auth.users — canonical platform identity. Wave 1 created the 5
+   * MFA / accessType / notificationPreferences columns via ALTER for
+   * legacy DBs; Wave 4-A.2 folds the full column set into the CREATE
+   * so fresh DBs get the entity-canonical shape from birth.
+   */
+  private async createUsersTable(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS auth.users (
+        id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        email                   VARCHAR(255) NOT NULL,
+        password                VARCHAR(255),
+        "firstName"             VARCHAR(100),
+        "lastName"              VARCHAR(100),
+        role                    VARCHAR(50) NOT NULL DEFAULT 'MODULE_USER',
+        "tenantId"              UUID,
+        "isActive"              BOOLEAN NOT NULL DEFAULT true,
+        "isEmailVerified"       BOOLEAN NOT NULL DEFAULT false,
+        "invitationToken"       VARCHAR(255),
+        "invitationExpiresAt"   TIMESTAMP WITH TIME ZONE,
+        "invitedBy"             UUID,
+        "profileImageUrl"       VARCHAR(500),
+        "phoneNumber"           VARCHAR(50),
+        "preferredLanguage"     VARCHAR(10) DEFAULT 'en',
+        "accessType"            VARCHAR(20) DEFAULT 'BOTH',
+        "notificationPreferences" JSONB,
+        "mfaEnabled"            BOOLEAN NOT NULL DEFAULT false,
+        "mfaSecret"             VARCHAR(255),
+        "mfaRecoveryCodes"      TEXT,
+        "mfaFailedAttempts"     INTEGER NOT NULL DEFAULT 0,
+        "mfaLockedUntil"        TIMESTAMPTZ,
+        "lastLoginAt"           TIMESTAMP WITH TIME ZONE,
+        "lastLoginIp"           VARCHAR(45),
+        "passwordResetToken"    VARCHAR(255),
+        "passwordResetExpires"  TIMESTAMP WITH TIME ZONE,
+        "failedLoginAttempts"   INTEGER NOT NULL DEFAULT 0,
+        "lockedUntil"           TIMESTAMP WITH TIME ZONE,
+        "createdAt"             TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        "updatedAt"             TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT "UQ_users_email" UNIQUE (email)
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_users_email" ON auth.users (email);
+      CREATE INDEX IF NOT EXISTS "IDX_users_tenantId" ON auth.users ("tenantId");
+      CREATE INDEX IF NOT EXISTS "IDX_users_role" ON auth.users (role);
+    `);
+  }
+
+  /**
+   * auth.invitations — pending tenant + module invitations. Token is
+   * hashed by auth-service before storage (raw token only travels via
+   * email per the auth-service invitation pattern).
+   */
+  private async createInvitationsTable(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS auth.invitations (
+        id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        token               VARCHAR(255) NOT NULL,
+        email               VARCHAR(255) NOT NULL,
+        "firstName"         VARCHAR(100),
+        "lastName"          VARCHAR(100),
+        role                VARCHAR(50) NOT NULL DEFAULT 'MODULE_USER',
+        "tenantId"          UUID,
+        "moduleIds"         JSONB,
+        "primaryModuleId"   UUID,
+        status              VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+        "expiresAt"         TIMESTAMP WITH TIME ZONE NOT NULL,
+        "acceptedAt"        TIMESTAMP WITH TIME ZONE,
+        "userId"            UUID,
+        message             TEXT,
+        "invitedBy"         UUID,
+        "sendCount"         INTEGER NOT NULL DEFAULT 0,
+        "lastSentAt"        TIMESTAMP WITH TIME ZONE,
+        "acceptedFromIp"    VARCHAR(45),
+        "createdAt"         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        "updatedAt"         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT "UQ_invitations_token" UNIQUE (token)
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_invitations_token" ON auth.invitations (token);
+      CREATE INDEX IF NOT EXISTS "IDX_invitations_email" ON auth.invitations (email);
+      CREATE INDEX IF NOT EXISTS "IDX_invitations_tenantId" ON auth.invitations ("tenantId");
+    `);
+  }
+
+  /**
+   * auth.tenant_modules — per-tenant module activation. FK to
+   * auth.tenants enforced at CREATE so cascade-delete reaches here.
+   */
+  private async createTenantModulesTable(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS auth.tenant_modules (
+        id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        "tenantId"          UUID NOT NULL REFERENCES auth.tenants(id) ON DELETE CASCADE,
+        "moduleId"          UUID NOT NULL,
+        "isEnabled"         BOOLEAN NOT NULL DEFAULT true,
+        configuration       JSONB,
+        "maxModuleUsers"    INTEGER,
+        "activatedAt"       TIMESTAMP WITH TIME ZONE,
+        "expiresAt"         TIMESTAMP WITH TIME ZONE,
+        notes               TEXT,
+        "assignedBy"        VARCHAR(255),
+        "managerId"         UUID,
+        "createdAt"         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        "updatedAt"         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT "UQ_tenant_modules_tenant_module" UNIQUE ("tenantId", "moduleId")
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_tenant_modules_tenantId" ON auth.tenant_modules ("tenantId");
+      CREATE INDEX IF NOT EXISTS "IDX_tenant_modules_moduleId" ON auth.tenant_modules ("moduleId");
+    `);
+  }
+
+  /**
+   * auth.tenant_roles — per-tenant RBAC roles. snake_case columns
+   * (created_at / updated_at / is_default / is_editable / display_order)
+   * preserved verbatim from the legacy init-script shape; consumers in
+   * admin-api-service expect the snake_case form.
+   */
+  private async createTenantRolesTable(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS auth.tenant_roles (
+        id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        "tenantId"          UUID NOT NULL REFERENCES auth.tenants(id) ON DELETE CASCADE,
+        code                VARCHAR(50) NOT NULL,
+        name                VARCHAR(100) NOT NULL,
+        description         TEXT,
+        permissions         JSONB NOT NULL DEFAULT '[]',
+        is_default          BOOLEAN NOT NULL DEFAULT false,
+        is_editable         BOOLEAN NOT NULL DEFAULT true,
+        display_order       INTEGER NOT NULL DEFAULT 0,
+        created_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT "UQ_tenant_roles_tenant_code" UNIQUE ("tenantId", code)
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_tenant_roles_tenantId" ON auth.tenant_roles ("tenantId");
+      CREATE INDEX IF NOT EXISTS "IDX_tenant_roles_code" ON auth.tenant_roles (code);
+    `);
   }
 
   /**

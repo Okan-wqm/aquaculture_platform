@@ -468,15 +468,40 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       if (/^CREATE\s+TYPE\b/i.test(s)) {
         s = `DO $$ BEGIN ${s}; EXCEPTION WHEN duplicate_object THEN NULL; END $$`;
       }
-      // ADD CONSTRAINT FOREIGN KEY -> wrap in DO/EXCEPTION
-      // duplicate_object. PostgreSQL has no IF NOT EXISTS form for
-      // ADD CONSTRAINT, so this is the canonical idempotency idiom.
+      // ADD CONSTRAINT FOREIGN KEY -> wrap in DO/EXCEPTION.
+      // PostgreSQL has no IF NOT EXISTS form for ADD CONSTRAINT.
+      //
+      // Two exception classes are caught:
+      //
+      //   - `duplicate_object` (42710) — replay-safety. Re-running on
+      //     a DB where the constraint already exists is a no-op.
+      //
+      //   - `invalid_foreign_key` (42830) — entity-level type mismatches
+      //     between the FK source column and the target's PK type. The
+      //     hr-service has known cases (e.g. `employees.departmentHrId`
+      //     declared as `string` (varchar) by the entity, but the FK
+      //     target `departments_hr.id` is uuid — PG refuses with
+      //     "foreign key constraint <name> cannot be implemented").
+      //     The mismatch is an entity-layer bug; SyncHrEntitiesToDb's
+      //     job is to align DB to current entity declarations as much
+      //     as PG will accept. The constraint stays unapplied (and the
+      //     SchemaDriftValidator will continue to surface it as
+      //     fk-drift) — but the migration does NOT crash, so the rest
+      //     of the schema alignment proceeds. The entity-level fix is
+      //     tracked separately as an orphan finding.
+      //
+      // R5 narrowness preserved: both classes are explicit names, no
+      // `WHEN others`.
       if (
         /^ALTER\s+TABLE\b[^;]*?\bADD\s+CONSTRAINT\b[^;]*?\bFOREIGN\s+KEY\b/i.test(
           s,
         )
       ) {
-        s = `DO $$ BEGIN ${s}; EXCEPTION WHEN duplicate_object THEN NULL; END $$`;
+        s =
+          `DO $$ BEGIN ${s}; ` +
+          `EXCEPTION WHEN duplicate_object THEN NULL; ` +
+          `WHEN invalid_foreign_key THEN NULL; ` +
+          `END $$`;
       }
       return s;
     };

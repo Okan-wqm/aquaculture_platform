@@ -45,13 +45,22 @@ def record_raw_findings_for_run(
     if not isinstance(raw_findings, list) or not raw_findings:
         return
     confirmed_false_positives = _confirmed_false_positive_fingerprints(base_dir)
+    # Plan 023 v3 §C-6 — scope-out mutation also marks raw findings as
+    # invalid_evidence. Plan 022 §C-5 added scope_out_mutations to the
+    # runner envelope and triggered immediate quarantine via
+    # immediate_quarantine_reason; the raw findings the run produced
+    # still landed here with status='raw' because the existing mapping
+    # only checked run.status. A scope-escape adapter's findings are a
+    # security signal, not a sampling source — re-flag them as invalid.
+    runner_block = run.get("runner") or {}
+    has_scope_out = bool(runner_block.get("scope_out_mutations"))
     for finding in raw_findings:
         if not isinstance(finding, dict):
             continue
         fingerprint = finding_fingerprint(run["tool_id"], finding)
         suppressed = confirmed_false_positives.get(fingerprint)
         status = "raw"
-        if run.get("status") in ("evidence_error", "scope_violation"):
+        if run.get("status") in ("evidence_error", "scope_violation") or has_scope_out:
             status = "invalid_evidence"
         elif suppressed:
             status = "suppressed_false_positive"

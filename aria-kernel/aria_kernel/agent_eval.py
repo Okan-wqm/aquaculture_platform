@@ -473,6 +473,10 @@ def sample_shadow_raw_findings(
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     runs = load_jsonl(runs_path(base_dir))
     by_tool: dict[str, int] = {}
+    # Plan 023 v3 §C-6 — track runs skipped due to scope_out_mutations
+    # so the sampler output surfaces the suspect-run count separately
+    # from the clean raw_findings aggregate.
+    suspect_by_tool: dict[str, int] = {}
     for run in runs:
         recorded = run.get("recorded_at") or run.get("at")
         if not isinstance(recorded, str):
@@ -498,16 +502,32 @@ def sample_shadow_raw_findings(
         if tool.get("status") != "SHADOW":
             continue
         runner_block = run.get("runner") or {}
+        # Plan 023 v3 §C-6 — skip runs that escaped their declared scope
+        # from the SHADOW raw-findings aggregate. Scope-out mutations
+        # already trigger immediate quarantine via record_run; their
+        # raw findings are flagged invalid_evidence in raw-findings.jsonl
+        # by feedback_store. Surfacing them via the sampler would
+        # re-legitimize a sandbox-escape adapter's output. Track the
+        # suspect_run_count separately so operators see the skip.
+        if runner_block.get("scope_out_mutations"):
+            suspect_by_tool[tool_id] = suspect_by_tool.get(tool_id, 0) + 1
+            continue
         count = int(runner_block.get("raw_findings_count", 0) or 0)
         by_tool[tool_id] = by_tool.get(tool_id, 0) + count
 
     samples: list[dict[str, Any]] = []
     escalation_count = 0
-    for tool_id, count in sorted(by_tool.items()):
+    # Union of tool_ids seen in either clean or suspect path so the
+    # sample list reflects every SHADOW tool with any 24h activity.
+    all_tool_ids = sorted(set(by_tool) | set(suspect_by_tool))
+    for tool_id in all_tool_ids:
+        count = by_tool.get(tool_id, 0)
+        suspect_run_count = suspect_by_tool.get(tool_id, 0)
         escalated = count >= threshold_24h
         samples.append({
             "tool_id": tool_id,
             "raw_findings_count_24h": count,
+            "suspect_run_count_24h": suspect_run_count,
             "escalated": escalated,
             "threshold_24h": threshold_24h,
         })

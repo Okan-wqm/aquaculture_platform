@@ -323,6 +323,33 @@ def emit_change_committed(
     return persisted
 
 
+def _find_validated_for_change(tools_root: Path, change_id: str) -> dict[str, Any] | None:
+    """Plan 023 v3 §D-3 (M-G) — find existing validated row for a
+    change_id (latest, since latest is the binding state)."""
+    rows = load_jsonl(_validated_path(tools_root))
+    matches = [r for r in rows if r.get("change_id") == change_id]
+    if not matches:
+        return None
+    return matches[-1]  # latest
+
+
+def _validated_content_hash(payload: dict[str, Any]) -> str:
+    """Plan 023 v3 §D-3 (M-G) — canonical content hash for idempotence
+    check. Hashes the load-bearing fields; ignores volatile or audit
+    fields (recorded_at, ledger_hash, etc.)."""
+    import hashlib as _h
+    import json as _j
+    fields = {
+        "change_id": payload.get("change_id"),
+        "validation_run_refs": payload.get("validation_run_refs"),
+        "baseline_comparison_ref": payload.get("baseline_comparison_ref"),
+        "post_remediation_invariants": payload.get("post_remediation_invariants"),
+        "validation_mode": payload.get("validation_mode"),
+    }
+    serialized = _j.dumps(fields, sort_keys=True, separators=(",", ":"), default=str)
+    return "sha256:" + _h.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def emit_change_validated(
     *,
     change_id: str,
@@ -368,6 +395,35 @@ def emit_change_validated(
     if committed is None:
         raise GovernanceError(
             f"change_validated sequence violation: no change_committed for {change_id!r}"
+        )
+
+    # Plan 023 v3 §D-3 (M-G) — change_validated idempotence.
+    # Pre-Plan-023 emit_change_validated appended without checking
+    # whether an existing validated row already existed for change_id.
+    # Multiple writes were possible; find_change_validated returned
+    # the FIRST row, masking later contradictions.
+    # Post-fix: existing validated row + identical content (hash) →
+    # idempotent return (no second append). Existing row + content
+    # drift → reject with change_validated_content_drift.
+    existing_validated = _find_validated_for_change(tools_root, change_id)
+    if existing_validated is not None:
+        # Compare content hash on the load-bearing fields.
+        existing_hash = _validated_content_hash(existing_validated)
+        candidate_hash = _validated_content_hash({
+            "change_id": change_id,
+            "validation_run_refs": list(validation_run_refs),
+            "baseline_comparison_ref": baseline_comparison_ref,
+            "post_remediation_invariants": dict(post_remediation_invariants or {}),
+            "validation_mode": validation_mode,
+        })
+        if existing_hash == candidate_hash:
+            # Idempotent return — same content, return existing row.
+            return existing_validated
+        raise GovernanceError(
+            f"change_validated_content_drift: change_id={change_id!r} "
+            f"already has a change_validated row; new content does not "
+            f"match existing (existing_hash={existing_hash!r} != "
+            f"candidate_hash={candidate_hash!r})"
         )
 
     # Plan 020 Phase 8.B — validation matrix gate fires BEFORE persistence.

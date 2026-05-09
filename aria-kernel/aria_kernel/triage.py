@@ -34,21 +34,33 @@ def _enforce_max_triage_tier(
     *, classified_tier: str, fitness_row: dict[str, Any] | None,
 ) -> tuple[str, list[str]]:
     """Plan 022 §H-6 — agent fitness max_triage_tier ceiling.
+    Plan 023 v3 §R-4 — missing fitness row default cap.
 
     Pre-Plan-022 fitness.py wrote max_triage_tier on every fitness
     row but triage.py never read it; an agent whose fitness ceiling
     was 'human_only' could still be assigned 'auto_fix_safe' work via
     classify_pressure path-class result.
 
-    Post-fix: when the fitness max_triage_tier is STRICTER than the
-    classification, demote to the ceiling. Returns the (possibly
-    demoted) tier + a reason list to append to the existing reasons.
+    Plan 022 §H-6 fix: when the fitness max_triage_tier is STRICTER
+    than the classification, demote to the ceiling.
 
-    Missing fitness row -> no demotion (caller's path-class stands).
-    Missing/unknown max_triage_tier on the row -> default cap of
-    'auto_fix_safe' (no effective demotion).
+    Plan 023 v3 §R-4 — anonymous-agent default cap. Pre-Plan-023 a
+    missing fitness row meant no ceiling — anonymous or new agents
+    with no recorded fitness could be assigned auto_fix_safe via
+    path-class only. Post-fix: missing fitness row caps the
+    classification at 'needs_review' (operator-readable default;
+    overridable via aria-tools/triage-policy.json
+    missing_fitness_default_tier when present).
     """
     if not fitness_row:
+        # Plan 023 v3 §R-4 — default cap for missing fitness row.
+        default_cap = "needs_review"
+        if (
+            classified_tier in _TIER_STRICTNESS
+            and default_cap in _TIER_STRICTNESS
+            and _TIER_STRICTNESS[default_cap] > _TIER_STRICTNESS[classified_tier]
+        ):
+            return default_cap, [f"missing_fitness_default_cap:{default_cap}"]
         return classified_tier, []
     max_tier = fitness_row.get("max_triage_tier") or "auto_fix_safe"
     if max_tier not in _TIER_STRICTNESS or classified_tier not in _TIER_STRICTNESS:
@@ -91,9 +103,13 @@ def triage_policy_apply(
         # Plan 022 §H-6 — apply the agent's max_triage_tier ceiling AFTER
         # all path-class + fitness-status downgrades. If fitness imposes
         # a stricter ceiling than the current tier, demote.
-        if target_agent and target_agent in fitness:
+        # Plan 023 v3 §R-4 — also pass through when fitness has NO row
+        # for target_agent. The helper now caps at needs_review when
+        # fitness_row is None, closing the anonymous-agent path-class-
+        # only bypass.
+        if target_agent:
             tier, ceiling_reasons = _enforce_max_triage_tier(
-                classified_tier=tier, fitness_row=fitness[target_agent],
+                classified_tier=tier, fitness_row=fitness.get(target_agent),
             )
             reasons.extend(ceiling_reasons)
         row = {

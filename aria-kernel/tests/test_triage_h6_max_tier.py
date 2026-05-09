@@ -17,12 +17,19 @@ from aria_kernel.triage import _enforce_max_triage_tier
 
 
 class EnforceMaxTriageTierTests(unittest.TestCase):
-    def test_no_fitness_row_no_demotion(self) -> None:
+    def test_no_fitness_row_caps_at_default(self) -> None:
+        """Plan 023 v3 §R-4 changed this behavior: missing fitness row
+        now caps at needs_review (anonymous-agent default), not the
+        Plan 022 §H-6 'no demotion' baseline. Anonymous agents could
+        otherwise be assigned auto_fix_safe via path-class only."""
         tier, reasons = _enforce_max_triage_tier(
             classified_tier="auto_fix_safe", fitness_row=None,
         )
-        self.assertEqual(tier, "auto_fix_safe")
-        self.assertEqual(reasons, [])
+        self.assertEqual(tier, "needs_review")
+        self.assertTrue(
+            any("missing_fitness_default_cap" in r for r in reasons),
+            f"missing default-cap reason: {reasons!r}",
+        )
 
     def test_max_equals_classification_no_demotion(self) -> None:
         tier, reasons = _enforce_max_triage_tier(

@@ -228,7 +228,13 @@ def run_fixture_case(
         if completed.returncode != 0:
             status = "crash"
         else:
-            output = _parse_tool_output(stdout, tool)
+            # Plan 023 v3 §C-2 — parser now returns (payload, error_code).
+            # The fixture runner only needs the payload to drive
+            # fixture-expectation evaluation; the discriminated error
+            # code is not surfaced here since fixture status already
+            # encodes "schema_error" at this layer. Drop the error code
+            # explicitly so fixture run-row shape stays unchanged.
+            output, _parse_error = _parse_tool_output(stdout, tool)
             if output is None:
                 status = "schema_error"
     except subprocess.TimeoutExpired as exc:

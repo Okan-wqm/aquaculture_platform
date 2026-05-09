@@ -697,3 +697,15 @@ def _validate_output_schema(schema: dict[str, Any]) -> None:
         or not all(isinstance(field, str) and field.strip() for field in required)
     ):
         raise GovernanceError("output_schema.required must be an array of non-empty strings")
+    # Plan 023 v3 §C-2 — every ARIA tool, finding-emitting or not, MUST
+    # declare read_paths in its output_schema.required. read_paths is
+    # the load-bearing self-report for what the adapter inspected;
+    # downstream scope-out detection (C-1) and evidence subset
+    # enforcement (M-2 + C-2) cannot work without the field. Tools that
+    # genuinely read nothing declare read_paths: [] in their output —
+    # registration enforces presence, runtime treats empty list as
+    # "no reads" (subset rejects any evidence ref).
+    if not isinstance(required, list) or "read_paths" not in required:
+        raise GovernanceError(
+            "output_schema.required must include 'read_paths' (Plan 023 §C-2)"
+        )

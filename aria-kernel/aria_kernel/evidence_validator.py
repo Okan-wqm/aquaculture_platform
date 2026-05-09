@@ -27,15 +27,24 @@ def validate_tool_output_evidence(
     checked_sources: list[str] = []
     allowed_paths = snapshot_allowed_set(repo_snapshot)
 
-    read_paths = output.get("read_paths", [])
-    # Plan 022 §M-2 — capture the normalized read_paths set so finding
-    # evidence references can be checked against it. Pre-fix the tool
-    # could surface evidence_refs pointing at files it never declared
-    # reading; the dispatch path trusted the self-report read_paths
-    # without verifying the evidence stayed inside it.
+    # Plan 023 v3 §C-2 — distinguish "read_paths not in envelope" (None
+    # from .get on an absent key) from "read_paths declared empty" (a
+    # list of length zero). Pre-Plan-023 a `.get("read_paths", [])`
+    # default merged the two cases: the runtime never knew whether the
+    # tool actually declared "I read nothing" vs forgot the field, and
+    # the subset enforcement loop below was further gated on the
+    # truthiness of the derived `declared_read_paths` set, so an empty
+    # list silently bypassed the subset check. Plan 023 v3 §C-2 +
+    # Plan 022 §M-2 together: shape check (read_paths is a list, even
+    # empty) gates subset enforcement; missing key surfaces a specific
+    # error code distinct from non-array.
+    raw_read_paths: Any = output.get("read_paths") if isinstance(output, dict) else None
     declared_read_paths: set[str] = set()
-    if isinstance(read_paths, list):
-        for path in read_paths:
+    read_paths_present = isinstance(raw_read_paths, list)
+    if raw_read_paths is None:
+        errors.append({"code": "read_paths_field_missing_in_output"})
+    elif read_paths_present:
+        for path in raw_read_paths:
             normalized = normalize_path(path)
             declared_read_paths.add(normalized)
             if allowed_paths and normalized not in allowed_paths:
@@ -64,7 +73,15 @@ def validate_tool_output_evidence(
                 # the load-bearing self-report for what the adapter
                 # actually inspected; an evidence_ref outside this set
                 # is a contract violation.
-                if isinstance(ref, dict) and isinstance(ref.get("path"), str) and declared_read_paths:
+                if (
+                    isinstance(ref, dict)
+                    and isinstance(ref.get("path"), str)
+                    and read_paths_present
+                ):
+                    # Plan 023 v3 §C-2 — shape check (the list exists)
+                    # gates the subset, not truthiness. Empty
+                    # declared_read_paths set with an evidence path is a
+                    # contract violation, not a free pass.
                     norm = normalize_path(ref["path"])
                     if norm not in declared_read_paths:
                         errors.append({
@@ -77,8 +94,10 @@ def validate_tool_output_evidence(
     if isinstance(sources, list):
         for source in sources:
             validate_evidence_path(tool, root, source, None, errors, checked_sources, allowed_paths=allowed_paths)
-            # Plan 022 §M-2 — same subset check for evidence_sources.
-            if isinstance(source, str) and declared_read_paths:
+            # Plan 023 v3 §C-2 — shape check on read_paths_present so
+            # evidence_sources outside an empty-list declaration is also
+            # rejected (not bypassed by the empty-set falsy gate).
+            if isinstance(source, str) and read_paths_present:
                 norm = normalize_path(source)
                 if norm not in declared_read_paths:
                     errors.append({

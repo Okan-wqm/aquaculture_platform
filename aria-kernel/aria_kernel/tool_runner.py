@@ -78,6 +78,12 @@ def run_tool(
     timed_out = False
     status = "ok"
     output: dict[str, Any] | None = None
+    # Plan 023 v3 §C-2 — runner envelope carries the specific parse
+    # error code so observability sees the field-level reason instead
+    # of a generic "schema_error" status. Default None (parser
+    # succeeded or did not run); populated with codes from
+    # PARSE_ERROR_CODES on rejection.
+    parse_error: str | None = None
 
     try:
         if _runner_missing_node_deps(cwd, runner["argv"]):
@@ -101,7 +107,7 @@ def run_tool(
             if completed.returncode != 0:
                 status = "crash"
             else:
-                output = _parse_tool_output(stdout, tool)
+                output, parse_error = _parse_tool_output(stdout, tool)
                 if output is None:
                     status = "schema_error"
     except subprocess.TimeoutExpired as exc:
@@ -178,6 +184,11 @@ def run_tool(
             # trigger via the immediate_quarantine_reason path.
             "scoped_mutations": list(scoped_mutations),
             "scope_out_mutations": list(scope_out_mutations),
+            # Plan 023 v3 §C-2 — specific parser rejection code, or None
+            # when the parser succeeded. Closed vocabulary listed in
+            # PARSE_ERROR_CODES (plus dynamic missing_field:<f> /
+            # field_not_list:<f> shapes for minimum-output fields).
+            "parse_error": parse_error,
         },
         "repo_snapshot": _compact_snapshot(repo_snapshot),
     }
@@ -246,28 +257,61 @@ def _is_glob_ref(ref: str) -> bool:
     return any(char in ref for char in "*?[]")
 
 
-def _parse_tool_output(stdout: str, tool: dict[str, Any]) -> dict[str, Any] | None:
+# Plan 023 v3 §C-2 — closed error-code vocabulary for tool-output parse
+# rejection. Returned in the tuple second slot so the runner envelope
+# carries `runner.parse_error = <code>` and observability / operator
+# audit see the specific reason instead of a generic "schema_error".
+PARSE_ERROR_CODES: frozenset[str] = frozenset({
+    "output_not_json",
+    "output_not_dict",
+    "cost_units_invalid",
+    "metadata_not_dict",
+    "belief_candidates_not_list",
+    # Plus dynamic codes:
+    #   missing_field:<field>
+    #   field_not_list:<field>
+    # produced by the parser when a required minimum-output field is
+    # absent or wrong-typed. The closed set above lists the static
+    # codes; the dynamic shape is asserted at the caller via prefix.
+})
+
+
+def _parse_tool_output(
+    stdout: str, tool: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Plan 023 v3 §C-2 — discriminated parse result.
+
+    Pre-Plan-023 this returned `dict | None`; rejection lost the reason.
+    Post-fix: `(payload, None)` on success, `(None, error_code)` on
+    rejection. The runner-envelope writer carries `runner.parse_error`
+    so operators and observability layers see the specific failure
+    mode.
+    """
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError:
-        return None
+        return None, "output_not_json"
     if not isinstance(payload, dict):
-        return None
+        return None, "output_not_dict"
     required = set(MINIMUM_OUTPUT_FIELDS)
     required.update(tool.get("output_schema", {}).get("required", []))
-    for field in required:
+    # Deterministic order for missing-field detection — the caller's
+    # `parse_error` then encodes a stable single field name when
+    # multiple are missing (the first in sorted order). Stable ordering
+    # makes test assertions reliable and reproducible.
+    for field in sorted(required):
         if field not in payload:
-            return None
+            return None, f"missing_field:{field}"
     for field in MINIMUM_OUTPUT_FIELDS:
         if not isinstance(payload.get(field), list):
-            return None
+            return None, f"field_not_list:{field}"
     if "cost_units" in payload and _non_negative_number(payload["cost_units"], default=None) is None:
-        return None
+        return None, "cost_units_invalid"
     if "metadata" in payload and not isinstance(payload["metadata"], dict):
-        return None
+        return None, "metadata_not_dict"
     if "belief_candidates" in payload and not isinstance(payload["belief_candidates"], list):
-        return None
-    return payload
+        return None, "belief_candidates_not_list"
+    return payload, None
 
 
 def _workspace_snapshot(root: Path, tool: dict[str, Any] | None = None) -> Any:

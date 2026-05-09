@@ -114,7 +114,7 @@ class BackfillWindowMetadataTests(unittest.TestCase):
                     "critical_false_positives": 0,
                     "crash_rate_last_10": 0.2,
                 },
-                "output_schema": {"type": "object", "required": ["observations"]},
+                "output_schema": {"type": "object", "required": ["observations", "read_paths"]},
                 "runner": {
                     "type": "subprocess",
                     "argv": ["python3", "shadow_runner.py", tool_id],

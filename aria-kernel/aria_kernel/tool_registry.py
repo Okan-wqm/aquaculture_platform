@@ -326,6 +326,8 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError("fixture_set must not be empty")
     if not isinstance(candidate["health_thresholds"], dict):
         raise GovernanceError("health_thresholds must be an object")
+    # Plan 023 v3 §C-4 — range invariant on threshold values.
+    _validate_health_thresholds_ranges(candidate["health_thresholds"])
     if not isinstance(candidate["allowed_read_globs"], list) or not candidate["allowed_read_globs"]:
         raise GovernanceError("allowed_read_globs must be a non-empty array")
     if not isinstance(candidate["forbidden_read_globs"], list):
@@ -529,12 +531,61 @@ def list_tools(
 # Plan 022 §C-2b — runner/scope fields whose changes require an
 # explicit operator_approval_ref via update_tool. (status is handled
 # separately — it must route through transition_tool.)
+# Plan 023 v3 §C-4 — health_thresholds added: rewriting the
+# demotion / quarantine / calibrate trigger thresholds is a
+# governance-level mutation of the tool's lifecycle gates and must be
+# operator-audited. tool_health_thresholds_updated governance event
+# fires on every accepted change.
 _OPERATOR_APPROVAL_GATED_FIELDS: tuple[str, ...] = (
     "runner",
     "allowed_read_globs",
     "forbidden_read_globs",
     "declared_scope",
+    "health_thresholds",
 )
+
+
+def _validate_health_thresholds_ranges(thresholds: Any) -> None:
+    """Plan 023 v3 §C-4 — per-field range invariant.
+
+    Out-of-range threshold values disable the lifecycle gates they're
+    supposed to enforce: precision_min=0 lets every adapter through,
+    critical_false_positives=999 disables critical-FP quarantine,
+    crash_rate_last_10=1.0 lets a runner crash on every call without
+    auto-calibrate. The invariant fires at validate_tool_definition
+    time AND in update_tool's revalidation path so neither register_
+    nor update_ can land bad ranges.
+    """
+    if not isinstance(thresholds, dict):
+        raise GovernanceError("health_thresholds must be an object")
+    precision = thresholds.get("precision_min")
+    if precision is not None:
+        if not isinstance(precision, (int, float)) or not (0.5 <= float(precision) <= 1.0):
+            raise GovernanceError(
+                f"health_thresholds_out_of_range: precision_min={precision!r} "
+                f"must be a float in [0.5, 1.0]"
+            )
+    cfp = thresholds.get("critical_false_positives")
+    if cfp is not None:
+        if not isinstance(cfp, int) or isinstance(cfp, bool) or cfp != 0:
+            raise GovernanceError(
+                f"health_thresholds_out_of_range: critical_false_positives={cfp!r} "
+                f"must be exactly 0 (any nonzero value disables critical-FP quarantine)"
+            )
+    crash = thresholds.get("crash_rate_last_10")
+    if crash is not None:
+        if not isinstance(crash, (int, float)) or not (0.0 <= float(crash) <= 0.5):
+            raise GovernanceError(
+                f"health_thresholds_out_of_range: crash_rate_last_10={crash!r} "
+                f"must be a float in [0.0, 0.5]"
+            )
+    nc_fp = thresholds.get("non_critical_false_positives_30d")
+    if nc_fp is not None:
+        if not isinstance(nc_fp, int) or isinstance(nc_fp, bool) or not (1 <= nc_fp <= 100):
+            raise GovernanceError(
+                f"health_thresholds_out_of_range: non_critical_false_positives_30d={nc_fp!r} "
+                f"must be an int in [1, 100]"
+            )
 
 
 def _update_tool_internal(
@@ -654,6 +705,27 @@ def update_tool(
                     },
                 ),
             )
+
+    # Plan 023 v3 §C-4 — emit tool_health_thresholds_updated when the
+    # field actually changed. Captures pre + post for operator audit
+    # so demotion / quarantine / calibrate trigger rewrites are
+    # readable from governance.jsonl alone.
+    if "health_thresholds" in updates:
+        from .ledger import append_jsonl
+        tools_root = ensure_tools_dir(base_dir)
+        append_jsonl(
+            tools_root / "governance.jsonl",
+            governance_event(
+                kind="tool_health_thresholds_updated",
+                details={
+                    "tool_id": tool_id,
+                    "previous_thresholds": pre.get("health_thresholds"),
+                    "new_thresholds": result.get("health_thresholds"),
+                    "reason": reason,
+                    "operator_approval_ref": operator_approval_ref,
+                },
+            ),
+        )
 
     return result
 

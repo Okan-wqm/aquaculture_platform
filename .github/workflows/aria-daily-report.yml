@@ -1,12 +1,21 @@
 name: aria-daily-report
 
 # Plan 022 §M-4 — daily ARIA report automation.
-#
-# Pre-Plan-022 the daily report surface drifted (2026-05-08 was
-# missing despite Plan 020 + 022 commit activity). This workflow
-# generates a fresh daily report each morning and uploads it as a
-# workflow artifact so operators can audit ARIA gate activity over
-# time without manual reconstruction.
+# Plan 023 v3 §D-2 — bot commit + persist-credentials wiring.
+# Plan 024 v3 §B-3 — input injection closure + iki-job split:
+#   * Workflow-level permissions defaults to contents:read; only the
+#     commit-report job overrides to contents:write so the bot token
+#     surface is scoped to the single step that needs push privilege.
+#     A workflow_dispatch input injection in the read-only generate
+#     job has no push capability.
+#   * generate-report exports `date` as a job output via $GITHUB_OUTPUT;
+#     commit-report reads it via needs.generate-report.outputs.date.
+#     env: alone does NOT cross job boundaries in GHA.
+#   * Date input regex-validated (^[0-9]{4}-[0-9]{2}-[0-9]{2}$) before
+#     it is ever interpolated into a shell command. Path containment
+#     check via realpath -m ensures the report path stays inside
+#     aria-tools/reports/daily/. Both checks live in env: blocks (no
+#     raw ${{ github.event.inputs.* }} inside `run:` shell scripts).
 
 on:
   schedule:
@@ -19,66 +28,76 @@ on:
         type: string
 
 permissions:
-  # Plan 023 v3 §D-2 — bot needs contents:write to commit the daily
-  # report back to snowball. metadata:read is implicit. Workflow scope
-  # NOT granted (bot must not be able to rewrite workflows).
-  contents: write
+  # Plan 024 v3 §B-3 — workflow-level default contents:read.
+  # commit-report job overrides to contents:write at job scope.
+  contents: read
 
 concurrency:
   group: aria-daily-report
   cancel-in-progress: false
 
 jobs:
-  daily-report:
+  generate-report:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.ref == 'refs/heads/snowball'
+    permissions:
+      contents: read
+    outputs:
+      date: ${{ steps.target.outputs.date }}
     steps:
-      # Plan 023 v3 §D-2 — checkout step must inject the bot token
-      # at clone time so subsequent `git push` uses bot identity.
-      # GH_TOKEN env alone does NOT change git push credentials;
-      # checkout's `with: token + persist-credentials` is the
-      # canonical injection point.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: snowball
-          token: ${{ secrets.ARIA_BOT_TOKEN }}
-          persist-credentials: true
           fetch-depth: 0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
 
-      - name: Compute target date
+      - name: Validate date input + compute target
         id: target
+        env:
+          # Plan 024 v3 §B-3 — env-only interpolation; raw shell access
+          # to ${{ github.event.inputs.date }} is closed.
+          DATE_INPUT: ${{ github.event.inputs.date }}
         run: |
           set -euo pipefail
-          if [ -n "${{ github.event.inputs.date }}" ]; then
-            DATE="${{ github.event.inputs.date }}"
+          if [ -n "${DATE_INPUT:-}" ]; then
+            if ! [[ "$DATE_INPUT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+              echo "::error::invalid date format (expected YYYY-MM-DD): $DATE_INPUT" >&2
+              exit 1
+            fi
+            DATE="$DATE_INPUT"
           else
             DATE="$(date -u +%F)"
           fi
+          REPORT="aria-tools/reports/daily/${DATE}.md"
+          # Plan 024 v3 §B-3 — path containment.
+          mkdir -p "$(dirname "$REPORT")"
+          REPORT_REAL="$(realpath -m "$REPORT")"
+          REPORTS_REAL="$(realpath aria-tools/reports/daily)"
+          case "$REPORT_REAL" in
+            "$REPORTS_REAL"/*) ;;
+            *)
+              echo "::error::report path escapes daily reports dir: $REPORT_REAL" >&2
+              exit 1
+              ;;
+          esac
           echo "date=${DATE}" >> "$GITHUB_OUTPUT"
 
       - name: Generate daily report (informational stub)
+        env:
+          REPORT_DATE: ${{ steps.target.outputs.date }}
         run: |
           set -euo pipefail
-          DATE="${{ steps.target.outputs.date }}"
-          REPORT="aria-tools/reports/daily/${DATE}.md"
+          REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
           mkdir -p "$(dirname "$REPORT")"
-          # Plan 022 §M-4 — informational stub generator. The full
-          # report renderer lives in aria_kernel.observability +
-          # aria_kernel.reflection; the dashboard markdown surface
-          # already exists. This step is a placeholder until a
-          # dedicated `aria-kernel report daily` CLI lands as part
-          # of Plan 023 (operations-hub plan, owner=okan-platform-
-          # operator, deadline 2026-07-08, tracking DEBT-2026-05-08-001
-          # umbrella). The stub captures workflow_runs date stamp +
-          # governance-ledger pointer so the daily-report file
-          # presence invariant holds in the meantime.
+          # Plan 022 §M-4 informational stub generator. Operations-hub
+          # plan (DEBT-2026-05-08-001) will replace this with a
+          # dedicated `aria-kernel report daily` CLI.
           if [ ! -f "$REPORT" ]; then
             cat > "$REPORT" <<EOF
-          # ARIA Daily Report ${DATE}
+          # ARIA Daily Report ${REPORT_DATE}
 
           > Auto-generated by .github/workflows/aria-daily-report.yml
           > on $(date -u --iso-8601=seconds). Until the dedicated
@@ -95,7 +114,7 @@ jobs:
           See \`aria-debts/_index.json\`.
           EOF
           else
-            echo "Report for ${DATE} already exists; skipping generation."
+            echo "Report for ${REPORT_DATE} already exists; skipping generation."
           fi
 
       - name: Upload report as artifact
@@ -105,22 +124,41 @@ jobs:
           path: aria-tools/reports/daily/${{ steps.target.outputs.date }}.md
           retention-days: 30
 
-      # Plan 023 v3 §D-2 — commit the daily report back to snowball.
-      # Pre-Plan-023 the workflow only uploaded an artifact (ephemeral
-      # 30-day retention); operators couldn't read the report from
-      # the repo without the workflow run URL. Post-fix: aria-bot
-      # commits the report to aria-tools/reports/daily/<date>.md so
-      # the file is durable and grep-able. [skip ci] in the commit
-      # message prevents the commit from re-triggering this workflow
-      # (which is on schedule + workflow_dispatch only — defense in
-      # depth). Pull-rebase loop handles concurrent commits from
-      # other bots.
+  commit-report:
+    needs: generate-report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/snowball'
+    permissions:
+      # Plan 024 v3 §B-3 — write scope localized to this job only.
+      contents: write
+    steps:
+      # Plan 023 v3 §D-2 — bot token injected at clone time so
+      # subsequent `git push` uses bot identity. GH_TOKEN env alone
+      # does NOT change git push credentials; checkout's
+      # token + persist-credentials is the canonical injection point.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: snowball
+          token: ${{ secrets.ARIA_BOT_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Download report artifact
+        uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4
+        with:
+          name: aria-daily-report-${{ needs.generate-report.outputs.date }}
+          path: aria-tools/reports/daily/
+
       - name: Commit daily report to repo
-        if: github.ref == 'refs/heads/snowball'
+        env:
+          # Plan 024 v3 §B-3 — read date via needs.<job>.outputs.* (env
+          # does not cross job boundaries; this is the canonical
+          # GHA inter-job data transfer mechanism).
+          REPORT_DATE: ${{ needs.generate-report.outputs.date }}
         run: |
           set -euo pipefail
-          DATE="${{ steps.target.outputs.date }}"
-          REPORT="aria-tools/reports/daily/${DATE}.md"
+          REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
           git config user.name "aria-bot"
           git config user.email "aria-bot@noreply.github.com"
           git add "$REPORT"
@@ -128,12 +166,12 @@ jobs:
             echo "No daily-report changes to commit."
             exit 0
           fi
-          git commit -m "chore(aria-reports): daily ${DATE} [skip ci]" -m "Automated daily report from aria-daily-report.yml."
-          # Pull-rebase loop: another bot may have committed in the
-          # window between our checkout and this push.
+          git commit -m "chore(aria-reports): daily ${REPORT_DATE} [skip ci]" \
+                     -m "Automated daily report from aria-daily-report.yml."
+          # Pull-rebase loop handles concurrent commits from other bots.
           for i in 1 2 3; do
             if git pull --rebase origin snowball && git push origin snowball; then
-              echo "Daily report ${DATE} committed."
+              echo "Daily report ${REPORT_DATE} committed."
               exit 0
             fi
             echo "Push attempt $i failed; retrying..."

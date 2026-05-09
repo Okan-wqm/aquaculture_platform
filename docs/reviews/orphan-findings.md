@@ -2553,3 +2553,33 @@ The TTL=1h fail-safe is the load-bearing release path until one of (1)/(2)/(3) l
    - drain: in-flight write completes audit emit BEFORE `ServerHandle::cancel` returns.
 
 The split is clean: B-5 ships the primitive (architecturally complete + invariant-pinned); B-5.5 ships the operator surfaces (mechanical AppState rewrite + envelope-adapter integration). No yama, no deferral-without-tracking — the gap is documented here with the resolution path.
+
+
+## ORPHAN-HIGH-055 — Non-ARIA workflows interpolate `${{ github.event.inputs.* }}` directly inside `run:` shell blocks (Plan 024 v3 §B-3 scope-out, 2026-05-09)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future platform-CI hardening plan. Deadline: prior to next workflow_dispatch operator surface that accepts attacker-controlled input.
+
+**Scope:** Four production GitHub Actions workflow files outside the ARIA scope:
+
+* `.github/workflows/deploy-digitalocean.yml:316, :318, :330` — `${{ github.event.inputs.services }}` interpolated raw four times in the deploy-trigger conditional + IFS-read + branch-equality.
+* `.github/workflows/deploy-staging.yml:87, :88` — `${{ github.event.inputs.image_tag_override }}` interpolated raw twice in the image-tag resolver.
+* `.github/workflows/edge-agent-release.yml:164` — `${{ github.event.inputs.version }}` interpolated raw inside the workflow_dispatch tag-extract block.
+* `.github/workflows/sensor-ingestion-release.yml:74, :75` — `${{ github.event.inputs.tag }}` interpolated raw twice in the image-tag resolver.
+
+**Audited surface:** Plan 024 v3 §B-3 invariant `tests/invariants/aria-workflow-input-injection.spec.ts` reports each of these four files as containing raw `${{ github.event.inputs.<name> }}` interpolations inside a `run:` shell block. Plan 024 §B-3 scope is intentionally limited to ARIA-owned workflows (`aria-*.yml`); the non-ARIA findings are surfaced here for follow-up.
+
+**Why this is acceptable for Plan 024 v3:**
+
+* **Scope discipline.** Plan 024 v3 closes 15 ARIA audit anchors. Extending the workflow-injection fix to non-ARIA production deploy / release pipelines is a different blast-radius batch — operator approval is needed for changes to deploy-digitalocean.yml + deploy-staging.yml because they govern cloud-side rollout.
+* **No regression vs pre-Plan-024.** These workflows shipped the raw interpolations long before Plan 024 was scoped; the invariant test is opt-in to the ARIA prefix specifically so the gate doesn't immediately red on baseline state.
+* **Operator-protected trigger surface.** The four workflows are gated by branch protection (push to `main`) or operator-approved `workflow_dispatch`. The injection class requires a malicious operator to type `'; rm -rf /` or similar; an operator with workflow_dispatch authority can already do worse via direct repo mutation.
+
+**HOW to resolve (platform-CI follow-up):**
+
+1. **deploy-digitalocean.yml:** wrap the four `${{ github.event.inputs.services }}` interpolations in an `env: SERVICES_INPUT: ${{ github.event.inputs.services }}` block at the step level. Inside the script, validate format (`^[a-z0-9,_-]{1,256}$`) before `IFS=',' read -ra SPECIFIED <<< "$SERVICES_INPUT"`. Branch equality `[ "$SERVICES_INPUT" = "all" ]` is safe with the env var.
+2. **deploy-staging.yml:** same pattern with `IMAGE_TAG_INPUT`. Validate as `^[A-Za-z0-9._-]{1,128}$` (Docker tag character set).
+3. **edge-agent-release.yml:** `VERSION_INPUT` env var + semver regex `^v?[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$`.
+4. **sensor-ingestion-release.yml:** same pattern as deploy-staging — Docker-tag char-set regex.
+5. **Extend the invariant** to cover all `.github/workflows/*.yml` (drop the `aria-*` prefix filter) once each fix lands. The invariant guards against future regressions.
+
+The fix shape is mechanical (move interpolation to env: + add regex validate); the discipline is the same as Plan 024 §B-3. Expected effort: one batch per workflow, ≈ 30 min each. Plan-independent so does not block Plan 024 v3 sign-off.

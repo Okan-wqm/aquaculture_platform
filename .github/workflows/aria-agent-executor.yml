@@ -77,10 +77,22 @@ jobs:
 
       - name: Find next pending request
         id: pending
+        env:
+          # Plan 024 v3 §B-3 — env-only interpolation; raw shell access
+          # to ${{ github.event.inputs.request_id }} is closed because
+          # GHA expands the substitution into the script source where
+          # an attacker-controlled value can escape quoting.
+          REQUEST_ID_INPUT: ${{ github.event.inputs.request_id }}
         run: |
           set -euo pipefail
-          if [ -n "${{ github.event.inputs.request_id }}" ]; then
-            echo "request_id=${{ github.event.inputs.request_id }}" >> "$GITHUB_OUTPUT"
+          if [ -n "${REQUEST_ID_INPUT:-}" ]; then
+            # Plan 024 v3 §B-3 — request_id regex matches the kernel's
+            # AIR-* request_id schema (alphanumeric + - + _, ≤ 64 chars).
+            if ! [[ "$REQUEST_ID_INPUT" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
+              echo "::error::invalid request_id format: $REQUEST_ID_INPUT" >&2
+              exit 1
+            fi
+            echo "request_id=${REQUEST_ID_INPUT}" >> "$GITHUB_OUTPUT"
           else
             REQ_ID=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent next-pending \
               --tools-dir aria-tools | jq -r '.request_id // empty')

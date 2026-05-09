@@ -110,10 +110,19 @@ class GetProfileTests(unittest.TestCase):
         self.assertEqual(get_profile(base_dir=ghost), DEFAULT_PROFILE)
         self.assertFalse(ghost.exists())
 
-    def test_get_profile_returns_default_on_malformed_state_file(self) -> None:
+    def test_get_profile_returns_frozen_on_malformed_state_file(self) -> None:
+        # Plan 024 §B-4 — fail-closed update. Pre-fix get_profile silently
+        # returned DEFAULT_PROFILE ('standard') on JSONDecodeError, which
+        # let an operator deploying intent 'frozen' silently flip to
+        # write-enabled if the state file corrupted. Now the corrupt-
+        # JSON path returns FROZEN_PROFILE; the diagnostic surfaces via
+        # get_profile_with_diagnostic and is best-effort emitted as a
+        # governance event at the write boundary
+        # (enforce_profile_for_action / enforce_profile_for_write).
+        from aria_kernel.runtime_profile import FROZEN_PROFILE
         state_file = self.tools / PROFILE_STATE_FILENAME
         state_file.write_text("not-json", encoding="utf-8")
-        self.assertEqual(get_profile(base_dir=self.tools), DEFAULT_PROFILE)
+        self.assertEqual(get_profile(base_dir=self.tools), FROZEN_PROFILE)
 
 
 class SetProfileTransitionTests(unittest.TestCase):

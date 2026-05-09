@@ -168,37 +168,92 @@ def _profile_history_file(base_dir: str | Path | None = None) -> Path:
     return tools_dir(base_dir) / PROFILE_HISTORY_FILENAME
 
 
-def get_profile(*, base_dir: str | Path | None = None) -> str:
-    """Read the current active profile.
+FROZEN_PROFILE: str = "frozen"
 
-    Frozen-aware: routes through ensure_tools_dir_readonly so a fresh sandbox
-    under `frozen` does not silently break the no-write invariant by
-    triggering the tools_root_bootstrapped governance event.
 
-    Returns DEFAULT_PROFILE ('standard') when:
-    - tools dir does not exist or is not bound (ensure_tools_dir_readonly None),
-    - state file is absent,
-    - state file is malformed,
-    - persisted profile name is unknown.
+def get_profile_with_diagnostic(
+    *,
+    base_dir: str | Path | None = None,
+) -> tuple[str, dict[str, Any] | None]:
+    """Plan 024 §B-4 — fail-closed profile resolution with diagnostic.
 
-    The fallback is intentionally permissive — you cannot reach `frozen`
-    without first calling set_profile, which calls ensure_tools_dir and
-    creates the state file. So "no state file" implies "never set", which
-    means default `standard`.
+    Returns (profile_name, diagnostic) where diagnostic is non-None when
+    the resolution had to fall back to FROZEN_PROFILE. Pure read; never
+    emits governance events itself (the write-boundary callers consume
+    the diagnostic and emit at the boundary, preserving the read-only
+    invariant of the file at line 174-176 docstring).
+
+    Resolution semantics:
+    - tools dir absent / not bound → ('standard', None) — documented
+      bootstrap path; you cannot reach frozen without set_profile, so
+      "no state file" implies "never set" which means default standard.
+    - state file absent → ('standard', None) — same bootstrap path.
+    - OSError reading state file → ('frozen', read_failure diagnostic)
+      — fail-closed; an operator deploying with intent 'frozen' must
+      not silently flip to 'standard' just because the file is
+      unreadable.
+    - JSONDecodeError → ('frozen', parse_failure diagnostic) — same.
+    - active_profile not in PROFILES → ('frozen',
+      unknown_active_profile diagnostic) — typo or schema drift
+      should fail-loud, not silently degrade to standard.
+    - Valid profile → (profile_name, None).
     """
     root = ensure_tools_dir_readonly(base_dir)
     if root is None:
-        return DEFAULT_PROFILE
+        return DEFAULT_PROFILE, None
     state_file = root / PROFILE_STATE_FILENAME
     if not state_file.exists():
-        return DEFAULT_PROFILE
+        return DEFAULT_PROFILE, None
     try:
-        payload = json.loads(state_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return DEFAULT_PROFILE
-    profile = str(payload.get("active_profile") or DEFAULT_PROFILE)
-    if profile not in PROFILES:
-        return DEFAULT_PROFILE
+        raw = state_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        return FROZEN_PROFILE, {
+            "kind": "runtime_profile_read_failure",
+            "path": str(state_file),
+            "error": str(exc),
+        }
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return FROZEN_PROFILE, {
+            "kind": "runtime_profile_parse_failure",
+            "path": str(state_file),
+            "error": str(exc),
+        }
+    active = payload.get("active_profile")
+    if not isinstance(active, str) or active not in PROFILES:
+        return FROZEN_PROFILE, {
+            "kind": "runtime_profile_unknown_active_profile",
+            "path": str(state_file),
+            "active_profile": active,
+        }
+    return active, None
+
+
+def get_profile(*, base_dir: str | Path | None = None) -> str:
+    """Read the current active profile.
+
+    Plan 024 §B-4 — fail-closed delegation. Pre-fix this function
+    silently returned DEFAULT_PROFILE ('standard') on read/parse/
+    unknown-name failures, which let an operator deploying intent
+    'frozen' silently flip to write-enabled. Now corruption /
+    unknown-name paths return FROZEN_PROFILE; the diagnostic is
+    discarded here (callers wanting governance emission use
+    get_profile_with_diagnostic + enforce_profile_for_action).
+
+    Frozen-aware: routes through ensure_tools_dir_readonly so a fresh
+    sandbox under frozen does not silently break the no-write
+    invariant by triggering tools_root_bootstrapped governance.
+
+    Returns DEFAULT_PROFILE ('standard') only when:
+    - tools dir does not exist or is not bound, OR
+    - state file is absent (bootstrap path).
+    Returns FROZEN_PROFILE ('frozen') when:
+    - state file is unreadable (OSError),
+    - state file is malformed (JSONDecodeError),
+    - persisted profile name is unknown.
+    """
+    profile, _diagnostic = get_profile_with_diagnostic(base_dir=base_dir)
     return profile
 
 
@@ -292,6 +347,29 @@ def list_profile_history(*, base_dir: str | Path | None = None) -> list[dict[str
     return rows
 
 
+def _emit_runtime_profile_diagnostic(
+    diagnostic: dict[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+) -> None:
+    """Plan 024 §B-4 — best-effort governance event emission from the
+    write boundary. The diagnostic surfaces from get_profile_with_-
+    diagnostic when the read-side has fallen back to FROZEN_PROFILE
+    due to read failure / parse failure / unknown active_profile.
+
+    Best-effort: if append_tools_governance itself raises (e.g. tools
+    dir cannot be bootstrapped under the frozen fallback we just
+    triggered), the failure is swallowed — the protective effect of
+    returning FROZEN_PROFILE is what matters; the audit event is the
+    secondary observability surface.
+    """
+    try:
+        root = ensure_tools_dir(base_dir)
+        append_tools_governance(root, diagnostic["kind"], diagnostic)
+    except Exception:
+        pass
+
+
 def enforce_profile_for_action(
     action_kind: str,
     *,
@@ -305,6 +383,12 @@ def enforce_profile_for_action(
     - change_ledger.emit_change_validated      → 'change_validated'
     - pr_manager.open_pr_for_action            → 'pr_open'
 
+    Plan 024 §B-4 — when get_profile falls back to FROZEN_PROFILE due
+    to corrupt / unknown state file, the diagnostic is best-effort
+    emitted as a governance event so the operator audit trail
+    captures why the gate is now refusing. The rejection itself is
+    deterministic; the event is observability.
+
     Returns the active profile name on success.
 
     Raises GovernanceError('profile_violation: ...') on rejection.
@@ -313,7 +397,9 @@ def enforce_profile_for_action(
     permitted = ACTION_PERMISSIONS.get(action_kind)
     if permitted is None:
         raise GovernanceError(f"unknown profile action_kind: {action_kind!r}")
-    profile = get_profile(base_dir=base_dir)
+    profile, diagnostic = get_profile_with_diagnostic(base_dir=base_dir)
+    if diagnostic is not None:
+        _emit_runtime_profile_diagnostic(diagnostic, base_dir=base_dir)
     if profile not in permitted:
         raise GovernanceError(
             f"profile_violation: action {action_kind!r} blocked under profile "
@@ -349,7 +435,12 @@ def enforce_profile_for_write(
         raise GovernanceError(
             f"unknown profile write surface_kind: {surface_kind!r}"
         )
-    profile = get_profile(base_dir=base_dir)
+    # Plan 024 §B-4 — emit best-effort diagnostic at this write
+    # boundary too, so corrupt-profile audit trail captures both
+    # action and write paths.
+    profile, diagnostic = get_profile_with_diagnostic(base_dir=base_dir)
+    if diagnostic is not None:
+        _emit_runtime_profile_diagnostic(diagnostic, base_dir=base_dir)
     if profile == "frozen":
         # Plan 020 frozen scope: every PLAN_020_WRITE_SURFACES write blocked.
         # Surfaces in OBSERVE_PERMITTED_SURFACES that are NOT also in
@@ -373,6 +464,7 @@ def enforce_profile_for_write(
 __all__ = [
     "PROFILES",
     "DEFAULT_PROFILE",
+    "FROZEN_PROFILE",
     "ACTION_PERMISSIONS",
     "PLAN_020_WRITE_SURFACES",
     "OBSERVE_PERMITTED_SURFACES",
@@ -380,6 +472,7 @@ __all__ = [
     "PROFILE_STATE_FILENAME",
     "PROFILE_HISTORY_FILENAME",
     "get_profile",
+    "get_profile_with_diagnostic",
     "set_profile",
     "list_profile_history",
     "enforce_profile_for_action",

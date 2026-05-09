@@ -102,8 +102,19 @@ def invoke_claude_code(
     prompt_file: Path,
     output_path: Path,
     timeout_seconds: int,
+    claim_id: str | None = None,
+    agent_id: str | None = None,
+    role: str | None = None,
+    must_satisfy: list[dict[str, Any]] | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
+
+    Plan 024 v3 §B-8 — mock envelope reads REAL lease tokens (claim_id
+    + agent_id from claim_request) and REAL role (from the request
+    row). Pre-fix the mock hardcoded ``claim_id="claim_mock"`` +
+    ``agent_id="ci-executor:mock"`` which Plan 023 §A-5 lease binding
+    rejects on submit; the "end-to-end mock" was therefore broken at
+    the submission boundary.
 
     Returns the CLI exit code. Raises ClaudeCodeUnavailable when the
     `claude` binary is not on $PATH and mock mode is OFF — this is the
@@ -112,17 +123,40 @@ def invoke_claude_code(
     if _is_mock_mode():
         # Test path: write a deterministic mock envelope to the output
         # path the kernel will then read on submit. The mock envelope
-        # passes the agent_contract.validate_response shape check.
+        # passes the agent_contract.validate_response shape check
+        # (Plan 023 §A-5 lease binding + Plan 024 §H-4 role match)
+        # because claim_id + agent_id come from the real claim_request
+        # output and role is read from the request row.
+        if not claim_id or not agent_id:
+            raise ValueError(
+                "ci_executor_mock_missing_lease_identity: claim_id and "
+                "agent_id are required (Plan 024 §B-8); the legacy "
+                "claim_mock / ci-executor:mock literals were removed."
+            )
+        # Synthesize a satisfaction_matrix that satisfies must_satisfy
+        # so Plan 024 §B-2 evidence_validator (non-empty matrix
+        # enforcement) does not reject the mock envelope.
+        matrix: list[dict[str, Any]] = []
+        if must_satisfy:
+            for criterion in must_satisfy:
+                cid = criterion.get("id") if isinstance(criterion, dict) else None
+                if cid:
+                    matrix.append({
+                        "id": cid,
+                        "verdict": "satisfied",
+                        "evidence_refs": [],
+                    })
+        envelope_role = role or subagent_type.replace("aria-", "").replace("-judge", "_judgment")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(
             json.dumps({
                 "$schema": "aria/agent-response/v1",
                 "request_id": request_id,
-                "claim_id": "claim_mock",
-                "agent_id": "ci-executor:mock",
-                "role": subagent_type.replace("aria-", "").replace("-judge", "_judgment"),
+                "claim_id": claim_id,
+                "agent_id": agent_id,
+                "role": envelope_role,
                 "status": "submitted",
-                "satisfaction_matrix": [],
+                "satisfaction_matrix": matrix,
                 "evidence_refs": [],
                 "details": {
                     "verdict": {
@@ -258,12 +292,22 @@ def main(argv: list[str] | None = None) -> int:
     prompt_file = tools_dir / "agent-invocations" / "prompts" / f"{request_id}.md"
     timeout = _max_timeout_seconds()
     try:
+        # Plan 024 v3 §B-8 — pass real lease identity + role from
+        # request row into the mock envelope writer. claim_id +
+        # agent_id come from the kernel CLI's claim output (line 209-
+        # 211); role + must_satisfy come from the request_envelope
+        # we already loaded for cost-cap evaluation.
+        agent_identity = f"ci-executor:gha-{os.environ.get('GITHUB_RUN_ID', 'local')}"
         cli_exit = invoke_claude_code(
             request_id=request_id,
             subagent_type=subagent_type,
             prompt_file=prompt_file,
             output_path=expected_output_path,
             timeout_seconds=timeout,
+            claim_id=claim_id,
+            agent_id=agent_identity,
+            role=request_envelope.get("role"),
+            must_satisfy=request_envelope.get("must_satisfy") or [],
         )
     except ClaudeCodeUnavailable as exc:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")

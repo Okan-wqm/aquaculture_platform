@@ -67,6 +67,11 @@ class InvokeClaudeCodeTests(unittest.TestCase):
         out_path = self.tmp / "response.json"
         prompt_path = self.tmp / "prompt.md"
         prompt_path.write_text("# Test prompt", encoding="utf-8")
+        # Plan 024 v3 §B-8 — invoke_claude_code now requires real
+        # lease identity (claim_id + agent_id) when in mock mode so
+        # the envelope can pass the Plan 023 §A-5 lease binding +
+        # Plan 024 §H-4 role match. Tests pass dummy real-shaped
+        # values here.
         with patch.dict(os.environ, {ci_executor.MOCK_MODE_ENV_VAR: "1"}):
             exit_code = ci_executor.invoke_claude_code(
                 request_id="REQ-test-1",
@@ -74,6 +79,10 @@ class InvokeClaudeCodeTests(unittest.TestCase):
                 prompt_file=prompt_path,
                 output_path=out_path,
                 timeout_seconds=300,
+                claim_id="claim_test_aaaaaaaa",
+                agent_id="ci-executor:gha-test",
+                role="evidence_judgment",
+                must_satisfy=[],
             )
         self.assertEqual(exit_code, 0)
         self.assertTrue(out_path.exists())

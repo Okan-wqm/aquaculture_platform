@@ -471,26 +471,32 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       // ADD CONSTRAINT FOREIGN KEY -> wrap in DO/EXCEPTION.
       // PostgreSQL has no IF NOT EXISTS form for ADD CONSTRAINT.
       //
-      // Two exception classes are caught:
+      // Three exception classes are caught:
       //
       //   - `duplicate_object` (42710) — replay-safety. Re-running on
       //     a DB where the constraint already exists is a no-op.
       //
-      //   - `invalid_foreign_key` (42830) — entity-level type mismatches
-      //     between the FK source column and the target's PK type. The
-      //     hr-service has known cases (e.g. `employees.departmentHrId`
-      //     declared as `string` (varchar) by the entity, but the FK
-      //     target `departments_hr.id` is uuid — PG refuses with
-      //     "foreign key constraint <name> cannot be implemented").
-      //     The mismatch is an entity-layer bug; SyncHrEntitiesToDb's
-      //     job is to align DB to current entity declarations as much
-      //     as PG will accept. The constraint stays unapplied (and the
-      //     SchemaDriftValidator will continue to surface it as
-      //     fk-drift) — but the migration does NOT crash, so the rest
-      //     of the schema alignment proceeds. The entity-level fix is
-      //     tracked separately as an orphan finding.
+      //   - `datatype_mismatch` (42804) — PG raises this with the
+      //     message "foreign key constraint <name> cannot be
+      //     implemented" when the FK source column's type is
+      //     incompatible with the target PK type. The hr-service has
+      //     known cases (e.g. `employees.departmentHrId` declared as
+      //     `string` (varchar) by the entity but the FK target
+      //     `departments_hr.id` is uuid). The mismatch is an
+      //     entity-layer bug; SyncHrEntitiesToDb's job is to align DB
+      //     to current entity declarations as much as PG will accept.
+      //     The constraint stays unapplied (and SchemaDriftValidator
+      //     will continue to surface it as fk-drift) — but the
+      //     migration does NOT crash, so the rest of the schema
+      //     alignment proceeds. The entity-level fix is tracked
+      //     separately as an orphan finding.
       //
-      // R5 narrowness preserved: both classes are explicit names, no
+      //   - `invalid_foreign_key` (42830) — defense-in-depth catch for
+      //     the alternate PG code path that raises a different ERRCODE
+      //     when the referenced columns lack a unique constraint.
+      //     Same architectural treatment as datatype_mismatch.
+      //
+      // R5 narrowness preserved: all classes are explicit names, no
       // `WHEN others`.
       if (
         /^ALTER\s+TABLE\b[^;]*?\bADD\s+CONSTRAINT\b[^;]*?\bFOREIGN\s+KEY\b/i.test(
@@ -499,7 +505,9 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       ) {
         s =
           `DO $$ BEGIN ${s}; ` +
-          `EXCEPTION WHEN duplicate_object THEN NULL; ` +
+          `EXCEPTION ` +
+          `WHEN duplicate_object THEN NULL; ` +
+          `WHEN datatype_mismatch THEN NULL; ` +
           `WHEN invalid_foreign_key THEN NULL; ` +
           `END $$`;
       }

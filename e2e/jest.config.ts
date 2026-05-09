@@ -29,6 +29,29 @@ const config: Config = {
     '^@platform/event-contracts$': '<rootDir>/../libs/event-contracts/src/index.ts',
     '^@platform/storage$': '<rootDir>/../libs/storage/src/index.ts',
     '^@platform/testing$': '<rootDir>/../libs/testing/src/index.ts',
+    // platform/libs/* path aliases (declared in tsconfig.base.json paths
+    // but missing from this Jest moduleNameMapper). Without them ts-jest
+    // cannot resolve @platform/outbox / @platform/event-bus / @platform/cqrs
+    // at require()-time, with two cascading effects:
+    //
+    //   - apps/messaging-service/src/outbox/messaging-outbox.entity.ts
+    //   - apps/hr-service/src/hr/entities/hr-outbox.entity.ts
+    //   - apps/farm-service/src/outbox/farm-outbox.entity.ts
+    //   all import @platform/outbox directly. require() throws and the
+    //   entity drops out of the loaded class list.
+    //
+    //   - libs/backend-common/src/security/index.ts re-exports
+    //     security-event.service.ts which imports @platform/event-bus.
+    //     Any *.entity.ts that imports `@aquaculture/backend-common/security`
+    //     (e.g. apps/hr-service/src/hr/entities/employee.entity.ts:17)
+    //     transitively pulls @platform/event-bus and silently fails to
+    //     require. Visible downstream symptom: TypeORM throws
+    //     "Entity metadata for WorkRotation#employee was not found"
+    //     because the string-based @ManyToOne('Employee', ...) lookup
+    //     finds no Employee class in the metadata graph.
+    '^@platform/outbox$': '<rootDir>/../platform/libs/outbox/src/index.ts',
+    '^@platform/event-bus$': '<rootDir>/../platform/libs/event-bus/src/index.ts',
+    '^@platform/cqrs$': '<rootDir>/../platform/libs/cqrs/src/index.ts',
   },
 };
 

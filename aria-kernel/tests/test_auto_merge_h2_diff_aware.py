@@ -94,9 +94,18 @@ class AutoMergeContentScanTests(unittest.TestCase):
 
     def test_pr_payload_carries_diff_text_used_as_fallback(self) -> None:
         # When the PR payload itself carries diff_text, it's used as
-        # fallback when the kwarg is None.
+        # fallback when the kwarg is None. Plan 023 v3 §P-6 added a
+        # structural unified-diff check (`+++ b/` header required); the
+        # fixture diff now carries a real header so the integrity gate
+        # passes through to the suppression-scan + path-class layers.
         decision = evaluate_auto_merge(
-            pr=_base_pr_payload(diff_text="+const x = 1;"),
+            pr=_base_pr_payload(diff_text=(
+                "diff --git a/apps/x.ts b/apps/x.ts\n"
+                "--- a/apps/x.ts\n"
+                "+++ b/apps/x.ts\n"
+                "@@ -1 +1 @@\n"
+                "+const x = 1;\n"
+            )),
             github=_base_github_payload(),
             policy=_enabled_policy(),
             diff_text=None,

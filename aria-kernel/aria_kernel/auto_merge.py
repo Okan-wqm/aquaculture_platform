@@ -93,6 +93,19 @@ class GitHubAdapter(Protocol):
     def get_unresolved_conversation_count(self, number: int) -> dict[str, Any]:
         ...
 
+    def get_pr_diff(self, number: int) -> str | None:
+        """Plan 023 v3 §P-6 — required Protocol method.
+
+        Live mode (GhCliGitHubAdapter) implements via `gh pr diff
+        <number>`. Snapshot/test mode returns the diff fixture from
+        the seeded payload. evaluate_auto_merge fails-closed on
+        empty / whitespace / malformed diff content (P-6 fix), so an
+        adapter implementation that returns None / empty surfaces as
+        an explicit auto_merge_blocked reason rather than a silent
+        path-class-only acceptance.
+        """
+        ...
+
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
         ...
 
@@ -199,6 +212,28 @@ def evaluate_auto_merge(
         # must supply diff (typically via gh pr diff <pr_number>) so
         # path-class + content-class AND-merge can run.
         reasons.append("diff_text missing — auto_merge_requires_diff_content")
+    elif not diff_text.strip():
+        # Plan 023 v3 §P-6 — empty / whitespace-only diff treated as a
+        # missing diff. Pre-fix scan_unified_diff_text("") returned []
+        # and the gate concluded "clean". Empty diff is a signal that
+        # diff fetching broke; the gate fails closed.
+        reasons.append(
+            "auto_merge_requires_nonempty_unified_diff: diff_text was "
+            "empty or whitespace-only; auto-merge cannot evaluate "
+            "content-class without diff content"
+        )
+    elif "+++ b/" not in diff_text and "rename to " not in diff_text and "new file mode" not in diff_text:
+        # Plan 023 v3 §P-6 — minimal unified-diff structural check.
+        # A blob without any +++ b/<path> header / rename to / new file
+        # mode line is not a unified diff; the suppression scanner's
+        # parse_unified_diff() would silently produce zero file_changes
+        # and return zero matches.
+        reasons.append(
+            "auto_merge_diff_unparseable_or_empty: diff_text does not "
+            "contain a unified-diff file header (+++ b/<path>, "
+            "rename to, or new file mode); auto-merge cannot trust "
+            "the content-class result"
+        )
     else:
         from .suppression_scanner import scan_unified_diff_text
         for match in scan_unified_diff_text(diff_text):
@@ -451,6 +486,16 @@ class SnapshotGitHubAdapter:
             self.payload.get("github", {}).get("conversations", {"readable": True, "unresolved_count": 0}),
         )
 
+    def get_pr_diff(self, number: int) -> str | None:
+        """Plan 023 v3 §P-6 — read pre-seeded diff from the snapshot
+        payload. Returns None when the fixture didn't supply a diff so
+        evaluate_auto_merge's empty-diff fail-closed gate fires."""
+        _ = number
+        diff = self.payload.get("github", {}).get("pr_diff")
+        if not isinstance(diff, str) or not diff.strip():
+            return None
+        return diff
+
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
         call = {"number": number, "method": method, "expected_head_sha": expected_head_sha}
         self.merge_calls.append(call)
@@ -557,6 +602,26 @@ class GhCliGitHubAdapter:
             if not page_info.get("hasNextPage"):
                 return {"readable": True, "unresolved_count": unresolved}
             cursor = page_info.get("endCursor")
+
+    def get_pr_diff(self, number: int) -> str | None:
+        """Plan 023 v3 §P-6 — fetch the unified diff from gh CLI.
+
+        Returns the diff text on success, or None on any subprocess
+        failure / empty output. evaluate_auto_merge's empty-diff gate
+        then converts the None / empty case into an explicit
+        auto_merge_requires_nonempty_unified_diff blocking reason.
+        """
+        try:
+            completed = subprocess.run(
+                ["gh", "pr", "diff", str(number)],
+                cwd=self.cwd, capture_output=True, text=True, check=False,
+            )
+        except (FileNotFoundError, OSError):
+            return None
+        if completed.returncode != 0:
+            return None
+        diff = completed.stdout or ""
+        return diff if diff.strip() else None
 
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
         if method != "squash":

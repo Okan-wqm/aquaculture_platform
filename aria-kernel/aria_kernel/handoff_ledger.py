@@ -47,6 +47,7 @@ from .change_ledger import list_change_chains
 from .debt import list_debts
 from .finding import list_findings
 from .ledger import append_jsonl
+from .diagnostics import emit_ledger_corruption_diagnostic
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -322,8 +323,25 @@ def list_handoffs(
     session_id: str | None = None,
     trigger: str | None = None,
     limit: int | None = None,
+    on_corruption: str = "strict",
 ) -> list[dict[str, Any]]:
-    """Return recorded handoff snapshots (oldest → newest)."""
+    """Return recorded handoff snapshots (oldest → newest).
+
+    Plan 024 §H-7 — handoff_ledger is a CRITICAL ledger (audit /
+    integrity-chain bound), so a corrupt row defaults to STRICT —
+    GovernanceError raised instead of silent skip. Operators who
+    explicitly want to recover partial handoff state can pass
+    ``on_corruption="tolerant"``; corrupt rows are then skipped from
+    the result list AND emitted to the diagnostic sink at
+    ``aria-tools/diagnostics/ledger-corruption.jsonl``. Either way,
+    every corruption observation lands in the sink — silent skip is
+    the only behaviour the fix removes.
+    """
+    if on_corruption not in {"strict", "tolerant"}:
+        raise GovernanceError(
+            f"list_handoffs_invalid_on_corruption_mode: {on_corruption!r} "
+            f"(must be 'strict' or 'tolerant')"
+        )
     root = ensure_tools_dir_readonly(base_dir)
     if root is None:
         return []
@@ -331,13 +349,28 @@ def list_handoffs(
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
+    raw_text = path.read_text(encoding="utf-8")
+    for line_no, raw in enumerate(raw_text.splitlines(), start=1):
+        line = raw.strip()
         if not line:
             continue
         try:
             row = json.loads(line)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            corruption = {
+                "kind": "ledger_row_corrupt",
+                "ledger": str(path),
+                "line_no": line_no,
+                "error": str(exc),
+                "raw_excerpt": line[:200],
+            }
+            emit_ledger_corruption_diagnostic(corruption, base_dir=root)
+            if on_corruption == "strict":
+                raise GovernanceError(
+                    f"ledger_row_corrupt_strict_mode: "
+                    f"{path}:{line_no}: {exc}"
+                )
+            # tolerant: skip + continue
             continue
         if session_id is not None and row.get("session_id") != session_id:
             continue

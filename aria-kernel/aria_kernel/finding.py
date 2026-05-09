@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_genesis import BANNED_PHRASES
+from .diagnostics import emit_ledger_corruption_diagnostic
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding
 
 
@@ -157,7 +158,30 @@ def _refresh_index(repo_root: Path) -> dict[str, Any]:
     for path in sorted(findings_dir.glob("F-*.json")):
         try:
             doc = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as exc:
+            # Plan 024 §H-7 — surface corruption to the diagnostic sink
+            # before silent-skipping. The finding ledger is critical
+            # (audit trail of recorded findings) so the sink event is
+            # the primary signal that the index is incomplete; the
+            # silent skip is preserved here for backward compatibility
+            # with bulk index rebuilds (a single corrupt finding
+            # should not block emission of new findings — that would
+            # be a deadlock if the corrupt finding is itself written
+            # by a sibling process). Operators reading the
+            # diagnostic sink see exactly which finding doc is
+            # corrupt and can repair it.
+            corruption = {
+                "kind": "ledger_index_rebuild_skip",
+                "ledger": str(path),
+                "line_no": None,
+                "error": str(exc),
+                "raw_excerpt": None,
+            }
+            try:
+                base_dir = repo_root / "aria-tools"
+                emit_ledger_corruption_diagnostic(corruption, base_dir=base_dir)
+            except Exception:
+                pass
             continue
         rows.append(
             {

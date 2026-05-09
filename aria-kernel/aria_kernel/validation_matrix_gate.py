@@ -117,17 +117,27 @@ _RISK_PATH_HEURISTICS: dict[str, tuple[re.Pattern[str], ...]] = {
 # Pattern: the matched files must contain the regex.
 _REQUIRED_TESTS_BY_RISK: dict[str, tuple[dict[str, Any], ...]] = {
     "auth_change": (
+        # Plan 023 v3 §R-3 — expected_cmd_substring binds the required
+        # test to the validation_run_ref that satisfies it. Pre-fix
+        # any run_ref with exit_code=0 satisfied any required test;
+        # `cmd: "echo ok"` cleared the gate even when nx test
+        # auth-service was the test that should have run. Post-fix:
+        # _check_required_test_cmd_correlation requires at least one
+        # run_ref whose cmd contains the expected_cmd_substring.
         {"name": "use_guards_test",
          "path_substr": "apps/auth-service",
          "path_glob": "**/*.spec.ts",
+         "expected_cmd_substring": "nx test auth-service",
          "regex": re.compile(r"@UseGuards\(|UseGuards\(")},
         {"name": "jwt_tenant_source_negative",
          "path_substr": "apps/auth-service",
          "path_glob": "**/*.spec.ts",
+         "expected_cmd_substring": "nx test auth-service",
          "regex": re.compile(r"tenant[-_]?(claim|source).*reject|reject.*tenant", re.I)},
         {"name": "public_endpoint_allowlist",
          "path_substr": "apps/auth-service",
          "path_glob": "**/*.spec.ts",
+         "expected_cmd_substring": "nx test auth-service",
          "regex": re.compile(r"public[-_]?endpoint|allowlist", re.I)},
     ),
     "tenant_change": (
@@ -260,6 +270,48 @@ def _check_pattern_layer(
         if pattern.search(content):
             hits.append(rel)
     return bool(hits), hits
+
+
+def _check_required_test_cmd_correlation(
+    *,
+    required_tests: list[dict[str, Any]],
+    candidate_refs: list[Any],
+) -> list[str]:
+    """Plan 023 v3 §R-3 — bind required test to validation_run_ref via
+    expected_cmd_substring.
+
+    Pre-Plan-023 _check_run_pass_layer accepted any run_ref with
+    exit_code=0 as proof of "structured RUN-PASS". A cmd like
+    'echo ok' satisfied required tests like 'nx test auth-service'
+    because the validator never compared the cmd that ran to the cmd
+    that SHOULD HAVE RUN.
+
+    Post-fix: each required test gains an optional
+    expected_cmd_substring field. When present, the validator
+    requires at least one validation_run_ref whose cmd field contains
+    the substring. Mismatches surface as
+    'validation_run_ref_does_not_match_required_test_cmd' failures.
+
+    Required tests without expected_cmd_substring are not yet
+    enforced (legacy fallback so this fix is additive — future plan
+    iterations migrate the rest of the spec table).
+    """
+    failures: list[str] = []
+    cmds: list[str] = []
+    for ref in candidate_refs:
+        if isinstance(ref, dict) and isinstance(ref.get("cmd"), str):
+            cmds.append(ref["cmd"])
+    for spec in required_tests:
+        substring = spec.get("expected_cmd_substring")
+        if not isinstance(substring, str) or not substring.strip():
+            continue  # Legacy spec; not yet correlation-enforced.
+        if not any(substring in cmd for cmd in cmds):
+            failures.append(
+                f"validation_run_ref_does_not_match_required_test_cmd: "
+                f"required test {spec.get('name')!r} expects cmd "
+                f"containing {substring!r}; no candidate ref's cmd matched"
+            )
+    return failures
 
 
 def _check_run_pass_layer(
@@ -408,6 +460,19 @@ def enforce_validation_matrix(
     run_passed, structured_refs, failed_runs = _check_run_pass_layer(
         candidate_refs=candidate_refs,
     )
+
+    # Plan 023 v3 §R-3 — required-test ↔ run_ref cmd correlation. The
+    # run-pass layer above only enforces that EVERY ref is structured
+    # + zero-exit; this additional pass enforces that for each
+    # required test with an expected_cmd_substring, at least ONE ref's
+    # cmd actually matches. Pre-fix `cmd: 'echo ok'` cleared the gate
+    # for any required test.
+    cmd_correlation_failures = _check_required_test_cmd_correlation(
+        required_tests=required, candidate_refs=candidate_refs,
+    )
+    if cmd_correlation_failures:
+        run_passed = False
+        failed_runs.extend(cmd_correlation_failures)
 
     blocked = bool(missing) or not run_passed
     result = {

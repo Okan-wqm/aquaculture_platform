@@ -193,13 +193,19 @@
     ]
   },
   "severity": "HIGH",
-  "status": "OPEN",
+  "status": "RESOLVED",
   "status_history": [
     {
       "at": "2026-05-09T00:00:00Z",
       "by": "manual:operator-plan-022-v6-post-push-audit",
       "note": "Emitted after Plan 022 v6 sign-off + push (HEAD 6090b67b). External audit identified 30 architectural bypass routes still reachable in merged code despite test-suite green status. Plan 023 v3 corrective-arc tracks closure via 32 fix items.",
       "status": "OPEN"
+    },
+    {
+      "at": "2026-05-09T23:59:59Z",
+      "by": "operator:plan-023-v3-sign-off",
+      "note": "Plan 023 v3 corrective-arc closure complete. All 32 architectural fix items implemented and committed. 1029 / 1029 aria-kernel tests green. Per-fix mapping + verification commands at docs/aria/reviews/2026-05-09-plan-023-implementation-review.md.",
+      "status": "RESOLVED"
     }
   ],
   "supersedes": null

@@ -559,6 +559,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     //    skipped statements.
     const alterTypeTargets = parseAlterColumnTypeTargets(
       relevantQueries.map((q) => q.query),
+      'hr',
     );
     if (alterTypeTargets.length > 0) {
       const droppedDeps = await dropDependentPartialIndexes(
@@ -659,6 +660,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       // same dependency resolution.
       const tenantAlterTargets = parseAlterColumnTypeTargets(
         tenantQueries.map((q) => q.query),
+        tenantSchema,
       );
       if (tenantAlterTargets.length > 0) {
         const droppedTenantDeps = await dropDependentPartialIndexes(

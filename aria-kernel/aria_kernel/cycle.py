@@ -74,8 +74,17 @@ def run_enterprise_cycle(
     discovery_only: bool = False,
     snapshot_mode: str = "committed",
     run_phases: tuple[str, ...] | None = None,
+    pre_tool_phases: tuple[str, ...] | None = None,
     plan_id: str | None = None,
 ) -> dict[str, Any]:
+    # Plan 023 v3 §R-1 — pre_tool_phases kwarg runs extended phases
+    # BEFORE the tool loop. Pre-Plan-023 all extended phases ran
+    # AFTER tools, so architecture_baseline / validation_matrix_pre /
+    # pr_lifecycle_pre observed consequences instead of preconditions
+    # and could not gate tool dispatch. Post-fix: pre_tool_phases
+    # fires first; failure aborts the cycle with cycle_aborted_by_
+    # pre_phase. The legacy run_phases kwarg continues to run AFTER
+    # tools (post-tool observation).
     started = time.monotonic()
     root = ensure_tools_binding(base_dir, workspace_root=workspace_root)
     if (root / "ARIA_STOP").exists():
@@ -100,6 +109,49 @@ def run_enterprise_cycle(
         }
         _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
         return state
+
+    # Plan 023 v3 §R-1 — pre_tool_phases run BEFORE the tool loop so
+    # architecture_baseline / validation_matrix_pre / pr_lifecycle_pre
+    # gate tool dispatch (observe preconditions, not consequences).
+    # Failure short-circuits the cycle with cycle_aborted_by_pre_phase.
+    pre_phase_results: dict[str, Any] = {}
+    if pre_tool_phases is not None:
+        active_pre = tuple(pre_tool_phases)
+        unknown_pre = [p for p in active_pre if p not in SUPPORTED_CYCLE_PHASES]
+        if unknown_pre:
+            raise ValueError(
+                f"unknown pre_tool_phases: {unknown_pre}; "
+                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
+            )
+        pre_phase_results = _run_extended_phases(
+            phases=active_pre,
+            workspace_root=Path(workspace_root).resolve(),
+            cycle_id=cycle_id,
+            base_dir=root,
+            plan_id=plan_id,
+        )
+        # Plan 023 v3 §R-1 — pre-tool phase failure aborts cycle.
+        # _run_extended_phases returns dict with phase results; if any
+        # phase result is dict-shaped with status=='failed' or
+        # 'blocked', short-circuit before tools run.
+        for phase_name, phase_result in pre_phase_results.items():
+            if not isinstance(phase_result, dict):
+                continue
+            phase_status = phase_result.get("status") or phase_result.get("decision")
+            if phase_status in ("failed", "blocked", "regression"):
+                event = _complete_event(
+                    root, cycle_id, 0,
+                    git_head_sha_at_cycle=git_head_sha_at_cycle,
+                )
+                return {
+                    "schema_version": 2,
+                    "cycle_id": cycle_id,
+                    "git_head_sha_at_cycle": git_head_sha_at_cycle,
+                    "status": "aborted",
+                    "event": {**event, "reason": f"cycle_aborted_by_pre_phase:{phase_name}"},
+                    "pre_phase_results": pre_phase_results,
+                    "aborted_by_phase": phase_name,
+                }
 
     decisions = []
     run_summary = []
@@ -184,6 +236,7 @@ def run_enterprise_cycle(
         "tool_governance_decisions": decisions,
         "tool_run_summary": run_summary,
         "extended_phases": extended_phase_results,
+        "pre_phase_results": pre_phase_results,
     }
     _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
     return state

@@ -323,6 +323,21 @@ def _main(argv: list[str] | None = None) -> int:
     eval_list.add_argument("--limit", type=int, default=None)
     eval_list_fixtures = eval_sub.add_parser("list-fixtures")
 
+    # Plan 023 v3 §D-1 — shadow-sample CLI parser entry. Plan 022 §H-5
+    # added the sample_shadow_raw_findings Python function but no CLI
+    # subparser; operators could only call via Python REPL. Post-fix:
+    # `aria-kernel agent-eval shadow-sample [--threshold N]` runs the
+    # function and emits JSON output.
+    eval_shadow_sample = eval_sub.add_parser(
+        "shadow-sample",
+        help="Sample SHADOW raw findings from the last 24h (Plan 022 §H-5).",
+    )
+    eval_shadow_sample.add_argument(
+        "--threshold", type=int, default=None,
+        help="Optional override for the 24h raw-findings threshold "
+             "(default: SHADOW_SAMPLE_THRESHOLD_24H).",
+    )
+
     # Plan 020 Phase 3.B — handoff snapshot sub-command.
     # WHY a CLI surface: session_start + session_stop GHA workflow steps
     # invoke this entry point. Operators use the same surface for manual
@@ -1317,6 +1332,15 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "agent-eval" and args.agent_eval_command == "list-fixtures":
         rows = eval_list_fixtures_fn(base_dir=args.tools_dir)
         print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    # Plan 023 v3 §D-1 — shadow-sample CLI dispatch.
+    if args.command == "agent-eval" and args.agent_eval_command == "shadow-sample":
+        from .agent_eval import sample_shadow_raw_findings, SHADOW_SAMPLE_THRESHOLD_24H
+        threshold = args.threshold if args.threshold is not None else SHADOW_SAMPLE_THRESHOLD_24H
+        result = sample_shadow_raw_findings(
+            base_dir=args.tools_dir, threshold_24h=threshold,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
     # Plan 020 Phase 3.B — handoff CLI dispatch.

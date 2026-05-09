@@ -131,7 +131,20 @@ def scan_diff_added_lines(
         path = str(change.get("path", ""))
         added = change.get("added_lines") or []
         if not isinstance(added, list):
-            continue
+            added = []
+        # Plan 023 v3 §P-7 — parse_unified_diff now captures
+        # rename/copy/+++ b metadata in a separate `metadata_lines`
+        # field. Pre-fix the scanner only saw `+`-prefixed content; a
+        # rename to a forbidden path (e.g. ci.yml.disabled) had no
+        # content line and slipped through despite the existing
+        # ci_masking detector explicitly targeting "rename to .+
+        # .yml.disabled". Post-fix: scan added_lines (content) and
+        # metadata_lines (path-class) separately, annotating each
+        # match's `text` field with [path_metadata] or [added_line]
+        # so operators distinguish them at review time.
+        metadata = change.get("metadata_lines") or []
+        if not isinstance(metadata, list):
+            metadata = []
 
         for category, patterns in _DETECTOR_TABLE:
             for line_no, text in added:
@@ -145,12 +158,29 @@ def scan_diff_added_lines(
                                 detector=pattern.pattern,
                                 file=path,
                                 line=int(line_no),
-                                text=text.strip()[:200],
+                                text="[added_line] " + text.strip()[:200],
                             )
                         )
                         # One match per (category, line) — break out of the inner
                         # pattern loop so two patterns in the same category do
                         # not double-count.
+                        break
+            # Plan 023 v3 §P-7 — same detector pass against metadata
+            # lines so rename/copy/+++ b path-class matches surface.
+            for line_no, text in metadata:
+                if not isinstance(text, str):
+                    continue
+                for pattern in patterns:
+                    if pattern.search(text):
+                        matches.append(
+                            SuppressionMatch(
+                                category=category,
+                                detector=pattern.pattern,
+                                file=path,
+                                line=int(line_no),
+                                text="[path_metadata] " + text.strip()[:200],
+                            )
+                        )
                         break
 
         # ARIA suppression-honor detector is path-based, not line-based.
@@ -182,19 +212,81 @@ def parse_unified_diff(diff_text: str) -> list[dict[str, object]]:
     Deletions are ignored (they cannot introduce a suppression). Pure
     deletions and binary-file diffs are skipped.
     """
+    # Plan 023 v3 §P-7 — capture rename/copy/+++ b metadata so the
+    # scanner can apply ci_masking + ts_masking detectors against
+    # path-class lines, not only `+`-prefixed content. Pre-fix only
+    # added_lines were populated, so a rename to ci.yml.disabled had
+    # nothing for the existing ci_masking pattern to match against.
     file_changes: list[dict[str, object]] = []
     current: dict[str, object] | None = None
     new_line_no = 0
+    metadata_line_no = 0
     for line in diff_text.splitlines():
+        # Plan 023 v3 §P-7 — `diff --git a/<old> b/<new>` opens a new
+        # file_change. Pre-fix only `+++ b/` opened one; pure renames
+        # (similarity 100%, no content change) had no +++ b/ line and
+        # produced no file_change at all, so rename-to-banned-path
+        # patterns had nothing to scan. Now we open a file_change
+        # eagerly at `diff --git`, populate path from `b/<new>`, and
+        # let subsequent `rename to` / `+++ b/` lines append to its
+        # metadata_lines list.
+        if line.startswith("diff --git "):
+            metadata_line_no += 1
+            # Parse `diff --git a/<old> b/<new>` to recover the new path.
+            m = re.match(r"^diff --git a/(.+?) b/(.+)$", line)
+            new_path = m.group(2) if m else ""
+            current = {
+                "path": new_path,
+                "added_lines": [],
+                "metadata_lines": [(metadata_line_no, line)],
+            }
+            file_changes.append(current)
+            new_line_no = 0
+            continue
+        if (
+            line.startswith("rename to ")
+            or line.startswith("copy to ")
+            or line.startswith("rename from ")
+            or line.startswith("copy from ")
+            or line.startswith("new file mode ")
+            or line.startswith("deleted file mode ")
+            or line.startswith("similarity index ")
+            or line.startswith("--- ")
+        ):
+            if current is not None:
+                metadata_line_no += 1
+                assert isinstance(current["metadata_lines"], list)
+                current["metadata_lines"].append((metadata_line_no, line))
+            continue
         if line.startswith("+++ "):
             path = line[len("+++ "):]
             if path.startswith("b/"):
                 path = path[2:]
             if path == "/dev/null":
+                # File deleted — drop the current file_change (no
+                # additions possible).
+                if current is not None and current in file_changes:
+                    file_changes.remove(current)
                 current = None
                 continue
-            current = {"path": path, "added_lines": []}
-            file_changes.append(current)
+            metadata_line_no += 1
+            if current is not None:
+                # Refine the current file_change's path from the +++ b/
+                # header (canonical), and record the +++ line itself.
+                current["path"] = path
+                assert isinstance(current["metadata_lines"], list)
+                current["metadata_lines"].append((metadata_line_no, line))
+            else:
+                # Legacy parser path: diff fragments without a `diff
+                # --git ` line still produce a file_change starting at
+                # +++ b/. Preserves Plan 016's parser semantics.
+                current = {
+                    "path": path,
+                    "added_lines": [],
+                    "metadata_lines": [(metadata_line_no, line)],
+                }
+                file_changes.append(current)
+            new_line_no = 0
             continue
         if current is None:
             continue

@@ -196,15 +196,22 @@ def validate_registry_runner_paths(*, repo_root: Path,
         cwd = runner.get("cwd", ".")
         if not argv:
             continue
-        # Skip language-runner tokens (npx, ts-node, python3, etc.).
-        # Find the first arg that looks like a file path.
-        script_arg = next(
-            (a for a in argv
-             if isinstance(a, str)
-             and (a.endswith(".ts") or a.endswith(".py") or a.endswith(".js"))),
-            None,
-        )
-        if not script_arg:
+        # Plan 023 v3 §C-5 — wrapper-skip script-arg picking.
+        # Pre-fix `next(a for a in argv if a.endswith(('.ts','.py','.js')))`
+        # picked the first .ts/.py/.js token, which mismatches argv shapes
+        # like ["node", "./node_modules/ts-node/dist/bin.js", "adapter.ts"]:
+        # bin.js is a wrapper, not the real adapter. Post-fix: explicitly
+        # skip known wrappers (node / ts-node / python3 / npx / deno /
+        # bun) plus any node_modules/.../bin.{js,cjs,mjs} pattern, then
+        # pick the first remaining .ts/.py/.js/.mjs arg as the script.
+        script_arg = _pick_script_arg(argv)
+        if script_arg is None:
+            failures.append({
+                "validator": "validate_registry_runner_paths",
+                "tool_id": tool.get("tool_id"),
+                "reason": "runner_argv_no_non_wrapper_script_path",
+                "argv": argv,
+            })
             continue
         candidate = repo_root / cwd / script_arg
         if not candidate.exists():
@@ -215,6 +222,43 @@ def validate_registry_runner_paths(*, repo_root: Path,
                 "expected_path": str(candidate),
             })
     return failures
+
+
+# Plan 023 v3 §C-5 — known runner-wrapper tokens. The validator skips
+# these when picking the real-script argument so wrappers cannot mask
+# the actual adapter path under existence-checking.
+_KNOWN_RUNNER_WRAPPERS: frozenset[str] = frozenset({
+    "node", "ts-node", "python", "python3", "python3.11", "python3.12",
+    "npx", "deno", "bun",
+})
+import re as _re_mod  # noqa: E402
+
+_NODE_MODULES_BIN_RE = _re_mod.compile(r"node_modules/.+/bin\.(js|cjs|mjs)$")
+
+
+def _is_runner_wrapper(arg: str) -> bool:
+    """True if arg is a known language-runner wrapper that should be
+    skipped when picking the real-script argument from runner.argv."""
+    if arg in _KNOWN_RUNNER_WRAPPERS:
+        return True
+    if _NODE_MODULES_BIN_RE.search(arg):
+        return True
+    return False
+
+
+def _pick_script_arg(argv: list[str]) -> str | None:
+    """Return the first argv entry that (a) has a script-like suffix
+    and (b) is not a known runner wrapper. Returns None if every
+    candidate looks like a wrapper or no suffix matches at all."""
+    for a in argv:
+        if not isinstance(a, str):
+            continue
+        if not (a.endswith(".ts") or a.endswith(".py") or a.endswith(".js") or a.endswith(".mjs")):
+            continue
+        if _is_runner_wrapper(a):
+            continue
+        return a
+    return None
 
 
 def validate_plan_doc_freshness(*, repo_root: Path) -> list[dict[str, Any]]:
@@ -354,12 +398,39 @@ def validate_registry_adapter_sync(
                 })
 
     # Layer 2: shadow_runner stubs MUST be in allowlist.
+    # Plan 023 v3 §C-5 — allowlist entries also have shape requirements:
+    # `justification` must be a non-empty string AND
+    # `plan_021_stream_a_owner` must be a non-empty string. Pre-fix the
+    # validator only checked tool_id membership; entries with missing /
+    # empty justification were silently accepted. The new shape check
+    # surfaces shape failures alongside the existing missing_registry_row
+    # and unallowlisted_stub_runner reasons.
     allowlist_path = repo_root / "aria-tools" / "registry-stub-allowlist.json"
     allowlist_ids: set[str] = set()
     if allowlist_path.exists():
         try:
             allowlist = json.loads(allowlist_path.read_text(encoding="utf-8"))
-            allowlist_ids = {row.get("tool_id") for row in allowlist.get("entries", []) if row.get("tool_id")}
+            entries = allowlist.get("entries", []) or []
+            for entry in entries:
+                tid = entry.get("tool_id") if isinstance(entry, dict) else None
+                if not tid:
+                    continue
+                allowlist_ids.add(tid)
+                # Shape validation per Plan 023 v3 §C-5.
+                justification = entry.get("justification")
+                owner = entry.get("plan_021_stream_a_owner")
+                shape_problem: str | None = None
+                if not isinstance(justification, str) or not justification.strip():
+                    shape_problem = "justification must be a non-empty string"
+                elif not isinstance(owner, str) or not owner.strip():
+                    shape_problem = "plan_021_stream_a_owner must be a non-empty string"
+                if shape_problem is not None:
+                    failures.append({
+                        "validator": "validate_registry_adapter_sync",
+                        "tool_id": tid,
+                        "reason": "allowlist_entry_shape_invalid",
+                        "detail": shape_problem,
+                    })
         except (OSError, json.JSONDecodeError) as exc:
             failures.append({
                 "validator": "validate_registry_adapter_sync",

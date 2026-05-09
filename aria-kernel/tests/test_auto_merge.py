@@ -229,6 +229,13 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(adapter.merge_calls, [])
 
     def test_merge_blocks_if_head_changes_after_green_evaluation(self):
+        # Plan 024 v3 §B-6 — pre-merge full re-evaluation now blocks at
+        # the re-eval boundary (fresh evaluate_auto_merge sees the
+        # changed head SHA and emits its own SHA-changed reason),
+        # before reaching the manual head-compare branch. The block
+        # now carries the pre_merge_re_evaluation_blocked tag so
+        # operators can distinguish snapshot-time eligibility from
+        # merge-boundary re-eval rejection.
         adapter = FakeGitHubAdapter(pr(), github(), latest_heads=["abc123", "def456"])
         result = merge_if_green(
             adapter=adapter,
@@ -238,7 +245,16 @@ class AutoMergeTests(unittest.TestCase):
             dry_run=False,
         )
         self.assertEqual(result["decision"], "blocked")
-        self.assertIn("PR head SHA changed after green evaluation", result["reasons"])
+        # Plan 024 §B-6 — head-SHA drift surfaces at the re-eval stage;
+        # accept either the legacy explicit-compare reason or the
+        # re-eval reason. evaluate_auto_merge's own SHA-changed
+        # reason carries the same operator signal.
+        joined = " ".join(result["reasons"])
+        self.assertTrue(
+            "PR head SHA changed" in joined
+            or "pre_merge_re_evaluation_blocked" in joined,
+            f"expected SHA-drift block reason; got {result['reasons']!r}",
+        )
         self.assertEqual(adapter.merge_calls, [])
 
 

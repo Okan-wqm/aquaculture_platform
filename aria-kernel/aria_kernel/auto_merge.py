@@ -392,8 +392,56 @@ def merge_if_green(
     if not decision["eligible"] or dry_run:
         return decision
 
+    # Plan 024 v3 §B-6 — pre-merge full re-evaluation. Pre-fix the
+    # window between snapshot construction and merge call only re-
+    # fetched the head SHA; reviews / checks / conversations / diff
+    # were not re-collected. A force-push between snapshot and merge
+    # only invalidated the head SHA branch, but a required reviewer
+    # could dismiss approval, a check could fail, an unresolved
+    # comment could be added — and the merge would still proceed.
+    # The fix re-runs the full snapshot collector and pipes a fresh
+    # evaluate_auto_merge so EVERY eligibility surface is re-checked
+    # at the merge boundary. expected_head_sha on the merge_pr call
+    # is the GitHub-side defense-in-depth; the API rejects 409 on
+    # SHA drift even after the local re-check passes.
     head_sha = str(decision["head_sha"])
-    latest_head_sha = adapter.get_latest_head_sha(pr_number)
+    fresh_pr = adapter.get_pr(pr_number)
+    fresh_github = collect_github_snapshot(adapter, fresh_pr)
+    fresh_diff: str | None = None
+    if hasattr(adapter, "get_pr_diff"):
+        try:
+            fresh_diff = adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
+        except Exception:
+            fresh_diff = None
+    if fresh_diff is None:
+        fresh_diff = fresh_pr.get("diff_text")
+    fresh_decision = evaluate_auto_merge(
+        pr=fresh_pr,
+        github=fresh_github,
+        policy=policy,
+        base_dir=None,  # do not append the fresh-eval probe to the decision ledger
+        cycle_id=cycle_id,
+        dry_run=True,
+        diff_text=fresh_diff,
+    )
+    if not fresh_decision.get("eligible"):
+        blocked = dict(decision)
+        blocked.update(
+            {
+                "recorded_at": utc_now(),
+                "decision": "blocked",
+                "eligible": False,
+                "latest_head_sha": fresh_decision.get("head_sha"),
+                "reasons": [
+                    "pre_merge_re_evaluation_blocked",
+                    *list(fresh_decision.get("reasons") or []),
+                ],
+                "stage": "pre_merge_re_evaluation",
+            },
+        )
+        _append_decision(base_dir, blocked)
+        return blocked
+    latest_head_sha = fresh_decision.get("head_sha")
     if latest_head_sha != head_sha:
         blocked = dict(decision)
         blocked.update(
@@ -474,8 +522,17 @@ class SnapshotGitHubAdapter:
         return deepcopy(pr)
 
     def get_latest_head_sha(self, number: int) -> str | None:
+        # Plan 024 v3 §B-6 — strict snapshot resolution. Pre-fix the
+        # `or pr.head_sha` fallback masked missing fixture data: a
+        # snapshot test that forgot to seed github.latest_head_sha
+        # silently fell back to the PR's pre-merge head_sha and
+        # auto_merge believed nothing had drifted. Plan 023 §P-4
+        # closed the same fallback in evaluate_auto_merge but the
+        # snapshot adapter copy persisted. Strict semantics: None
+        # signals lookup failure; evaluate_auto_merge then blocks on
+        # latest_head_sha_lookup_failed.
         _ = number
-        return self.payload.get("github", {}).get("latest_head_sha") or self.payload.get("pr", {}).get("head_sha")
+        return self.payload.get("github", {}).get("latest_head_sha")
 
     def get_required_checks(self, base_branch: str) -> dict[str, Any]:
         _ = base_branch

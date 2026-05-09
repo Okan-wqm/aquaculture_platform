@@ -29,8 +29,18 @@
       "path": "F-003.json",
       "severity": "MEDIUM",
       "status": "OPEN"
+    },
+    {
+      "claim_summary": "Plan 022 v6 sign-off (HEAD 6090b67b) declared kernel-correctness closure complete; post-push external audit identified 30 architectural bypass routes still reachable. Plan 023 v3 corrective-arc closes via 32 fix items across 7 tiers.",
+      "claim_type": "post_push_audit_bypass_chain",
+      "created_at": "2026-05-09T00:00:00Z",
+      "evidence_chain_id": "chain_plan_023_v3_post_push_audit",
+      "finding_id": "F-004",
+      "path": "F-004.json",
+      "severity": "HIGH",
+      "status": "OPEN"
     }
   ],
-  "generated_at": "2026-05-07T14:02:33Z",
+  "generated_at": "2026-05-09T00:00:00Z",
   "schema_version": 1
 }

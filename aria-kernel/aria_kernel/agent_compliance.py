@@ -149,7 +149,22 @@ def _check_evidence_schema_valid(
             # Strip ":line" suffix when checking file existence.
             file_part = ref_str.split(":", 1)[0]
             path = workspace_root / file_part
-            if not path.exists():
+            # Plan 023 v3 §A-6 — path-escape guard on evidence refs.
+            # Pre-fix `path = workspace_root / file_part` accepted any
+            # ref string including absolute paths and `../../etc/passwd`
+            # traversals. resolve() chases symlinks too, so an in-repo
+            # symlink target outside the workspace is also caught.
+            try:
+                resolved = path.resolve()
+                workspace_resolved = workspace_root.resolve()
+                resolved.relative_to(workspace_resolved)
+            except ValueError:
+                bad.append({
+                    "ref": ref_str,
+                    "reason": "path_escape_outside_workspace",
+                })
+                continue
+            if not resolved.exists():
                 bad.append({"ref": ref_str, "reason": "file_missing"})
     return {
         "passed": not bad,

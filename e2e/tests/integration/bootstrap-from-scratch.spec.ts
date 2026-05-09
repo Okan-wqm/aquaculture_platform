@@ -726,6 +726,21 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
       const absDir = join(REPO_ROOT, svc.migrationsDir);
       const migrationClasses = loadMigrationClassesFromDir(absDir);
 
+      // Load entity classes for services that declare an entitiesGlob.
+      // Required for migrations that introspect connection.entityMetadatas
+      // — notably hr-service's SyncHrEntitiesToDb1786800000000 which
+      // derives its DDL emit + entity-default registry from the entity
+      // surface. Other services tolerate the empty-entities path (their
+      // migrations are pure DDL). Services without entitiesGlob
+      // (gateway-api) keep an empty list. Pairs with the
+      // ALTER-COLUMN-TYPE default-recovery transform inside
+      // SyncHrEntitiesToDb that prevents the "default for column ...
+      // cannot be cast automatically to type ..._enum" failure mode on
+      // fresh-volume bootstraps.
+      const entityClasses: Function[] = svc.entitiesGlob
+        ? loadEntityClasses(join(REPO_ROOT, svc.entitiesGlob))
+        : [];
+
       const ds = new DataSource({
         type: 'postgres',
         host,
@@ -735,9 +750,7 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
         database: DATABASE_NAME,
         schema: svc.schema,
         migrations: migrationClasses,
-        // We do NOT register entities — running migrations explicitly via
-        // runMigrations() does not need the entity surface, and skipping
-        // it avoids loading the full app's TypeORM metadata graph.
+        entities: entityClasses as Function[],
         synchronize: false,
         migrationsRun: false,
         // Migration table inside the service schema; the production

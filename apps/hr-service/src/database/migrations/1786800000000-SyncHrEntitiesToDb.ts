@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import type { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata';
 import { dropDependentPartialIndexes, parseAlterColumnTypeTargets } from '@aquaculture/backend-common/database';
 
 /**
@@ -206,6 +207,28 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       `Found ${hrEntities.length} hr-scoped entities to sync: ${hrEntities.map((m) => m.tableName).join(', ')}`,
     );
 
+    // 1b. Build a registry of entity-declared column defaults, keyed by
+    //     `<tableName>.<databaseColumnName>`. The DDL transform in step
+    //     6c consults this map when rewriting `ALTER COLUMN ... TYPE`
+    //     statements emitted by RdbmsSchemaBuilder.log().
+    //
+    //     Schema is NOT part of the key: every emitted ALTER targets the
+    //     same table-column pair regardless of whether we are running on
+    //     `"hr".` (source) or `"<tenant>".` (clone fan-out). Keying by
+    //     table+column lets the same map serve both passes.
+    const entityDefaultsByTableColumn: Map<string, string> = new Map();
+    for (const meta of hrEntities) {
+      for (const col of meta.columns) {
+        const rendered = renderEntityDefaultLiteral(col);
+        if (rendered !== undefined) {
+          entityDefaultsByTableColumn.set(
+            `${meta.tableName}.${col.databaseName}`,
+            rendered,
+          );
+        }
+      }
+    }
+
     // 2. Empty-table precondition check. If ANY hr table in source has
     //    rows, abort — the catch-up is only safe on empty tables.
     //    Operator must intervene (data-preserving per-table ALTER work).
@@ -393,17 +416,89 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       return s;
     };
 
-    const relevantQueries = hrUpQueries
+    // 6c. ALTER COLUMN TYPE default-recovery transform.
+    //
+    //    WHY: TypeORM's RdbmsSchemaBuilder.log() does NOT emit
+    //    `ALTER COLUMN ... DROP DEFAULT` before `ALTER COLUMN ... TYPE`
+    //    when the LIVE DB column carries a default literal whose text
+    //    cannot be auto-cast to the new declared type. Concrete failure
+    //    mode (deploy 8, 2026-04-21 09:14 UTC):
+    //
+    //      ALTER TABLE "hr"."certification_types"
+    //        ALTER COLUMN "category" TYPE "hr"."certification_types_category_enum"
+    //          USING "category"::"hr"."certification_types_category_enum"
+    //      → "default for column 'category' cannot be cast automatically
+    //         to type certification_types_category_enum"
+    //
+    //    WHAT: 3-step DDL transform. For every emitted single-statement
+    //    `ALTER TABLE "hr"."<table>" ALTER COLUMN "<col>" TYPE <newtype>`,
+    //    rewrite into the canonical PG-safe sequence:
+    //
+    //      (a) ALTER TABLE "hr"."<table>" ALTER COLUMN "<col>" DROP DEFAULT
+    //      (b) The original ALTER TABLE ... ALTER COLUMN ... TYPE statement
+    //      (c) ALTER TABLE "hr"."<table>" ALTER COLUMN "<col>" SET DEFAULT
+    //          <entity-declared-default> — only when entity declares one.
+    //
+    //    Idempotency under retry: pass 1 succeeds a/b/c; pass 2 finds
+    //    no ALTER TYPE for already-aligned columns → transform produces
+    //    nothing.
+    const expandAlterColumnTypeWithDefaultRecovery = (q: {
+      query: string;
+      parameters?: unknown[];
+    }): Array<{ query: string; parameters?: unknown[] }> => {
+      const m = q.query.match(
+        /^ALTER\s+TABLE\s+"([^"]+)"\."([^"]+)"\s+ALTER\s+COLUMN\s+"([^"]+)"\s+TYPE\b/i,
+      );
+      if (!m) return [{ query: q.query, parameters: q.parameters }];
+
+      const schemaName = m[1];
+      const tableName = m[2];
+      const columnName = m[3];
+
+      const SAFE_IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+      if (
+        !SAFE_IDENT.test(schemaName) ||
+        !SAFE_IDENT.test(tableName) ||
+        !SAFE_IDENT.test(columnName)
+      ) {
+        return [{ query: q.query, parameters: q.parameters }];
+      }
+
+      const dropDefaultStmt =
+        `ALTER TABLE "${schemaName}"."${tableName}" ALTER COLUMN "${columnName}" DROP DEFAULT`;
+      const out: Array<{ query: string; parameters?: unknown[] }> = [
+        { query: dropDefaultStmt, parameters: undefined },
+        { query: q.query, parameters: q.parameters },
+      ];
+      const declared = entityDefaultsByTableColumn.get(`${tableName}.${columnName}`);
+      if (declared !== undefined) {
+        out.push({
+          query:
+            `ALTER TABLE "${schemaName}"."${tableName}" ALTER COLUMN "${columnName}" ` +
+            `SET DEFAULT ${declared}`,
+          parameters: undefined,
+        });
+      }
+      return out;
+    };
+
+    const filteredQueries = hrUpQueries
       .filter((q) => isValidatorRelevant(q.query))
       .map((q) => ({ ...q, query: makeIdempotent(q.query) }));
-    const skippedNonValidator = hrUpQueries.length - relevantQueries.length;
+    const relevantQueries = filteredQueries.flatMap((q) =>
+      expandAlterColumnTypeWithDefaultRecovery(q),
+    );
+    const skippedNonValidator = hrUpQueries.length - filteredQueries.length;
+    const expansionDelta = relevantQueries.length - filteredQueries.length;
 
     this.logger.log(
       `RdbmsSchemaBuilder emitted ${allUpQueries.length} queries; ` +
         `${hrUpQueries.length} target hr schema; ` +
-        `${relevantQueries.length} are validator-relevant ` +
+        `${filteredQueries.length} are validator-relevant ` +
         `(${skippedNonValidator} non-validator-relevant skipped: constraints/indexes/comments/drops); ` +
-        `${allUpQueries.length - hrUpQueries.length} foreign-schema skipped.`,
+        `${allUpQueries.length - hrUpQueries.length} foreign-schema skipped; ` +
+        `${expansionDelta} additional DROP/SET DEFAULT statement(s) injected by ALTER-COLUMN-TYPE ` +
+        `default-recovery transform.`,
     );
 
     if (relevantQueries.length === 0) {
@@ -608,4 +703,47 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       }
     }
   }
+}
+
+/**
+ * Render a TypeORM entity column's `default` declaration as a literal
+ * suitable for `SET DEFAULT <literal>` interpolation in DDL.
+ *
+ * Used by SyncHrEntitiesToDb's step 6c default-recovery transform to
+ * restore a column's default after `ALTER COLUMN ... TYPE` (PG's
+ * cast-validates the OLD default against the NEW type before applying
+ * the ALTER body, so the trio DROP DEFAULT / ALTER TYPE / SET DEFAULT
+ * is required when the entity declares a default).
+ *
+ * Returns `undefined` when the entity does NOT declare a default —
+ * caller skips the SET DEFAULT step. SQL-injection surface is bounded
+ * to whatever the entity author wrote inside `@Column({ default: ... })`,
+ * which is source-controlled.
+ */
+function renderEntityDefaultLiteral(col: ColumnMetadata): string | undefined {
+  const d = col.default;
+  if (d === undefined) return undefined;
+  if (d === null) return 'NULL';
+  if (typeof d === 'function') {
+    // TypeORM stores function defaults as `() => 'CURRENT_TIMESTAMP'`
+    // — invoke once and pass the returned text through verbatim.
+    const result = d();
+    return typeof result === 'string' && result.length > 0 ? result : undefined;
+  }
+  if (typeof d === 'string') {
+    return `'${d.replace(/'/g, "''")}'`;
+  }
+  if (typeof d === 'number' || typeof d === 'boolean') {
+    return String(d);
+  }
+  if (Array.isArray(d)) {
+    const items = d.map((v) =>
+      typeof v === 'string' ? `'${v.replace(/'/g, "''")}'` : String(v),
+    );
+    return `ARRAY[${items.join(', ')}]`;
+  }
+  if (typeof d === 'object') {
+    return `'${JSON.stringify(d).replace(/'/g, "''")}'::jsonb`;
+  }
+  return undefined;
 }

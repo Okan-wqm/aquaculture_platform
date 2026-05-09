@@ -446,12 +446,21 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       query: string;
       parameters?: unknown[];
     }): Array<{ query: string; parameters?: unknown[] }> => {
+      // Match BOTH schema-qualified `"hr"."table"` and unqualified
+      // `"table"` shapes. The migration runner pins search_path to
+      // 'hr' so TypeORM may emit unqualified table refs in some
+      // chunks; the schema-prefix is therefore optional in the regex.
       const m = q.query.match(
-        /^ALTER\s+TABLE\s+"([^"]+)"\."([^"]+)"\s+ALTER\s+COLUMN\s+"([^"]+)"\s+TYPE\b/i,
+        /^ALTER\s+TABLE\s+(?:"([^"]+)"\.)?"([^"]+)"\s+ALTER\s+COLUMN\s+"([^"]+)"\s+TYPE\b/i,
       );
       if (!m) return [{ query: q.query, parameters: q.parameters }];
 
-      const schemaName = m[1];
+      // Default schema to 'hr' when TypeORM emitted an unqualified
+      // table reference. The tenant fan-out pass (later in this
+      // migration) does the schema rebase via string-replace AFTER
+      // the transform runs, so source-schema defaulting here is the
+      // correct semantic.
+      const schemaName = m[1] ?? 'hr';
       const tableName = m[2];
       const columnName = m[3];
 
@@ -464,8 +473,14 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
         return [{ query: q.query, parameters: q.parameters }];
       }
 
+      // Use the same qualification shape the original ALTER used.
+      // If the source query was unqualified, our DROP/SET DEFAULT
+      // statements are also unqualified — keeps the tenant fan-out
+      // string-replace consistent (it only rewrites `"hr".` prefixes).
+      const tableRef = m[1] ? `"${schemaName}"."${tableName}"` : `"${tableName}"`;
+
       const dropDefaultStmt =
-        `ALTER TABLE "${schemaName}"."${tableName}" ALTER COLUMN "${columnName}" DROP DEFAULT`;
+        `ALTER TABLE ${tableRef} ALTER COLUMN "${columnName}" DROP DEFAULT`;
       const out: Array<{ query: string; parameters?: unknown[] }> = [
         { query: dropDefaultStmt, parameters: undefined },
         { query: q.query, parameters: q.parameters },
@@ -474,7 +489,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       if (declared !== undefined) {
         out.push({
           query:
-            `ALTER TABLE "${schemaName}"."${tableName}" ALTER COLUMN "${columnName}" ` +
+            `ALTER TABLE ${tableRef} ALTER COLUMN "${columnName}" ` +
             `SET DEFAULT ${declared}`,
           parameters: undefined,
         });

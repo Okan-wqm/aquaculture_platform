@@ -299,12 +299,39 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     const sqlInMemory = await conn.driver.createSchemaBuilder().log();
     const allUpQueries = sqlInMemory.upQueries;
 
-    // 5. Filter for hr-scoped statements. TypeORM emits schema-qualified
-    //    identifiers like `"hr"."payrolls"` when entities declare
-    //    `schema: 'hr'`. Any query lacking the `"hr".` prefix is
-    //    rejected — defense against the schema-builder accidentally
-    //    touching foreign-schema entities loaded into the same bundle.
-    const hrUpQueries = allUpQueries.filter((q) => /"hr"\./i.test(q.query));
+    // 5. Filter for hr-scoped statements via FOREIGN-schema rejection.
+    //
+    //    TypeORM's RdbmsSchemaBuilder.log() emits two qualification
+    //    shapes depending on entity decoration:
+    //      (a) `"hr"."<table>"` for entities that declare `schema: 'hr'`
+    //          (hr_outbox, payroll_audit).
+    //      (b) `"<table>"` (unqualified) for entities that omit `schema:`
+    //          and rely on the connection-level schema default. PG
+    //          resolves the bare ref via the pinned search_path
+    //          ('hr', public).
+    //
+    //    The previous filter only matched (a), so unqualified emits
+    //    were skipped as "foreign-schema" and the schema-builder's
+    //    DDL plan landed under-applied (CI evidence at 8d239f7f: only
+    //    68 of the 422+397 expected drift fixes flowed through).
+    //
+    //    Replace the positive `"hr".` match with a NEGATIVE foreign-
+    //    schema check: keep every query unless it explicitly references
+    //    a schema OTHER than "hr". Captures: unqualified queries
+    //    (no `"<schema>".` qualifier) PASS — they resolve via search_path
+    //    to hr; queries qualified to "hr" PASS; queries qualified to
+    //    "auth" / "billing" / "tenant_<uuid>" / etc. are REJECTED.
+    const hrUpQueries = allUpQueries.filter((q) => {
+      const schemaQualifierMatches = q.query.matchAll(
+        /"([a-zA-Z_][a-zA-Z0-9_]*)"\./g,
+      );
+      for (const m of schemaQualifierMatches) {
+        if (m[1].toLowerCase() !== 'hr') {
+          return false;
+        }
+      }
+      return true;
+    });
 
     // 6. Whitelist gate — keep ONLY statements that satisfy a
     //    SchemaDriftValidator concern, then rewrite each for idempotency.

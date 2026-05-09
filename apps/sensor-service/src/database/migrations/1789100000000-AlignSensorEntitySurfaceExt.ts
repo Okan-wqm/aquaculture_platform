@@ -223,7 +223,7 @@ export class AlignSensorEntitySurfaceExt1789100000000
       CREATE TABLE IF NOT EXISTS sensor.feeding_parameters (
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         "tenant_id" uuid NOT NULL,
-        "plcConnectionId" varchar NOT NULL,
+        "plcConnectionId" uuid NOT NULL,
         "tankId" varchar,
         "name" varchar NOT NULL,
         "description" varchar,
@@ -273,7 +273,7 @@ export class AlignSensorEntitySurfaceExt1789100000000
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS sensor.device_io_configs (
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        "device_id" varchar NOT NULL,
+        "device_id" uuid NOT NULL,
         "tag_name" varchar(50) NOT NULL,
         "description" varchar(200),
         "io_type" sensor."device_io_configs_io_type_enum" NOT NULL,

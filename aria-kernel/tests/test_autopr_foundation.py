@@ -182,6 +182,18 @@ class AutoPrFoundationTests(unittest.TestCase):
             dry_run=True,
         )
         self.assertEqual(action["status"], "planned")
+        # Plan 023 v3 §P-3 — open_pr_for_action below now fails hard
+        # when `git rev-parse <branch>` fails. plan_apply_worktree(
+        # dry_run=True) plans without creating the actual branch+
+        # worktree. Manually create just the branch ref pointing at
+        # HEAD so rev-parse resolves; this preserves the test's
+        # original "dry-run pipeline" intent without the worktree
+        # creation polluting workspace_root with untracked content
+        # that would fail run_validation_commands' clean-tree check.
+        subprocess.run(
+            ["git", "branch", action["branch"]],
+            cwd=self.root, check=True, capture_output=True,
+        )
         baseline = run_validation_commands(
             commands=["python3 -m unittest --help"],
             workspace_root=self.root,

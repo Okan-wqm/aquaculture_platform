@@ -110,20 +110,36 @@ def open_pr_for_action(
     _validate_pr_body(body)
 
     # Plan 022 §C-4 — head_sha is the proposal commit (action.branch HEAD),
-    # not action.base_sha. Pre-fix conflated the two; auto-merge +
-    # provenance ledger consumed wrong commit identity. Resolve via
-    # `git rev-parse <branch>` so the lifecycle row carries the real
-    # head SHA. Keep base_sha in the payload as a separate field.
+    # not action.base_sha. Plan 023 v3 §P-3 — fail-hard on missing branch
+    # or unresolvable rev. Pre-Plan-023 a missing action.branch resulted
+    # in resolved_head_sha=None silently kept; auto-merge later compared
+    # head_sha to latest_head_sha and a None-vs-None pass spuriously
+    # cleared the gate.
     workspace_path = Path(workspace_root).resolve()
     branch = action.get("branch")
-    resolved_head_sha: str | None = None
-    if branch:
-        rev_completed = subprocess.run(
-            ["git", "rev-parse", str(branch)],
-            cwd=workspace_path, capture_output=True, text=True, check=False,
+    if not branch or not isinstance(branch, str) or not branch.strip():
+        raise GovernanceError(
+            "open_pr_branch_missing: apply action does not carry "
+            "action.branch; cannot resolve head_sha or pass --head to "
+            "gh pr create"
         )
-        if rev_completed.returncode == 0:
-            resolved_head_sha = rev_completed.stdout.strip() or None
+    rev_completed = subprocess.run(
+        ["git", "rev-parse", str(branch)],
+        cwd=workspace_path, capture_output=True, text=True, check=False,
+    )
+    if rev_completed.returncode != 0:
+        raise GovernanceError(
+            "open_pr_head_sha_unresolvable: "
+            f"git rev-parse {branch!r} failed with returncode="
+            f"{rev_completed.returncode}, stderr="
+            f"{(rev_completed.stderr or '').strip()!r}"
+        )
+    resolved_head_sha = (rev_completed.stdout or "").strip() or None
+    if not resolved_head_sha:
+        raise GovernanceError(
+            f"open_pr_head_sha_unresolvable: git rev-parse {branch!r} "
+            f"produced empty stdout"
+        )
 
     payload = {
         "number": None,
@@ -147,8 +163,18 @@ def open_pr_for_action(
         # head_sha / base_branch but drops base_sha.
         row["base_sha"] = payload.get("base_sha")
         return row
+    # Plan 023 v3 §P-3 — `--head <branch>` always passed. Pre-fix gh
+    # inferred the branch from the current checkout, which could be
+    # wrong (the gate may have run on a different worktree than the
+    # one being PR'd). Explicit --head ties the PR to action.branch.
     completed = subprocess.run(
-        ["gh", "pr", "create", "--base", ARIA_PR_BASE, "--title", str(proposal.get("title")), "--body", body],
+        [
+            "gh", "pr", "create",
+            "--base", ARIA_PR_BASE,
+            "--head", branch,
+            "--title", str(proposal.get("title")),
+            "--body", body,
+        ],
         cwd=workspace_path,
         capture_output=True,
         text=True,

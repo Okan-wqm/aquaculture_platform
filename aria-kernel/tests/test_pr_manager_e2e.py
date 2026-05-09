@@ -43,6 +43,7 @@ from tests._gh_mock import (
 
 
 def _seed_tools() -> Path:
+    import subprocess as _sp
     tmp = Path(tempfile.mkdtemp(prefix="aria-pr-e2e-"))
     tools = tmp / "aria-tools"
     ensure_tools_dir(tools)
@@ -56,6 +57,31 @@ def _seed_tools() -> Path:
         operator_approval_ref="test:plan-020-phase-1.B:pr-manager-e2e",
         base_dir=tools,
         set_by="test-fixture",
+    )
+    # Plan 023 v3 §P-3 — open_pr_for_action now fails hard when
+    # `git rev-parse <branch>` fails. _seed_apply_action uses a fixed
+    # `aria/test-proposal` branch; init a real git repo + create the
+    # branch so rev-parse resolves to a real SHA and the existing
+    # tests stay portable.
+    workspace = tools.parent
+    _sp.run(["git", "init", "-q"], cwd=workspace, check=True)
+    _sp.run(["git", "config", "user.email", "t@t.invalid"], cwd=workspace, check=True)
+    _sp.run(["git", "config", "user.name", "t"], cwd=workspace, check=True)
+    (workspace / "init.txt").write_text("init\n", encoding="utf-8")
+    _sp.run(["git", "add", "init.txt"], cwd=workspace, check=True)
+    _sp.run(
+        ["git", "commit", "-q", "-m", "init"],
+        cwd=workspace, check=True, capture_output=True,
+    )
+    _sp.run(
+        ["git", "checkout", "-q", "-b", "aria/test-proposal"],
+        cwd=workspace, check=True,
+    )
+    (workspace / "feature.txt").write_text("feature\n", encoding="utf-8")
+    _sp.run(["git", "add", "feature.txt"], cwd=workspace, check=True)
+    _sp.run(
+        ["git", "commit", "-q", "-m", "feature"],
+        cwd=workspace, check=True, capture_output=True,
     )
     return tools
 

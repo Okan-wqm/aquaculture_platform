@@ -78,10 +78,20 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             operator_approval_ref="approval:012d",
             base_dir=self.tools_dir,
         )
-        plan_apply_worktree(
+        action = plan_apply_worktree(
             proposal_id=proposal["proposal_id"],
             workspace_root=self.root,
             base_dir=self.tools_dir,
+        )
+        # Plan 023 v3 §P-3 — open_pr_for_action below now fails hard
+        # when `git rev-parse <branch>` fails. The dry_run plan didn't
+        # actually create the branch; create it manually pointing at
+        # HEAD so rev-parse resolves. The test's intent is to exercise
+        # the validation-gate prerequisite + open_pr lifecycle, not
+        # the branch-creation plumbing.
+        subprocess.run(
+            ["git", "branch", action["branch"]],
+            cwd=self.root, check=True, capture_output=True,
         )
         with self.assertRaises(GovernanceError):
             open_pr_for_action(

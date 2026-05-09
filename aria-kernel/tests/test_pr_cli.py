@@ -29,6 +29,7 @@ from tests._gh_mock import gh_create_success, recorded_calls, reset_recorded
 
 
 def _seed_tools() -> Path:
+    import subprocess as _sp
     tmp = Path(tempfile.mkdtemp(prefix="aria-pr-cli-"))
     tools = tmp / "aria-tools"
     ensure_tools_dir(tools)
@@ -41,6 +42,30 @@ def _seed_tools() -> Path:
         operator_approval_ref="test:plan-020-phase-1.B:pr-cli",
         base_dir=tools,
         set_by="test-fixture",
+    )
+    # Plan 023 v3 §P-3 — open_pr_for_action now fails hard when
+    # `git rev-parse <branch>` fails. The seeded action carries
+    # branch='aria/cli-test'; init a real git repo + create that
+    # branch so rev-parse resolves to a real SHA and the CLI test is
+    # exercising the CLI surface, not the git plumbing.
+    _sp.run(["git", "init", "-q"], cwd=tmp, check=True)
+    _sp.run(["git", "config", "user.email", "t@t.invalid"], cwd=tmp, check=True)
+    _sp.run(["git", "config", "user.name", "t"], cwd=tmp, check=True)
+    (tmp / "init.txt").write_text("init\n", encoding="utf-8")
+    _sp.run(["git", "add", "init.txt"], cwd=tmp, check=True)
+    _sp.run(
+        ["git", "commit", "-q", "-m", "init"],
+        cwd=tmp, check=True, capture_output=True,
+    )
+    _sp.run(
+        ["git", "checkout", "-q", "-b", "aria/cli-test"],
+        cwd=tmp, check=True,
+    )
+    (tmp / "feature.txt").write_text("feature\n", encoding="utf-8")
+    _sp.run(["git", "add", "feature.txt"], cwd=tmp, check=True)
+    _sp.run(
+        ["git", "commit", "-q", "-m", "feature"],
+        cwd=tmp, check=True, capture_output=True,
     )
     return tmp
 

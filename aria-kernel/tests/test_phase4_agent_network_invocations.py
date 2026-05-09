@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.agent_invocations import (
+    _submit_legacy_invocation_result_internal,
     create_agent_invocation_request,
     list_agent_invocation_requests,
-    submit_agent_invocation_result,
 )
 from aria_kernel.agent_network import agent_network_index, latest_agent_network_hash
 from aria_kernel.capability_gap import detect_capability_gaps
@@ -66,11 +66,27 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
         )
         wrong = self.tools_dir / "wrong.md"
         wrong.write_text("wrong\n", encoding="utf-8")
-        rejected = submit_agent_invocation_result(request_id=request["request_id"], output_path=wrong, base_dir=self.tools_dir)
+        # Plan 024 §B-1 — `submit_agent_invocation_result` was renamed to
+        # `_submit_legacy_invocation_result_internal` and gated behind
+        # `operator_migration_approval_ref`. This test still exercises the
+        # path-mismatch rejection logic of the legacy helper, so it
+        # carries the approval ref.
+        rejected = _submit_legacy_invocation_result_internal(
+            request_id=request["request_id"],
+            output_path=wrong,
+            base_dir=self.tools_dir,
+            operator_migration_approval_ref="OP-PHASE4-LEGACY-PATH-MISMATCH-TEST",
+        )
         self.assertEqual(rejected["reason"], "agent_invocation_path_mismatch")
         expected.parent.mkdir(parents=True)
         expected.write_text("review\n", encoding="utf-8")
-        accepted = submit_agent_invocation_result(request_id=request["request_id"], output_path=expected, by="operator", base_dir=self.tools_dir)
+        accepted = _submit_legacy_invocation_result_internal(
+            request_id=request["request_id"],
+            output_path=expected,
+            by="operator",
+            base_dir=self.tools_dir,
+            operator_migration_approval_ref="OP-PHASE4-LEGACY-PATH-MISMATCH-TEST",
+        )
         self.assertEqual(accepted["status"], "completed")
         self.assertTrue(accepted["content_hash"].startswith("sha256:"))
         self.assertEqual(len(list_agent_invocation_requests(base_dir=self.tools_dir, convergence_id="C-1")), 1)

@@ -21,7 +21,6 @@ from aria_kernel.agent_invocations import (
     next_pending_request,
     reap_stale_claims,
     release_claim,
-    submit_agent_invocation_result,
     submit_claim_result,
 )
 from aria_kernel.agent_genesis import (
@@ -593,13 +592,13 @@ def _main(argv: list[str] | None = None) -> int:
     inv_request.add_argument("--pressure-event-id", default=None)
     inv_request.add_argument("--round-number", type=int, default=None)
     inv_request.add_argument("--expected-output-path", default=None)
-    inv_submit = inv_sub.add_parser("submit-result")
-    add_tools_arg(inv_submit, required=True)
-    inv_submit.add_argument("--request-id", required=True)
-    inv_submit.add_argument("--output-path", required=True)
-    inv_submit.add_argument("--status", choices=["completed", "rejected", "partial"], default="completed")
-    inv_submit.add_argument("--by", default=None)
-    inv_submit.add_argument("--rejection-reason", default=None)
+    # Plan 024 §B-1 — legacy `agent-invocations submit-result` subparser
+    # removed. The strict, lease-bound submission path is the only public
+    # surface now (`agent submit-result`, line ~656). The underlying
+    # legacy function is renamed to
+    # `_submit_legacy_invocation_result_internal` and gated behind an
+    # operator_migration_approval_ref. `request` and `list` subparsers
+    # below are intentionally preserved.
     inv_list = inv_sub.add_parser("list")
     add_tools_arg(inv_list, required=True)
     inv_list.add_argument("--state", default=None)
@@ -1676,15 +1675,11 @@ def _main(argv: list[str] | None = None) -> int:
                 expected_output_path=args.expected_output_path,
                 base_dir=args.tools_dir,
             )
-        elif args.agent_invocation_command == "submit-result":
-            result = submit_agent_invocation_result(
-                request_id=args.request_id,
-                output_path=args.output_path,
-                status=args.status,
-                by=args.by,
-                rejection_reason=args.rejection_reason,
-                base_dir=args.tools_dir,
-            )
+        # Plan 024 §B-1 — `submit-result` dispatch removed alongside the
+        # subparser. Operators use `agent submit-result` (strict path) or,
+        # for ad-hoc migration scripts, the kernel-private
+        # `_submit_legacy_invocation_result_internal` helper guarded by
+        # `operator_migration_approval_ref`.
         elif args.agent_invocation_command == "list":
             result = list_agent_invocation_requests(
                 base_dir=args.tools_dir,

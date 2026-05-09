@@ -141,7 +141,7 @@ def create_agent_invocation_request(
     return append_jsonl(root / "agent-invocations" / "requests.jsonl", row)
 
 
-def submit_agent_invocation_result(
+def _submit_legacy_invocation_result_internal(
     *,
     request_id: str,
     output_path: str | Path,
@@ -149,12 +149,56 @@ def submit_agent_invocation_result(
     by: str | None = None,
     rejection_reason: str | None = None,
     base_dir: str | Path | None = None,
+    operator_migration_approval_ref: str | None = None,
 ) -> dict[str, Any]:
+    """Plan 024 §B-1 — INTERNAL migration helper. NOT a public submission
+    surface.
+
+    Submission MUST go through ``submit_claim_result`` (the lease-bound
+    strict path) via the ``agent submit-result`` CLI. The legacy
+    ``agent-invocations submit-result`` subparser was removed in Plan 024
+    §B-1; this helper survives only so that ad-hoc operator-approved
+    migration scripts can still write a backward-compatible legacy result
+    row when the caller carries an ``operator_migration_approval_ref``.
+
+    Every invocation emits a ``legacy_submit_path_invoked`` governance
+    event with ``{request_id, operator_migration_approval_ref,
+    caller_module}`` so audit trails capture who used the legacy helper.
+    """
+    # Plan 024 §B-1 — operator-approval gate. The bare CLI surface is gone
+    # and the only legitimate caller now is a migration script that has
+    # already received human sign-off; the kwarg captures that sign-off
+    # in the governance ledger.
+    if not operator_migration_approval_ref or not str(operator_migration_approval_ref).strip():
+        raise GovernanceError(
+            "legacy_submit_path_requires_operator_migration_approval"
+        )
     if status not in STATUSES:
         raise GovernanceError("status must be completed, rejected, or partial")
     if status != "completed" and not (rejection_reason or "").strip():
         raise GovernanceError("rejection_reason is required unless status is completed")
     root = ensure_tools_dir(base_dir)
+    # Plan 024 §B-1 — emit governance event before writing the legacy row
+    # so the audit event lands even when the row write itself rejects on
+    # path mismatch. caller_module is best-effort introspection; the
+    # frame can be missing under some optimised interpreters.
+    import inspect
+    caller_module = "<unknown>"
+    try:
+        frame = inspect.currentframe()
+        if frame is not None and frame.f_back is not None:
+            caller_module = frame.f_back.f_globals.get("__name__", "<unknown>")
+    except Exception:
+        caller_module = "<unknown>"
+    append_tools_governance(
+        root,
+        "legacy_submit_path_invoked",
+        {
+            "request_id": request_id,
+            "operator_migration_approval_ref": operator_migration_approval_ref,
+            "caller_module": caller_module,
+        },
+    )
     request = _find_request(root, request_id)
     expected = _resolve_for_compare(request.get("expected_output_path"))
     actual = _resolve_for_compare(output_path)
@@ -185,6 +229,30 @@ def submit_agent_invocation_result(
         "submitted_at": utc_now(),
     }
     return append_jsonl(root / "agent-invocations" / "results.jsonl", row)
+
+
+def is_legacy_decided_request(
+    *,
+    request_id: str,
+    base_dir: str | Path | None = None,
+) -> bool:
+    """Plan 024 §B-1 — observability helper.
+
+    Returns True when the request's terminal state was decided by a legacy
+    result row (a row written via the pre-Plan-016
+    ``submit_agent_invocation_result`` path that lacks a ``claim_id``
+    binding). Pure read; never raises on a missing request — returns
+    False when no terminal result row exists for the request_id.
+    """
+    root = ensure_tools_dir(base_dir)
+    results = load_jsonl(root / "agent-invocations" / "results.jsonl")
+    request_results = _result_rows_for(results, request_id)
+    if not request_results:
+        return False
+    # Latest row decides; legacy = no claim_id field. The strict path
+    # (submit_claim_result) always writes claim_id; the legacy helper
+    # never does.
+    return request_results[-1].get("claim_id") is None
 
 
 def list_agent_invocation_requests(

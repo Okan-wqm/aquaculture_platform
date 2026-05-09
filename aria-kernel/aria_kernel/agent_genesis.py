@@ -65,16 +65,13 @@ def draft_agent_from_gap(
 
 
 def _fixture_result_has_real_execution_provenance(result: dict[str, Any]) -> bool:
-    """Plan 022 §H-4 — a fixture result must carry execution provenance
-    proving the fixture actually ran. Bare {status: 'pass'} dicts are
-    forbidden in non-test mode because they let a caller fabricate a
-    sandbox-pass without the fixture runner ever firing.
+    """Plan 022 §H-4 — shape check (preserved as a fast pre-filter).
 
-    Required provenance shape:
-      result["provenance"] == {
-        "executed_at": "<ISO8601 timestamp>",
-        "execution_run_id": "<non-empty string>",
-      }
+    Returns True when the result carries provenance.executed_at +
+    provenance.execution_run_id non-empty strings. Plan 023 v3 §A-1
+    adds a separate ledger-binding check at the call site (which runs
+    AFTER this shape filter). Both must pass for genesis to accept
+    the result.
     """
     prov = result.get("provenance")
     if not isinstance(prov, dict):
@@ -85,6 +82,68 @@ def _fixture_result_has_real_execution_provenance(result: dict[str, Any]) -> boo
         isinstance(executed_at, str) and bool(executed_at.strip())
         and isinstance(run_id, str) and bool(run_id.strip())
     )
+
+
+def _fixture_result_provenance_matches_ledger(
+    result: dict[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+) -> tuple[bool, str | None]:
+    """Plan 023 v3 §A-1 — verify a fixture_result's claimed provenance
+    against the actual fixture-runs.jsonl ledger.
+
+    Pre-Plan-023 _fixture_result_has_real_execution_provenance only
+    checked SHAPE; a caller could fabricate provenance values without
+    the fixture runner ever firing. Post-fix this function joins the
+    result's execution_run_id against the ledger and validates SUITE-
+    LEVEL identity:
+      * Row exists.
+      * Row's tool_id matches.
+      * Row's fixture_set_hash matches.
+      * Row's cycle_id matches.
+      * Row's case_count > 0 (defense-in-depth with §A-7).
+      * Row's actual_status matches the claimed actual_status.
+      * Row's evidence_hash matches the claimed evidence_hash.
+
+    Returns (True, None) on success, (False, reason) on mismatch.
+    """
+    from .fixture_runner import fixture_runs_path
+    from .ledger import load_jsonl as load_chained_jsonl
+
+    prov = result.get("provenance") or {}
+    run_id = prov.get("execution_run_id")
+    if not run_id:
+        return False, "missing execution_run_id"
+    rows = load_chained_jsonl(fixture_runs_path(base_dir))
+    matching = [
+        r for r in rows
+        if r.get("execution_run_id") == run_id
+        and r.get("row_type") in ("fixture_run_suite", None)
+    ]
+    if not matching:
+        return False, f"no ledger row with execution_run_id={run_id!r}"
+    row = matching[0]
+    # Cross-check identity fields. Each mismatch is operator-readable
+    # so triage knows which axis drifted.
+    for field in ("tool_id", "fixture_set_hash", "cycle_id"):
+        if result.get(field) is not None and row.get(field) != result.get(field):
+            return False, (
+                f"ledger {field}={row.get(field)!r} does not match "
+                f"claimed {field}={result.get(field)!r}"
+            )
+    case_count = row.get("case_count", 0)
+    if not isinstance(case_count, int) or case_count <= 0:
+        return False, "ledger case_count_zero (suite produced no cases)"
+    if result.get("actual_status") is not None:
+        if row.get("actual_status") != result.get("actual_status"):
+            return False, (
+                f"ledger actual_status={row.get('actual_status')!r} does not "
+                f"match claimed {result.get('actual_status')!r}"
+            )
+    if result.get("evidence_hash") is not None:
+        if row.get("evidence_hash") != result.get("evidence_hash"):
+            return False, "ledger evidence_hash does not match claimed"
+    return True, None
 
 
 def evaluate_genesis_sandbox(
@@ -121,6 +180,8 @@ def evaluate_genesis_sandbox(
     test_mode_env = os.environ.get("ARIA_GENESIS_TEST_SYNTHETIC", "").lower() in ("1", "true", "yes")
     in_test_mode = bool(synthetic_test_mode or test_mode_env)
     if not in_test_mode:
+        # Plan 022 §H-4 — shape pre-filter (cheap fail-fast on bare
+        # {status:'pass'} dicts).
         missing_provenance = [
             i for i, r in enumerate(fixture_results)
             if not _fixture_result_has_real_execution_provenance(r)
@@ -133,6 +194,24 @@ def evaluate_genesis_sandbox(
                 f"Either run the fixtures via fixture_runner so each result "
                 f"carries real provenance, or pass synthetic_test_mode=True "
                 f"(operator-test-only path)."
+            )
+        # Plan 023 v3 §A-1 — ledger-binding check. Pre-Plan-023 the
+        # shape filter above was the ONLY gate; a caller could fabricate
+        # provenance.execution_run_id="fake-anything" and pass. The
+        # ledger join validates suite-level identity (tool_id /
+        # fixture_set_hash / cycle_id / case_count > 0 / actual_status
+        # / evidence_hash) against the actual fixture-runs.jsonl row.
+        unverifiable: list[tuple[int, str]] = []
+        for i, r in enumerate(fixture_results):
+            ok, reason = _fixture_result_provenance_matches_ledger(
+                r, base_dir=base_dir,
+            )
+            if not ok:
+                unverifiable.append((i, reason or "unknown reason"))
+        if unverifiable:
+            details = "; ".join(f"[{i}] {reason}" for i, reason in unverifiable)
+            raise GovernanceError(
+                f"genesis_fixture_provenance_unverifiable: {details}"
             )
 
     failed = [result for result in fixture_results if result.get("status") != "pass"]

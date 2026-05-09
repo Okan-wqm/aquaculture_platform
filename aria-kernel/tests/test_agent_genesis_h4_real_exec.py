@@ -114,7 +114,28 @@ class GenesisProvenanceRequiredTests(_GenesisH4Common):
                       str(cm.exception))
 
     def test_real_provenance_accepted(self) -> None:
+        # Plan 023 v3 §A-1 — provenance shape alone is no longer enough;
+        # seeded fixture-runs.jsonl rows must back each claimed
+        # execution_run_id. Each result references a separate ledger
+        # row populated below.
+        from aria_kernel.fixture_runner import fixture_runs_path
+        from aria_kernel.ledger import append_jsonl
         draft_id = self._seed_real_draft()
+        for i in range(3):
+            append_jsonl(
+                fixture_runs_path(self.tools_dir),
+                {
+                    "schema_version": 1,
+                    "row_type": "fixture_run_suite",
+                    "at": "2026-05-09T00:00:00+00:00",
+                    "tool_id": "h4-pattern-adapter",
+                    "execution_run_id": f"run-{i}",
+                    "case_count": 3,
+                    "actual_status": "pass",
+                    "evidence_hash": "sha256:fake",
+                    "passed": True,
+                },
+            )
         result = evaluate_genesis_sandbox(
             draft_id=draft_id,
             fixture_results=[

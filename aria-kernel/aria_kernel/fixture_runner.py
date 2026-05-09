@@ -45,10 +45,43 @@ def run_fixture_suite(
             raise GovernanceError(f"fixture case must be a JSON object: {case_path}")
         case_results.append(run_fixture_case(tool, case, case_path, fixture_dir, workspace_root))
 
-    passed = all(case["passed"] for case in case_results)
+    # Plan 023 v3 §A-7 — empty case_results is NOT a pass. Pre-fix
+    # `all([]) is True` so an empty fixture suite was reported as
+    # passed. Post-fix: explicit bool(case_results) gates the pass
+    # decision; empty suite produces actual_status='error_no_cases'.
+    has_cases = bool(case_results)
+    passed = has_cases and all(case["passed"] for case in case_results)
     lane_counts = _fixture_lane_counts(case_results)
-    summary = {
+
+    # Plan 023 v3 §A-1 — suite-level provenance fields. execution_run_id
+    # is a UUIDv7 issued at this exact run; downstream genesis-sandbox
+    # provenance check joins on this ID against fixture-runs.jsonl so
+    # a fabricated dict can no longer claim a fictional run.
+    import uuid as _uuid
+    execution_run_id = f"exec-{_uuid.uuid4().hex[:24]}"
+
+    # Plan 023 v3 §A-1 — actual_status enum derivation:
+    #   error_no_cases : empty suite (caught above).
+    #   pass           : has cases AND all passed.
+    #   fail           : has cases AND ≥1 case failed (no exception).
+    #   error          : runtime exception path (not reachable in this
+    #                    function — the parent caller traps subprocess
+    #                    errors and writes a separate envelope).
+    if not has_cases:
+        actual_status = "error_no_cases"
+        error_code: str | None = "no_cases_in_fixture_dir"
+    elif passed:
+        actual_status = "pass"
+        error_code = None
+    else:
+        actual_status = "fail"
+        error_code = None
+
+    base_summary: dict[str, Any] = {
         "schema_version": 1,
+        # Plan 023 v3 §A-1 — explicit row_type so reader helpers can
+        # discriminate suite rows from append-only legacy backfill rows.
+        "row_type": "fixture_run_suite",
         "at": utc_now(),
         "tool_id": tool_id,
         "tool_version": tool.get("version"),
@@ -63,9 +96,37 @@ def run_fixture_suite(
         "semantic_fixture_passed": _lane_passed(case_results, "semantic_regression"),
         "failed_cases": [case["name"] for case in case_results if not case["passed"]],
         "cases": case_results,
+        "execution_run_id": execution_run_id,
+        "actual_status": actual_status,
+        "error_code": error_code,
     }
+    # Plan 023 v3 §A-1 — evidence_hash binds the suite content. The
+    # hash payload EXCLUDES evidence_hash itself (avoids self-reference),
+    # at (write timestamp varies per attempt), execution_run_id (the
+    # volatile UUID — orthogonal identity), and row_type (file-shape
+    # concern, not content).
+    summary = dict(base_summary)
+    summary["evidence_hash"] = _compute_suite_evidence_hash(base_summary)
     append_jsonl(fixture_runs_path(base_dir), summary)
     return summary
+
+
+def _compute_suite_evidence_hash(summary: dict[str, Any]) -> str:
+    """Plan 023 v3 §A-1 — canonical evidence hash payload.
+
+    INCLUDED fields (deterministic order via sort_keys at serialization):
+      tool_id, tool_version, tool_manifest_hash, fixture_set,
+      fixture_set_hash, cycle_id, case_count, passed, actual_status,
+      error_code, fixture_lanes, fixture_baseline_passed,
+      semantic_fixture_passed, failed_cases, cases.
+    EXCLUDED:
+      evidence_hash (self-reference), at (volatile timestamp),
+      execution_run_id (orthogonal identity), row_type (file shape).
+    """
+    excluded = {"evidence_hash", "at", "execution_run_id", "row_type", "schema_version"}
+    payload = {k: v for k, v in summary.items() if k not in excluded}
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def latest_fixture_pass(

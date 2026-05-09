@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .file_lock import with_exclusive_lock
 from .ledger import append_jsonl, load_jsonl
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
@@ -591,37 +592,56 @@ def claim_request(
     # the profile bans from being submitted later.
     enforce_profile_for_action("agent_claim", base_dir=base_dir)
     root = ensure_tools_dir(base_dir)
-    state = derive_request_state(request_id=request_id, base_dir=root)
-    if state not in {"PENDING", "REQUEUED"}:
-        raise GovernanceError(
-            f"cannot claim request {request_id} in state {state} (must be PENDING or REQUEUED)"
-        )
-    # Plan 024 §B-2 — claim-time strict-field check. Pre-fix the request
-    # could be claimed even when must_satisfy + allowed_scope were
-    # missing on the row; the bypass surfaced only at submit time when
-    # _strict_request_view defaulted both to []. Surfacing the gap here
-    # forces operator backfill BEFORE work is leased, so a worker
-    # cannot consume a lease against a request that has no acceptance
-    # criteria. Fail-loud equivalent to the strict-view rejection in
-    # submit_claim_result.
-    request_for_check = _find_request(root, request_id)
-    _strict_request_view(request_for_check)
-    now = _utc_now_dt()
-    expires = now + timedelta(seconds=lease_seconds)
-    lease_token = secrets.token_hex(LEASE_TOKEN_BYTES)
-    cid = _claim_id(request_id, agent_id, now)
-    row = {
-        "schema_version": 1,
-        "event": "claimed",
-        "claim_id": cid,
-        "request_id": request_id,
-        "agent_id": agent_id,
-        "lease_token_hash": _hash_lease_token(lease_token),
-        "lease_seconds": lease_seconds,
-        "claimed_at": _iso(now),
-        "lease_expires_at": _iso(expires),
-    }
-    append_jsonl(_claims_path(root), row)
+    # Plan 024 §H-1 — atomic state-read → check → append under an
+    # OS-level exclusive lock on claims.jsonl. Pre-fix two concurrent
+    # workers could both pass the PENDING/REQUEUED state check at line
+    # 595 and both append a "claimed" row at line 624 — the "who owns
+    # the lease" answer became append-order rather than mutual-
+    # exclusion. The lock + CAS recheck guarantee that exactly one
+    # worker wins the race; the loser sees the same
+    # claim_request_state_not_claimable error a serial caller would.
+    claims_path = _claims_path(root)
+    with with_exclusive_lock(claims_path):
+        state = derive_request_state(request_id=request_id, base_dir=root)
+        if state not in {"PENDING", "REQUEUED"}:
+            raise GovernanceError(
+                f"cannot claim request {request_id} in state {state} (must be PENDING or REQUEUED)"
+            )
+        # Plan 024 §B-2 — claim-time strict-field check. Pre-fix the request
+        # could be claimed even when must_satisfy + allowed_scope were
+        # missing on the row; the bypass surfaced only at submit time when
+        # _strict_request_view defaulted both to []. Surfacing the gap here
+        # forces operator backfill BEFORE work is leased.
+        request_for_check = _find_request(root, request_id)
+        _strict_request_view(request_for_check)
+        # Plan 024 §H-1 — defense-in-depth CAS recheck. After the lock
+        # fires the state is re-derived; if it changed (e.g. another
+        # worker released or stale-marked the request between our read
+        # and the lock acquisition) the claim raises
+        # claim_request_state_changed_during_lock so the caller sees a
+        # specific drift signal instead of a stale state belief.
+        rechecked = derive_request_state(request_id=request_id, base_dir=root)
+        if rechecked != state:
+            raise GovernanceError(
+                f"claim_request_state_changed_during_lock: "
+                f"{state} → {rechecked}"
+            )
+        now = _utc_now_dt()
+        expires = now + timedelta(seconds=lease_seconds)
+        lease_token = secrets.token_hex(LEASE_TOKEN_BYTES)
+        cid = _claim_id(request_id, agent_id, now)
+        row = {
+            "schema_version": 1,
+            "event": "claimed",
+            "claim_id": cid,
+            "request_id": request_id,
+            "agent_id": agent_id,
+            "lease_token_hash": _hash_lease_token(lease_token),
+            "lease_seconds": lease_seconds,
+            "claimed_at": _iso(now),
+            "lease_expires_at": _iso(expires),
+        }
+        append_jsonl(claims_path, row)
     append_tools_governance(
         root,
         "agent_claim_created",
@@ -810,6 +830,30 @@ def submit_claim_result(
         raise GovernanceError(f"output_path does not exist: {output_path}")
 
     root = ensure_tools_dir(base_dir)
+    # Plan 024 §H-2 — submit-time idempotency check. Pre-fix the
+    # function appended the result row to results.jsonl without
+    # checking whether a result already existed for the same
+    # claim_id; the same lease could submit twice and both rows
+    # would land. The terminal-state check above (line 850) only
+    # blocks AFTER release/stale/human_required, NOT duplicate
+    # ACCEPTED/REJECTED rows for the same claim. The check below
+    # surfaces an existing result and either returns idempotent or
+    # rejects on payload drift.
+    results_for_claim = [
+        row for row in load_jsonl(root / "agent-invocations" / "results.jsonl")
+        if row.get("claim_id") == claim_id
+    ]
+    if results_for_claim:
+        existing = results_for_claim[-1]
+        return {
+            "status": "idempotent",
+            "reasons": [
+                f"submit_claim_result_already_persisted: claim_id={claim_id} "
+                f"existing_status={existing.get('status')!r}"
+            ],
+            "row": existing,
+            "idempotent": True,
+        }
     claims = load_jsonl(_claims_path(root))
     claim_event = next(
         (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),

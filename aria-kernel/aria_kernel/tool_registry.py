@@ -22,6 +22,12 @@ TOOL_STATUSES = (
     "ARCHIVED",
 )
 TOOL_KINDS = ("adapter", "skill", "llm_amplified_skill")
+# Plan 023 v3 §C-3 — initial-lifecycle states permitted on first
+# register_tool call. ACTIVE / CALIBRATE / QUARANTINED / ARCHIVED on
+# first registration is rejected so the only path to those states is
+# transition_tool() (which enforces precision + evidence_chains_valid +
+# operator_approval). This closes the new-tool-direct-ACTIVE bypass.
+INITIAL_LIFECYCLE_STATES = ("DRAFT", "SANDBOX", "SHADOW")
 RUNNER_REQUIRED_STATUSES = ("SANDBOX", "SHADOW", "ACTIVE", "CALIBRATE")
 RUNNER_TYPES = ("subprocess",)
 REQUIRED_TOOL_FIELDS = (
@@ -425,7 +431,36 @@ def register_tool(
             candidate if t.get("tool_id") == candidate["tool_id"] else t for t in registry["tools"]
         ]
     else:
+        # Plan 023 v3 §C-3 — first-time registration MUST land in an
+        # initial-lifecycle state (DRAFT / SANDBOX / SHADOW). Pre-fix
+        # this branch silently appended the candidate at any status,
+        # letting `register_tool({status: 'ACTIVE'})` skip the
+        # transition_tool() promotion matrix. The only path to ACTIVE /
+        # CALIBRATE / QUARANTINED / ARCHIVED is now an explicit
+        # transition after a prior initial registration.
+        candidate_status = candidate.get("status")
+        if candidate_status not in INITIAL_LIFECYCLE_STATES:
+            raise GovernanceError(
+                "first_register_status_must_be_initial_lifecycle_state: "
+                f"tool_id={candidate['tool_id']!r} cannot register at "
+                f"{candidate_status!r}; must be one of {INITIAL_LIFECYCLE_STATES}. "
+                f"Use register_tool with an initial state then transition_tool() "
+                f"to promote."
+            )
         registry["tools"].append(candidate)
+        # Audit-trail: emit governance event so operator can see initial
+        # registrations and their starting lifecycle state. The event
+        # payload captures tool_id + initial_status for downstream
+        # health and lifecycle review.
+        append_tools_governance(
+            ensure_tools_dir(base_dir),
+            "tool_registered_initial",
+            {
+                "tool_id": candidate["tool_id"],
+                "initial_status": candidate_status,
+                "version": candidate.get("version"),
+            },
+        )
     registry["schema_version"] = SCHEMA_VERSION
     save_registry(registry, base_dir)
     return candidate

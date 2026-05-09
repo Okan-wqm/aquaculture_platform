@@ -32,7 +32,39 @@ from aria_kernel.feedback_store import record_operator_feedback
 from aria_kernel.ledger import append_jsonl
 from aria_kernel.memory import list_memory, validate_repo_evidence
 from aria_kernel.pressure import explain_pressure, run_pressure
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, transition_tool, get_tool
+
+
+def register_active_for_test(tool, base_dir):
+    """Plan 023 v3 §C-3 — test fixture helper (mirrors test_tool_governance).
+
+    register_tool now rejects first-time registrations at ACTIVE / CALIBRATE
+    / QUARANTINED. Route ACTIVE through SHADOW + transition_tool, route
+    QUARANTINED through SHADOW + quarantine_tool, and let initial-lifecycle
+    states pass through register_tool unchanged.
+    """
+    target = tool.get("status", "ACTIVE")
+    if target in ("DRAFT", "SANDBOX", "SHADOW"):
+        return register_tool(tool, base_dir=base_dir)
+    if target not in ("ACTIVE", "CALIBRATE", "QUARANTINED"):
+        return register_tool(tool, base_dir=base_dir)
+    initial = {**tool, "status": "SHADOW"}
+    register_tool(initial, base_dir=base_dir)
+    if target == "QUARANTINED":
+        from aria_kernel.quarantine import quarantine_tool
+        return quarantine_tool(
+            tool["tool_id"], "test fixture quarantine", base_dir=base_dir,
+        )
+    return transition_tool(
+        tool["tool_id"],
+        target_status=target,
+        reason="test fixture promotion",
+        precision=1.0,
+        critical_false_positives=0,
+        evidence_chains_valid=True,
+        operator_approval=True,
+        base_dir=base_dir,
+    )
 
 
 def fake_tool_argv(output):
@@ -378,7 +410,7 @@ class EnterpriseCycleTests(unittest.TestCase):
             "timeout_ms": 1000,
             "stdin_json": True,
         }
-        register_tool(tool, base_dir=self.tools_dir)
+        register_active_for_test(tool, base_dir=self.tools_dir)
         run_cycle(
             workspace_root=self.root,
             cycle_id="cycle-default-input",
@@ -577,7 +609,7 @@ class EnterpriseCycleTests(unittest.TestCase):
     def test_quarantined_adapter_source_propagates_to_memory_without_reopening_withdrawn(self):
         tool = candidate_tool()
         tool["status"] = "QUARANTINED"
-        register_tool(tool, base_dir=self.tools_dir)
+        register_active_for_test(tool, base_dir=self.tools_dir)
         for belief_id, status, revalidation_cycles in (
             ("adapter:supported", "supported", 0),
             ("adapter:withdrawn", "withdrawn", 0),

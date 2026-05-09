@@ -726,22 +726,6 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
       const absDir = join(REPO_ROOT, svc.migrationsDir);
       const migrationClasses = loadMigrationClassesFromDir(absDir);
 
-      // Load entities into the migration DataSource when the service
-      // declares an entitiesGlob. Why: certain entity-aware migrations
-      // — notably apps/hr-service/src/database/migrations/
-      // 1786800000000-SyncHrEntitiesToDb — call
-      // `connection.driver.createSchemaBuilder().log()` to derive
-      // pending DDL from `connection.entityMetadatas`. Without entities
-      // loaded the metadata array is empty, the schema-builder emits
-      // zero DDL, and a fresh-volume bootstrap leaves 440+ entity-vs-DB
-      // drifts unreconciled. The production aqua-db-migrate orchestrator
-      // already loads entities via schema-registry.entitiesGlob at
-      // apps/db-migrate/src/schema-registry.ts; this brings the test
-      // bootstrap path into parity with that production runner.
-      const entityClasses: Function[] = svc.entitiesGlob
-        ? loadEntityClasses(join(REPO_ROOT, svc.entitiesGlob))
-        : [];
-
       const ds = new DataSource({
         type: 'postgres',
         host,
@@ -751,7 +735,9 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
         database: DATABASE_NAME,
         schema: svc.schema,
         migrations: migrationClasses,
-        entities: entityClasses as Function[],
+        // We do NOT register entities — running migrations explicitly via
+        // runMigrations() does not need the entity surface, and skipping
+        // it avoids loading the full app's TypeORM metadata graph.
         synchronize: false,
         migrationsRun: false,
         // Migration table inside the service schema; the production

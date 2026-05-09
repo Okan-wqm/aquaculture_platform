@@ -128,26 +128,93 @@ def gate_apply_action(
 
 
 def _read_diff_from_action(action: dict[str, Any]) -> str | None:
-    """Plan 022 §H-1 — recover unified diff from action via git when caller
-    omits diff_text. Returns the diff string or None when prerequisites
-    (workspace_root + branch + base_sha) are missing or git fails.
+    """Plan 023 v3 §P-1 — worktree-aware 3-diff union.
+
+    Pre-Plan-023 the diff fetcher ran a single `git diff base..branch`
+    in the workspace_root cwd. Two layered bugs:
+      1. Branch-only diff missed worktree drift — a caller could write
+         a banned-phrase patch into the working tree (staged or
+         unstaged) and pass through gate_apply_action because the
+         committed branch diff didn't reflect it.
+      2. cwd = workspace_root, not the action's worktree_path. Plan
+         016's plan_apply_worktree creates a separate worktree at
+         action.worktree_path; the branch only resolves there.
+
+    Plan 023 v3 fix:
+      * Three diffs run and unioned:
+          git diff base_sha..branch     (committed branch history)
+          git diff branch..HEAD         (worktree drift vs. the branch)
+          git diff --staged             (staged uncommitted)
+        The union is concatenated as bytes-equivalent text so the
+        suppression scanner downstream sees every line that could
+        appear in the actual change.
+      * cwd = action.worktree_path or workspace_root (worktree-aware).
+      * Fail-closed dirty-worktree gate: if the worktree has dirty
+        paths AND action.allow_dirty_worktree is not True, raise
+        GovernanceError. Operators who want to scan the dirty content
+        opt in explicitly; the default refuses to scan a tree whose
+        commit graph and working state disagree.
+
+    Returns the unioned diff string or None when prerequisites
+    (workspace_root + branch + base_sha) are missing or every git
+    invocation fails.
     """
     workspace_root = action.get("workspace_root")
     branch = action.get("branch")
     base_sha = action.get("base_sha")
     if not (workspace_root and branch and base_sha):
         return None
-    try:
-        completed = subprocess.run(
-            ["git", "diff", f"{base_sha}..{branch}"],
-            cwd=Path(workspace_root).resolve(),
-            capture_output=True, text=True, check=False,
-        )
-    except (FileNotFoundError, OSError):
+    # Plan 023 v3 §P-1 — worktree-aware cwd. action.worktree_path is
+    # populated by plan_apply_worktree when the worktree was created;
+    # fall back to workspace_root for legacy actions.
+    cwd_path = Path(action.get("worktree_path") or workspace_root).resolve()
+
+    # Plan 023 v3 §P-1 — fail-closed dirty-worktree gate.
+    if not action.get("allow_dirty_worktree"):
+        try:
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=cwd_path, capture_output=True, text=True, check=False,
+            )
+        except (FileNotFoundError, OSError):
+            status = None
+        if status is not None and status.returncode == 0 and status.stdout.strip():
+            raise GovernanceError(
+                "apply_engine_worktree_dirty_without_explicit_allow: "
+                f"worktree at {cwd_path} has uncommitted changes; pass "
+                "action.allow_dirty_worktree=True to scan dirty content "
+                "or commit / stash before invoking gate_apply_action"
+            )
+
+    diff_pieces: list[str] = []
+    # Plan 023 v3 §P-1 — three sources unioned:
+    #   git diff base..branch  : committed branch history.
+    #   git diff --staged      : staged uncommitted in the worktree.
+    #   git diff               : unstaged uncommitted (working tree vs index).
+    # The union covers every line that could appear in the actual
+    # change-set being applied, regardless of whether it sits in a
+    # commit, the staging area, or the working tree.
+    diff_invocations = (
+        ["git", "diff", f"{base_sha}..{branch}"],   # committed branch history
+        ["git", "diff", "--staged"],                # staged uncommitted
+        ["git", "diff"],                            # unstaged worktree
+    )
+    any_succeeded = False
+    for argv in diff_invocations:
+        try:
+            completed = subprocess.run(
+                argv, cwd=cwd_path, capture_output=True, text=True, check=False,
+            )
+        except (FileNotFoundError, OSError):
+            continue
+        if completed.returncode != 0:
+            continue
+        any_succeeded = True
+        if completed.stdout:
+            diff_pieces.append(completed.stdout)
+    if not any_succeeded:
         return None
-    if completed.returncode != 0:
-        return None
-    return completed.stdout
+    return "\n".join(diff_pieces) if diff_pieces else ""
 
 
 def list_apply_actions(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

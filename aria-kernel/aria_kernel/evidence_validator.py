@@ -143,29 +143,41 @@ def validate_evidence_path(
     checked_sources: list[str],
     allowed_paths: set[str] | None = None,
 ) -> None:
-    path = normalize_path(raw_path)
-    checked_sources.append(path)
+    # Plan 024 v3 §H-5 — canonical-resolve BEFORE the SELF_OUTPUT
+    # prefix check, mirroring _check_agent_ref. Pre-fix this code
+    # path applied normalize_path (lexical) and prefix-matched on
+    # the lexical form; the resolved absolute path was only used
+    # later for relative_to + existence checks. The shared helper
+    # now produces the canonical posix-relative form which the
+    # SELF_OUTPUT match consumes.
+    from .tool_registry import GovernanceError as _GE
+    raw_path_str = normalize_path(raw_path)  # keep checked_sources entry consistent with legacy callers
+    checked_sources.append(raw_path_str)
 
-    if allowed_paths and path not in allowed_paths:
-        errors.append({"code": "evidence_outside_snapshot", "path": path})
+    if allowed_paths and raw_path_str not in allowed_paths:
+        errors.append({"code": "evidence_outside_snapshot", "path": raw_path_str})
         return
-    if any(path.startswith(marker) for marker in SELF_OUTPUT_MARKERS):
-        errors.append({"code": "self_output_evidence", "path": path})
-        return
-    scope_violations = find_scope_violations(tool, [path])
-    if scope_violations:
-        errors.append({"code": "evidence_scope_violation", "path": path})
-        return
-
-    absolute = (root / path).resolve()
     try:
-        absolute.relative_to(root)
-    except ValueError:
-        errors.append({"code": "evidence_path_escapes_workspace", "path": path})
+        rel_str, absolute = _canonical_evidence_path(raw_path_str, root)
+    except _GE as exc:
+        msg = str(exc)
+        if msg.startswith("evidence_path_outside_repo"):
+            errors.append({"code": "evidence_path_escapes_workspace", "path": raw_path_str})
+        else:
+            errors.append({"code": "evidence_path_unresolvable", "path": raw_path_str,
+                           "error": msg})
+        return
+    if any(rel_str.startswith(marker) for marker in SELF_OUTPUT_MARKERS):
+        errors.append({"code": "self_output_evidence", "path": rel_str})
+        return
+    scope_violations = find_scope_violations(tool, [rel_str])
+    if scope_violations:
+        errors.append({"code": "evidence_scope_violation", "path": rel_str})
         return
     if not absolute.exists() or not absolute.is_file():
-        errors.append({"code": "evidence_path_missing", "path": path})
+        errors.append({"code": "evidence_path_missing", "path": raw_path_str})
         return
+    path = rel_str  # remainder of function expects local `path` variable
     if line is None:
         return
     if not isinstance(line, int) or line <= 0:
@@ -185,6 +197,43 @@ def _parse_agent_ref(ref: str) -> tuple[str, int | None] | None:
     return match.group("path"), int(line) if line is not None else None
 
 
+def _canonical_evidence_path(raw_path: str, root: Path) -> tuple[str, Path]:
+    """Plan 024 v3 §H-5 — canonical-resolve helper shared by both
+    _check_agent_ref (string agent refs) and validate_evidence_path
+    (dict ref form).
+
+    Pre-fix both code paths applied normalize_path (lexical) THEN
+    `startswith(SELF_OUTPUT_MARKERS)` prefix match BEFORE .resolve().
+    A path like ``src/../aria-tools/output.json`` could lexically
+    normalise to ``aria-tools/output.json`` (depending on
+    normalize_path's implementation) but the SELF_OUTPUT prefix
+    match operated on the lexical form, which a future
+    normalize_path tweak could un-stick. Post-fix the resolution
+    runs first, then the SELF_OUTPUT check uses the canonical
+    posix-relative form derived from the absolute resolved path —
+    one helper, two callers.
+
+    Returns (rel_str, absolute) where:
+      * ``rel_str`` is the posix-relative path inside the workspace
+        derived from absolute.relative_to(root.resolve()).
+      * ``absolute`` is the resolved absolute Path.
+
+    Raises GovernanceError on:
+      * unresolvable path (OSError / ValueError),
+      * resolved-path-outside-repo (relative_to fails).
+    """
+    from .tool_registry import GovernanceError as _GE  # local to avoid cycle on cold start
+    try:
+        absolute = (root / raw_path).resolve()
+    except (OSError, ValueError) as exc:
+        raise _GE(f"evidence_path_unresolvable: {raw_path!r}: {exc}")
+    try:
+        rel = absolute.relative_to(root.resolve())
+    except ValueError:
+        raise _GE(f"evidence_path_outside_repo: {raw_path!r} resolved to {absolute}")
+    return rel.as_posix(), absolute
+
+
 def _check_agent_ref(
     ref: str,
     *,
@@ -198,22 +247,32 @@ def _check_agent_ref(
         errors.append({"code": "agent_evidence_ref_malformed", "ref": ref})
         return
     path, line = parsed
-    normalized = normalize_path(path)
+    # Plan 024 v3 §H-5 — canonical-resolve BEFORE the SELF_OUTPUT
+    # prefix check. Pre-fix the prefix match operated on the
+    # lexically-normalized string; a `src/../aria-tools/...` traversal
+    # could bypass detection if normalize_path didn't fully collapse
+    # it. Post-fix the resolution runs first, then SELF_OUTPUT is
+    # decided on the canonical posix-relative form.
+    from .tool_registry import GovernanceError as _GE
+    try:
+        rel_str, absolute = _canonical_evidence_path(path, root)
+    except _GE as exc:
+        msg = str(exc)
+        if msg.startswith("evidence_path_outside_repo"):
+            errors.append({"code": "agent_evidence_path_escapes_workspace", "path": path})
+        else:
+            errors.append({"code": "agent_evidence_path_unresolvable", "path": path,
+                           "error": msg})
+        return
     # ARIA self-output / runtime artefacts are NOT admissible evidence
     # for an agent claim (CLAUDE.md L1, Plan 016 §Agent output untrusted).
-    if not allow_self_output and normalized.startswith(SELF_OUTPUT_MARKERS):
-        errors.append({"code": "agent_evidence_self_output", "path": normalized})
-        return
-    absolute = (root / path).resolve()
-    try:
-        absolute.relative_to(root)
-    except ValueError:
-        errors.append({"code": "agent_evidence_path_escapes_workspace", "path": path})
+    if not allow_self_output and rel_str.startswith(SELF_OUTPUT_MARKERS):
+        errors.append({"code": "agent_evidence_self_output", "path": rel_str})
         return
     if not absolute.exists() or not absolute.is_file():
         errors.append({"code": "agent_evidence_path_missing", "path": path})
         return
-    checked.append(normalized)
+    checked.append(rel_str)
     if line is None:
         return
     if line <= 0:

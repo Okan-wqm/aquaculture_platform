@@ -525,7 +525,21 @@ def heartbeat_claim(
         raise GovernanceError(
             f"claim {claim_id} already terminal ({later_events[-1].get('event')})"
         )
+    # Plan 023 v3 §A-4 — explicit lease-expiry time check. Pre-fix the
+    # heartbeat path checked terminal events ONLY (released / stale /
+    # human_required), not lease_expires_at vs the wall clock. An
+    # expired lease whose reaper sweep hadn't fired yet still accepted
+    # heartbeat (and submit, fixed in submit_claim_result below). The
+    # reaper provides eventual consistency; this is the real-time gate.
     now = _utc_now_dt()
+    latest_expires = _latest_lease_expiry(claims, claim_id)
+    if latest_expires is not None and latest_expires < now:
+        raise GovernanceError(
+            f"lease_expired: claim_id={claim_id!r} lease_expires_at="
+            f"{_iso(latest_expires)} is past current time {_iso(now)}; "
+            f"the reaper sweep has not landed yet but the lease cannot "
+            f"be extended after expiry"
+        )
     expires = now + timedelta(seconds=extend_seconds)
     row = {
         "schema_version": 1,
@@ -538,6 +552,34 @@ def heartbeat_claim(
     }
     append_jsonl(_claims_path(root), row)
     return row
+
+
+def _latest_lease_expiry(claims: list[dict[str, Any]], claim_id: str) -> Any:
+    """Plan 023 v3 §A-4 — return the latest lease_expires_at across the
+    claim's original `claimed` row + all `heartbeat` rows.
+
+    Heartbeat extends the lease; the latest extension is the binding
+    one. Returns a parsed datetime or None when no lease_expires_at is
+    discoverable (which itself blocks the gate via the time-check).
+    """
+    expires_strings: list[str] = []
+    for row in claims:
+        if row.get("claim_id") != claim_id:
+            continue
+        if row.get("event") not in {"claimed", "heartbeat"}:
+            continue
+        ev = row.get("lease_expires_at")
+        if isinstance(ev, str) and ev.strip():
+            expires_strings.append(ev)
+    if not expires_strings:
+        return None
+    parsed = []
+    for s in expires_strings:
+        try:
+            parsed.append(datetime.fromisoformat(s.replace("Z", "+00:00")))
+        except ValueError:
+            continue
+    return max(parsed) if parsed else None
 
 
 def release_claim(
@@ -646,6 +688,19 @@ def submit_claim_result(
     if terminal:
         raise GovernanceError(
             f"claim {claim_id} already terminal ({terminal[-1].get('event')})"
+        )
+    # Plan 023 v3 §A-4 — same explicit lease-expiry check on submit.
+    # Pre-fix submit_claim_result accepted past-expiry leases (no
+    # reaper sweep yet) and produced an ACCEPTED row even though the
+    # claim should have been rejected as expired.
+    now_for_lease = _utc_now_dt()
+    latest_expires_for_submit = _latest_lease_expiry(claims, claim_id)
+    if latest_expires_for_submit is not None and latest_expires_for_submit < now_for_lease:
+        raise GovernanceError(
+            f"lease_expired: claim_id={claim_id!r} lease_expires_at="
+            f"{_iso(latest_expires_for_submit)} is past current time "
+            f"{_iso(now_for_lease)}; the reaper sweep has not landed "
+            f"yet but the submission cannot be accepted after expiry"
         )
 
     request_id = claim_event["request_id"]

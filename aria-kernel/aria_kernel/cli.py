@@ -130,6 +130,22 @@ ERROR_EXIT_CODES = {
 }
 
 
+# Plan 024 v3 §B-7 — closed enum mapping run_tool envelope status to
+# CLI exit code. Operator scripts pattern-match on exit code for
+# failure detection; pre-fix the CLI returned 0 unconditionally even
+# when the runner crashed / parsed invalid output / hit budget caps.
+# The mapping shares vocabulary with spine_orchestrator's whitelist
+# (H-6); a future status addition in tool_runner must update both.
+_TOOL_RUN_EXIT_CODES: dict[str, int] = {
+    "ok": 0,
+    "crash": 1,
+    "schema_error": 1,
+    "output_unparseable": 1,
+    "budget_exceeded": 2,
+    "tool_unhealthy": 3,
+}
+
+
 def add_workspace_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--workspace-root", default=".", help="Repository root to bind to ARIA workspace")
     parser.add_argument("--workspace-base", default=None, help="Override ~/.aria/workspaces for tests or sandboxes")
@@ -1240,14 +1256,17 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "tool" and args.tool_command == "run":
         payload = json.loads(args.input)
-        print(
-            json.dumps(
-                run_tool(args.tool_id, payload, args.cycle_id, workspace_root=args.workspace_root, base_dir=args.tools_dir),
-                indent=2,
-                sort_keys=True,
-            ),
+        result = run_tool(
+            args.tool_id, payload, args.cycle_id,
+            workspace_root=args.workspace_root, base_dir=args.tools_dir,
         )
-        return 0
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # Plan 024 v3 §B-7 — exit code reflects envelope status (the
+        # canonical ok|crash|schema_error|... vocabulary), NOT the
+        # registry status (ACTIVE|SHADOW|QUARANTINED). Operator scripts
+        # can pattern-match exit code for failure detection.
+        envelope_status = (result.get("envelope") or {}).get("status", "ok")
+        return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
 
     # Plan 020 Phase 8.C — validation matrix CLI dispatch.
     if args.command == "validation-matrix" and args.validation_matrix_command == "check":

@@ -224,7 +224,16 @@ def refresh_spine_adapters(
             )
             return adapter_id, result
         except Exception as exc:  # noqa: BLE001 — caller wants per-adapter failure isolation
-            return adapter_id, {"status": "failed", "error": str(exc)}
+            # Plan 024 v3 §B-7 — exception fallback synthesizes both the
+            # legacy top-level `status` field (preserves existing
+            # callers) AND the envelope/health_decision split that
+            # spine_orchestrator H-6 reads after this commit.
+            return adapter_id, {
+                "status": "failed",
+                "error": str(exc),
+                "envelope": {"status": "failed", "error": str(exc), "run_id": ""},
+                "health_decision": None,
+            }
 
     fresh_results: dict[str, dict[str, Any]] = {}
     if stale_adapters:
@@ -242,6 +251,20 @@ def refresh_spine_adapters(
                     aid, result = fut.result()
                     fresh_results[aid] = result
 
+    # Plan 024 v3 §H-6 — fresh-spine status whitelist. Pre-fix the
+    # filter `if status == 'failed'` blacklisted only the literal
+    # "failed" string; everything else (including 'crash',
+    # 'schema_error', 'tool_unhealthy', 'output_unparseable',
+    # 'budget_exceeded') counted as fresh. The whitelist below names
+    # the canonical envelope-side success vocabulary explicitly so an
+    # unknown status raises GovernanceError rather than silently
+    # polluting fresh-spine signal with broken results.
+    _FRESH_PASS_STATUSES = frozenset({"pass", "ok"})
+    _FRESH_EXCLUDE_STATUSES = frozenset({
+        "fail", "failed", "crash", "schema_error", "tool_unhealthy",
+        "output_unparseable", "budget_exceeded", "error",
+    })
+
     for adapter_id, latest, fresh in decisions:
         if fresh and latest is not None:
             cached_count += 1
@@ -256,10 +279,16 @@ def refresh_spine_adapters(
             })
             continue
         run = fresh_results.get(adapter_id) or {}
-        status = str(run.get("status", "failed"))
-        run_id = str(run.get("run_id", ""))
+        # Plan 024 v3 §B-7 — read envelope status (canonical 'ok|crash|
+        # ...' vocabulary) instead of the registry health_decision
+        # status (ACTIVE|SHADOW|QUARANTINED). Pre-fix the spine
+        # orchestrator looked at registry status which made every
+        # registered tool count as fresh regardless of envelope outcome.
+        envelope = run.get("envelope") or {}
+        status = str(envelope.get("status") or run.get("status", "failed"))
+        run_id = str(envelope.get("run_id") or run.get("run_id", ""))
         run_ids[adapter_id] = run_id
-        if status == "failed":
+        if status in _FRESH_EXCLUDE_STATUSES:
             adapter_states.append({
                 "adapter_id": adapter_id,
                 "status": status,
@@ -267,18 +296,27 @@ def refresh_spine_adapters(
                 "repo_state_id": target_repo_state_id,
                 "recorded_at": "",
                 "source": "failed",
-                "error": str(run.get("error", "")),
+                "error": str(envelope.get("error") or run.get("error", "")),
             })
-        else:
+        elif status in _FRESH_PASS_STATUSES:
             fresh_count += 1
             adapter_states.append({
                 "adapter_id": adapter_id,
                 "status": status,
                 "run_id": run_id,
-                "repo_state_id": (run.get("repo_snapshot") or {}).get("repo_state_id") or target_repo_state_id,
+                "repo_state_id": (run.get("repo_snapshot") or envelope.get("repo_snapshot") or {}).get("repo_state_id") or target_repo_state_id,
                 "recorded_at": str(run.get("recorded_at", "")),
                 "source": "fresh",
             })
+        else:
+            # Plan 024 v3 §H-6 — unknown status is fail-loud; the
+            # status enum is shared with cli.py:_TOOL_RUN_EXIT_CODES
+            # so a future tool_runner status addition must register
+            # in both vocabularies.
+            raise GovernanceError(
+                f"spine_orchestrator_unknown_run_status: {status!r} "
+                f"(adapter_id={adapter_id!r})"
+            )
 
     summary = {
         "repo_state_id": target_repo_state_id,

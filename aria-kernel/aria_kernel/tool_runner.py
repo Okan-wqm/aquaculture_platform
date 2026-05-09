@@ -192,7 +192,21 @@ def run_tool(
         },
         "repo_snapshot": _compact_snapshot(repo_snapshot),
     }
-    return record_run(envelope, base_dir=base_dir)
+    decision = record_run(envelope, base_dir=base_dir)
+    # Plan 024 v3 §B-7 — return contract split. Pre-fix run_tool returned
+    # ONLY the registry-side health_decision (decision dict from
+    # record_run); the runner envelope (with the canonical 'ok|crash|
+    # schema_error|...' status vocabulary) was a side-effect write to
+    # runs.jsonl that callers could not project from the return value.
+    # CLI exit-code mapping and spine_orchestrator status whitelist
+    # both need the envelope status; H-6 atomic with this fix migrates
+    # spine_orchestrator to read result['envelope']['status']. Existing
+    # callers that rely on the top-level health_decision keys (e.g.
+    # tests asserting result.get('status') == 'ACTIVE') keep working —
+    # decision keys are merged at the top of the returned dict for
+    # backward compatibility; the new envelope + health_decision keys
+    # are the canonical access points going forward.
+    return {**decision, "envelope": envelope, "health_decision": decision}
 
 
 def _input_repo_snapshot(input_payload: Any) -> dict[str, Any] | None:

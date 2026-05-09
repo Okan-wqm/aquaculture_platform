@@ -270,7 +270,16 @@ def evaluate_auto_merge(
 
     required = _required_checks(github)
     if not required["readable"]:
-        reasons.append("branch protection required checks unreadable")
+        # Plan 023 v3.1 §P-2-followup — surface the specific
+        # lookup_error code (branch_protection_disabled_on_base /
+        # branch_protection_lookup_permission_denied /
+        # branch_protection_lookup_failed / etc.) so operator audit
+        # sees WHY the gate blocked, not just "unreadable".
+        lookup_error = required.get("lookup_error")
+        if lookup_error:
+            reasons.append(f"branch protection lookup failed: {lookup_error}")
+        else:
+            reasons.append("branch protection required checks unreadable")
     elif not required["checks"]:
         reasons.append("branch protection has no required checks")
     check_result = _required_checks_result(github, required["checks"], head_sha)
@@ -668,7 +677,24 @@ def _required_checks(github: dict[str, Any]) -> dict[str, Any]:
     if isinstance(protection, list):
         return {"readable": True, "checks": sorted({str(item) for item in protection if item})}
     if not isinstance(protection, dict):
-        return {"readable": False, "checks": []}
+        return {"readable": False, "checks": [], "lookup_error": "branch_protection_payload_unreadable"}
+    # Plan 023 v3.1 §P-2-followup — propagate lookup_error from the
+    # _fetch_branch_protection_contexts helper. Pre-Plan-023.1 the
+    # helper populated github.branch_protection.lookup_error on
+    # network/HTTP failure but evaluate_auto_merge never read it; the
+    # gate fell through to checks validation as if branch protection
+    # had been fetched cleanly. Auto-merge then proceeded against a
+    # stale / fabricated required-checks list. Post-fix: lookup_error
+    # makes _required_checks return readable=False AND surfaces the
+    # specific error code so evaluate_auto_merge's downstream blocking
+    # reason carries the operator-readable cause (404 / 403 / network).
+    lookup_error = protection.get("lookup_error")
+    if lookup_error:
+        return {
+            "readable": False,
+            "checks": [],
+            "lookup_error": str(lookup_error),
+        }
     readable = protection.get("readable", True) is True
     checks = protection.get("required_checks", protection.get("contexts", protection.get("checks", [])))
     names: list[str] = []

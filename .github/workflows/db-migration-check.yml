@@ -313,9 +313,27 @@ jobs:
       - name: Save docker image cache
         if: steps.docker-image-cache.outputs.cache-hit != 'true'
         run: |
+          # Best-effort: save the timescaledb-ha image to the cache for
+          # future runs. The grep|head pipeline can return empty if the
+          # testcontainer cleaned up before this step runs (race), or
+          # produce an `<none>:<none>` tag when an image is referenced
+          # only by digest. Both yield `docker save` "invalid reference
+          # format" and a non-zero exit code that fails the whole job.
+          # The cache is an optimization, not a correctness gate — the
+          # bootstrap test has already completed successfully by the
+          # time this step runs. Guard the docker invocation so a cache
+          # miss-save degrades to a no-op instead of failing CI.
           mkdir -p /tmp/docker-image-cache
-          docker save -o /tmp/docker-image-cache/timescaledb-pg16.tar \
-            $(docker images --format '{{.Repository}}:{{.Tag}}' | grep timescaledb-ha | head -1)
+          IMAGE_REF=$(docker images --format '{{.Repository}}:{{.Tag}}' \
+            | grep timescaledb-ha \
+            | grep -v '<none>' \
+            | head -1)
+          if [ -z "$IMAGE_REF" ]; then
+            echo "No timescaledb-ha image with a usable tag found; skipping cache save."
+            exit 0
+          fi
+          docker save -o /tmp/docker-image-cache/timescaledb-pg16.tar "$IMAGE_REF" \
+            || echo "docker save failed for $IMAGE_REF; cache will be regenerated on next run."
 
   # ===================================================================
   # tenant-clone-parity — Wave 4-A.2 Dalga 5 Part C.

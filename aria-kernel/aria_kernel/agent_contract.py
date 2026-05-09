@@ -391,6 +391,22 @@ def validate_response(
                 f"agent-response.request_id {envelope['request_id']!r} does not match request "
                 f"{request.get('request_id')!r}"
             )
+        # Plan 024 v3 §H-4 — envelope.role must match request.role.
+        # Pre-fix only the membership check above (line 322) ensured
+        # the role was in REQUEST_ROLES; a request bound to role
+        # `domain_review` could accept a response with role
+        # `architectural_judgment` and pass cross-checks because the
+        # equality with request.role was never asserted. The
+        # downstream judgment_bridge + consensus path reads
+        # response.role to route the verdict, so a mismatched role
+        # silently misroutes the judgment.
+        request_role = request.get("role")
+        if request_role is not None and envelope.get("role") != request_role:
+            raise GovernanceError(
+                f"response_role_mismatch_with_request: "
+                f"envelope.role={envelope.get('role')!r}, "
+                f"request.role={request_role!r}"
+            )
         # Every must_satisfy item must appear once in the matrix.
         required_ids = {item["id"] for item in request.get("must_satisfy", [])}
         unmet = required_ids - matrix_ids

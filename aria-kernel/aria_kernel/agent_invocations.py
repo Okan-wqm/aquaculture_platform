@@ -694,8 +694,13 @@ def heartbeat_claim(
     # heartbeat (and submit, fixed in submit_claim_result below). The
     # reaper provides eventual consistency; this is the real-time gate.
     now = _utc_now_dt()
+    # Plan 024 §H-3 — _latest_lease_expiry now raises on parse failure
+    # / missing field / no claim row, so the previous `is not None`
+    # guard is no longer needed. The function either returns a
+    # datetime (compared below) or surfaces a structured GovernanceError
+    # the caller does not need to translate.
     latest_expires = _latest_lease_expiry(claims, claim_id)
-    if latest_expires is not None and latest_expires < now:
+    if latest_expires < now:
         raise GovernanceError(
             f"lease_expired: claim_id={claim_id!r} lease_expires_at="
             f"{_iso(latest_expires)} is past current time {_iso(now)}; "
@@ -718,30 +723,46 @@ def heartbeat_claim(
 
 def _latest_lease_expiry(claims: list[dict[str, Any]], claim_id: str) -> Any:
     """Plan 023 v3 §A-4 — return the latest lease_expires_at across the
-    claim's original `claimed` row + all `heartbeat` rows.
+    claim's original `claimed` row + all `heartbeat` rows. Plan 024 v3
+    §H-3 — fail-CLOSED on parse failure / missing field.
 
     Heartbeat extends the lease; the latest extension is the binding
-    one. Returns a parsed datetime or None when no lease_expires_at is
-    discoverable (which itself blocks the gate via the time-check).
+    one. Pre-Plan-024 the function silently returned None on parse
+    failures + caller chains compared `latest is not None and latest
+    < now` — None pass-through fail-OPEN. Post-fix the function
+    raises GovernanceError so submit_claim_result + heartbeat_claim
+    can never accept a claim whose lease_expires_at is unreadable
+    or absent.
     """
-    expires_strings: list[str] = []
+    parse_failures: list[tuple[str, str]] = []  # (kind, raw)
+    parsed: list[datetime] = []
+    saw_claim_row = False
     for row in claims:
         if row.get("claim_id") != claim_id:
             continue
         if row.get("event") not in {"claimed", "heartbeat"}:
             continue
+        saw_claim_row = True
         ev = row.get("lease_expires_at")
-        if isinstance(ev, str) and ev.strip():
-            expires_strings.append(ev)
-    if not expires_strings:
-        return None
-    parsed = []
-    for s in expires_strings:
-        try:
-            parsed.append(datetime.fromisoformat(s.replace("Z", "+00:00")))
-        except ValueError:
+        if not isinstance(ev, str) or not ev.strip():
+            parse_failures.append(("missing", str(ev)))
             continue
-    return max(parsed) if parsed else None
+        try:
+            parsed.append(datetime.fromisoformat(ev.replace("Z", "+00:00")))
+        except (ValueError, TypeError):
+            parse_failures.append(("unparseable", ev))
+            continue
+    if parsed:
+        return max(parsed)
+    # No parsed expiry; either every row had unparseable / missing
+    # expiry OR there was no claim row at all. Distinguish so the
+    # caller surfaces the precise failure mode in its error code.
+    if not saw_claim_row:
+        raise GovernanceError(f"lease_not_found: claim_id={claim_id!r}")
+    raise GovernanceError(
+        f"lease_expires_at_unparseable_or_missing: claim_id={claim_id!r} "
+        f"failures={[k for k, _ in parse_failures]!r}"
+    )
 
 
 def release_claim(
@@ -880,8 +901,9 @@ def submit_claim_result(
     # reaper sweep yet) and produced an ACCEPTED row even though the
     # claim should have been rejected as expired.
     now_for_lease = _utc_now_dt()
+    # Plan 024 §H-3 — fail-closed expiry resolution; see helper docstring.
     latest_expires_for_submit = _latest_lease_expiry(claims, claim_id)
-    if latest_expires_for_submit is not None and latest_expires_for_submit < now_for_lease:
+    if latest_expires_for_submit < now_for_lease:
         raise GovernanceError(
             f"lease_expired: claim_id={claim_id!r} lease_expires_at="
             f"{_iso(latest_expires_for_submit)} is past current time "

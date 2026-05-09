@@ -409,6 +409,23 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       // DB-nullable mismatches; relaxing nullability does not violate
       // its check surface.
       if (/^ALTER\s+TABLE\b[^;]*?\bALTER\s+COLUMN\b/i.test(t)) return true;
+      // CREATE INDEX / CREATE UNIQUE INDEX — entity-declared indexes
+      // that the legacy baseline migration did not emit. Wrapped in
+      // IF NOT EXISTS by makeIdempotent so a partial-state replay is
+      // safe; existing entity-aligned indexes are no-op'd by PG.
+      if (/^CREATE\s+(?:UNIQUE\s+)?INDEX\b/i.test(t)) return true;
+      // ADD CONSTRAINT FOREIGN KEY — the only ADD CONSTRAINT class
+      // that does NOT conflict with existing constraint metadata
+      // (PRIMARY KEY / UNIQUE / CHECK / EXCLUDE all carry semantic
+      // collision risk; FK is purely additive at the catalog level).
+      // Wrapped in DO/EXCEPTION duplicate_object by makeIdempotent.
+      if (
+        /^ALTER\s+TABLE\b[^;]*?\bADD\s+CONSTRAINT\b[^;]*?\bFOREIGN\s+KEY\b/i.test(
+          t,
+        )
+      ) {
+        return true;
+      }
       return false;
     };
 
@@ -441,7 +458,24 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
         /(\bALTER\s+TABLE\s+(?:"[^"]+"\.)?"[^"]+"\s+)ADD\s+"/i,
         '$1ADD COLUMN IF NOT EXISTS "',
       );
+      // CREATE INDEX [UNIQUE] -> CREATE INDEX IF NOT EXISTS [UNIQUE]
+      // PostgreSQL ≥ 9.5 supports IF NOT EXISTS on CREATE INDEX. Idempotent.
+      s = s.replace(
+        /^CREATE\s+(UNIQUE\s+)?INDEX\s+(?!IF\s+NOT\s+EXISTS\b)/i,
+        (_match: string, unique?: string) =>
+          `CREATE ${unique ?? ''}INDEX IF NOT EXISTS `,
+      );
       if (/^CREATE\s+TYPE\b/i.test(s)) {
+        s = `DO $$ BEGIN ${s}; EXCEPTION WHEN duplicate_object THEN NULL; END $$`;
+      }
+      // ADD CONSTRAINT FOREIGN KEY -> wrap in DO/EXCEPTION
+      // duplicate_object. PostgreSQL has no IF NOT EXISTS form for
+      // ADD CONSTRAINT, so this is the canonical idempotency idiom.
+      if (
+        /^ALTER\s+TABLE\b[^;]*?\bADD\s+CONSTRAINT\b[^;]*?\bFOREIGN\s+KEY\b/i.test(
+          s,
+        )
+      ) {
         s = `DO $$ BEGIN ${s}; EXCEPTION WHEN duplicate_object THEN NULL; END $$`;
       }
       return s;

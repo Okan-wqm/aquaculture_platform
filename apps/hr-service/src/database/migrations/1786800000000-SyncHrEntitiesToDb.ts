@@ -433,8 +433,12 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     const makeIdempotent = (sql: string): string => {
       let s = sql;
       s = s.replace(/^CREATE\s+TABLE\s+"/i, 'CREATE TABLE IF NOT EXISTS "');
+      // ADD COLUMN — match BOTH `"schema"."table"` and unqualified
+      // `"table"` shapes. Same regex broadening as the foreign-schema
+      // filter above; TypeORM emits unqualified refs when the
+      // connection-level schema default is set.
       s = s.replace(
-        /(\bALTER\s+TABLE\s+"[^"]+"\."[^"]+"\s+)ADD\s+"/i,
+        /(\bALTER\s+TABLE\s+(?:"[^"]+"\.)?"[^"]+"\s+)ADD\s+"/i,
         '$1ADD COLUMN IF NOT EXISTS "',
       );
       if (/^CREATE\s+TYPE\b/i.test(s)) {

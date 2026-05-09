@@ -365,11 +365,13 @@ class CreateAgentInvocationRequestOptInTests(unittest.TestCase):
 
     def test_default_off_does_not_call_gate(self) -> None:
         from aria_kernel.agent_invocations import create_agent_invocation_request
-        # No exception even with absurdly tight cap because gate is off.
+        # Plan 024 §B-2 — context-budget tests focus on the budget gate,
+        # not the strict matrix; escape hatch keeps the test minimal.
         row = create_agent_invocation_request(
             target_agent="tiny-agent",
             role="primary_plan",
             suggested_prompt="x" * 100_000,
+            legacy_strict_fields_optional=True,
             base_dir=self.tools,
         )
         self.assertEqual(row["target_agent"], "tiny-agent")
@@ -381,6 +383,7 @@ class CreateAgentInvocationRequestOptInTests(unittest.TestCase):
                 target_agent="tiny-agent",
                 role="evidence_judgment",
                 suggested_prompt="x" * 100_000,
+                legacy_strict_fields_optional=True,
                 base_dir=self.tools,
                 enforce_context_budget=True,
                 context_repo_root=self.repo,

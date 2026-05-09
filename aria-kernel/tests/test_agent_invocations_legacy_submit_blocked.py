@@ -108,10 +108,15 @@ class LegacySubmitBlockedTests(unittest.TestCase):
     def test_internal_helper_without_approval_ref_raises(self) -> None:
         """Plan 024 §B-1 acceptance (c): the migration helper rejects any
         caller missing the operator_migration_approval_ref kwarg."""
+        # Plan 024 §B-2 — these tests target the LEGACY submit path,
+        # which writes results.jsonl directly (no strict claim path
+        # involvement). Escape hatch keeps the test focused on B-1 and
+        # avoids strict-matrix concerns from B-2.
         request = create_agent_invocation_request(
             target_agent="farm-expert",
             role="cross_review",
             suggested_prompt="hello",
+            legacy_strict_fields_optional=True,
             base_dir=self.tools_dir,
         )
         out = self.tools_dir / "out.md"
@@ -135,6 +140,7 @@ class LegacySubmitBlockedTests(unittest.TestCase):
             target_agent="farm-expert",
             role="cross_review",
             suggested_prompt="hello",
+            legacy_strict_fields_optional=True,
             expected_output_path=(self.tools_dir / "expected.md").as_posix(),
             base_dir=self.tools_dir,
         )
@@ -169,6 +175,7 @@ class LegacySubmitBlockedTests(unittest.TestCase):
             target_agent="farm-expert",
             role="cross_review",
             suggested_prompt="hello",
+            legacy_strict_fields_optional=True,
             expected_output_path=(self.tools_dir / "expected2.md").as_posix(),
             base_dir=self.tools_dir,
         )

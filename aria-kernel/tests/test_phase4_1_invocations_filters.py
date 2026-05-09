@@ -15,10 +15,17 @@ class AgentInvocationListFilterTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.tools_dir = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
+        # Plan 024 §B-2 — these tests only exercise list_agent_invocation_-
+        # requests filtering, never the strict claim path. The escape
+        # hatch keeps the matrix shape from being the test's concern;
+        # the request rows still carry empty must_satisfy + allowed_scope
+        # so an attempt to strict-claim them later would surface
+        # request_state_legacy_unmigrated as expected.
         self.req_a = create_agent_invocation_request(
             target_agent="farm-expert",
             role="cross_review",
             suggested_prompt="A",
+            legacy_strict_fields_optional=True,
             convergence_id="C-1",
             round_number=1,
             base_dir=self.tools_dir,
@@ -27,6 +34,7 @@ class AgentInvocationListFilterTests(unittest.TestCase):
             target_agent="aria-adversarial-judge",
             role="primary_plan",
             suggested_prompt="B",
+            legacy_strict_fields_optional=True,
             convergence_id="C-2",
             round_number=1,
             base_dir=self.tools_dir,
@@ -35,6 +43,7 @@ class AgentInvocationListFilterTests(unittest.TestCase):
             target_agent="farm-expert",
             role="implementation",
             suggested_prompt="C",
+            legacy_strict_fields_optional=True,
             convergence_id="C-1",
             round_number=2,
             base_dir=self.tools_dir,

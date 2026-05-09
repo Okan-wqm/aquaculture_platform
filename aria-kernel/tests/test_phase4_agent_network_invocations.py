@@ -55,10 +55,20 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
 
     def test_agent_invocation_result_hash_and_path_mismatch(self):
         expected = self.tools_dir / "agent-invocations" / "outputs" / "C-1" / "round-1-cross-review.md"
+        # Plan 024 §B-2 — request row carries strict fields so the legacy
+        # path-mismatch rejection still works under the renamed
+        # _submit_legacy_invocation_result_internal helper. The legacy
+        # helper itself does not require strict fields on the response,
+        # but the request row does (for any future strict-path claim
+        # to remain unaffected).
         request = create_agent_invocation_request(
             target_agent="farm-expert",
             role="cross_review",
             suggested_prompt="review this plan",
+            must_satisfy=[
+                {"id": "phase4-cross-review", "criterion": "review concludes"},
+            ],
+            allowed_scope=["aria-kernel/**"],
             convergence_id="C-1",
             round_number=1,
             expected_output_path=expected.as_posix(),

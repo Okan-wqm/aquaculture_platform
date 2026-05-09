@@ -66,11 +66,14 @@ class CounterIncrementTests(unittest.TestCase):
         shutil.rmtree(self.repo, ignore_errors=True)
 
     def test_request_total_increments_with_create(self) -> None:
+        # Plan 024 §B-2 — metrics test only counts request rows; matrix
+        # specifics are not the test's focus, so escape-hatch is fine.
         for i in range(3):
             create_agent_invocation_request(
                 target_agent="aria-evidence-judge",
                 role="evidence_judgment",
                 suggested_prompt=f"prompt {i}",
+                legacy_strict_fields_optional=True,
                 base_dir=self.tools,
             )
         metrics = compute_plan_016_metrics(base_dir=self.tools)
@@ -79,10 +82,15 @@ class CounterIncrementTests(unittest.TestCase):
         self.assertEqual(metrics["aria_agent_claim_active"], 0)
 
     def test_claim_active_reflects_currently_held_leases(self) -> None:
+        # Plan 024 §B-2 — claim_active flow goes through claim_request →
+        # _strict_request_view, so the request needs real strict fields
+        # to avoid request_state_legacy_unmigrated rejection.
         req = create_agent_invocation_request(
             target_agent="aria-primary-planner",
             role="primary_plan",
             suggested_prompt="claim test",
+            must_satisfy=[{"id": "claim-test", "criterion": "claim is active"}],
+            allowed_scope=["aria-kernel/**"],
             base_dir=self.tools,
         )
         claim_request(request_id=req["request_id"], agent_id="worker-1", base_dir=self.tools)

@@ -592,6 +592,26 @@ def _main(argv: list[str] | None = None) -> int:
     inv_request.add_argument("--pressure-event-id", default=None)
     inv_request.add_argument("--round-number", type=int, default=None)
     inv_request.add_argument("--expected-output-path", default=None)
+    # Plan 024 §B-2 — strict fields persisted on the request row.
+    # --must-satisfy-file: path to JSON file containing list[dict] of
+    #   satisfaction criteria.
+    # --allowed-scope: comma-separated glob list (e.g. 'aria-kernel/**,
+    #   apps/farm-service/**').
+    # --evidence-refs-file: path to JSON file containing list[str] of
+    #   pre-attached evidence path refs.
+    # --legacy-strict-fields-optional: explicit operator opt-out;
+    #   emits legacy_request_creation_without_strict_fields governance
+    #   event when set.
+    inv_request.add_argument("--must-satisfy-file", default=None)
+    inv_request.add_argument("--allowed-scope", default=None,
+        help="Comma-separated glob list, e.g. aria-kernel/**,apps/farm-service/**")
+    inv_request.add_argument("--evidence-refs-file", default=None)
+    inv_request.add_argument(
+        "--legacy-strict-fields-optional",
+        action="store_true",
+        help="Operator opt-out from must_satisfy + allowed_scope strict "
+             "enforcement; emits legacy_request_creation_without_strict_fields.",
+    )
     # Plan 024 §B-1 — legacy `agent-invocations submit-result` subparser
     # removed. The strict, lease-bound submission path is the only public
     # surface now (`agent submit-result`, line ~656). The underlying
@@ -1665,10 +1685,28 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "agent-invocations":
         if args.agent_invocation_command == "request":
+            # Plan 024 §B-2 — read strict fields from the new CLI args.
+            must_satisfy = None
+            if args.must_satisfy_file:
+                must_satisfy = json.loads(
+                    Path(args.must_satisfy_file).read_text(encoding="utf-8"))
+            allowed_scope = None
+            if args.allowed_scope:
+                allowed_scope = [
+                    g.strip() for g in args.allowed_scope.split(",") if g.strip()
+                ]
+            evidence_refs = None
+            if args.evidence_refs_file:
+                evidence_refs = json.loads(
+                    Path(args.evidence_refs_file).read_text(encoding="utf-8"))
             result = create_agent_invocation_request(
                 target_agent=args.target_agent,
                 role=args.role,
                 suggested_prompt=Path(args.prompt_file).read_text(encoding="utf-8"),
+                must_satisfy=must_satisfy,
+                allowed_scope=allowed_scope,
+                evidence_refs=evidence_refs,
+                legacy_strict_fields_optional=args.legacy_strict_fields_optional,
                 convergence_id=args.convergence_id,
                 pressure_event_id=args.pressure_event_id,
                 round_number=args.round_number,

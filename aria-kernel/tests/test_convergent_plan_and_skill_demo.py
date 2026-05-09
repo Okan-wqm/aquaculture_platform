@@ -89,9 +89,16 @@ class ConvergentPlanBridgeTests(unittest.TestCase):
 
     def test_issue_challenger_creates_separate_envelope(self) -> None:
         start_convergent_plan_with_envelope(**self._good_args())
+        # Plan 024 §B-2 — issue_challenger_envelope now requires
+        # must_satisfy + allowed_scope + evidence_refs to forward into
+        # the request row. Mirror the primary planner's good_args.
+        challenger_args = self._good_args()
         challenger = issue_challenger_envelope(
             plan_id="PLAN-D2-001",
             round_number=2,
+            must_satisfy=challenger_args["must_satisfy"],
+            allowed_scope=challenger_args["allowed_scope"],
+            evidence_refs=challenger_args["evidence_refs"],
             base_dir=self.tools,
         )
         self.assertEqual(challenger["target_agent"], "aria-challenger-planner")

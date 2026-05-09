@@ -126,6 +126,13 @@ class AgentResponseEvidenceTests(unittest.TestCase):
         self.assertIn("agent_evidence_outside_allowed_scope", codes)
 
     def test_request_scope_accepts_paths_inside_allowed_glob(self) -> None:
+        # Plan 024 §B-2 — the focus of this test is scope-glob acceptance,
+        # not the satisfaction matrix shape. The pre-fix evidence_validator
+        # silently accepted satisfaction_matrix=[] which combined with the
+        # empty-allowed_scope skip masked the same gap. Now the test
+        # carries either a non-empty matrix matching the criterion OR
+        # the explicit allow_empty_satisfaction_matrix opt-in. Picking the
+        # latter keeps the test focused on glob matching only.
         response = {
             "evidence_refs": ["deep/nested.ts:3"],
             "satisfaction_matrix": [],
@@ -133,6 +140,7 @@ class AgentResponseEvidenceTests(unittest.TestCase):
         request = {
             "allowed_scope": ["deep/**"],
             "evidence_refs": [],
+            "allow_empty_satisfaction_matrix": True,
         }
         result = validate_agent_response_evidence(
             response=response, workspace_root=self.repo, request=request

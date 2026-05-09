@@ -28,10 +28,17 @@ def _seed_request(
     suggested_prompt: str = "draft architecture-first plan",
     convergence_id: str = "conv-001",
 ) -> dict:
+    # Plan 024 §B-2 — lease lifecycle tests go through the strict claim
+    # path; request needs real strict fields so _strict_request_view
+    # accepts the conversion.
     return create_agent_invocation_request(
         target_agent=target_agent,
         role=role,
         suggested_prompt=suggested_prompt,
+        must_satisfy=[
+            {"id": "lease-lifecycle-test", "criterion": "lease moves through states"},
+        ],
+        allowed_scope=["aria-kernel/**"],
         convergence_id=convergence_id,
         base_dir=tools,
     )

@@ -58,10 +58,16 @@ def start_convergent_plan_with_envelope(
     )
 
     target_agent, role = PLANNER_ROLES["primary"]
+    # Plan 024 §B-2 — forward must_satisfy / allowed_scope / evidence_refs
+    # to the request row so the strict path reads them back at claim time
+    # instead of seeing empty defaults.
     request = create_agent_invocation_request(
         target_agent=target_agent,
         role=role,
         suggested_prompt=suggested_prompt,
+        must_satisfy=must_satisfy,
+        allowed_scope=allowed_scope,
+        evidence_refs=evidence_refs,
         convergence_id=plan_id,
         round_number=1,
         base_dir=base_dir,
@@ -76,22 +82,37 @@ def issue_challenger_envelope(
     *,
     plan_id: str,
     round_number: int,
+    must_satisfy: list[dict[str, Any]],
+    evidence_refs: list[str],
+    allowed_scope: list[str],
     suggested_prompt: str = "Independently scan the codebase and write a competing plan from the same evidence.",
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Issue the challenger planner envelope for a given convergence round.
 
-    Operator calls this after the primary planner has submitted its
-    response (lease lifecycle ACCEPTED). The two are intentionally
-    separate so the operator/orchestrator preserves the
+    Plan 016 separation: operator/orchestrator preserves the
     "challenger reads evidence in independent order, never sees primary
     plan first" discipline Plan 016 §Convergent planning demands.
+
+    Plan 024 §B-2 — must_satisfy / allowed_scope / evidence_refs are
+    now required parameters and forwarded to the request row. Same
+    bounding-box criteria the primary planner faced; the challenger
+    independently checks the same box.
     """
+    if not isinstance(must_satisfy, list) or not must_satisfy:
+        raise GovernanceError("must_satisfy is required and must be non-empty")
+    if not isinstance(evidence_refs, list) or not evidence_refs:
+        raise GovernanceError("evidence_refs is required and must be non-empty")
+    if not isinstance(allowed_scope, list) or not allowed_scope:
+        raise GovernanceError("allowed_scope is required and must be non-empty")
     target_agent, role = PLANNER_ROLES["challenger"]
     return create_agent_invocation_request(
         target_agent=target_agent,
         role=role,
         suggested_prompt=suggested_prompt,
+        must_satisfy=must_satisfy,
+        allowed_scope=allowed_scope,
+        evidence_refs=evidence_refs,
         convergence_id=plan_id,
         round_number=round_number,
         base_dir=base_dir,

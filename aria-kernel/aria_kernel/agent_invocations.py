@@ -63,6 +63,10 @@ def create_agent_invocation_request(
     target_agent: str,
     role: str,
     suggested_prompt: str,
+    must_satisfy: list[dict[str, Any]] | None = None,
+    allowed_scope: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    legacy_strict_fields_optional: bool = False,
     convergence_id: str | None = None,
     pressure_event_id: str | None = None,
     round_number: int | None = None,
@@ -83,6 +87,37 @@ def create_agent_invocation_request(
         raise GovernanceError("target_agent is required")
     if not suggested_prompt.strip():
         raise GovernanceError("suggested_prompt is required")
+    # Plan 024 §B-2 — strict fields enforcement at write-side. The legacy
+    # request schema lacked must_satisfy / allowed_scope, so a request
+    # written without them entered the queue, was claimed via the strict
+    # path, and the strict path's _strict_request_view (line ~964) silently
+    # defaulted both to []. evidence_validator.py:291 only enforced
+    # allowed_scope when non-empty, so a judge response with
+    # satisfaction_matrix=[] passed consensus uncontested. Closing the
+    # read-side default alone is not enough — the write-side must persist
+    # the fields so future reads carry the same fail-closed contract.
+    if not legacy_strict_fields_optional:
+        missing = []
+        if not must_satisfy:
+            missing.append("must_satisfy")
+        if not allowed_scope:
+            missing.append("allowed_scope")
+        if missing:
+            raise GovernanceError(
+                f"create_agent_invocation_request_strict_fields_required: "
+                f"{missing} (set legacy_strict_fields_optional=True to opt out "
+                f"with explicit operator approval)"
+            )
+    if evidence_refs is not None:
+        if not isinstance(evidence_refs, list):
+            raise GovernanceError(
+                "create_agent_invocation_request_evidence_refs_must_be_list"
+            )
+        for ref in evidence_refs:
+            if not isinstance(ref, str) or not ref.strip():
+                raise GovernanceError(
+                    "create_agent_invocation_request_evidence_refs_must_be_list_of_strings"
+                )
     # Plan 020 Phase 2.B — opt-in context budget gate.
     # Default off (backward-compat for every existing caller). When True,
     # the gate audits request + agent .md + knowledge bookmark tokens
@@ -124,7 +159,36 @@ def create_agent_invocation_request(
         "expected_output_path": expected,
         "state": "pending",
         "created_at": utc_now(),
+        # Plan 024 §B-2 — persist strict fields on the request row so the
+        # strict path reader sees actual matrices instead of empty defaults.
+        # When the operator opts out via legacy_strict_fields_optional=True
+        # the fields land as empty lists and the read-side reject still
+        # fires on claim_request (request_state_legacy_unmigrated).
+        "must_satisfy": list(must_satisfy or []),
+        "allowed_scope": list(allowed_scope or []),
+        "evidence_refs": list(evidence_refs or []),
     }
+    # Plan 024 §B-2 — when the caller opted out of strict enforcement,
+    # emit a governance event capturing target_agent + role + missing
+    # fields so the operator audit trail records every legacy creation.
+    if legacy_strict_fields_optional and (not must_satisfy or not allowed_scope):
+        append_tools_governance(
+            root,
+            "legacy_request_creation_without_strict_fields",
+            {
+                "request_id": request_id,
+                "target_agent": target_agent,
+                "role": role,
+                "missing": [
+                    name
+                    for name, value in (
+                        ("must_satisfy", must_satisfy),
+                        ("allowed_scope", allowed_scope),
+                    )
+                    if not value
+                ],
+            },
+        )
     # Plan 016 Faz C5/C6 — judgment_bridge.record_judge_verdict_from_response
     # requires tool_id, run_id, finding_id on the request when role is one
     # of JUDGE_ROLES. Persist them at request-creation time so the bridge
@@ -532,6 +596,16 @@ def claim_request(
         raise GovernanceError(
             f"cannot claim request {request_id} in state {state} (must be PENDING or REQUEUED)"
         )
+    # Plan 024 §B-2 — claim-time strict-field check. Pre-fix the request
+    # could be claimed even when must_satisfy + allowed_scope were
+    # missing on the row; the bypass surfaced only at submit time when
+    # _strict_request_view defaulted both to []. Surfacing the gap here
+    # forces operator backfill BEFORE work is leased, so a worker
+    # cannot consume a lease against a request that has no acceptance
+    # criteria. Fail-loud equivalent to the strict-view rejection in
+    # submit_claim_result.
+    request_for_check = _find_request(root, request_id)
+    _strict_request_view(request_for_check)
     now = _utc_now_dt()
     expires = now + timedelta(seconds=lease_seconds)
     lease_token = secrets.token_hex(LEASE_TOKEN_BYTES)
@@ -964,20 +1038,40 @@ def _persist_rejection(
 def _strict_request_view(legacy_request: dict[str, Any]) -> dict[str, Any]:
     """Adapt a legacy `aria/agent-invocation-request/v1` row into the strict v1 view used by validators.
 
-    The legacy schema does not carry must_satisfy or evidence_refs; cross-
-    check against those fields is skipped when they are absent. This keeps
-    the new submit_claim_result function compatible with both the legacy
-    request shape (no must_satisfy required in the response) and a strict
-    v1 envelope when callers transition.
+    Plan 024 §B-2 — fail-closed conversion. A legacy row without
+    must_satisfy or allowed_scope cannot be claimed via the strict path
+    because the strict-path validators (validate_response,
+    validate_agent_response_evidence) silently accept empty matrices,
+    which defeats the satisfaction-matrix + scope-bound evidence
+    contracts. When this conversion lands on a row missing either
+    field, the caller (claim_request / submit_claim_result) sees a
+    GovernanceError instead of an empty-matrix bypass.
+
+    Pre-Plan-024 legacy rows that were created via the legacy CLI (or
+    via the operator escape hatch in
+    create_agent_invocation_request) lack the strict fields. They are
+    unclaimable until backfilled via the
+    backfill-legacy-request-strict-fields.py migration script (Plan
+    024 §B-2 migration deliverable). Operators can run claim_request
+    against them and observe the explicit
+    `legacy_request_view_missing_required_strict_fields` rejection
+    until the backfill lands.
     """
     view = dict(legacy_request)
-    # When the request lacks must_satisfy / evidence_refs, the validate_response
-    # cross-check sees an empty required set and an empty allowed-ref set, so
-    # it accepts an empty matrix and allows any evidence ref the agent attaches
-    # (subject to evidence_validator's own scope rules).
-    view.setdefault("must_satisfy", [])
+    missing = [
+        field
+        for field in ("must_satisfy", "allowed_scope")
+        if not view.get(field)
+    ]
+    if missing:
+        raise GovernanceError(
+            f"legacy_request_view_missing_required_strict_fields: {missing}"
+        )
+    # evidence_refs may legitimately be empty (some judgment domains do
+    # not require pre-attached evidence; the satisfaction matrix is the
+    # primary trust anchor). expected_output_path defaults to '' to
+    # preserve legacy compatibility for the path-mismatch check.
     view.setdefault("evidence_refs", [])
-    view.setdefault("allowed_scope", view.get("allowed_scope") or [])
     view.setdefault("expected_output_path", view.get("expected_output_path") or "")
     return view
 

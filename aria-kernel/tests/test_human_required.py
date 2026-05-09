@@ -158,10 +158,18 @@ class SweepLeaseLifecycleTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _exhaust_request_to_human_required(self) -> str:
+        # Plan 024 §B-2 — strict fields required on the request row so
+        # claim_request does not reject via _strict_request_view. The
+        # human-required sweep test cycles through claims + releases;
+        # the matrix content itself is not the test's focus.
         request = create_agent_invocation_request(
             target_agent="aria-primary-planner",
             role="primary_plan",
             suggested_prompt="exhaust requeues",
+            must_satisfy=[
+                {"id": "exhaust-test", "criterion": "request reaches human_required"},
+            ],
+            allowed_scope=["aria-kernel/**"],
             convergence_id="conv-sweep-001",
             base_dir=self.tools,
         )

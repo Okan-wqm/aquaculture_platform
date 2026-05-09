@@ -40,10 +40,18 @@ class SubmitResultE2ETests(unittest.TestCase):
         shutil.rmtree(self.repo, ignore_errors=True)
 
     def _claim(self) -> tuple[dict, dict]:
+        # Plan 024 §B-2 — submit_claim_result E2E exercises the strict
+        # path. allowed_scope=["**"] permits the canonical fixture
+        # evidence path (src.txt at repo root from _seed_repo) without
+        # bringing in real aria-kernel paths the temp repo doesn't carry.
         request = create_agent_invocation_request(
             target_agent="aria-evidence-judge",
             role="evidence_judgment",
             suggested_prompt="validate F-001 evidence",
+            must_satisfy=[
+                {"id": "F-001-evidence", "criterion": "F-001 evidence is sufficient"},
+            ],
+            allowed_scope=["**"],
             convergence_id="conv-001",
             base_dir=self.tools,
         )
@@ -55,6 +63,11 @@ class SubmitResultE2ETests(unittest.TestCase):
         return request, claim
 
     def _good_envelope(self, *, request: dict, claim: dict) -> Path:
+        # Plan 024 §B-2 — request now carries must_satisfy=[F-001-evidence]
+        # and allowed_scope=aria-kernel/** + aria-tools/**. The "good"
+        # envelope must satisfy every criterion (or risk
+        # response_schema rejection) and place evidence inside the
+        # request's allowed_scope.
         envelope = {
             "$schema": "aria/agent-response/v1",
             "request_id": request["request_id"],
@@ -62,8 +75,14 @@ class SubmitResultE2ETests(unittest.TestCase):
             "agent_id": claim["agent_id"],
             "role": "evidence_judgment",
             "status": "submitted",
-            "satisfaction_matrix": [],  # legacy request has no must_satisfy items
-            "evidence_refs": ["src.txt:2"],
+            "satisfaction_matrix": [
+                {
+                    "id": "F-001-evidence",
+                    "verdict": "satisfied",
+                    "evidence_refs": ["src.txt:1"],
+                },
+            ],
+            "evidence_refs": ["src.txt:1"],
             "details": {"verdict": "true_positive", "confidence": 0.92},
         }
         # Plan 020 Phase 7.B — output_path_match compliance check requires
@@ -94,6 +113,12 @@ class SubmitResultE2ETests(unittest.TestCase):
 
     def test_evidence_pointing_at_missing_file_rejected(self) -> None:
         request, claim = self._claim()
+        # Plan 024 §B-2 — preserve the original missing-file rejection
+        # intent: the satisfaction matrix is non-empty and matches the
+        # criterion, evidence_refs path is inside allowed_scope but the
+        # file genuinely doesn't exist on disk. The rejection should
+        # surface from the file-existence check, not the matrix or
+        # scope gates.
         envelope = {
             "$schema": "aria/agent-response/v1",
             "request_id": request["request_id"],
@@ -101,7 +126,13 @@ class SubmitResultE2ETests(unittest.TestCase):
             "agent_id": claim["agent_id"],
             "role": "evidence_judgment",
             "status": "submitted",
-            "satisfaction_matrix": [],
+            "satisfaction_matrix": [
+                {
+                    "id": "F-001-evidence",
+                    "verdict": "satisfied",
+                    "evidence_refs": ["does/not/exist.ts:1"],
+                },
+            ],
             "evidence_refs": ["does/not/exist.ts:1"],
             "details": {"verdict": "true_positive", "confidence": 0.92},
         }
@@ -143,10 +174,17 @@ class SubmitResultE2ETests(unittest.TestCase):
 
     def test_separation_of_duties_blocks_self_approval(self) -> None:
         # Build a request whose forbidden_agent_ids excludes the submitter.
+        # Plan 024 §B-2 — strict path goes through claim_request, so
+        # real must_satisfy + allowed_scope prevent _strict_request_view
+        # from rejecting the legacy-shape conversion.
         request = create_agent_invocation_request(
             target_agent="aria-primary-planner",
             role="primary_plan",
             suggested_prompt="draft architecture-first plan",
+            must_satisfy=[
+                {"id": "sod-test", "criterion": "separation of duties enforced"},
+            ],
+            allowed_scope=["aria-kernel/**"],
             convergence_id="conv-002",
             base_dir=self.tools,
         )

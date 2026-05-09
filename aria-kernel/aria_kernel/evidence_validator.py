@@ -260,7 +260,18 @@ def validate_agent_response_evidence(
             continue
         _check_agent_ref(ref, root=root, errors=errors, checked=checked)
 
+    # Plan 024 §B-2 — satisfaction_matrix non-empty enforcement.
+    # Pre-fix an agent response with `satisfaction_matrix: []` passed
+    # consensus because the matrix-iteration loop simply never ran.
+    # Combined with the empty-allowed_scope skip (line below), a judge
+    # could rubber-stamp a request with zero criteria checked. The
+    # request can opt out via `allow_empty_satisfaction_matrix=True`
+    # for the rare judge-only domain that explicitly does not produce
+    # per-criterion evidence — operator-approval-gated; not a default.
     matrix = response.get("satisfaction_matrix") or []
+    allow_empty_matrix = bool(request and request.get("allow_empty_satisfaction_matrix"))
+    if not matrix and not allow_empty_matrix:
+        errors.append({"code": "evidence_satisfaction_matrix_must_be_non_empty"})
     if isinstance(matrix, list):
         for entry in matrix:
             if not isinstance(entry, dict):
@@ -277,19 +288,24 @@ def validate_agent_response_evidence(
                     continue
                 _check_agent_ref(ref, root=root, errors=errors, checked=checked)
 
-    # Cross-check: when a request is provided AND carries a non-empty
-    # allowed_scope, every ref the agent claims must either live inside
-    # that scope OR be one of the request's evidence_refs (the canonical
-    # bounding box). Refs outside the box are rejected as scope leakage.
+    # Cross-check: when a request is provided, every ref the agent
+    # claims must either live inside `allowed_scope` OR be one of the
+    # request's evidence_refs (the canonical bounding box). Refs
+    # outside the box are rejected as scope leakage.
     #
-    # An EMPTY allowed_scope is interpreted as "no scope constraint" —
-    # this preserves backward compatibility with legacy
-    # aria/agent-invocation-request/v1 rows that pre-date Plan 016.
-    # The strict aria/agent-request/v1 envelope's validate_request requires
-    # a non-empty allowed_scope, so v3 callers always run the scope check.
+    # Plan 024 §B-2 — allowed_scope MUST be provided when a request is
+    # supplied. Pre-fix the empty-list case skipped scope enforcement
+    # entirely under "preserves backward compatibility with legacy
+    # aria/agent-invocation-request/v1 rows that pre-date Plan 016".
+    # That path is now closed: legacy rows are caught at
+    # _strict_request_view (line ~964); by the time validate_agent_-
+    # response_evidence sees the request the strict fields are
+    # present.
     if request is not None:
-        allowed_globs = list(request.get("allowed_scope") or [])
-        if allowed_globs:
+        if "allowed_scope" not in request:
+            errors.append({"code": "evidence_request_missing_allowed_scope"})
+        else:
+            allowed_globs = list(request.get("allowed_scope") or [])
             allowed_request_refs = {
                 (_parse_agent_ref(r) or ("", None))[0]
                 for r in (request.get("evidence_refs") or [])

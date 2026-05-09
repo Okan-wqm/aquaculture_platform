@@ -32,6 +32,11 @@ def _judge_envelope_at(
     verdict: str,
     confidence: float = 0.9,
 ) -> Path:
+    # Plan 024 §B-2 — request now carries must_satisfy=[F-001-validity]
+    # and the strict path expects the response to surface a satisfaction
+    # matrix entry for that criterion. Plus allowed_scope is wide
+    # ("**") in the helper so src.txt at repo root remains a valid
+    # evidence ref.
     envelope = {
         "$schema": "aria/agent-response/v1",
         "request_id": request_id,
@@ -39,7 +44,13 @@ def _judge_envelope_at(
         "agent_id": judge_agent,
         "role": role,
         "status": "submitted",
-        "satisfaction_matrix": [],
+        "satisfaction_matrix": [
+            {
+                "id": "F-001-validity",
+                "verdict": "satisfied",
+                "evidence_refs": ["src.txt:1"],
+            },
+        ],
         "evidence_refs": ["src.txt:1"],
         "details": {
             "verdict": {
@@ -70,10 +81,19 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
         shutil.rmtree(self.repo, ignore_errors=True)
 
     def _claim_judge(self, *, target_agent: str, role: str) -> tuple[dict, dict]:
+        # Plan 024 §B-2 — must_satisfy + allowed_scope required so the
+        # strict path's _strict_request_view does not reject at claim
+        # time. allowed_scope=["**"] permits src.txt at the seeded repo
+        # root which is the canonical evidence path for these fixture
+        # judges; matrix entry id matches the helper at line ~25.
         request = create_agent_invocation_request(
             target_agent=target_agent,
             role=role,
             suggested_prompt=f"validate F-001 for {target_agent}",
+            must_satisfy=[
+                {"id": "F-001-validity", "criterion": "F-001 evidence is sufficient"},
+            ],
+            allowed_scope=["**"],
             convergence_id="conv-c5c6-001",
             base_dir=self.tools,
         )

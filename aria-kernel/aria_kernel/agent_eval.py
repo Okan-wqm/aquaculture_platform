@@ -218,6 +218,16 @@ def run_agent_eval(
     repo_root: str | Path | None = None,
     mock_mode: bool = True,
     real_response_envelope: dict[str, Any] | None = None,
+    # Plan 023 v3 §A-8 — real-mode provenance binding. Real-mode runs
+    # require an invocation_id (UUIDv7 from upstream lease ledger) and
+    # transcript_hash (sha256 of captured transcript) so the eval row
+    # joins back to the actual agent invocation. Legacy callers that
+    # only file-feed the envelope MUST opt in via
+    # allow_legacy_envelope_feed=True + operator_approval_ref.
+    invocation_id: str | None = None,
+    transcript_hash: str | None = None,
+    allow_legacy_envelope_feed: bool = False,
+    operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
     """Run an agent against a fixture; record pass/fail to runs.jsonl.
 
@@ -250,6 +260,28 @@ def run_agent_eval(
                 "supervised CI executor; until DEBT-2026-05-08-001 closure, "
                 "real-mode runs are operator-only."
             )
+        # Plan 023 v3 §A-8 — provenance binding for real-mode evals.
+        # Pre-Plan-023 mock_mode=False accepted any caller-provided
+        # envelope dict without proof that an actual agent invocation
+        # produced it. Post-fix: invocation_id (lease ledger UUID) and
+        # transcript_hash are required UNLESS the caller opts into the
+        # documented legacy feed path with an operator approval ref.
+        if not invocation_id:
+            if not allow_legacy_envelope_feed:
+                raise GovernanceError(
+                    "real_eval_missing_provenance_fields: mock_mode=False "
+                    "requires invocation_id (UUIDv7 from the upstream lease "
+                    "ledger) AND transcript_hash. Pass them, OR opt in via "
+                    "allow_legacy_envelope_feed=True + operator_approval_ref "
+                    "(deprecated path; tracked via the "
+                    "agent_eval_legacy_envelope_feed governance event)."
+                )
+            if not (operator_approval_ref or "").strip():
+                raise GovernanceError(
+                    "legacy_envelope_feed_requires_operator_approval_ref: "
+                    "allow_legacy_envelope_feed=True without an explicit "
+                    "operator_approval_ref bypasses the audit trail. Refusing."
+                )
         envelope = dict(real_response_envelope)
         kind = "agent_eval_run_real"
 
@@ -277,6 +309,16 @@ def run_agent_eval(
         "rounds_used": int(envelope.get("rounds_used", 0)),
         "tokens_used": int(envelope.get("tokens_used", 0)),
         "recorded_at": utc_now(),
+        # Plan 023 v3 §A-8 — provenance fields binding the eval row
+        # to the upstream invocation. invocation_id None for mock-mode
+        # runs (the synthesized envelope has no lease).
+        "invocation_id": invocation_id,
+        "transcript_hash": transcript_hash,
+        "provenance_mode": (
+            "mock" if mock_mode
+            else ("legacy_envelope_feed" if allow_legacy_envelope_feed else "real_invocation")
+        ),
+        "operator_approval_ref": operator_approval_ref if allow_legacy_envelope_feed else None,
     }
 
     root = ensure_tools_dir(base_dir)

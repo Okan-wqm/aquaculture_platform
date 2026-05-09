@@ -173,7 +173,7 @@ class RunAgentEvalRealModeTests(unittest.TestCase):
     def test_real_mode_without_envelope_raises(self) -> None:
         with self.assertRaises(GovernanceError) as cm:
             run_agent_eval(
-                fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False,
+                fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
             )
         self.assertIn("real_response_envelope", str(cm.exception))
 
@@ -184,7 +184,7 @@ class RunAgentEvalRealModeTests(unittest.TestCase):
             "rounds_used": 2, "tokens_used": 1500,
         }
         run = run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False,
+            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
             real_response_envelope=envelope,
         )
         self.assertTrue(run["passed"])
@@ -197,7 +197,7 @@ class RunAgentEvalRealModeTests(unittest.TestCase):
             "rounds_used": 1, "tokens_used": 500,
         }
         run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False,
+            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
             real_response_envelope=envelope,
         )
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
@@ -220,7 +220,7 @@ class PassCriteriaTests(unittest.TestCase):
             "rounds_used": 1, "tokens_used": 100,
         }
         run = run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False,
+            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
             real_response_envelope=envelope,
         )
         self.assertFalse(run["passed"])
@@ -233,7 +233,7 @@ class PassCriteriaTests(unittest.TestCase):
             "rounds_used": 1, "tokens_used": 100,
         }
         run = run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False,
+            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
             real_response_envelope=envelope,
         )
         self.assertFalse(run["passed"])
@@ -292,6 +292,8 @@ class ModeSegregationTests(unittest.TestCase):
         run_agent_eval(
             fixture_id="F1", base_dir=self.tools, mock_mode=False,
             real_response_envelope=envelope,
+            allow_legacy_envelope_feed=True,
+            operator_approval_ref="test:plan-023-a8-legacy",
         )
         counts = count_eval_runs_by_mode(base_dir=self.tools)
         self.assertEqual(counts["aria_agent_eval_mock_only_total"], 2)

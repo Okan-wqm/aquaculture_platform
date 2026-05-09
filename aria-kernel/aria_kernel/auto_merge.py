@@ -171,7 +171,15 @@ def evaluate_auto_merge(
     pr_number = pr.get("number")
     base_branch = _first_string(pr, "base_branch", "baseRefName", "base")
     head_sha = _first_string(pr, "head_sha", "headRefOid", "head")
-    latest_head_sha = _first_string(github, "latest_head_sha") or head_sha
+    # Plan 023 v3 §P-4 — strict latest_head_sha lookup. Pre-fix the
+    # `or head_sha` fallback meant a failed lookup (network 5xx, gh
+    # adapter bug, missing snapshot field) silently substituted the
+    # PR's own head_sha. The follow-up equality check then always
+    # passed because both values were the same — defeating the
+    # force-push detection that latest_head_sha exists to provide.
+    # Post-fix: empty / missing falls through to the
+    # "latest PR head SHA unavailable" reason below; gate blocks.
+    latest_head_sha = _first_string(github, "latest_head_sha")
     changed_files = pr.get("changed_files", pr.get("files", []))
     if not isinstance(changed_files, list):
         changed_files = []

@@ -289,11 +289,21 @@ def validate_response(
     envelope: dict[str, Any],
     *,
     request: dict[str, Any] | None = None,
+    lease: dict[str, Any] | None = None,
 ) -> None:
     """Validate an `aria/agent-response/v1` envelope.
 
     `request` is optional — when provided, the response is cross-checked
     against the request's `must_satisfy` ids and `expected_output_path`.
+
+    `lease` is optional — when provided (Plan 023 v3 §A-5), the
+    envelope's claim_id and agent_id MUST match the leased identity.
+    Pre-Plan-023 the envelope's claim_id was only validated for SHAPE
+    (CLAIM_ID_RE pattern) and the request_id was matched to the
+    request, but envelope.claim_id and envelope.agent_id were never
+    bound to the lease that authorized the submission. A stitched
+    envelope from a different lease (same request_id but different
+    claim/agent) would pass.
     """
     missing = [f for f in RESPONSE_REQUIRED_FIELDS if f not in envelope]
     if missing:
@@ -352,6 +362,28 @@ def validate_response(
     rationale = envelope.get("rationale")
     if isinstance(rationale, str) and rationale.strip():
         _check_banned_phrases(rationale, field="agent-response.rationale")
+
+    # Plan 023 v3 §A-5 — envelope claim/agent identity bound to lease.
+    # When the caller supplies the leased claim+agent identity (which
+    # submit_claim_result does), reject any envelope whose claim_id or
+    # agent_id differs. Pre-fix a stitched envelope from a different
+    # lease (same request_id but different claim/agent) passed because
+    # only request_id was cross-checked.
+    if lease is not None:
+        leased_claim = lease.get("claim_id")
+        leased_agent = lease.get("agent_id")
+        if leased_claim is not None and envelope["claim_id"] != leased_claim:
+            raise GovernanceError(
+                f"envelope_claim_id_mismatch: envelope.claim_id="
+                f"{envelope['claim_id']!r} does not match leased claim_id="
+                f"{leased_claim!r}"
+            )
+        if leased_agent is not None and envelope["agent_id"] != leased_agent:
+            raise GovernanceError(
+                f"envelope_agent_id_mismatch: envelope.agent_id="
+                f"{envelope['agent_id']!r} does not match leased agent_id="
+                f"{leased_agent!r}"
+            )
 
     if request is not None:
         if envelope["request_id"] != request.get("request_id"):

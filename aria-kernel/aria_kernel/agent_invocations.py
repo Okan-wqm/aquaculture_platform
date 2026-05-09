@@ -721,7 +721,17 @@ def submit_claim_result(
 
     reasons: list[str] = []
     try:
-        validate_response(envelope, request=_strict_request_view(request))
+        # Plan 023 v3 §A-5 — bind envelope claim_id / agent_id to the
+        # leased identity. submit_claim_result's `claim_id` and
+        # `agent_id` parameters are the leased identity (already
+        # validated against claim_event above); pass them as lease
+        # so validate_response rejects any envelope whose claim_id or
+        # agent_id differs.
+        validate_response(
+            envelope,
+            request=_strict_request_view(request),
+            lease={"claim_id": claim_id, "agent_id": agent_id},
+        )
     except GovernanceError as exc:
         reasons.append(f"response_schema: {exc}")
     try:

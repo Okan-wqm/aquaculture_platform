@@ -425,18 +425,59 @@ def evaluate_required_observation_value(
     return f"required observation values missing for {selector}: {expected_pairs}"
 
 
+def _enforce_path_inside_repo(candidate: Path, repo_root: Path) -> Path:
+    """Plan 023 v3 §A-2 — path traversal guard.
+
+    `candidate.resolve()` chases symlinks; `relative_to(repo_root.resolve())`
+    raises ValueError when the resolved path is outside the repo. We
+    catch that and re-raise as the operator-readable GovernanceError so
+    fixture_set='../../etc/passwd' or symlink targets outside the repo
+    cannot be loaded.
+    """
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(repo_root.resolve())
+    except ValueError as exc:
+        raise GovernanceError(
+            f"fixture_path_escape_outside_repo: {candidate!s} resolved to "
+            f"{resolved!s}, which is outside repo_root {repo_root!s}"
+        ) from exc
+    return resolved
+
+
+def _repo_root_for_path_guard(base_dir: str | os.PathLike[str] | None) -> Path:
+    """Plan 023 v3 §A-2 — repo_root anchor for the path-escape guard.
+
+    Honors ARIA_REPO_ROOT env var when set (test override), else
+    derives from the tools_dir parent (aria-tools/ lives inside the
+    repo by convention; tools_dir.parent IS the repo root).
+    """
+    override = os.environ.get("ARIA_REPO_ROOT")
+    if override:
+        return Path(override).resolve()
+    tools_root = ensure_tools_dir(base_dir).resolve()
+    return tools_root.parent
+
+
 def resolve_fixture_dir(tool: dict[str, Any], base_dir: str | os.PathLike[str] | None) -> Path:
     root = ensure_tools_dir(base_dir)
+    repo_root = _repo_root_for_path_guard(base_dir)
     fixture_set = Path(tool["fixture_set"])
     if fixture_set.exists():
-        return fixture_set
+        # Plan 023 v3 §A-2 — even when the literal path exists on disk,
+        # we still require it to live inside repo_root.
+        return _enforce_path_inside_repo(fixture_set, repo_root)
     candidate = root / fixture_set
     if candidate.exists():
-        return candidate
+        return _enforce_path_inside_repo(candidate, repo_root)
     fallback = root / "fixtures" / fixture_set.name
     if fallback.exists():
-        return fallback
-    return candidate
+        return _enforce_path_inside_repo(fallback, repo_root)
+    # Even when nothing exists yet, the candidate path itself must
+    # resolve inside repo_root so a `fixture_set: '../../etc/passwd'`
+    # cannot be silently quarantined as "candidate that doesn't exist
+    # yet" and processed downstream.
+    return _enforce_path_inside_repo(candidate, repo_root)
 
 
 def resolve_case_workspace(
@@ -444,13 +485,15 @@ def resolve_case_workspace(
     fixture_dir: Path,
     default_workspace_root: str | os.PathLike[str],
 ) -> Path:
+    repo_root = Path(os.environ.get("ARIA_REPO_ROOT") or default_workspace_root).resolve()
     raw = case.get("workspace_root")
     if raw is None:
         return Path(default_workspace_root).resolve()
     path = Path(str(raw))
     if not path.is_absolute():
         path = fixture_dir / path
-    return path.resolve()
+    # Plan 023 v3 §A-2 — case.workspace_root must stay inside repo_root.
+    return _enforce_path_inside_repo(path, repo_root)
 
 
 def read_json(path: Path) -> Any:

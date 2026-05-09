@@ -56,8 +56,15 @@ def _seed_workspace() -> tuple[Path, Path]:
     return tools, repo
 
 
-def _structured_ref(*, cmd: str = "nx test", exit_code: int = 0,
+def _structured_ref(*, cmd: str = "nx test auth-service tenant-service farm-service event-bus",
+                    exit_code: int = 0,
                     log_path: str = "/tmp/log.txt") -> dict:
+    # Plan 024 v3 §B-5 — default cmd now contains every required test's
+    # expected_cmd_substring across the four risk types, so a single
+    # _structured_ref satisfies the correlation gate. Pre-fix the
+    # helper used a generic 'nx test' which silently passed because
+    # the gate was skipping. Now the gate is fail-loud, so the helper
+    # cmd must match.
     return {
         "cmd": cmd,
         "exit_code": exit_code,

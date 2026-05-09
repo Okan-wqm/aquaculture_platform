@@ -205,7 +205,19 @@ _REQUIRED_TESTS_BY_RISK: dict[str, tuple[dict[str, Any], ...]] = {
 
 
 def list_required_tests(risk_types: list[str]) -> list[dict[str, Any]]:
-    """Return the union of required-test specs for the given risk types."""
+    """Return the union of required-test specs for the given risk types.
+
+    Plan 024 v3 §B-5 — projection now preserves ``expected_cmd_substring``
+    end-to-end. Pre-fix this function omitted the field during
+    serialisation, so the downstream consumer
+    ``_check_required_test_cmd_correlation`` saw None on
+    ``spec.get('expected_cmd_substring')`` and silent-skipped every
+    correlation check. ``cmd: 'echo ok'`` then satisfied any required
+    test in production. Post-fix: the field travels every hop from
+    ``_REQUIRED_TESTS_BY_RISK`` → projection → ``enforce_validation_-
+    matrix`` → ``_check_required_test_cmd_correlation`` and a
+    runtime guard surfaces drift in the spec table at first call.
+    """
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for rt in risk_types:
@@ -214,13 +226,22 @@ def list_required_tests(risk_types: list[str]) -> list[dict[str, Any]]:
             if key in seen:
                 continue
             seen.add(key)
-            # Convert regex to pattern string for serialisation.
+            substr = spec.get("expected_cmd_substring")
+            if not isinstance(substr, str) or not substr.strip():
+                # Plan 024 v3 §B-5 — fail-loud at the projection so a
+                # future spec edit that drops the field cannot
+                # silently re-open the bypass.
+                raise GovernanceError(
+                    f"required_test_spec_missing_expected_cmd_substring: "
+                    f"{rt}/{spec.get('name')!r}"
+                )
             out.append({
                 "risk_type": rt,
                 "name": spec["name"],
                 "path_substr": spec["path_substr"],
                 "path_glob": spec["path_glob"],
                 "regex_pattern": spec["regex"].pattern,
+                "expected_cmd_substring": substr,
             })
     return out
 
@@ -311,6 +332,9 @@ def _check_required_test_cmd_correlation(
     enforced (legacy fallback so this fix is additive — future plan
     iterations migrate the rest of the spec table).
     """
+    # Plan 024 v3 §B-5 — every spec now carries expected_cmd_substring
+    # (the projection guard at list_required_tests guarantees this).
+    # Field-missing → fail-loud, not silent-skip. Legacy fallback removed.
     failures: list[str] = []
     cmds: list[str] = []
     for ref in candidate_refs:
@@ -319,7 +343,10 @@ def _check_required_test_cmd_correlation(
     for spec in required_tests:
         substring = spec.get("expected_cmd_substring")
         if not isinstance(substring, str) or not substring.strip():
-            continue  # Legacy spec; not yet correlation-enforced.
+            raise GovernanceError(
+                f"validation_matrix_spec_missing_cmd_correlation_field: "
+                f"{spec.get('risk_type')}/{spec.get('name')}"
+            )
         if not any(substring in cmd for cmd in cmds):
             failures.append(
                 f"validation_run_ref_does_not_match_required_test_cmd: "

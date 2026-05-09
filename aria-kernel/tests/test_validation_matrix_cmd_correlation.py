@@ -62,10 +62,16 @@ class CmdCorrelationTests(unittest.TestCase):
         self.assertIn("validation_run_ref_does_not_match_required_test_cmd", failures[0])
         self.assertIn("nx test auth-service", failures[0])
 
-    def test_legacy_spec_without_expected_cmd_substring_no_enforcement(self) -> None:
-        """Backward compatibility: required tests that do not declare
-        expected_cmd_substring (legacy specs awaiting migration) are
-        not yet correlation-enforced."""
+    def test_legacy_spec_without_expected_cmd_substring_now_fails_loud(self) -> None:
+        """Plan 024 v3 §B-5 — silent legacy fallback removed. Pre-fix
+        a spec without expected_cmd_substring silently skipped the
+        correlation check (`echo ok` satisfied any required test).
+        Post-fix the gate raises GovernanceError so a future spec
+        edit that drops the field cannot silently re-open the
+        bypass. The projection guard at list_required_tests catches
+        the same drift earlier in the chain (B-5 acceptance 4 in
+        test_validation_matrix_cmd_correlation_end_to_end.py)."""
+        from aria_kernel.tool_registry import GovernanceError
         required = [
             {"name": "legacy_test"},  # No expected_cmd_substring.
         ]
@@ -73,10 +79,14 @@ class CmdCorrelationTests(unittest.TestCase):
             {"cmd": "echo ok", "exit_code": 0,
              "log_path": "log.txt", "ran_at": "2026-05-09T00:00:00Z"},
         ]
-        failures = _check_required_test_cmd_correlation(
-            required_tests=required, candidate_refs=candidate_refs,
+        with self.assertRaises(GovernanceError) as ctx:
+            _check_required_test_cmd_correlation(
+                required_tests=required, candidate_refs=candidate_refs,
+            )
+        self.assertIn(
+            "validation_matrix_spec_missing_cmd_correlation_field",
+            str(ctx.exception),
         )
-        self.assertEqual(failures, [])
 
     def test_mixed_required_tests_only_missing_fail(self) -> None:
         required = [

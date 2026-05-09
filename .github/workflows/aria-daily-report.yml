@@ -19,7 +19,10 @@ on:
         type: string
 
 permissions:
-  contents: read
+  # Plan 023 v3 §D-2 — bot needs contents:write to commit the daily
+  # report back to snowball. metadata:read is implicit. Workflow scope
+  # NOT granted (bot must not be able to rewrite workflows).
+  contents: write
 
 concurrency:
   group: aria-daily-report
@@ -31,9 +34,17 @@ jobs:
     timeout-minutes: 15
     if: github.ref == 'refs/heads/snowball'
     steps:
+      # Plan 023 v3 §D-2 — checkout step must inject the bot token
+      # at clone time so subsequent `git push` uses bot identity.
+      # GH_TOKEN env alone does NOT change git push credentials;
+      # checkout's `with: token + persist-credentials` is the
+      # canonical injection point.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: snowball
+          token: ${{ secrets.ARIA_BOT_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
@@ -93,3 +104,40 @@ jobs:
           name: aria-daily-report-${{ steps.target.outputs.date }}
           path: aria-tools/reports/daily/${{ steps.target.outputs.date }}.md
           retention-days: 30
+
+      # Plan 023 v3 §D-2 — commit the daily report back to snowball.
+      # Pre-Plan-023 the workflow only uploaded an artifact (ephemeral
+      # 30-day retention); operators couldn't read the report from
+      # the repo without the workflow run URL. Post-fix: aria-bot
+      # commits the report to aria-tools/reports/daily/<date>.md so
+      # the file is durable and grep-able. [skip ci] in the commit
+      # message prevents the commit from re-triggering this workflow
+      # (which is on schedule + workflow_dispatch only — defense in
+      # depth). Pull-rebase loop handles concurrent commits from
+      # other bots.
+      - name: Commit daily report to repo
+        if: github.ref == 'refs/heads/snowball'
+        run: |
+          set -euo pipefail
+          DATE="${{ steps.target.outputs.date }}"
+          REPORT="aria-tools/reports/daily/${DATE}.md"
+          git config user.name "aria-bot"
+          git config user.email "aria-bot@noreply.github.com"
+          git add "$REPORT"
+          if git diff --staged --quiet; then
+            echo "No daily-report changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(aria-reports): daily ${DATE} [skip ci]" -m "Automated daily report from aria-daily-report.yml."
+          # Pull-rebase loop: another bot may have committed in the
+          # window between our checkout and this push.
+          for i in 1 2 3; do
+            if git pull --rebase origin snowball && git push origin snowball; then
+              echo "Daily report ${DATE} committed."
+              exit 0
+            fi
+            echo "Push attempt $i failed; retrying..."
+            sleep 5
+          done
+          echo "Push failed after 3 retries." >&2
+          exit 1

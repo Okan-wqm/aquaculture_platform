@@ -1,0 +1,149 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "Plan 023 v3.1 sign-off (HEAD e4f3218e on origin/snowball) closed 32 bypass routes from F-004 but a follow-up audit (3 parallel Explore agents + operator validation pass + code re-verification) identified 15 architectural-quality gaps still alive that Plan 023 v3 did not cover: (1) legacy agent-invocations submit-result CLI bypass, (2) _strict_request_view + create_agent_invocation_request signature gap (must_satisfy/allowed_scope/evidence_refs absent at write-side), (3) workflow ${{ inputs.* }} shell injection + GHA env-no-cross-job, (4) runtime_profile.get_profile fail-open to standard on JSONDecodeError/OSError/unknown active_profile, (5) list_required_tests strips expected_cmd_substring projection-time, (6) SnapshotGitHubAdapter.get_latest_head_sha or pr.head_sha fallback + partial pre-merge re-check, (7) tool run CLI return 0 unconditional + run_tool returns health_decision instead of {envelope, health_decision}, (8) CI executor mock hardcoded claim_mock/ci-executor:mock rejected by A-5 lease binding, (9) claim_request non-atomic (no with_exclusive_lock helper), (10) submit_claim_result no replay/idempotency, (11) _latest_lease_expiry parse failure → None pass-through (heartbeat + submit), (12) validate_response role membership only, no request.role match, (13) evidence_validator SELF_OUTPUT prefix-before-resolve in BOTH _check_agent_ref string refs AND validate_evidence_path dict refs, (14) spine_orchestrator status != failed blacklist treats crash/schema_error/tool_unhealthy as fresh, (15) handoff_ledger + finding silent JSONDecodeError skip + governance.jsonl recursion risk if corrupt. Plan 024 v3 closes this finding via 16 fix items (8 Tier B BLOCKER + 7 Tier H + 1 H-0 prereq) plus the operator-pass-2 + pass-3 corrections of plan code-alignment errors.",
+  "claim_type": "post_push_audit_residual_bypass_chain",
+  "closes_in_commit": null,
+  "created_at": "2026-05-09T13:00:00Z",
+  "evidence_chain_id": "chain_plan_024_v3_post_push_audit",
+  "evidences": [
+    {
+      "ref": "aria-kernel/aria_kernel/agent_invocations.py:144",
+      "summary": "submit_agent_invocation_result accepted no claim_id / agent_id / lease / envelope schema / evidence revalidation; cli.py:585 agent-invocations parser dispatched it. Legacy result rows decided derive_request_state terminal state alongside strict claim rows."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/agent_invocations.py:910",
+      "summary": "_strict_request_view defaulted must_satisfy=[], evidence_refs=[], allowed_scope=[]. Legacy request converted to strict view with empty matrices; judge response with satisfaction_matrix=[] passed consensus because evidence_validator.py:291 only enforced allowed_scope when non-empty."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/agent_invocations.py:61",
+      "summary": "create_agent_invocation_request signature carried no must_satisfy / allowed_scope / evidence_refs parameters. Future legacy-path requests STILL bypass strict validation even after _strict_request_view fail-closed because the row never carries the strict fields."
+    },
+    {
+      "ref": ".github/workflows/aria-daily-report.yml:56",
+      "summary": "${{ github.event.inputs.date }} interpolated raw into shell. Plus contents:write permission at workflow level → injection has push privilege. GHA env DOES NOT cross job boundaries, so iki-job split needs outputs: + needs.<job>.outputs.* not env."
+    },
+    {
+      "ref": ".github/workflows/aria-agent-executor.yml:82",
+      "summary": "${{ github.event.inputs.request_id }} same shell injection class."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/runtime_profile.py:196",
+      "summary": "get_profile() returns DEFAULT_PROFILE ('standard') silently on JSONDecodeError / OSError / unknown active_profile. Operator deploying with intent 'frozen' (read-only) silently flips to write-enabled if profile JSON corrupts. Fail-OPEN. Plus field name is 'active_profile' (NOT 'profile'); function is intentional read-only (ensure_tools_dir_readonly), so governance event must emit at write-boundary."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/validation_matrix_gate.py:218",
+      "summary": "list_required_tests projection serializes path_glob / path_substr / regex_pattern but OMITS expected_cmd_substring. _check_required_test_cmd_correlation at :485 receives stripped list; :320 spec.get('expected_cmd_substring') returns None for every spec → continue → correlation never fires. Plan 023 §R-3.1 spec table migration was correct but the projection path strips before the gate sees it."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/auto_merge.py:478",
+      "summary": "SnapshotGitHubAdapter.get_latest_head_sha returns payload['github']['latest_head_sha'] or payload['pr']['head_sha']. or fallback masks missing fixture data. Plan 023 §P-4 closed the same fallback in evaluate_auto_merge but the snapshot-adapter copy persisted."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/auto_merge.py:395",
+      "summary": "Pre-merge re-evaluation re-fetches ONLY head SHA. Reviews / checks / conversations / diff NOT re-collected. Force-push between snapshot and merge time invalidates only the head SHA check; required reviewer dismissal / check failure / unresolved comment between snapshot and merge proceeds."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/cli.py:1222",
+      "summary": "tool run CLI dispatch returns 0 unconditionally regardless of run_tool envelope status. Operator scripts cannot pattern-match exit code for failure detection."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/tool_runner.py:195",
+      "summary": "run_tool returns record_run(envelope) — health_decision dict only. Envelope (with status: ok/crash/...) written as side effect to runs.jsonl. Caller cannot project envelope.status from return value; spine_orchestrator.py:259 reads run.get('status') (registry status) instead of envelope status. API split required."
+    },
+    {
+      "ref": "tools/aria-poc/ci_executor.py:118",
+      "summary": "Mock envelope hardcodes claim_id='claim_mock' + agent_id='ci-executor:mock'. Plan 023 §A-5 envelope.claim_id == lease.claim_id binding rejects. End-to-end mock E2E broken at submit. Plus role taken from subagent_type string manipulation; role lives on REQUEST row not lease."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/agent_invocations.py:462",
+      "summary": "claim_request reads state via derive_request_state then appends to claims.jsonl without OS-level lock or compare-and-swap. Two concurrent workers can both pass state check + both append claim rows. with_exclusive_lock helper does not exist; executor.py:713-735 has only logical (JSONL append-only) locking which races against reader-writer."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/agent_invocations.py:812",
+      "summary": "submit_claim_result appends result rows to results.jsonl without checking existing result for the claim_id. Same lease can submit twice; both rows land. Terminal-state check at :684 only blocks AFTER release/stale/human_required, not duplicate ACCEPTED/REJECTED rows for the same claim_id."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/agent_invocations.py:576",
+      "summary": "_latest_lease_expiry silently catches ValueError on lease_expires_at parse failure and returns None. Both submit_claim_result:697 and heartbeat_claim:535 callers compare 'latest is not None and latest < now' — None pass-through fail-open."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/agent_contract.py:321",
+      "summary": "validate_response checks role IN REQUEST_ROLES set but does not compare envelope.role == request.role inside the if request is not None: branch. Cross-role response (request domain_review accepting response architectural_judgment) passes."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/evidence_validator.py:201",
+      "summary": "_check_agent_ref (string agent refs) and validate_evidence_path (dict ref) both apply normalize_path() (lexical) THEN startswith(SELF_OUTPUT_MARKERS) prefix match BEFORE .resolve(). src/../aria-tools/output.json type traversal can bypass SELF_OUTPUT prefix match because the lexical normalization is incomplete."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/spine_orchestrator.py:262",
+      "summary": "Treats anything that is not status == 'failed' as fresh. crash / schema_error / tool_unhealthy / output_unparseable / budget_exceeded count as fresh, polluting fresh-spine signal with broken results."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/handoff_ledger.py:338",
+      "summary": "JSONDecodeError on corrupt row → continue silently. handoff ledger N-1 rows visible to operator; row N corruption hidden. Audit + integrity-chain depend on every row being seen-or-flagged."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/finding.py:157",
+      "summary": "Same silent skip pattern for finding doc index rebuild. Corrupt finding json silently dropped from index."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/tool_registry.py:214",
+      "summary": "append_tools_governance writes to aria-tools/governance.jsonl. If governance.jsonl itself corrupts, emitting a ledger_row_corrupt event back to it spirals into LedgerIntegrityError (ledger.py:31). No diagnostic sink, no recursion guard."
+    }
+  ],
+  "facts": [
+    "15 audit data points (8 BLOCKER + 7 High Risk) verified by 3 parallel Explore agents on 2026-05-09 against HEAD e4f3218e. 14 CONFIRMED + 1 PARTIAL → 0 WRONG.",
+    "Plan 023 v3.1 sign-off review at docs/aria/reviews/2026-05-09-plan-023-implementation-review.md declared kernel-correctness closure complete; the 15 gaps documented here are surfaces Plan 023 v3 did not address by design (creation-side strict fields, run_tool API contract, lock infra) or by oversight (workflow injection, projection-time field strip, snapshot adapter fallback).",
+    "Operator validation passes 2 + 3 each found 10 plan code-alignment errors that Plan 024 v1 + v2 had baked in before any code change shipped — confirming the architectural rule that every fix must verify against ACTUAL code, not against the assumed code.",
+    "1012 / 1012 aria-kernel tests pass at pre-fix baseline; the discrepancy with the audit's '1007/6 failures' claim was traced to a different mirror or stale snapshot."
+  ],
+  "finding_id": "F-005",
+  "interpretations": [
+    {
+      "text": "Plan 024 v3 corrective-arc closes this finding via 16 fix items distributed across Tier B (8 BLOCKER architectural bypasses) + Tier H (7 High Risk concurrency / integrity fixes + 1 H-0 prerequisite cross-platform with_exclusive_lock helper). Each fix commit references the specific anchor in this finding via Closes: aria-findings/F-005.json#<fix-id>.",
+      "verification_required": true
+    }
+  ],
+  "originating_pressure_event_id": null,
+  "originating_run_id": null,
+  "originating_skill": "manual:operator-plan-024-v3-post-push-audit",
+  "recommendation": "Execute Plan 024 v3 in the documented tier order with B-1+B-2 paired (same file conversion path), B-4+H-7 paired (corrupt state fail-open/fail-closed theme), B-7+H-6 paired (run_tool API split + atomic spine migration), H-0+H-1+H-2 paired (lock infra prerequisite + atomic + idempotency). Each fix commit references the specific anchor. Sign-off after re-running the 3-Explore-agent verification confirms all 15 gaps turn WRONG (closed).",
+  "related_specialized_agent_domains": [
+    "platform-kernel-expert",
+    "auth-security-expert",
+    "compliance-expert",
+    "audit-trail-completeness-auditor"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "aria-kernel/aria_kernel/agent_invocations.py",
+      "aria-kernel/aria_kernel/agent_contract.py",
+      "aria-kernel/aria_kernel/auto_merge.py",
+      "aria-kernel/aria_kernel/cli.py",
+      "aria-kernel/aria_kernel/evidence_validator.py",
+      "aria-kernel/aria_kernel/file_lock.py",
+      "aria-kernel/aria_kernel/finding.py",
+      "aria-kernel/aria_kernel/handoff_ledger.py",
+      "aria-kernel/aria_kernel/runtime_profile.py",
+      "aria-kernel/aria_kernel/spine_orchestrator.py",
+      "aria-kernel/aria_kernel/tool_runner.py",
+      "aria-kernel/aria_kernel/validation_matrix_gate.py",
+      ".github/workflows/aria-daily-report.yml",
+      ".github/workflows/aria-agent-executor.yml",
+      "tools/aria-poc/ci_executor.py"
+    ]
+  },
+  "severity": "HIGH",
+  "status": "OPEN",
+  "status_history": [
+    {
+      "at": "2026-05-09T13:00:00Z",
+      "by": "manual:operator-plan-024-v3-post-push-audit",
+      "note": "Emitted after Plan 023 v3.1 sign-off + push (HEAD e4f3218e). Post-push audit identified 15 architectural-quality gaps not covered by Plan 023 v3 closure. Plan 024 v3 corrective-arc tracks closure via 16 fix items (8 Tier B + 7 Tier H + 1 H-0 prerequisite).",
+      "status": "OPEN"
+    }
+  ],
+  "supersedes": null
+}

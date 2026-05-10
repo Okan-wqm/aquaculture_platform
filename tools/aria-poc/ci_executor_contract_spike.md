@@ -27,7 +27,18 @@ LEASE=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent claim \
     --json | jq -r '.lease_token')
 export ARIA_LEASE_TOKEN="$LEASE"   # env-var transit only — NEVER appears in argv
 
-# Step 2 — invoke Claude Code CLI (intended contract — see "NOT yet verified")
+# Step 2a — resolve EXPECTED_OUTPUT_PATH from the SSoT (request row).
+# Plan 025 §B — the path lives on the request row, never on the claim
+# row. ``agent-invocations list --request-id`` is the canonical
+# read-side surface; the executor resolves the path the same way and
+# the spike doc must match the live executor argv shape.
+EXPECTED_OUTPUT_PATH=$(PYTHONPATH=aria-kernel python3 -m aria_kernel \
+    agent-invocations list --request-id "$REQUEST_ID" \
+    --tools-dir aria-tools \
+    | jq -r '.[0].expected_output_path')
+test -n "$EXPECTED_OUTPUT_PATH" || { echo "request_envelope_not_found"; exit 1; }
+
+# Step 2b — invoke Claude Code CLI (intended contract — see "NOT yet verified")
 CLAUDE_CODE_OAUTH_TOKEN="$CI_OAUTH_TOKEN" \
 claude code agent \
     --subagent-type "$SUBAGENT_TYPE" \

@@ -63,7 +63,12 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
                     prompt_file=Path(td) / "prompt.md",
                     output_path=out,
                     timeout_seconds=60,
-                    # claim_id + agent_id intentionally missing.
+                    # Plan 025 §B — role is now a required keyword
+                    # argument. This test asserts the LEASE-IDENTITY
+                    # ValueError surface, so role is supplied to step
+                    # past the role precondition; claim_id + agent_id
+                    # intentionally missing.
+                    role="evidence_judgment",
                 )
             self.assertIn("ci_executor_mock_missing_lease_identity",
                           str(ctx.exception))

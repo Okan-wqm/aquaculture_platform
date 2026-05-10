@@ -47,6 +47,23 @@ LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
 OAUTH_TOKEN_ENV_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
 MOCK_MODE_ENV_VAR = "CLAUDE_CODE_MOCK"
 
+# Plan 025 §B — Tier-3 invariant: the live-path request-envelope fetch
+# uses the canonical ``agent-invocations list --request-id`` subcommand,
+# NOT a non-existent ``agent list-requests`` call. Pre-fix the executor
+# shelled out to ``python3 -m aria_kernel agent list-requests …`` which
+# argparse rejects with ``invalid choice: 'list-requests'`` on every run;
+# the result was a returncode!=0 that the executor silently swallowed
+# into ``request_envelope = {}``, masking the live path failure for
+# every CI run. The constant is exported so a regression test can pin
+# the argv shape at module-load time + AST-grep can prove no other
+# argv shape is constructed by the executor (one teaching surface, one
+# enforcement seam).
+REQUEST_ENVELOPE_LIST_ARGV: tuple[str, ...] = (
+    "agent-invocations",
+    "list",
+    "--request-id",
+)
+
 
 class CostCapExceeded(Exception):
     """The request would exceed the configured cost cap; skip + log."""
@@ -104,7 +121,7 @@ def invoke_claude_code(
     timeout_seconds: int,
     claim_id: str | None = None,
     agent_id: str | None = None,
-    role: str | None = None,
+    role: str,
     must_satisfy: list[dict[str, Any]] | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
@@ -115,6 +132,15 @@ def invoke_claude_code(
     ``agent_id="ci-executor:mock"`` which Plan 023 §A-5 lease binding
     rejects on submit; the "end-to-end mock" was therefore broken at
     the submission boundary.
+
+    Plan 025 §B — ``role`` is a REQUIRED keyword (no default). Pre-fix
+    a ``role: str | None = None`` default fed a string-mangle fallback
+    in the mock branch (``role or subagent_type.replace(…)``) which
+    silently re-introduced the kind of synthesized identity that §B-8
+    closed for hard-coded literals. Promoting role to a required
+    parameter makes the missing-role surface a TypeError at the call
+    site (tier-1 structural enforcement) — every caller must source
+    role from the request row's SSoT field.
 
     Returns the CLI exit code. Raises ClaudeCodeUnavailable when the
     `claude` binary is not on $PATH and mock mode is OFF — this is the
@@ -146,7 +172,20 @@ def invoke_claude_code(
                         "verdict": "satisfied",
                         "evidence_refs": [],
                     })
-        envelope_role = role or subagent_type.replace("aria-", "").replace("-judge", "_judgment")
+        # Plan 025 §B latent-bug-2 closure — no string-mangle fallback.
+        # Pre-fix ``role or subagent_type.replace("aria-", "").replace
+        # ("-judge", "_judgment")`` re-introduced the synthesized role
+        # pattern that §B-8 explicitly removed for claim_id + agent_id.
+        # role is now required at the function signature; if a caller
+        # passes "" (truthy-falsy edge), surface the gap as
+        # ValueError instead of fabricating a role string.
+        if not role.strip():
+            raise ValueError(
+                "ci_executor_mock_missing_role: role is required and "
+                "must be non-empty (Plan 025 §B latent-bug-2 closure). "
+                "Source role from the request envelope's SSoT field."
+            )
+        envelope_role = role
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(
             json.dumps({
@@ -206,6 +245,40 @@ def invoke_claude_code(
     return completed.returncode
 
 
+def _release_claim(
+    *,
+    tools_dir: Path,
+    repo: Path,
+    claim_id: str,
+    lease_token: str,
+    reason: str,
+) -> None:
+    """Release a leased claim with a structured reason code.
+
+    Plan 025 §B — extracted from the cost-cap path so every fail-fast
+    branch in ``main()`` releases the lease deterministically. Without
+    this helper a fail-fast branch could leak a claim row in the
+    CLAIMED state until lease expiry, blocking re-attempts by the
+    kernel reaper for the configured lease window. The reason code is
+    surfaced verbatim to ``aria-kernel agent release --reason`` so
+    operators reading governance.jsonl see the precise fail-mode.
+    """
+    subprocess.run(
+        [
+            "python3", "-m", "aria_kernel", "agent", "release",
+            "--claim-id", claim_id,
+            "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
+            "--reason", reason,
+            "--tools-dir", str(tools_dir),
+        ],
+        env={
+            **os.environ,
+            "PYTHONPATH": str(repo / "aria-kernel"),
+            LEASE_TOKEN_ENV_VAR: lease_token,
+        },
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point — runs one cycle. Designed to be called by GHA step."""
     args = argv if argv is not None else sys.argv[1:]
@@ -242,49 +315,108 @@ def main(argv: list[str] | None = None) -> int:
 
     lease_token = claim.get("lease_token")
     claim_id = claim.get("claim_id")
-    expected_output_path = Path(claim.get("expected_output_path") or "")
 
     if not lease_token or not claim_id:
         sys.stderr.write("claim missing lease_token or claim_id\n")
         return 1
 
-    # Step 2 — load the request envelope (for cost-cap evaluation).
+    # Step 2 — load the request envelope from the SSoT (request row).
+    # Plan 025 §B — uses the canonical ``agent-invocations list
+    # --request-id`` subcommand. Pre-fix the executor called a non-
+    # existent ``agent list-requests`` (cli.py:725-776 registers only
+    # next-pending / claim / heartbeat / release / reap-stale /
+    # submit-result; ``list-requests`` was never registered) and on
+    # any non-zero returncode silently fell through to ``{}``,
+    # masking every CI failure as a successful no-op (zero envelope
+    # populated → zero cost-cap evaluation → zero meaningful run).
+    # ``expected_output_path`` lives ONLY on the request row
+    # (claim_request:633-655 returns a minimal lease-event dict that
+    # does NOT carry it); reading it from the claim row was the
+    # surface bug. All four failure modes — subprocess error, JSON
+    # parse error, empty result list (request_id not found), missing
+    # required field on the row — release the claim with a
+    # structured reason and return 1 rather than fall through. This
+    # closes Planner-B's silent-swallow + Path("") + missing-role
+    # latent bugs in the same atomic batch.
     request_proc = subprocess.run(
         [
-            "python3", "-m", "aria_kernel", "agent", "list-requests",
-            "--request-id", request_id,
+            "python3", "-m", "aria_kernel", *REQUEST_ENVELOPE_LIST_ARGV,
+            request_id,
             "--tools-dir", str(tools_dir),
         ],
         capture_output=True,
         text=True,
         env={**os.environ, "PYTHONPATH": str(repo / "aria-kernel")},
     )
-    request_envelope: dict[str, Any] = {}
-    if request_proc.returncode == 0:
-        try:
-            rows = json.loads(request_proc.stdout)
-            request_envelope = rows[0] if isinstance(rows, list) and rows else {}
-        except (json.JSONDecodeError, IndexError):
-            request_envelope = {}
+    if request_proc.returncode != 0:
+        sys.stderr.write(
+            f"request_envelope_load_failed: returncode="
+            f"{request_proc.returncode} stderr="
+            f"{request_proc.stderr[:200]}\n"
+        )
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            lease_token=lease_token,
+            reason="request_envelope_load_failed",
+        )
+        return 1
+    try:
+        rows = json.loads(request_proc.stdout)
+    except json.JSONDecodeError as exc:
+        sys.stderr.write(
+            f"request_envelope_load_failed: json parse {exc}; "
+            f"stdout={request_proc.stdout[:200]}\n"
+        )
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            lease_token=lease_token,
+            reason="request_envelope_load_failed",
+        )
+        return 1
+    if not isinstance(rows, list) or not rows:
+        sys.stderr.write(
+            f"request_envelope_not_found: request_id={request_id}\n"
+        )
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            lease_token=lease_token,
+            reason="request_envelope_not_found",
+        )
+        return 1
+    request_envelope = rows[0]
+    if not request_envelope.get("expected_output_path"):
+        sys.stderr.write(
+            f"request_envelope_missing_expected_output_path: "
+            f"request_id={request_id}\n"
+        )
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            lease_token=lease_token,
+            reason="request_envelope_missing_expected_output_path",
+        )
+        return 1
+    if not request_envelope.get("role"):
+        sys.stderr.write(
+            f"request_envelope_missing_role: request_id={request_id}\n"
+        )
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            lease_token=lease_token,
+            reason="request_envelope_missing_role",
+        )
+        return 1
+    expected_output_path = Path(request_envelope["expected_output_path"])
 
     try:
         _validate_cost_cap(request=request_envelope)
     except CostCapExceeded as exc:
         sys.stderr.write(f"cost_cap_exceeded: {exc}\n")
-        # Release the claim so it can be re-tried after operator review.
-        subprocess.run(
-            [
-                "python3", "-m", "aria_kernel", "agent", "release",
-                "--claim-id", claim_id,
-                "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
-                "--reason", "cost_cap_exceeded",
-                "--tools-dir", str(tools_dir),
-            ],
-            env={
-                **os.environ,
-                "PYTHONPATH": str(repo / "aria-kernel"),
-                LEASE_TOKEN_ENV_VAR: lease_token,
-            },
+        # Plan 025 §B — release via the shared helper so every fail-
+        # fast branch in ``main()`` releases the lease deterministically
+        # (no claim row leaked in CLAIMED state until lease expiry).
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            lease_token=lease_token, reason="cost_cap_exceeded",
         )
         return 0  # cost-cap exceedance is a budget signal, NOT a build failure
 
@@ -306,7 +438,10 @@ def main(argv: list[str] | None = None) -> int:
             timeout_seconds=timeout,
             claim_id=claim_id,
             agent_id=agent_identity,
-            role=request_envelope.get("role"),
+            # Plan 025 §B — request_envelope["role"] is now guaranteed
+            # populated (validated above); direct subscript surfaces a
+            # KeyError if a future regression skips the validation.
+            role=request_envelope["role"],
             must_satisfy=request_envelope.get("must_satisfy") or [],
         )
     except ClaudeCodeUnavailable as exc:

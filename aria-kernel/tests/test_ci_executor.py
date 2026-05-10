@@ -98,12 +98,17 @@ class InvokeClaudeCodeTests(unittest.TestCase):
         with patch.dict(os.environ, {ci_executor.MOCK_MODE_ENV_VAR: "0"}):
             with patch("ci_executor.shutil.which", return_value=None):
                 with self.assertRaises(ci_executor.ClaudeCodeUnavailable) as ctx:
+                    # Plan 025 §B — role is now a required keyword (no
+                    # default); pass a real-shaped role here. The
+                    # ClaudeCodeUnavailable branch does NOT consume role
+                    # but the function signature requires it.
                     ci_executor.invoke_claude_code(
                         request_id="REQ-test-2",
                         subagent_type="aria-evidence-judge",
                         prompt_file=prompt_path,
                         output_path=out_path,
                         timeout_seconds=300,
+                        role="evidence_judgment",
                     )
         self.assertIn("contract gap", str(ctx.exception))
 

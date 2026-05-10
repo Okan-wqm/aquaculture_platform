@@ -2591,3 +2591,28 @@ The split is clean: B-5 ships the primitive (architecturally complete + invarian
 
 **Closure path discipline:** this is not a yama. The squashed-history damage is permanent (cannot recover the deleted migration files without rewriting history), so the architectural fix is to write a NEW baseline migration that aligns with the current entity surface. A future entity addition follows the same migration-per-change discipline; this one batch closes the historical gap.
 
+
+## ORPHAN-MEDIUM-056 — `nats-invariants.spec.ts` cert-CN extraction regex broken since WS1 (commit 0d249dd0); 1:1 invariant `services.yaml ↔ cert CN list` no longer fires (Phase: pre-flight-rewire, 2026-05-08)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: nats-invariants test maintainer. Deadline: gated on `loadCertCnList` being rewritten to match the current loop form AND the rewritten test failing on a deliberately drifted services.yaml entry.
+
+**Scope:** `e2e/tests/integration/nats-invariants.spec.ts` (specifically `loadCertCnList()` and the `services.yaml names ↔ cert CN list are 1:1` test case).
+
+**Root cause:** the cert-script previously hardcoded the per-service NATS CN list as a literal whitespace-separated argument to `for svc in <names>; do` (e.g. `for svc in auth_service farm_service ...; do`). The invariant test extracts that list with the regex `/for svc in\s+([\s\S]+?);\s*do/` and compares the names to `services.yaml`. WS1 (commit 0d249dd0) refactored the loop to read the list from a python3+yaml.safe_load extraction and iterate via `for svc in $SERVICE_NAMES; do`. The regex still matches (capturing `$SERVICE_NAMES`), but `loadCertCnList()` now returns the literal string `["$SERVICE_NAMES"]` instead of the 12 actual CNs. The 1:1 set comparison then yields `onlyInYaml = [12 names]` and `onlyInCerts = ["$SERVICE_NAMES"]` — which SHOULD throw on every CI run, but does not. We have not pinpointed why the spec is currently green on `main`; either the spec is silently skipped on the active CI gate, or it was already failing and the failure is being absorbed by some test-suite split. Investigation is part of the fix.
+
+**Why this is MEDIUM (not HIGH):** the structural SSoT IS still enforced — the cert-script reads `services.yaml` at script-run time via `python3 -c "...yaml.safe_load..."`, so an operator who edits services.yaml will get the corresponding cert minted on the next `generate-internal-certs.sh` run with no possible drift. The integration test was the SECOND-LINE drift detector (catch-it-before-the-script-runs); its silent failure is a defense-in-depth regression, not a correctness regression. The Phase A3 grep assertion in `.github/workflows/ci-affected.yml` (and the pre-flight rewire's mirror of it) is the FIRST-LINE structural guard and remains intact (this orphan is opened in the same commit that restores the Phase A3 guard).
+
+**Architectural fix (HOW to close):**
+
+1. **Rewrite `loadCertCnList()`** to actually invoke the script in a way that exercises the runtime python extraction and capture the printed CN list. Two viable shapes:
+   - **Tier-1 (preferred): execute the python extractor inline against `infrastructure/nats/services.yaml`** — the same one-liner the bash script uses, called from the Jest test via `child_process.execFileSync('python3', ['-c', '<one-liner>', SERVICES_YAML])`. This makes the test verify the SAME parsing logic that runs at cert-mint time, eliminating the "test parses regex; script parses yaml" double-implementation that drifted.
+   - **Tier-2: source the script via `bash -c "source <script>; echo \"$SERVICE_NAMES\""`** — sources the bash up to the SERVICE_NAMES assignment then emits it. Requires the script to be source-safe (it currently runs cert-generation as a side effect at top-level; would need a `SOURCE_ONLY=1` early-return guard, which is more script churn than Tier-1).
+
+2. **Add a deliberate-drift fixture test** under `e2e/tests/integration/__tests__/nats-invariants-loadCertCnList.spec.ts` that copies services.yaml to a temp file, removes one service entry, points the parser at the temp file, and asserts the 1:1 check throws with both `onlyInYaml` and `onlyInCerts` populated. Without this, "test passes" is uninformative — we need to confirm the test FAILS when drift exists.
+
+3. **Update the test's helper comment** that currently says "The names are whitespace-separated on one or more continuation lines (ending in `\`). Extract the full list." — that comment described the pre-WS1 hardcoded list. The new comment should describe the runtime-extraction model.
+
+4. **Investigate why this is currently green on main** — either (a) the spec is in a `.skip` block somewhere, (b) the e2e job split that runs this spec is non-blocking, or (c) the regex captures something that happens to match by coincidence. Whichever it is, document the finding in the closing commit so the failure mode that hid this for 24 days is itself fixed.
+
+**Why this is documented here (not as part of the PR #236 cert script fix):** the script-side fix (single-line `python3 -c "...yaml.safe_load..."` form) is in scope for the pre-flight-rewire PR. The integration-test-side fix is a separate concern with its own scope (Jest spec rewrite + deliberate-drift fixture + investigation of why it's green) and would balloon the PR. Per `feedback_orphan_findings_doc.md` the right move is documenting the finding here with the fix path, then opening a follow-up commit.
+

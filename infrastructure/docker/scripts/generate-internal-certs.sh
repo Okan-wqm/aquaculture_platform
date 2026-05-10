@@ -113,34 +113,31 @@ generate_server_cert "postgres" "postgres" "DNS:postgres,DNS:aqua-postgres,DNS:l
 # line on stdout, and errors (missing file, malformed YAML, missing
 # `services` key, empty list) exit non-zero so `set -e` aborts this script
 # — there is NO silent fallback to a hardcoded list.
+#
+# CI structural guard (.github/workflows/ci-affected.yml Phase A3):
+#   grep -q 'python3.*yaml\.safe_load' on this file
+# is asserted on every PR. The single-line `python3 -c` invocation below
+# co-locates `python3` and `yaml.safe_load` on one physical line so the
+# guard reliably catches a regression that re-introduces a hardcoded list.
+# Refactors that split the parsing across multiple lines or hide it in a
+# heredoc will fail the structural assertion — that is the intended trip
+# wire, not a bug to work around.
 SERVICES_YAML="${REPO_ROOT}/infrastructure/nats/services.yaml"
 if [ ! -f "$SERVICES_YAML" ]; then
   echo "error: ${SERVICES_YAML} not found — cannot derive per-service cert CN list" >&2
   exit 1
 fi
-SERVICE_NAMES=$(python3 - "$SERVICES_YAML" <<'PY'
-import sys
-try:
-    import yaml
-except ImportError:
-    sys.stderr.write("error: PyYAML not available. Install via `pip install pyyaml` or `apt-get install python3-yaml`.\n")
-    sys.exit(1)
-with open(sys.argv[1]) as f:
-    doc = yaml.safe_load(f)
-if not isinstance(doc, dict) or "services" not in doc:
-    sys.stderr.write(f"error: {sys.argv[1]} is malformed — expected top-level 'services' key\n")
-    sys.exit(1)
-services = doc["services"]
-if not isinstance(services, list) or len(services) == 0:
-    sys.stderr.write(f"error: {sys.argv[1]} services list is empty or not a list\n")
-    sys.exit(1)
-for svc in services:
-    if not isinstance(svc, dict) or "name" not in svc:
-        sys.stderr.write(f"error: {sys.argv[1]} entry missing 'name': {svc!r}\n")
-        sys.exit(1)
-    print(svc["name"])
-PY
-)
+# WHY (single-line form) — keeps `python3` and `yaml.safe_load` on one
+# physical line for the CI structural assertion above. Validation
+# preserved: dict at top level, non-empty `services` list, every entry
+# is a dict with a `name`. The compound `assert` raises AssertionError on
+# any structural violation, which exits non-zero and (with `set -e`)
+# aborts the shell script — NO silent fallback to a hardcoded list.
+# WHAT — reads $SERVICES_YAML, validates structure, prints one CN per line
+# on stdout, captured into $SERVICE_NAMES for the iteration loop. Uses
+# `;` to chain simple statements and a generator-expression `print` so
+# the whole pipeline fits in a single -c argument with no heredoc.
+SERVICE_NAMES=$(python3 -c "import sys, yaml; d = yaml.safe_load(open(sys.argv[1])); assert isinstance(d, dict) and isinstance(d.get('services'), list) and d['services'] and all(isinstance(s, dict) and 'name' in s for s in d['services']), f'malformed services.yaml: {sys.argv[1]} — expected dict with non-empty services list, every entry having a name'; print('\n'.join(s['name'] for s in d['services']))" "$SERVICES_YAML")
 if [ -z "$SERVICE_NAMES" ]; then
   echo "error: no service names extracted from ${SERVICES_YAML}" >&2
   exit 1

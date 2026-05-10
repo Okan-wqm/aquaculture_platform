@@ -1,0 +1,68 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "Operator-conducted ARIA self-audit (2026-05-10) identified two architectural-quality gaps in the kernel-internal silencing/tracking discipline: (1) pressure._phase2_effective_context wraps both the deferred trust import and the trust function calls in a single `except Exception` block, silently swallowing real data errors from `trust.trusted_gap_keys` and `trust.ref_status_by_feedback_id` that feed pressure evaluation feeding operator decisions; (2) cycle.py:54-56 documents `pr_lifecycle` phase as emitting a placeholder governance event because the cycle entry point doesn't carry a proposal_id, but the placeholder carries no `# aria-debt:DEBT-...` source-side marker and no entry in `aria-state/architectural_debt.jsonl`, in violation of CONTRACTS.md §6.6 + IDENTITY.md §3.6 short-term-workaround-as-tracked-debt schema (debts without owner+deadline are forbidden). Anchors close in two fix commits + one verification commit. Tier V (1072/1072 unittest discover green) closes the finding.",
+  "claim_type": "audit_gap_silencing_and_untracked_debt",
+  "closes_in_commit": null,
+  "created_at": "2026-05-10T01:30:00Z",
+  "evidence_chain_id": "chain_F006_aria_self_audit",
+  "evidences": [
+    {
+      "ref": "aria-kernel/aria_kernel/pressure.py:481-487",
+      "summary": "_phase2_effective_context broad `except Exception` swallows trust function data errors; pre-fix code path."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/cycle.py:54-56",
+      "summary": "Source-side comment acknowledges pr_lifecycle phase emits placeholder governance event; no aria-debt: marker, no DEBT-* record."
+    },
+    {
+      "ref": "docs/aria/CONTRACTS.md:663-743",
+      "summary": "§6.6 Architectural Debt Record schema: debts without owner+deadline are forbidden; source-side marker `// aria-debt:DEBT-XXX` adjacent to workaround required."
+    },
+    {
+      "ref": "docs/aria/IDENTITY.md:213-242",
+      "summary": "§3.6 Rule 3 short-term workarounds are architectural debt with owner + due date."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/reverify.py:11",
+      "summary": "Top-level `from .trust import ref_status_by_feedback_id` proves trust module load is unconditional in production; the only legitimate ImportError surface in pressure._phase2_effective_context is the circular-import edge."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/feedback.py:16",
+      "summary": "Top-level `from .pressure import close_pressures_from_signals` confirms the circular chain pressure -> trust -> feedback -> pressure that necessitates a deferred function-level import in pressure."
+    }
+  ],
+  "facts": [
+    "pressure.py:481-487 wraps both `from .trust import ...` and `trusted_gap_keys(paths)` + `ref_status_by_feedback_id(paths)` in one `except Exception: return set(), {}` block.",
+    "Top-level `from .trust import ...` in reverify.py and learning.py demonstrates the trust module loads cleanly outside the circular edge — no other call site needs the broad swallow.",
+    "cycle.py:54-56 contains a NOTE explicitly stating `pr_lifecycle` emits a placeholder governance event with no real PR action, but the placeholder is not adjacent to any `# aria-debt:DEBT-...` marker.",
+    "`grep -rn 'aria-debt:' aria-kernel/ tools/aria-poc/` returns zero matches across the entire ARIA codebase despite the schema being defined in CONTRACTS.md §6.6.",
+    "ARIA self-audit is operator-conducted (manual, no originating skill or pressure event) and recorded as a process integrity check on 2026-05-10."
+  ],
+  "finding_id": "F-006",
+  "interpretations": [
+    {
+      "text": "The pressure swallow is small in isolation but has high observability multiplier: a real bug in trust derivation feeds an empty trusted_gap_keys() into pressure-state evaluation, downgrading pressures to `unknown` ref-stale silently. MEDIUM severity reflects the audit-path masking risk, not a confirmed live regression.",
+      "verification_required": false
+    },
+    {
+      "text": "The cycle.pr_lifecycle placeholder is itself architecturally honest (it does not pretend to act); the violation is process: short-term workarounds without owner+deadline+marker grow louder, never quieter (CONTRACTS §6.6). Closure requires the marker + a debt record, not removal of the placeholder.",
+      "verification_required": false
+    }
+  ],
+  "originating_pressure_event_id": null,
+  "originating_run_id": null,
+  "originating_skill": "manual:operator-aria-self-audit-2026-05-10",
+  "recommendation": "Two fix commits + one verification commit. (1) Narrow pressure._phase2_effective_context except to ImportError; trust function calls leave the try block. (2) Add `# aria-debt:DEBT-2026-05-10-001` marker adjacent to cycle.py:54-56 placeholder note + write the debt record to `aria-state/architectural_debt.jsonl` with owner, deadline (2026-06-24, 45 days), root_cause_summary, short_term_action, permanent_fix_plan, source_marker. (3) Tier V mechanical re-run: `npm install` + `unittest discover` confirms 1072/1072 green; on success, F-006 status flips OPEN -> RESOLVED with closes_in_commit set.",
+  "related_specialized_agent_domains": [],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "aria-kernel/aria_kernel/pressure.py",
+      "aria-kernel/aria_kernel/cycle.py",
+      "aria-state/architectural_debt.jsonl"
+    ]
+  },
+  "severity": "MEDIUM",
+  "status": "OPEN"
+}

@@ -479,12 +479,18 @@ def _feedback_by_id(paths: WorkspacePaths) -> dict[str, dict[str, Any]]:
 
 
 def _phase2_effective_context(paths: WorkspacePaths) -> tuple[set[str], dict[str, str]]:
+    # Deferred import breaks the circular edge pressure -> trust ->
+    # feedback -> pressure. ImportError is the ONLY failure mode the
+    # try guards: if `trust.trusted_gap_keys` or
+    # `trust.ref_status_by_feedback_id` raise on data, that is a real
+    # bug in trust derivation feeding pressure evaluation -> operator
+    # decisions, and it must surface, not silently fall back to
+    # "no trusted refs, no statuses known".
     try:
         from .trust import ref_status_by_feedback_id, trusted_gap_keys
-
-        return trusted_gap_keys(paths), ref_status_by_feedback_id(paths)
-    except Exception:
+    except ImportError:
         return set(), {}
+    return trusted_gap_keys(paths), ref_status_by_feedback_id(paths)
 
 
 def _pressure_ref_stale(pressure: dict[str, Any], ref_statuses: dict[str, str]) -> str:

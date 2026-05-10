@@ -49,8 +49,18 @@
       "path": "F-005.json",
       "severity": "HIGH",
       "status": "OPEN"
+    },
+    {
+      "claim_summary": "Operator-conducted ARIA self-audit (2026-05-10) identified two architectural-quality gaps in the kernel-internal silencing/tracking discipline: (1) pressure._phase2_effective_context wraps both the deferred trust import and the trust function calls in a single broad except, silently swallowing real data errors from trust functions feeding pressure evaluation feeding operator decisions; (2) cycle.py:54-56 documents pr_lifecycle phase as emitting a placeholder governance event but carries no aria-debt:DEBT-... source-side marker and no entry in aria-state/architectural_debt.jsonl, in violation of CONTRACTS.md §6.6 + IDENTITY.md §3.6 short-term-workaround-as-tracked-debt schema.",
+      "claim_type": "audit_gap_silencing_and_untracked_debt",
+      "created_at": "2026-05-10T01:30:00Z",
+      "evidence_chain_id": "chain_F006_aria_self_audit",
+      "finding_id": "F-006",
+      "path": "F-006.json",
+      "severity": "MEDIUM",
+      "status": "OPEN"
     }
   ],
-  "generated_at": "2026-05-09T13:00:00Z",
+  "generated_at": "2026-05-10T01:30:00Z",
   "schema_version": 1
 }

@@ -7,9 +7,17 @@ import { join } from 'path';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, PlatformJwtModule } from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
-import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import {
+  AuditColumnsModule,
+  createMigrationRunnerService,
+  createServiceTypeOrmConfig,
+  RlsModule,
+  SchemaDriftModule,
+} from '@aquaculture/backend-common/database';
+import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import { LoggingModule } from '@aquaculture/backend-common/logging';
 
 /**
  * ConfigMigrationRunnerService — runs pending TypeORM migrations in the

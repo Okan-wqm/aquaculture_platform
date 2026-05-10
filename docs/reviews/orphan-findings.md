@@ -2652,6 +2652,8 @@ The entry is in a hash-chained append-only ledger. Editing the id rewrites `cont
 - A different malformed id (e.g. `FARM-FOOBAR-001`) must still fail.
 - The integrity test (`every entry conforms to findings.jsonl.schema.json`) must turn green end-to-end.
 
+**Status:** RESOLVED — `properties.id` rewritten as a `oneOf` with two branches: (1) the original CLASSIFIER alternation, (2) a `const: "FARM-DATAMIG-001"` literal grandfathering exactly the one historical malformed entry. AJV passes the entry, the original alternation remains intact for every future writer, and unrelated malformed ids (e.g. `FARM-FOOBAR-001`) still fail because they match neither branch. Closed by the same commit that registered `ajv-formats` (PR #236 invariants-fast green-up). The pre-flight rewire bundle landed Fix 1 (ajv-formats registration) and Fix 2 (this carve-out + a sibling `deadline` `anyOf` admitting both `format: date` and `format: date-time` for ORPHAN-HIGH-035 / ORPHAN-HIGH-039 / ULTRA-HIGH-071, which was a separate format-precision issue unmasked by the same compile-time crash).
+
 
 
 ## ORPHAN-013 — `aquamobil` Docker build cannot resolve `react/jsx-runtime` from aliased `farm-shared` source

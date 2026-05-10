@@ -10,23 +10,23 @@ import { join } from 'path';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import {
-  UserContextMiddleware,
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  MetricsMiddleware,
-  TenantGuard,
-  RolesGuard,
-  SourceSchemaBootstrapService,
-  ServiceIdentityGuard,
-  RedisModule,
-  RlsModule,
-  PlatformJwtModule,
-} from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
-import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
-import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import {
+  createServiceTypeOrmConfig,
+  RlsModule,
+  SourceSchemaBootstrapService,
+} from '@aquaculture/backend-common/database';
+import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
+import {
+  CorrelationIdMiddleware,
+  StripInternalHeadersMiddleware,
+  TenantContextMiddleware,
+  UserContextMiddleware,
+} from '@aquaculture/backend-common/middleware';
+import { RedisModule } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';

@@ -326,7 +326,15 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
         /"([a-zA-Z_][a-zA-Z0-9_]*)"\./g,
       );
       for (const m of schemaQualifierMatches) {
-        if (m[1].toLowerCase() !== 'hr') {
+        // m[1] is the captured schema name. Under tsc --strict the
+        // RegExpMatchArray indexer is `string | undefined`; in practice
+        // the regex's single capture group always yields a non-empty
+        // match when matchAll iterates a hit, but narrow the type
+        // explicitly so the production tsc build does not flag the
+        // implicit nullability.
+        const captured = m[1];
+        if (captured === undefined) continue;
+        if (captured.toLowerCase() !== 'hr') {
           return false;
         }
       }
@@ -561,6 +569,15 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       const schemaName = m[1] ?? 'hr';
       const tableName = m[2];
       const columnName = m[3];
+
+      // tsc --strict treats RegExpMatchArray index access as
+      // `string | undefined`. The regex's two mandatory capture groups
+      // always yield strings on a successful match, but narrow the
+      // type explicitly so the production tsc build does not flag the
+      // implicit nullability.
+      if (tableName === undefined || columnName === undefined) {
+        return [{ query: q.query, parameters: q.parameters }];
+      }
 
       const SAFE_IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
       if (

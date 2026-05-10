@@ -2591,3 +2591,39 @@ The split is clean: B-5 ships the primitive (architecturally complete + invarian
 
 **Closure path discipline:** this is not a yama. The squashed-history damage is permanent (cannot recover the deleted migration files without rewriting history), so the architectural fix is to write a NEW baseline migration that aligns with the current entity surface. A future entity addition follows the same migration-per-change discipline; this one batch closes the historical gap.
 
+---
+
+## ORPHAN-012 — `FARM-DATAMIG-001` registry id violates `findings.jsonl.schema.json` id pattern
+
+**Severity:** MEDIUM
+**Discovered:** 2026-05-10, while implementing /tmp/ci-cleanup-plans/invariants-deferred.md §2 Option A (evidence-pattern relax)
+**File:** `docs/reviews/_registry/findings.jsonl` (entry id `FARM-DATAMIG-001`, appended 6b372511 on 2026-04-24)
+
+**Evidence:**
+- `docs/reviews/_registry/findings.jsonl.schema.json:22` — id pattern `^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|...)-(CRITICAL|HIGH|MEDIUM|LOW|CVE)-[0-9]{3}$` requires CLASSIFIER ∈ {CRITICAL, HIGH, MEDIUM, LOW, CVE}.
+- `docs/reviews/_registry/findings.jsonl` line 97 — entry has `"id":"FARM-DATAMIG-001"` with `"severity":"HIGH"`. The CLASSIFIER segment is `DATAMIG`, a domain tag, not the entry's severity.
+- AJV failure observed via `npm run invariants:fast -- --testPathPatterns=finding-registry-integrity`: `instancePath:/id, schemaPath:#/properties/id/pattern, ... must match pattern`.
+- Discovered separately from the 94 `evidence/items/pattern` violations addressed by the schema relax in this same batch — Option A's recommended scope was strictly the evidence pattern, so this id-pattern fail is left for a follow-up architectural decision.
+
+**Why this is an orphan, not a yama:**
+The entry is in a hash-chained append-only ledger. Editing the id rewrites `content_hash` and breaks every subsequent entry's `prev_hash` pointer — exactly the chain-replay corruption the integrity invariant exists to detect (see `finding-registry-integrity.spec.ts` hash-chain checks). So the cure is on the SCHEMA side (same architectural pattern as the evidence-pattern relax landing in this commit).
+
+**Two architectural options:**
+
+1. **Extend the id pattern enum.** Add `DATAMIG` to the CLASSIFIER alternation:
+   ```
+   ^(DATA|SEC|PLAT|...)-(CRITICAL|HIGH|MEDIUM|LOW|CVE|DATAMIG)-[0-9]{3}$
+   ```
+   This admits the existing entry. But CLASSIFIER's whole purpose per the schema description is severity (or `CVE` as a stable upstream identifier). Adding a domain-tag value to the same slot conflates two orthogonal axes (severity vs. domain) and invites more drift later (someone next adds `MIGRATION`, `ROLLOUT`, etc.). Cheap, but architecturally weak.
+
+2. **Append a corrective re-issue.** Treat `FARM-DATAMIG-001` as schema-malformed-on-arrival and append a NEW entry `FARM-HIGH-NNN` (next available HIGH index for FARM) with `override_of: "FARM-DATAMIG-001"` and identical evidence/title/state. The original chain entry stays (cannot be rewritten); the override pointer documents the cure. Still leaves the historical id violating the schema, so the integrity test still fails on the entry's id — meaning option 2 alone does NOT close the test failure.
+
+3. **Hybrid: relax the id pattern at one named carve-out.** Add a single explicit `FARM-DATAMIG-001` exception to the schema (via `if/then` allOf branch grandfathering the one known entry). Documents the malformed entry, doesn't widen the CLASSIFIER enum. Minimum-blast-radius cure. Architecturally tidy: the historical malform is acknowledged exactly once and future entries face the original pattern.
+
+**Recommended:** Option 3 (named carve-out) — preserves the original CLASSIFIER convention for future writers, narrowly grandfathers the one bad entry, doesn't conflate severity with domain. Track and close in a follow-up commit.
+
+**Test coverage to add when closed:**
+- AJV must validate `FARM-DATAMIG-001` exactly (and only it) under the named carve-out.
+- A different malformed id (e.g. `FARM-FOOBAR-001`) must still fail.
+- The integrity test (`every entry conforms to findings.jsonl.schema.json`) must turn green end-to-end.
+

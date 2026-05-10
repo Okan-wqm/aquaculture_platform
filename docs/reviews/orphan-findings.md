@@ -2682,3 +2682,61 @@ Estimated effort ≈ 1 batch (≤ 1h).
 3. **Tests:** invariant test scans cli.py argparse tree, asserts every subcommand exposes `--tools-dir` in the same shape.
 
 Estimated effort ≈ 2-3 batches (≤ 4h, requires touching every subparser definition).
+
+
+## ORPHAN-MEDIUM-059 — `outbox-adapter` declared_scope captures ~200 hr-service paths outside the adapter's outbox surface (Plan 024 v3 post-sign-off ARIA runtime smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future ARIA adapter-portfolio hardening plan. Deadline: best-effort.
+
+**Scope:** `aria-tools/registry.json` outbox-adapter row + the adapter's manifest under `tools/aria-adapters/outbox-adapter.tool.json`. The declared_scope / allowed_read_globs include patterns that match the entire `apps/hr-service/**` source tree (200+ files: jest.config.ts, src/aquaculture/**, src/training/**, src/scheduling/**, src/leave/**, src/performance/**, src/attendance/**, src/hr/**, src/health/**, src/database/**), even though the adapter's stated purpose is the @platform/outbox transactional outbox surface.
+
+**Reproducer:**
+
+```bash
+PYTHONPATH=aria-kernel python3 -m aria_kernel --tools-dir aria-tools \
+    cycle run --workspace-root . --cycle-id "cyc-outbox-scope-test"
+# → outbox-adapter run row in runs.jsonl carries:
+#   status: "scope_violation"
+#   scope_violations: [
+#     "apps/hr-service/jest.config.ts",
+#     "apps/billing-service/jest.config.ts",
+#     ... 200+ entries from hr-service/aquaculture, training, scheduling, leave ...
+#   ]
+```
+
+**Surface evidence:** ARIA cycle dispatch in `cyc-aria-bug-hunt-worktree-20260510T084742Z` produced an outbox-adapter run with `status="scope_violation"` and a 200+ entry `scope_violations` list. The adapter's read_paths included paths that find_scope_violations rejected as outside the adapter's declared_scope. read_paths and scope_violations matched 1:1 for the hr-service sub-tree — every hr-service path the adapter walked is outside its scope.
+
+**Why this is acceptable for Plan 024 v3:**
+
+* Plan 024 v3 scope is the F-005 audit-anchor closure (15 architectural-quality gaps from the post-push audit). Adapter manifest correctness is a separate quality dimension that surfaced ONLY when an operator ran the kernel against the actual codebase post-sign-off.
+* The adapter is in SHADOW status; raw findings are not promoted to operator-facing emit. The scope_violation surface IS the architectural defense: tool_health.record_run flags the run, the operator audit chain captures the file list, and the adapter does not contaminate the operator queue.
+
+**HOW to resolve:**
+
+1. **Audit the manifest** at `tools/aria-adapters/outbox-adapter.tool.json` — determine whether the broad scope is intentional (adapter is meant to scan every consumer of the @platform/outbox surface) or accidental (the declared_scope glob is wrong).
+2. **If intentional:** narrow the scope to the actual outbox files (`platform/libs/outbox/**`, `apps/**/src/database/migrations/**` for outbox table emit, etc.) + add a comment explaining the broad-vs-narrow tradeoff.
+3. **If accidental:** correct the glob; the scope_violation list IS the test fixture (every entry should disappear after the fix).
+4. **Tests:** invariant test that walks the adapter portfolio + asserts each adapter's declared_scope matches its stated purpose (operator sign-off on the manifest content, mechanical match on glob patterns).
+
+Estimated effort ≈ 1 batch (≤ 2h).
+
+
+## ORPHAN-MEDIUM-060 — `agent-harness-security-adapter` declared_scope captures `.claude/agents/**` (every Claude Code agent definition) — non-production source tree (Plan 024 v3 post-sign-off ARIA runtime smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future ARIA adapter-portfolio hardening plan. Deadline: best-effort.
+
+**Scope:** `aria-tools/registry.json` agent-harness-security-adapter row + the adapter's manifest. The declared_scope captures `.claude/agents/**` (~85 agent definition .md files including subdirectories `_maintenance/`, `edge-docs/`, `product-audit/`).
+
+**Reproducer:** ARIA cycle dispatch in `cyc-aria-bug-hunt-worktree-20260510T084742Z` produced an agent-harness-security-adapter run with `status="scope_violation"` and the full `.claude/agents/**` listing in `scope_violations`.
+
+**Why this is acceptable for Plan 024 v3:**
+
+* `.claude/agents/**` is non-production source: it carries the Claude Code agent system prompts that power the agent dispatch lane. The agent-harness-security-adapter's stated purpose is harness security review (auth/authz, sandboxing, secrets handling) which lives in production code paths (auth-service, gateway-api, libs/backend-common/security/**). Including the agent .md files is non-production noise.
+* SHADOW status means no operator-facing emit; the scope_violation surface is the architectural defense.
+
+**HOW to resolve:**
+
+1. **Audit the manifest:** narrow the declared_scope to the actual agent-harness production surface (auth + dispatch + security surfaces) and EXCLUDE `.claude/agents/**`.
+2. **Pair with ORPHAN-MEDIUM-059** in a single adapter-portfolio audit batch: every adapter's manifest reviewed, declared_scope matches stated purpose.
+
+Estimated effort ≈ 1 batch shared with 059 (≤ 2-3h total for both).

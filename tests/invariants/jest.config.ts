@@ -102,6 +102,7 @@ export default {
         '<rootDir>/upcaster-chain.spec.ts',
         '<rootDir>/lib-creation-rubric.spec.ts',
         '<rootDir>/messaging-joins.spec.ts',
+        '<rootDir>/messaging-migration-runner.spec.ts',
         '<rootDir>/admin-api-schema-boundaries.spec.ts',
         '<rootDir>/eslint-rule-presence.spec.ts',
         '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',

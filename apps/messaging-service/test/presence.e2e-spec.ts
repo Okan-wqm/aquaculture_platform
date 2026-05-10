@@ -22,6 +22,7 @@ import {
   USER_A2,
   USER_B1,
   E2eTestContext,
+  closeE2eTestApp,
 } from './e2e-setup';
 
 /** Redis key format used by PresenceService */
@@ -45,14 +46,13 @@ const USER_PRESENCE_QUERY = `
 
 describe('Presence (E2E)', () => {
   let ctx: E2eTestContext;
-  let app: INestApplication;
   let httpServer: ReturnType<INestApplication['getHttpServer']>;
   let dataSource: DataSource;
   let redis: Redis;
 
   beforeAll(async () => {
     ctx = await createE2eTestApp();
-    ({ app, httpServer, dataSource, redis } = ctx);
+    ({ httpServer, dataSource, redis } = ctx);
     await setupTenantSchemas(dataSource, [TENANT_A, TENANT_B]);
   });
 
@@ -60,7 +60,7 @@ describe('Presence (E2E)', () => {
     await cleanupTenantData(dataSource, TENANT_A);
     await cleanupTenantData(dataSource, TENANT_B);
     await flushAllTestRedisKeys(redis);
-    await app.close();
+    await closeE2eTestApp(ctx);
   });
 
   afterEach(async () => {

@@ -22,12 +22,12 @@ import {
   USER_A1,
   USER_B1,
   E2eTestContext,
+  closeE2eTestApp,
 } from './e2e-setup';
 import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 
 describe('Tenant Isolation (E2E) — SECURITY-CRITICAL', () => {
   let ctx: E2eTestContext;
-  let app: INestApplication;
   let httpServer: ReturnType<INestApplication['getHttpServer']>;
   let dataSource: DataSource;
   let redis: Redis;
@@ -39,7 +39,7 @@ describe('Tenant Isolation (E2E) — SECURITY-CRITICAL', () => {
 
   beforeAll(async () => {
     ctx = await createE2eTestApp();
-    ({ app, httpServer, dataSource, redis } = ctx);
+    ({ httpServer, dataSource, redis } = ctx);
     resetIdempotencyCounter();
 
     // Setup both tenant schemas
@@ -90,7 +90,7 @@ describe('Tenant Isolation (E2E) — SECURITY-CRITICAL', () => {
     await cleanupTenantData(dataSource, TENANT_A);
     await cleanupTenantData(dataSource, TENANT_B);
     await flushAllTestRedisKeys(redis);
-    await app.close();
+    await closeE2eTestApp(ctx);
   });
 
   // ── Channel Isolation ─────────────────────────────────────────────────

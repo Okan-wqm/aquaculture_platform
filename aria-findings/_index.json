@@ -58,9 +58,9 @@
       "finding_id": "F-006",
       "path": "F-006.json",
       "severity": "MEDIUM",
-      "status": "OPEN"
+      "status": "RESOLVED"
     }
   ],
-  "generated_at": "2026-05-10T01:30:00Z",
+  "generated_at": "2026-05-10T01:35:00Z",
   "schema_version": 1
 }

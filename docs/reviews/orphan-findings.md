@@ -2894,3 +2894,156 @@ The check is structural — it cannot regress silently because any future migrat
 **Fix (Tier-1 Make-Impossible):** convert CursorEdge<T> to a factory function CursorEdge(classRef: Type<T>) returning an abstract @ObjectType whose @Field(() => classRef) decorator passes the consumer-provided type explicitly. Concrete edges then extend CursorEdge(MyEntity). Plus expose ICursorEdge<T> structural interface for non-GraphQL consumers.
 
 **Status:** RESOLVED on chore/hr-cursor-edge-graphql-type. After redeploy, hr-service bootstraps and all CursorEdge-consuming services build a valid schema.
+---
+
+## ORPHAN-CRITICAL-061 — `docker-compose.droplet.yml` declares `NATS_TLS_CA` / `NATS_TLS_CERT` / `NATS_TLS_KEY` env on `observability-service` without mounting `./certs/nats/*` into the container; bootstrap crash-loops the service in production
+
+**Severity:** CRITICAL — observability-service crash-loops at bootstrap on the production droplet. The platform's central security-events sink + migration audit sink is unavailable, blowing through the SLO for security-event capture and breaking the schema-migration audit trail (ADR-022 R6).
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** `docker-compose.droplet.yml` lines 1278–1326 (the `observability-service:` block)
+
+**Evidence (live container log):**
+
+```
+Bootstrap failed: [nats-connection.factory] NATS_TLS_CA is set to
+"/etc/ssl/nats-ca.pem" but the file could not be read: ENOENT: no such
+file or directory, open '/etc/ssl/nats-ca.pem'.
+Check that the deploy script mounts /etc/ssl/nats-ca.pem (or the path you
+configured) into the container from
+./certs/nats/clients/observability_service-cert.pem (or whatever your cert
+directory is).
+```
+
+**Root cause:** Configuration drift in `docker-compose.droplet.yml`. The `observability-service` block merges `<<: *nats-observability-env` (line 1306), which sets four NATS TLS env paths inside the container:
+
+```yaml
+NATS_URL: tls://nats:4222
+NATS_TLS_CA: /etc/ssl/nats-ca.pem
+NATS_TLS_CERT: /etc/ssl/nats-clients/observability_service-cert.pem
+NATS_TLS_KEY:  /etc/ssl/nats-clients/observability_service-key.pem
+NATS_TLS_ENABLED: "true"
+```
+
+But the service was missing the corresponding `volumes:` block. Every other NATS-using service in this compose file (auth, farm, sensor, gateway, alert, billing, hr, hydroponics, messaging, notification, sensor-ingestion) mounts the same four anchors:
+
+```yaml
+volumes:
+  - *nats-ca-mount             # ./certs/nats/ca-cert.pem      → /etc/ssl/nats-ca.pem
+  - *nats-clients-mount        # ./certs/nats/clients/         → /etc/ssl/nats-clients/
+  - *nats-client-cert-mount    # ./certs/nats/client-cert.pem  → /etc/ssl/nats-client-cert.pem
+  - *nats-client-key-mount     # ./certs/nats/client-key.pem   → /etc/ssl/nats-client-key.pem
+```
+
+`libs/backend-common/src/nats/nats-connection.factory.ts` resolves `NATS_TLS_CA` with `fs.readFileSync()` at bootstrap and hard-fails with the message above when the file isn't present at the configured path. With no `volumes:` block, `/etc/ssl/nats-ca.pem` did not exist inside the container, so Nest bootstrap aborted before any module was even constructed.
+
+The cert files themselves were correctly generated — `infrastructure/nats/services.yaml` lists `observability_service` (line 86), and `infrastructure/docker/scripts/generate-internal-certs.sh` derives its cert-CN list from that SSoT (no hardcoded list). `./certs/nats/clients/observability_service-cert.pem` and `-key.pem` exist on disk on the droplet. The failure was 100 % on the compose-file side: env paths declared, mounts missing.
+
+**Why the regression went undetected at PR time:** the CI pre-flight Phase A2 (`docker compose config --quiet`) only validates that `${VAR:?}` interpolations resolve and YAML parses — it does NOT correlate `NATS_TLS_CA` env paths against `volumes:` bind targets. There is currently no invariant test that asserts "every service whose merged env declares `NATS_TLS_*` paths must also mount the corresponding cert files at those paths". The drift was therefore structurally invisible to CI: services.yaml was right, nats.conf was right, the cert was generated, and YAML interpolation passed. Only the runtime ENOENT surfaced it.
+
+**Fix (Tier-2 Make-Automatic — landed in this commit):** add the four standard NATS cert mount anchors to the `observability-service` block in `docker-compose.droplet.yml`, aligning it with every other NATS-using service in the file:
+
+```yaml
+volumes:
+  - *nats-ca-mount
+  - *nats-clients-mount
+  - *nats-client-cert-mount
+  - *nats-client-key-mount
+```
+
+Anchors are reused (not redefined) so the cert layout stays a single declaration site. After this change, `docker compose -f docker-compose.droplet.yml config` resolves the four bind mounts onto `/var/aqua-saas/certs/nats/...` and the runtime path matches the env paths, so `nats-connection.factory` finds the CA file at bootstrap.
+
+**Tier-1 Make-Impossible follow-up (not in this commit — tracked):** add a CI invariant that asserts, for every service in every compose file, the post-merge env's `NATS_TLS_CA` / `NATS_TLS_CERT` / `NATS_TLS_KEY` paths each have a matching `volumes:` bind entry whose target equals the env path. The natural home is `e2e/tests/integration/nats-invariants.spec.ts` (extending the existing services.yaml ↔ cert-CN ↔ nats.conf trio with a fourth assertion: compose env paths ↔ volume bind targets). Filed separately so this hot-fix lands without dragging the invariant scope into the same PR. Without that guard, the same class of drift can recur whenever a new NATS-using service is added.
+
+**Status:** RESOLVED for the immediate crash-loop — `chore/observability-nats-cert-mount` adds the missing `volumes:` block. Tier-1 invariant follow-up tracked above; commit message names the gap so the work is visible.
+
+
+---
+
+## ORPHAN-CRITICAL-062 — `FileUploadSecurityService` injects an opaque `Array` token without a matching DI provider; `farm-service` crash-loops at bootstrap when the global `StorageModule` is loaded
+
+**Severity:** CRITICAL — farm-service (the platform's primary aquaculture domain — highest fan-out of downstream consumers per ADR-011 §domain-priority) cannot bootstrap on the production droplet. Side-effect: every dependent surface that reads farm-domain data (alert-engine, billing, sensor aggregates, dashboards, mobile app) loses its upstream until farm comes back.
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** `libs/storage/src/file-upload-security.service.ts`, `libs/storage/src/storage.module.ts`
+
+**Evidence (live container log):**
+
+```
+Nest can't resolve dependencies of the FileUploadSecurityService (MinioClientService, ?).
+Please make sure that the argument Array at index [1] is available in the StorageModule module.
+Potential solutions:
+- Is StorageModule a valid NestJS module?
+- If Array is a provider, is it part of the current StorageModule?
+```
+
+**Root cause:** `FileUploadSecurityService` declares `@Inject(FILE_UPLOAD_POLICIES) policies: UploadPolicy[]` as its second constructor argument. The token `FILE_UPLOAD_POLICIES` was added to the service signature but the provider that satisfies it was never registered in `StorageModule.forRoot()` / `StorageModule.forRootAsync()`. The factory built the dynamic module with `MinioClientService` + `FileUploadSecurityService` only — nothing supplied the `UploadPolicy[]` array. NestJS prints "Array at index [1]" because, with no provider for the symbol token, the type system falls back to the constructor parameter's declared type (`UploadPolicy[]` ≈ `Array`).
+
+The drift was masked for >2 days because the older deployed image did not yet include the policy-array constructor argument. Today's cold-boot exposed it.
+
+**Fix (Tier-1 Make-Impossible):** centralise the policy-array provider in `StorageModule` so both `forRoot` and `forRootAsync` use the same fallback shape. Specifically:
+
+  1. Export a typed `UploadPolicy` interface and a token symbol `FILE_UPLOAD_POLICIES` from `libs/storage/src/file-upload-security.service.ts` (so consumers can import the canonical declaration without re-declaring).
+  2. Export a `DEFAULT_UPLOAD_POLICIES` constant (per-MIME-type rules sourced from the existing config) so the module has a sensible safe default.
+  3. Build a `Provider` shape in `storage.module.ts` that resolves either: (a) the operator-supplied `policies: UploadPolicy[]` from `forRoot(config)` arguments, or (b) `DEFAULT_UPLOAD_POLICIES` if absent.
+  4. Add the provider to BOTH `forRoot` and `forRootAsync` `providers[]` arrays.
+  5. Add a unit test (`__tests__/storage.module.spec.ts`) that asserts the module wires `FILE_UPLOAD_POLICIES` end-to-end so the regression is structurally caught at PR time.
+
+**Status:** RESOLVED — `chore/farm-storage-policies-di` lands the policy-array provider with default fallback + unit test. After redeploy, farm-service bootstraps cleanly and the entire downstream-consumer surface is restored.
+
+---
+
+## ORPHAN-CRITICAL-063 — `migrationsTransactionMode` defaulted to TypeORM's `'all'` for legacy auth/admin-api/event-store services; pre-merge migrations with class-level `transaction = false` raised `ForbiddenTransactionModeOverrideError` at production cold-boot
+
+**Severity:** CRITICAL — messaging-service and admin-api-service crash-loop at boot. Without messaging the in-app chat surface is dead; without admin-api the platform-management UI is offline. Both services were stuck repeating the same fatal exception every restart cycle until the fix landed.
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** `libs/backend-common/src/database/typeorm-config.factory.ts`, `libs/backend-common/src/database/migration-runner/migration-runner.service.ts`
+
+**Evidence (live container logs):**
+
+```
+Migrations "AddMessageAttachmentIsDeletedIndex1782800000000" override the
+transaction mode, but the global transaction mode is "all"
+```
+
+```
+Migrations "AddUserConsentsNaturalKeyUnique1787700000000",
+"AddAuditLogShapeExtension1788100000000",
+"CreateSharedAccessLogs1788400000000" override the transaction mode,
+but the global transaction mode is "all"
+```
+
+**Root cause:** TypeORM's `DataSource` constructor defaults `migrationsTransactionMode` to `'all'` when the caller omits the option (`node_modules/typeorm/data-source/DataSource.js` lines 261-264). In `'all'` mode, TypeORM's `MigrationExecutor.executePendingMigrations` raises `ForbiddenTransactionModeOverrideError` the instant any pending migration declares an instance-level `transaction` opt-out (the documented escape hatch for `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, and other DDL Postgres rejects inside a transaction block).
+
+`createServiceTypeOrmConfig` (the platform-wide factory) was NOT setting `migrationsTransactionMode`, so every legacy service that kept TypeORM's built-in `migrationsRun: true` (auth-service explicitly; admin-api-service and messaging-service via newer migrations whose `transaction` overrides surfaced after the cold-boot) inherited the unsafe default.
+
+The platform's primary `MigrationRunnerService` (the one that 12 of 14 services use) does NOT trigger this error because it owns the per-migration transaction loop directly. PR #245 fixed the centralised `db-migrate` orchestrator's matching loop. This finding closes the third leg of the same architectural gap: the TypeORM-built-in path is the third migration runner in the platform, and it was using the unsafe default.
+
+**Fix (Tier-1 Make-Impossible):** pin `migrationsTransactionMode: 'each'` in `createServiceTypeOrmConfig` so EVERY legacy service that still relies on TypeORM's built-in migration runner inherits the correct mode automatically. The factory is the SSoT for service TypeORM config — no per-service override is required.
+
+The platform's per-service `MigrationRunnerService` ALSO has its `executor.transaction = 'each'` re-affirmed with an architectural-rationale block describing the three-runner topology: built-in TypeORM (legacy), platform per-service runner (mainline), centralised db-migrate orchestrator (Phase E). All three honour the same `transaction = false` opt-out structurally so a CONCURRENTLY migration deploys identically through any of them.
+
+**Status:** RESOLVED — `chore/migration-tx-mode-each-canon` lands the pin in the factory + architectural docs in the runner. After redeploy, messaging and admin-api bootstrap cleanly.
+
+---
+
+## ORPHAN-CRITICAL-064 — `CursorEdge<T>` GraphQL ObjectType emitted `node` with no explicit `@Field(() => T)` resolver; `hr-service` schema build crash-loops at bootstrap with "Undefined type error … node"
+
+**Severity:** CRITICAL — hr-service is dead in production. Every consumer of HR data (workforce schedules, payroll feeds, leave balances, mobile shift assignments) is offline. The pagination utility is shared across multiple services so the regression class is contagious — any future consumer that imports `CursorEdge` inherits the same crash unless the helper is fixed structurally.
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** `libs/backend-common/src/pagination/cursor.ts` and the matching GraphQL `@ObjectType` declarations across consuming services
+
+**Evidence (hr-service container log):**
+
+```
+Bootstrap failed: Undefined type error. Make sure you are providing an
+explicit type for the "node" of the "CursorEdge" class.
+```
+
+**Root cause:** NestJS GraphQL's code-first schema builder reflects field types at runtime via `reflectTypeFromMetadata`. For a generic class, the type-parameter `T` erases to `undefined` at runtime — TypeScript decorators emit the design-time type, not the resolved one. The previous `CursorEdge<T>` exported a single concrete `@ObjectType` class with `@Field() node!: T` (no explicit type resolver), so the schema builder saw `undefined` for the node type and threw at bootstrap the moment any module registered a sub-class of it.
+
+The drift was masked for >2 days because the older deployed image's `CursorEdge` did not include the `@Field()` decorator on `node` (or the consuming services had not yet imported it through the schema graph). Today's cold-boot exposed it.
+
+**Fix (Tier-1 Make-Impossible):** convert `CursorEdge<T>` from a single concrete `@ObjectType` into a factory function `CursorEdge(classRef: Type<T>)` that returns an abstract `@ObjectType({ isAbstract: true })` whose `@Field(() => classRef)` decorator passes the consumer-provided type explicitly. Concrete edges then `extend CursorEdge(MyEntity)`. Plus expose a `ICursorEdge<T>` structural interface so non-GraphQL consumers (REST, internal services) can still type the runtime payload without touching the GraphQL emission layer. Plus a unit test (`__tests__/cursor.spec.ts`) that constructs an edge for two arbitrary entities and asserts the schema build succeeds.
+
+The factory pattern is the documented NestJS-GraphQL idiom for generic ObjectTypes (https://docs.nestjs.com/graphql/resolvers#generics). Adopting it here removes the entire class of "node has undefined type" regressions.
+
+**Status:** RESOLVED — `chore/hr-cursor-edge-graphql-type` lands the factory + interface + test. After redeploy, hr-service bootstraps and all CursorEdge-consuming services build a valid schema.

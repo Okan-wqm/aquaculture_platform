@@ -1,8 +1,12 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger, pinSearchPath } from '@aquaculture/backend-common/database';
+import {
+  MigrationLogger,
+  pinSearchPath,
+  tableExists,
+} from '@aquaculture/backend-common/database';
 
 /**
- * AddWaterQualitySensorReadingCorrelation1788200000000
+ * AddWaterQualitySensorReadingCorrelation1788200000001
  * ============================================================================
  *
  * Phase 7.4 of the "Farm modülü kalan kör noktalar" plan — the
@@ -111,13 +115,13 @@ import { MigrationLogger, pinSearchPath } from '@aquaculture/backend-common/data
  * into stricter cross-service event-driven correlation (rather than
  * shared-DB), removing the FK would already be a no-op.
  */
-export class AddWaterQualitySensorReadingCorrelation1788200000000
+export class AddWaterQualitySensorReadingCorrelation1788200000001
   implements MigrationInterface
 {
   private readonly logger = new MigrationLogger(
-    'AddWaterQualitySensorReadingCorrelation1788200000000',
+    'AddWaterQualitySensorReadingCorrelation1788200000001',
   );
-  name = 'AddWaterQualitySensorReadingCorrelation1788200000000';
+  name = 'AddWaterQualitySensorReadingCorrelation1788200000001';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await pinSearchPath(queryRunner, 'farm');
@@ -127,6 +131,19 @@ export class AddWaterQualitySensorReadingCorrelation1788200000000
       'Running AddWaterQualitySensorReadingCorrelation in schema:',
       schemaResult,
     );
+
+    // Wave 4-A.2 Dalga 3 bootstrap-restoration guard.
+    // `water_quality_measurements` is created by the source-schema
+    // baseline (or a sibling per-tenant migration on tenant fan-out).
+    // Skip the ALTER cleanly if the table has not landed yet on this
+    // DB — the column-add will run on the next migration pass once
+    // the parent table is in place.
+    if (!(await tableExists(queryRunner, 'water_quality_measurements'))) {
+      this.logger.log(
+        'Skipping AddWaterQualitySensorReadingCorrelation — water_quality_measurements not present on this DB (installed by sibling baseline migration)',
+      );
+      return;
+    }
 
     // The unqualified table name lets the migration runner re-execute
     // this body against each tenant_<hex16> schema's copy of the table.
@@ -139,6 +156,10 @@ export class AddWaterQualitySensorReadingCorrelation1788200000000
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await pinSearchPath(queryRunner, 'farm');
+
+    if (!(await tableExists(queryRunner, 'water_quality_measurements'))) {
+      return;
+    }
 
     await queryRunner.query(`
       ALTER TABLE "water_quality_measurements"

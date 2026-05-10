@@ -1,7 +1,8 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
- * AddFarmAuditLogsImmutability1788300000000
+ * AddFarmAuditLogsImmutability1788300000001
  * ============================================================================
  *
  * Installs database-level immutability triggers + the `legalHold`
@@ -47,12 +48,43 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * Closes: docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md#AUDITTRAIL-HIGH-005
  */
-export class AddFarmAuditLogsImmutability1788300000000
+export class AddFarmAuditLogsImmutability1788300000001
   implements MigrationInterface
 {
-  name = 'AddFarmAuditLogsImmutability1788300000000';
+  name = 'AddFarmAuditLogsImmutability1788300000001';
+
+  private readonly logger = new MigrationLogger(
+    'AddFarmAuditLogsImmutability1788300000001',
+  );
+
+  /**
+   * Wave 4-A.2 Dalga 3 bootstrap-restoration guard.
+   *
+   * `farm.farm_audit_logs` is produced by the source-schema baseline.
+   * The hardcoded `farm.` schema prefix used by the trigger DDL below
+   * bypasses search_path pinning, so we look up the table in
+   * `information_schema.tables` with an explicit schema filter rather
+   * than the `current_schema()` helper.
+   */
+  private async hasFarmAuditLogs(queryRunner: QueryRunner): Promise<boolean> {
+    const rows: Array<{ exists: boolean }> = await queryRunner.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'farm'
+          AND table_name = 'farm_audit_logs'
+      ) AS exists
+    `);
+    return rows[0]?.exists === true;
+  }
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (!(await this.hasFarmAuditLogs(queryRunner))) {
+      this.logger.log(
+        'Skipping AddFarmAuditLogsImmutability — farm.farm_audit_logs not present on this DB (installed by sibling baseline migration)',
+      );
+      return;
+    }
+
     // Step 1: Add the legalHold column. NOT NULL with same-clause DEFAULT
     // is blue-green safe (migration-sql-lint R2 compliant) — Postgres 11+
     // metadata-only ALTER, no table rewrite.

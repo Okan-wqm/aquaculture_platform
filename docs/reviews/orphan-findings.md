@@ -2553,3 +2553,41 @@ The TTL=1h fail-safe is the load-bearing release path until one of (1)/(2)/(3) l
    - drain: in-flight write completes audit emit BEFORE `ServerHandle::cancel` returns.
 
 The split is clean: B-5 ships the primitive (architecturally complete + invariant-pinned); B-5.5 ships the operator surfaces (mechanical AppState rewrite + envelope-adapter integration). No yama, no deferral-without-tracking — the gap is documented here with the resolution path.
+
+
+## ORPHAN-HIGH-055 — auth-service migration history was squashed; baseline `CREATE TABLE auth.*` chain is missing, so fresh-volume bootstraps crash on later ALTER-COLUMN migrations (Phase: bootstrap-restoration, 2026-05-07)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: data-expert / auth-service maintainer. Deadline: gated on this orphan finding being closed by `apps/auth-service/src/migrations/1700000000000-CreateInitialSchema.ts` landing on `main` AND a fresh-volume bootstrap E2E proving the chain replays cleanly.
+
+**Scope:** `apps/auth-service/src/migrations/*` and the legacy `infrastructure/docker/init-scripts/01-init-databases.sql` boundary.
+
+**Root cause:** several earlier `CREATE TABLE` migrations under `apps/auth-service/src/migrations/` were squashed out of source. The init script (`infrastructure/docker/init-scripts/01-init-databases.sql`) covers a partial set only — `auth.users`, `auth.tenants`, `auth.invitations`, `auth.tenant_modules`, `auth.tenant_roles`. Every subsequent `ALTER` migration in the `1711700000000+` range assumes baseline tables / columns that no longer have a creation step. Concrete failure on a fresh DB: `1781100000000-ConvertTimestampToTimestamptz` ALTERs `auth.users.mfaLockedUntil` which was never created.
+
+**Why this is HIGH (not CRITICAL):** existing droplet volumes already have the historical objects populated through the prior (now-deleted) migration entries; the failure surfaces only on fresh-volume bootstraps (new environments, factory-reset, ephemeral CI envs). It is not a runtime fault on populated production volumes — but it blocks every clean-environment bring-up, including disaster-recovery rebuilds.
+
+**Architectural fix landing in this orphan-close commit:**
+
+1. **`apps/auth-service/src/migrations/1700000000000-CreateInitialSchema.ts`** creates 12 missing tables (`refresh_tokens`, `webauthn_credentials`, `user_module_assignments`, `mobile_user_settings`, `modules`, `announcements`, `announcement_acknowledgments`, `message_threads`, `messages`, `support_tickets`, `ticket_comments`, `audit_logs`) and adds 5 missing columns to `auth.users` (`accessType`, `mfaRecoveryCodes`, `mfaFailedAttempts`, `mfaLockedUntil`, `notificationPreferences`).
+
+2. **Idempotent end-to-end** — every DDL statement uses `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`, plus `DO $$ ... EXCEPTION WHEN duplicate_object` blocks for enum types and FK constraints. Production replay against an already-populated volume is a no-op; the migration ledger insert occurs once.
+
+3. **Topological order respected** — parents before FK children: `modules` / `mobile_user_settings` (no auth.* FKs) → `user_module_assignments` (FK to users + modules) → `refresh_tokens`, `webauthn_credentials` (FK to users) → `announcements` (FK to tenants) → `announcement_acknowledgments` (FK to announcements) → `message_threads` (FK to tenants) → `messages` (FK to message_threads) → `support_tickets` (FK to tenants) → `ticket_comments` (FK to support_tickets) → `audit_logs` (no FKs; standalone — audit rows must survive deletion of the entities they describe).
+
+4. **Lint-chunk discipline (R3 exemption)** — every CREATE TABLE statement and its sibling CREATE INDEX statements are bundled into a single `queryRunner.query()` template literal. The migration-sql-lint `R3-create-index-not-concurrent` rule scans each `queryRunner.query` call as one independent SQL chunk; an index call without a sibling CREATE TABLE in the same chunk is flagged as "index on pre-existing table — must be CONCURRENTLY". Co-emitting the index with the CREATE TABLE inside one chunk lets R3 recognize the just-created-table exemption (the table is empty at index-creation time so ACCESS EXCLUSIVE is safe).
+
+5. **TIMESTAMPTZ from birth** — every `timestamp` column in the new tables is created as `timestamptz` so the later `1781100000000-ConvertTimestampToTimestamptz` migration sees nothing to convert (it tolerates already-timestamptz columns via its `information_schema` check).
+
+6. **`auth.audit_logs.ipAddress` typed as `inet` from birth** — matches the entity declaration so the later `1787400000000-ConvertAuthAuditIpToInet` migration is a no-op on fresh DBs (it pre-checks for inet via `information_schema`).
+
+7. **`auth.audit_logs.legalHold` created with `NOT NULL DEFAULT false`** — the immutability triggers installed by `1787100000000-AddAuthAuditLogsImmutability` find the column already in place; that later migration's `ADD COLUMN IF NOT EXISTS` step is then a no-op.
+
+**HOW to close the rest of this orphan:**
+
+- **Fresh-volume bootstrap E2E proof.** Spin a fresh postgres volume, run the full auth-service migration chain (`1700000000000` first, then every subsequent migration in timestamp order), assert no failure. Land that test under `e2e/tests/integration/auth-fresh-volume-bootstrap.spec.ts` and reference it from this orphan's closing commit.
+
+- **Init-script boundary documented in code.** Add a top-of-file comment to `infrastructure/docker/init-scripts/01-init-databases.sql` listing exactly the 5 tables it owns, with a note that `1700000000000-CreateInitialSchema.ts` owns the rest. The boundary is currently implicit (knowable only by reading both files); making it explicit prevents future "let's add a table to the init script" drift.
+
+- **Squashed-migration audit.** Walk back through `git log --diff-filter=D -- apps/auth-service/src/migrations/` to enumerate exactly which historical CREATE migrations were deleted and when. The 12 tables this baseline restores match the entity surface today; an audit confirms no other deleted migrations need restoring (e.g. trigger migrations, view migrations).
+
+**Closure path discipline:** this is not a yama. The squashed-history damage is permanent (cannot recover the deleted migration files without rewriting history), so the architectural fix is to write a NEW baseline migration that aligns with the current entity surface. A future entity addition follows the same migration-per-change discipline; this one batch closes the historical gap.
+

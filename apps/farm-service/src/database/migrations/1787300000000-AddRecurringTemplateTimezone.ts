@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * AddRecurringTemplateTimezone
@@ -26,7 +27,39 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class AddRecurringTemplateTimezone1787300000000
   implements MigrationInterface
 {
+  private readonly logger = new MigrationLogger(
+    'AddRecurringTemplateTimezone1787300000000',
+  );
+
+  /**
+   * Wave 4-A.2 Dalga 3 bootstrap-restoration guard.
+   *
+   * `farm.recurring_templates` is created by the source-schema baseline.
+   * The hardcoded `farm.` prefix bypasses the runner's search_path
+   * pinning so we check `information_schema.tables` with an explicit
+   * schema filter rather than the `current_schema()` helper.
+   */
+  private async hasFarmRecurringTemplates(
+    queryRunner: QueryRunner,
+  ): Promise<boolean> {
+    const rows: Array<{ exists: boolean }> = await queryRunner.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'farm'
+          AND table_name = 'recurring_templates'
+      ) AS exists
+    `);
+    return rows[0]?.exists === true;
+  }
+
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (!(await this.hasFarmRecurringTemplates(queryRunner))) {
+      this.logger.log(
+        'Skipping AddRecurringTemplateTimezone — farm.recurring_templates not present on this DB (installed by sibling baseline migration)',
+      );
+      return;
+    }
+
     await queryRunner.query(`
       ALTER TABLE farm.recurring_templates
       ADD COLUMN IF NOT EXISTS "timezone" VARCHAR(64)
@@ -34,6 +67,9 @@ export class AddRecurringTemplateTimezone1787300000000
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    if (!(await this.hasFarmRecurringTemplates(queryRunner))) {
+      return;
+    }
     await queryRunner.query(`
       ALTER TABLE farm.recurring_templates
       DROP COLUMN IF EXISTS "timezone"

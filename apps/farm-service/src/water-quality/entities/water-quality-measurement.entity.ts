@@ -336,7 +336,7 @@ export class WaterQualityMeasurement {
    * schema namespace, and the correlation is informational rather
    * than invariant (sensor readings can be retention-deleted while
    * derived WQ measurements survive). See migration
-   * 1788200000000-AddWaterQualitySensorReadingCorrelation.ts for
+   * 1788200000001-AddWaterQualitySensorReadingCorrelation.ts for
    * the architectural rationale.
    */
   @Field(() => ID, { nullable: true })

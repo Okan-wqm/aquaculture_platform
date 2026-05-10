@@ -125,7 +125,7 @@ export interface TriggerConfig {
  */
 @Auditable()
 @ObjectType()
-@Entity('automation_programs', { schema: 'sensor' })
+@Entity('automation_programs')
 @Index(['tenantId', 'deviceId'])
 @Index(['tenantId', 'programCode'], { unique: true })
 @Index(['tenantId', 'status'])

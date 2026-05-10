@@ -46,7 +46,7 @@ registerEnumType(DeviceEventSeverity, {
 });
 
 @ObjectType()
-@Entity('device_events', { schema: 'sensor' })
+@Entity('device_events')
 @Index(['tenantId', 'deviceId'])
 @Index(['tenantId', 'eventType'])
 @Index(['createdAt'])

@@ -10,7 +10,7 @@ import {
 import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
 
 @ObjectType()
-@Entity('departments_hr', { schema: 'hr' })
+@Entity('departments_hr')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'isDeleted'])
 @Index(['tenantId', 'siteId'])

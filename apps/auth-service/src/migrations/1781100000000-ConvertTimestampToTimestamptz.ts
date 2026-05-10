@@ -250,8 +250,14 @@ export class ConvertTimestampToTimestamptz1781100000000
         )
         .join(', ');
 
-      const sql = `ALTER TABLE "${table}" ${clauses}`;
-      this.logger.log(`Converting ${table}: ${present.join(', ')}`);
+      // Schema-qualify the table reference. The information_schema
+      // existence check above scopes to table_schema='auth', so the ALTER
+      // MUST land on the same schema. Without "auth." prefix the ALTER
+      // resolves against the connection's search_path (typically `public`)
+      // and fails with `relation "users" does not exist` on a fresh DB
+      // where auth tables only live in the auth schema.
+      const sql = `ALTER TABLE "auth"."${table}" ${clauses}`;
+      this.logger.log(`Converting auth.${table}: ${present.join(', ')}`);
 
       await queryRunner.query(sql);
       convertedTotal += present.length;
@@ -291,8 +297,9 @@ export class ConvertTimestampToTimestamptz1781100000000
         )
         .join(', ');
 
-      await queryRunner.query(`ALTER TABLE "${table}" ${clauses}`);
-      this.logger.log(`Reverted ${table}: ${columns.join(', ')}`);
+      // Schema-qualify the rollback target for the same reason as up().
+      await queryRunner.query(`ALTER TABLE "auth"."${table}" ${clauses}`);
+      this.logger.log(`Reverted auth.${table}: ${columns.join(', ')}`);
     }
 
     this.logger.log('Rollback complete — auth schema back on TIMESTAMP');

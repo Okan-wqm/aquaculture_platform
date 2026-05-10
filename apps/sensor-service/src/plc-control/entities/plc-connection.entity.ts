@@ -35,7 +35,7 @@ registerEnumType(PlcAuthMode, { name: 'PlcAuthMode' });
 
 @Auditable()
 @ObjectType()
-@Entity('plc_connections', { schema: 'sensor' })
+@Entity('plc_connections')
 @Index(['tenantId', 'siteId'])
 export class PlcConnection {
   @Field(() => ID)

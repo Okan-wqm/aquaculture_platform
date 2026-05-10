@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * AddDailyTankWaterQualityMaterializedView
@@ -48,7 +49,41 @@ export class AddDailyTankWaterQualityMaterializedView1787500000000
 {
   public transaction = false;
 
+  private readonly logger = new MigrationLogger(
+    'AddDailyTankWaterQualityMaterializedView1787500000000',
+  );
+
+  /**
+   * Wave 4-A.2 Dalga 3 bootstrap-restoration guard.
+   *
+   * `farm.water_quality_measurements` is created by the source-schema
+   * baseline (or a sibling per-tenant migration on tenant fan-out). On
+   * a fresh-volume bootstrap the table may not exist when this MV
+   * migration runs. The hardcoded `farm.` prefix bypasses search_path
+   * pinning so we check `information_schema.tables` with an explicit
+   * schema filter.
+   */
+  private async hasFarmWaterQualityMeasurements(
+    queryRunner: QueryRunner,
+  ): Promise<boolean> {
+    const rows: Array<{ exists: boolean }> = await queryRunner.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'farm'
+          AND table_name = 'water_quality_measurements'
+      ) AS exists
+    `);
+    return rows[0]?.exists === true;
+  }
+
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (!(await this.hasFarmWaterQualityMeasurements(queryRunner))) {
+      this.logger.log(
+        'Skipping AddDailyTankWaterQualityMaterializedView — farm.water_quality_measurements not present on this DB (installed by sibling baseline migration)',
+      );
+      return;
+    }
+
     await queryRunner.query(`
       CREATE MATERIALIZED VIEW IF NOT EXISTS farm.mv_daily_tank_water_quality AS
       SELECT

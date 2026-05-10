@@ -14,7 +14,7 @@ import {
 } from 'typeorm';
 
 @ObjectType()
-@Entity('tenant_provisioning_keys', { schema: 'sensor' })
+@Entity('tenant_provisioning_keys')
 @Index(['keyToken'], { unique: true })
 export class TenantProvisioningKey {
   @Field(() => ID)

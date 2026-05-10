@@ -15,6 +15,7 @@ aria-tools/impact-graphs/
 # Python runtime caches
 __pycache__/
 *.py[cod]
+*.egg-info/
 
 # Cargo build artefacts (workspace + crate-level). Cargo.lock IS committed
 # (binaries land in apps/sensor-ingestion in Faz 2; reproducibility wins).

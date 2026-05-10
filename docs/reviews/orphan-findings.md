@@ -2723,3 +2723,48 @@ GitHub Actions security boundary: secret expressions cannot appear directly in j
 The emergency `bypass_staging_gate=true` workflow_dispatch input is preserved unchanged — it covers the orthogonal "staging exists but is broken" emergency case.
 
 **Status:** RESOLVED — fixed in branch `chore/deploy-staging-topology-aware`. ADR-016 updated with Phase D-Topology section formalizing the two-topology contract.
+
+
+## ORPHAN-CRITICAL-057 — `deploy-digitalocean.yml`'s inline ssh-action `script: |` block silently regressed past the 21K expression limit; every push to main since d155d2a3 fails workflow parse with HTTP 422 and 0 jobs
+
+**Severity:** CRITICAL — production deploy chain entirely broken on push-to-main; failure mode is invisible (parse failure recorded as a 0-job run, no actionable signal in CI checks UI)
+**Discovered:** 2026-05-10, while validating the post-merge prod deploy chain after PR #243 (topology-aware staging gate) landed
+**File:** `.github/workflows/deploy-digitalocean.yml` (line 885 col 19, the `script: |` heredoc following `appleboy/ssh-action`)
+
+**Evidence:**
+
+```
+gh workflow run deploy-digitalocean.yml --ref main
+HTTP 422: Invalid Argument - failed to parse workflow:
+(Line: 885, Col: 19): Exceeded max expression length 21000
+```
+
+```
+$ gh api repos/Okan-wqm/aquaculture_platform/actions/runs/<run-id>/jobs
+{"total_count":0,"jobs":[]}
+```
+
+Every prod-deploy run on main since d155d2a3 (`Merge branch 'worktree-ws10-phase-1' into tmp-consolidate-agentic`) shows `conclusion: failure` with 0 jobs registered. The CI checks UI gives no actionable hint — the workflow is "running" then "failed", but no job was ever scheduled because the workflow file itself never parsed.
+
+**Root cause:** The architectural fix had already been done in commit `c92539b9` (`fix(deploy-digitalocean): extract ssh-action bash to avoid 21k expression limit`), which moved the entire SSH bash payload from the YAML `script: |` block into `scripts/deploy/droplet-up.sh`. The YAML script block was thereby reduced from ~530 lines to ~12. A subsequent merge from a parallel feature branch (`worktree-ws10-phase-1`, mainlined as commit d155d2a3) re-inlined the bash. Per-file diff history:
+
+| Commit  | script-block size | status |
+|---------|-------------------|--------|
+| `c92539b9` | 696 bytes / 12 lines | ✅ thin invoker (working) |
+| `d155d2a3` (merge) | 32163 bytes / 528 lines | ❌ regressed; 21K cap exceeded |
+| current main | 32163 bytes / 528 lines | ❌ persistent regression |
+
+The 32K block contains TLS cert generation, GHCR auth, healthcheck poll loops, rollback logic — all ALSO present in `scripts/deploy/droplet-up.sh` (571 lines, fully featured, untouched by the regression). The inlined logic and the script duplicate each other, with the inlined version winning because the YAML block executes first and the script is then bypassed (the regressed YAML never gets to `bash scripts/deploy/droplet-up.sh`).
+
+**Why the regression went undetected:** GHA's "exceeded max expression length" parse failure surfaces as a 0-jobs failure run, which most CI dashboards (the GitHub Actions UI included) render identically to a "deploy succeeded with no jobs to run" outcome. There is no `actionlint` rule that catches `script: |` blocks growing past 21K. The PR-time `actionlint` run (if any) doesn't report the size violation as an error because GHA's per-expression cap is not part of the lint.
+
+**Fix (Tier-1 Make-Impossible):** Restore the thin-invoker form from `c92539b9`. The YAML `script: |` block becomes ~12 lines: env var passthrough + `bash scripts/deploy/droplet-up.sh`. All deploy logic lives in the script file, which:
+
+  - is bash-shellcheckable
+  - is locally testable on a multipass / docker droplet stand-in
+  - has a single source of truth for cert / healthcheck / rollback flows
+  - cannot be silently re-inlined without re-triggering the same parse error at PR time (which is now visible because workflow parse runs in the PR's CI - Affected pre-flight gate)
+
+**Why this is structurally durable, not just a revert:** The previous fix had no enforcement. The current state — where the architectural fix is restored AND the topology-aware deploy gate (ORPHAN-HIGH-056) makes prod parse failures visible at PR time — closes the loop. Future re-inline attempts will fail the PR's `pre-flight` validate-workflows step (already in place since PR #236 landed `chore(ci): rewire pre-flight to preflight-validate.ts`) before they can mainline.
+
+**Status:** RESOLVED — restored thin-invoker form on branch `chore/restore-thin-deploy-invoker`. YAML script block: 1449 bytes / 24 lines (cap is 21000). YAML parses, env var contract preserved (DEPLOY_SHA/SERVICES/FULL_DEPLOY/GHCR_TOKEN/GHCR_ACTOR), droplet-up.sh untouched.

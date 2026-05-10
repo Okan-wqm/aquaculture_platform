@@ -2616,3 +2616,66 @@ The split is clean: B-5 ships the primitive (architecturally complete + invarian
 
 **Why this is documented here (not as part of the PR #236 cert script fix):** the script-side fix (single-line `python3 -c "...yaml.safe_load..."` form) is in scope for the pre-flight-rewire PR. The integration-test-side fix is a separate concern with its own scope (Jest spec rewrite + deliberate-drift fixture + investigation of why it's green) and would balloon the PR. Per `feedback_orphan_findings_doc.md` the right move is documenting the finding here with the fix path, then opening a follow-up commit.
 
+---
+
+## ORPHAN-012 — `FARM-DATAMIG-001` registry id violates `findings.jsonl.schema.json` id pattern
+
+**Severity:** MEDIUM
+**Discovered:** 2026-05-10, while implementing /tmp/ci-cleanup-plans/invariants-deferred.md §2 Option A (evidence-pattern relax)
+**File:** `docs/reviews/_registry/findings.jsonl` (entry id `FARM-DATAMIG-001`, appended 6b372511 on 2026-04-24)
+
+**Evidence:**
+- `docs/reviews/_registry/findings.jsonl.schema.json:22` — id pattern `^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|...)-(CRITICAL|HIGH|MEDIUM|LOW|CVE)-[0-9]{3}$` requires CLASSIFIER ∈ {CRITICAL, HIGH, MEDIUM, LOW, CVE}.
+- `docs/reviews/_registry/findings.jsonl` line 97 — entry has `"id":"FARM-DATAMIG-001"` with `"severity":"HIGH"`. The CLASSIFIER segment is `DATAMIG`, a domain tag, not the entry's severity.
+- AJV failure observed via `npm run invariants:fast -- --testPathPatterns=finding-registry-integrity`: `instancePath:/id, schemaPath:#/properties/id/pattern, ... must match pattern`.
+- Discovered separately from the 94 `evidence/items/pattern` violations addressed by the schema relax in this same batch — Option A's recommended scope was strictly the evidence pattern, so this id-pattern fail is left for a follow-up architectural decision.
+
+**Why this is an orphan, not a yama:**
+The entry is in a hash-chained append-only ledger. Editing the id rewrites `content_hash` and breaks every subsequent entry's `prev_hash` pointer — exactly the chain-replay corruption the integrity invariant exists to detect (see `finding-registry-integrity.spec.ts` hash-chain checks). So the cure is on the SCHEMA side (same architectural pattern as the evidence-pattern relax landing in this commit).
+
+**Two architectural options:**
+
+1. **Extend the id pattern enum.** Add `DATAMIG` to the CLASSIFIER alternation:
+   ```
+   ^(DATA|SEC|PLAT|...)-(CRITICAL|HIGH|MEDIUM|LOW|CVE|DATAMIG)-[0-9]{3}$
+   ```
+   This admits the existing entry. But CLASSIFIER's whole purpose per the schema description is severity (or `CVE` as a stable upstream identifier). Adding a domain-tag value to the same slot conflates two orthogonal axes (severity vs. domain) and invites more drift later (someone next adds `MIGRATION`, `ROLLOUT`, etc.). Cheap, but architecturally weak.
+
+2. **Append a corrective re-issue.** Treat `FARM-DATAMIG-001` as schema-malformed-on-arrival and append a NEW entry `FARM-HIGH-NNN` (next available HIGH index for FARM) with `override_of: "FARM-DATAMIG-001"` and identical evidence/title/state. The original chain entry stays (cannot be rewritten); the override pointer documents the cure. Still leaves the historical id violating the schema, so the integrity test still fails on the entry's id — meaning option 2 alone does NOT close the test failure.
+
+3. **Hybrid: relax the id pattern at one named carve-out.** Add a single explicit `FARM-DATAMIG-001` exception to the schema (via `if/then` allOf branch grandfathering the one known entry). Documents the malformed entry, doesn't widen the CLASSIFIER enum. Minimum-blast-radius cure. Architecturally tidy: the historical malform is acknowledged exactly once and future entries face the original pattern.
+
+**Recommended:** Option 3 (named carve-out) — preserves the original CLASSIFIER convention for future writers, narrowly grandfathers the one bad entry, doesn't conflate severity with domain. Track and close in a follow-up commit.
+
+**Test coverage to add when closed:**
+- AJV must validate `FARM-DATAMIG-001` exactly (and only it) under the named carve-out.
+- A different malformed id (e.g. `FARM-FOOBAR-001`) must still fail.
+- The integrity test (`every entry conforms to findings.jsonl.schema.json`) must turn green end-to-end.
+
+
+
+## ORPHAN-013 — `aquamobil` Docker build cannot resolve `react/jsx-runtime` from aliased `farm-shared` source
+
+**Severity:** HIGH (blocks droplet auto-deploy: `Deploy to DigitalOcean (Staging)` fails on every push to main)
+**Discovered:** 2026-05-10, while operationalising the staging deploy pipeline
+**File:** `web/apps/aquamobil/vite.config.ts` (resolve config), `infrastructure/docker/Dockerfile.aquamobil` (build context shape), `libs/farm-shared/src/components/DynamicMeasurementForm.tsx` (the importing module)
+
+**Evidence (Rollup error inside `infrastructure/docker/Dockerfile.aquamobil` build):**
+```
+[vite]: Rollup failed to resolve import "react/jsx-runtime" from
+        "/monorepo/libs/farm-shared/src/components/DynamicMeasurementForm.tsx"
+ERROR: process "/bin/sh -c npx vite build" did not complete successfully: exit code: 1
+```
+
+Reproduced locally on 2026-05-10:
+- Run: `docker build -f infrastructure/docker/Dockerfile.aquamobil .` from a clean `origin/main`.
+- Result: identical Rollup error → buildx exits 1 → `build-frontend-images (aquamobil, ...)` job fails → `deploy` job blocked because it `needs: [build-frontend-images]`.
+
+**Root cause:** The aquamobil Dockerfile builds in a STANDALONE context — `npm ci` runs from `/monorepo/web/apps/aquamobil/`, so the only `node_modules/` tree is at `/monorepo/web/apps/aquamobil/node_modules/`. The shared component lib `libs/farm-shared` is `COPY`'d in separately under `/monorepo/libs/farm-shared/` (not installed via npm) and consumed via the Vite alias `@aquaculture/farm-shared`. When Rollup processes a TSX file under `/monorepo/libs/farm-shared/src/...`, the JSX transform emits a bare-specifier import `react/jsx-runtime`. Node's resolution algorithm walks UP from `/monorepo/libs/farm-shared/`, finds no `node_modules/` at `/monorepo/libs/` or `/monorepo/`, and aborts. React is right there — at `/monorepo/web/apps/aquamobil/node_modules/react/jsx-runtime.js` — but the resolver doesn't know to look "sideways" into a sibling package's installed deps.
+
+**Why it doesn't bite the other 8 microfrontends:** they all build OUTSIDE Docker (in the `build-frontend` job on the GHA runner) and then their pre-built `dist/` is COPY-only into `infrastructure/docker/Dockerfile.microfrontend.simple`. On the host runner, `node_modules/` exists at the workspace root and farm-shared resolves React via that tree. Aquamobil is the lone exception that runs `vite build` INSIDE its image's build stage.
+
+**Fix (Tier-1 "make it impossible" per CLAUDE.md):** add `resolve.dedupe: ['react', 'react-dom']` to `web/apps/aquamobil/vite.config.ts`. This is the documented Vite escape hatch for monorepo-aliased React libs: `dedupe` forces every bare `react` / `react-dom` / subpath specifier (including `react/jsx-runtime` and `react/jsx-dev-runtime`) to resolve to the consuming project's `node_modules/react/...`, regardless of which file does the importing. Aquamobil already declares `react@^18.2.0` and `react-dom@^18.2.0` as direct deps in its package.json, so the consuming project already owns the canonical copy. With `dedupe`, no consumer can ever pick up a second React via the aliased boundary.
+
+**Status:** RESOLVED — fixed in branch `chore/aquamobil-react-runtime-fix` via PR. Verified locally with `docker build -f infrastructure/docker/Dockerfile.aquamobil .` succeeding (`vite v7.3.2 ... ✓ built in 21.50s` with no Rollup error).
+>>>>>>> origin/main

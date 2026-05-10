@@ -98,9 +98,11 @@ export default {
       testMatch: [
         '<rootDir>/knowledge-ssot.spec.ts',
         '<rootDir>/finding-registry-integrity.spec.ts',
+        '<rootDir>/finding-evidence-shape.spec.ts',
         '<rootDir>/upcaster-chain.spec.ts',
         '<rootDir>/lib-creation-rubric.spec.ts',
         '<rootDir>/messaging-joins.spec.ts',
+        '<rootDir>/messaging-migration-runner.spec.ts',
         '<rootDir>/admin-api-schema-boundaries.spec.ts',
         '<rootDir>/eslint-rule-presence.spec.ts',
         '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',
@@ -126,6 +128,7 @@ export default {
         '<rootDir>/boundary-allowlist-invariants.spec.ts',
         '<rootDir>/farm-service-tenant-isolation.spec.ts',
         '<rootDir>/spec-module-mode.spec.ts',
+        '<rootDir>/migration-spec-quarantine.spec.ts',
       ],
     },
     {

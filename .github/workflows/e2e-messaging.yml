@@ -172,7 +172,15 @@ jobs:
           DATABASE_USER: postgres
           DATABASE_PASSWORD: postgres
           DATABASE_NAME: aquaculture_e2e
-          DATABASE_MIGRATIONS_RUN: 'true'
+          # Converge with production: MessagingMigrationRunnerService
+          # (provider in app.module.ts) executes migrations at
+          # OnApplicationBootstrap with transaction='each', honouring per-
+          # migration `transaction = 'none'` opt-outs (e.g.
+          # 1782800000000-AddMessageAttachmentIsDeletedIndex's CREATE
+          # INDEX CONCURRENTLY). TypeORM's built-in DataSource-init runner
+          # defaults to transaction='all' and would throw
+          # ForbiddenTransactionModeOverrideError.
+          DATABASE_MIGRATIONS_RUN: 'false'
           # ── Redis ──
           REDIS_HOST: localhost
           REDIS_PORT: 6379

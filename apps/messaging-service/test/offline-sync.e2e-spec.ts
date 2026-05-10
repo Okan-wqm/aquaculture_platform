@@ -23,6 +23,7 @@ import {
   USER_A2,
   ADMIN_A,
   E2eTestContext,
+  closeE2eTestApp,
 } from './e2e-setup';
 
 // ── GraphQL Operations ─────────────────────────────────────────────────────
@@ -78,7 +79,6 @@ async function sendMessage(
 
 describe('Offline Sync (E2E)', () => {
   let ctx: E2eTestContext;
-  let app: INestApplication;
   let httpServer: ReturnType<INestApplication['getHttpServer']>;
   let dataSource: DataSource;
   let redis: Redis;
@@ -91,7 +91,7 @@ describe('Offline Sync (E2E)', () => {
 
   beforeAll(async () => {
     ctx = await createE2eTestApp();
-    ({ app, httpServer, dataSource, redis } = ctx);
+    ({ httpServer, dataSource, redis } = ctx);
     await setupTenantSchemas(dataSource, [TENANT_A]);
     resetIdempotencyCounter();
 
@@ -133,7 +133,7 @@ describe('Offline Sync (E2E)', () => {
   afterAll(async () => {
     await cleanupTenantData(dataSource, TENANT_A);
     await flushAllTestRedisKeys(redis);
-    await app.close();
+    await closeE2eTestApp(ctx);
   });
 
   // ── messagesSince (Single Channel) ─────────────────────────────────────

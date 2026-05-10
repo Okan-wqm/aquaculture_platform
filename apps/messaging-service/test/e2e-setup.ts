@@ -180,6 +180,34 @@ export async function createE2eTestApp(
   };
 }
 
+/**
+ * Close the E2E test app safely, no-oping when bootstrap failed.
+ *
+ * WHY: When `createE2eTestApp()` throws inside `app.init()` (e.g. a
+ * migration failure during `OnApplicationBootstrap`), the `return { app, … }`
+ * block never executes and the suite-level `let ctx: E2eTestContext`
+ * declaration remains `undefined`. The subsequent `afterAll` hook then
+ * runs `await ctx.app.close()` which throws
+ * `TypeError: Cannot read properties of undefined (reading 'close')` and
+ * masks the real bootstrap error in CI logs.
+ *
+ * This helper lets the afterAll uniformly call `await closeE2eTestApp(ctx)`
+ * — when ctx (or ctx.app) is undefined, the helper returns silently and
+ * the original bootstrap error remains the visible failure. When ctx.app
+ * exists, the helper performs the real `app.close()`.
+ *
+ * Tier-3 ("make it detectable") reinforcement per CLAUDE.md hierarchy.
+ * Without this helper, every future bootstrap regression in this suite
+ * would produce the misleading `undefined.close()` cascade and the
+ * operator chases a false trail.
+ */
+export async function closeE2eTestApp(
+  ctx: E2eTestContext | undefined,
+): Promise<void> {
+  if (!ctx?.app) return;
+  await ctx.app.close();
+}
+
 // ── GraphQL Request Helper ──────────────────────────────────────────────────
 
 /**

@@ -371,16 +371,25 @@ const complexityCache = new Map<string, number>();
     { provide: APP_GUARD, useFactory: (r: Reflector): RolesGuard => new RolesGuard(r), inject: [Reflector] },
     { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard => new ThrottlerGuard(r, c, s), inject: [Reflector, ConfigService, SlidingWindowStrategy] },
 
+    // Migration runner — runs pending TypeORM migrations on the messaging
+    // source schema at OnApplicationBootstrap with search_path pinning.
+    // See docblock on MessagingMigrationRunnerService above.
+    //
+    // ORDER MATTERS: NestJS calls onApplicationBootstrap in provider
+    // registration order. The migration runner MUST appear BEFORE
+    // SourceSchemaBootstrapService so the source-schema invariant check
+    // (which hard-fails on empty tables, INFRA-CRITICAL-009) sees a
+    // populated schema. Production previously masked this ordering
+    // requirement because aqua-db-migrate populated the schema before
+    // service containers started; in E2E (DATABASE_MIGRATIONS_RUN=false
+    // converged path) the runner is the SSoT for migration execution.
+    MessagingMigrationRunnerService,
+
     // Tenant infrastructure providers (all 5 required — see ADR-012 section 6.1)
     SourceSchemaBootstrapService,
     TenantConnectionBootstrap,
     TenantSchemaSyncService,
     SourceSchemaWriteGuardService,
-
-    // Migration runner — runs pending TypeORM migrations on the messaging
-    // source schema at OnApplicationBootstrap with search_path pinning.
-    // See docblock on MessagingMigrationRunnerService above.
-    MessagingMigrationRunnerService,
   ],
 })
 export class AppModule implements NestModule {

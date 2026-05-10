@@ -59,8 +59,18 @@
       "path": "F-006.json",
       "severity": "MEDIUM",
       "status": "RESOLVED"
+    },
+    {
+      "claim_summary": "Operator-conducted ARIA cross-check (2026-05-10) of 1086 raw findings produced by 13 SHADOW adapters in cycle cyc-20260510T0156Z surfaced four classes of adapter calibration blockers preventing SHADOW->ACTIVE promotion: (1) cqrs/outbox/agent-harness adapters all emit findings with status=invalid_evidence (F-005 anchor #13 continuation); (2) schema-drift + typeorm-entity-schema produce duplicate 75-row migration findings (F-003 sub-anchor); (3) test-gap heuristic misses behavior-equivalent integration tests; (4) security-boundary rejects @Public()+@ThrottlePasswordReset as insufficient allowlist.",
+      "claim_type": "adapter_promotion_blocker",
+      "created_at": "2026-05-10T02:00:00Z",
+      "evidence_chain_id": "chain_F007_aria_cross_check",
+      "finding_id": "F-007",
+      "path": "F-007.json",
+      "severity": "MEDIUM",
+      "status": "OPEN"
     }
   ],
-  "generated_at": "2026-05-10T01:35:00Z",
+  "generated_at": "2026-05-10T02:00:00Z",
   "schema_version": 1
 }

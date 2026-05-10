@@ -1,0 +1,29 @@
+{
+  "$schema": "aria/architectural-debt/v1",
+  "auto_close_forbidden": true,
+  "current_status": "OPEN",
+  "debt_id": "DEBT-2026-05-10-002",
+  "due_date": "2026-08-08T02:00:00Z",
+  "escalation_history": [],
+  "originating_finding_evidence_chain_id": "chain_F007_aria_cross_check",
+  "originating_finding_id": "F-007",
+  "permanent_fix_owner": "okan-platform-operator",
+  "permanent_fix_required": "Extend tools/aria-adapters/test-gap-adapter.ts heuristic from adjacent-or-importing test signal to also scan e2e/tests/integration/**/*.spec.ts file CONTENTS for: (a) migration class name as substring (e.g. 'AuditLogImmutability' literal in test source), (b) SQL DDL signatures (CREATE TABLE / ALTER TABLE / CREATE INDEX matching migration content), (c) typeorm DataSource invocations targeting tables touched by the migration. Also: exclude *.spec.ts file extensions from migration_registry_missing_entry candidate list (the .spec.ts file 1781200000000-ConvertFarmOutboxToIdentity.spec.ts is a test, not a migration, but adapter currently flags it as unregistered migration). Add unit tests covering: (1) migration with adjacent test - no flag (existing behavior preserved), (2) migration with e2e integration test referencing class name - no flag (new behavior), (3) migration with no test signal anywhere - flagged (existing behavior preserved), (4) .spec.ts file with timestamp-prefixed name - excluded (new behavior).",
+  "root_cause_summary": "test-gap-adapter heuristic was scoped to adjacent test files (same directory + matching name) and import-based detection (test files that import the migration class). This misses the dominant test pattern in this monorepo: e2e integration tests at e2e/tests/integration/**/*.spec.ts that test migration BEHAVIOR by querying the database state directly without importing the migration class. As a result, every e2e-tested migration generates a false-positive migration_without_test finding. Additionally, the adapter's migration file detection regex matches .spec.ts files when they happen to follow the timestamp-prefixed naming convention (1781200000000-ConvertFarmOutboxToIdentity.spec.ts is a regression test for the migration, not a migration itself). The architectural fix is to widen the heuristic to content-based test signal detection plus narrow the candidate list to exclude .spec.ts extensions.",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "short_term_action_taken": {
+    "kind": "code_marker",
+    "rationale": "Per CONTRACTS.md §6.6 + IDENTITY.md §3.6 Rule 3, every short-term workaround that does not permanently fix the underlying issue requires a tracked DEBT record with owner + due_date. F-007 anchor 3 is documented in the finding file; this DEBT links the finding to the permanent fix path. No source-side aria-debt: marker is added to the adapter file in this short-term action because the adapter itself is OUTSIDE the kernel (tools/aria-adapters/) and CONTRACTS source-marker convention is currently kernel-scoped. If adapter-level markers become a documented convention, this debt's short_term_action will be amended to add the marker; for now the F-007 evidence chain + this DEBT record in aria-debts/_index.json provide the audit trail.",
+    "ref": "aria-findings/F-007.json#F-007-anchor-3 + tools/aria-adapters/test-gap-adapter.ts"
+  },
+  "status_history": [
+    {
+      "at": "2026-05-10T02:00:00Z",
+      "by": "manual:operator-aria-cross-check-2026-05-10",
+      "status": "OPEN"
+    }
+  ],
+  "verification_status": "VERIFIED",
+  "withdrawn_reason": null
+}

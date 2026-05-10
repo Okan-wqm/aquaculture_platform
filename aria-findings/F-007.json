@@ -1,0 +1,101 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "Operator-conducted ARIA cross-check (2026-05-10) of 1086 raw findings produced by 13 SHADOW adapters in cycle cyc-20260510T0156Z surfaced four classes of adapter calibration blockers preventing SHADOW->ACTIVE promotion. Anchor 1: cqrs-adapter + outbox-adapter + agent-harness-security-adapter all emit findings with status=invalid_evidence (evidence_validator chain still has SELF_OUTPUT or canonical-resolve gap; F-005 anchor #13 partially closed by commit c16ffc18 but not fully). Anchor 2: schema-drift-adapter and typeorm-entity-schema-adapter produce IDENTICAL 75-row findings (5130+1199 raw_observations vs 75+75 raw_findings; same migration_registry_missing_entry rule), indicating shared parser or duplicate-pipeline architecture (F-003 sub-anchor); operator cross-check reduced apparent 75 to 5 unique unregistered migrations + 1 false positive .spec.ts (Phase B escalation). Anchor 3: test-gap-adapter heuristic only checks adjacent-or-importing test signal, missing behavior-equivalent integration tests in e2e/tests/integration/* (e.g. e2e/tests/integration/audit-immutability.spec.ts present but AuditLogImmutability migration flagged as testless). Anchor 4: security-boundary-adapter rejects @Public()+@ThrottlePasswordReset() decorator combination as insufficient explicit-allowlist marker, generating noise on legitimate public endpoints (e.g. apps/admin-api-service/src/auth/password-reset.controller.ts forgotPassword + resetPassword).",
+  "claim_type": "adapter_promotion_blocker",
+  "closes_in_commit": null,
+  "created_at": "2026-05-10T02:00:00Z",
+  "evidence_chain_id": "chain_F007_aria_cross_check",
+  "evidences": [
+    {
+      "ref": "docs/aria/cycle-snapshots/cyc-20260510T0156Z/raw-findings.jsonl",
+      "summary": "Preserved 1086-row raw finding ledger from cycle cyc-20260510T0156Z; evidence chain canonical reference"
+    },
+    {
+      "ref": "docs/aria/cycle-snapshots/cyc-20260510T0156Z/runs.jsonl",
+      "summary": "Tool run envelopes including status fields (ok / evidence_error / scope_violation)"
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/evidence_validator.py",
+      "summary": "validate_evidence_path / _check_agent_ref code path; F-005 anchor #13 partial closure point"
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/tool_runner.py",
+      "summary": "raw vs emitted findings split; SHADOW status semantics; quarantine decision integration"
+    },
+    {
+      "ref": "tools/aria-adapters/schema-drift-adapter.tool.json",
+      "summary": "First adapter manifest producing migration_registry_missing_entry findings"
+    },
+    {
+      "ref": "tools/aria-adapters/typeorm-entity-schema-adapter.tool.json",
+      "summary": "Second adapter manifest producing IDENTICAL migration_registry_missing_entry findings (anchor 2 evidence)"
+    },
+    {
+      "ref": "tools/aria-adapters/test-gap-adapter.ts",
+      "summary": "Adjacent/importing test heuristic implementation (anchor 3 root)"
+    },
+    {
+      "ref": "tools/aria-adapters/security-boundary-adapter.ts",
+      "summary": "@Public() not accepted as allowlist (anchor 4 root)"
+    },
+    {
+      "ref": "apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts:108",
+      "summary": "Cross-check ground-truth: cqrs-adapter correctly identifies @InjectRepository (real CQRS bypass at line 108) but its evidence layer rejects own finding (anchor 1 evidence)"
+    },
+    {
+      "ref": "e2e/tests/integration/audit-immutability.spec.ts",
+      "summary": "Behavior test that test-gap-adapter heuristic missed (anchor 3 evidence: heuristic too narrow)"
+    },
+    {
+      "ref": "apps/admin-api-service/src/auth/password-reset.controller.ts:128",
+      "summary": "forgotPassword endpoint with @Public() + @ThrottlePasswordReset() flagged by security-boundary-adapter as missing allowlist (anchor 4 evidence)"
+    },
+    {
+      "ref": "docs/reviews/data-expert/2026-05-10-migration-registry-drift.md",
+      "summary": "Phase B escalation: cross-check reduced anchor 2 noise to 5 actual unregistered migrations + 1 timestamp clash; production-impact owned by data-expert not by ARIA"
+    }
+  ],
+  "facts": [
+    "8 cross-check sample: 4 TP, 1 noisy, 1 defensive nit, 1 partial FP, 1 adapter bug.",
+    "schema-drift-adapter found real production bug: timestamp 1788300000000 clash between AddFarmAuditLogsImmutability and AddBiomassReports; escalated to Phase B as production-impact CRITICAL.",
+    "cqrs-adapter sample at apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts:108 confirmed real CQRS bypass (@InjectRepository) but adapter rejected own evidence as invalid (status=invalid_evidence).",
+    "tenant-scoping-adapter at invoice-management.service.ts:410 flagged raw query without tenantId predicate; preceded by tenant-scoped findOne; defensive nit, not live bug.",
+    "test-gap-adapter at AuditLogImmutability migration: behavior test exists at e2e/tests/integration/audit-immutability.spec.ts but not adjacent or import-linked.",
+    "security-boundary-adapter at password-reset.controller.ts: @Public() + @ThrottlePasswordReset() rejected as insufficient allowlist.",
+    "schema-drift-adapter and typeorm-entity-schema-adapter both produce 75 raw_findings with identical rule migration_registry_missing_entry; cross-check confirmed only ~5 unique migrations actually unregistered (rest is duplicate-adapter inflation).",
+    "All 13 adapters currently SHADOW status; zero emitted operator-facing findings; F-007 closure required before SHADOW->ACTIVE promotion."
+  ],
+  "finding_id": "F-007",
+  "interpretations": [
+    {
+      "text": "Anchors 1+2 block adapter promotion to ACTIVE. Anchors 3+4 are calibration concerns; can be deferred to next Plan iteration without blocking promotion.",
+      "verification_required": false
+    },
+    {
+      "text": "Anchor 1 is a continuation of F-005 anchor #13; partial closure (commit c16ffc18) did not cover all evidence_validator paths (cqrs/outbox/agent-harness still affected).",
+      "verification_required": true
+    },
+    {
+      "text": "Anchor 2 may be intentional architectural redundancy (defense-in-depth) rather than duplicate work; data-expert review needed before consolidation.",
+      "verification_required": true
+    }
+  ],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "cyc-20260510T0156Z",
+  "originating_skill": "manual:operator-aria-cross-check-2026-05-10",
+  "recommendation": "Anchors 1+2 must close before any adapter promotion. Recommended sequence: (a) extend F-005 anchor #13 fix to cover remaining evidence_validator paths; verify with a re-run that cqrs/outbox/agent-harness emit valid evidence. (b) Consolidate schema-drift + typeorm-entity-schema (one adapter as primary, the other deprecated; route via shared parser module). (c) For anchor 3, extend test-gap heuristic to scan e2e/integration test contents for migration class names + SQL DDL signatures, plus exclude .spec.ts files from migration_registry_missing_entry candidate list (DEBT-2026-05-10-002 tracks heuristic widening). (d) For anchor 4, relax security-boundary rule to accept @Public() + rate-limit decorator combination (preferred), OR add explicit '// public-write-allowlist:' comment convention to repo (operator decision).",
+  "related_specialized_agent_domains": ["data-expert", "auth-security-expert", "test-runner"],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "aria-kernel/aria_kernel/evidence_validator.py",
+      "tools/aria-adapters/schema-drift-adapter.tool.json",
+      "tools/aria-adapters/typeorm-entity-schema-adapter.tool.json",
+      "tools/aria-adapters/test-gap-adapter.ts",
+      "tools/aria-adapters/security-boundary-adapter.ts"
+    ]
+  },
+  "severity": "MEDIUM",
+  "status": "OPEN"
+}

@@ -53,6 +53,12 @@ def run_cycle(paths: WorkspacePaths | None = None, **kwargs: Any) -> dict[str, o
 # the same cycle invocation. NOTE: 'pr_lifecycle' currently emits a
 # placeholder governance event (no real PR action) — fully wiring it
 # requires a proposal_id which the cycle entry point doesn't carry.
+# aria-debt:DEBT-2026-05-10-001 — short-term action: source-side marker
+# only (kind=code_marker). Permanent fix is to thread proposal_id from
+# `aria-kernel cycle run` CLI through run_enterprise_cycle into the
+# pr_lifecycle phase invocation; absent proposal_id must raise
+# GovernanceError, never emit a placeholder. See aria-debts/DEBT-2026-
+# 05-10-001.json + aria-findings/F-006.json#F-006-anchor-2.
 DEFAULT_CYCLE_PHASES: tuple[str, ...] = (
     "discover", "tools", "memory", "pressure", "reflection",
 )

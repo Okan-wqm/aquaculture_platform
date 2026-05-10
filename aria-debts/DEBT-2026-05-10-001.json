@@ -1,0 +1,29 @@
+{
+  "$schema": "aria/architectural-debt/v1",
+  "auto_close_forbidden": true,
+  "current_status": "OPEN",
+  "debt_id": "DEBT-2026-05-10-001",
+  "due_date": "2026-06-24T01:30:00Z",
+  "escalation_history": [],
+  "originating_finding_evidence_chain_id": "chain_F006_aria_self_audit",
+  "originating_finding_id": "F-006",
+  "permanent_fix_owner": "okan-platform-operator",
+  "permanent_fix_required": "Thread proposal_id from `aria-kernel cycle run` CLI through `run_enterprise_cycle` into the `pr_lifecycle` phase. Concrete steps: (1) add `--proposal-id` argument to the cycle CLI parser in cli.py adjacent to the existing `--plan-id` flag; (2) extend `run_enterprise_cycle(...)` signature with `proposal_id: str | None = None` kwarg and forward it to the pr_lifecycle phase callable; (3) inside the pr_lifecycle phase, when the phase is dispatched and `proposal_id` is None, raise `GovernanceError('pr_lifecycle phase requires --proposal-id; refusing to emit placeholder governance event')` instead of writing the current placeholder governance event; (4) when `proposal_id` is provided, dispatch to `pr_manager.open_pr_for_action(proposal_id=...)` so the phase produces a real PR action; (5) remove the placeholder governance write entirely; (6) remove this aria-debt marker from cycle.py:50-60 and add a regression test in `aria-kernel/tests/test_cycle_pr_lifecycle_proposal_id.py` covering the absent-proposal-id rejection and the present-proposal-id dispatch.",
+  "root_cause_summary": "The cycle.py `run_enterprise_cycle` entry point does not accept a proposal_id parameter, so the pr_lifecycle phase cannot dispatch to pr_manager.open_pr_for_action which requires a proposal_id. The phase therefore emits a placeholder governance event instead of triggering a real PR action. The architectural fix is to thread proposal_id through the cycle entry point (CLI flag -> run_enterprise_cycle kwarg -> pr_lifecycle phase invocation) and fail closed when absent rather than emit a placeholder. The placeholder is itself architecturally honest (it does not pretend to act), but it accumulates audit-cost over time: every cycle run that opts into pr_lifecycle writes a no-op governance event; the audit trail records work that did not happen.",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "short_term_action_taken": {
+    "kind": "code_marker",
+    "rationale": "Per CONTRACTS.md §6.6 + IDENTITY.md §3.6 Rule 3, every short-term workaround that does not permanently fix the underlying issue requires a tracked DEBT record with owner + due_date + source-side marker. The `aria-debt:DEBT-2026-05-10-001` line in cycle.py:56-61 makes the debt visible to readers of the source. The placeholder governance write itself is unchanged in this short-term action (the permanent fix per `permanent_fix_required` removes it).",
+    "ref": "aria-kernel/aria_kernel/cycle.py:50-61"
+  },
+  "status_history": [
+    {
+      "at": "2026-05-10T01:30:00Z",
+      "by": "manual:operator-aria-self-audit-2026-05-10",
+      "status": "OPEN"
+    }
+  ],
+  "verification_status": "VERIFIED",
+  "withdrawn_reason": null
+}

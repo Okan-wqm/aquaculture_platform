@@ -3084,3 +3084,20 @@ The drift was masked for >2 days because the older deployed image's `CursorEdge`
 The factory pattern is the documented NestJS-GraphQL idiom for generic ObjectTypes (https://docs.nestjs.com/graphql/resolvers#generics). Adopting it here removes the entire class of "node has undefined type" regressions.
 
 **Status:** RESOLVED — `chore/hr-cursor-edge-graphql-type` lands the factory + interface + test. After redeploy, hr-service bootstraps and all CursorEdge-consuming services build a valid schema.
+
+
+---
+
+## ORPHAN-CRITICAL-068 — hr-service entity-declared tables payrolls/holidays/goals have no migration; SourceSchemaBootstrap guard rejects cold-boot
+
+Severity: CRITICAL. hr-service crash-loops in production at boot. Workforce/payroll/leave functionality offline.
+Discovered: 2026-05-10, on the live droplet during the post-recovery deploy.
+File: apps/hr-service/src/database/migrations/ (gap), entities exist at payroll.entity.ts, holiday.entity.ts, goal.entity.ts.
+
+Evidence: SourceSchemaBootstrap "Source schema hr is missing 3/24 declared tables: payrolls, holidays, goals."
+
+Root cause: entities relied on TypeORM synchronize=true in dev; production DATABASE_SYNC=false correctly. No migration ever created these 3 tables.
+
+Fix: Tier-1 canonical migration matching entity column shapes 1:1 with idempotent CREATE patterns.
+
+Status: RESOLVED on chore/hr-payrolls-holidays-goals-migration.

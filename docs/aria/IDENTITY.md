@@ -287,6 +287,103 @@ This is the rule that turns ARIA from a noise generator into a discipline enforc
 
 ---
 
+## 3.7 — Operator-Conducted Self-Audit Discipline (NEW — added 2026-05-10)
+
+When the operator (or Claude on the operator's behalf) conducts a self-audit of ARIA itself — the kernel, the adapters, the schemas, the runtime — the same discipline §3.6 applies to humans applies symmetrically. Operator self-audit is not exempt from ARIA's own laws; the audit's findings are subject to the same Finding/Debt schema, the same evidence chain, the same banned-phrase gate, and the same closure ceremony.
+
+The operator-self-audit pattern (codified after the 2026-05-10 audit on snowball HEAD `754acb46`) yields these specific rules:
+
+### Rule 5 — Read full function body before flagging silenced code
+
+A `try/except: pass` or any broad-except block can only be flagged as undocumented swallow AFTER the entire function (signature, full docstring, body) has been read. A `sed -n L-5,L+5p` window is insufficient: docstrings explaining the swallow's rationale routinely sit 6-15 lines above the `try` block.
+
+**Concrete failure mode (2026-05-10):** the audit flagged `runtime_profile.py:369` as undocumented swallow; the docstring 9 lines above (lines 350-359) explicitly documented the swallow with reasoning. The mistake required a public retraction and reduced F-006 scope from 3 anchors to 2.
+
+**Compliance check:** before any finding flagging a silenced exception/log/warning, the audit transcript MUST include either (a) the full function body, or (b) explicit confirmation that the function has no docstring above the swallow site.
+
+### Rule 6 — No "environment dismissal" without root-cause isolation
+
+A test failure, a flaky CI signal, or a runtime error is NEVER dismissed as "environment difference" without a concrete root cause. The phrase pair to avoid:
+
+```
+✗ "those failures are just environment"
+✗ "ortam farkı"
+✗ "sandbox issue"
+✗ "harness quirk"
+```
+
+Each of these is an excuse-word equivalent of "for now". The discipline:
+
+```
+when test/runtime fails:
+  1. capture exact failure (stderr_sample, exit_code, log line)
+  2. isolate the variable (signing hook? missing dep? path mismatch?
+     state pollution?)
+  3. either:
+     a. produce a reproducible non-environment cause (commit-mergeable bug)
+     b. produce a concrete environment factor (named, scoped, recorded)
+  4. record the determination in the audit transcript
+```
+
+**Concrete failure mode (2026-05-10):** initial audit dismissed 123 test errors as "environment". Operator challenge forced root-cause isolation; result: sandbox global git config has a code-sign hook that fails on test-internal `git commit` invocations. Once isolated, the 123 errors collapsed to 0 with a `GIT_CONFIG_GLOBAL=/tmp/...` env override (no `--no-verify` bypass, CLAUDE.md compliant).
+
+### Rule 7 — Sandbox parameters always explicit for ARIA commands
+
+Every `aria-kernel` CLI invocation that operates on workspace or tools state MUST pass `--workspace-base` AND `--tools-dir` AND `--workspace-root` if the command is being run for verification, audit, debugging, or sandboxed exploration. Defaults write to the actual repository state (`aria-tools/governance.jsonl`, `~/.aria/workspaces/<hash>/`) and a forgotten parameter pollutes the canonical ledger.
+
+**Concrete failure mode (2026-05-10):** initial `aria-kernel integrity verify` invocation polluted `aria-kernel/aria-tools/governance.jsonl` and `integrity_index.json` because `--tools-dir` was omitted; required a `git checkout --` revert. Subsequent commands all carried explicit `--tools-dir /tmp/aria-sandbox/tools --workspace-base /tmp/aria-sandbox/ws`.
+
+**Compliance check:** any audit transcript or runbook showing an `aria-kernel` invocation without explicit sandbox parameters fails the §3.7 rule unless explicitly documented as "production state mutation, operator-approved".
+
+### Rule 8 — Branch policy collision → claude/* + PR (not direct push or MCP push)
+
+When the operator's intent says "write to branch X" but the harness ag/proxy enforces a different rule (e.g. only `claude/*` prefix branches push successfully), the discipline is NOT to bypass the proxy via MCP push or `git push --force` against the upstream's refusal. The discipline is:
+
+```
+1. Push to a `claude/<topic>` branch (proxy-approved)
+2. Open a PR from `claude/<topic>` → target branch
+3. Operator reviews + merges via standard GitHub flow
+4. Audit trail preserved; signing chain intact
+```
+
+**Concrete failure mode (2026-05-10):** operator said "yes, write to snowball"; proxy returned HTTP 403 on push to `snowball`. Cherry-pick to `claude/snowball-branch-visibility-TqEH1` (the assigned branch) failed because that branch's history predates ARIA. Resolution: `claude/aria-self-audit-F-006` (new, off snowball) → push allowed → PR to snowball.
+
+**Banned reflex:** "operator said yes so MCP push directly" — MCP push creates a different commit SHA, breaks signing chain continuity, and bypasses CI review surface.
+
+### Rule 9 — Self-implemented + self-verified findings need independent review
+
+When an audit and its closure both pass through the same agent (operator or Claude session), the closure is NOT considered complete until an independent reviewer (different agent invocation, different context, ideally a different specialty: `code-reviewer`, `test-runner`, `security-reviewer`, or 3-Explore-agent reproducer per Tier V spec) has examined the closure commits.
+
+Self-judgment is permitted as a working premise during the session, but the finding's status flip from `OPEN` to `RESOLVED` requires either:
+- An independent agent dispatch with a written review report, OR
+- An explicit operator sign-off note recorded as a `governance_event` (kind: `operator_self_audit_sign_off`) acknowledging the absence of independent review
+
+**Concrete failure mode (2026-05-10):** F-006 was opened, fixed, and verified by the same Claude session; no independent review surface. Plan v2 Phase F was added to address this; OQ2 raised the question of mandatory vs. optional. Mandatory is the enterprise-grade default.
+
+### Rule 10 — Plan iteration is acceptable: v0 → v1 → v2 → final
+
+A plan does NOT need to be perfect on the first pass. The operator's request to "extend it" or "make it enterprise-grade" is a normal iteration signal, not a failure. The discipline is to:
+
+1. Produce v0 (initial proposal)
+2. Receive feedback (operator critique or self-critique)
+3. Produce v1 (addressing feedback)
+4. Continue until the plan satisfies the rubric (acceptance criteria, risk register, rollback strategy, ADR alignment, compliance mapping, communication plan, etc.)
+5. Record version history in the plan itself
+
+What is NOT acceptable: pretending v0 was always v2 (rewriting history), abandoning the plan because v0 was incomplete, or refusing to iterate.
+
+**Concrete pattern (2026-05-10):** Plan for ARIA self-audit followups went v0 (3-bullet sketch) → v1 (5 phases, concise) → v2 (21 sections, enterprise-grade with risk register + RACI + ADR alignment + sign-off matrix). Each iteration was triggered by operator feedback. Decision Log records this iteration explicitly so the audit trail shows the process, not just the final artifact.
+
+### Rule 11 — closes_in_commit convention: SHA over null
+
+When a finding flips from `OPEN` to `RESOLVED`, the `closes_in_commit` field MUST be set to the verification commit's SHA (the commit that demonstrated the closure conditions, typically the one labeled `verify(...)` or carrying the Tier V mechanical pass).
+
+The earlier `null` precedent (F-004) is hereby superseded; F-006 was retroactively patched to `closes_in_commit: 6ed058a2af2e8ef91142a5b13d25e9342ebd84f5` per Plan v2 OQ3 resolution. The audit trail benefits substantially from explicit SHA over null.
+
+**Migration:** existing `RESOLVED` findings with `closes_in_commit: null` may be retroactively patched in batch when an audit pass identifies them; not urgent.
+
+---
+
 ## 4 — THE DAILY RHYTHM
 
 Every cycle (default daily, calibratable), you execute these twelve steps.

@@ -2583,3 +2583,102 @@ The split is clean: B-5 ships the primitive (architecturally complete + invarian
 5. **Extend the invariant** to cover all `.github/workflows/*.yml` (drop the `aria-*` prefix filter) once each fix lands. The invariant guards against future regressions.
 
 The fix shape is mechanical (move interpolation to env: + add regex validate); the discipline is the same as Plan 024 §B-3. Expected effort: one batch per workflow, ≈ 30 min each. Plan-independent so does not block Plan 024 v3 sign-off.
+
+
+## ORPHAN-HIGH-056 — `aria-tools/` worktree-aware repo binding eksik; ARIA cycle/discovery/spine baseline çalıştırılamıyor worktree'den (Plan 024 v3 sign-off sonrası ARIA runtime smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future ARIA worktree-discipline plan. Deadline: prior to next operator-driven `cycle run` from a worktree (currently HARD-BLOCKED).
+
+**Scope:** `aria-kernel/aria_kernel/tool_registry.py` `ensure_tools_binding` (line ~150) + every entry point that calls `ensure_tools_binding` (cycle.run_enterprise_cycle:89, spine.take_baseline / take_postcheck, discovery.run, etc.).
+
+**Reproducer:**
+
+```bash
+# From the worktree at /var/aqua-saas/.worktrees/snowball:
+PYTHONPATH=aria-kernel python3 -m aria_kernel --tools-dir aria-tools \
+    cycle run --workspace-root . --cycle-id "cyc-smoke-test"
+
+# → GovernanceError: tools_root_repo_hash_mismatch: bound='e5d674a6dc22eb25'
+#   current='3b5f62ed337d4bf6'; aria-tools cannot be reused across repos.
+#   bound_repo_root='/var/aqua-saas',
+#   current workspace_root='/var/aqua-saas/.worktrees/snowball'
+```
+
+**Surface evidence:**
+
+* `aria-tools/integrity_index.json` carries `bound_repo_root='/var/aqua-saas'` + a `tools_root_repo_hash` derived from the canonical `/var/aqua-saas` filesystem path.
+* When the operator runs ARIA from a git worktree (`/var/aqua-saas/.worktrees/snowball`) the canonical workspace root is the worktree path; `ensure_tools_binding` re-hashes `/var/aqua-saas/.worktrees/snowball` → different hash → `tools_root_repo_hash_mismatch` raise.
+* Mathematically the worktree IS the same git repo (shared `.git/common_dir`); `aria-tools/` reuse from a sibling worktree is NOT a cross-repo reuse, but the binding logic does not consult `git rev-parse --git-common-dir` to resolve worktree pointers to the canonical repo root.
+
+**Why this is acceptable for Plan 024 v3:**
+
+* Plan 024 v3 scope is the F-005 audit-anchor closure (15 architectural-quality gaps from the post-push audit). Worktree-aware binding is a runtime-discipline fix that surfaced ONLY when an operator ran the ARIA kernel against the corrective-arc HEAD as a smoke test post-sign-off.
+* No regression vs pre-Plan-024: this binding behavior shipped long before Plan 024 was scoped; the binding hash check landed in Plan 014/015 era as the tools-root cross-repo defense.
+* Operator workaround: run from the canonical repo root (`/var/aqua-saas/`) instead of the worktree; the binding hash matches the original bound path. ARIA cycle / discovery / spine baseline all work from the canonical root.
+
+**HOW to resolve:**
+
+1. **`ensure_tools_binding` worktree-aware resolution:** before computing the current repo hash, resolve the workspace_root through `git rev-parse --git-common-dir` (or `git worktree list --porcelain` parsing). If the workspace_root is a worktree pointing at a common-dir whose canonical repo root matches `bound_repo_root`, treat the binding as valid.
+2. **Backward-compat:** the existing hash mismatch path stays as the genuine cross-repo defense (different git common_dir = real cross-repo reuse = reject). Only add a worktree-resolved alias path; do not loosen the cross-repo check.
+3. **Tests:** smoke fixture creates a repo + a worktree, runs `cycle run` from BOTH, asserts both succeed with the SAME `aria-tools/` and the same governance event chain. No new bind row written from the worktree (the canonical repo's bind row is the source of truth).
+4. **Invariant:** `tests/invariants/aria-tools-worktree-binding.spec.ts` (or `.py`) — exercises a fixture worktree.
+
+The scope is mechanical: one helper to resolve worktree → canonical repo root, one alias check in `ensure_tools_binding`. Estimated effort ≈ 1 batch (≤ 2h). Plan-independent so does not block Plan 024 v3 sign-off.
+
+
+## ORPHAN-LOW-057 — `cycles.jsonl` rows persist with `status=None`; cycle finalization status field is never set (Plan 024 v3 sign-off sonrası ARIA runtime smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future ARIA observability hardening plan. Deadline: best-effort.
+
+**Scope:** `aria-kernel/aria_kernel/cycle.py` `record_cycle_metrics` + cycles.jsonl writer. Every recent cycle row in `aria-tools/cycles.jsonl` carries `status=null` (or no `status` key).
+
+**Why this is acceptable for Plan 024 v3:**
+
+* Status field absence is observability degradation, not correctness loss. The cycle-lifecycle integrity check (`integrity verify` returns `cycle_lifecycle.incomplete_count: 0 / valid: true`) does not depend on the per-row status field; it walks the begin/end markers.
+* Operator scripts that grep `cycles.jsonl` for `status=ok|fail` see no signal because the field is never persisted.
+
+**HOW to resolve:**
+
+1. **`record_cycle_metrics` writer:** ensure the cycle-row dict carries `status` before append. The function signature already accepts `status='ok'`; the persistence path drops it somewhere in the row construction. Trace + fix in `record_cycle_metrics` + the cycles.jsonl row writer.
+2. **Tests:** cycle E2E asserts `status` field present on the persisted row.
+
+Estimated effort ≈ 1 batch (≤ 1h).
+
+
+## ORPHAN-MEDIUM-058 — `aria-kernel` CLI `--tools-dir` flag inconsistency: 3 distinct patterns across subcommands (Plan 024 v3 sign-off sonrası ARIA runtime smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future ARIA CLI UX hardening plan. Deadline: best-effort.
+
+**Scope:** `aria-kernel/aria_kernel/cli.py` argparse subparser definitions across ~50 subcommands. Three distinct patterns observed during smoke test:
+
+1. **Pattern A — global `--tools-dir` accepted** (operator passes BEFORE the subcommand):
+   * `tool list`, `profile get`, `change list` — `python3 -m aria_kernel --tools-dir aria-tools tool list` works.
+2. **Pattern B — subcommand-level `--tools-dir TOOLS_DIR` REQUIRED** (operator passes AFTER the subcommand):
+   * `spine status`, `metrics dashboard`, `human-required list`, `integrity verify` — `python3 -m aria_kernel spine status --tools-dir aria-tools` works; `python3 -m aria_kernel --tools-dir aria-tools spine status` fails with "unrecognized arguments: --tools-dir aria-tools".
+3. **Pattern C — `--tools-dir` NOT accepted at all; workspace_root drives resolution**:
+   * `pressure list` — only `--workspace-root` accepted; aria-tools is resolved internally via `workspace_paths`.
+
+**Reproducer matrix:**
+
+| Subcommand | `--tools-dir` BEFORE works | `--tools-dir` AFTER works |
+|---|---|---|
+| `tool list` | ✅ | ❌ |
+| `profile get` | ✅ | ❌ |
+| `spine status` | ❌ | ✅ |
+| `metrics dashboard` | ❌ | ✅ |
+| `human-required list` | ❌ | ✅ |
+| `integrity verify` | ✅ | ❌ |
+| `pressure list` | ❌ | ❌ (uses --workspace-root) |
+
+**Why this is acceptable for Plan 024 v3:**
+
+* Operator UX degradation, not architectural correctness loss. Each subcommand still works given the right flag placement.
+* Pre-Plan-024 baseline carried the same inconsistency; the spec discipline of v1→v2→v3 plan validation did not include CLI surface-uniformity audit.
+
+**HOW to resolve:**
+
+1. **Audit:** grep cli.py for every `add_tools_arg(parser, required=...)` + every subparser definition; map which pattern each subcommand uses.
+2. **Normalize:** pick one canonical pattern (recommended: subcommand-level `--tools-dir TOOLS_DIR` required, with a defaulting helper that reads `ARIA_TOOLS_DIR` env var). Every subcommand calls the same `add_tools_arg` helper.
+3. **Tests:** invariant test scans cli.py argparse tree, asserts every subcommand exposes `--tools-dir` in the same shape.
+
+Estimated effort ≈ 2-3 batches (≤ 4h, requires touching every subparser definition).

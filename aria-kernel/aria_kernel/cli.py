@@ -221,6 +221,8 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "pressure_command",
         "telemetry_command",
         "worker_command",
+        "scheduler_command",
+        "planner_dispatch_command",
         "worktree_command",
         "agent_report_command",
         "triage_command",
@@ -566,6 +568,32 @@ def _main(argv: list[str] | None = None) -> int:
     worker_cancel = add_subparser(worker_sub, "cancel")
     worker_cancel.add_argument("pressure_event_id")
     worker_cancel.add_argument("--reason", required=True)
+
+    # Plan 025 §D — autonomous scheduler family. ``planner-dispatch``
+    # runs the in-kernel daemon that polls next_pending_request and
+    # routes claimed requests to ci_executor.py. The subparser shape
+    # mirrors ``worker`` (line 548) and inherits --tools-dir via the
+    # add_subparser factory.
+    scheduler_parser = add_subparser(sub, "scheduler")
+    scheduler_sub = scheduler_parser.add_subparsers(
+        dest="scheduler_command", required=True,
+    )
+    planner_dispatch_parser = add_subparser(scheduler_sub, "planner-dispatch")
+    pd_sub = planner_dispatch_parser.add_subparsers(
+        dest="planner_dispatch_command", required=True,
+    )
+    pd_run = add_subparser(pd_sub, "run")
+    add_workspace_args(pd_run)
+    pd_run.add_argument("--max-iterations", type=int, default=None)
+    pd_run.add_argument(
+        "--poll-interval-seconds", type=float, default=30.0,
+    )
+    pd_run.add_argument("--daemon-id", default="planner-dispatch")
+    pd_run.add_argument(
+        "--roles", default="primary_plan,challenger_plan",
+        help="Comma-separated planner roles to poll, in priority order.",
+    )
+    pd_run.add_argument("--lease-seconds", type=int, default=1800)
 
     worktree_prune_parser = add_subparser(sub, "worktree-prune")
     add_workspace_args(worktree_prune_parser)
@@ -1596,6 +1624,36 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("status") in {"cancelled", "already_cancelled"} else 1
+
+    if (
+        args.command == "scheduler"
+        and args.scheduler_command == "planner-dispatch"
+        and args.planner_dispatch_command == "run"
+    ):
+        # Plan 025 §D — autonomous planner dispatcher daemon entry.
+        # workspace_root falls back to paths.repo_root when paths is
+        # bound (worktree-aware); otherwise to the explicit argv path.
+        from .autonomous_planner_dispatcher import run_planner_dispatch_daemon
+        workspace = (
+            paths.repo_root if paths is not None
+            else Path(args.workspace_root).resolve()
+        )
+        roles = tuple(
+            r.strip() for r in args.roles.split(",") if r.strip()
+        )
+        if not roles:
+            parser.error("--roles must contain at least one planner role")
+        result = run_planner_dispatch_daemon(
+            base_dir=args.tools_dir,
+            workspace_root=workspace,
+            max_iterations=args.max_iterations,
+            poll_interval_seconds=args.poll_interval_seconds,
+            daemon_id=args.daemon_id,
+            roles=roles,
+            lease_seconds=args.lease_seconds,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("exits_clean") else 1
 
     if args.command == "worktree-prune":
         result = prune_worktrees(

@@ -1,5 +1,5 @@
 import type { QueryRunner } from 'typeorm';
-import { ConvertFarmOutboxToIdentity1781200000000 } from './1781200000000-ConvertFarmOutboxToIdentity';
+import { ConvertFarmOutboxToIdentity1781200000000 } from '../1781200000000-ConvertFarmOutboxToIdentity';
 
 /**
  * ConvertFarmOutboxToIdentity.spec.ts

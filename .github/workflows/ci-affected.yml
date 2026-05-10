@@ -451,6 +451,15 @@ jobs:
       - name: Install PyYAML
         run: python3 -m pip install --quiet 'pyyaml==6.0.2'
 
+      - name: Setup Node
+        # Node 22 is required for built-in TypeScript type-stripping (the
+        # validator runs as `node scripts/ci/preflight-validate.ts` with no
+        # transpile step). Same SHA pin as every other setup-node call in
+        # this workflow.
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       - name: Setup Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
         with:
@@ -458,34 +467,23 @@ jobs:
 
       # ── Phase A2 — compose interpolation validation ──────────────────────
       # `docker compose config --quiet` expands every `${VAR:?...}` in the
-      # compose file. Missing required vars abort with a non-zero exit. We
-      # feed it `infrastructure/deploy/ci-test.env` so the compose grammar
-      # is validated without any real secret — it is the DECLARED shape we
-      # are asserting, not the runtime value. Detects:
+      # compose file. Missing required vars abort with a non-zero exit. The
+      # validator scans each compose file for `${VAR:?...}` references and
+      # generates a throwaway dummy .env on the fly — Tier-2 Make-Automatic:
+      # the compose file IS the SSoT for "what prod needs at interpolation
+      # time", so deriving the dummy at CI time keeps both in lockstep
+      # without a hand-maintained ci-test.env that drifts on every new
+      # ${VAR:?}. Helper: scripts/ci/lib/compose-dummy-env.ts. Detects:
       #   - YAML syntax errors
-      #   - `${VAR:?}` for a variable absent from ci-test.env (⇒ the
-      #     manifest + ci-test.env have drifted)
       #   - service/volume/network references that don't resolve
-      - name: Phase A2 — validate docker-compose.droplet.yml interpolation
+      #   - `${VAR:?}` shapes the regex doesn't yet recognise (surfaces as
+      #     compose's own interpolation error)
+      - name: Phase A2 — validate compose interpolation (droplet/prod/dev)
         run: |
-          docker compose \
-            --env-file infrastructure/deploy/ci-test.env \
-            -f docker-compose.droplet.yml \
-            config --quiet
-
-      - name: Phase A2 — validate docker-compose.prod.yml interpolation
-        run: |
-          docker compose \
-            --env-file infrastructure/deploy/ci-test.env \
-            -f docker-compose.prod.yml \
-            config --quiet
-
-      - name: Phase A2 — validate docker-compose.yml interpolation
-        run: |
-          docker compose \
-            --env-file infrastructure/deploy/ci-test.env \
-            -f docker-compose.yml \
-            config --quiet
+          node scripts/ci/preflight-validate.ts \
+            docker-compose.droplet.yml \
+            docker-compose.prod.yml \
+            docker-compose.yml
 
       # ── Phase A3 — NATS SSoT drift check (services.yaml ↔ nats.conf) ────
       # ADR-015: `infrastructure/nats/services.yaml` is the single source
@@ -542,8 +540,8 @@ jobs:
       # so `{{ required ... }}` template directives pass; real values live
       # in a Kubernetes Secret / ExternalSecret at install time. The values
       # here deliberately do NOT match any real credential and would fail at
-      # container runtime — exactly as intended (same design contract as
-      # infrastructure/deploy/ci-test.env).
+      # container runtime — exactly as intended (same design contract as the
+      # auto-derived dummy env in Phase A2 above).
       - name: Phase A4 — helm chart template (values-production.yaml)
         run: |
           helm template aquaculture \
@@ -583,10 +581,16 @@ jobs:
       # ── Phase A4 — required-secret manifest lint ─────────────────────────
       # `infrastructure/deploy/required-secrets.yaml` is the SSoT for which
       # env vars are mandatory at deploy time. `validate-required-secrets.py`
-      # asserts the manifest, the compose files' `${VAR:?}` patterns, and
-      # `infrastructure/deploy/ci-test.env` all agree. Any drift between the
-      # three blocks fails CI with an explicit "missing: VAR_NAME" message
+      # asserts that the manifest's secret list and the `${VAR:?}` patterns
+      # across every listed compose file are in lockstep, and that each
+      # secret's `required_by:` matches the compose files actually using it.
+      # Any drift fails CI with an explicit "missing: VAR_NAME" message
       # (not a generic YAML parse error).
+      #
+      # The compose-↔-env interpolation check runs in Phase A2 above against
+      # an auto-derived dummy env (Tier-2 Make-Automatic); this Phase A4 step
+      # is the operator-facing manifest contract — it documents which secrets
+      # the operator MUST provision in `/var/aqua-saas/.env` at deploy time.
       #
       # This closes the "operator adds ${STRIPE_SECRET_KEY:?} to compose but
       # forgets to update the deploy pre-flight manifest" failure mode that

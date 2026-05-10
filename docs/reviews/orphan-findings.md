@@ -2878,6 +2878,22 @@ The check is structural — it cannot regress silently because any future migrat
 
 ---
 
+## ORPHAN-CRITICAL-064 — CursorEdge<T> generic ObjectType crashed hr-service GraphQL schema build
+
+**Severity:** CRITICAL — hr-service crash-loops in production after fresh deploy. Every consumer of HR data (workforce schedules, payroll feeds, leave balances, mobile shift assignments) is offline.
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** libs/backend-common/src/pagination/cursor.ts
+
+**Evidence (hr-service container log):**
+
+    Bootstrap failed: Undefined type error. Make sure you are providing an
+    explicit type for the "node" of the "CursorEdge" class.
+
+**Root cause:** NestJS GraphQL code-first schema builder reflects field types via reflectTypeFromMetadata. For a generic class, the type-parameter T erases to undefined at runtime. The previous CursorEdge<T> exported a single concrete @ObjectType with @Field() node!: T (no explicit type resolver), so the schema builder saw undefined for the node type and threw at bootstrap the moment any module registered a sub-class of it.
+
+**Fix (Tier-1 Make-Impossible):** convert CursorEdge<T> to a factory function CursorEdge(classRef: Type<T>) returning an abstract @ObjectType whose @Field(() => classRef) decorator passes the consumer-provided type explicitly. Concrete edges then extend CursorEdge(MyEntity). Plus expose ICursorEdge<T> structural interface for non-GraphQL consumers.
+
+**Status:** RESOLVED on chore/hr-cursor-edge-graphql-type. After redeploy, hr-service bootstraps and all CursorEdge-consuming services build a valid schema.
 ## ORPHAN-CRITICAL-059 — `apps/gateway-api/src/app.module.ts` registers `AuditedOperationModule.forRoot()` (which depends on TypeORM `DataSource`) but never imports `TypeOrmModule.forRoot()`; cold-boot DI resolution crashes the gateway
 
 **Severity:** CRITICAL — gateway-api is the platform's edge entry point. With the gateway in a crash loop, no client (web shell, mobile, integrations) can reach any backend. by-okan@live.com cannot log in; the platform is functionally offline even though every other backend service is up.

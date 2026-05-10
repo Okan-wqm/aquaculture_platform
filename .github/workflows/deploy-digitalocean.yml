@@ -131,41 +131,81 @@ jobs:
     timeout-minutes: 60   # staging deploy typically lands in ~30 min
     steps:
       # ────────────────────────────────────────────────────────────────────
-      # WS9 enablement gate.
+      # WS9 / ADR-016 Phase D — topology-aware enablement gate.
       #
-      # The staging-gate enforces "staging-success-before-prod" only when
-      # `STAGING_ENABLED=true` is set as a repository variable
-      # (Settings → Variables). Until the operator provisions the staging
-      # droplet via the Terraform module + sets STAGING_ENABLED=true, the
-      # gate auto-bypasses and prod deploy proceeds as before.
+      # Two architecturally-valid topologies are supported. The gate
+      # auto-bypasses on EITHER signal of an unconfigured staging:
       #
-      # This is NOT a defensive shim — it's the explicit lifecycle of a
-      # shelf-ready feature. The Tier-1 invariant "every prod deploy was
-      # green on staging" only HOLDS when staging exists. Pretending the
-      # invariant applies before staging exists would block every prod
-      # deploy for 60min until the gate timed out — strictly worse than
-      # the pre-WS9 state.
+      #   1. `vars.STAGING_ENABLED` repo variable not set to 'true' (the
+      #      operator's explicit opt-in flag).
+      #   2. `secrets.STAGING_DROPLET_HOST` is empty (the structural truth:
+      #      no host = no possible staging deploy = nothing for the gate
+      #      to wait on).
       #
-      # Operator workflow:
+      # The two checks together are belt-and-braces:
+      #   - If the operator sets STAGING_ENABLED=true but forgets to add
+      #     the secrets, signal 2 catches it (Tier-1 Make-Impossible:
+      #     gate cannot wait for a deploy that physically cannot run).
+      #   - If the operator adds the secrets but forgets the variable,
+      #     signal 1 still requires the explicit opt-in (the operator
+      #     gets the multi-droplet topology only after consciously
+      #     enabling it; prevents accidental gating mid-rollout).
+      #
+      # Both must resolve to "configured" for the gate to enforce. The
+      # secret-presence signal is the same one deploy-staging.yml uses
+      # in its `staging-configured` job — both workflows share the
+      # discriminator so they cannot drift relative to each other.
+      #
+      # Operator workflow (Topology A — multi-droplet, gate enforces):
       #   1. terraform apply infrastructure/terraform/modules/staging-droplet/
       #   2. seed staging .env (per docs/runbooks/staging-environment.md)
-      #   3. Settings → Variables → set STAGING_ENABLED=true
-      #   4. From this point on, every prod deploy waits for the
+      #   3. Settings → Environments → staging → add STAGING_DROPLET_HOST,
+      #      STAGING_DROPLET_USER, STAGING_DROPLET_SSH_KEY secrets
+      #   4. Settings → Variables → set STAGING_ENABLED=true
+      #   5. From this point on, every prod deploy waits for the
       #      `deployed/staging-<sha>` tag emitted by deploy-staging.yml.
+      #
+      # Topology B (single-droplet, gate auto-bypasses) is the default
+      # state at repo init and after `STAGING_ENABLED=false` rollback —
+      # no operator action required.
       # ────────────────────────────────────────────────────────────────────
-      - name: Check staging enablement
+      - name: Check staging enablement (topology detection)
         id: enablement
+        # STAGING_HOST is read into env (NOT interpolated into the script
+        # body) — same pattern as deploy-staging.yml `staging-configured`
+        # job. Bash `-n` test discriminates configured/unconfigured cleanly
+        # without leaking the secret value into logs.
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_DROPLET_HOST }}
         run: |
           set -euo pipefail
           ENABLED='${{ vars.STAGING_ENABLED }}'
+
+          # Signal 1 — operator opt-in flag
           if [ "${ENABLED}" != "true" ]; then
-            echo "::warning::STAGING_ENABLED repo variable is not 'true'."
-            echo "::warning::Skipping staging-gate — staging environment not yet provisioned."
-            echo "::warning::See docs/runbooks/staging-environment.md to enable."
+            echo "::notice::STAGING_ENABLED repo variable is not 'true' (Topology B: single-droplet)."
+            echo "::notice::Skipping staging-gate — staging environment not opted-in."
+            echo "::notice::See docs/runbooks/staging-environment.md to enable Topology A."
             echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          # Signal 2 — secret presence (structural truth)
+          # Even if STAGING_ENABLED=true, an empty STAGING_DROPLET_HOST
+          # means deploy-staging.yml's staging-configured job emitted
+          # configured=false and skipped — the deployed/staging-<sha>
+          # tag will never arrive. Skip the gate to avoid a 55-minute
+          # timeout that prod cannot recover from.
+          if [ -z "${STAGING_HOST}" ]; then
+            echo "::warning::STAGING_ENABLED=true but STAGING_DROPLET_HOST secret is empty."
+            echo "::warning::This is a configuration drift — staging cannot physically deploy."
+            echo "::warning::Bypassing staging-gate to avoid a 55-min timeout. Fix the staging Environment secrets."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::notice::Staging configured (Topology A) — gate will assert deployed/staging-<sha> tag."
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Check bypass / capture reason
         id: bypass
@@ -247,8 +287,9 @@ jobs:
       - name: Gate summary
         run: |
           if [ "${{ steps.enablement.outputs.skip }}" = "true" ]; then
-            echo "Staging gate: SKIPPED — STAGING_ENABLED repo var is not 'true'."
-            echo "  This is the expected state until the staging droplet is provisioned."
+            echo "Staging gate: SKIPPED (Topology B: single-droplet, or staging not yet provisioned)."
+            echo "  Either STAGING_ENABLED is not 'true' or STAGING_DROPLET_HOST is empty."
+            echo "  This is the expected state until the staging droplet is provisioned + opted-in."
           elif [ "${{ steps.bypass.outputs.bypass }}" = "true" ]; then
             echo "Staging gate: BYPASSED (emergency — see earlier warning)."
           else

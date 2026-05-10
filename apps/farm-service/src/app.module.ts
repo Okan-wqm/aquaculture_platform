@@ -261,6 +261,13 @@ import { AddBiomassReports1788300000000 } from './database/migrations/1788300000
       inject: [ConfigService, GraphQLContextFactory],
       useFactory: (configService: ConfigService, contextFactory: GraphQLContextFactory) => ({
         autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+        /** SEC-CSRF: Apollo CSRF prevention. Rejects simple-CORS GraphQL
+         *  requests that cannot carry a custom header — defense against
+         *  cross-site GraphQL execution from a victim's browser. The
+         *  gateway already enforces this; subgraphs do too as
+         *  defense-in-depth in case a subgraph becomes directly
+         *  accessible. Validated by scripts/ci/check-apollo-csrf-prevention.mjs. */
+        csrfPrevention: true,
         /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
          *  The gateway already blocks batching, but subgraphs must also enforce this as
          *  defense-in-depth in case a subgraph becomes directly accessible. */

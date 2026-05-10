@@ -57,7 +57,7 @@
  *
  * Module: @aquaculture/backend-common/pagination
  */
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, type Type } from '@nestjs/common';
 import { Field, Int, InputType, ObjectType } from '@nestjs/graphql';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
@@ -112,14 +112,54 @@ export class CursorPaginationInput {
   after?: string;
 }
 
-/** Per-edge wrapper — the Relay-style envelope that carries the cursor alongside the node. */
-@ObjectType({ isAbstract: true })
-export class CursorEdge<T> {
-  @Field()
-  cursor!: string;
+/**
+ * Structural shape of a Relay-style cursor edge — the runtime
+ * contract `buildCursorResponse()` returns and helper-types
+ * downstream consumers refer to. Not a GraphQL type; the GraphQL
+ * emission lives in the `CursorEdge(classRef)` factory below.
+ *
+ * WHY both an interface AND a factory:
+ * NestJS GraphQL (code-first) reflects field types at runtime via
+ * `reflectTypeFromMetadata`. For a generic class, the type-parameter
+ * `T` erases to `undefined` at runtime — TypeScript decorators emit
+ * the design-time type, not the resolved one. The previous
+ * `CursorEdge<T>` exported a single concrete @ObjectType class with
+ * `@Field() node!: T` (no explicit type resolver), so the schema
+ * builder saw `undefined` for the node type and threw at bootstrap
+ * the moment any module registered a sub-class of it. Closes
+ * ORPHAN-CRITICAL-064.
+ */
+export interface ICursorEdge<T> {
+  cursor: string;
+  node: T;
+}
 
-  @Field()
-  node!: T;
+/**
+ * Per-edge wrapper FACTORY — the Relay-style envelope that carries
+ * the cursor alongside the node. NestJS-GraphQL idiom for generic
+ * @ObjectType classes (https://docs.nestjs.com/graphql/resolvers#generics).
+ *
+ * Concrete edges extend the returned abstract class:
+ *
+ * ```typescript
+ * @ObjectType()
+ * export class EmployeeEdge extends CursorEdge(Employee) {}
+ * ```
+ *
+ * The factory passes `classRef` to `@Field(() => classRef)` explicitly,
+ * so the schema builder sees the exact runtime type instead of the
+ * erased generic parameter.
+ */
+export function CursorEdge<T>(classRef: Type<T>): Type<ICursorEdge<T>> {
+  @ObjectType({ isAbstract: true })
+  abstract class CursorEdgeHost {
+    @Field()
+    cursor!: string;
+
+    @Field(() => classRef)
+    node!: T;
+  }
+  return CursorEdgeHost as unknown as Type<ICursorEdge<T>>;
 }
 
 /** Page info summary — Relay-style, `endCursor` / `hasNextPage` are the ones callers actually use. */

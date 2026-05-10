@@ -1310,6 +1310,18 @@ services:
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
+    # ORPHAN-CRITICAL-061: NATS cert mounts were missing here while the
+    # *nats-observability-env merge above declared NATS_TLS_CA / NATS_TLS_CERT /
+    # NATS_TLS_KEY paths inside the container. nats-connection.factory hard-fails
+    # at bootstrap when NATS_TLS_CA is set but unreadable, crash-looping
+    # observability-service on the production droplet. Every other NATS-using
+    # service in this file mounts these four anchors; observability is now
+    # aligned with the same pattern so the env paths actually resolve.
+    volumes:
+      - *nats-ca-mount
+      - *nats-clients-mount
+      - *nats-client-cert-mount
+      - *nats-client-key-mount
     # Attached to aqua-internal only — no published ports, not reachable from external network
     networks:
       - aqua-internal

@@ -208,6 +208,11 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   // `'deferred'` as a SQL literal to match the entity. The phrase appears
   // inside an SQL string, not as a gating excuse.
   /^apps\/hr-service\/src\/database\/migrations\/1736000000000-CreateHRModuleSchema\.ts$/,
+  // Same rationale: the migration that CREATES the goals_status_enum
+  // ships `'DEFERRED'` as a SQL literal to match the GoalStatus entity
+  // enum. The phrase appears inside an SQL ENUM declaration, not as a
+  // gating excuse.
+  /^apps\/hr-service\/src\/database\/migrations\/1789100000000-AddHrPayrollsHolidaysGoals\.ts$/,
   // The defer-goal command handler reads / writes `GoalStatus.DEFERRED`
   // and embeds the word "Deferred:" in the audit log entry it constructs.
   // Same rationale as the enum file above: the word IS the product

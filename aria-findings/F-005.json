@@ -136,13 +136,19 @@
     ]
   },
   "severity": "HIGH",
-  "status": "OPEN",
+  "status": "RESOLVED",
   "status_history": [
     {
       "at": "2026-05-09T13:00:00Z",
       "by": "manual:operator-plan-024-v3-post-push-audit",
       "note": "Emitted after Plan 023 v3.1 sign-off + push (HEAD e4f3218e). Post-push audit identified 15 architectural-quality gaps not covered by Plan 023 v3 closure. Plan 024 v3 corrective-arc tracks closure via 16 fix items (8 Tier B + 7 Tier H + 1 H-0 prerequisite).",
       "status": "OPEN"
+    },
+    {
+      "at": "2026-05-10T00:00:00Z",
+      "by": "operator:plan-024-v3-sign-off",
+      "note": "Plan 024 v3 corrective-arc closure complete at HEAD 754acb46. All 21 evidence anchors verified CLOSED via 3 paralel Explore agent reproducer + full unittest discover (1072 / 1072 green). 14 fix commits + 1 telemetry baseline + 1 finding register = 16 commits pushed to origin/snowball. Per-anchor mapping + verification commands at docs/aria/reviews/2026-05-09-plan-024-implementation-review.md.",
+      "status": "RESOLVED"
     }
   ],
   "supersedes": null

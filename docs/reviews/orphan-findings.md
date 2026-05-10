@@ -2874,3 +2874,66 @@ The check is structural — it cannot regress silently because any future migrat
 5. Brought up the rest of the stack (`docker compose up -d --no-deps <23 services>`).
 
 **Status:** RESOLVED — orchestrator fix landed on branch `chore/fix-orchestrator-transaction-override`. Live production restored on droplet via the inline-rebuild path; canonical fix lands in repo via this commit so the next deploy uses the structurally-correct image.
+
+
+## ORPHAN-CRITICAL-059 — `FileUploadSecurityService` constructor declares `policies: readonly UploadPolicy[]` without `@Inject` token; NestJS reduces array types to `Array` reflection metadata and crashes module init for every consumer of `StorageModule.forRoot`
+
+**Severity:** CRITICAL — both `farm-service` and `gateway-api` crash at cold boot the first time the new image runs in production. The DI failure happens during `AppModule` construction, BEFORE health checks or readiness probes, so docker / k8s see an exit-1 boot loop rather than a degraded service. Any orchestrator with restart-on-fail policy enters a tight crash loop.
+**Discovered:** 2026-05-10, during the post-orchestrator-fix prod deploy (the same session that closed ORPHAN-CRITICAL-058 above)
+**File:** `libs/storage/src/file-upload-security.service.ts:213-220` (pre-fix)
+
+**Evidence (live production deploy log):**
+
+```
+Nest can't resolve dependencies of the FileUploadSecurityService
+(MinioClientService, ?). Please make sure that the argument Array
+at index [1] is available in the StorageModule module.
+
+Potential solutions:
+- Is StorageModule a valid NestJS module?
+- If Array is a provider, is it part of the current StorageModule?
+- If Array is exported from a separate @Module, is that module imported within StorageModule?
+```
+
+The pre-fix constructor:
+
+```typescript
+constructor(
+  private readonly minio: MinioClientService,
+  policies: readonly UploadPolicy[] = DEFAULT_POLICIES,
+) { ... }
+```
+
+declares `policies` as a TypeScript array type. NestJS reads constructor parameter types via `reflect-metadata` (TypeScript's `emitDecoratorMetadata` emit). For ANY array type, the runtime metadata is reduced to the bare `Array` constructor — TypeScript erases element types. The container then tries to resolve `Array` as a provider; nothing is registered under that token; module bootstrap aborts.
+
+The TypeScript default value (`= DEFAULT_POLICIES`) does NOT save the DI path. NestJS always passes a positional argument from container resolution; the default only fires when JavaScript callers `new`-construct directly (which is why the existing unit tests at `libs/storage/src/__tests__/file-upload-security.service.spec.ts:38` were green — they bypass DI by calling `new FileUploadSecurityService(minio)`).
+
+**Root cause:** `FileUploadSecurityService` was modified during phase 6.2 to accept a `policies: readonly UploadPolicy[]` parameter for the upload-policy registry. The change shipped without an explicit DI token — the contributor relied on the parameter default to "fallback to DEFAULT_POLICIES" and the unit tests validated that path. The DI-graph code path was never exercised in test because `StorageModule.forRoot/forRootAsync` only registers providers (it doesn't COMPILE a Nest module in the test). The crash was masked in production until today's clean deploy because the running image predated phase 6.2.
+
+This is a 2-axis bug class: (1) TypeScript decorator-metadata erasure for generic array types is documented but easy to miss, (2) test coverage gap — the existing unit-test surface uses direct constructor instantiation, which structurally cannot detect the DI graph break.
+
+**Fix (Tier-1 Make-Impossible):** Introduce an explicit `FILE_UPLOAD_POLICIES` DI token (string constant, mirrors `STORAGE_CONFIG`) and wire it through `StorageModule.forRoot(config, uploadPolicies?)` / `StorageModule.forRootAsync({ ..., uploadPolicies })`. The constructor uses `@Inject(FILE_UPLOAD_POLICIES)`:
+
+```typescript
+export const FILE_UPLOAD_POLICIES = 'FILE_UPLOAD_POLICIES';
+
+constructor(
+  private readonly minio: MinioClientService,
+  @Inject(FILE_UPLOAD_POLICIES)
+  policies: readonly UploadPolicy[] = DEFAULT_UPLOAD_POLICIES,
+) { ... }
+```
+
+The container resolves against the typed token rather than the ambiguous `Array` reflection metadata. `StorageModule.forRoot/forRootAsync` registers a value provider under the token: caller-supplied policies win; otherwise the canonical `DEFAULT_UPLOAD_POLICIES` table is wired automatically. Both forms also export the token so future modules / audit dashboards can introspect the wired registry.
+
+The constructor-default semantics are preserved by leaving the parameter default (`= DEFAULT_UPLOAD_POLICIES`) in place — direct-instantiation callers (unit tests) continue to work without any change because the `@Inject` decorator only governs the DI-resolved code path. JavaScript `new`-call semantics are unchanged.
+
+**New regression test (Tier-3 Make-Detectable layer):** `libs/storage/src/__tests__/storage.module.spec.ts` boots `StorageModule.forRoot` and `StorageModule.forRootAsync` under `Test.createTestingModule`, asserts `FileUploadSecurityService` resolves cleanly, and verifies both the default-table path and the override path. This locks the architectural fix in place — any future change that breaks the DI graph fails this spec instead of crashing production at cold-boot.
+
+**Why this regression went undetected for so long:** Phase 6.2 introduced the `policies` parameter without a corresponding module-bootstrap test. The unit-test pattern in this lib (and several siblings — check `grep -rln "from '@nestjs/testing'" libs/`) is constructor-direct, not container-driven, which makes the test green even when DI wiring is broken. The infrastructure-level test was missing because `StorageModule.forRoot` is a `@Global()` singleton with a double-registration guard that complicates Test.createTestingModule reuse. The new spec works around that by resetting the registration guard between describe blocks.
+
+**Status:** RESOLVED — fix lands on branch `chore/fix-farm-fileupload-di`. Verified locally:
+
+- `npx jest --config libs/storage/jest.config.ts` → 22 / 22 pass (3 suites including the new module DI suite).
+- `nx build farm-service` → BUILD OK (the production crash repro now boots clean under tsc emit).
+- `tsc -p libs/storage/tsconfig.lib.json --noEmit` → clean.

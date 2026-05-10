@@ -38,11 +38,35 @@
  *   Phase 6.2 of the "Farm modülü kalan kör noktalar" plan.
  *   Closes Girdi 15-C4 size + mime axes.
  */
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import sharp from 'sharp';
 
 import { MinioClientService } from './minio-client.service';
 import type { UploadOptions, UploadResult } from './interfaces/storage.interfaces';
+
+/**
+ * DI token for the upload-policy registry.
+ *
+ * NestJS reads constructor parameter types via `reflect-metadata`;
+ * for `readonly UploadPolicy[]` the emitted runtime type is the bare
+ * `Array` constructor. Without an explicit `@Inject` token the
+ * container tries (and fails) to resolve `Array`, crashing module
+ * initialisation with:
+ *
+ *   "Nest can't resolve dependencies of FileUploadSecurityService
+ *    (MinioClientService, ?). … argument Array at index [1] is
+ *    available in the StorageModule module."
+ *
+ * The token side-steps the type-reflection ambiguity entirely:
+ * `StorageModule.forRoot` / `forRootAsync` registers a value provider
+ * under this exact identifier, so the DI graph is structurally
+ * explicit instead of relying on positional type emit.
+ *
+ * Exported as a string constant (mirrors `STORAGE_CONFIG`) so tests,
+ * downstream apps, and replacement modules can reference the same
+ * identifier without importing an opaque symbol.
+ */
+export const FILE_UPLOAD_POLICIES = 'FILE_UPLOAD_POLICIES';
 
 /** Mime types that carry EXIF / metadata and need to be stripped. */
 const IMAGE_MIMES_WITH_METADATA: ReadonlySet<string> = new Set([
@@ -73,8 +97,13 @@ export interface UploadPolicy {
  * Default policy registry. Each tenant inherits these thresholds
  * unless an env override narrows them. The caller passes
  * `documentType`; the service looks up the policy or rejects.
+ *
+ * Exported so `StorageModule.forRoot` / `forRootAsync` can wire it
+ * as the default value behind `FILE_UPLOAD_POLICIES` when the caller
+ * does not supply an override. Centralising the default here keeps
+ * the policy table next to the type that consumes it.
  */
-const DEFAULT_POLICIES: readonly UploadPolicy[] = [
+export const DEFAULT_UPLOAD_POLICIES: readonly UploadPolicy[] = [
   {
     documentType: 'HEALTH_CERTIFICATE',
     maxBytes: 5 * 1024 * 1024, // 5 MB — Mattilsynet stamped PDF is ~200KB–1MB
@@ -210,9 +239,18 @@ export class FileUploadSecurityService {
   private readonly logger = new Logger(FileUploadSecurityService.name);
   private readonly policies: Map<string, UploadPolicy>;
 
+  /**
+   * `policies` is wired through the explicit `FILE_UPLOAD_POLICIES`
+   * DI token rather than relying on `Array` reflection metadata.
+   * Direct callers (unit tests, in-process callers) can still omit
+   * the argument — the parameter default falls back to the canonical
+   * `DEFAULT_UPLOAD_POLICIES` registry, keeping the test surface
+   * identical to before this fix.
+   */
   constructor(
     private readonly minio: MinioClientService,
-    policies: readonly UploadPolicy[] = DEFAULT_POLICIES,
+    @Inject(FILE_UPLOAD_POLICIES)
+    policies: readonly UploadPolicy[] = DEFAULT_UPLOAD_POLICIES,
   ) {
     this.policies = new Map(
       policies.map((p) => [p.documentType.toUpperCase(), p]),
@@ -363,8 +401,9 @@ export class FileUploadSecurityService {
 
   /**
    * Minimal magic-byte detection covering the mime types in the
-   * DEFAULT_POLICIES. Unknown / text signatures return `null` so
-   * the pre-flight check falls through to the declared-mime path.
+   * DEFAULT_UPLOAD_POLICIES table. Unknown / text signatures return
+   * `null` so the pre-flight check falls through to the declared-mime
+   * path.
    */
   private sniffMagic(buffer: Buffer): string | null {
     if (buffer.length < 4) return null;

@@ -4,6 +4,8 @@
  */
 import type { ModuleMetadata, InjectionToken } from '@nestjs/common';
 
+import type { UploadPolicy } from '../file-upload-security.service';
+
 /**
  * Configuration for MinIO storage connection
  */
@@ -89,4 +91,18 @@ export interface StorageModuleAsyncOptions extends Pick<ModuleMetadata, 'imports
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   useFactory: (...args: any[]) => Promise<StorageConfig> | StorageConfig;
   inject?: InjectionToken[];
+  /**
+   * Optional override for the upload-policy registry consumed by
+   * `FileUploadSecurityService`. Resolved at module-boot time —
+   * static, not factory-driven. Omit to use the canonical
+   * `DEFAULT_UPLOAD_POLICIES` table (covers every shipping
+   * document type: chemical, batch, health, transport).
+   *
+   * If a future requirement introduces tenant-narrowed policies
+   * resolved from `ConfigService`, extend this contract with a
+   * sibling `useUploadPoliciesFactory` rather than reusing
+   * `useFactory` — keeping the storage-config and policy-config
+   * surfaces separate preserves the principle of least surprise.
+   */
+  uploadPolicies?: readonly UploadPolicy[];
 }

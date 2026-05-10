@@ -11,6 +11,8 @@ export { StorageModule } from './storage.module';
 export { MinioClientService, STORAGE_CONFIG } from './minio-client.service';
 export {
   FileUploadSecurityService,
+  FILE_UPLOAD_POLICIES,
+  DEFAULT_UPLOAD_POLICIES,
   type UploadPolicy,
   type SecureUploadRequest,
 } from './file-upload-security.service';

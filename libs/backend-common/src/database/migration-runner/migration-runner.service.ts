@@ -29,7 +29,13 @@ import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
  *   - Re-assert the pin before every migration's `up()` so one migration's
  *     `SET search_path` leak can't poison the next (the 2026-04-07
  *     farm-service incident).
- *   - Per-migration transaction: partial failures rollback cleanly.
+ *   - Per-migration transaction: partial failures rollback cleanly,
+ *     EXCEPT when the migration class declares `transaction = false`
+ *     (CONCURRENTLY DDL escape hatch). The `transaction = false` opt-out
+ *     suppresses both this runner's outer wrapper AND the executor's inner
+ *     wrapper end-to-end — see hot-loop comment at line ~395 and the
+ *     identical rule in apps/db-migrate/src/migration-orchestrator.ts
+ *     (PR #245). Closes ORPHAN-CRITICAL-063.
  *
  * # Tenant-aware fan-out (added for the schema-per-tenant services)
  *
@@ -332,6 +338,21 @@ export function createMigrationRunnerService(
             this.dataSource,
             queryRunner,
           );
+          // ARCHITECTURAL NOTE (ORPHAN-CRITICAL-063):
+          //
+          // `executor.transaction` is set to 'each' purely for downstream
+          // observability — the property is consulted by TypeORM's
+          // `executePendingMigrations()` path (which we DO NOT use). The
+          // hot loop below calls `executor.executeMigration(migration)`
+          // which never reads `this.transaction`; transaction lifecycle
+          // for THIS runner is entirely owned by the per-migration
+          // wrapper at lines below (commit / rollback gated on
+          // `useTransaction`).
+          //
+          // The `'each'` value is preserved as documentation: any future
+          // path that promotes this code to call `executePendingMigrations`
+          // inherits the correct mode (see typeorm-config.factory.ts for
+          // the same `migrationsTransactionMode: 'each'` SSoT).
           executor.transaction = 'each';
 
           const pending = await executor.getPendingMigrations();
@@ -381,13 +402,36 @@ export function createMigrationRunnerService(
 
             // Per-migration transaction so a partial failure in migration
             // N does not leak uncommitted DDL into migration N+1.
-            await queryRunner.startTransaction();
+            //
+            // ORPHAN-CRITICAL-063: Honor `migration.instance.transaction === false`
+            // structurally. CONCURRENTLY-scoped DDL (CREATE INDEX
+            // CONCURRENTLY, DROP INDEX CONCURRENTLY) cannot run inside any
+            // transaction block — Postgres rejects with "cannot run inside
+            // a transaction block" regardless of how the wrapper opens the
+            // tx. The instance-level opt-out is the documented escape hatch;
+            // the runner that wraps every migration in an unconditional
+            // `startTransaction()` overrides the migration's own intent.
+            // Mirrors the PR #245 orchestrator fix at
+            // apps/db-migrate/src/migration-orchestrator.ts (commit f03386c3)
+            // so the per-service runner and the centralised orchestrator
+            // share one structural rule: instance-level transaction=false
+            // suppresses both the inner (executor) AND the outer (runner)
+            // transaction wrappers, end-to-end.
+            const useTransaction =
+              (migration as { instance?: { transaction?: boolean } }).instance
+                ?.transaction !== false;
+
+            if (useTransaction) {
+              await queryRunner.startTransaction();
+            }
             try {
               await executor.executeMigration(migration);
-              await queryRunner.commitTransaction();
+              if (useTransaction && queryRunner.isTransactionActive) {
+                await queryRunner.commitTransaction();
+              }
               appliedNames.push(migration.name);
               this.logger.log(
-                `Migration "${migration.name}" applied on "${schema}"`,
+                `Migration "${migration.name}" applied on "${schema}" (transaction=${useTransaction ? 'each' : 'none'})`,
               );
               this.emit(
                 schema,
@@ -396,7 +440,9 @@ export function createMigrationRunnerService(
                 Date.now() - migrationStartedAt,
               );
             } catch (migrationErr) {
-              await queryRunner.rollbackTransaction();
+              if (useTransaction && queryRunner.isTransactionActive) {
+                await queryRunner.rollbackTransaction();
+              }
               const msg =
                 migrationErr instanceof Error
                   ? migrationErr.message

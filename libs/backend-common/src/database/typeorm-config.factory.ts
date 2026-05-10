@@ -86,6 +86,26 @@ type SubscriberInput = Type<unknown> | string;
  * `DATABASE_MIGRATIONS_RUN=false`. TypeORM's built-in `migrationsRun:true`
  * skips those guardrails, so it is opt-in via the `migrationsRun` factory
  * argument and only auth-service currently uses it (legacy).
+ *
+ * # Why `migrationsTransactionMode` is pinned to `'each'`
+ *
+ * TypeORM's built-in runner defaults `migrationsTransactionMode` to `'all'`
+ * when the option is undefined (`node_modules/typeorm/data-source/DataSource.js`
+ * line 261-264). In `'all'` mode `MigrationExecutor.executePendingMigrations`
+ * raises `ForbiddenTransactionModeOverrideError` the moment any pending
+ * migration declares an instance-level `transaction = false` opt-out
+ * (the documented escape hatch for `CREATE INDEX CONCURRENTLY`,
+ * `DROP INDEX CONCURRENTLY`, and other DDL Postgres rejects inside a
+ * transaction block). The factory therefore pins
+ * `migrationsTransactionMode: 'each'` so per-migration overrides are
+ * structurally honoured by TypeORM regardless of which legacy service
+ * (`auth`, `admin-api`, `event-store`) chose to keep TypeORM's built-in
+ * runner instead of the platform `MigrationRunnerService` SSoT.
+ *
+ * Closes the cold-boot crash on the production droplet (2026-05-10) where
+ * messaging-service + admin-api-service failed at boot with
+ * `ForbiddenTransactionModeOverrideError` against migrations declaring
+ * `transaction = false`. See `docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-063`.
  */
 
 export interface ServiceTypeOrmOptions {
@@ -270,6 +290,17 @@ export function createServiceTypeOrmConfig(
     synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
     migrationsRun,
     migrations: opts.migrations,
+    // SSoT for TypeORM's built-in runner transaction mode (ORPHAN-CRITICAL-063).
+    // Pinning to 'each' is the structural fix for ForbiddenTransactionModeOverrideError —
+    // TypeORM's default of 'all' rejects any pending migration that declares
+    // instance-level `transaction = false`, which is the documented escape hatch
+    // for CONCURRENTLY DDL. With 'each', TypeORM consults the per-migration
+    // override and honours it. See factory docblock §"Why migrationsTransactionMode
+    // is pinned to 'each'" for the full rationale + production-deploy crash
+    // history. Effective for every service whose `migrationsRun` resolves to
+    // true (auth-service literal, admin-api / event-store env-default true,
+    // and any service whose env sets DATABASE_MIGRATIONS_RUN=true).
+    migrationsTransactionMode: 'each',
     logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
     ssl: buildDatabaseSslConfig(configService),
     extra: {

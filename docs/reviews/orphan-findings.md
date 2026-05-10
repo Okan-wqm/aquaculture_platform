@@ -3170,3 +3170,20 @@ The centralised `aqua-db-migrate` orchestrator (which runs as `service_completed
 Idempotent on every redeploy: the runner uses `MigrationExecutor.getPendingMigrations()` which reads the per-schema `typeorm_migrations` ledger and skips already-applied migrations. The aqua-db-migrate orchestrator continues to be the canonical first-pass applier (per the WS10 contract); the per-service runner is now a no-op warm-start signal in production because the orchestrator has already advanced the ledger. The two stale `@Module` docblocks ("config-service has no TypeORM migration runner — schema state is managed via TypeORM autoLoadEntities + the RLS bootstrap") were also corrected in the same commit so future readers see the architectural shape that actually exists.
 
 **Status:** RESOLVED — `chore/config-service-runner-schema` lands the four-callsite alignment. After redeploy, the boot log shows `MigrationRunnerService[config]` (not `[public]`), the per-schema runner emits "No pending migrations on 'config'" because the aqua-db-migrate container already advanced the ledger, and the service container reaches the HTTP health probe without a permission-denied crash. The wider architectural debt (config-service connecting as a per-service role rather than a shared one) closes in the same commit, completing the schema-per-service convergence for config that hr/farm/billing/ai/notification/alert already cleared.
+
+
+---
+
+## ORPHAN-CRITICAL-065 — docker-compose.droplet.yml farm-service block missing MINIO_ACCESS_KEY/SECRET_KEY env; service refuses to start
+
+Severity: CRITICAL. farm-service crash-loops in production at cold-boot.
+Discovered: 2026-05-10, on the live droplet.
+File: docker-compose.droplet.yml farm-service block (line 745+).
+
+Evidence: "CRITICAL: MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be explicitly configured in production. Farm-service startup aborted to prevent use of default credentials."
+
+Root cause: gateway-api and messaging-service compose blocks declare MINIO env vars for FileUploadSecurityService. farm-service uses the same service but the compose block never forwarded the env. Configuration-drift bug.
+
+Fix: Tier-2 Make-Automatic. Mirror the MINIO env block from gateway/messaging — MINIO_ENDPOINT/PORT/USE_SSL/ACCESS_KEY/SECRET_KEY/BUCKET/REGION.
+
+Status: RESOLVED on chore/farm-minio-env-compose.

@@ -258,8 +258,24 @@ def dispatch_one_pending_worker_assignment(
                 reason="worker_executor_failed", base_dir=root,
             )
             governance_count += 2
-        except GovernanceError:
-            pass
+        except GovernanceError as exc:
+            # Plan 025 §E reviewer MEDIUM-001 — symmetric audit-trail
+            # parity with the verification-failed branch below. A
+            # release failure on the executor-failed path was previously
+            # swallowed silently; operators reading governance.jsonl
+            # now see the precise failure mode (claim still terminal-
+            # marked under a stale token vs. claim_id missing vs.
+            # already-released).
+            append_tools_governance(
+                root, "worker_dispatch_release_claim_failed",
+                {
+                    "assignment_id": assignment_id,
+                    "claim_id": claim_id,
+                    "stage": "executor_failed",
+                    "error": str(exc),
+                },
+            )
+            governance_count += 1
         return {
             "status": "executor_failed",
             "assignment_id": assignment_id, "claim_id": claim_id,

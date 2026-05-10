@@ -27,9 +27,12 @@ Termination conditions surfaced via ``exit_reason``:
   * ``profile_frozen`` — runtime profile gate raised GovernanceError
   * ``max_iterations`` — operator-supplied iteration cap reached
   * ``daemon_already_running`` — single-instance lock contended
-  * ``invoke_worker_unwired`` — operator started the daemon without
-    wiring an invoke_worker hook (Tier-1 architectural refusal —
-    the daemon does not silently no-op).
+
+When ``invoke_worker`` is None the daemon falls back to the kernel
+default ``worker_dispatch_hook.dispatch_one_pending_worker_assignment``
+— matches the §D autonomous_planner_dispatcher pattern. Tests inject
+their own callable via ``invoke_worker=`` to drive the loop without
+touching the live subprocess.
 
 Profile-gate reuse: the daemon enforces ``agent_claim`` action_kind
 (NOT a new action_kind) so the same Plan 020 ACTION_PERMISSIONS

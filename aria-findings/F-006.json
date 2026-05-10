@@ -3,7 +3,7 @@
   "certainty": "OBSERVED",
   "claim_summary": "Operator-conducted ARIA self-audit (2026-05-10) identified two architectural-quality gaps in the kernel-internal silencing/tracking discipline: (1) pressure._phase2_effective_context wraps both the deferred trust import and the trust function calls in a single `except Exception` block, silently swallowing real data errors from `trust.trusted_gap_keys` and `trust.ref_status_by_feedback_id` that feed pressure evaluation feeding operator decisions; (2) cycle.py:54-56 documents `pr_lifecycle` phase as emitting a placeholder governance event because the cycle entry point doesn't carry a proposal_id, but the placeholder carries no `# aria-debt:DEBT-...` source-side marker and no entry in `aria-state/architectural_debt.jsonl`, in violation of CONTRACTS.md §6.6 + IDENTITY.md §3.6 short-term-workaround-as-tracked-debt schema (debts without owner+deadline are forbidden). Anchors close in two fix commits + one verification commit. Tier V (1072/1072 unittest discover green) closes the finding.",
   "claim_type": "audit_gap_silencing_and_untracked_debt",
-  "closes_in_commit": null,
+  "closes_in_commit": "6ed058a2af2e8ef91142a5b13d25e9342ebd84f5",
   "created_at": "2026-05-10T01:30:00Z",
   "evidence_chain_id": "chain_F006_aria_self_audit",
   "evidences": [

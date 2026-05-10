@@ -50,7 +50,13 @@ class ExtendedPhaseDispatchTests(unittest.TestCase):
         self.assertEqual(result["architecture_baseline"]["status"], "skipped")
         self.assertEqual(result["architecture_baseline"]["reason"], "plan_id_required")
 
-    def test_validation_matrix_phase_returns_informational(self) -> None:
+    def test_validation_matrix_phase_legacy_caller_no_op(self) -> None:
+        # Plan 025 §C — pre-Plan-025 the phase returned an
+        # "informational" notice; post-fix the phase invokes the real
+        # gate per change_id but legacy callers without
+        # cycle_started_at degrade to no_op (closed-loop wiring is
+        # opt-in via the cycle-level run_enterprise_cycle path which
+        # always passes the kwarg).
         from pathlib import Path
         result = _run_extended_phases(
             phases=("validation_matrix",),
@@ -59,10 +65,18 @@ class ExtendedPhaseDispatchTests(unittest.TestCase):
             base_dir=Path("aria-tools"),
             plan_id=None,
         )
-        self.assertEqual(result["validation_matrix"]["status"], "informational")
-        self.assertIn("change_id", result["validation_matrix"]["notice"])
+        self.assertEqual(result["validation_matrix"]["status"], "no_op")
+        self.assertEqual(result["validation_matrix"]["total"], 0)
+        self.assertEqual(
+            result["validation_matrix"].get("reason"),
+            "cycle_started_at_required",
+        )
 
-    def test_pr_lifecycle_phase_returns_informational(self) -> None:
+    def test_pr_lifecycle_phase_no_eligible_proposals_no_op(self) -> None:
+        # Plan 025 §C — pre-Plan-025 the phase returned an
+        # "informational" notice; post-fix the phase iterates the
+        # approved-for-apply proposals (none in this test fixture)
+        # and returns no_op.
         from pathlib import Path
         result = _run_extended_phases(
             phases=("pr_lifecycle",),
@@ -71,8 +85,8 @@ class ExtendedPhaseDispatchTests(unittest.TestCase):
             base_dir=Path("aria-tools"),
             plan_id=None,
         )
-        self.assertEqual(result["pr_lifecycle"]["status"], "informational")
-        self.assertIn("proposal_id", result["pr_lifecycle"]["notice"])
+        self.assertEqual(result["pr_lifecycle"]["status"], "no_op")
+        self.assertEqual(result["pr_lifecycle"]["total"], 0)
 
 
 class CycleRunPhasesUnknownTests(unittest.TestCase):

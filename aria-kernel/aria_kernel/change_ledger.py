@@ -477,6 +477,43 @@ def emit_change_validated(
 # ---------------------------- query API ----------------------------
 
 
+def list_committed_change_ids_in_window(
+    *,
+    since: datetime,
+    base_dir: str | Path | None = None,
+) -> list[str]:
+    """Plan 025 §C — return change_ids whose ``change_committed
+    .recorded_at`` >= ``since``.
+
+    Used by the cycle validation_matrix phase to bound matrix
+    enforcement to changes landed inside the current cycle window
+    (a global "list all committed" surface would cause the gate to
+    re-run on every historical change, defeating per-cycle
+    discrimination). ``since`` is a UTC datetime; ``recorded_at``
+    rows are ISO-8601 strings written by emit_change_committed.
+
+    Rows with missing/unparseable ``recorded_at`` are skipped
+    (defensive against legacy rows; the change ledger has no
+    schema drift today, but the iso-parse failure is silently
+    skipped rather than hard-failed because the validation matrix
+    phase should keep going on the remaining changes).
+    """
+    tools_root = ensure_tools_dir(base_dir)
+    out: list[str] = []
+    for row in load_jsonl(_committed_path(tools_root)):
+        cid = row.get("change_id")
+        recorded = row.get("recorded_at")
+        if not cid or not isinstance(recorded, str):
+            continue
+        try:
+            ts = datetime.fromisoformat(recorded.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if ts >= since:
+            out.append(cid)
+    return out
+
+
 def get_change_chain(
     *,
     change_id: str,

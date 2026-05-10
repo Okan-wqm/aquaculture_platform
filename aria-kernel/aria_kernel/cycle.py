@@ -20,7 +20,7 @@ from .observability import generate_observability_dashboard, record_cycle_metric
 from .pressure import run_pressure
 from .reflection import run_reflection
 from .tool_health import load_jsonl, runs_path
-from .tool_registry import ensure_tools_binding, list_tools, utc_now
+from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now
 from .tool_runner import run_tool
 from .ledger import append_jsonl
 
@@ -235,6 +235,11 @@ def run_enterprise_cycle(
     # pre_phase. The legacy run_phases kwarg continues to run AFTER
     # tools (post-tool observation).
     started = time.monotonic()
+    # Plan 025 §C — UTC wall-clock of cycle start. Bounds the
+    # change_committed window for validation_matrix phase so the
+    # gate runs only against changes landed inside this cycle (not
+    # historical changes from earlier cycles).
+    cycle_started_at = datetime.now(timezone.utc)
     root = ensure_tools_binding(base_dir, workspace_root=workspace_root)
     if (root / "ARIA_STOP").exists():
         # Plan 024 §E — ARIA_STOP path used to return without
@@ -386,14 +391,40 @@ def run_enterprise_cycle(
             cycle_id=cycle_id,
             base_dir=root,
             plan_id=plan_id,
+            cycle_started_at=cycle_started_at,
         )
 
-    event = _complete_event(root, cycle_id, len(decisions), git_head_sha_at_cycle=git_head_sha_at_cycle)
+    # Plan 025 §C — cycle status propagation. If any extended phase
+    # returned ``status=="fail"`` the cycle's terminal row is written
+    # via _failed_event (factory at line 161); otherwise the
+    # legacy _complete_event happy path. Pre-fix _complete_event was
+    # called unconditionally — a failed validation_matrix or
+    # pr_lifecycle phase silently passed through to a "completed"
+    # cycle, defeating the purpose of running the gate.
+    phase_failures = [
+        name for name, result in extended_phase_results.items()
+        if isinstance(result, dict) and result.get("status") == "fail"
+    ]
+    if phase_failures:
+        event = _failed_event(
+            cycle_id,
+            decision_count=len(decisions),
+            git_head_sha_at_cycle=git_head_sha_at_cycle,
+        )
+        append_jsonl(root / "cycles.jsonl", event)
+        state_status: str = "failed"
+    else:
+        event = _complete_event(
+            root, cycle_id, len(decisions),
+            git_head_sha_at_cycle=git_head_sha_at_cycle,
+        )
+        state_status = "completed"
     state = {
         "schema_version": 2,
         "cycle_id": cycle_id,
         "git_head_sha_at_cycle": git_head_sha_at_cycle,
-        "status": "completed",
+        "status": state_status,
+        "extended_phase_failures": phase_failures,
         "event": event,
         "learning": learning,
         "discovery": discovery,
@@ -420,6 +451,7 @@ def _run_extended_phases(
     cycle_id: str,
     base_dir: Path,
     plan_id: str | None,
+    cycle_started_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Plan 022 §M-1 — opt-in extended phase chain.
 
@@ -452,23 +484,183 @@ def _run_extended_phases(
                 workspace_root=workspace_root, base_dir=base_dir,
             )
     if "validation_matrix" in phases:
-        # Validation matrix is applied per change_id; the cycle entry
-        # point can't pick a specific change. Emit an informational
-        # row pointing the operator at the matrix CLI.
-        out["validation_matrix"] = {
-            "status": "informational",
-            "notice": "validation_matrix is per change_id; invoke "
-                      "`aria-kernel validation-matrix check --change-id <id>` "
-                      "outside the cycle.",
-        }
+        # Plan 025 §C — closed-loop wiring. Pre-fix this branch emitted
+        # only an informational notice ("invoke the matrix CLI outside
+        # the cycle"); the cycle never actually invoked enforce_
+        # validation_matrix even though the kernel primitive existed.
+        # The fix is per-change_id discovery (bounded by cycle window)
+        # + per-change gate invocation + aggregated per-id results.
+        # Failure of ANY change_id's matrix gate downgrades the cycle
+        # terminal status via _failed_event (see run_enterprise_cycle
+        # status propagation).
+        out["validation_matrix"] = _run_validation_matrix_phase(
+            cycle_started_at=cycle_started_at,
+            workspace_root=workspace_root,
+            base_dir=base_dir,
+        )
     if "pr_lifecycle" in phases:
-        out["pr_lifecycle"] = {
-            "status": "informational",
-            "notice": "pr_lifecycle requires proposal_id; invoke "
-                      "`aria-kernel pr create --proposal-id <id>` "
-                      "outside the cycle.",
-        }
+        # Plan 025 §C — closed-loop wiring. Pre-fix this branch emitted
+        # only an informational notice ("invoke the PR CLI outside the
+        # cycle"); the cycle never invoked pr_manager.open_pr_for_
+        # action even though the primitive existed. The fix is
+        # per-proposal discovery (filtering on status=approved_for_
+        # apply) + per-proposal dry-run action + aggregated per-id
+        # results. Failure of ANY proposal action downgrades the
+        # cycle terminal status. Live PR open is operator-explicit
+        # (dry_run=True default; live mode is out of cycle scope).
+        out["pr_lifecycle"] = _run_pr_lifecycle_phase(
+            workspace_root=workspace_root,
+            base_dir=base_dir,
+        )
     return out
+
+
+def _run_validation_matrix_phase(
+    *,
+    cycle_started_at: datetime | None,
+    workspace_root: Path,
+    base_dir: Path,
+) -> dict[str, Any]:
+    """Plan 025 §C — invoke enforce_validation_matrix per change_id
+    committed inside the cycle window.
+
+    cycle_started_at = None (legacy callers) → no_op. Production
+    callers (run_enterprise_cycle) always pass a UTC datetime.
+
+    Returns per-id aggregate dict with ``status`` ∈
+    {``no_op``, ``ok``, ``fail``}. ``fail`` propagates to the cycle's
+    terminal status via the _complete_event-vs-_failed_event branch
+    in run_enterprise_cycle.
+
+    GovernanceError from enforce_validation_matrix is caught per
+    change_id so a single failure does not abort the entire phase
+    (operator sees every change's outcome, not just the first
+    failure).
+    """
+    from .change_ledger import (
+        get_change_chain,
+        list_committed_change_ids_in_window,
+    )
+    from .validation_matrix_gate import enforce_validation_matrix
+
+    if cycle_started_at is None:
+        return {
+            "status": "no_op",
+            "total": 0, "ok": 0, "fail": 0,
+            "change_ids": [],
+            "reason": "cycle_started_at_required",
+        }
+    change_ids = list_committed_change_ids_in_window(
+        since=cycle_started_at, base_dir=base_dir,
+    )
+    per_change: list[dict[str, Any]] = []
+    ok = 0
+    for cid in change_ids:
+        try:
+            chain = get_change_chain(change_id=cid, base_dir=base_dir)
+        except GovernanceError as exc:
+            per_change.append({
+                "change_id": cid, "passed": False,
+                "error": f"chain_lookup_failed: {exc}",
+            })
+            continue
+        validated = chain.get("validated") or {}
+        refs = list(validated.get("validation_run_refs") or [])
+        try:
+            res = enforce_validation_matrix(
+                change_id=cid,
+                base_dir=base_dir,
+                repo_root=workspace_root,
+                candidate_refs=refs,
+            )
+            per_change.append({
+                "change_id": cid,
+                "passed": bool(res.get("passed")),
+                "gate_result": res,
+            })
+            if res.get("passed"):
+                ok += 1
+        except GovernanceError as exc:
+            per_change.append({
+                "change_id": cid, "passed": False,
+                "error": str(exc),
+            })
+    total = len(change_ids)
+    if total == 0:
+        status = "no_op"
+    elif ok == total:
+        status = "ok"
+    else:
+        status = "fail"
+    return {
+        "status": status, "total": total,
+        "ok": ok, "fail": total - ok,
+        "change_ids": per_change,
+    }
+
+
+def _run_pr_lifecycle_phase(
+    *,
+    workspace_root: Path,
+    base_dir: Path,
+) -> dict[str, Any]:
+    """Plan 025 §C — invoke pr_manager.open_pr_for_action(dry_run=True)
+    per approved-for-apply proposal.
+
+    Returns per-proposal aggregate dict with ``status`` ∈
+    {``no_op``, ``ok``, ``fail``}. ``fail`` propagates to the cycle's
+    terminal status.
+
+    dry_run=True is the cycle-side default — a live PR open is an
+    operator-explicit action (out of cycle scope). The pr_manager
+    primitive enforces its own preconditions (apply action exists,
+    validation_gate_ref present, branch resolvable, gh CLI
+    available); GovernanceError raised by any precondition is
+    caught per proposal so the phase iterates the full eligible
+    list and aggregates outcomes.
+    """
+    from .pr_manager import open_pr_for_action
+    from .proposal import list_proposals
+
+    eligible = [
+        p for p in list_proposals(base_dir=base_dir)
+        if p.get("status") == "approved_for_apply"
+    ]
+    per_proposal: list[dict[str, Any]] = []
+    ok = 0
+    for prop in eligible:
+        pid = prop.get("proposal_id")
+        try:
+            action_result = open_pr_for_action(
+                proposal_id=pid,
+                workspace_root=workspace_root,
+                base_dir=base_dir,
+                dry_run=True,
+            )
+            per_proposal.append({
+                "proposal_id": pid,
+                "passed": True,
+                "action_result": action_result,
+            })
+            ok += 1
+        except GovernanceError as exc:
+            per_proposal.append({
+                "proposal_id": pid,
+                "passed": False,
+                "error": str(exc),
+            })
+    total = len(eligible)
+    if total == 0:
+        status = "no_op"
+    elif ok == total:
+        status = "ok"
+    else:
+        status = "fail"
+    return {
+        "status": status, "total": total,
+        "ok": ok, "fail": total - ok,
+        "proposals": per_proposal,
+    }
 
 
 def _complete_event(

@@ -2812,3 +2812,44 @@ Each process writes its own tmp file; `tmp.replace(path)` is still atomic per-pr
 **Test surface that exposed it:** `test_concurrent_submit_race_5_subprocesses` in `test_submit_claim_result_envelope_drift.py`. The Plan 025 §A.1 invariants assert exactly-one-accepted and exactly-one-results-row; the assertion explicitly tolerates the ORPHAN-062 race outcome (`FileNotFoundError` from one child) as out-of-scope for §A.1. Once ORPHAN-062 lands, the test assertion can tighten back to "all 5 children land in accepted+idempotent".
 
 Estimated effort ≈ ¼ batch (single function + 1 unit test ≤ 1h).
+
+---
+
+## ORPHAN-MEDIUM-063 — full-suite test interdependence: `test_tool_governance` + `test_event_contracts_adapter_integration` flake under shared ARIA_TEST_TMPDIR (Plan 025 sign-off smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future Plan 026 test-isolation hardening batch. Deadline: best-effort.
+
+**Scope:** `aria-kernel/tests/test_tool_governance.py` + `aria-kernel/tests/test_event_contracts_adapter_integration.py`. Both tests last touched at commits PRE-DATING Plan 025 (test_tool_governance at `af2af7f2` Plan 023 era; test_event_contracts older). Plan 025 changes do NOT touch either file.
+
+**Symptom:** `python3 -m unittest discover aria-kernel -p '*test*.py'` with shared ARIA_TEST_TMPDIR sometimes reports 1-4 failures across these two modules; running each module isolated returns 34/34 OK and 1/1 OK respectively.
+
+**Reproducer (intermittent):**
+```bash
+ARIA_TEST_TMPDIR=/tmp/aria-tests-x ARIA_WORKSPACE_BASE=/tmp/aria-workspaces-x \
+  PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'
+# Sometimes: FAILED (failures=4, errors=1)
+# Sometimes: FAILED (failures=1)
+# Sometimes: OK
+```
+
+Isolated runs (deterministic OK):
+```bash
+PYTHONPATH=aria-kernel python3 -m unittest aria-kernel.tests.test_tool_governance       # 34/34 OK
+PYTHONPATH=aria-kernel python3 -m unittest aria-kernel.tests.test_event_contracts_adapter_integration  # 1/1 OK in 87s
+```
+
+**Why this is plan-independent:**
+
+* Test fixture state interference between modules — one test's tmpdir or governance.jsonl leaks into the next module's setUp. Module load order under `discover` is non-deterministic, so the flake reproduces or not depending on which module ran before the affected pair.
+* Plan 025 confirmed clean by isolated re-run: §E commit `4144f315` reported 1214 OK at a fresh tmpdir; sign-off-time `1ae1cd25` re-run (same tmpdir reused across multiple Plan 025 phases) intermittently reports 1-4 fails. Affected modules contain no Plan 025 surface call.
+
+**HOW to resolve (post-Plan-025):**
+
+1. Audit setUp / tearDown of `test_tool_governance` + `test_event_contracts_adapter_integration` for shared ARIA_TEST_TMPDIR or shared `aria-tools/governance.jsonl` writes that are not cleaned up.
+2. Ensure each test class creates its own `tempfile.TemporaryDirectory` (mirror the §A.2 `test_governance_reader.py` pattern that already passes deterministically).
+3. If shared writeback is the root cause, gate behind a per-test counter or unique suffix.
+4. Add a CI invariant test that runs `discover` 3 times and asserts deterministic OK.
+
+Estimated effort ≈ ½ batch (audit + 2 module setUp rewrites + invariant test ≤ 2-3h).
+
+**Why this is NOT inside Plan 025 sign-off scope:** the affected tests do not exercise any Plan 025 code path; the flake reproduces on pre-Plan-025 HEADs. Closing Plan 025 §E sign-off at HEAD `1ae1cd25` is correct; Plan 026 (or a dedicated test-isolation plan) owns the harness fix.

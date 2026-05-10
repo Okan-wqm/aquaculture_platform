@@ -38,7 +38,13 @@
  *   Phase 6.2 of the "Farm modülü kalan kör noktalar" plan.
  *   Closes Girdi 15-C4 size + mime axes.
  */
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 import sharp from 'sharp';
 
 import { MinioClientService } from './minio-client.service';
@@ -68,6 +74,17 @@ export interface UploadPolicy {
   /** Allowed mime types — case-insensitive exact match. */
   allowedMime: readonly string[];
 }
+
+/**
+ * Symbol token for the operator-overridable upload-policy array.
+ * Consumers that want to inject a custom registry register a provider
+ * keyed off this symbol via `StorageModule.forRoot({ policies: [...] })`
+ * (see storage.module.ts). When no provider is registered, the
+ * `@Optional()`-decorated constructor parameter falls through to
+ * `DEFAULT_POLICIES` so the service stays usable in tests / minimal
+ * configurations.
+ */
+export const FILE_UPLOAD_POLICIES = Symbol('FILE_UPLOAD_POLICIES');
 
 /**
  * Default policy registry. Each tenant inherits these thresholds
@@ -212,10 +229,29 @@ export class FileUploadSecurityService {
 
   constructor(
     private readonly minio: MinioClientService,
-    policies: readonly UploadPolicy[] = DEFAULT_POLICIES,
+    // WHY @Optional + @Inject(FILE_UPLOAD_POLICIES):
+    // NestJS DI does NOT honor TypeScript default parameters at the
+    // injection point — the resolver tries to look up a provider for
+    // the parameter type (Array, after type erasure). Without an
+    // explicit decorator, bootstrap fails with
+    //   "Nest can't resolve dependencies of FileUploadSecurityService
+    //    (MinioClientService, ?). DataSource Array at index [1]"
+    // even though the constructor declares `= DEFAULT_POLICIES` as a
+    // value-level fallback.
+    //
+    // The @Optional() decorator allows DI to skip resolution when no
+    // provider for FILE_UPLOAD_POLICIES is registered, falling through
+    // to the value-level default. The @Inject() pairs the parameter
+    // with a discriminating token so an operator who DOES want to
+    // override (via StorageModule.forRoot({ policies: [...] })) gets
+    // their array honored without re-declaring the contract.
+    @Optional()
+    @Inject(FILE_UPLOAD_POLICIES)
+    policies: readonly UploadPolicy[] | undefined = undefined,
   ) {
+    const effective = policies ?? DEFAULT_POLICIES;
     this.policies = new Map(
-      policies.map((p) => [p.documentType.toUpperCase(), p]),
+      effective.map((p) => [p.documentType.toUpperCase(), p]),
     );
   }
 

@@ -243,10 +243,36 @@ export async function runSchemaMigrations(
         await queryRunner.query(
           `SET search_path TO "${schema}", public`,
         );
-        await queryRunner.startTransaction();
+
+        // Tier-1 architectural correctness: a migration class may
+        // declare `transaction = false` to opt OUT of the per-migration
+        // transaction wrapper. CONCURRENTLY-scoped DDL (CREATE INDEX
+        // CONCURRENTLY, DROP INDEX CONCURRENTLY) cannot run inside any
+        // transaction block — Postgres rejects with `cannot run inside
+        // a transaction block` regardless of how the wrapper got
+        // started. Honoring the instance-level opt-out is the only
+        // way to support that DDL surface; ignoring it (the previous
+        // unconditional startTransaction) made every CONCURRENTLY
+        // migration fail at runtime, which silently propagated through
+        // multiple schemas (auth.AddTenantsCustomDomainPartialUnique,
+        // farm.AlignCodeSequencesSchema, etc.) until production deploy
+        // exposed it. Closes: ORPHAN-CRITICAL-058.
+        // WHY: TypeORM's MigrationExecutor.executeMigration() also
+        // honors migration.instance.transaction, but the orchestrator
+        // was wrapping the call in its OWN transaction layer, so the
+        // executor's intent was overruled by the outer wrapper.
+        const useTransaction =
+          (migration as { instance?: { transaction?: boolean } }).instance
+            ?.transaction !== false;
+
+        if (useTransaction) {
+          await queryRunner.startTransaction();
+        }
         try {
           await executor.executeMigration(migration);
-          await queryRunner.commitTransaction();
+          if (useTransaction && queryRunner.isTransactionActive) {
+            await queryRunner.commitTransaction();
+          }
           applied.push(migration.name);
           log({
             level: 'info',
@@ -256,7 +282,9 @@ export async function runSchemaMigrations(
             migration: migration.name,
           });
         } catch (err: unknown) {
-          await queryRunner.rollbackTransaction();
+          if (useTransaction && queryRunner.isTransactionActive) {
+            await queryRunner.rollbackTransaction();
+          }
           const msg = err instanceof Error ? err.message : String(err);
           log({
             level: 'error',

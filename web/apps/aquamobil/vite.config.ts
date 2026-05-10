@@ -131,6 +131,30 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
       '@aquaculture/farm-shared': resolve(__dirname, '../../../libs/farm-shared/src'),
     },
+    // Dedupe React across the aliased farm-shared boundary.
+    //
+    // WHY: aquamobil's Docker build (`Dockerfile.aquamobil`) is a standalone
+    //   build context — `npm ci` runs from `web/apps/aquamobil/` so the only
+    //   `node_modules/` is at `/monorepo/web/apps/aquamobil/node_modules/`.
+    //   `libs/farm-shared` is copied in separately and resolved via the
+    //   alias above, NOT installed via npm. When Rollup processes a file
+    //   under `/monorepo/libs/farm-shared/src/...` (e.g.
+    //   `DynamicMeasurementForm.tsx` which uses JSX → emits a
+    //   `react/jsx-runtime` import), Node's bare-specifier resolution walks
+    //   up from `/monorepo/libs/farm-shared/` looking for `node_modules`,
+    //   finds none under `/monorepo/`, and aborts:
+    //     "Rollup failed to resolve import 'react/jsx-runtime' from
+    //      libs/farm-shared/src/components/DynamicMeasurementForm.tsx"
+    // WHAT: `dedupe` tells Vite to always resolve these bare specifiers to
+    //   the consuming project's `node_modules`, regardless of which file is
+    //   doing the importing. With this set, `react`, `react-dom`, and the
+    //   subpath exports `react/jsx-runtime` + `react/jsx-dev-runtime` all
+    //   resolve to `web/apps/aquamobil/node_modules/react/...` — which is
+    //   exactly the React copy aquamobil declares as a direct dep.
+    //   Architectural Tier-1 ("make it impossible"): no consumer can ever
+    //   accidentally pick up a second React via the aliased farm-shared
+    //   path again.
+    dedupe: ['react', 'react-dom'],
   },
   optimizeDeps: {
     include: ['konsta/react'],

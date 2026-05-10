@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -151,11 +152,109 @@ def add_workspace_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--workspace-base", default=None, help="Override ~/.aria/workspaces for tests or sandboxes")
 
 
-def add_tools_arg(parser: argparse.ArgumentParser, *, required: bool = False) -> None:
-    kwargs: dict[str, object] = {"required": required, "help": "Override ARIA tools directory"}
-    if not required:
-        kwargs["default"] = argparse.SUPPRESS
-    parser.add_argument("--tools-dir", **kwargs)
+# Plan 024 v3 followup F (ORPHAN-MEDIUM-058) — single architectural
+# point for --tools-dir across every subcommand at every nesting
+# level. The parents=[_TOOLS_DIR_PARENT] mechanism makes a future
+# subcommand author STRUCTURALLY UNABLE to register a parser
+# without --tools-dir; the add_subparser factory funnels every
+# add_parser call through the parent. The invariant test
+# test_cli_tools_dir_no_raw_add_parser pins this barrier.
+_TOOLS_DIR_PARENT = argparse.ArgumentParser(add_help=False)
+_TOOLS_DIR_PARENT.add_argument(
+    "--tools-dir",
+    default=argparse.SUPPRESS,
+    help="Override ARIA tools directory (also accepts ARIA_TOOLS_DIR env var).",
+)
+
+
+def add_subparser(
+    sub_action: argparse._SubParsersAction,
+    name: str,
+    **kwargs: Any,
+) -> argparse.ArgumentParser:
+    """Plan 024 §F — single funnel for every subparser registration.
+
+    Forces parents=[_TOOLS_DIR_PARENT] so --tools-dir is available on
+    every subcommand at every nesting level (operator can type the
+    flag BEFORE the subcommand, AFTER it, or at any nesting in
+    between). A future author CANNOT register a subcommand by any
+    path that omits the flag — there is no second registration
+    mechanism. Enforced by tests/test_cli_tools_dir_invariant.py.
+    """
+    parents = list(kwargs.pop("parents", []))
+    if _TOOLS_DIR_PARENT not in parents:
+        parents.append(_TOOLS_DIR_PARENT)
+    return sub_action.add_parser(name, parents=parents, **kwargs)
+
+
+# Plan 024 §F — post-parse table of commands that genuinely require an
+# operator-supplied --tools-dir (no env-var or default fallback). Both
+# entries are destructive integrity migrations where the operator MUST
+# name the directory explicitly. All other 168 subparsers accept the
+# flag but treat it as optional (env-var fallback or downstream None).
+_TOOLS_DIR_REQUIRED_COMMANDS: frozenset[tuple[str, ...]] = frozenset({
+    ("integrity", "migrate-tools-v1-to-v2"),
+    ("integrity", "rollback-tools-v2-to-v1"),
+})
+
+
+def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
+    """Build the (command, sub_command, ...) tuple for table lookup.
+
+    Walks the known sub-command attribute names (one per top-level
+    command). New nesting hierarchies append their dest attribute
+    here so the required-validation table can reach them.
+    """
+    path: list[str] = [args.command]
+    for attr in (
+        "integrity_command",
+        "feedback_command",
+        "discovery_command",
+        "tool_command",
+        "validation_matrix_command",
+        "agent_compliance_command",
+        "agent_eval_command",
+        "handoff_command",
+        "context_command",
+        "profile_command",
+        "memory_command",
+        "pressure_command",
+        "telemetry_command",
+        "worker_command",
+        "worktree_command",
+        "agent_report_command",
+        "triage_command",
+        "agent_network_command",
+        "capability_gap_command",
+        "plan_command",
+        "agent_invocation_command",
+        "agent_command",
+        "budget_command",
+        "adapter_portfolio_command",
+        "review_command",
+        "architecture_command",
+        "research_command",
+        "critical_observation_command",
+        "convergent_plan_command",
+        "impact_command",
+        "apply_command",
+        "pr_command",
+        "spine_command",
+        "change_command",
+        "metrics_command",
+        "cycle_guard_command",
+        "human_required_command",
+        "consensus_command",
+        "agent_genesis_command",
+        "skill_genesis_command",
+        "worker_result_command",
+        "verification_command",
+        "cycle_command",
+    ):
+        sub = getattr(args, attr, None)
+        if sub:
+            path.append(sub)
+    return tuple(path)
 
 
 def resolve_paths(args: argparse.Namespace):
@@ -189,13 +288,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="aria-kernel")
-    parser.add_argument("--tools-dir", default=None, help="Override ARIA tools directory")
+    # Plan 024 §F — root parser inherits --tools-dir via parents=[_TOOLS_DIR_PARENT].
+    # The previous explicit add_argument("--tools-dir", default=None) was a
+    # second registration site that drifted the help text and required
+    # operators to type the flag BEFORE the subcommand. The parents-based
+    # approach delivers a single SSoT and accepts the flag at every nesting
+    # level. Required-validation moves to _TOOLS_DIR_REQUIRED_COMMANDS.
+    parser = argparse.ArgumentParser(prog="aria-kernel", parents=[_TOOLS_DIR_PARENT])
     sub = parser.add_subparsers(dest="command", required=True)
 
-    cycle_parser = sub.add_parser("cycle")
+    cycle_parser = add_subparser(sub, "cycle")
     cycle_sub = cycle_parser.add_subparsers(dest="cycle_command")
-    cycle_run = cycle_sub.add_parser("run")
+    cycle_run = add_subparser(cycle_sub, "run")
     add_workspace_args(cycle_run)
     cycle_run.add_argument("--cycle-id", required=True)
     cycle_run.add_argument("--discovery-only", action="store_true")
@@ -204,10 +308,10 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(cycle_legacy)
     cycle_legacy.add_argument("--cycle-id", default=None)
 
-    feedback_parser = sub.add_parser("feedback")
+    feedback_parser = add_subparser(sub, "feedback")
     feedback_sub = feedback_parser.add_subparsers(dest="feedback_command", required=True)
 
-    add_parser = feedback_sub.add_parser("add")
+    add_parser = add_subparser(feedback_sub, "add")
     add_workspace_args(add_parser)
     add_parser.add_argument("--kind", required=True)
     add_parser.add_argument("--summary", required=True)
@@ -222,104 +326,100 @@ def _main(argv: list[str] | None = None) -> int:
     add_parser.add_argument("--evidence-ref", action="append", default=[])
     add_parser.add_argument("--evidence-chain", action="append", default=[])
 
-    import_parser = feedback_sub.add_parser("import")
+    import_parser = add_subparser(feedback_sub, "import")
     add_workspace_args(import_parser)
     import_parser.add_argument("--file", required=True)
     import_parser.add_argument("--cycle-id", default=None)
 
-    list_parser = feedback_sub.add_parser("list")
+    list_parser = add_subparser(feedback_sub, "list")
     add_workspace_args(list_parser)
     list_parser.add_argument("--kind", default=None)
 
-    migrate_parser = feedback_sub.add_parser("migrate-v1-to-v2")
+    migrate_parser = add_subparser(feedback_sub, "migrate-v1-to-v2")
     add_workspace_args(migrate_parser)
     migrate_parser.add_argument("--acknowledge", action="store_true")
     migrate_parser.add_argument("--reason", required=True)
 
-    rollback_parser = feedback_sub.add_parser("rollback-v2-to-v1")
+    rollback_parser = add_subparser(feedback_sub, "rollback-v2-to-v1")
     add_workspace_args(rollback_parser)
     rollback_parser.add_argument("--from-backup", required=True)
     rollback_parser.add_argument("--acknowledge", action="store_true")
     rollback_parser.add_argument("--reason", required=True)
     rollback_parser.add_argument("--force-discard-since-migration", action="store_true")
 
-    discovery_parser = sub.add_parser("discovery")
+    discovery_parser = add_subparser(sub, "discovery")
     discovery_sub = discovery_parser.add_subparsers(dest="discovery_command", required=True)
-    discovery_run = discovery_sub.add_parser("run")
+    discovery_run = add_subparser(discovery_sub, "run")
     add_workspace_args(discovery_run)
-    add_tools_arg(discovery_run)
     discovery_run.add_argument("--cycle-id", required=True)
     discovery_run.add_argument("--snapshot-mode", default="committed", choices=["committed", "working_tree", "working-tree"])
 
-    integrity_parser = sub.add_parser("integrity")
+    integrity_parser = add_subparser(sub, "integrity")
     integrity_sub = integrity_parser.add_subparsers(dest="integrity_command", required=True)
-    verify_parser = integrity_sub.add_parser("verify")
+    verify_parser = add_subparser(integrity_sub, "verify")
     verify_parser.add_argument("--workspace-root", default=None)
     verify_parser.add_argument("--workspace-base", default=None)
-    add_tools_arg(verify_parser)
-    migrate_tools = integrity_sub.add_parser("migrate-tools-v1-to-v2")
-    migrate_tools.add_argument("--tools-dir", required=True)
+    migrate_tools = add_subparser(integrity_sub, "migrate-tools-v1-to-v2")
     migrate_tools.add_argument("--workspace-root", required=True)
     migrate_tools.add_argument("--acknowledge", action="store_true")
     migrate_tools.add_argument("--reason", required=True)
-    rollback_tools = integrity_sub.add_parser("rollback-tools-v2-to-v1")
-    rollback_tools.add_argument("--tools-dir", required=True)
+    rollback_tools = add_subparser(integrity_sub, "rollback-tools-v2-to-v1")
     rollback_tools.add_argument("--from-backup", required=True)
     rollback_tools.add_argument("--acknowledge", action="store_true")
     rollback_tools.add_argument("--reason", required=True)
     rollback_tools.add_argument("--force-discard-since-migration", action="store_true")
 
-    tool_parser = sub.add_parser("tool")
+    tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
-    tool_register = tool_sub.add_parser("register")
+    tool_register = add_subparser(tool_sub, "register")
     tool_register.add_argument("--file", required=True)
-    tool_list = tool_sub.add_parser("list")
+    tool_list = add_subparser(tool_sub, "list")
     tool_list.add_argument("--status", default=None)
-    tool_quarantine = tool_sub.add_parser("quarantine")
+    tool_quarantine = add_subparser(tool_sub, "quarantine")
     tool_quarantine.add_argument("--tool-id", required=True)
     tool_quarantine.add_argument("--reason", required=True)
-    tool_run = tool_sub.add_parser("run")
+    tool_run = add_subparser(tool_sub, "run")
     tool_run.add_argument("--tool-id", required=True)
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
 
     # Plan 020 Phase 8.C — validation matrix CLI.
-    matrix_parser = sub.add_parser("validation-matrix")
+    matrix_parser = add_subparser(sub, "validation-matrix")
     matrix_sub = matrix_parser.add_subparsers(dest="validation_matrix_command", required=True)
-    matrix_check = matrix_sub.add_parser("check")
+    matrix_check = add_subparser(matrix_sub, "check")
     matrix_check.add_argument("--change-id", required=True)
     matrix_check.add_argument("--repo-root", default=".")
     matrix_check.add_argument("--validation-run-ref-json", default=None,
         help="Path to JSON list of structured validation_run_refs (cmd, exit_code, log_path, ran_at).")
     matrix_check.add_argument("--validation-mode", choices=["enforced", "historical_attestation"],
         default="enforced")
-    matrix_required = matrix_sub.add_parser("list-required")
+    matrix_required = add_subparser(matrix_sub, "list-required")
     matrix_required.add_argument("--risk-type", action="append", required=True,
         choices=["auth_change", "tenant_change", "schema_change", "event_change"])
 
     # Plan 020 Phase 7.C — agent compliance harness CLI.
-    compliance_parser = sub.add_parser("agent-compliance")
+    compliance_parser = add_subparser(sub, "agent-compliance")
     compliance_sub = compliance_parser.add_subparsers(dest="agent_compliance_command", required=True)
-    comp_grade = compliance_sub.add_parser("grade")
+    comp_grade = add_subparser(compliance_sub, "grade")
     comp_grade.add_argument("--claim-id", required=True)
     comp_grade.add_argument("--request-file", required=True)
     comp_grade.add_argument("--response-file", required=True)
     comp_grade.add_argument("--response-path", default=None,
         help="Where the agent claims it wrote the response (output_path_match check).")
     comp_grade.add_argument("--workspace-root", default=".")
-    comp_list = compliance_sub.add_parser("list")
+    comp_list = add_subparser(compliance_sub, "list")
     comp_list.add_argument("--claim-id", default=None)
     comp_list.add_argument("--rejected-only", action="store_true")
     comp_list.add_argument("--limit", type=int, default=None)
 
     # Plan 020 Phase 6.C — agent eval harness CLI.
-    eval_parser = sub.add_parser("agent-eval")
+    eval_parser = add_subparser(sub, "agent-eval")
     eval_sub = eval_parser.add_subparsers(dest="agent_eval_command", required=True)
-    eval_add = eval_sub.add_parser("add-fixture")
+    eval_add = add_subparser(eval_sub, "add-fixture")
     eval_add.add_argument("--fixture-file", required=True,
         help="Path to JSON fixture file conforming to aria/agent-eval-fixture/v1.")
-    eval_run = eval_sub.add_parser("run")
+    eval_run = add_subparser(eval_sub, "run")
     eval_run.add_argument("--fixture-id", required=True)
     eval_run.add_argument("--mock-mode", action="store_true", default=True,
         help="Run mock-mode (default; produces deterministic envelope).")
@@ -327,23 +427,23 @@ def _main(argv: list[str] | None = None) -> int:
         help="JSON file with real_response_envelope (required when --mock-mode is unset).")
     eval_run.add_argument("--no-mock-mode", action="store_true",
         help="Disable mock mode; requires --real-envelope-file.")
-    eval_aggregate = eval_sub.add_parser("aggregate")
+    eval_aggregate = add_subparser(eval_sub, "aggregate")
     eval_aggregate.add_argument("--target-agent", required=True)
     eval_aggregate.add_argument("--window-days", type=int, default=30)
     eval_aggregate.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
-    eval_list = eval_sub.add_parser("list")
+    eval_list = add_subparser(eval_sub, "list")
     eval_list.add_argument("--target-agent", default=None)
     eval_list.add_argument("--fixture-id", default=None)
     eval_list.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
     eval_list.add_argument("--limit", type=int, default=None)
-    eval_list_fixtures = eval_sub.add_parser("list-fixtures")
+    eval_list_fixtures = add_subparser(eval_sub, "list-fixtures")
 
     # Plan 023 v3 §D-1 — shadow-sample CLI parser entry. Plan 022 §H-5
     # added the sample_shadow_raw_findings Python function but no CLI
     # subparser; operators could only call via Python REPL. Post-fix:
     # `aria-kernel agent-eval shadow-sample [--threshold N]` runs the
     # function and emits JSON output.
-    eval_shadow_sample = eval_sub.add_parser(
+    eval_shadow_sample = add_subparser(eval_sub, 
         "shadow-sample",
         help="Sample SHADOW raw findings from the last 24h (Plan 022 §H-5).",
     )
@@ -357,19 +457,19 @@ def _main(argv: list[str] | None = None) -> int:
     # WHY a CLI surface: session_start + session_stop GHA workflow steps
     # invoke this entry point. Operators use the same surface for manual
     # handoff between session boundaries.
-    handoff_parser = sub.add_parser("handoff")
+    handoff_parser = add_subparser(sub, "handoff")
     handoff_sub = handoff_parser.add_subparsers(dest="handoff_command", required=True)
-    handoff_snapshot = handoff_sub.add_parser("snapshot")
+    handoff_snapshot = add_subparser(handoff_sub, "snapshot")
     handoff_snapshot.add_argument("--session-id", required=True)
     handoff_snapshot.add_argument("--trigger", required=True,
         choices=["manual", "session_start", "pre_compact", "session_stop"])
     handoff_snapshot.add_argument("--repo-root", default=".")
     handoff_snapshot.add_argument("--operator-note", default=None)
-    handoff_list = handoff_sub.add_parser("list")
+    handoff_list = add_subparser(handoff_sub, "list")
     handoff_list.add_argument("--session-id", default=None)
     handoff_list.add_argument("--trigger", default=None)
     handoff_list.add_argument("--limit", type=int, default=None)
-    handoff_read = handoff_sub.add_parser("read")
+    handoff_read = add_subparser(handoff_sub, "read")
     handoff_read.add_argument("--session-id", required=True)
 
     # Plan 020 Phase 2.C — context budget audit / enforce sub-command.
@@ -377,9 +477,9 @@ def _main(argv: list[str] | None = None) -> int:
     # rejected need a one-shot audit ('aria-kernel context audit
     # --target-agent X --role Y --request-file ...') that mirrors the
     # in-pipeline gate. The list sub-command surfaces audit history.
-    context_parser = sub.add_parser("context")
+    context_parser = add_subparser(sub, "context")
     context_sub = context_parser.add_subparsers(dest="context_command", required=True)
-    context_audit = context_sub.add_parser("audit")
+    context_audit = add_subparser(context_sub, "audit")
     context_audit.add_argument("--target-agent", required=True)
     context_audit.add_argument("--role", required=True)
     context_audit.add_argument("--request-file", default=None,
@@ -388,7 +488,7 @@ def _main(argv: list[str] | None = None) -> int:
     context_audit.add_argument("--context-window-tokens", type=int, default=None)
     context_audit.add_argument("--enforce", action="store_true",
         help="Raise GovernanceError on cap breach (vs read-only audit).")
-    context_list = context_sub.add_parser("list")
+    context_list = add_subparser(context_sub, "list")
     context_list.add_argument("--target-agent", default=None)
     context_list.add_argument("--limit", type=int, default=None)
 
@@ -398,24 +498,24 @@ def _main(argv: list[str] | None = None) -> int:
     # operators can THAW a frozen surface. The CLI surface keeps the
     # operator_approval_ref REQUIRED at parse time so a forgotten flag
     # is not silently swapped for an empty string at the kernel boundary.
-    profile_parser = sub.add_parser("profile")
+    profile_parser = add_subparser(sub, "profile")
     profile_sub = profile_parser.add_subparsers(dest="profile_command", required=True)
-    profile_set = profile_sub.add_parser("set")
+    profile_set = add_subparser(profile_sub, "set")
     profile_set.add_argument("--profile", required=True, choices=list(PROFILES))
     profile_set.add_argument("--operator-approval-ref", required=True)
     profile_set.add_argument("--set-by", default="operator")
-    profile_get = profile_sub.add_parser("get")
-    profile_history = profile_sub.add_parser("history")
+    profile_get = add_subparser(profile_sub, "get")
+    profile_history = add_subparser(profile_sub, "history")
 
-    memory_parser = sub.add_parser("memory")
+    memory_parser = add_subparser(sub, "memory")
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
-    memory_withdraw = memory_sub.add_parser("withdraw")
+    memory_withdraw = add_subparser(memory_sub, "withdraw")
     memory_withdraw.add_argument("--belief-id", required=True)
     memory_withdraw.add_argument("--reason", required=True)
 
-    pressure_parser = sub.add_parser("pressure")
+    pressure_parser = add_subparser(sub, "pressure")
     pressure_sub = pressure_parser.add_subparsers(dest="pressure_command", required=True)
-    pressure_list = pressure_sub.add_parser("list")
+    pressure_list = add_subparser(pressure_sub, "list")
     add_workspace_args(pressure_list)
     pressure_list.add_argument("--age-buckets", action="store_true")
     pressure_list.add_argument("--json", action="store_true")
@@ -424,12 +524,12 @@ def _main(argv: list[str] | None = None) -> int:
     pressure_list.add_argument("--include-archived", action="store_true")
     pressure_list.add_argument("--include-closed", action="store_true")
     pressure_list.add_argument("--include-satisfied", action="store_true")
-    pressure_explain = pressure_sub.add_parser("explain")
+    pressure_explain = add_subparser(pressure_sub, "explain")
     add_workspace_args(pressure_explain)
     pressure_explain.add_argument("pressure_event_id", nargs="?")
     pressure_explain.add_argument("--cycle-id", default=None)
     pressure_explain.add_argument("--pressure-id", default=None)
-    pressure_reverify = pressure_sub.add_parser("reverify")
+    pressure_reverify = add_subparser(pressure_sub, "reverify")
     add_workspace_args(pressure_reverify)
     pressure_reverify.add_argument("--sample-rate", type=float, default=0.10)
     pressure_reverify.add_argument("--dry-run", action="store_true")
@@ -438,56 +538,50 @@ def _main(argv: list[str] | None = None) -> int:
     pressure_reverify.add_argument("--reason", default=None)
     pressure_reverify.add_argument("--reset-cursor", action="store_true")
 
-    telemetry_parser = sub.add_parser("telemetry")
+    telemetry_parser = add_subparser(sub, "telemetry")
     telemetry_sub = telemetry_parser.add_subparsers(dest="telemetry_command", required=True)
-    telemetry_export = telemetry_sub.add_parser("export")
+    telemetry_export = add_subparser(telemetry_sub, "export")
     add_workspace_args(telemetry_export)
     telemetry_export.add_argument("--format", choices=["prometheus", "otel"], required=True)
     telemetry_export.add_argument("--output", default=None)
 
-    worker_parser = sub.add_parser("worker")
+    worker_parser = add_subparser(sub, "worker")
     worker_sub = worker_parser.add_subparsers(dest="worker_command", required=True)
-    worker_dispatch = worker_sub.add_parser("dispatch")
+    worker_dispatch = add_subparser(worker_sub, "dispatch")
     add_workspace_args(worker_dispatch)
-    add_tools_arg(worker_dispatch)
     worker_dispatch.add_argument("--pressure-event-id", default=None)
     worker_dispatch.add_argument("--target-agent", default=None)
     worker_dispatch.add_argument("--prepare-worktree", action="store_true")
     worker_dispatch.add_argument("--acknowledge", action="store_true")
     worker_dispatch.add_argument("--auto-batch", action="store_true")
     worker_dispatch.add_argument("--limit", type=int, default=10)
-    worker_list = worker_sub.add_parser("list")
-    add_tools_arg(worker_list, required=True)
+    worker_list = add_subparser(worker_sub, "list")
     worker_list.add_argument("--state", default=None)
     worker_list.add_argument("--target-agent", default=None)
     worker_list.add_argument("--pressure-event-id", default=None)
     worker_list.add_argument("--json", action="store_true")
-    worker_mark = worker_sub.add_parser("mark-picked-up")
-    add_tools_arg(worker_mark, required=True)
+    worker_mark = add_subparser(worker_sub, "mark-picked-up")
     worker_mark.add_argument("pressure_event_id")
     worker_mark.add_argument("--by", required=True)
-    worker_cancel = worker_sub.add_parser("cancel")
-    add_tools_arg(worker_cancel, required=True)
+    worker_cancel = add_subparser(worker_sub, "cancel")
     worker_cancel.add_argument("pressure_event_id")
     worker_cancel.add_argument("--reason", required=True)
 
-    worktree_prune_parser = sub.add_parser("worktree-prune")
+    worktree_prune_parser = add_subparser(sub, "worktree-prune")
     add_workspace_args(worktree_prune_parser)
-    add_tools_arg(worktree_prune_parser, required=True)
     worktree_prune_parser.add_argument("--acknowledge", action="store_true")
     worktree_prune_parser.add_argument("--ttl-days", type=int, default=7)
 
-    worktree_parser = sub.add_parser(
+    worktree_parser = add_subparser(sub, 
         "worktree",
         help="Worktree-level operations (Plan 016 Faz 0 stable naming).",
     )
     worktree_sub = worktree_parser.add_subparsers(dest="worktree_command", required=True)
-    worktree_preflight_parser = worktree_sub.add_parser(
+    worktree_preflight_parser = add_subparser(worktree_sub, 
         "preflight",
         help="Record a hash-chained worktree_preflight governance event.",
     )
     add_workspace_args(worktree_preflight_parser)
-    add_tools_arg(worktree_preflight_parser, required=True)
     worktree_preflight_parser.add_argument(
         "--expected-branch",
         default="snowball",
@@ -499,108 +593,91 @@ def _main(argv: list[str] | None = None) -> int:
         help="Skip the best-effort origin fetch (offline mode).",
     )
 
-    agent_report_parser = sub.add_parser("agent-report")
+    agent_report_parser = add_subparser(sub, "agent-report")
     agent_report_sub = agent_report_parser.add_subparsers(dest="agent_report_command", required=True)
-    ar_scan = agent_report_sub.add_parser("scan-registry")
+    ar_scan = add_subparser(agent_report_sub, "scan-registry")
     add_workspace_args(ar_scan)
-    add_tools_arg(ar_scan)
     ar_scan.add_argument("--cycle-id", required=True)
     ar_scan.add_argument("--backfill-open", action="store_true")
     ar_scan.add_argument("--limit", type=int, default=100)
     ar_scan.add_argument("--confirm-large-backfill", action="store_true")
     ar_scan.add_argument("--acknowledge", action="store_true")
-    ar_import = agent_report_sub.add_parser("import")
+    ar_import = add_subparser(agent_report_sub, "import")
     add_workspace_args(ar_import)
     ar_import.add_argument("--file", required=True)
     ar_import.add_argument("--cycle-id", default=None)
-    ar_list = agent_report_sub.add_parser("list")
+    ar_list = add_subparser(agent_report_sub, "list")
     add_workspace_args(ar_list)
     ar_list.add_argument("--json", action="store_true")
 
-    triage_parser = sub.add_parser("triage")
+    triage_parser = add_subparser(sub, "triage")
     triage_sub = triage_parser.add_subparsers(dest="triage_command", required=True)
-    triage_run = triage_sub.add_parser("run")
+    triage_run = add_subparser(triage_sub, "run")
     add_workspace_args(triage_run)
-    add_tools_arg(triage_run, required=True)
     triage_run.add_argument("--cycle-id", required=True)
-    triage_list = triage_sub.add_parser("list")
-    add_tools_arg(triage_list, required=True)
+    triage_list = add_subparser(triage_sub, "list")
     triage_list.add_argument("--tier", default=None)
     triage_list.add_argument("--target-agent", default=None)
     triage_list.add_argument("--cycle-id", default=None)
     triage_list.add_argument("--json", action="store_true")
-    triage_explain = triage_sub.add_parser("explain")
-    add_tools_arg(triage_explain, required=True)
+    triage_explain = add_subparser(triage_sub, "explain")
     triage_explain.add_argument("triage_id")
 
-    agent_network_parser = sub.add_parser("agent-network")
+    agent_network_parser = add_subparser(sub, "agent-network")
     agent_network_sub = agent_network_parser.add_subparsers(dest="agent_network_command", required=True)
-    agent_network_build = agent_network_sub.add_parser("index")
+    agent_network_build = add_subparser(agent_network_sub, "index")
     add_workspace_args(agent_network_build)
-    add_tools_arg(agent_network_build, required=True)
     agent_network_build.add_argument("--cycle-id", default=None)
 
-    capability_gap_parser = sub.add_parser("capability-gap")
+    capability_gap_parser = add_subparser(sub, "capability-gap")
     capability_gap_sub = capability_gap_parser.add_subparsers(dest="capability_gap_command", required=True)
-    capability_gap_detect = capability_gap_sub.add_parser("detect")
+    capability_gap_detect = add_subparser(capability_gap_sub, "detect")
     add_workspace_args(capability_gap_detect)
-    add_tools_arg(capability_gap_detect, required=True)
     capability_gap_detect.add_argument("--cycle-id", required=True)
 
-    plan_parser = sub.add_parser("plan")
+    plan_parser = add_subparser(sub, "plan")
     plan_sub = plan_parser.add_subparsers(dest="plan_command", required=True)
-    plan_start = plan_sub.add_parser("start")
-    add_tools_arg(plan_start, required=True)
+    plan_start = add_subparser(plan_sub, "start")
     plan_start.add_argument("--plan-id", required=True)
     plan_start.add_argument("--initial-revision-id", required=True)
     plan_start.add_argument("--plan-file", required=True)
-    plan_challenger = plan_sub.add_parser("submit-challenger")
-    add_tools_arg(plan_challenger, required=True)
+    plan_challenger = add_subparser(plan_sub, "submit-challenger")
     plan_challenger.add_argument("--plan-id", required=True)
     plan_challenger.add_argument("--challenger-file", required=True)
-    plan_cross_request = plan_sub.add_parser("request-cross-review")
-    add_tools_arg(plan_cross_request, required=True)
+    plan_cross_request = add_subparser(plan_sub, "request-cross-review")
     plan_cross_request.add_argument("--plan-id", required=True)
     plan_cross_request.add_argument("--request-file", required=True)
-    plan_cross_retry = plan_sub.add_parser("request-cross-review-retry")
-    add_tools_arg(plan_cross_retry, required=True)
+    plan_cross_retry = add_subparser(plan_sub, "request-cross-review-retry")
     plan_cross_retry.add_argument("--plan-id", required=True)
     plan_cross_retry.add_argument("--request-file", required=True)
-    plan_cross_record = plan_sub.add_parser("record-cross-review")
+    plan_cross_record = add_subparser(plan_sub, "record-cross-review")
     add_workspace_args(plan_cross_record)
-    add_tools_arg(plan_cross_record, required=True)
     plan_cross_record.add_argument("--plan-id", required=True)
     plan_cross_record.add_argument("--review-file", required=True)
-    plan_revision = plan_sub.add_parser("record-revision")
-    add_tools_arg(plan_revision, required=True)
+    plan_revision = add_subparser(plan_sub, "record-revision")
     plan_revision.add_argument("--plan-id", required=True)
     plan_revision.add_argument("--revision-file", required=True)
-    plan_advance = plan_sub.add_parser("advance")
-    add_tools_arg(plan_advance, required=True)
+    plan_advance = add_subparser(plan_sub, "advance")
     plan_advance.add_argument("--plan-id", required=True)
     plan_advance.add_argument("--round-number", type=int, required=True)
     plan_advance.add_argument("--max-rounds", type=int, default=5)
-    plan_promote = plan_sub.add_parser("promote-to-dispatch")
+    plan_promote = add_subparser(plan_sub, "promote-to-dispatch")
     add_workspace_args(plan_promote)
-    add_tools_arg(plan_promote, required=True)
     plan_promote.add_argument("--plan-id", required=True)
     plan_promote.add_argument("--pressure-event-id", required=True)
     plan_promote.add_argument("--target-agent", default=None)
     plan_promote.add_argument("--prepare-worktree", action="store_true")
     plan_promote.add_argument("--acknowledge", action="store_true")
-    plan_force = plan_sub.add_parser("force-human-required")
-    add_tools_arg(plan_force, required=True)
+    plan_force = add_subparser(plan_sub, "force-human-required")
     plan_force.add_argument("--plan-id", required=True)
     plan_force.add_argument("--round-number", type=int, required=True)
     plan_force.add_argument("--reason-code", action="append", required=True)
-    plan_status_parser = plan_sub.add_parser("status")
-    add_tools_arg(plan_status_parser, required=True)
+    plan_status_parser = add_subparser(plan_sub, "status")
     plan_status_parser.add_argument("--plan-id", required=True)
 
-    inv_parser = sub.add_parser("agent-invocations")
+    inv_parser = add_subparser(sub, "agent-invocations")
     inv_sub = inv_parser.add_subparsers(dest="agent_invocation_command", required=True)
-    inv_request = inv_sub.add_parser("request")
-    add_tools_arg(inv_request, required=True)
+    inv_request = add_subparser(inv_sub, "request")
     inv_request.add_argument("--target-agent", required=True)
     inv_request.add_argument("--role", required=True)
     inv_request.add_argument("--prompt-file", required=True)
@@ -635,8 +712,7 @@ def _main(argv: list[str] | None = None) -> int:
     # `_submit_legacy_invocation_result_internal` and gated behind an
     # operator_migration_approval_ref. `request` and `list` subparsers
     # below are intentionally preserved.
-    inv_list = inv_sub.add_parser("list")
-    add_tools_arg(inv_list, required=True)
+    inv_list = add_subparser(inv_sub, "list")
     inv_list.add_argument("--state", default=None)
     inv_list.add_argument("--convergence-id", default=None)
     inv_list.add_argument("--target-agent", default=None)
@@ -646,102 +722,86 @@ def _main(argv: list[str] | None = None) -> int:
     # Plan 016 Faz C2 stable hierarchical CLI: `agent <action>`. The legacy
     # `agent-invocations ...` sub-command stays for backward compatibility
     # but is no longer advertised in v3 documentation.
-    agent_parser = sub.add_parser(
+    agent_parser = add_subparser(sub, 
         "agent",
         help="Plan 016 bound-agent execution (next-pending / claim / heartbeat / submit-result / release / reap-stale).",
     )
     agent_sub = agent_parser.add_subparsers(dest="agent_command", required=True)
 
-    a_next = agent_sub.add_parser(
+    a_next = add_subparser(agent_sub, 
         "next-pending",
         help="Return the oldest unclaimed pending request matching role/target.",
     )
-    add_tools_arg(a_next, required=True)
     a_next.add_argument("--role", default=None)
     a_next.add_argument("--target-agent", default=None)
 
-    a_claim = agent_sub.add_parser(
+    a_claim = add_subparser(agent_sub, 
         "claim",
         help="Issue a lease on a pending request. Raw lease_token is returned once.",
     )
-    add_tools_arg(a_claim, required=True)
     a_claim.add_argument("--request-id", required=True)
     a_claim.add_argument("--agent-id", required=True)
     a_claim.add_argument("--lease-seconds", type=int, default=None)
 
-    a_heartbeat = agent_sub.add_parser(
+    a_heartbeat = add_subparser(agent_sub, 
         "heartbeat",
         help="Extend an active lease. Requires the raw lease_token from claim.",
     )
-    add_tools_arg(a_heartbeat, required=True)
     a_heartbeat.add_argument("--claim-id", required=True)
     a_heartbeat.add_argument("--agent-id", required=True)
     a_heartbeat.add_argument("--lease-token", required=True)
     a_heartbeat.add_argument("--extend-seconds", type=int, default=None)
 
-    a_release = agent_sub.add_parser(
+    a_release = add_subparser(agent_sub, 
         "release",
         help="Release a claim before submission. Triggers requeue or HUMAN_REQUIRED.",
     )
-    add_tools_arg(a_release, required=True)
     a_release.add_argument("--claim-id", required=True)
     a_release.add_argument("--agent-id", required=True)
     a_release.add_argument("--reason", required=True)
 
-    a_submit = agent_sub.add_parser(
+    a_submit = add_subparser(agent_sub, 
         "submit-result",
         help="Submit a claim result. Validates response schema, satisfaction matrix, and evidence refs.",
     )
     add_workspace_args(a_submit)
-    add_tools_arg(a_submit, required=True)
     a_submit.add_argument("--claim-id", required=True)
     a_submit.add_argument("--agent-id", required=True)
     a_submit.add_argument("--lease-token", required=True)
     a_submit.add_argument("--output-path", required=True)
 
-    a_reap = agent_sub.add_parser(
+    a_reap = add_subparser(agent_sub, 
         "reap-stale",
         help="Mark expired leases stale and emit requeue / human_required follow-ups.",
     )
-    add_tools_arg(a_reap, required=True)
-
-    budget_parser = sub.add_parser(
+    budget_parser = add_subparser(sub, 
         "budget",
         help="Plan 016 Faz D6 — LLM budget check / record / list.",
     )
     budget_sub = budget_parser.add_subparsers(dest="budget_command", required=True)
-    b_check = budget_sub.add_parser("check")
-    add_tools_arg(b_check, required=True)
+    b_check = add_subparser(budget_sub, "check")
     b_check.add_argument("--estimated-usd", type=float, required=True)
     b_check.add_argument("--action", required=True)
-    b_record = budget_sub.add_parser("record")
-    add_tools_arg(b_record, required=True)
+    b_record = add_subparser(budget_sub, "record")
     b_record.add_argument("--actual-usd", type=float, required=True)
     b_record.add_argument("--action", required=True)
     b_record.add_argument("--note", default="")
-    b_list = budget_sub.add_parser("list")
-    add_tools_arg(b_list, required=True)
-
-    adapter_parser = sub.add_parser(
+    b_list = add_subparser(budget_sub, "list")
+    adapter_parser = add_subparser(sub, 
         "adapter-portfolio",
         help="Plan 016 Faz F1+F2 — MVP adapter registration + parse-window signature backfill.",
     )
     adapter_sub = adapter_parser.add_subparsers(dest="adapter_portfolio_command", required=True)
-    ap_register = adapter_sub.add_parser("register-mvp")
-    add_tools_arg(ap_register, required=True)
-    ap_backfill = adapter_sub.add_parser("backfill-window-metadata")
-    add_tools_arg(ap_backfill, required=True)
+    ap_register = add_subparser(adapter_sub, "register-mvp")
+    ap_backfill = add_subparser(adapter_sub, "backfill-window-metadata")
     ap_backfill.add_argument("--freshness-hours", type=int, default=None)
-    ap_status = adapter_sub.add_parser("status")
-    add_tools_arg(ap_status, required=True)
-
-    review_parser = sub.add_parser(
+    ap_status = add_subparser(adapter_sub, "status")
+    review_parser = add_subparser(sub, 
         "review",
         help="Plan 017 Phase 6.1 — operator review record ledger.",
     )
     review_sub = review_parser.add_subparsers(dest="review_command", required=True)
-    rv_record = review_sub.add_parser("record")
-    add_tools_arg(rv_record, required=True)
+    rv_record = add_subparser(review_sub, "record")
     rv_record.add_argument("--scope", required=True)
     rv_record.add_argument("--summary", required=True)
     rv_record.add_argument("--reviewer", required=True)
@@ -749,18 +809,16 @@ def _main(argv: list[str] | None = None) -> int:
                             help="Repeatable: F-NNN finding referenced by the review.")
     rv_record.add_argument("--debt", action="append", default=None,
                             help="Repeatable: DEBT-YYYY-MM-DD-NNN referenced by the review.")
-    rv_list = review_sub.add_parser("list")
-    add_tools_arg(rv_list, required=True)
+    rv_list = add_subparser(review_sub, "list")
     rv_list.add_argument("--scope-substring", default=None)
     rv_list.add_argument("--reviewer", default=None)
 
-    arch_parser = sub.add_parser(
+    arch_parser = add_subparser(sub, 
         "architecture",
         help="Plan 016 Faz E1 — architecture-first review (fix_in_place / replace_with_adr / etc.).",
     )
     arch_sub = arch_parser.add_subparsers(dest="architecture_command", required=True)
-    arch_review = arch_sub.add_parser("review")
-    add_tools_arg(arch_review, required=True)
+    arch_review = add_subparser(arch_sub, "review")
     arch_review.add_argument("--technology", required=True)
     arch_review.add_argument("--proposed-action", required=True)
     arch_review.add_argument("--root-cause", required=True)
@@ -771,35 +829,29 @@ def _main(argv: list[str] | None = None) -> int:
     arch_review.add_argument("--migration-plan", default="")
     arch_review.add_argument("--rollback-plan", default="")
     arch_review.add_argument("--cycle-id", default=None)
-    arch_list = arch_sub.add_parser("list")
-    add_tools_arg(arch_list, required=True)
-
-    research_parser = sub.add_parser(
+    arch_list = add_subparser(arch_sub, "list")
+    research_parser = add_subparser(sub, 
         "research",
         help="Plan 016 Faz E2 — sanitized research fetch + source / policy ledger.",
     )
     research_sub = research_parser.add_subparsers(dest="research_command", required=True)
-    rs_fetch = research_sub.add_parser("fetch")
-    add_tools_arg(rs_fetch, required=True)
+    rs_fetch = add_subparser(research_sub, "fetch")
     rs_fetch.add_argument("--url", required=True)
     rs_fetch.add_argument("--source-tier", required=True)
     rs_fetch.add_argument("--title", default="")
     rs_fetch.add_argument("--allowed-domain", action="append", default=None)
     rs_fetch.add_argument("--content-file", default=None,
                            help="Optional: read fetch payload from a file (avoids real HTTP in tests).")
-    rs_list = research_sub.add_parser("list")
-    add_tools_arg(rs_list, required=True)
-    rs_policy = research_sub.add_parser("set-policy")
-    add_tools_arg(rs_policy, required=True)
+    rs_list = add_subparser(research_sub, "list")
+    rs_policy = add_subparser(research_sub, "set-policy")
     rs_policy.add_argument("--allowed-domain", action="append", required=True)
 
-    co_parser = sub.add_parser(
+    co_parser = add_subparser(sub, 
         "critical-observation",
         help="Plan 016 Faz E3 — critical observation persistence + escalation surface.",
     )
     co_sub = co_parser.add_subparsers(dest="critical_observation_command", required=True)
-    co_record = co_sub.add_parser("record")
-    add_tools_arg(co_record, required=True)
+    co_record = add_subparser(co_sub, "record")
     co_record.add_argument("--severity", required=True, choices=["CRITICAL", "HIGH", "MEDIUM"])
     co_record.add_argument("--category", required=True,
                             choices=["security", "data_integrity", "regulatory", "production_affecting", "plc_safety"])
@@ -807,45 +859,39 @@ def _main(argv: list[str] | None = None) -> int:
     co_record.add_argument("--evidence-ref", required=True)
     co_record.add_argument("--detail", default="")
     co_record.add_argument("--cycle-id", default=None)
-    co_list = co_sub.add_parser("list")
-    add_tools_arg(co_list, required=True)
+    co_list = add_subparser(co_sub, "list")
     co_list.add_argument("--include-resolved", action="store_true")
-    co_ack = co_sub.add_parser("acknowledge")
-    add_tools_arg(co_ack, required=True)
+    co_ack = add_subparser(co_sub, "acknowledge")
     co_ack.add_argument("--observation-id", required=True)
     co_ack.add_argument("--acknowledged-by", required=True)
-    co_resolve = co_sub.add_parser("resolve")
-    add_tools_arg(co_resolve, required=True)
+    co_resolve = add_subparser(co_sub, "resolve")
     co_resolve.add_argument("--observation-id", required=True)
     co_resolve.add_argument("--resolved-by", required=True)
     co_resolve.add_argument("--resolution-note", required=True)
 
-    cp_parser = sub.add_parser(
+    cp_parser = add_subparser(sub, 
         "convergent-plan",
         help="Plan 016 Faz D2 — convergent planning loop with envelope wiring.",
     )
     cp_sub = cp_parser.add_subparsers(dest="convergent_plan_command", required=True)
-    cp_start = cp_sub.add_parser("start")
-    add_tools_arg(cp_start, required=True)
+    cp_start = add_subparser(cp_sub, "start")
     cp_start.add_argument("--plan-id", required=True)
     cp_start.add_argument("--initial-revision-id", required=True)
     cp_start.add_argument("--plan-content-file", required=True)
     cp_start.add_argument("--must-satisfy-file", required=True)
     cp_start.add_argument("--evidence-ref", action="append", required=True)
     cp_start.add_argument("--allowed-scope", action="append", required=True)
-    cp_challenger = cp_sub.add_parser("issue-challenger")
-    add_tools_arg(cp_challenger, required=True)
+    cp_challenger = add_subparser(cp_sub, "issue-challenger")
     cp_challenger.add_argument("--plan-id", required=True)
     cp_challenger.add_argument("--round-number", type=int, required=True)
 
-    impact_parser = sub.add_parser(
+    impact_parser = add_subparser(sub, 
         "impact",
         help="Plan 016 Faz D1 — recursive impact graph (six-source).",
     )
     impact_sub = impact_parser.add_subparsers(dest="impact_command", required=True)
-    i_compute = impact_sub.add_parser("compute")
+    i_compute = add_subparser(impact_sub, "compute")
     add_workspace_args(i_compute)
-    add_tools_arg(i_compute, required=True)
     i_compute.add_argument(
         "--intended-file",
         action="append",
@@ -854,16 +900,15 @@ def _main(argv: list[str] | None = None) -> int:
     )
     i_compute.add_argument("--max-depth", type=int, default=None)
 
-    apply_parser = sub.add_parser(
+    apply_parser = add_subparser(sub, 
         "apply",
         help="Plan 016 Faz D5 — apply gate utilities (suppression scan, etc.).",
     )
     apply_sub = apply_parser.add_subparsers(dest="apply_command", required=True)
-    a_scan = apply_sub.add_parser(
+    a_scan = add_subparser(apply_sub, 
         "scan-diff",
         help="Run the suppression-scanner against a unified-diff file.",
     )
-    add_tools_arg(a_scan, required=True)
     a_scan.add_argument("--diff-file", required=True)
 
     # Plan 019 Phase 3 — pr sub-command surface delegating to pr_manager.
@@ -872,49 +917,42 @@ def _main(argv: list[str] | None = None) -> int:
     # guard). The CLI binding lets operators reach those functions
     # without writing Python; no new kernel work is added beyond argv
     # parsing + delegation.
-    pr_parser = sub.add_parser(
+    pr_parser = add_subparser(sub, 
         "pr",
         help="Plan 016 §Snowball + Plan 019 Phase 3 — PR pipeline CLI (delegates to pr_manager).",
     )
     pr_sub = pr_parser.add_subparsers(dest="pr_command", required=True)
-    pr_prepare = pr_sub.add_parser("prepare", help="Prepare an aria/* branch for the proposal.")
-    add_tools_arg(pr_prepare, required=True)
+    pr_prepare = add_subparser(pr_sub, "prepare", help="Prepare an aria/* branch for the proposal.")
     pr_prepare.add_argument("--proposal-id", required=True)
     pr_prepare.add_argument("--workspace-root", required=True)
     pr_prepare.add_argument("--no-dry-run", action="store_true",
                             help="Default is --dry-run (record only). Pass --no-dry-run to run real git checkout.")
-    pr_commit = pr_sub.add_parser("commit", help="Commit the prepared branch.")
-    add_tools_arg(pr_commit, required=True)
+    pr_commit = add_subparser(pr_sub, "commit", help="Commit the prepared branch.")
     pr_commit.add_argument("--proposal-id", required=True)
     pr_commit.add_argument("--workspace-root", required=True)
     pr_commit.add_argument("--message", default=None)
     pr_commit.add_argument("--no-dry-run", action="store_true")
-    pr_push = pr_sub.add_parser("push", help="Push the prepared branch to remote.")
-    add_tools_arg(pr_push, required=True)
+    pr_push = add_subparser(pr_sub, "push", help="Push the prepared branch to remote.")
     pr_push.add_argument("--proposal-id", required=True)
     pr_push.add_argument("--workspace-root", required=True)
     pr_push.add_argument("--remote", default="origin")
     pr_push.add_argument("--no-dry-run", action="store_true")
-    pr_create = pr_sub.add_parser("create", help="Open a PR for the proposal (gh pr create wrap).")
-    add_tools_arg(pr_create, required=True)
+    pr_create = add_subparser(pr_sub, "create", help="Open a PR for the proposal (gh pr create wrap).")
     pr_create.add_argument("--proposal-id", required=True)
     pr_create.add_argument("--workspace-root", required=True)
     pr_create.add_argument("--base", default="snowball",
                            help="ARIA invariant: base MUST be snowball; any other value rejected at function entry (Plan 018 Phase 6.2).")
     pr_create.add_argument("--no-dry-run", action="store_true")
-    pr_status = pr_sub.add_parser("list-actions", help="List recorded pr lifecycle actions (prepare/commit/push).")
-    add_tools_arg(pr_status, required=True)
-    pr_lifecycle = pr_sub.add_parser("lifecycle-plan",
+    pr_status = add_subparser(pr_sub, "list-actions", help="List recorded pr lifecycle actions (prepare/commit/push).")
+    pr_lifecycle = add_subparser(pr_sub, "lifecycle-plan",
                                      help="Plan stale/close recommendations for open PRs (read-only).")
-    add_tools_arg(pr_lifecycle, required=True)
     pr_lifecycle.add_argument("--open-prs-file", required=True,
                               help="JSON file with [{number, updated_at, title, proposal_id}, ...].")
     pr_lifecycle.add_argument("--cycle-id", default=None)
     pr_lifecycle.add_argument("--stale-after-days", type=int, default=7)
     pr_lifecycle.add_argument("--close-after-days", type=int, default=30)
-    pr_split = pr_sub.add_parser("split-plan",
+    pr_split = add_subparser(pr_sub, "split-plan",
                                  help="Plan a PR split when changed_files exceed max_files_per_pr.")
-    add_tools_arg(pr_split, required=True)
     pr_split.add_argument("--proposal-id", required=True)
     pr_split.add_argument("--changed-file", action="append", required=True,
                           help="Repeatable: each changed file path.")
@@ -925,46 +963,41 @@ def _main(argv: list[str] | None = None) -> int:
     # Operator runs `aria-kernel spine baseline` before a remediation
     # round, then `aria-kernel spine postcheck` after. The kernel's
     # 5-round HUMAN_REQUIRED escalation is automatic per call.
-    spine_parser = sub.add_parser(
+    spine_parser = add_subparser(sub, 
         "spine",
         help="Plan 019 Phase 5.5 — Architecture Spine Gate baseline / postcheck / status.",
     )
     spine_sub = spine_parser.add_subparsers(dest="spine_command", required=True)
-    sp_baseline = spine_sub.add_parser("baseline",
+    sp_baseline = add_subparser(spine_sub, "baseline",
                                        help="Snapshot the 4 architectural invariants for plan_id.")
-    add_tools_arg(sp_baseline, required=True)
     sp_baseline.add_argument("--plan-id", required=True)
     sp_baseline.add_argument("--cycle-id", required=True)
     sp_baseline.add_argument("--workspace-root", default=None)
-    sp_postcheck = spine_sub.add_parser("postcheck",
+    sp_postcheck = add_subparser(spine_sub, "postcheck",
                                         help="Re-snapshot + diff vs latest baseline; emit regression event if drift detected.")
-    add_tools_arg(sp_postcheck, required=True)
     sp_postcheck.add_argument("--plan-id", required=True)
     sp_postcheck.add_argument("--cycle-id", required=True)
     sp_postcheck.add_argument("--workspace-root", default=None)
     sp_postcheck.add_argument("--max-regression-rounds", type=int, default=5)
-    sp_status = spine_sub.add_parser("status",
+    sp_status = add_subparser(spine_sub, "status",
                                      help="List baseline / postcheck / regression events.")
-    add_tools_arg(sp_status, required=True)
     sp_status.add_argument("--plan-id", default=None)
 
     # Plan 020 Phase 4.C — fresh adapter orchestrator manual invocation.
-    sp_refresh = spine_sub.add_parser("refresh",
+    sp_refresh = add_subparser(spine_sub, "refresh",
                                       help="Plan 020 Phase 4 — re-run any spine adapter whose latest run is stale.")
-    add_tools_arg(sp_refresh, required=True)
     sp_refresh.add_argument("--workspace-root", default=".")
     sp_refresh.add_argument("--cycle-id", default=None)
     sp_refresh.add_argument("--freshness-max-age-seconds", type=int, default=600)
     sp_refresh.add_argument("--max-workers", type=int, default=1)
 
     # Plan 019 Phase 7 — Change Ledger CLI surface.
-    change_parser = sub.add_parser(
+    change_parser = add_subparser(sub, 
         "change",
         help="Plan 019 Phase 7 — append-only change-ledger (planned/committed/validated chain).",
     )
     change_sub = change_parser.add_subparsers(dest="change_command", required=True)
-    ch_plan = change_sub.add_parser("plan", help="Open a change chain (change_planned event).")
-    add_tools_arg(ch_plan, required=True)
+    ch_plan = add_subparser(change_sub, "plan", help="Open a change chain (change_planned event).")
     ch_plan.add_argument("--plan-id", required=True)
     ch_plan.add_argument("--finding-id", required=True)
     ch_plan.add_argument("--intended-file", action="append", required=True,
@@ -974,155 +1007,130 @@ def _main(argv: list[str] | None = None) -> int:
     ch_plan.add_argument("--rollback-ref", default=None)
     ch_plan.add_argument("--architectural-tier", type=int, required=True, choices=[1, 2, 3, 4])
     ch_plan.add_argument("--intended-request-id", default=None)
-    ch_commit = change_sub.add_parser("commit", help="Record commit landing for a planned change.")
-    add_tools_arg(ch_commit, required=True)
+    ch_commit = add_subparser(change_sub, "commit", help="Record commit landing for a planned change.")
     ch_commit.add_argument("--change-id", required=True)
     ch_commit.add_argument("--commit-sha", required=True)
     ch_commit.add_argument("--actual-file", action="append", required=True)
     ch_commit.add_argument("--claim-id", default=None)
-    ch_validate = change_sub.add_parser("validate", help="Close a change chain with validation refs.")
-    add_tools_arg(ch_validate, required=True)
+    ch_validate = add_subparser(change_sub, "validate", help="Close a change chain with validation refs.")
     ch_validate.add_argument("--change-id", required=True)
     ch_validate.add_argument("--validation-ref", action="append", required=True)
     ch_validate.add_argument("--baseline-comparison-ref", default=None)
     ch_validate.add_argument("--invariants-file", default=None,
                              help="Optional JSON file with post_remediation_invariants dict.")
-    ch_show = change_sub.add_parser("show", help="Get the {planned,committed,validated} blocks for a change_id.")
-    add_tools_arg(ch_show, required=True)
+    ch_show = add_subparser(change_sub, "show", help="Get the {planned,committed,validated} blocks for a change_id.")
     ch_show.add_argument("--change-id", required=True)
-    ch_list = change_sub.add_parser("list", help="List change chains, optionally filtered.")
-    add_tools_arg(ch_list, required=True)
+    ch_list = add_subparser(change_sub, "list", help="List change chains, optionally filtered.")
     ch_list.add_argument("--plan-id", default=None)
     ch_list.add_argument("--finding-id", default=None)
-    ch_find = change_sub.add_parser("find", help="Find chains that touched a specific file.")
-    add_tools_arg(ch_find, required=True)
+    ch_find = add_subparser(change_sub, "find", help="Find chains that touched a specific file.")
     ch_find.add_argument("--file", required=True)
 
-    metrics_parser = sub.add_parser(
+    metrics_parser = add_subparser(sub, 
         "metrics",
         help="Plan 016 Faz D7 — nine-counter metric set + dashboard writer.",
     )
     metrics_sub = metrics_parser.add_subparsers(dest="metrics_command", required=True)
-    m_compute = metrics_sub.add_parser("plan-016")
-    add_tools_arg(m_compute, required=True)
-    m_dashboard = metrics_sub.add_parser("dashboard")
-    add_tools_arg(m_dashboard, required=True)
+    m_compute = add_subparser(metrics_sub, "plan-016")
+    m_dashboard = add_subparser(metrics_sub, "dashboard")
     m_dashboard.add_argument("--workspace-root", default=None)
     m_dashboard.add_argument("--out", default=None)
 
-    cycle_guard_parser = sub.add_parser(
+    cycle_guard_parser = add_subparser(sub, 
         "cycle-guard",
         help="Plan 016 Faz D8 — empty-cycle guard advisor.",
     )
     cg_sub = cycle_guard_parser.add_subparsers(dest="cycle_guard_command", required=True)
-    cg_eval = cg_sub.add_parser("evaluate")
-    add_tools_arg(cg_eval, required=True)
+    cg_eval = add_subparser(cg_sub, "evaluate")
     cg_eval.add_argument("--cycle-id", required=True)
     cg_eval.add_argument("--pressure-threshold", type=float, default=None)
     cg_eval.add_argument("--workspace-root", default=None)
 
-    hr_parser = sub.add_parser(
+    hr_parser = add_subparser(sub, 
         "human-required",
         help="Plan 016 Faz D9 — operator triage queue for HUMAN_REQUIRED escalations.",
     )
     hr_sub = hr_parser.add_subparsers(dest="human_required_command", required=True)
-    hr_record = hr_sub.add_parser("record")
-    add_tools_arg(hr_record, required=True)
+    hr_record = add_subparser(hr_sub, "record")
     hr_record.add_argument("--request-id", required=True)
     hr_record.add_argument("--severity", default=None)
     hr_record.add_argument("--reason", required=True)
-    hr_list = hr_sub.add_parser("list")
-    add_tools_arg(hr_list, required=True)
+    hr_list = add_subparser(hr_sub, "list")
     hr_list.add_argument("--include-resolved", action="store_true")
-    hr_resolve = hr_sub.add_parser("resolve")
-    add_tools_arg(hr_resolve, required=True)
+    hr_resolve = add_subparser(hr_sub, "resolve")
     hr_resolve.add_argument("--request-id", required=True)
     hr_resolve.add_argument("--resolution-note", required=True)
-    hr_sweep = hr_sub.add_parser("sweep")
-    add_tools_arg(hr_sweep, required=True)
-
-    consensus_parser = sub.add_parser(
+    hr_sweep = add_subparser(hr_sub, "sweep")
+    consensus_parser = add_subparser(sub, 
         "consensus",
         help="Plan 016 Faz C5/C6 — compute consensus over recorded ai_judge verdicts.",
     )
     consensus_sub = consensus_parser.add_subparsers(dest="consensus_command", required=True)
-    c_run = consensus_sub.add_parser(
+    c_run = add_subparser(consensus_sub, 
         "run",
         help="Compute consensus for a tool_id (and optional cycle_id) over the existing feedback ledger.",
     )
-    add_tools_arg(c_run, required=True)
     c_run.add_argument("--tool-id", required=True)
     c_run.add_argument("--cycle-id", default=None)
     c_run.add_argument("--min-confidence", type=float, default=None)
 
-    agent_genesis_parser = sub.add_parser("agent-genesis")
+    agent_genesis_parser = add_subparser(sub, "agent-genesis")
     agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
-    ag_draft = agent_genesis_sub.add_parser("draft")
-    add_tools_arg(ag_draft, required=True)
+    ag_draft = add_subparser(agent_genesis_sub, "draft")
     ag_draft.add_argument("--gap-id", required=True)
-    ag_sandbox = agent_genesis_sub.add_parser("sandbox")
-    add_tools_arg(ag_sandbox, required=True)
+    ag_sandbox = add_subparser(agent_genesis_sub, "sandbox")
     ag_sandbox.add_argument("--draft-id", required=True)
     ag_sandbox.add_argument("--fixture-results-file", required=True)
-    ag_materialize = agent_genesis_sub.add_parser("materialize")
+    ag_materialize = add_subparser(agent_genesis_sub, "materialize")
     add_workspace_args(ag_materialize)
-    add_tools_arg(ag_materialize, required=True)
     ag_materialize.add_argument("--draft-id", required=True)
     ag_materialize.add_argument("--assignment-id", required=True)
     ag_materialize.add_argument("--acknowledge", action="store_true")
     ag_materialize.add_argument("--run-invariants", action="store_true")
-    ag_list = agent_genesis_sub.add_parser("list")
-    add_tools_arg(ag_list, required=True)
+    ag_list = add_subparser(agent_genesis_sub, "list")
     ag_list.add_argument("--materializations", action="store_true")
 
-    skill_genesis_parser = sub.add_parser("skill-genesis")
+    skill_genesis_parser = add_subparser(sub, "skill-genesis")
     skill_genesis_sub = skill_genesis_parser.add_subparsers(dest="skill_genesis_command", required=True)
-    sg_request = skill_genesis_sub.add_parser("request")
-    add_tools_arg(sg_request, required=True)
+    sg_request = add_subparser(skill_genesis_sub, "request")
     sg_request.add_argument("--capability-gap-key", required=True)
     sg_request.add_argument("--title", required=True)
-    sg_draft = skill_genesis_sub.add_parser("draft")
-    add_tools_arg(sg_draft, required=True)
+    sg_draft = add_subparser(skill_genesis_sub, "draft")
     sg_draft.add_argument("--request-id", required=True)
     sg_draft.add_argument("--name", required=True)
     sg_draft.add_argument("--description", required=True)
     sg_draft.add_argument("--owner", action="append", required=True)
     sg_draft.add_argument("--handoff-agent", action="append", required=True)
-    sg_sandbox = skill_genesis_sub.add_parser("sandbox")
-    add_tools_arg(sg_sandbox, required=True)
+    sg_sandbox = add_subparser(skill_genesis_sub, "sandbox")
     sg_sandbox.add_argument("--draft-id", required=True)
     sg_sandbox_input = sg_sandbox.add_mutually_exclusive_group(required=True)
     sg_sandbox_input.add_argument("--markdown-file", default=None,
                                   help="Skill markdown source — parsed for ## Fixture: <id> blocks (preferred).")
     sg_sandbox_input.add_argument("--checklist-results-file", default=None,
                                   help="Explicit JSON checklist results array (deprecated; use --markdown-file).")
-    sg_materialize = skill_genesis_sub.add_parser("materialize")
+    sg_materialize = add_subparser(skill_genesis_sub, "materialize")
     add_workspace_args(sg_materialize)
-    add_tools_arg(sg_materialize, required=True)
     sg_materialize.add_argument("--draft-id", required=True)
     sg_materialize.add_argument("--assignment-id", required=True)
     sg_materialize.add_argument("--acknowledge", action="store_true")
     sg_materialize.add_argument("--run-invariants", action="store_true")
-    sg_list = skill_genesis_sub.add_parser("list")
-    add_tools_arg(sg_list, required=True)
+    sg_list = add_subparser(skill_genesis_sub, "list")
     sg_list.add_argument("--kind", choices=["requests", "drafts", "sandbox", "materializations"], default="drafts")
 
-    worker_result = sub.add_parser("worker-result")
+    worker_result = add_subparser(sub, "worker-result")
     worker_result_sub = worker_result.add_subparsers(dest="worker_result_command", required=True)
-    worker_result_submit = worker_result_sub.add_parser("submit")
-    add_tools_arg(worker_result_submit)
+    worker_result_submit = add_subparser(worker_result_sub, "submit")
     worker_result_submit.add_argument("--assignment-id", default=None)
     worker_result_submit.add_argument("--from-worktree", required=True)
     worker_result_submit.add_argument("--validation-command", action="append", default=[])
 
-    verification_parser = sub.add_parser("verification")
+    verification_parser = add_subparser(sub, "verification")
     verification_sub = verification_parser.add_subparsers(dest="verification_command", required=True)
-    verification_verify = verification_sub.add_parser("verify")
-    add_tools_arg(verification_verify)
+    verification_verify = add_subparser(verification_sub, "verify")
     verification_verify.add_argument("--assignment-id", required=True)
     verification_verify.add_argument("--auto-merge-eligible", action="store_true")
 
-    curate_parser = sub.add_parser("curate")
+    curate_parser = add_subparser(sub, "curate")
     add_workspace_args(curate_parser)
     curate_parser.add_argument("--since", default="90d")
     curate_parser.add_argument("--apply", action="store_true")
@@ -1131,6 +1139,28 @@ def _main(argv: list[str] | None = None) -> int:
     curate_parser.add_argument("--cycle-id", default=None)
 
     args = parser.parse_args(argv)
+
+    # Plan 024 §F — post-parse path resolution + required-validation.
+    # (a) ENV var fallback: ARIA_TOOLS_DIR is the zero-effort default
+    #     when neither flag position carried a value. We always set
+    #     args.tools_dir on the Namespace (even to None) so downstream
+    #     dispatch sites can call args.tools_dir without AttributeError;
+    #     downstream resolvers (e.g. tool_registry.tools_dir(None))
+    #     already handle None by falling back to "aria-tools".
+    # (b) Required-validation: 2 commands genuinely require operator-
+    #     supplied --tools-dir (integrity migrate/rollback). Validation
+    #     in a single dict avoids 89 per-callsite required=True flags.
+    if not getattr(args, "tools_dir", None):
+        env_default = os.environ.get("ARIA_TOOLS_DIR")
+        args.tools_dir = env_default if env_default else None
+
+    cmd_path = _command_path(args)
+    if cmd_path in _TOOLS_DIR_REQUIRED_COMMANDS and not args.tools_dir:
+        parser.error(
+            f"--tools-dir is required for command {' '.join(cmd_path)} "
+            f"(or set ARIA_TOOLS_DIR env var)"
+        )
+
     legacy_pressure_explain = (
         args.command == "pressure"
         and args.pressure_command == "explain"

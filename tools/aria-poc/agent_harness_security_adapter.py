@@ -45,6 +45,25 @@ from typing import Any
 
 REPO_ROOT_ENV = "ARIA_REPO_ROOT"
 
+# Scope discipline (single source of truth — Plan 022 §C-7/§C-8 follow-up):
+#   This list MUST match the manifest declaration for tool_id
+#   `agent-harness-security-adapter` in `aria-tools/registry.json`,
+#   `allowed_read_globs` field, modulo `aria-tools/registry.json` itself
+#   which is a single file glob handled below by direct read.
+#
+#   Source of truth: `aria-tools/registry.json` row for
+#   `agent-harness-security-adapter`. The invariant test
+#   `tools/aria-poc/test_adapter_scope_narrow.py
+#   ::test_agent_harness_security_adapter_scope_unchanged` pins this
+#   list to the manifest declaration; if the manifest changes, the
+#   test fails until the adapter is updated.
+#
+#   Note: `aria-tools/registry.json` is in the manifest as
+#   `aria-tools/registry.json` (literal path, not a glob). It is NOT
+#   appended to SCANNED_GLOBS because the registry-aware run already
+#   reads the registry through the kernel; appending it here would
+#   double-read. The current tuple matches every other line in the
+#   manifest declaration verbatim.
 SCANNED_GLOBS: tuple[str, ...] = (
     ".claude/agents/**/*.md",
     ".github/workflows/*.yml",

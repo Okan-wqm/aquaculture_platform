@@ -34,7 +34,14 @@ class OutboxAdapterTests(unittest.TestCase):
         shutil.rmtree(self.repo, ignore_errors=True)
 
     def test_publish_outside_transaction_flagged(self) -> None:
-        path = self.repo / "apps" / "x-service" / "src" / "publisher.ts"
+        # Plan 022 §C-7/§C-8 follow-up — fixture lives INSIDE the
+        # outbox surface (`apps/**/outbox/**`) so the manifest-narrow
+        # walker visits it. Pre-fix the adapter walked all of
+        # `apps/**/*.ts` and surfaced ~200 hr-service paths; the
+        # corrective narrowing requires fixtures to live inside the
+        # declared scope. The test still asserts both detection rules
+        # fire on the same content.
+        path = self.repo / "apps" / "x-service" / "src" / "outbox" / "publisher.ts"
         path.parent.mkdir(parents=True)
         path.write_text("""
 import { EventBus } from '@nestjs/cqrs';
@@ -48,7 +55,9 @@ class P { constructor(private eventBus: EventBus) {}
         self.assertIn("outbox_entity_base_missing", rules)
 
     def test_clean_outbox_pattern_no_finding(self) -> None:
-        path = self.repo / "apps" / "y-service" / "src" / "ok.ts"
+        # Same scope-narrow rationale as above — fixture sits inside
+        # the manifest-scoped `apps/**/outbox/**` surface.
+        path = self.repo / "apps" / "y-service" / "src" / "outbox" / "ok.ts"
         path.parent.mkdir(parents=True)
         path.write_text("""
 import { OutboxPublisherService } from '@platform/outbox';

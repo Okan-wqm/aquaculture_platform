@@ -2768,3 +2768,109 @@ The 32K block contains TLS cert generation, GHCR auth, healthcheck poll loops, r
 **Why this is structurally durable, not just a revert:** The previous fix had no enforcement. The current state — where the architectural fix is restored AND the topology-aware deploy gate (ORPHAN-HIGH-056) makes prod parse failures visible at PR time — closes the loop. Future re-inline attempts will fail the PR's `pre-flight` validate-workflows step (already in place since PR #236 landed `chore(ci): rewire pre-flight to preflight-validate.ts`) before they can mainline.
 
 **Status:** RESOLVED — restored thin-invoker form on branch `chore/restore-thin-deploy-invoker`. YAML script block: 1449 bytes / 24 lines (cap is 21000). YAML parses, env var contract preserved (DEPLOY_SHA/SERVICES/FULL_DEPLOY/GHCR_TOKEN/GHCR_ACTOR), droplet-up.sh untouched.
+
+
+## ORPHAN-CRITICAL-058 — `apps/db-migrate/src/migration-orchestrator.ts` unconditionally wraps every migration in a transaction, ignoring `migration.instance.transaction = false`; CONCURRENTLY-scoped DDL fails at runtime in production deploy
+
+**Severity:** CRITICAL — every CONCURRENTLY-scoped DDL migration (CREATE INDEX CONCURRENTLY, DROP INDEX CONCURRENTLY) fails at runtime in `db-migrate`, blocking the entire deploy chain. Production was DOWN until manual recovery.
+**Discovered:** 2026-05-10, during the post-thin-invoker prod deploy on the live droplet
+**File:** `apps/db-migrate/src/migration-orchestrator.ts` lines 240-271
+
+**Evidence (live production deploy log):**
+
+```
+{"level":"error","message":"Migration failed","schema":"auth",
+ "migration":"AddTenantsCustomDomainPartialUnique1787300000000",
+ "error":"CREATE INDEX CONCURRENTLY cannot run inside a transaction block"}
+```
+
+```
+{"level":"error","message":"Migration failed","schema":"farm",
+ "migration":"AlignCodeSequencesSchema1786900000000",
+ "error":"DROP INDEX CONCURRENTLY cannot run inside a transaction block"}
+```
+
+The failing migrations BOTH explicitly declare `transaction = false` at the class level (e.g. `apps/auth-service/src/migrations/1787300000000-AddTenantsCustomDomainPartialUnique.ts:47`):
+
+```typescript
+export class AddTenantsCustomDomainPartialUnique1787300000000
+  implements MigrationInterface {
+  // CREATE INDEX CONCURRENTLY cannot run inside a transaction block.
+  transaction = false;
+  // ...
+}
+```
+
+This declaration is the documented TypeORM contract for opting out of the per-migration transaction wrapper. CLAUDE.md §migration-runners explicitly cites the contract: "Blue-green safe migrations: nullable column → backfill → NOT NULL constraint" plus "CONCURRENTLY index'ler `transaction = false` override ile ayrı migration'lara konur".
+
+**Root cause:** The orchestrator's hot loop at line 240-271 calls `await queryRunner.startTransaction()` UNCONDITIONALLY before every migration:
+
+```typescript
+for (const migration of pending) {
+  await queryRunner.query(`SET search_path TO "${schema}", public`);
+  await queryRunner.startTransaction();  // <-- ALWAYS, ignoring instance.transaction
+  try {
+    await executor.executeMigration(migration);
+    await queryRunner.commitTransaction();
+    // ...
+  } catch (err) {
+    await queryRunner.rollbackTransaction();
+    // ...
+  }
+}
+```
+
+TypeORM's own `MigrationExecutor.executePendingMigrations()` would have honored the instance-level override correctly — the relevant code path at `node_modules/typeorm/migration/MigrationExecutor.js`:
+
+```javascript
+const instanceTx = migration.instance.transaction;
+if (instanceTx === undefined) migration.transaction = txModeDefault;
+else migration.transaction = instanceTx;
+// ...
+if (migration.transaction && !queryRunner.isTransactionActive) {
+    await queryRunner.startTransaction();
+    transactionStartedByUs = true;
+}
+```
+
+But the orchestrator was wrapping the executor's call in an OUTER transaction layer, so by the time TypeORM's executor saw the queryRunner, it was already inside a transaction. The instance-level opt-out had no effect.
+
+**Why this regression went undetected for so long:** The orchestrator was added in WS10/ADR-016 Phase E (centralised migration runner) AFTER the per-service migration runners (which lived in `libs/backend-common/src/database/migration-runner/`). The per-service runners DID respect the migration instance's `transaction` property — they simply called `executor.executePendingMigrations()` and let TypeORM handle the transaction boundary. The orchestrator's reimplementation introduced the unconditional `startTransaction()` as a defensive measure (WS10's "deterministic order BEFORE any backend service") without auditing whether existing migrations in the codebase used the `transaction = false` opt-out.
+
+The bug surfaced ONLY when the centralised `db-migrate` container ran on a fresh droplet with the FULL pending migration set. Before this session, the prior per-service runners had already applied those CONCURRENTLY migrations on the live droplet. The orchestrator's first prod-equivalent run was today's deploy; the regression manifested immediately.
+
+**Fix (Tier-1 Make-Impossible):** Honor `migration.instance.transaction === false` in the orchestrator's hot loop. The new code:
+
+```typescript
+const useTransaction =
+  (migration as { instance?: { transaction?: boolean } }).instance
+    ?.transaction !== false;
+
+if (useTransaction) {
+  await queryRunner.startTransaction();
+}
+try {
+  await executor.executeMigration(migration);
+  if (useTransaction && queryRunner.isTransactionActive) {
+    await queryRunner.commitTransaction();
+  }
+  // ...
+} catch (err) {
+  if (useTransaction && queryRunner.isTransactionActive) {
+    await queryRunner.rollbackTransaction();
+  }
+  // ...
+}
+```
+
+The check is structural — it cannot regress silently because any future migration that adds `transaction = false` will be honored without further orchestrator changes.
+
+**Production recovery (this session):**
+
+1. Manually applied `CREATE UNIQUE INDEX CONCURRENTLY "UQ_tenants_customDomain"` via psql autocommit (no transaction wrapper).
+2. Inserted the migration record into `auth.migrations` to mark it as applied: `INSERT INTO auth.migrations (timestamp, name) VALUES (1787300000000, 'AddTenantsCustomDomainPartialUnique1787300000000')`.
+3. Patched the orchestrator locally and rebuilt the `db-migrate:latest` image inline by `docker create` + `docker cp` + `docker commit`.
+4. Re-ran `docker compose up db-migrate --no-deps` — **EXIT 0** with the new orchestrator handling `transaction = false` correctly. All farm-schema CONCURRENTLY migrations now apply cleanly.
+5. Brought up the rest of the stack (`docker compose up -d --no-deps <23 services>`).
+
+**Status:** RESOLVED — orchestrator fix landed on branch `chore/fix-orchestrator-transaction-override`. Live production restored on droplet via the inline-rebuild path; canonical fix lands in repo via this commit so the next deploy uses the structurally-correct image.

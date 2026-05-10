@@ -2653,3 +2653,46 @@ Reproduced locally on 2026-05-10:
 **Fix (Tier-1 "make it impossible" per CLAUDE.md):** add `resolve.dedupe: ['react', 'react-dom']` to `web/apps/aquamobil/vite.config.ts`. This is the documented Vite escape hatch for monorepo-aliased React libs: `dedupe` forces every bare `react` / `react-dom` / subpath specifier (including `react/jsx-runtime` and `react/jsx-dev-runtime`) to resolve to the consuming project's `node_modules/react/...`, regardless of which file does the importing. Aquamobil already declares `react@^18.2.0` and `react-dom@^18.2.0` as direct deps in its package.json, so the consuming project already owns the canonical copy. With `dedupe`, no consumer can ever pick up a second React via the aliased boundary.
 
 **Status:** RESOLVED — fixed in branch `chore/aquamobil-react-runtime-fix` via PR. Verified locally with `docker build -f infrastructure/docker/Dockerfile.aquamobil .` succeeding (`vite v7.3.2 ... ✓ built in 21.50s` with no Rollup error).
+
+---
+
+## ORPHAN-HIGH-056 — `deploy-staging.yml` hard-requires `STAGING_DROPLET_*` secrets, then `deploy-digitalocean.yml` permanently blocks prod for single-droplet operators
+
+**Severity:** HIGH (single-droplet operators cannot deploy to production at all without manual `bypass_staging_gate=true` on every push)
+**Discovered:** 2026-05-10, while operationalising the staging deploy pipeline (paired with ORPHAN-013)
+**File:** `.github/workflows/deploy-staging.yml`, `.github/workflows/deploy-digitalocean.yml`, `docs/adr/016-deploy-resilience-architecture.md` (Phase D contract)
+
+**Evidence (failure shape on a repo without `STAGING_DROPLET_HOST` set):**
+```
+Run appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2
+  with:
+    host:
+    username:
+    key: ***
+    command_timeout: 50m
+    envs: IMAGE_TAG
+    script: ...
+error: missing server host
+```
+
+The `deploy` job inside `deploy-staging.yml` fails immediately on the SSH step. No `deployed/staging-<sha>` tag is ever pushed to origin. On the SAME push to main, `deploy-digitalocean.yml`'s `staging-gate` job then enters its 55-minute polling loop, never finds the tag (because staging never produced it), times out, and aborts the prod deploy. The operator has two unappealing options on every push: wait 55min for the timeout then rerun manually with `bypass_staging_gate=true`, or run `workflow_dispatch` from the start with the bypass.
+
+**Root cause:** `deploy-staging.yml` was written with the implicit assumption that a staging droplet is ALWAYS provisioned (ADR-016 Phase D, 2026-04-14). Phase D codifies a "deploy to staging first, then prod" architecture — entirely correct for a multi-droplet operator. But it does not specify the lifecycle BEFORE staging exists, or for operators who never plan to provision staging (single-droplet topology — one droplet running prod only, with PR review + droplet snapshots as the change-management gate). The workflow therefore unconditionally invokes `appleboy/ssh-action` with empty secrets and fails at runtime; the prod-side gate, written with the symmetrical assumption, gates on a tag that will never arrive.
+
+**Why this is architecturally distinct from the existing `STAGING_ENABLED` repo variable:** `deploy-digitalocean.yml`'s `staging-gate` already has a `vars.STAGING_ENABLED` opt-in flag that auto-bypasses the gate when set to `false` (or unset). That signal is human-fallible — an operator can set `STAGING_ENABLED=true` without adding the secrets (or vice versa) and the two workflows can drift relative to each other. The structural truth is "staging cannot deploy without `STAGING_DROPLET_HOST`", which is a function of secret presence, not of operator intent.
+
+**Fix (Tier-1 "make it impossible" per CLAUDE.md):** make secret presence the discriminator on BOTH workflow sides:
+
+1. `deploy-staging.yml` — new top-level `staging-configured` job reads `secrets.STAGING_DROPLET_HOST` into a step env var, exposes `configured=true|false` as a job output. Every downstream job (`prepare`, `build-backend`, `build-frontend`, `build-backend-images`, `build-frontend-images`, `deploy`) gates on `if: needs.staging-configured.outputs.configured == 'true'`. When the secret is empty, every job skips with a workflow notice; the SSH step never runs and never throws "missing server host".
+
+2. `deploy-digitalocean.yml` — `staging-gate.enablement` step extended to read `secrets.STAGING_DROPLET_HOST` into env. Auto-bypass on EITHER signal: (a) `STAGING_ENABLED` repo variable not 'true' (operator intent), or (b) `STAGING_DROPLET_HOST` empty (structural truth — staging cannot physically deploy). The two checks together are belt-and-braces — operator can only enable Topology A (multi-droplet, gate enforces) when BOTH are configured, which makes accidental gating impossible.
+
+**Two architecturally-valid topologies, both first-class:**
+- **Topology A (multi-droplet):** secrets + opt-in flag set → full staging deploy → tag → prod gate enforces.
+- **Topology B (single-droplet):** either signal absent → staging skips → prod auto-bypasses → prod deploys directly.
+
+GitHub Actions security boundary: secret expressions cannot appear directly in job-level `if:` conditions. Detection therefore lives inside a step that reads the secret into env, exposes the result as `steps.<id>.outputs.configured`, then downstream jobs consume it via `needs.<job>.outputs.configured`. Same pattern on both workflows.
+
+The emergency `bypass_staging_gate=true` workflow_dispatch input is preserved unchanged — it covers the orthogonal "staging exists but is broken" emergency case.
+
+**Status:** RESOLVED — fixed in branch `chore/deploy-staging-topology-aware`. ADR-016 updated with Phase D-Topology section formalizing the two-topology contract.

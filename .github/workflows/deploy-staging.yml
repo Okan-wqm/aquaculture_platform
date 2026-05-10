@@ -19,6 +19,34 @@
 # input `bypass_staging_gate: true` for emergency hotfixes — see the prod
 # workflow for details).
 #
+# # Topology-aware (ADR-016 Phase D, expanded 2026-05-10)
+#
+# Two architecturally-valid topologies are supported, discriminated by the
+# presence of `secrets.STAGING_DROPLET_HOST`:
+#
+#   Topology A (multi-droplet): STAGING_DROPLET_HOST set → full staging
+#     deploy runs on every push to main → tags `deployed/staging-<sha>` →
+#     prod gates on the tag (deploy-digitalocean.yml `staging-gate` job).
+#
+#   Topology B (single-droplet): STAGING_DROPLET_HOST unset → all jobs
+#     skip with a workflow notice → no `deployed/staging-<sha>` tag emitted
+#     → prod's staging-gate auto-bypasses on the same secret-presence
+#     signal (deploy-digitalocean.yml `staging-gate.detect-topology` step).
+#     Prod deploys directly without an unfixable "missing server host" error.
+#
+# The discriminator is secret PRESENCE (Tier-1 Make-Impossible per ADR-016 +
+# CLAUDE.md hierarchy): if no staging host is configured, staging cannot
+# physically deploy, so the gate must structurally reflect that. This
+# replaces the prior failure shape where missing secrets caused the SSH
+# step to fail with "missing server host", which then permanently blocked
+# every prod deploy because the gate never received the staging tag.
+#
+# Operator migration path (Topology B → A): provision the staging droplet
+# (Terraform module under infrastructure/terraform/modules/staging-droplet/),
+# add the three secrets to the `staging` GitHub Environment, push a commit.
+# Next push to main runs the full staging deploy. No workflow file change
+# required.
+#
 # SECRETS this workflow expects (GitHub repo → Settings → Environments →
 # staging):
 #   STAGING_DROPLET_HOST    — staging.<domain> or the Reserved IP
@@ -54,9 +82,60 @@ concurrency:
 
 jobs:
   # ===========================================================================
+  # Topology Detection (Tier-1 Make-Impossible per ADR-016 / CLAUDE.md)
+  #
+  # Whether to run the staging deploy at all is a function of repository
+  # configuration, not of workflow file content. The discriminator is the
+  # presence of `secrets.STAGING_DROPLET_HOST` — if there's no host, there
+  # is no staging droplet to deploy to, and pretending otherwise produces
+  # the historical failure shape (SSH "missing server host" error → no
+  # `deployed/staging-<sha>` tag → prod gate hangs for 55min then fails).
+  #
+  # GitHub Actions does NOT permit secret expressions in job-level `if:`
+  # conditions (security boundary — prevents secret leakage via conditional
+  # evaluation). The detection therefore lives inside a step that reads the
+  # secret into an env var, then exposes the result as a job output that
+  # downstream jobs CAN consume in their `if:`.
+  #
+  # See deploy-digitalocean.yml `staging-gate` job for the prod-side
+  # complement: when this job emits `configured=false`, prod's gate
+  # auto-bypasses on the same signal so the two workflows stay coherent
+  # without requiring two separate operator actions to enable/disable.
+  # ===========================================================================
+  staging-configured:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - name: Detect staging configuration
+        id: check
+        # The secret is read into an env var here (NOT interpolated into
+        # the script body). Empty secrets become empty strings; the bash
+        # `-n` test then discriminates configured-vs-unconfigured cleanly.
+        # Workflow notices (::notice::) surface in the run summary so an
+        # operator opening the run sees the topology decision immediately.
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_DROPLET_HOST }}
+        run: |
+          set -euo pipefail
+          if [ -n "${STAGING_HOST}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Staging environment configured (Topology A: multi-droplet) — full staging deploy will run."
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Staging environment NOT configured (Topology B: single-droplet) — staging deploy SKIPPED."
+            echo "::notice::Prod will deploy without staging gate (auto-bypassed on the same signal in deploy-digitalocean.yml)."
+            echo "::notice::To enable staging: add STAGING_DROPLET_HOST/USER/SSH_KEY to the 'staging' GitHub Environment."
+            echo "::notice::See docs/runbooks/staging-environment.md for the provisioning procedure."
+          fi
+
+  # ===========================================================================
   # Prepare — compute image tag, detect affected services (same logic as prod)
   # ===========================================================================
   prepare:
+    needs: [staging-configured]
+    if: needs.staging-configured.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -98,7 +177,8 @@ jobs:
   # staging Docker images lockstep with the commit being promoted.
   # ===========================================================================
   build-backend:
-    needs: [prepare]
+    needs: [staging-configured, prepare]
+    if: needs.staging-configured.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -182,7 +262,8 @@ jobs:
   # Build frontend artifacts — same strategy as backend.
   # ===========================================================================
   build-frontend:
-    needs: [prepare]
+    needs: [staging-configured, prepare]
+    if: needs.staging-configured.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -272,7 +353,8 @@ jobs:
   # Build backend Docker images, tag `staging-<sha>` + rolling `staging`.
   # ===========================================================================
   build-backend-images:
-    needs: [prepare, build-backend]
+    needs: [staging-configured, prepare, build-backend]
+    if: needs.staging-configured.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -339,7 +421,8 @@ jobs:
   # Build frontend Docker images, tag `staging-<sha>` + rolling `staging`.
   # ===========================================================================
   build-frontend-images:
-    needs: [prepare, build-frontend]
+    needs: [staging-configured, prepare, build-frontend]
+    if: needs.staging-configured.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -421,7 +504,8 @@ jobs:
   # `deployed/staging-<sha>` to authorise prod promotion.
   # ===========================================================================
   deploy:
-    needs: [prepare, build-backend-images, build-frontend-images]
+    needs: [staging-configured, prepare, build-backend-images, build-frontend-images]
+    if: needs.staging-configured.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging   # GitHub Environment protection (reviewers, secrets)

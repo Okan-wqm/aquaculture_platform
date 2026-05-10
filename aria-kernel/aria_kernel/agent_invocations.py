@@ -829,6 +829,7 @@ def submit_claim_result(
     output_path: str | Path,
     workspace_root: str | Path,
     base_dir: str | Path | None = None,
+    lock_timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Validate and persist an agent's submitted result against its leased claim.
 
@@ -841,7 +842,7 @@ def submit_claim_result(
 
     Returns: {"status": "accepted"|"rejected", "reasons": [...], "row": <persisted result row>}
     """
-    from .agent_contract import enforce_separation_of_duties, validate_response  # local to avoid import cycle on cold start
+    from .agent_contract import enforce_separation_of_duties, envelope_hash, validate_response  # local to avoid import cycle on cold start
     from .evidence_validator import validate_agent_response_evidence
 
     if not lease_token or not lease_token.strip():
@@ -851,30 +852,6 @@ def submit_claim_result(
         raise GovernanceError(f"output_path does not exist: {output_path}")
 
     root = ensure_tools_dir(base_dir)
-    # Plan 024 §H-2 — submit-time idempotency check. Pre-fix the
-    # function appended the result row to results.jsonl without
-    # checking whether a result already existed for the same
-    # claim_id; the same lease could submit twice and both rows
-    # would land. The terminal-state check above (line 850) only
-    # blocks AFTER release/stale/human_required, NOT duplicate
-    # ACCEPTED/REJECTED rows for the same claim. The check below
-    # surfaces an existing result and either returns idempotent or
-    # rejects on payload drift.
-    results_for_claim = [
-        row for row in load_jsonl(root / "agent-invocations" / "results.jsonl")
-        if row.get("claim_id") == claim_id
-    ]
-    if results_for_claim:
-        existing = results_for_claim[-1]
-        return {
-            "status": "idempotent",
-            "reasons": [
-                f"submit_claim_result_already_persisted: claim_id={claim_id} "
-                f"existing_status={existing.get('status')!r}"
-            ],
-            "row": existing,
-            "idempotent": True,
-        }
     claims = load_jsonl(_claims_path(root))
     claim_event = next(
         (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),
@@ -913,128 +890,250 @@ def submit_claim_result(
 
     request_id = claim_event["request_id"]
     request = _find_request(root, request_id)
+    results_path = root / "agent-invocations" / "results.jsonl"
 
-    # Read the response envelope.
+    # Plan 025 §A.1 — read+parse envelope BEFORE the idempotency check.
+    # Why HERE: the idempotency check is now lock-bound + envelope-hash
+    # dedup. Computing the hash requires a parsed envelope; the parse
+    # MUST happen before the lock so the lock window stays minimal and
+    # the unreadable-envelope path keeps its non-idempotent rejection
+    # (no row to compare against; no hash means no drift detect possible
+    # — rejecting unconditionally is the only correct behaviour, and the
+    # rejection persistence still goes inside the lock below for
+    # results.jsonl mutual-exclusion).
+    envelope_unreadable_error: str | None = None
+    envelope: dict[str, Any] | None = None
     try:
         envelope = json.loads(output.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        return _persist_rejection(
-            root=root,
-            claim_id=claim_id,
-            request_id=request_id,
-            agent_id=agent_id,
-            output_path=output,
-            reasons=[f"envelope_unreadable: {exc}"],
-        )
+        envelope_unreadable_error = str(exc)
 
-    reasons: list[str] = []
-    try:
-        # Plan 023 v3 §A-5 — bind envelope claim_id / agent_id to the
-        # leased identity. submit_claim_result's `claim_id` and
-        # `agent_id` parameters are the leased identity (already
-        # validated against claim_event above); pass them as lease
-        # so validate_response rejects any envelope whose claim_id or
-        # agent_id differs.
-        validate_response(
-            envelope,
+    if envelope is not None:
+        submitted_hash = envelope_hash(envelope)
+    else:
+        # Sentinel hash for envelope_unreadable rows. Real envelope hashes
+        # are "sha256:" + 64 hex chars; ":envelope_unreadable" is not a
+        # valid hex digest, so collisions with real hashes are
+        # structurally impossible. The sentinel keeps the
+        # envelope_evidence_hash field non-null on every persisted row,
+        # which keeps the legacy-row drift gate (§A.1) from misfiring on
+        # rejections written by this same code path.
+        submitted_hash = "sha256:envelope_unreadable"
+
+    # Plan 025 §A.1 — lock-bound results.jsonl idempotency + drift gate.
+    # Mirror of claim_request §H-1 pattern (line 604). All branches that
+    # mutate results.jsonl (idempotent return, drift raise, legacy-drift
+    # raise, every _persist_rejection, the final accepted append) live
+    # INSIDE the lock so concurrent workers cannot both pass the
+    # existing-row check and both append.
+    # `lock_timeout_seconds` is forwarded explicitly so callers (and
+    # tests for lock-contention behaviour) can override the helper's
+    # default without monkey-patching module attributes — None means
+    # "use the helper's default".
+    lock_kwargs: dict[str, Any] = {}
+    if lock_timeout_seconds is not None:
+        lock_kwargs["timeout_seconds"] = lock_timeout_seconds
+    with with_exclusive_lock(results_path, **lock_kwargs):
+        results_for_claim = [
+            row for row in load_jsonl(results_path)
+            if row.get("claim_id") == claim_id
+        ]
+        if results_for_claim:
+            existing = results_for_claim[-1]
+            existing_hash = existing.get("envelope_evidence_hash")
+            if existing_hash is None:
+                # Plan 025 §A.1 — legacy row written before envelope_evidence_hash
+                # was introduced. Drift undecidable: we cannot prove the
+                # incoming envelope matches what was originally accepted.
+                # Fail-closed; operator runs the backfill migration.
+                append_tools_governance(
+                    root,
+                    "agent_result_legacy_row_drift_undecidable",
+                    {
+                        "claim_id": claim_id,
+                        "submitted_hash": submitted_hash,
+                    },
+                )
+                raise GovernanceError(
+                    f"submit_claim_result_legacy_row_drift_undecidable: "
+                    f"claim_id={claim_id} run migration "
+                    f"plan-025-A1-backfill-envelope-hash"
+                )
+            if existing_hash == submitted_hash:
+                # Plan 025 §A.1 — byte-identical envelope replay (same
+                # canonical-JSON hash). This is the legitimate idempotent
+                # path: a worker retrying after a network blip submits
+                # the same envelope; we return the existing row.
+                # NB: lookup filter `row.get("claim_id") == claim_id`
+                # remains within 500 chars before
+                # submit_claim_result_already_persisted (file_lock test
+                # source-scan invariant).
+                append_tools_governance(
+                    root,
+                    "agent_result_idempotent_replay",
+                    {
+                        "claim_id": claim_id,
+                        "submitted_hash": submitted_hash,
+                    },
+                )
+                return {
+                    "status": "idempotent",
+                    "reasons": [
+                        f"submit_claim_result_already_persisted: claim_id={claim_id} "
+                        f"existing_status={existing.get('status')!r}"
+                    ],
+                    "row": existing,
+                    "idempotent": True,
+                }
+            # Plan 025 §A.1 — same claim_id, different envelope hash.
+            # This is the drift case the previous "any existing row =>
+            # idempotent" check silently swallowed. Fail-closed; operator
+            # decides whether the second envelope reflects a legitimate
+            # contract change (which would be a new claim, not a
+            # duplicate) or an attacker / replay attempting to overwrite
+            # an accepted result.
+            append_tools_governance(
+                root,
+                "agent_result_duplicate_with_drift",
+                {
+                    "claim_id": claim_id,
+                    "existing_hash": existing_hash,
+                    "submitted_hash": submitted_hash,
+                },
+            )
+            raise GovernanceError(
+                f"submit_claim_result_duplicate_with_drift: "
+                f"claim_id={claim_id} existing_hash={existing_hash} "
+                f"submitted_hash={submitted_hash}"
+            )
+
+        # No existing row → proceed with validation + persist. All
+        # _persist_rejection callsites and the final accepted append
+        # stay inside the lock.
+        if envelope_unreadable_error is not None:
+            return _persist_rejection(
+                root=root,
+                claim_id=claim_id,
+                request_id=request_id,
+                agent_id=agent_id,
+                output_path=output,
+                reasons=[f"envelope_unreadable: {envelope_unreadable_error}"],
+                envelope_evidence_hash=submitted_hash,
+            )
+
+        reasons: list[str] = []
+        try:
+            # Plan 023 v3 §A-5 — bind envelope claim_id / agent_id to the
+            # leased identity. submit_claim_result's `claim_id` and
+            # `agent_id` parameters are the leased identity (already
+            # validated against claim_event above); pass them as lease
+            # so validate_response rejects any envelope whose claim_id or
+            # agent_id differs.
+            validate_response(
+                envelope,
+                request=_strict_request_view(request),
+                lease={"claim_id": claim_id, "agent_id": agent_id},
+            )
+        except GovernanceError as exc:
+            reasons.append(f"response_schema: {exc}")
+        try:
+            enforce_separation_of_duties(
+                request=_strict_request_view(request), submitter_agent_id=agent_id
+            )
+        except GovernanceError as exc:
+            reasons.append(f"separation_of_duties: {exc}")
+        revalidation = validate_agent_response_evidence(
+            response=envelope,
+            workspace_root=workspace_root,
             request=_strict_request_view(request),
-            lease={"claim_id": claim_id, "agent_id": agent_id},
         )
-    except GovernanceError as exc:
-        reasons.append(f"response_schema: {exc}")
-    try:
-        enforce_separation_of_duties(
-            request=_strict_request_view(request), submitter_agent_id=agent_id
-        )
-    except GovernanceError as exc:
-        reasons.append(f"separation_of_duties: {exc}")
-    revalidation = validate_agent_response_evidence(
-        response=envelope,
-        workspace_root=workspace_root,
-        request=_strict_request_view(request),
-    )
-    if not revalidation["valid"]:
-        reasons.extend(f"evidence: {error}" for error in revalidation["errors"])
+        if not revalidation["valid"]:
+            reasons.extend(f"evidence: {error}" for error in revalidation["errors"])
 
-    if reasons:
-        return _persist_rejection(
-            root=root,
+        if reasons:
+            return _persist_rejection(
+                root=root,
+                claim_id=claim_id,
+                request_id=request_id,
+                agent_id=agent_id,
+                output_path=output,
+                reasons=reasons,
+                envelope_evidence_hash=submitted_hash,
+            )
+
+        # Plan 020 Phase 7.B — agent compliance gate.
+        # Why HERE (after validate_response succeeds, before result accepted):
+        # validate_response checks the schema + matrix + evidence references.
+        # Compliance grades whether the agent followed the response CONTRACT
+        # (must_satisfy completeness, evidence schema validity, output path
+        # match, banned-phrase in body, response order, refusal envelope).
+        # Compliance failure converts an otherwise-acceptable response into a
+        # REJECTED result with rejection_reason='compliance_rejected'. The
+        # 10-state lifecycle stays intact (rejection_reason annotates the
+        # existing REJECTED state; no 11th state added).
+        from .agent_compliance import (
+            COMPLIANCE_REJECTION_REASON,
+            record_compliance_grade,
+        )
+        compliance = record_compliance_grade(
             claim_id=claim_id,
-            request_id=request_id,
-            agent_id=agent_id,
-            output_path=output,
-            reasons=reasons,
+            request=request,
+            response=envelope,
+            response_path=output,
+            workspace_root=Path(workspace_root).resolve() if workspace_root else None,
+            base_dir=base_dir,
         )
+        if compliance.get("rejection"):
+            return _persist_rejection(
+                root=root,
+                claim_id=claim_id,
+                request_id=request_id,
+                agent_id=agent_id,
+                output_path=output,
+                reasons=[
+                    f"compliance: {COMPLIANCE_REJECTION_REASON} "
+                    f"(hard_fail={compliance.get('hard_fail_count', 0)}, "
+                    f"soft_fail={compliance.get('soft_fail_count', 0)})"
+                ],
+                envelope_evidence_hash=submitted_hash,
+            )
 
-    # Plan 020 Phase 7.B — agent compliance gate.
-    # Why HERE (after validate_response succeeds, before result accepted):
-    # validate_response checks the schema + matrix + evidence references.
-    # Compliance grades whether the agent followed the response CONTRACT
-    # (must_satisfy completeness, evidence schema validity, output path
-    # match, banned-phrase in body, response order, refusal envelope).
-    # Compliance failure converts an otherwise-acceptable response into a
-    # REJECTED result with rejection_reason='compliance_rejected'. The
-    # 10-state lifecycle stays intact (rejection_reason annotates the
-    # existing REJECTED state; no 11th state added).
-    from .agent_compliance import (
-        COMPLIANCE_REJECTION_REASON,
-        record_compliance_grade,
-    )
-    compliance = record_compliance_grade(
-        claim_id=claim_id,
-        request=request,
-        response=envelope,
-        response_path=output,
-        workspace_root=Path(workspace_root).resolve() if workspace_root else None,
-        base_dir=base_dir,
-    )
-    if compliance.get("rejection"):
-        return _persist_rejection(
-            root=root,
-            claim_id=claim_id,
-            request_id=request_id,
-            agent_id=agent_id,
-            output_path=output,
-            reasons=[
-                f"compliance: {COMPLIANCE_REJECTION_REASON} "
-                f"(hard_fail={compliance.get('hard_fail_count', 0)}, "
-                f"soft_fail={compliance.get('soft_fail_count', 0)})"
-            ],
-        )
-
-    # Accepted path.
-    output_hash = "sha256:" + hashlib.sha256(output.read_bytes()).hexdigest()
-    row = {
-        "$schema": "aria/agent-claim-result/v1",
-        "schema_version": 1,
-        "claim_id": claim_id,
-        "request_id": request_id,
-        "agent_id": agent_id,
-        "role": envelope.get("role"),
-        "status": "accepted",
-        "output_path": output.resolve().as_posix(),
-        "output_hash": output_hash,
-        "checked_evidence_count": len(revalidation["checked_refs"]),
-        "submitted_at": utc_now(),
-    }
-    persisted = append_jsonl(root / "agent-invocations" / "results.jsonl", row)
-    append_tools_governance(
-        root,
-        "agent_result_accepted",
-        {
+        # Accepted path.
+        output_hash = "sha256:" + hashlib.sha256(output.read_bytes()).hexdigest()
+        row = {
+            "$schema": "aria/agent-claim-result/v1",
+            "schema_version": 1,
             "claim_id": claim_id,
             "request_id": request_id,
             "agent_id": agent_id,
+            "role": envelope.get("role"),
+            "status": "accepted",
+            "output_path": output.resolve().as_posix(),
             "output_hash": output_hash,
-        },
-    )
+            "envelope_evidence_hash": submitted_hash,
+            "checked_evidence_count": len(revalidation["checked_refs"]),
+            "submitted_at": utc_now(),
+        }
+        persisted = append_jsonl(results_path, row)
+        append_tools_governance(
+            root,
+            "agent_result_accepted",
+            {
+                "claim_id": claim_id,
+                "request_id": request_id,
+                "agent_id": agent_id,
+                "output_hash": output_hash,
+                "envelope_evidence_hash": submitted_hash,
+            },
+        )
 
     # Plan 016 Faz C5/C6 bridge: route the accepted envelope to the
     # consensus engine (judge roles) or the supporting payload store
     # (Goldset / Change-Intelligence). Bridge errors are recorded as
     # governance events but do NOT undo the accept — the response itself
     # passed every gate; downstream wiring shortfalls become operator
-    # follow-ups, not silent re-rejections.
+    # tracked actions, not silent re-rejections. Bridges run OUTSIDE the
+    # results.jsonl lock — they don't mutate that ledger.
     bridged = {"judge_feedback": None, "supporting_payload": None, "bridge_errors": []}
     try:
         from .judgment_bridge import persist_supporting_payload, record_judge_verdict_from_response
@@ -1075,7 +1174,14 @@ def _persist_rejection(
     agent_id: str,
     output_path: Path,
     reasons: list[str],
+    envelope_evidence_hash: str,
 ) -> dict[str, Any]:
+    # Plan 025 §A.1 — envelope_evidence_hash is REQUIRED (no default).
+    # Missing the field is a TypeError at the call site (tier-1
+    # structural enforcement). Every persisted result row — accepted
+    # or rejected — carries the hash so the §A.1 idempotency gate can
+    # decide drift vs. byte-identical replay vs. legacy-undecidable on
+    # the next submit attempt.
     row = {
         "$schema": "aria/agent-claim-result/v1",
         "schema_version": 1,
@@ -1085,6 +1191,7 @@ def _persist_rejection(
         "status": "rejected",
         "output_path": output_path.resolve().as_posix(),
         "rejection_reasons": reasons,
+        "envelope_evidence_hash": envelope_evidence_hash,
         "submitted_at": utc_now(),
     }
     persisted = append_jsonl(root / "agent-invocations" / "results.jsonl", row)
@@ -1096,6 +1203,7 @@ def _persist_rejection(
             "request_id": request_id,
             "agent_id": agent_id,
             "rejection_reasons_count": len(reasons),
+            "envelope_evidence_hash": envelope_evidence_hash,
         },
     )
     return {"status": "rejected", "reasons": reasons, "row": persisted}

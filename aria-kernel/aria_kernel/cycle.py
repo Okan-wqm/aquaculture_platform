@@ -4,9 +4,10 @@ import errno
 import json
 import subprocess
 import time
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .feedback import derive_pressure
 from .ledger import verify_index_hashes, write_index
@@ -22,6 +23,154 @@ from .tool_health import load_jsonl, runs_path
 from .tool_registry import ensure_tools_binding, list_tools, utc_now
 from .tool_runner import run_tool
 from .ledger import append_jsonl
+
+
+# Plan 024 v3 followup §E (ORPHAN-LOW-057) — typed cycles.jsonl row schema.
+#
+# Pre-fix two writers (started + completed) emitted dict literals that
+# omitted `status` entirely; the aborted-by-pre-phase + ARIA_STOP paths
+# returned an in-memory dict but never appended a terminal row to
+# cycles.jsonl, leaving those cycles "open forever" against
+# integrity._verify_cycle_lifecycle.
+#
+# Post-fix this dataclass is the single constructor for cycles.jsonl
+# rows. The `Literal` type makes `status: CycleStatus` compile-time
+# enforced under mypy strict; the four convenience factories below pin
+# each terminal event to its canonical status so a future caller cannot
+# drift the discriminated-union shape.
+CycleStatus = Literal["started", "completed", "failed", "stopped", "aborted"]
+
+CYCLE_TERMINAL_STATUSES: tuple[CycleStatus, ...] = (
+    "completed", "failed", "stopped", "aborted",
+)
+CYCLE_ROW_SCHEMA_VERSION = 3
+
+
+@dataclass(frozen=True, slots=True)
+class CycleRow:
+    """Plan 024 v3 followup §E — typed cycles.jsonl row.
+
+    Frozen + slotted so the writer cannot mutate the row after
+    construction; `Literal` on `status` rejects any string outside the
+    canonical 5-value union at static-check time.
+    """
+
+    schema_version: int
+    at: str
+    cycle_id: str
+    event: str
+    status: CycleStatus
+    git_head_sha_at_cycle: str | None = None
+    tool_decision_count: int | None = None
+    tool_governance_decision_count: int | None = None
+
+    def to_jsonl(self) -> dict[str, Any]:
+        # Drop None-valued optionals so ledger-hash stays byte-stable
+        # for rows that legitimately omit them (started rows have no
+        # decision counts; legacy completed rows omit git head sha).
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+
+def _started_cycle_row(*, cycle_id: str) -> dict[str, Any]:
+    """Plan 024 §E — single constructor for the started cycles.jsonl row.
+
+    Pre-fix the writer emitted a dict literal that omitted `status`.
+    The Literal-typed dataclass makes the wrong shape impossible.
+    """
+    return CycleRow(
+        schema_version=CYCLE_ROW_SCHEMA_VERSION,
+        at=utc_now(),
+        cycle_id=cycle_id,
+        event="started",
+        status="started",
+    ).to_jsonl()
+
+
+def _terminal_cycle_row(
+    *,
+    cycle_id: str,
+    event: str,
+    status: CycleStatus,
+    decision_count: int | None = None,
+    git_head_sha_at_cycle: str | None = None,
+) -> dict[str, Any]:
+    """Plan 024 §E — single constructor for every terminal cycles.jsonl
+    row. Callers pass the (event, status) pair explicitly; the four
+    convenience wrappers below pin each terminal event to its canonical
+    status so the (event, status) discriminated union cannot drift.
+    """
+    if status not in CYCLE_TERMINAL_STATUSES:
+        raise ValueError(
+            f"non-terminal status passed to terminal row: {status!r}",
+        )
+    return CycleRow(
+        schema_version=CYCLE_ROW_SCHEMA_VERSION,
+        at=utc_now(),
+        cycle_id=cycle_id,
+        event=event,
+        status=status,
+        git_head_sha_at_cycle=git_head_sha_at_cycle,
+        tool_decision_count=decision_count,
+        tool_governance_decision_count=decision_count,
+    ).to_jsonl()
+
+
+def _completed_event(
+    cycle_id: str,
+    decision_count: int,
+    *,
+    git_head_sha_at_cycle: str | None = None,
+) -> dict[str, Any]:
+    return _terminal_cycle_row(
+        cycle_id=cycle_id,
+        event="completed",
+        status="completed",
+        decision_count=decision_count,
+        git_head_sha_at_cycle=git_head_sha_at_cycle,
+    )
+
+
+def _stopped_event(
+    cycle_id: str,
+    *,
+    git_head_sha_at_cycle: str | None = None,
+) -> dict[str, Any]:
+    return _terminal_cycle_row(
+        cycle_id=cycle_id,
+        event="stopped",
+        status="stopped",
+        git_head_sha_at_cycle=git_head_sha_at_cycle,
+    )
+
+
+def _aborted_event(
+    cycle_id: str,
+    *,
+    git_head_sha_at_cycle: str | None = None,
+    decision_count: int | None = None,
+) -> dict[str, Any]:
+    return _terminal_cycle_row(
+        cycle_id=cycle_id,
+        event="aborted",
+        status="aborted",
+        decision_count=decision_count,
+        git_head_sha_at_cycle=git_head_sha_at_cycle,
+    )
+
+
+def _failed_event(
+    cycle_id: str,
+    *,
+    git_head_sha_at_cycle: str | None = None,
+    decision_count: int | None = None,
+) -> dict[str, Any]:
+    return _terminal_cycle_row(
+        cycle_id=cycle_id,
+        event="failed",
+        status="failed",
+        decision_count=decision_count,
+        git_head_sha_at_cycle=git_head_sha_at_cycle,
+    )
 
 
 def run_cycle(paths: WorkspacePaths | None = None, **kwargs: Any) -> dict[str, object]:
@@ -88,10 +237,21 @@ def run_enterprise_cycle(
     started = time.monotonic()
     root = ensure_tools_binding(base_dir, workspace_root=workspace_root)
     if (root / "ARIA_STOP").exists():
-        return {"schema_version": 2, "cycle_id": cycle_id, "event": "stopped", "status": "stopped"}
+        # Plan 024 §E — ARIA_STOP path used to return without
+        # appending a terminal row to cycles.jsonl, leaving the cycle
+        # "open forever" against integrity._verify_cycle_lifecycle.
+        # We persist a typed `stopped` terminal row before returning
+        # so cycle lifecycle integrity holds for stop-aborted cycles.
+        append_jsonl(root / "cycles.jsonl", _stopped_event(cycle_id))
+        return {
+            "schema_version": 2,
+            "cycle_id": cycle_id,
+            "event": "stopped",
+            "status": "stopped",
+        }
     workspace = _ensure_enterprise_workspace(workspace_root, workspace_base, root)
     git_head_sha_at_cycle = _git_head_sha(Path(workspace_root))
-    append_jsonl(root / "cycles.jsonl", {"schema_version": 2, "at": utc_now(), "cycle_id": cycle_id, "event": "started"})
+    append_jsonl(root / "cycles.jsonl", _started_cycle_row(cycle_id=cycle_id))
     learning = run_learning_pass(workspace, cycle_id=cycle_id, tools_root=root)
     discovery = run_discovery(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root, snapshot_mode=snapshot_mode)
     diff = run_cycle_diff(cycle_id=cycle_id, base_dir=root)
@@ -139,10 +299,21 @@ def run_enterprise_cycle(
                 continue
             phase_status = phase_result.get("status") or phase_result.get("decision")
             if phase_status in ("failed", "blocked", "regression"):
-                event = _complete_event(
-                    root, cycle_id, 0,
+                # Plan 024 §E — pre-fix this path called _complete_event
+                # which appended a row with event="completed" even
+                # though the cycle was being aborted, AND the in-memory
+                # state.status was "aborted" — persisted ledger and
+                # in-memory shape disagreed. Post-fix we persist a
+                # typed `aborted` terminal row whose (event, status)
+                # match the in-memory state. The tool loop hasn't run
+                # yet at this point, so decision_count is structurally
+                # zero (no decisions have been emitted).
+                event = _aborted_event(
+                    cycle_id,
                     git_head_sha_at_cycle=git_head_sha_at_cycle,
+                    decision_count=0,
                 )
+                append_jsonl(root / "cycles.jsonl", event)
                 return {
                     "schema_version": 2,
                     "cycle_id": cycle_id,
@@ -300,18 +471,27 @@ def _run_extended_phases(
     return out
 
 
-def _complete_event(root: Path, cycle_id: str, decision_count: int, *, git_head_sha_at_cycle: str | None = None) -> dict[str, Any]:
-    event = {
-        "schema_version": 2,
-        "at": utc_now(),
-        "cycle_id": cycle_id,
-        "event": "completed",
-        "git_head_sha_at_cycle": git_head_sha_at_cycle,
-        "tool_decision_count": decision_count,
-        "tool_governance_decision_count": decision_count,
-    }
-    append_jsonl(root / "cycles.jsonl", event)
-    return event
+def _complete_event(
+    root: Path,
+    cycle_id: str,
+    decision_count: int,
+    *,
+    git_head_sha_at_cycle: str | None = None,
+) -> dict[str, Any]:
+    """Plan 024 §E — completed terminal-row writer.
+
+    Pre-fix this builder emitted a dict literal with no `status` field;
+    post-fix the row is constructed via the typed `_completed_event`
+    factory. The discriminated-union shape (`event="completed"` ↔
+    `status="completed"`) is now structurally pinned by the factory.
+    """
+    row = _completed_event(
+        cycle_id,
+        decision_count,
+        git_head_sha_at_cycle=git_head_sha_at_cycle,
+    )
+    append_jsonl(root / "cycles.jsonl", row)
+    return row
 
 
 def _ensure_enterprise_workspace(workspace_root: str | Path, workspace_base: str | Path | None, tools_root: Path) -> WorkspacePaths:

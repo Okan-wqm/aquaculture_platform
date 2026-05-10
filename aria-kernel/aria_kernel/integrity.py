@@ -41,7 +41,15 @@ def verify_integrity(
 
 
 def _verify_cycle_lifecycle(root: Path) -> dict[str, Any]:
-    terminal_events = {"completed", "failed", "stopped"}
+    # Plan 024 v3 followup §E — `aborted` is a fourth terminal event
+    # emitted by run_enterprise_cycle when a pre_tool_phase returns
+    # status='failed'/'blocked'/'regression'. Pre-fix this set omitted
+    # `aborted`, so an aborted-by-pre-phase cycle stayed permanently
+    # `open` against integrity verification (its started row never
+    # found a matching terminal). The cycle.py writer for that path
+    # now appends an `aborted` terminal row; here we close the
+    # acceptance loop.
+    terminal_events = {"completed", "failed", "stopped", "aborted"}
     open_cycles: dict[str, dict[str, Any]] = {}
     terminals: dict[str, dict[str, Any]] = {}
     for row in load_jsonl(root / "cycles.jsonl"):

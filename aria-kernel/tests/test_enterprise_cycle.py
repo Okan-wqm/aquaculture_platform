@@ -9,6 +9,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from aria_kernel import (
     OUTPUT_CONTRACT_COMPAT_REMOVAL_VERSION,
@@ -816,6 +817,167 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(explain_code, 0)
         beliefs = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
         self.assertEqual(beliefs["repo-uses-nx"]["status"], "withdrawn")
+
+    def test_cycle_completed_row_has_status_field(self):
+        """Plan 024 v3 followup §E (ORPHAN-LOW-057) — every completed
+        terminal row in cycles.jsonl carries an explicit `status`
+        field. Pre-fix `_complete_event` emitted a dict literal with
+        no status, so the (event, status) discriminated union had no
+        ground truth on the persistent ledger; integrity readers had
+        to infer status from event. Post-fix the typed dataclass
+        forces status onto every row.
+        """
+        register_tool(shadow_tool(), base_dir=self.tools_dir)
+        run_cycle(
+            workspace_root=self.root,
+            cycle_id="cycle-status-completed",
+            base_dir=self.tools_dir,
+            shadow_only=True,
+        )
+        rows = [
+            json.loads(line)
+            for line in (self.tools_dir / "cycles.jsonl")
+            .read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        completed = [
+            r for r in rows
+            if r.get("cycle_id") == "cycle-status-completed"
+            and r.get("event") == "completed"
+        ]
+        self.assertEqual(len(completed), 1)
+        row = completed[0]
+        self.assertEqual(row["status"], "completed")
+        self.assertEqual(row["schema_version"], 3)
+        self.assertIsInstance(row["at"], str)
+        self.assertRegex(
+            row["at"],
+            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}",
+            "at field must be ISO8601-shaped",
+        )
+        # Sanity: started row also carries status, schema_version 3.
+        started = [
+            r for r in rows
+            if r.get("cycle_id") == "cycle-status-completed"
+            and r.get("event") == "started"
+        ]
+        self.assertEqual(len(started), 1)
+        self.assertEqual(started[0]["status"], "started")
+        self.assertEqual(started[0]["schema_version"], 3)
+
+    def test_aria_stop_appends_terminal_row_with_status_stopped(self):
+        """Plan 024 v3 followup §E — ARIA_STOP path persists a typed
+        `stopped` terminal row to cycles.jsonl. Pre-fix the function
+        returned an in-memory dict with status="stopped" but never
+        appended to cycles.jsonl, so the cycle stayed permanently
+        `open` against integrity._verify_cycle_lifecycle (no started
+        row was written either, so it was silent — but any future
+        starts of the same cycle id would have been flagged as
+        unmatched).
+        """
+        self.tools_dir.mkdir(parents=True)
+        (self.tools_dir / "ARIA_STOP").write_text("stop\n", encoding="utf-8")
+        result = run_cycle(
+            workspace_root=self.root,
+            cycle_id="cycle-stop-terminal",
+            base_dir=self.tools_dir,
+        )
+        # Existing in-memory contract preserved (test_cycle_honors_
+        # stop_file_before_start asserts this exact shape).
+        self.assertEqual(result["event"], "stopped")
+        self.assertEqual(result["status"], "stopped")
+        # New post-fix invariant: a `stopped` terminal row IS persisted.
+        rows = [
+            json.loads(line)
+            for line in (self.tools_dir / "cycles.jsonl")
+            .read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        stopped = [
+            r for r in rows
+            if r.get("cycle_id") == "cycle-stop-terminal"
+        ]
+        self.assertEqual(len(stopped), 1)
+        self.assertEqual(stopped[0]["event"], "stopped")
+        self.assertEqual(stopped[0]["status"], "stopped")
+        self.assertEqual(stopped[0]["schema_version"], 3)
+
+    def test_pre_phase_failure_appends_aborted_terminal_row(self):
+        """Plan 024 v3 followup §E — pre-tool-phase failure appends an
+        `aborted` terminal row to cycles.jsonl, NOT `completed`.
+
+        Pre-fix the abort path called `_complete_event` (which writes
+        event="completed") AND set the in-memory state to
+        status="aborted" — ledger and in-memory state disagreed.
+        Worse, `integrity._verify_cycle_lifecycle` only treated
+        {completed, failed, stopped} as terminal events, so an
+        accidentally-`completed` aborted cycle still closed the
+        lifecycle by coincidence — the wrong-shape commit was
+        invisible to integrity. Post-fix:
+          - the writer emits event="aborted" status="aborted"
+          - integrity recognises `aborted` as a terminal event
+          - the (event, status) discriminated union is consistent.
+        """
+        from aria_kernel import cycle as cycle_module
+
+        # Inject a failed pre-phase by patching _run_extended_phases.
+        # The cycle's contract is "if any pre-phase result has
+        # status='failed'/'blocked'/'regression', abort"; this test
+        # pins that contract end-to-end against the persistent ledger.
+        def fake_run_extended_phases(**kwargs):
+            return {
+                "architecture_baseline": {
+                    "status": "failed",
+                    "reason": "fixture-injected baseline failure",
+                },
+            }
+
+        with patch.object(
+            cycle_module,
+            "_run_extended_phases",
+            side_effect=fake_run_extended_phases,
+        ):
+            result = run_cycle(
+                workspace_root=self.root,
+                cycle_id="cycle-pre-phase-abort",
+                base_dir=self.tools_dir,
+                shadow_only=True,
+                pre_tool_phases=("architecture_baseline",),
+            )
+        self.assertEqual(result["status"], "aborted")
+        self.assertEqual(result["aborted_by_phase"], "architecture_baseline")
+
+        rows = [
+            json.loads(line)
+            for line in (self.tools_dir / "cycles.jsonl")
+            .read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        for_cycle = [
+            r for r in rows
+            if r.get("cycle_id") == "cycle-pre-phase-abort"
+        ]
+        # Started row + aborted terminal row.
+        self.assertEqual(len(for_cycle), 2)
+        events = {r["event"] for r in for_cycle}
+        self.assertEqual(events, {"started", "aborted"})
+        self.assertNotIn(
+            "completed",
+            events,
+            "pre-fix bug: aborted cycle wrote `completed` to ledger",
+        )
+        terminal = next(r for r in for_cycle if r["event"] == "aborted")
+        self.assertEqual(terminal["status"], "aborted")
+        self.assertEqual(terminal["schema_version"], 3)
+        self.assertEqual(terminal["tool_decision_count"], 0)
+        # Plan 024 §E — integrity must now recognise `aborted` as
+        # terminal so this cycle is NOT flagged as incomplete.
+        integrity_result = verify_integrity(base_dir=self.tools_dir)
+        incomplete_ids = {
+            row["cycle_id"]
+            for row in integrity_result["cycle_lifecycle"]["incomplete_cycles"]
+        }
+        self.assertNotIn("cycle-pre-phase-abort", incomplete_ids)
 
     def latest_run(self):
         rows = (self.tools_dir / "runs.jsonl").read_text(encoding="utf-8").strip().splitlines()

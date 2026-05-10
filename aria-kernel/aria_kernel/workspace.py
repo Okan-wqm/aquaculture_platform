@@ -40,6 +40,51 @@ def repo_hash(repo_root: Path) -> str:
     return hashlib.sha256(f"{resolved}\n{remote}".encode("utf-8")).hexdigest()[:16]
 
 
+def canonical_repo_root(repo_root: Path) -> Path:
+    """Plan 024 v3 followup (ORPHAN-HIGH-056) — resolve a git-worktree
+    path to its canonical repo root.
+
+    Uses ``git rev-parse --git-common-dir``:
+    * In a normal (non-worktree) repo this returns ``.git`` relative
+      to the repo root; the parent of that is the repo root itself.
+    * In a worktree (e.g. ``/var/aqua-saas/.worktrees/snowball``) this
+      returns the canonical repo's ``.git/`` (e.g.
+      ``/var/aqua-saas/.git``); the parent of that is the canonical
+      repo root.
+
+    The canonical root is what ``aria-tools/`` binding pins, so
+    callers comparing the binding hash should resolve the workspace_-
+    root through this helper first to ensure a worktree of the same
+    repo matches the binding. Falls back to the resolved repo_root
+    when not inside a git repo (defensive for fixture roots that
+    are not git'd).
+    """
+    resolved = repo_root.resolve()
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=resolved,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return resolved
+    if result.returncode != 0:
+        return resolved
+    common_dir_str = result.stdout.strip()
+    if not common_dir_str:
+        return resolved
+    common_dir = Path(common_dir_str)
+    if not common_dir.is_absolute():
+        common_dir = resolved / common_dir
+    try:
+        canonical = common_dir.resolve().parent
+    except OSError:
+        return resolved
+    return canonical
+
+
 def workspace_paths(repo_root: Path, workspace_base: Path | None = None) -> WorkspacePaths:
     # Plan 020 Phase 0 — operator gap #6: sandbox /root/.aria/... read-only
     # nedeniyle test env'de workspace creation fail oluyordu. ARIA_WORKSPACE_BASE

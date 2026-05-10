@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, file_hash, write_index
-from .workspace import governance_event, repo_hash
+from .workspace import canonical_repo_root, governance_event, repo_hash
 
 
 SCHEMA_VERSION = 2
@@ -140,19 +140,48 @@ def ensure_tools_binding(
         _atomic_write_json(identity_file, identity)
         append_tools_governance(root, "tools_root_bound", {"bound_repo_hash": expected_hash, "bound_repo_root": str(repo_root)})
     elif identity["bound_repo_hash"] != expected_hash:
+        # Plan 024 v3 followup (ORPHAN-HIGH-056) — worktree-aware
+        # binding. Pre-fix the cross-repo defense rejected ANY hash
+        # mismatch, including same-repo-different-worktree scenarios
+        # (e.g. operator running ARIA from .worktrees/snowball when
+        # aria-tools/ is bound to /var/aqua-saas canonical repo
+        # root). The hash differs because repo_hash() includes the
+        # filesystem path of the worktree. Post-fix: resolve the
+        # workspace_root through git --git-common-dir to find the
+        # canonical repo root + recompute the hash on that path. If
+        # the canonical hash matches the binding, accept (worktree of
+        # the same repo). If still mismatching, reject (genuine
+        # cross-repo reuse) — the original defense is preserved for
+        # the case it was designed to catch.
+        canonical = canonical_repo_root(repo_root)
+        canonical_hash = repo_hash(canonical) if canonical != repo_root else expected_hash
+        if identity["bound_repo_hash"] == canonical_hash:
+            # Worktree of the bound repo: same git common_dir,
+            # different filesystem path. Binding stays valid; emit
+            # an observability event so audit trails capture the
+            # worktree-vs-canonical resolution.
+            append_tools_governance(
+                root,
+                "tools_root_worktree_resolved",
+                {
+                    "bound_repo_hash": identity["bound_repo_hash"],
+                    "bound_repo_root": identity.get("bound_repo_root"),
+                    "worktree_root": str(repo_root),
+                    "canonical_repo_root": str(canonical),
+                },
+            )
+            return root
         # Plan 022 §C-3 — fail-closed on cross-repo aria-tools reuse.
-        # Pre-fix: function silently returned, allowing the same
-        # aria-tools root to be reused across repos and the ledger to
-        # accidentally merge events from different code histories.
-        # Post-fix: reject explicitly so the operator either binds a
-        # fresh aria-tools/ to repo B or proves the workspace_root
-        # mismatch was a typo.
+        # Both the worktree path AND its canonical resolution differ
+        # from the bound hash; this is a genuine cross-repo reuse.
         raise GovernanceError(
             f"tools_root_repo_hash_mismatch: "
             f"bound={identity['bound_repo_hash']!r} "
-            f"current={expected_hash!r}; aria-tools cannot be reused across repos. "
+            f"current={expected_hash!r} canonical={canonical_hash!r}; "
+            f"aria-tools cannot be reused across repos. "
             f"bound_repo_root={identity.get('bound_repo_root')!r}, "
-            f"current workspace_root={str(repo_root)!r}"
+            f"current workspace_root={str(repo_root)!r}, "
+            f"canonical_repo_root={str(canonical)!r}"
         )
     return root
 

@@ -36,6 +36,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
+import addFormats from 'ajv-formats';
 import * as YAML from 'yaml';
 
 import { DEAD_EVIDENCE_PATH_PREFIXES } from './_constants';
@@ -88,7 +89,21 @@ function readEntries(): FindingEntry[] {
 
 function loadValidator(): ValidateFunction {
   const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
+  // WHY: Ajv2020 in default mode does not register format validators
+  // (`date-time`, `date`, `email`, `uri`, …) — the schema declares
+  // `format: "date-time"` on `created_at` / `closed_at` and `format:
+  // "date"` on `deadline`. Without `addFormats(ajv)`, AJV emits an
+  // "unknown format" warning AND raises `unknownFormat` errors at
+  // compile time, which crashes `ajv.compile(schema)` and cascades:
+  // every assertion in this spec fails because the validator never
+  // existed. Registering ajv-formats wires the JSON-Schema-canonical
+  // format checkers structurally (Tier-1 "make impossible" — there is
+  // no per-spec opt-in needed; the formats are now part of the AJV
+  // instance). This unmasks any TRUE schema violations (such as the
+  // FARM-DATAMIG-001 id pattern carve-out documented in
+  // findings.jsonl.schema.json's `allOf` block).
   const ajv = new Ajv2020({ allErrors: true, strict: false });
+  addFormats(ajv);
   return ajv.compile(schema);
 }
 

@@ -12,29 +12,31 @@ import {
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  UserContextMiddleware,
-  RolesGuard,
-  TenantGuard,
-  ThrottlerModule,
-  ThrottlerGuard,
-  SlidingWindowStrategy,
-  ServiceIdentityGuard,
-  SourceSchemaBootstrapService,
-  createTenantSchemaMiddleware,
+  createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
-  TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
   RlsModule,
   SchemaDriftModule,
-  PlatformJwtModule,
-} from '@aquaculture/backend-common';
-import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
-import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
-import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+  SourceSchemaBootstrapService,
+  SourceSchemaWriteGuardService,
+  TenantSchemaSyncService,
+} from '@aquaculture/backend-common/database';
+import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import {
+  CorrelationIdMiddleware,
+  createTenantSchemaMiddleware,
+  StripInternalHeadersMiddleware,
+  TenantContextMiddleware,
+  UserContextMiddleware,
+} from '@aquaculture/backend-common/middleware';
+import {
+  SlidingWindowStrategy,
+  ThrottlerGuard,
+  ThrottlerModule,
+} from '@aquaculture/backend-common/security';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
 import { HydroponicsSetupModule } from './setup/setup.module';

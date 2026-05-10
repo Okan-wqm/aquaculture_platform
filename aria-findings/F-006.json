@@ -3,7 +3,7 @@
   "certainty": "OBSERVED",
   "claim_summary": "Plan 024 v3 sign-off + D + E + F + worktree-aware binding fix closed 21 evidence anchors of F-005 (HEAD 5bfc7725, 1127/1127 tests). Operator's post-D/E/F autonomy audit identified 5 architectural gaps that block ARIA from running as a fully-autonomous closed-loop kernel: (1) CI executor live path calls a non-existent `agent list-requests` CLI subcommand AND reads `expected_output_path` from claim_request output where it does not exist (only present on the request row), (2) cycle's validation_matrix + pr_lifecycle phases return informational notices instead of invoking the actual gate-enforcing functions, (3) convergent_planning_bridge docstring explicitly delegates to an 'external orchestrator (Codex / Claude Code session) to claim' — no in-kernel autonomous dispatcher polls the planner queue, (4) worker_dispatch + verification_gate primitives exist but the full dispatch → worker pickup → submit → verify → retry/merge chain has no scheduler daemon, only discrete manual CLI invocations, (5) Plan 024 §H-2 idempotency lookup is OUTSIDE a file lock (TOCTOU race window between lookup and append), uses claim_id-only as dedup key (no envelope hash, no drift detection, no `submit_claim_result_duplicate_with_drift` rejection), AND H-7 `handoff_ledger._last_validation:201-206` reads the critical governance.jsonl ledger but silently skips corrupt rows without emitting a diagnostic (audit-trail gap). Plan 025 closes this audit as a single architectural arc: an autonomous orchestrator daemon binds the existing primitives into one closed loop, plus the integrity hardening that autonomy requires.",
   "claim_type": "post_d_e_f_autonomy_audit",
-  "closes_in_commit": null,
+  "closes_in_commit": "e412ebc5",
   "created_at": "2026-05-10T11:30:00Z",
   "evidence_chain_id": "chain_plan_025_autonomy_arc",
   "evidences": [
@@ -79,13 +79,19 @@
     ]
   },
   "severity": "HIGH",
-  "status": "OPEN",
+  "status": "RESOLVED",
   "status_history": [
     {
       "at": "2026-05-10T11:30:00Z",
       "by": "manual:operator-post-d-e-f-autonomy-audit",
       "note": "Emitted after Plan 024 v3 + D + E + F sign-off (HEAD 5bfc7725; F-005 RESOLVED at c17e16fe). Operator's autonomy audit identified 5 architectural gaps blocking fully-autonomous closed-loop operation. Plan 025 corrective-arc tracks closure across 5 phases.",
       "status": "OPEN"
+    },
+    {
+      "at": "2026-05-10T16:50:00Z",
+      "by": "manual:plan-025-sign-off",
+      "note": "Plan 025 §A + §B + §C + §D + §E shipped + reviewer pass on each phase + push to snowball. Final HEAD e412ebc5 (post-§E reviewer polish). Audit data points 1-5 closed: (1) §B 0ad25c70 CI executor live path + 4 latent bug closure; (2) §C 253ac3d2 cycle validation_matrix + pr_lifecycle real-gate invocation + cycle terminal status propagation; (3) §D a826dda9 autonomous_planner_dispatcher daemon + planner_dispatch_hook; (4) §E 4144f315 + e412ebc5 autonomous_worker_scheduler daemon + worker_dispatch_hook + 5 new worker_dispatch primitives + pr-lifecycle assignment_id bridge + worker_executor.py; (5) §A 554a9954 + 5bf4d2f0 H-2 submit_claim_result envelope-hash drift gate (lock-bound + canonical-JSON dedup) + H-7 governance_reader strict-default + finding._refresh_index on_corruption parameter. Plus orphan ORPHAN-HIGH-061 (runs.jsonl reader pair) registered for Plan 026. Test count 1127 baseline -> 1214+ post-§E (87 new tests across 5 phases, zero regressions). Banned-phrase grep clean across every commit; reviewer A SAFE-TO-COMMIT on all 5 phases; reviewer B confirmed regression-clean on §A/§B/§C/§D (§E reviewer-B output empty due to harness flake — full suite re-run independently confirmed 1214 OK).",
+      "status": "RESOLVED"
     }
   ],
   "supersedes": null

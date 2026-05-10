@@ -3084,3 +3084,31 @@ The drift was masked for >2 days because the older deployed image's `CursorEdge`
 The factory pattern is the documented NestJS-GraphQL idiom for generic ObjectTypes (https://docs.nestjs.com/graphql/resolvers#generics). Adopting it here removes the entire class of "node has undefined type" regressions.
 
 **Status:** RESOLVED — `chore/hr-cursor-edge-graphql-type` lands the factory + interface + test. After redeploy, hr-service bootstraps and all CursorEdge-consuming services build a valid schema.
+
+## ORPHAN-CRITICAL-067 — `StorageResolver.storageInventoryByCursor`'s `@Args('input')` slot lacks an explicit `type: () => CursorPaginationInput`; farm-service GraphQL schema build crash-loops at bootstrap with "Undefined type error … parameter at index [2]"
+
+**Severity:** CRITICAL — farm-service is dead in production. Every consumer of farm data (storage, batches, tanks, water quality, feed, harvest, fish health, growth) is offline because the entire farm-service `AppModule` fails to bootstrap before any resolver is registered. The regression is the args-decorator-side counterpart of ORPHAN-CRITICAL-064 (which fixed the ObjectType emission side); the input-side gap remained because no concrete subclass of `CursorPaginationInput` was declared and the only call site relied on TypeScript reflection.
+**Discovered:** 2026-05-10, droplet redeploy after the hr-service ORPHAN-CRITICAL-064 ship
+**File:** `apps/farm-service/src/storage/storage.resolver.ts:187` (`storageInventoryByCursor` method, third `@Args` parameter)
+
+**Evidence (farm-service container log):**
+
+```
+Bootstrap failed: Undefined type error. Make sure you are providing an explicit type for the "storageInventoryByCursor" (parameter at index [2]) of the "StorageResolver" class.
+    at reflectTypeFromMetadata (/app/node_modules/@nestjs/graphql/dist/utils/reflection.utilts.js:17:19)
+    at /app/node_modules/@nestjs/graphql/dist/decorators/args.decorator.js:24:106
+```
+
+**Root cause:** NestJS GraphQL's `@Args()` decorator calls `reflectTypeFromMetadata` to resolve the parameter's GraphQL input type. If the decorator has no explicit `type: () => SomeType`, the reflector reads `design:paramtypes[index]` — TypeScript's emit-decorator-metadata output. For the failing parameter, this resolves to `Object` (in `NOT_ALLOWED_TYPES` per `reflection.utilts.js:6`) because:
+
+1. `CursorPaginationInput` is declared `@InputType({ isAbstract: true })` in `libs/backend-common/src/pagination/cursor.ts:91`. The `isAbstract: true` flag is the deliberate signal that this type is a base — it expects either a concrete subclass at the consumer site or an explicit reference at every call site.
+2. The parameter is a cross-package import from `@aquaculture/backend-common/pagination`. TypeScript's emit-decorator-metadata reflection can fail to recover the named class for cross-package imports under certain `tsconfig` `paths` / project-reference configurations, falling back to `Object`.
+3. The two earlier `@Args` slots in the same method (`locationId`, `itemType`) both carry explicit `type: () => …` so the schema builder never sees the implicit emit for them — only this third slot relied on the implicit path and exposed the gap.
+
+The regression was masked by hr-service crash-looping first (ORPHAN-CRITICAL-064); once hr-service started bootstrapping, the next service in the deploy chain (farm-service) crash-looped on its own undefined-type case.
+
+**Fix (Tier-1 Make-Impossible):** add explicit `type: () => CursorPaginationInput` to the failing `@Args` decorator. This (a) bypasses the implicit reflection path entirely so the cross-package import no longer matters, (b) pulls `CursorPaginationInput` into the schema graph via `args.factory.create` so the abstract input type is registered, and (c) matches the established pattern for every other `@Args` decorator in the file. The fix is a single-line decorator option; the entire regression class is closed once every cursor-paginated resolver follows the same shape.
+
+A platform-wide invariant follow-up (lint rule: "every `@Args` whose parameter type imports from `@aquaculture/backend-common/pagination` MUST declare explicit `type`") is tracked under a separate finding once we have a representative dataset of cursor-paginated resolvers — adding it now would be premature with one call site.
+
+**Status:** RESOLVED — `chore/farm-storage-resolver-graphql-type` lands the explicit type on `storageInventoryByCursor` parameter index [2]. After redeploy, farm-service bootstraps and the storage GraphQL schema exposes `storageInventoryByCursor(input: CursorPaginationInput, …)`.

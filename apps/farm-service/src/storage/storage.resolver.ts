@@ -184,7 +184,22 @@ export class StorageResolver {
   async storageInventoryByCursor(
     @Args('locationId', { type: () => ID, nullable: true }) locationId: string | undefined,
     @Args('itemType', { type: () => StorageItemType, nullable: true }) itemType: StorageItemType | undefined,
-    @Args('input', { nullable: true }) input: CursorPaginationInput | undefined,
+    // ORPHAN-CRITICAL-067: CursorPaginationInput is declared
+    // `@InputType({ isAbstract: true })` in libs/backend-common/src/pagination/cursor.ts,
+    // so the schema builder will not register it as a standalone schema entry
+    // without an explicit reference. NestJS's `reflectTypeFromMetadata`
+    // (node_modules/@nestjs/graphql/dist/utils/reflection.utilts.js) also
+    // throws "Undefined type error" at bootstrap when the implicit
+    // `design:paramtypes[2]` for this @Args slot resolves to `Object` —
+    // which happens because the parameter is a class type imported across a
+    // package boundary (@aquaculture/backend-common/pagination) and the
+    // emit-decorator-metadata reflection cannot recover the named class for
+    // the cross-package import at this position. The explicit
+    // `type: () => CursorPaginationInput` resolver makes the type contract
+    // impossible to omit (Tier-1) and pulls the input type into the schema
+    // graph via the resolver's args.factory, matching the pattern set by
+    // ORPHAN-CRITICAL-064 in PR #250 for CursorEdge<T>.
+    @Args('input', { type: () => CursorPaginationInput, nullable: true }) input: CursorPaginationInput | undefined,
     @CurrentTenant() tenantId: string,
   ): Promise<StorageInventoryCursorConnection> {
     const response = await this.queryBus.execute<

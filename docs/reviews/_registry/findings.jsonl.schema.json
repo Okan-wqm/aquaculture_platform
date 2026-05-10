@@ -19,8 +19,16 @@
   "properties": {
     "id": {
       "type": "string",
-      "pattern": "^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT|DEPLOY|RUST|ULTRA|ORPHAN)-(CRITICAL|HIGH|MEDIUM|LOW|CVE)-[0-9]{3}$",
-      "description": "Finding ID per _shared/output-format.md. Format: {PREFIX}-{CLASSIFIER}-{NNN}. CLASSIFIER is usually severity (CRITICAL|HIGH|MEDIUM|LOW); CVE is a separate classifier for findings sourced from CVE databases (RUSTSEC/GHSA etc.) whose identity is upstream-stable even as severity mutates. P0 reserved for Phase-0 audit bootstrap. PRODUCT-* reserved for test-agents lane-B (Phase 13). DEPLOY-* reserved for deploy-resilience findings (ADR-016 class). RUST-* reserved for Rust sidecar (sens-api-gateway, sensor-ingestion) findings. ULTRA-* reserved for ultra-plan gap-closure batches (sens-api-gateway 2026-04-24 plan). ORPHAN-* reserved for cross-cutting orphan findings registered against docs/reviews/orphan-findings.md anchors. Other prefixes match agent finding-id-prefix sections."
+      "oneOf": [
+        {
+          "pattern": "^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT|DEPLOY|RUST|ULTRA|ORPHAN)-(CRITICAL|HIGH|MEDIUM|LOW|CVE)-[0-9]{3}$"
+        },
+        {
+          "$comment": "Named carve-out grandfathering FARM-DATAMIG-001 (commit 6b372511, appended 2026-04-24) per docs/reviews/orphan-findings.md#ORPHAN-012. The CLASSIFIER alternation in the sibling pattern branch requires CLASSIFIER ∈ {CRITICAL, HIGH, MEDIUM, LOW, CVE} but this single historical entry uses the domain tag `DATAMIG` as its CLASSIFIER. Because findings.jsonl is a hash-chained append-only ledger, rewriting the entry would invalidate every subsequent prev_hash pointer (the exact corruption pattern the integrity invariant exists to detect — see tests/invariants/finding-registry-integrity.spec.ts hash-chain checks). The const branch ONLY admits this exact literal id; different malformed ids (e.g. FARM-FOOBAR-001) still fail because they match neither branch. Do NOT add DATAMIG to the sibling pattern alternation — that would conflate severity-classifier with domain-tag and invite further drift. If a second one-off grandfather case ever arises, append another const branch here, not a regex relax.",
+          "const": "FARM-DATAMIG-001"
+        }
+      ],
+      "description": "Finding ID per _shared/output-format.md. Format: {PREFIX}-{CLASSIFIER}-{NNN}. CLASSIFIER is usually severity (CRITICAL|HIGH|MEDIUM|LOW); CVE is a separate classifier for findings sourced from CVE databases (RUSTSEC/GHSA etc.) whose identity is upstream-stable even as severity mutates. P0 reserved for Phase-0 audit bootstrap. PRODUCT-* reserved for test-agents lane-B (Phase 13). DEPLOY-* reserved for deploy-resilience findings (ADR-016 class). RUST-* reserved for Rust sidecar (sens-api-gateway, sensor-ingestion) findings. ULTRA-* reserved for ultra-plan gap-closure batches (sens-api-gateway 2026-04-24 plan). ORPHAN-* reserved for cross-cutting orphan findings registered against docs/reviews/orphan-findings.md anchors. Other prefixes match agent finding-id-prefix sections. The `oneOf` shape allows a single named-const carve-out for the historical malformed entry FARM-DATAMIG-001 (see ORPHAN-012)."
     },
     "severity": {
       "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
@@ -85,8 +93,12 @@
     },
     "deadline": {
       "type": ["string", "null"],
-      "format": "date",
-      "description": "Deadline for BLOCKED state (override protocol) or for tracked planner packages. null otherwise."
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date" },
+        { "type": "string", "format": "date-time" }
+      ],
+      "description": "Deadline for BLOCKED state (override protocol) or for tracked planner packages. null otherwise. Accepts either ISO 8601 calendar-date (`YYYY-MM-DD`, the canonical writer convention used by ULTRA-* / RUST-CVE-* / INFRA-CRITICAL-*) OR full RFC 3339 date-time (`YYYY-MM-DDTHH:MM:SSZ`, used by ORPHAN-HIGH-035/039 and ULTRA-HIGH-071 which carry explicit end-of-day timestamps to remove ambiguity about when the day expires). Both shapes convey the same semantic — `date-time` is strictly more precise than `date` — so admitting either is the architectural fix rather than rewriting the three outlier entries (which would corrupt the hash chain). Future writers should default to the calendar-date shape unless they have a reason to encode a specific time-of-day."
     },
     "owner_user": {
       "type": ["string", "null"],

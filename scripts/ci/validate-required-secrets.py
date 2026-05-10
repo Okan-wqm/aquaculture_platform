@@ -24,13 +24,20 @@ For every compose file listed in `required-secrets.yaml[compose_files]`:
   3. Every entry in `required-secrets.yaml[secrets]` MUST appear in at
      least one compose file's `${VAR:?...}` block. Stale entries are also
      DRIFT → exit 1.
-  4. Every `name:` in `required-secrets.yaml[secrets]` MUST have a
-     matching `NAME=...` line in `infrastructure/deploy/ci-test.env` so
-     `docker compose config --quiet` does not fail in CI on missing vars.
-     Missing dummy → exit 1.
-  5. Each secret's `required_by:` list MUST match the actual set of
+  4. Each secret's `required_by:` list MUST match the actual set of
      compose files the regex scan found it in. Drift between declared
      ownership and actual usage → exit 1.
+
+# Why no ci-test.env check
+
+A previous version of this script also asserted that every declared
+secret had a dummy line in `infrastructure/deploy/ci-test.env`. That
+rule (and the symmetric "no extra keys" rule) was removed once the CI
+pre-flight job adopted `scripts/ci/preflight-validate.ts`, which derives
+the throwaway env from the compose file at run time — Tier-2
+Make-Automatic per CLAUDE.md hierarchy. The hand-maintained ci-test.env
+is the drift surface the auto-derive design eliminates, so the check
+that asserted its content is no longer load-bearing.
 
 # Exit codes
 
@@ -64,7 +71,6 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = REPO_ROOT / "infrastructure" / "deploy" / "required-secrets.yaml"
-CI_TEST_ENV = REPO_ROOT / "infrastructure" / "deploy" / "ci-test.env"
 
 # Matches ${NAME:?...} — the strict-required interpolation syntax only.
 # Does NOT match:
@@ -131,22 +137,6 @@ def scan_compose_required_vars(compose_path: Path) -> set[str]:
     return set(REQUIRED_VAR_RE.findall(text))
 
 
-def load_ci_test_env_keys() -> set[str]:
-    if not CI_TEST_ENV.exists():
-        die(f"{CI_TEST_ENV.relative_to(REPO_ROOT)} not found", 2)
-    keys: set[str] = set()
-    for raw in CI_TEST_ENV.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        key = line.split("=", 1)[0].strip()
-        if key:
-            keys.add(key)
-    return keys
-
-
 def main() -> int:
     manifest = load_manifest()
     compose_files = manifest["compose_files"]
@@ -166,7 +156,7 @@ def main() -> int:
 
     errors: list[str] = []
 
-    # Rule 1 & 2: bidirectional drift between declaration and usage.
+    # Rules 2 & 3: bidirectional drift between declaration and usage.
     undeclared = sorted(actually_used - declared_names)
     stale = sorted(declared_names - actually_used)
     if undeclared:
@@ -180,23 +170,7 @@ def main() -> int:
             f"(declared but no compose file uses ${{VAR:?}}): {stale}"
         )
 
-    # Rule 3: every declared secret has a dummy in ci-test.env.
-    ci_env_keys = load_ci_test_env_keys()
-    missing_dummy = sorted(declared_names - ci_env_keys)
-    if missing_dummy:
-        errors.append(
-            "missing dummy values in infrastructure/deploy/ci-test.env "
-            f"(declared in manifest but CI compose parse would fail): {missing_dummy}"
-        )
-    # Symmetric: ci-test.env should not leak unused junk keys.
-    extra_ci_env = sorted(ci_env_keys - declared_names)
-    if extra_ci_env:
-        errors.append(
-            "extra keys in infrastructure/deploy/ci-test.env with no "
-            f"corresponding manifest entry: {extra_ci_env}"
-        )
-
-    # Rule 5: `required_by` list matches actual usage per compose file.
+    # Rule 4: `required_by` list matches actual usage per compose file.
     for name in sorted(declared_names & actually_used):
         declared_required_by = set(declared_secrets[name]["required_by"])
         actually_in = {rel for rel, vars_ in compose_vars.items() if name in vars_}
@@ -213,9 +187,9 @@ def main() -> int:
             "Pre-flight FAIL — required-secrets manifest ↔ compose drift detected.\n"
         )
         sys.stderr.write(
-            "Fix: update infrastructure/deploy/required-secrets.yaml + "
-            "infrastructure/deploy/ci-test.env in the same commit as any "
-            "change to `${VAR:?}` interpolations in docker-compose.*.yml.\n\n"
+            "Fix: update infrastructure/deploy/required-secrets.yaml in the "
+            "same commit as any change to `${VAR:?}` interpolations in "
+            "docker-compose.*.yml.\n\n"
         )
         for err in errors:
             sys.stderr.write(f"  - {err}\n")

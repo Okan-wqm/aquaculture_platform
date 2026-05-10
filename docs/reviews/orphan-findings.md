@@ -3084,6 +3084,7 @@ The drift was masked for >2 days because the older deployed image's `CursorEdge`
 The factory pattern is the documented NestJS-GraphQL idiom for generic ObjectTypes (https://docs.nestjs.com/graphql/resolvers#generics). Adopting it here removes the entire class of "node has undefined type" regressions.
 
 **Status:** RESOLVED — `chore/hr-cursor-edge-graphql-type` lands the factory + interface + test. After redeploy, hr-service bootstraps and all CursorEdge-consuming services build a valid schema.
+<<<<<<< Updated upstream
 
 ## ORPHAN-CRITICAL-067 — `StorageResolver.storageInventoryByCursor`'s `@Args('input')` slot lacks an explicit `type: () => CursorPaginationInput`; farm-service GraphQL schema build crash-loops at bootstrap with "Undefined type error … parameter at index [2]"
 
@@ -3112,3 +3113,43 @@ The regression was masked by hr-service crash-looping first (ORPHAN-CRITICAL-064
 A platform-wide invariant follow-up (lint rule: "every `@Args` whose parameter type imports from `@aquaculture/backend-common/pagination` MUST declare explicit `type`") is tracked under a separate finding once we have a representative dataset of cursor-paginated resolvers — adding it now would be premature with one call site.
 
 **Status:** RESOLVED — `chore/farm-storage-resolver-graphql-type` lands the explicit type on `storageInventoryByCursor` parameter index [2]. After redeploy, farm-service bootstraps and the storage GraphQL schema exposes `storageInventoryByCursor(input: CursorPaginationInput, …)`.
+
+---
+
+## ORPHAN-CRITICAL-069 — `config-service`'s per-service `MigrationRunnerService` is registered with the wrong source schema (`'public'`) while every entity / migration targets `'config'`; production cold-boot crash on the first config-schema migration
+
+**Severity:** CRITICAL
+**Discovered:** 2026-05-10, production droplet config-service crash log
+**File:** `apps/config-service/src/app.module.ts` line 34 (`createMigrationRunnerService('public')`) + `apps/config-service/src/database/data-source.ts` line 28 (`schema: 'public'`) + `docker-compose.droplet.yml` lines 1355-1360 (config-service DATABASE_USER wired as `gateway_service`)
+
+**Evidence (production droplet container log):**
+
+```
+{"level":"error","service":"config-service","context":"MigrationRunnerService[public]",
+ "message":"Migration \"AlignConfigEntitySurface1789000000000\" failed on \"public\":
+ permission denied for database aquaculture"}
+```
+
+**Root cause:** Three places in the config-service wiring point at the legacy `public` schema while the entity and migration surface have already moved to a dedicated `config` schema:
+
+1. `apps/config-service/src/app.module.ts:34` — `createMigrationRunnerService('public')`. The factory captures the source schema in a closure: the resulting `MigrationRunnerService[public]` advisory-locks `public`, pins `search_path TO public, public`, and maintains the migration ledger as `public.typeorm_migrations`. The connecting DB role (`gateway_service` per docker-compose, see point 3 below) has **no CREATE privilege on `public`** — the runner crashes on the very first `INSERT INTO public.typeorm_migrations` it attempts after applying any pending DDL.
+2. `apps/config-service/src/database/data-source.ts:28` — `schema: 'public'`. The CLI DataSource (used by operator-only `npm run typeorm -- migration:show / migration:revert` paths) points to `public`, so any operator-driven inspection reads/writes the wrong ledger relative to the actual entity + migration target.
+3. `docker-compose.droplet.yml:1355-1360` — `DATABASE_USER: ${GATEWAY_SERVICE_DB_USER:-gateway_service}` plus the explicit comment `"NOTE: config-service does not have a dedicated schema in 00-init-schemas.sh yet."` is **factually stale**: `00-init-schemas.sh:118 + 138-141 + 175 + 193 + 460-469` provisions the `config_service` role, creates the `config` schema with `AUTHORIZATION config_service`, and grants `ALL PRIVILEGES ON ALL TABLES IN SCHEMA config TO config_service`. Connecting as `gateway_service` (which has grants only on the `gateway` schema, not `config`) closes the privilege gap into a fail-stop wall on first boot.
+
+Meanwhile, the entity surface and migration body declared the architectural truth:
+- `apps/config-service/src/configuration/entities/configuration.entity.ts:52` — `@Entity('configurations', { schema: 'config' })`
+- `apps/config-service/src/configuration/entities/configuration.entity.ts:177` — `@Entity('configuration_history', { schema: 'config' })`
+- `apps/config-service/src/database/migrations/1789000000000-AlignConfigEntitySurface.ts:30 + 32 + 53 + 91 + 113` — every DDL statement schema-qualified to `config.*` plus `pinSearchPath(qr, 'config')` defence-in-depth
+
+The centralised `aqua-db-migrate` orchestrator (which runs as `service_completed_successfully` precondition for every service container per the WS10 contract — `docker-compose.droplet.yml:1374-1376`) was already applying the AlignConfigEntitySurface DDL against the `config` schema correctly. So the table surface in production is correct; only the per-service `MigrationRunnerService` boots, attempts to re-confirm the ledger entry on the wrong schema, and crashes the container at `OnApplicationBootstrap`.
+
+**Fix (Tier-1 Make-Impossible):** Align the four callsites with the schema the entities + migrations target — `'config'`. No new code paths, no shim — every change is the value already declared by the entity decorators and migration bodies:
+
+1. `apps/config-service/src/app.module.ts:34` — `createMigrationRunnerService('config')`. Matches the canonical platform pattern (`billing-service`: `('billing')`, `hr-service`: `('hr')`, `ai-service`: `('ai')`). The runner now pins `search_path TO config, public`, advisory-locks `config`, and maintains the ledger as `config.typeorm_migrations` — where the `config_service` role has CREATE.
+2. `apps/config-service/src/app.module.ts:60` — `createServiceTypeOrmConfig({ schema: 'config' })`. The TypeORM factory composes the `search_path=config,public` connection option from this field, so unqualified entity reads in runtime queries land in the owned schema before falling back to `public` (where extensions / `typeorm_migrations` legacy artefacts live).
+3. `apps/config-service/src/database/data-source.ts:28` — `schema: 'config'` + `username: ... ?? 'config_service'`. CLI parity with the runtime runner so operator `migration:show / migration:revert` paths read the same ledger the service writes.
+4. `docker-compose.droplet.yml:1355-1360` — `DATABASE_USER: ${CONFIG_SERVICE_DB_USER:-config_service}`. Closes the role-vs-schema mismatch: the runtime user (used by both the request hot-path and the OnApplicationBootstrap runner) now has CREATE on `config`. `00-init-schemas.sh:50 + 58` already initialises `CONFIG_SERVICE_DB_PASS` from the matching env var operators set in their `.env`.
+
+Idempotent on every redeploy: the runner uses `MigrationExecutor.getPendingMigrations()` which reads the per-schema `typeorm_migrations` ledger and skips already-applied migrations. The aqua-db-migrate orchestrator continues to be the canonical first-pass applier (per the WS10 contract); the per-service runner is now a no-op warm-start signal in production because the orchestrator has already advanced the ledger. The two stale `@Module` docblocks ("config-service has no TypeORM migration runner — schema state is managed via TypeORM autoLoadEntities + the RLS bootstrap") were also corrected in the same commit so future readers see the architectural shape that actually exists.
+
+**Status:** RESOLVED — `chore/config-service-runner-schema` lands the four-callsite alignment. After redeploy, the boot log shows `MigrationRunnerService[config]` (not `[public]`), the per-schema runner emits "No pending migrations on 'config'" because the aqua-db-migrate container already advanced the ledger, and the service container reaches the HTTP health probe without a permission-denied crash. The wider architectural debt (config-service connecting as a per-service role rather than a shared one) closes in the same commit, completing the schema-per-service convergence for config that hr/farm/billing/ai/notification/alert already cleared.

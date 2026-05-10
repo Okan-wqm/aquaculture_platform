@@ -1352,12 +1352,19 @@ services:
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: "false"
       DATABASE_PORT: 5432
-      # SEC-015 (CRITICAL-001): Per-service DB role — config service uses its own schema
-      # NOTE: config-service does not have a dedicated schema in 00-init-schemas.sh yet.
-      # Until a config_service role is created, it uses the gateway_service role which
-      # has access to the gateway schema where config data is stored.
-      DATABASE_USER: ${GATEWAY_SERVICE_DB_USER:-gateway_service}
-      DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      # SEC-015 (CRITICAL-001): Per-service DB role per ADR-011 schema-ownership.
+      # config-service owns the `config` schema (provisioned by
+      # `infrastructure/docker/init-scripts/00-init-schemas.sh` lines 138-141 +
+      # 175 + 193 + 460-469). Connecting as `config_service` gives the runtime
+      # service and its OnApplicationBootstrap MigrationRunnerService CREATE
+      # privilege on `config` — required to maintain the migration ledger
+      # (`config.typeorm_migrations`) and apply any pending DDL. The
+      # `gateway_service` role has no grants on `config` (only on `gateway`)
+      # so the previous wiring crashed cold-boot with "permission denied
+      # for database aquaculture" once the first config-schema migration
+      # landed (ORPHAN-CRITICAL-069).
+      DATABASE_USER: ${CONFIG_SERVICE_DB_USER:-config_service}
+      DATABASE_PASSWORD: ${CONFIG_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379

@@ -7,12 +7,22 @@ name: Performance Benchmark
 
 on:
   workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Base URL for the live API smoke benchmark, for example https://api.example.com (https URL only)'
+        required: false
+        type: string
   pull_request:
     branches: [ main, develop ]
     paths:
-      # ARCH-CI-013: Was 'frontend/**' and 'backend/**' — project uses web/** and apps/**
+      # ARCH-CI-013: Was 'frontend/**' and 'backend/**' — project uses web/** and apps/**.
+      # 2026-04-30: This PR workflow is a frontend Lighthouse benchmark only.
+      # Backend API performance requires a live target URL and runs only via
+      # workflow_dispatch (k6-api job below), so app-only PRs do not run here.
+      # 2026-05-10: 'apps/**' was previously listed and was reintroduced by a
+      # branch-divergence regression. It is intentionally absent — backend perf
+      # has no path trigger because there is no live API target on PR runs.
       - 'web/**'
-      - 'apps/**'
       - '.github/workflows/performance-benchmark.yml'
 
 jobs:
@@ -116,8 +126,18 @@ jobs:
   k6-api:
     name: Backend k6 API benchmark
     runs-on: ubuntu-latest
-    # SEC-CI-018: Skip on fork PRs (same guard as lighthouse job above)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 10
+    # 2026-04-30: API performance requires a live target. This job is manual
+    # only and refuses to run unless the operator supplies api_base_url. The
+    # if-guard subsumes the prior fork-PR concern: forks cannot trigger
+    # workflow_dispatch on the upstream repo, so the structural gate is
+    # fail-closed for both PR and fork scenarios (tier-1 of the project's
+    # architectural-solution hierarchy: "make it impossible").
+    # 2026-05-10: Re-applied after a branch-divergence regression that replayed
+    # pre-fix workflow content from blob 6027231f over the architectural fix
+    # in commit 0cb39ac2 (blob f8f99ca8). Without this guard the PR-event run
+    # invokes k6 with no API_BASE_URL and the smoke script throws (exit 107).
+    if: github.event_name == 'workflow_dispatch' && inputs.api_base_url != ''
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -125,27 +145,23 @@ jobs:
       - name: Setup k6
         # SEC-CI-002: pinned to SHA (was @v1)
         # SHA verified 2026-04-22 via `gh api repos/grafana/setup-k6-action/tags` —
-        # real v1.1.0 commit SHA. The previous value was an invented SHA that
+        # real v1.2.1 commit SHA. The previous value was an invented SHA that
         # GitHub refuses to resolve (supply-chain hygiene memory rule).
         uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1.2.1
 
-      - name: Check if performance test script exists
-        id: check-script
-        run: |
-          if [ -f "tests/performance/api-smoke.js" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "::warning::tests/performance/api-smoke.js not found — skipping k6 run."
-          fi
-
       - name: Run k6 tests
-        if: steps.check-script.outputs.exists == 'true'
+        env:
+          API_BASE_URL: ${{ inputs.api_base_url }}
         run: |
+          # 2026-05-10: Defence-in-depth assert (tier-3 detection behind the
+          # tier-1 if-guard above). The api-smoke.js script also throws on a
+          # missing API_BASE_URL, but emitting a CI annotation here gives a
+          # cleaner failure signal if a future edit removes the env block.
+          [ -n "$API_BASE_URL" ] || { echo "::error::API_BASE_URL was not propagated to the k6 step"; exit 1; }
           k6 run tests/performance/api-smoke.js --vus 10 --duration 30s
 
       - name: Upload k6 results
-        if: steps.check-script.outputs.exists == 'true'
+        if: always()
         # SEC-CI-002: pinned to SHA (was @v3)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
         with:
@@ -160,5 +176,6 @@ jobs:
       - name: Compose summary
         run: |
           echo "# Performance Benchmark Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- Lighthouse and k6 benchmarks have completed." >> $GITHUB_STEP_SUMMARY
+          echo "- Lighthouse runs on web pull requests." >> $GITHUB_STEP_SUMMARY
+          echo "- k6 API benchmark runs only on workflow_dispatch with api_base_url." >> $GITHUB_STEP_SUMMARY
           echo "- Review uploaded artifacts for detailed results." >> $GITHUB_STEP_SUMMARY

@@ -58,6 +58,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from .governance_reader import read_governance_rows
 from .human_required import record_human_required
 from .ledger import load_jsonl
 from .tool_registry import (
@@ -547,18 +548,11 @@ def _latest_baseline_for_plan(
     tools_root: Path,
     plan_id: str,
 ) -> dict[str, Any] | None:
+    """Plan 025 §A.2 — uses shared governance_reader helper (STRICT)."""
     governance = tools_root / "governance.jsonl"
-    if not governance.exists():
-        return None
     latest: dict[str, Any] | None = None
     latest_ts = ""
-    for line in governance.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_governance_rows(governance, base_dir=tools_root):
         if row.get("kind") != "architecture_spine_baseline":
             continue
         details = row.get("details") or {}
@@ -575,18 +569,19 @@ def _consecutive_regression_count(
     tools_root: Path,
     plan_id: str,
 ) -> int:
-    """Count regressions for plan_id since the last clean postcheck."""
+    """Count regressions for plan_id since the last clean postcheck.
+
+    Plan 025 §A.2 — uses shared governance_reader helper with
+    reverse=True so iteration is newest-first (streak counter
+    semantics). The helper preserves the ORIGINAL forward line
+    number in any diagnostic, so operators investigating a
+    corruption event can locate the row in the file directly.
+    """
     governance = tools_root / "governance.jsonl"
-    if not governance.exists():
-        return 0
     relevant: list[str] = []  # most-recent-first list of event kinds
-    for line in reversed(governance.read_text(encoding="utf-8").splitlines()):
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_governance_rows(
+        governance, reverse=True, base_dir=tools_root,
+    ):
         kind = row.get("kind")
         if kind not in ("architecture_spine_postcheck", "architecture_spine_regression"):
             continue
@@ -710,19 +705,13 @@ def list_spine_events(
 
     Optionally filtered to a single plan_id. Useful for operator status
     queries via `aria-kernel spine status --plan-id X`.
+
+    Plan 025 §A.2 — uses shared governance_reader helper (STRICT).
     """
     tools_root = ensure_tools_dir(base_dir)
     governance = tools_root / "governance.jsonl"
-    if not governance.exists():
-        return []
     out: list[dict[str, Any]] = []
-    for line in governance.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_governance_rows(governance, base_dir=tools_root):
         if row.get("kind") not in (
             "architecture_spine_baseline",
             "architecture_spine_postcheck",

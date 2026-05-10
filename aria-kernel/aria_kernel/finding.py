@@ -148,7 +148,34 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def _refresh_index(repo_root: Path) -> dict[str, Any]:
+def _refresh_index(
+    repo_root: Path,
+    *,
+    on_corruption: str = "advisory",
+) -> dict[str, Any]:
+    """Rebuild the finding-doc index.
+
+    Plan 025 §A.3 — explicit ``on_corruption`` parameter:
+
+    - ``"advisory"`` (default) — preserves the deadlock-avoidance
+      rationale below: bulk index rebuild MUST NOT block on a
+      sibling-process write-in-flight, so a corrupt or unreadable
+      finding doc is skipped after emitting to the diagnostic
+      sink. The default is now type-system-visible (was implicit
+      via comment-only documentation).
+    - ``"strict"`` — opt-in for future critical-finding ledger
+      replay paths; raises ``GovernanceError`` on the first
+      corrupt or unreadable finding doc after emitting to the
+      diagnostic sink.
+
+    Mode validation happens at function entry — silent degradation
+    to one of the two valid modes is BANNED.
+    """
+    if on_corruption not in {"strict", "advisory"}:
+        raise GovernanceError(
+            f"refresh_index_invalid_on_corruption_mode: "
+            f"{on_corruption!r} (must be 'strict' or 'advisory')"
+        )
     findings_dir = _findings_dir(repo_root)
     index: dict[str, Any] = {"schema_version": 1, "generated_at": _utc_now(), "findings": []}
     if not findings_dir.exists():
@@ -163,13 +190,17 @@ def _refresh_index(repo_root: Path) -> dict[str, Any]:
             # before silent-skipping. The finding ledger is critical
             # (audit trail of recorded findings) so the sink event is
             # the primary signal that the index is incomplete; the
-            # silent skip is preserved here for backward compatibility
-            # with bulk index rebuilds (a single corrupt finding
-            # should not block emission of new findings — that would
-            # be a deadlock if the corrupt finding is itself written
-            # by a sibling process). Operators reading the
-            # diagnostic sink see exactly which finding doc is
-            # corrupt and can repair it.
+            # advisory default skip is preserved here for backward
+            # compatibility with bulk index rebuilds (a single corrupt
+            # finding should not block emission of new findings — that
+            # would be a deadlock if the corrupt finding is itself
+            # written by a sibling process). Operators reading the
+            # diagnostic sink see exactly which finding doc is corrupt
+            # and can repair it. Plan 025 §A.3 — the advisory-vs-
+            # strict choice is now an explicit ``on_corruption``
+            # parameter rather than implicit-via-comment, so future
+            # critical-replay paths can opt in to STRICT without
+            # forking the function.
             corruption = {
                 "kind": "ledger_index_rebuild_skip",
                 "ledger": str(path),
@@ -177,11 +208,14 @@ def _refresh_index(repo_root: Path) -> dict[str, Any]:
                 "error": str(exc),
                 "raw_excerpt": None,
             }
-            try:
-                base_dir = repo_root / "aria-tools"
-                emit_ledger_corruption_diagnostic(corruption, base_dir=base_dir)
-            except Exception:
-                pass
+            base_dir = repo_root / "aria-tools"
+            # Plan 024 §H-7 — sink owns its own stderr fallback;
+            # caller-side ``try/except: pass`` swallow is BANNED.
+            emit_ledger_corruption_diagnostic(corruption, base_dir=base_dir)
+            if on_corruption == "strict":
+                raise GovernanceError(
+                    f"finding_doc_corrupt_strict_mode: {path}: {exc}"
+                )
             continue
         rows.append(
             {

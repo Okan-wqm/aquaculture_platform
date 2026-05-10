@@ -46,6 +46,7 @@ from .agent_invocations import (
 from .change_ledger import list_change_chains
 from .debt import list_debts
 from .finding import list_findings
+from .governance_reader import read_governance_rows
 from .ledger import append_jsonl
 from .diagnostics import emit_ledger_corruption_diagnostic
 from .runtime_profile import enforce_profile_for_write
@@ -186,22 +187,19 @@ def _last_change_chain(base_dir: str | Path | None) -> dict[str, Any] | None:
 
 
 def _last_validation(base_dir: str | Path | None) -> dict[str, Any] | None:
-    """Read aria-tools/governance.jsonl tail for the last validation event."""
+    """Read aria-tools/governance.jsonl tail for the last validation event.
+
+    Plan 025 §A.2 — uses the shared governance_reader helper. STRICT
+    default is correct for governance.jsonl (audit-bound CRITICAL
+    ledger); silent skip on corrupt rows would have masked exactly
+    the kind of integrity break this reader exists to surface.
+    """
     root = ensure_tools_dir_readonly(base_dir)
     if root is None:
         return None
     gov = root / "governance.jsonl"
-    if not gov.exists():
-        return None
     last: dict[str, Any] | None = None
-    for line in gov.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_governance_rows(gov, base_dir=root):
         if row.get("kind") in VALIDATION_EVENT_KINDS:
             last = row
     if last is None:

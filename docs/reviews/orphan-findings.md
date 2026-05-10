@@ -2627,3 +2627,29 @@ The entry is in a hash-chained append-only ledger. Editing the id rewrites `cont
 - A different malformed id (e.g. `FARM-FOOBAR-001`) must still fail.
 - The integrity test (`every entry conforms to findings.jsonl.schema.json`) must turn green end-to-end.
 
+
+
+## ORPHAN-013 — `aquamobil` Docker build cannot resolve `react/jsx-runtime` from aliased `farm-shared` source
+
+**Severity:** HIGH (blocks droplet auto-deploy: `Deploy to DigitalOcean (Staging)` fails on every push to main)
+**Discovered:** 2026-05-10, while operationalising the staging deploy pipeline
+**File:** `web/apps/aquamobil/vite.config.ts` (resolve config), `infrastructure/docker/Dockerfile.aquamobil` (build context shape), `libs/farm-shared/src/components/DynamicMeasurementForm.tsx` (the importing module)
+
+**Evidence (Rollup error inside `infrastructure/docker/Dockerfile.aquamobil` build):**
+```
+[vite]: Rollup failed to resolve import "react/jsx-runtime" from
+        "/monorepo/libs/farm-shared/src/components/DynamicMeasurementForm.tsx"
+ERROR: process "/bin/sh -c npx vite build" did not complete successfully: exit code: 1
+```
+
+Reproduced locally on 2026-05-10:
+- Run: `docker build -f infrastructure/docker/Dockerfile.aquamobil .` from a clean `origin/main`.
+- Result: identical Rollup error → buildx exits 1 → `build-frontend-images (aquamobil, ...)` job fails → `deploy` job blocked because it `needs: [build-frontend-images]`.
+
+**Root cause:** The aquamobil Dockerfile builds in a STANDALONE context — `npm ci` runs from `/monorepo/web/apps/aquamobil/`, so the only `node_modules/` tree is at `/monorepo/web/apps/aquamobil/node_modules/`. The shared component lib `libs/farm-shared` is `COPY`'d in separately under `/monorepo/libs/farm-shared/` (not installed via npm) and consumed via the Vite alias `@aquaculture/farm-shared`. When Rollup processes a TSX file under `/monorepo/libs/farm-shared/src/...`, the JSX transform emits a bare-specifier import `react/jsx-runtime`. Node's resolution algorithm walks UP from `/monorepo/libs/farm-shared/`, finds no `node_modules/` at `/monorepo/libs/` or `/monorepo/`, and aborts. React is right there — at `/monorepo/web/apps/aquamobil/node_modules/react/jsx-runtime.js` — but the resolver doesn't know to look "sideways" into a sibling package's installed deps.
+
+**Why it doesn't bite the other 8 microfrontends:** they all build OUTSIDE Docker (in the `build-frontend` job on the GHA runner) and then their pre-built `dist/` is COPY-only into `infrastructure/docker/Dockerfile.microfrontend.simple`. On the host runner, `node_modules/` exists at the workspace root and farm-shared resolves React via that tree. Aquamobil is the lone exception that runs `vite build` INSIDE its image's build stage.
+
+**Fix (Tier-1 "make it impossible" per CLAUDE.md):** add `resolve.dedupe: ['react', 'react-dom']` to `web/apps/aquamobil/vite.config.ts`. This is the documented Vite escape hatch for monorepo-aliased React libs: `dedupe` forces every bare `react` / `react-dom` / subpath specifier (including `react/jsx-runtime` and `react/jsx-dev-runtime`) to resolve to the consuming project's `node_modules/react/...`, regardless of which file does the importing. Aquamobil already declares `react@^18.2.0` and `react-dom@^18.2.0` as direct deps in its package.json, so the consuming project already owns the canonical copy. With `dedupe`, no consumer can ever pick up a second React via the aliased boundary.
+
+**Status:** RESOLVED — fixed in branch `chore/aquamobil-react-runtime-fix` via PR. Verified locally with `docker build -f infrastructure/docker/Dockerfile.aquamobil .` succeeding (`vite v7.3.2 ... ✓ built in 21.50s` with no Rollup error).

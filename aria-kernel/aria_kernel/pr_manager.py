@@ -72,6 +72,7 @@ def open_pr_for_action(
     base_dir: str | Path | None = None,
     dry_run: bool = True,
     base: str = ARIA_PR_BASE,
+    assignment_id: str | None = None,
 ) -> dict[str, Any]:
     # Plan 018 Phase 6.2 (G7) — explicit base-branch guard.
     #
@@ -149,13 +150,25 @@ def open_pr_for_action(
         "branch": branch,
         "task_id": proposal.get("task_id"),
         "proposal_id": proposal_id,
+        # Plan 025 §E — assignment_id bridge between worker dispatch
+        # and the resulting PR. When the autonomous worker scheduler
+        # calls open_pr_for_action with assignment_id, the lifecycle
+        # row carries the bridge so worker_dispatch.pr_for_assignment
+        # can later resolve the PR for merge_if_green. Optional kwarg
+        # — proposal-only callers (the cycle pr_lifecycle phase) do
+        # not pass it; legacy rows return None from pr_for_assignment
+        # which fail-closes the merge path to verified_pending_merge.
+        "assignment_id": assignment_id,
         "changed_files": action.get("changed_files", []),
         "title": proposal.get("title"),
         "body": body,
         "dry_run": dry_run,
     }
     if dry_run:
-        row = record_pr_lifecycle(payload, event="pr_dry_run", base_dir=base_dir)
+        row = record_pr_lifecycle(
+            payload, event="pr_dry_run", base_dir=base_dir,
+            assignment_id=assignment_id,
+        )
         row["body"] = body
         # Plan 022 §C-4 — surface base_sha alongside head_sha so callers
         # can verify provenance distinct-ness without re-reading the
@@ -197,7 +210,10 @@ def open_pr_for_action(
         )
     payload["number"] = int(pr_url_match.group(1))
     payload["url"] = pr_url_match.group(0)
-    return record_pr_lifecycle(payload, event="opened", base_dir=base_dir)
+    return record_pr_lifecycle(
+        payload, event="opened", base_dir=base_dir,
+        assignment_id=assignment_id,
+    )
 
 
 # Plan 022 §C-4 — robust GitHub PR URL regex. Matches https://github.com/

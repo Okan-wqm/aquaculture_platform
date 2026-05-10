@@ -223,6 +223,7 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "worker_command",
         "scheduler_command",
         "planner_dispatch_command",
+        "worker_dispatch_command",
         "worktree_command",
         "agent_report_command",
         "triage_command",
@@ -594,6 +595,24 @@ def _main(argv: list[str] | None = None) -> int:
         help="Comma-separated planner roles to poll, in priority order.",
     )
     pd_run.add_argument("--lease-seconds", type=int, default=1800)
+
+    # Plan 025 §E — autonomous worker scheduler daemon. Mirror of
+    # planner-dispatch shape (lock, ARIA_STOP, profile gate,
+    # max_iterations, exit_reason taxonomy); per-tick hook is
+    # worker_dispatch_hook.dispatch_one_pending_worker_assignment.
+    worker_dispatch_parser = add_subparser(scheduler_sub, "worker-dispatch")
+    wd_sub = worker_dispatch_parser.add_subparsers(
+        dest="worker_dispatch_command", required=True,
+    )
+    wd_run = add_subparser(wd_sub, "run")
+    add_workspace_args(wd_run)
+    wd_run.add_argument("--max-iterations", type=int, default=None)
+    wd_run.add_argument(
+        "--poll-interval-seconds", type=float, default=30.0,
+    )
+    wd_run.add_argument("--daemon-id", default="worker-scheduler")
+    wd_run.add_argument("--max-workers", type=int, default=1)
+    wd_run.add_argument("--lease-seconds", type=int, default=1800)
 
     worktree_prune_parser = add_subparser(sub, "worktree-prune")
     add_workspace_args(worktree_prune_parser)
@@ -1650,6 +1669,30 @@ def _main(argv: list[str] | None = None) -> int:
             poll_interval_seconds=args.poll_interval_seconds,
             daemon_id=args.daemon_id,
             roles=roles,
+            lease_seconds=args.lease_seconds,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("exits_clean") else 1
+
+    if (
+        args.command == "scheduler"
+        and args.scheduler_command == "worker-dispatch"
+        and args.worker_dispatch_command == "run"
+    ):
+        # Plan 025 §E — autonomous worker scheduler daemon entry.
+        # Mirrors the planner-dispatch wiring above.
+        from .autonomous_worker_scheduler import run_worker_scheduler_daemon
+        workspace = (
+            paths.repo_root if paths is not None
+            else Path(args.workspace_root).resolve()
+        )
+        result = run_worker_scheduler_daemon(
+            base_dir=args.tools_dir,
+            workspace_root=workspace,
+            max_iterations=args.max_iterations,
+            poll_interval_seconds=args.poll_interval_seconds,
+            daemon_id=args.daemon_id,
+            max_workers=args.max_workers,
             lease_seconds=args.lease_seconds,
         )
         print(json.dumps(result, indent=2, sort_keys=True))

@@ -337,7 +337,21 @@ def record_pr_lifecycle(
     event: str = "observed",
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    assignment_id: str | None = None,
 ) -> dict[str, Any]:
+    """Append a row to pr-lifecycle.jsonl describing a PR event.
+
+    Plan 025 §E — ``assignment_id`` is the optional bridge between a
+    worker dispatch (dispatch/requests.jsonl) and the resulting PR.
+    When the autonomous worker scheduler verifies a worker run and
+    routes to merge_if_green, it needs to find the PR number for the
+    verified assignment; the bridge lives on this row's
+    ``assignment_id`` field. Falls back to ``pr["assignment_id"]``
+    when the kwarg is omitted but the source payload carries it.
+    Legacy rows without assignment_id return None from the helper
+    worker_dispatch.pr_for_assignment, which fail-closes the merge
+    path (verified_pending_merge).
+    """
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -348,6 +362,7 @@ def record_pr_lifecycle(
         "head_sha": _first_string(pr, "head_sha", "headRefOid", "head"),
         "task_id": pr.get("task_id"),
         "proposal_id": pr.get("proposal_id"),
+        "assignment_id": assignment_id or pr.get("assignment_id"),
         "changed_files": [_changed_file_path(item) for item in pr.get("changed_files", pr.get("files", []))],
     }
     if base_dir is None:

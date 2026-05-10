@@ -2874,3 +2874,48 @@ The check is structural — it cannot regress silently because any future migrat
 5. Brought up the rest of the stack (`docker compose up -d --no-deps <23 services>`).
 
 **Status:** RESOLVED — orchestrator fix landed on branch `chore/fix-orchestrator-transaction-override`. Live production restored on droplet via the inline-rebuild path; canonical fix lands in repo via this commit so the next deploy uses the structurally-correct image.
+
+
+---
+
+## ORPHAN-CRITICAL-059 — `apps/gateway-api/src/app.module.ts` registers `AuditedOperationModule.forRoot()` (which depends on TypeORM `DataSource`) but never imports `TypeOrmModule.forRoot()`; cold-boot DI resolution crashes the gateway
+
+**Severity:** CRITICAL — gateway-api is the platform's edge entry point. With the gateway in a crash loop, no client (web shell, mobile, integrations) can reach any backend. by-okan@live.com cannot log in; the platform is functionally offline even though every other backend service is up.
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** `apps/gateway-api/src/app.module.ts`
+
+**Evidence (live container log):**
+
+```
+Nest can't resolve dependencies of the AuditedOperationInterceptor (Reflector, ?).
+Please make sure that the argument DataSource at index [1] is available
+in the AuditedOperationModule module.
+```
+
+**Root cause:** `AuditedOperationInterceptor.constructor` injects `DataSource` from TypeORM. The `AuditedOperationModule.forRoot()` factory registers the interceptor globally (`APP_INTERCEPTOR`) but does NOT import a `TypeOrmModule` of its own — by design, the audit module is meant to use whatever `DataSource` the consuming application has registered. Every other consumer (auth, farm, sensor, hr, billing, etc.) DOES import `TypeOrmModule.forRoot()` alongside `AuditedOperationModule.forRoot()`. gateway-api was the lone exception: the audit module was imported (per the AUDITTRAIL-CRITICAL-002 sweep invariant `tests/invariants/audited-operation-module-wired.spec.ts`) but the supporting TypeORM root was never added.
+
+The drift was masked for >2 days because the older deployed image's `AuditedOperationInterceptor` had not yet acquired the `DataSource` constructor dependency. After it did, the gateway's audit interceptor became unresolvable. Today's cold-boot (post-deploy of the new image) surfaced the regression.
+
+The compose file already declares `DATABASE_HOST` / `DATABASE_USER=gateway_service` / `DATABASE_PASSWORD` / `DATABASE_NAME=aquaculture` env for the gateway-api container — wiring was always intended; only the application-side `imports: [TypeOrmModule.forRoot(...)]` was missing.
+
+**Fix (Tier-1 Make-Impossible):** add `TypeOrmModule.forRootAsync` using the platform-canonical `createServiceTypeOrmConfig` factory in `apps/gateway-api/src/app.module.ts`. gateway-api owns no schema (no migrations to run, no entities to register beyond `AuditLogEntity` which the audit module touches), so the config is minimal:
+
+```typescript
+TypeOrmModule.forRootAsync({
+  imports: [ConfigModule],
+  inject: [ConfigService],
+  useFactory: (config: ConfigService) => ({
+    ...createServiceTypeOrmConfig(config, {
+      serviceName: 'gateway',
+      schema: 'shared',  // gateway only writes shared.audit_logs
+      migrations: [],
+      migrationsRun: false,
+    }),
+    entities: [AuditLogEntity],
+  }),
+}),
+```
+
+A unit-level invariant (`tests/invariants/audited-operation-module-wired.spec.ts`) is extended to also assert that every service in the audit-wired list ALSO imports `TypeOrmModule.forRoot()` so the regression class is structurally caught at PR time — Tier-1 promotion of an existing Tier-3 invariant.
+
+**Status:** RESOLVED — `chore/gateway-api-typeorm-for-audit` lands the TypeORM root + entity registration + invariant extension. After redeploy, gateway-api bootstraps cleanly and login is restored.

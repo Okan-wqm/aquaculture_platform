@@ -1,0 +1,92 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "Plan 024 v3 sign-off + D + E + F + worktree-aware binding fix closed 21 evidence anchors of F-005 (HEAD 5bfc7725, 1127/1127 tests). Operator's post-D/E/F autonomy audit identified 5 architectural gaps that block ARIA from running as a fully-autonomous closed-loop kernel: (1) CI executor live path calls a non-existent `agent list-requests` CLI subcommand AND reads `expected_output_path` from claim_request output where it does not exist (only present on the request row), (2) cycle's validation_matrix + pr_lifecycle phases return informational notices instead of invoking the actual gate-enforcing functions, (3) convergent_planning_bridge docstring explicitly delegates to an 'external orchestrator (Codex / Claude Code session) to claim' — no in-kernel autonomous dispatcher polls the planner queue, (4) worker_dispatch + verification_gate primitives exist but the full dispatch → worker pickup → submit → verify → retry/merge chain has no scheduler daemon, only discrete manual CLI invocations, (5) Plan 024 §H-2 idempotency lookup is OUTSIDE a file lock (TOCTOU race window between lookup and append), uses claim_id-only as dedup key (no envelope hash, no drift detection, no `submit_claim_result_duplicate_with_drift` rejection), AND H-7 `handoff_ledger._last_validation:201-206` reads the critical governance.jsonl ledger but silently skips corrupt rows without emitting a diagnostic (audit-trail gap). Plan 025 closes this audit as a single architectural arc: an autonomous orchestrator daemon binds the existing primitives into one closed loop, plus the integrity hardening that autonomy requires.",
+  "claim_type": "post_d_e_f_autonomy_audit",
+  "closes_in_commit": null,
+  "created_at": "2026-05-10T11:30:00Z",
+  "evidence_chain_id": "chain_plan_025_autonomy_arc",
+  "evidences": [
+    {
+      "ref": "tools/aria-poc/ci_executor.py:254",
+      "summary": "ci_executor calls `python3 -m aria_kernel agent list-requests --request-id ...` but `aria-kernel/aria_kernel/cli.py:729-776` agent subparser only registers next-pending / claim / heartbeat / release / reap-stale / submit-result. `list-requests` is NOT among them. Live mode subprocess call always fails with argparse 'invalid choice'."
+    },
+    {
+      "ref": "tools/aria-poc/ci_executor.py:245",
+      "summary": "ci_executor reads `claim.get('expected_output_path')` but `agent_invocations.py:633-655` claim_request returns dict with {schema_version, event, claim_id, request_id, agent_id, lease_token_hash, lease_seconds, claimed_at, lease_expires_at, lease_token} — `expected_output_path` is on the REQUEST row (created at request creation), not the claim row. ci_executor mock path bypasses this gap because the mock fixture skips path-mismatch validation."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/cycle.py:454-470",
+      "summary": "validation_matrix + pr_lifecycle extended phases emit only an informational notice ('invoke the matrix CLI outside the cycle'). Neither invokes enforce_validation_matrix() or pr_manager.open_pr_for_action(). Plan 022 §M-1 architectural intent was opt-in extended phases that DO call the kernel primitives; for these two the wiring is missing."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/convergent_planning_bridge.py:1-12",
+      "summary": "Module docstring: 'issues the matching envelope to the maintenance planner queue for an external orchestrator (Codex / Claude Code session) to claim'. start_convergent_plan_with_envelope + issue_challenger_envelope create the request rows, but no in-kernel daemon polls next_pending_request and dispatches a real planner agent. Manual CLI claim is the only path."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/worker_dispatch.py:24-78",
+      "summary": "create_dispatch_request appends a dispatch request row to dispatch/requests.jsonl; no worker thread / process is spawned. Same for verification_gate.py:23-118 submit_worker_result + verify_worker_result — pure ledger appends. CLI exposes manual aria-kernel worker dispatch / worker-result submit / verification verify commands as discrete one-shots; no `aria-kernel scheduler run` autonomous daemon exists."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/agent_invocations.py:854-877",
+      "summary": "Plan 024 §H-2 idempotency lookup happens OUTSIDE the (non-existent in this function) file lock; lookup→append window is a TOCTOU race where two concurrent workers both see results_for_claim=[] and both append. Compare to claim_request (line 604) which DOES use with_exclusive_lock(claims_path); the pattern is known but not applied to submit_claim_result. Plus dedup key is claim_id only — no envelope hash; envelope drift (same claim_id, different evidence_refs) returns 'idempotent' silently instead of submit_claim_result_duplicate_with_drift per the plan."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/handoff_ledger.py:201-206",
+      "summary": "_last_validation reads governance.jsonl (CRITICAL ledger per Plan 024 §H-7 design) but silently `continue`s on json.JSONDecodeError WITHOUT emitting emit_ledger_corruption_diagnostic. Audit-trail gap: a corrupt governance row is invisible to operator. Same pattern at 5 other governance.jsonl readers (architecture_spine_gate.py:284, 339, 560, 588, 724)."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/finding.py:161-185",
+      "summary": "_refresh_index emits ledger_index_rebuild_skip diagnostic (good — H-7 surface present) BUT then silently `continue`s. Per Plan 024 §H-7 critical-vs-advisory split, the finding-index rebuild is advisory (deadlock-avoidance) so silent-continue is by design, but the absence of `on_corruption` parameter makes the advisory-vs-critical distinction implicit. Future critical-finding ledger reader copying this pattern would silently skip without operator-visible escape."
+    }
+  ],
+  "facts": [
+    "5 audit claims independently verified by 3 parallel Explore agents on 2026-05-10 against HEAD 5bfc7725. 4 CONFIRMED + 1 PARTIAL/WRONG with code-level evidence.",
+    "Plan 024 v3 + D + E + F + worktree-aware binding fix closed 21 of 21 F-005 evidence anchors; 1127 tests green. Plan 024 closure remains intact; F-006 is the NEXT-LAYER architectural arc (autonomy enablement), not a regression of Plan 024.",
+    "Existing primitives (planner queue, agent claim/lease, worker dispatch, verification gate, auto-merge, runtime profile, learning) all WORK in isolation. The gap is a state machine + scheduler that BINDS them into one closed loop — `plan → envelope → claim → executor → submit → validate → replan/retry → promote/merge`. Without this binding, ARIA is a 'semi-autonomous kernel with composable primitives expecting external orchestration', not a fully-autonomous closed-loop system.",
+    "H-2 + H-7 gaps are minor under manual operation but become silent-corruption risks under autonomy because no human is in the loop to catch the TOCTOU race or the silent governance-row skip."
+  ],
+  "finding_id": "F-006",
+  "interpretations": [
+    {
+      "text": "Plan 025 — Autonomous Closure Arc — closes this finding via 5 phases: §A integrity hardening (H-2 file lock + envelope hash + drift detect; H-7 handoff_ledger._last_validation strict mode + governance reader audit), §B CI executor fix (use existing CLI surface; read expected_output_path from request row), §C cycle closed-loop wiring (validation_matrix + pr_lifecycle phases invoke the actual gate fns per change_id discovered from the cycle's change ledger), §D autonomous planner dispatcher daemon (in-kernel polling loop that claims next_pending_request and routes to the real planner agent surface), §E autonomous worker scheduler daemon (binds dispatch → worker pickup → submit → verify → retry/merge into one state machine). Each phase ships under the operator's mandated convergent orchestration pattern: 1 orchestrator + 2 planner (validate-first against code) + 2 implementer (mimari-only) + 2 reviewer (architectural conformance + regression smoke).",
+      "verification_required": true
+    }
+  ],
+  "originating_pressure_event_id": null,
+  "originating_run_id": null,
+  "originating_skill": "manual:operator-post-d-e-f-autonomy-audit",
+  "recommendation": "Execute Plan 025 in §A → §B → §C → §D → §E order. §A first because integrity hardening is the load-bearing prerequisite — autonomy multiplies the cost of any silent corruption. §B + §C are isolated wiring fixes (single-file scope each). §D + §E ship the actual autonomous orchestrator state machine. Each phase land green-tests-pass before the next phase starts. Sign-off after §E with a 3-Explore-agent reproducer that runs an end-to-end autonomous cycle without any human CLI invocation.",
+  "related_specialized_agent_domains": [
+    "platform-kernel-expert",
+    "ai-safety-auditor",
+    "audit-trail-completeness-auditor",
+    "compliance-expert"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "aria-kernel/aria_kernel/agent_invocations.py",
+      "aria-kernel/aria_kernel/handoff_ledger.py",
+      "aria-kernel/aria_kernel/finding.py",
+      "aria-kernel/aria_kernel/architecture_spine_gate.py",
+      "aria-kernel/aria_kernel/cycle.py",
+      "aria-kernel/aria_kernel/convergent_planning_bridge.py",
+      "aria-kernel/aria_kernel/worker_dispatch.py",
+      "aria-kernel/aria_kernel/verification_gate.py",
+      "aria-kernel/aria_kernel/autonomous_orchestrator.py",
+      "tools/aria-poc/ci_executor.py"
+    ]
+  },
+  "severity": "HIGH",
+  "status": "OPEN",
+  "status_history": [
+    {
+      "at": "2026-05-10T11:30:00Z",
+      "by": "manual:operator-post-d-e-f-autonomy-audit",
+      "note": "Emitted after Plan 024 v3 + D + E + F sign-off (HEAD 5bfc7725; F-005 RESOLVED at c17e16fe). Operator's autonomy audit identified 5 architectural gaps blocking fully-autonomous closed-loop operation. Plan 025 corrective-arc tracks closure across 5 phases.",
+      "status": "OPEN"
+    }
+  ],
+  "supersedes": null
+}

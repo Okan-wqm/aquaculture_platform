@@ -2740,3 +2740,75 @@ Estimated effort ≈ 1 batch (≤ 2h).
 2. **Pair with ORPHAN-MEDIUM-059** in a single adapter-portfolio audit batch: every adapter's manifest reviewed, declared_scope matches stated purpose.
 
 Estimated effort ≈ 1 batch shared with 059 (≤ 2-3h total for both).
+
+---
+
+## ORPHAN-HIGH-061 — `runs.jsonl` reader pair in `architecture_spine_gate.py` silently skips JSONDecodeError without diagnostic emit (Plan 025 §A.2 planner-validate finding, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Plan 026 (`read_runs_rows` shared helper, parallel to Plan 025 §A.2 `read_governance_rows`). Deadline: post-Plan-025-sign-off.
+
+**Scope:** `aria-kernel/aria_kernel/architecture_spine_gate.py:284, 339` — both readers iterate `aria-tools/runs.jsonl` and on `(OSError, json.JSONDecodeError)` fall back to `latest = None` silently. F-006 evidence pointer originally claimed these were governance.jsonl callsites; Plan 025 §A.2 Planner-B's code-grounded validation corrected the count: `runs.jsonl` is a **separate ledger** with its own integrity contract, NOT inside Plan 025 §A.2 governance-reader scope.
+
+**Reproducer:**
+```python
+# Direct Read at architecture_spine_gate.py:278-285 (_check_auth_security)
+for line in runs_path.read_text(encoding="utf-8").splitlines():
+    if not line.strip():
+        continue
+    row = json.loads(line)
+    if row.get("tool_id") == "security-boundary-adapter":
+        latest = row
+except (OSError, json.JSONDecodeError):
+    latest = None        # silent — no emit_ledger_corruption_diagnostic
+```
+
+Identical pattern at lines 333-340 (`_check_harness_security`) for `tool_id == "agent-harness-security-adapter"`.
+
+**Why architectural shape parallels §A.2 but ledger differs:**
+
+* `runs.jsonl` is the adapter execution ledger (one row per adapter run); `governance.jsonl` is the audit/integrity-event ledger. Both are append-only and hash-chained, but their criticality and recovery semantics differ — a corrupt `runs.jsonl` row affects invariant measurement (one stale invariant for one cycle), whereas a corrupt `governance.jsonl` row affects audit replayability.
+* Single shared `read_*_rows(path, *, on_corruption=...)` API is correct, but the helper module name and default mode SHOULD be ledger-specific (a generic `read_jsonl_rows` would hide which ledger the operator is failing). Hence: parallel `read_runs_rows` helper sibling to `read_governance_rows`, NOT a unified one.
+
+**HOW to resolve (post-Plan-025):**
+
+1. After Plan 025 §A.2 ships `governance_reader.py`, add `runs_reader.py` with `read_runs_rows(path, *, on_corruption='strict', tool_id_filter=None)` matching the governance helper API shape.
+2. Migrate the 2 callsites in `architecture_spine_gate.py:278-285` + `:333-340`.
+3. Default `on_corruption='strict'` per the same audit-bound integrity argument; tolerant is operator opt-in.
+4. AST-scan invariant test asserts no `except (OSError, json.JSONDecodeError)` block remains in any function whose body references `"runs.jsonl"`.
+
+Estimated effort ≈ ½ batch (single helper + 2 callsite + 4 test cases ≤ 2h).
+
+---
+
+
+## ORPHAN-MEDIUM-062 — `tool_registry._atomic_write_json` shares one tmp filename across processes; concurrent governance writers race on `tmp.replace(path)` (Plan 025 §A.1 implementer finding, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Discovered while implementing Plan 025 §A.1 (`submit_claim_result` envelope-hash drift gate). Out of Plan 025 §A.1 scope; the §A.1 lock is on `agent-invocations/results.jsonl` and the index race lives one ledger over (`integrity_index.json`).
+
+**Scope:** `aria-kernel/aria_kernel/tool_registry.py:268-272`
+
+```python
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")          # <-- shared filename
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+```
+
+`tmp` is a single deterministic path per target file (`.{name}.tmp`). Two processes calling `append_tools_governance` (or any caller of `update_tools_index` via `ensure_tools_dir`) at the same time both open the same `.integrity_index.json.tmp` for write. The earlier `tmp.replace(path)` succeeds; the later one races against the now-vanished tmp file and surfaces `FileNotFoundError: [Errno 2] No such file or directory: '<tmp>' -> '<path>'`.
+
+**Reproducer:** spawn ≥3 `multiprocessing.Process` children that each invoke `submit_claim_result` for the same claim with byte-identical envelopes. With Plan 025 §A.1's lock-bound dedup the §A.1 invariants hold (one accepted, exactly one results.jsonl row), but ~1 of 5 children surfaces the rename race from `update_tools_index` (called from `ensure_tools_dir` BEFORE the §A.1 lock acquires) or from `append_tools_governance` (called from outside any results.jsonl lock by other code paths).
+
+**Architectural fix:** make `_atomic_write_json` per-process by namespacing the tmp filename with `os.getpid() + secrets.token_hex(4)`:
+
+```python
+tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+```
+
+Each process writes its own tmp file; `tmp.replace(path)` is still atomic per-process, and the LAST renamer wins for the target file (which is the desired semantic — index is a snapshot, not append-only). No cross-process tmp filename collision.
+
+**Why a separate finding (not Plan 025 §A.1 work):** the §A.1 mandate is `submit_claim_result` envelope-hash drift gate on `results.jsonl`. The `integrity_index.json` race surfaces in any caller of `update_tools_index`, which is invoked from many code paths unrelated to §A.1. Folding the tmp-filename fix into §A.1 would expand scope into `tool_registry`, an SSoT change that needs its own architectural-arbiter review.
+
+**Test surface that exposed it:** `test_concurrent_submit_race_5_subprocesses` in `test_submit_claim_result_envelope_drift.py`. The Plan 025 §A.1 invariants assert exactly-one-accepted and exactly-one-results-row; the assertion explicitly tolerates the ORPHAN-062 race outcome (`FileNotFoundError` from one child) as out-of-scope for §A.1. Once ORPHAN-062 lands, the test assertion can tighten back to "all 5 children land in accepted+idempotent".
+
+Estimated effort ≈ ¼ batch (single function + 1 unit test ≤ 1h).

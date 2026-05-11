@@ -41,6 +41,7 @@ paths = [
 # they happen to live in a real source file.
 regexes = [
   '''(?i)(change-?me|replace-?me|your-?secret|example|placeholder|<[a-z0-9_-]+>|dummy|fake|testonly|<[^>]+>|\$\{[^}]+\}|dev-?password|dev-?secret|devpassword)''',
+  '''aquaculture-test''',
 ]
 
 # ──────────────────────────────────────────────────────────────────────

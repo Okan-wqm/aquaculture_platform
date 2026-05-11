@@ -151,7 +151,30 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def load_jsonl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl(
+    path: Path,
+    *,
+    verify: bool = False,
+) -> list[dict[str, Any]]:
+    """Public ledger loader.
+
+    Plan 026R §F.4 — opt-in strict-read kwarg.
+
+    ``verify=True`` routes through ``load_jsonl_verified`` (full
+    hash-chain validation: rejects missing ``ledger_hash``, chain
+    mismatch, canonical drift, malformed JSON). ``verify=False``
+    preserves legacy read-only semantics for cold-path consumers
+    that explicitly want best-effort reads.
+
+    Hot-path consumers (``cycle.py``, ``reflection.py``,
+    ``autonomy_state.py``, ``autonomy_orchestrator.py``) MUST opt
+    in by passing ``verify=True`` (or call ``load_jsonl_verified``
+    directly). An AST invariant in
+    ``tests/test_verify_on_read.py`` scans those modules and
+    raises if any ``load_jsonl(`` callsite omits the kwarg.
+    """
+    if verify:
+        return load_jsonl_verified(path)
     return read_jsonl(path)
 
 

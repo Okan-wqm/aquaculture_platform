@@ -3387,6 +3387,6 @@ FIX (this PR — applied, Tier-2-and-Tier-1 hybrid):
 
 Closes: this finding RESOLVED by the same commit that landed the lint cleanup.
 
-Status: RESOLVED — commit SHA recorded below at branch tip after merge.
+Status: RESOLVED — commit SHA `67712436` on branch fix/gateway-signer-apollo-body-canonicalization.
 
 

@@ -42,27 +42,55 @@ class RecordedAtFieldTests(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_submit_worker_result_writes_recorded_at(self) -> None:
-        # Read verification_gate source — the row dict contains
-        # ``recorded_at``. AST-grep.
-        src = (
+        # Plan 026R §G.2 + §H.1 — AST-backed conversion.
+        # The verification_gate module MUST define ≥2 dict literals
+        # with a string-literal key ``recorded_at`` whose value is a
+        # Call to ``utc_now``. AST node-shape inspection (not
+        # substring scan) proves the contract.
+        import ast as _ast
+        src_path = (
             Path(__file__).resolve().parent.parent
             / "aria_kernel" / "verification_gate.py"
-        ).read_text(encoding="utf-8")
-        # The submit row dict has recorded_at.
-        self.assertIn('"recorded_at": utc_now()', src)
-        # The verification row dict also has recorded_at.
-        self.assertEqual(src.count('"recorded_at": utc_now()'), 2)
+        )
+        tree = _ast.parse(src_path.read_text(encoding="utf-8"))
+        recorded_at_with_utc_now = 0
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Dict):
+                continue
+            for key, value in zip(node.keys, node.values):
+                if (
+                    isinstance(key, _ast.Constant)
+                    and key.value == "recorded_at"
+                    and isinstance(value, _ast.Call)
+                    and isinstance(value.func, _ast.Name)
+                    and value.func.id == "utc_now"
+                ):
+                    recorded_at_with_utc_now += 1
+        self.assertGreaterEqual(
+            recorded_at_with_utc_now, 2,
+            "verification_gate: expected ≥2 dict literals with "
+            "recorded_at=utc_now() (submit + verification rows)",
+        )
 
     def test_verification_row_writes_recorded_at(self) -> None:
-        # Same source — both rows write the field.
-        src = (
-            Path(__file__).resolve().parent.parent
-            / "aria_kernel" / "verification_gate.py"
-        ).read_text(encoding="utf-8")
-        # Both occurrences inside row dicts.
-        self.assertIn(
-            "Plan 026R §G.2 — recorded_at timestamp for the reducer fold",
-            src,
+        # Plan 026R §G.2 + §H.1 — behavioral conversion. Append a
+        # verification-results row via the writer + assert the
+        # persisted ledger row carries ``recorded_at`` as an ISO 8601
+        # UTC string. Proves observable behavior, not source presence.
+        from aria_kernel.verification_gate import _verification
+        from aria_kernel.tool_registry import ensure_tools_dir
+        root = ensure_tools_dir(self.base)
+        (root / "dispatch").mkdir(parents=True, exist_ok=True)
+        row = _verification(
+            root, "A-VR", "passed", [],
+            auto_merge_eligible=False,
+            auto_merge_evaluated=False,
+        )
+        self.assertIn("recorded_at", row)
+        self.assertTrue(
+            isinstance(row["recorded_at"], str)
+            and "T" in row["recorded_at"],
+            "verification row: recorded_at must be ISO 8601 UTC",
         )
 
 

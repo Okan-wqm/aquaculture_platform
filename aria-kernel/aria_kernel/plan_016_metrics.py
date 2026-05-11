@@ -107,18 +107,15 @@ def _impact_unknown_count(tools_root: Path) -> int:
 
     Returns 0 when no impact_graph_computed event exists yet (clean slate).
     """
+    # Plan 026R §A.3 — strict governance.jsonl reader. The metrics
+    # dashboard reads MUST surface a corrupt governance row as an
+    # operator-visible failure rather than silently dropping the row
+    # and reporting a lower unknown count.
+    from .governance_reader import read_governance_rows
     governance = tools_root / "governance.jsonl"
-    if not governance.exists():
-        return 0
     latest_unknown = 0
     latest_ts = ""
-    for line in governance.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_governance_rows(governance, base_dir=tools_root):
         if row.get("kind") != "impact_graph_computed":
             continue
         ts = str(row.get("ts") or "")
@@ -234,17 +231,14 @@ def _gate_activity_for_dashboard(tools_root: Path) -> dict[str, int]:
 
     Returns {kind: count} sorted desc, top 12.
     """
+    # Plan 026R §A.3 — strict governance.jsonl reader for the kind-count
+    # dashboard widget. Strict-by-default — a corrupt row blocks the
+    # widget rather than understating the count.
+    from .governance_reader import read_governance_rows
     governance = tools_root / "governance.jsonl"
-    if not governance.exists():
-        return {}
     counts: dict[str, int] = {}
-    for line in governance.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            kind = json.loads(line).get("kind") or "?"
-        except json.JSONDecodeError:
-            continue
+    for row in read_governance_rows(governance, base_dir=tools_root):
+        kind = str(row.get("kind") or "?")
         counts[kind] = counts.get(kind, 0) + 1
     sorted_items = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:12]
     return dict(sorted_items)

@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl, load_jsonl_verified
+from .governance_reader import read_governance_rows
+from .ledger import append_jsonl, load_jsonl_verified
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
@@ -125,14 +126,12 @@ def _gate_activity_summary(tools_root: Path, *, window_hours: int = 24) -> dict[
     cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
     by_kind: dict[str, int] = {}
     recent: dict[str, int] = {}
+    # Plan 026R §A.3 — strict governance.jsonl reader for gate-activity
+    # summary. Pre-§A.3 silent-skip on corrupt rows would understate
+    # gate activity (operator dashboard misled). Strict raises via the
+    # governance_reader contract.
     total = 0
-    for line in governance.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_governance_rows(governance, base_dir=tools_root):
         kind = str(row.get("kind") or "?")
         by_kind[kind] = by_kind.get(kind, 0) + 1
         total += 1

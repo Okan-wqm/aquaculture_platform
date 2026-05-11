@@ -104,20 +104,12 @@ def _latest_run_for_adapter(
     runs_path: Path,
     adapter_id: str,
 ) -> dict[str, Any] | None:
-    if not runs_path.exists():
-        return None
-    latest: dict[str, Any] | None = None
-    for line in runs_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if row.get("tool_id") == adapter_id:
-            latest = row
-    return latest
+    # Plan 026R §A.3 — strict runs.jsonl reader (closes ORPHAN-061
+    # silent-skip). A corrupt row in the runs ledger surfaces as a
+    # GovernanceError instead of degrading to "no adapter run found"
+    # which would silently mask spine staleness.
+    from .runs_reader import latest_run_for_tool
+    return latest_run_for_tool(runs_path, tool_id=adapter_id)
 
 
 def _is_fresh(
@@ -343,18 +335,15 @@ def latest_orchestrator_refresh(
     root = ensure_tools_dir_readonly(base_dir)
     if root is None:
         return None
+    # Plan 026R §A.3 — strict governance.jsonl reader. Pre-§A.3 the
+    # silent-skip on corrupt rows would mis-report "no orchestrator
+    # refresh ever ran" when a single ledger row was unparseable;
+    # ``read_governance_rows`` raises GovernanceError on corrupt rows
+    # via the §H-7 diagnostic sink.
+    from .governance_reader import read_governance_rows
     gov = root / "governance.jsonl"
-    if not gov.exists():
-        return None
     last: dict[str, Any] | None = None
-    for line in gov.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_governance_rows(gov, base_dir=root):
         if row.get("kind") == "spine_orchestrator_refresh_complete":
             last = row
     return last

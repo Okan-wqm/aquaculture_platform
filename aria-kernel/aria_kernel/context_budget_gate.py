@@ -366,15 +366,12 @@ def list_context_audits(
     path = root / CONTEXT_AUDITS_FILENAME
     if not path.exists():
         return []
+    # Plan 026R §A.3 — strict JSONL reader (was silent-skip). A corrupt
+    # context-audit row surfaces as GovernanceError; legitimate
+    # operator partial-recovery callsites use on_corruption="tolerant".
+    from .strict_jsonl_reader import read_strict_jsonl
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(path, base_dir=root):
         if target_agent is not None and row.get("target_agent") != target_agent:
             continue
         rows.append(row)

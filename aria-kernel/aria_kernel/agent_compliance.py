@@ -382,15 +382,13 @@ def list_compliance_grades(
     path = _ledger_path(root)
     if not path.exists():
         return []
+    # Plan 026R §A.3 — strict JSONL reader (was silent-skip). The
+    # agent-compliance ledger feeds the operator's
+    # claim-rejection audit dashboard; silently dropping a corrupt row
+    # would understate compliance failures.
+    from .strict_jsonl_reader import read_strict_jsonl
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(path, base_dir=root):
         if claim_id is not None and row.get("claim_id") != claim_id:
             continue
         if rejected_only and not row.get("rejection"):

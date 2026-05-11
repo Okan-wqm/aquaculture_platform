@@ -274,15 +274,13 @@ def _check_auth_security(workspace_root: Path) -> InvariantMeasurement:
             },
             source="stub:no_runs_ledger",
         )
-    latest: dict[str, Any] | None = None
+    # Plan 026R §A.3 — strict runs.jsonl reader via runs_reader. A
+    # corrupt row surfaces as GovernanceError; missing/empty ledger
+    # yields None (pending) per the legacy contract.
+    from .runs_reader import latest_run_for_tool
     try:
-        for line in runs_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            if row.get("tool_id") == "security-boundary-adapter":
-                latest = row
-    except (OSError, json.JSONDecodeError):
+        latest = latest_run_for_tool(runs_path, tool_id="security-boundary-adapter")
+    except OSError:
         latest = None
     if latest is None:
         return InvariantMeasurement(
@@ -329,15 +327,12 @@ def _check_harness_security(workspace_root: Path) -> InvariantMeasurement:
             },
             source="stub:no_runs_ledger",
         )
-    latest: dict[str, Any] | None = None
+    # Plan 026R §A.3 — strict runs.jsonl reader via runs_reader (same
+    # contract as _check_auth_security above).
+    from .runs_reader import latest_run_for_tool
     try:
-        for line in runs_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            if row.get("tool_id") == "agent-harness-security-adapter":
-                latest = row
-    except (OSError, json.JSONDecodeError):
+        latest = latest_run_for_tool(runs_path, tool_id="agent-harness-security-adapter")
+    except OSError:
         latest = None
     if latest is None:
         return InvariantMeasurement(

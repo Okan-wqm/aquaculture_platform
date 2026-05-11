@@ -550,7 +550,7 @@ jobs:
       # ARCH-CI-006/SEC-CI-011: Removed github.sha from cache key so primary key can hit
       - name: Cache Nx
         # SEC-CI-002: pinned to SHA
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .nx/cache
           # WHY: hashFiles must include build tooling — tools/build/** determines tsc vs webpack,
@@ -617,7 +617,7 @@ jobs:
       # ARCH-CI-006/SEC-CI-011: Removed github.sha from cache key so primary key can hit
       - name: Cache Nx
         # SEC-CI-002: pinned to SHA
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .nx/cache
           # WHY: hashFiles must include build tooling — tools/build/** determines tsc vs webpack,

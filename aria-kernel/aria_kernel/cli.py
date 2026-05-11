@@ -954,6 +954,18 @@ def _main(argv: list[str] | None = None) -> int:
     cp_challenger = add_subparser(cp_sub, "issue-challenger")
     cp_challenger.add_argument("--plan-id", required=True)
     cp_challenger.add_argument("--round-number", type=int, required=True)
+    # Plan 026R §C.3 — ACTIVE TypeError fix. issue_challenger_envelope's
+    # signature requires must_satisfy + evidence_refs + allowed_scope
+    # (Plan 024 §B-2 strict-fields invariant — challenger inherits the
+    # same bounding box as the primary planner). Pre-§C.3 the parser
+    # registered only --plan-id + --round-number, so any operator who
+    # ran ``aria-kernel convergent-plan issue-challenger ...`` hit a
+    # raw TypeError at :2187 before the CLI even reached the kernel
+    # primitive. The parser now mirrors the ``start`` subcommand
+    # surface for the three boundary args.
+    cp_challenger.add_argument("--must-satisfy-file", required=True)
+    cp_challenger.add_argument("--evidence-ref", action="append", required=True)
+    cp_challenger.add_argument("--allowed-scope", action="append", required=True)
 
     impact_parser = add_subparser(sub, 
         "impact",
@@ -2184,9 +2196,19 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
         if args.convergent_plan_command == "issue-challenger":
+            # Plan 026R §C.3 — pass through the three bounding-box args
+            # the kernel primitive requires. Pre-§C.3 the call site
+            # omitted them entirely and the function raised TypeError
+            # before any kernel work happened.
+            must_satisfy = json.loads(
+                Path(args.must_satisfy_file).read_text(encoding="utf-8"),
+            )
             row = issue_challenger_envelope(
                 plan_id=args.plan_id,
                 round_number=args.round_number,
+                must_satisfy=must_satisfy,
+                evidence_refs=args.evidence_ref,
+                allowed_scope=args.allowed_scope,
                 base_dir=args.tools_dir,
             )
             print(json.dumps(row, indent=2, sort_keys=True))

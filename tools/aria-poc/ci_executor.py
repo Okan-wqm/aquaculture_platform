@@ -47,17 +47,15 @@ LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
 OAUTH_TOKEN_ENV_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
 MOCK_MODE_ENV_VAR = "CLAUDE_CODE_MOCK"
 
-# Plan 025 §B — Tier-3 invariant: the live-path request-envelope fetch
-# uses the canonical ``agent-invocations list --request-id`` subcommand,
-# NOT a non-existent ``agent list-requests`` call. Pre-fix the executor
-# shelled out to ``python3 -m aria_kernel agent list-requests …`` which
-# argparse rejects with ``invalid choice: 'list-requests'`` on every run;
-# the result was a returncode!=0 that the executor silently swallowed
-# into ``request_envelope = {}``, masking the live path failure for
-# every CI run. The constant is exported so a regression test can pin
-# the argv shape at module-load time + AST-grep can prove no other
-# argv shape is constructed by the executor (one teaching surface, one
-# enforcement seam).
+# Plan 025 §B → 026R §B.3 — the envelope-list subprocess fetch is GONE.
+# §B.3 made ``agent claim`` return the full request envelope inside the
+# same exclusive-lock window that performed the claim CAS, so the
+# executor no longer needs a second subprocess hop to load the envelope.
+# The legacy ``REQUEST_ENVELOPE_LIST_ARGV`` constant was the pre-§B.3
+# Tier-3 invariant pin; it is preserved here ONLY as the migration
+# audit trail and is referenced by the §B.3 AST regression test that
+# asserts no callsite in this module still spawns the legacy argv. New
+# code MUST read envelope fields from ``claim`` directly.
 REQUEST_ENVELOPE_LIST_ARGV: tuple[str, ...] = (
     "agent-invocations",
     "list",
@@ -372,70 +370,31 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write("claim missing lease_token or claim_id\n")
         return 1
 
-    # Step 2 — load the request envelope from the SSoT (request row).
-    # Plan 025 §B — uses the canonical ``agent-invocations list
-    # --request-id`` subcommand. Pre-fix the executor called a non-
-    # existent ``agent list-requests`` (cli.py:725-776 registers only
-    # next-pending / claim / heartbeat / release / reap-stale /
-    # submit-result; ``list-requests`` was never registered) and on
-    # any non-zero returncode silently fell through to ``{}``,
-    # masking every CI failure as a successful no-op (zero envelope
-    # populated → zero cost-cap evaluation → zero meaningful run).
-    # ``expected_output_path`` lives ONLY on the request row
-    # (claim_request:633-655 returns a minimal lease-event dict that
-    # does NOT carry it); reading it from the claim row was the
-    # surface bug. All four failure modes — subprocess error, JSON
-    # parse error, empty result list (request_id not found), missing
-    # required field on the row — release the claim with a
-    # structured reason and return 1 rather than fall through. This
-    # closes Planner-B's silent-swallow + Path("") + missing-role
-    # latent bugs in the same atomic batch.
-    request_proc = subprocess.run(
-        [
-            "python3", "-m", "aria_kernel", *REQUEST_ENVELOPE_LIST_ARGV,
-            request_id,
-            "--tools-dir", str(tools_dir),
-        ],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONPATH": str(repo / "aria-kernel")},
-    )
-    if request_proc.returncode != 0:
-        sys.stderr.write(
-            f"request_envelope_load_failed: returncode="
-            f"{request_proc.returncode} stderr="
-            f"{request_proc.stderr[:200]}\n"
-        )
-        _release_claim(
-            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            agent_id=agent_id, lease_token=lease_token,
-            reason="request_envelope_load_failed",
-        )
-        return 1
-    try:
-        rows = json.loads(request_proc.stdout)
-    except json.JSONDecodeError as exc:
-        sys.stderr.write(
-            f"request_envelope_load_failed: json parse {exc}; "
-            f"stdout={request_proc.stdout[:200]}\n"
-        )
-        _release_claim(
-            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            agent_id=agent_id, lease_token=lease_token,
-            reason="request_envelope_load_failed",
-        )
-        return 1
-    if not isinstance(rows, list) or not rows:
-        sys.stderr.write(
-            f"request_envelope_not_found: request_id={request_id}\n"
-        )
-        _release_claim(
-            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            agent_id=agent_id, lease_token=lease_token,
-            reason="request_envelope_not_found",
-        )
-        return 1
-    request_envelope = rows[0]
+    # Step 2 — read the fused request envelope from the claim response.
+    # Plan 026R §B.3 — ``agent claim`` now returns the request envelope
+    # (expected_output_path / role / must_satisfy / allowed_scope /
+    # evidence_refs) PLUS the §B.5 ledger-hash anchors
+    # (claim_ledger_hash / request_ledger_hash) inside the same
+    # exclusive-lock window that performed the claim CAS. The pre-§B.3
+    # second-fetch via ``agent-invocations list --request-id`` opened a
+    # race window: between claim-success and the list-fetch, a release
+    # or reaper sweep could mutate the request row and the executor
+    # would operate on a stale envelope. Reading from the fused
+    # response closes the race AND eliminates one subprocess hop per
+    # cycle (lower latency).
+    request_envelope = {
+        "request_id": request_id,
+        "expected_output_path": claim.get("expected_output_path"),
+        "role": claim.get("role"),
+        "must_satisfy": claim.get("must_satisfy") or [],
+        "allowed_scope": claim.get("allowed_scope") or [],
+        "evidence_refs": claim.get("evidence_refs") or [],
+        # Plan 026R §B.5 anchors — verified by ci_executor at envelope
+        # deserialise time when the planner-hook single-claim env-var
+        # contract delivers the metadata.
+        "claim_ledger_hash": claim.get("claim_ledger_hash"),
+        "request_ledger_hash": claim.get("request_ledger_hash"),
+    }
     if not request_envelope.get("expected_output_path"):
         sys.stderr.write(
             f"request_envelope_missing_expected_output_path: "

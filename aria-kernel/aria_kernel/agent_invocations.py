@@ -329,9 +329,57 @@ def list_agent_invocation_requests(
     request_id: str | None = None,
     role: str | None = None,
 ) -> list[dict[str, Any]]:
+    """List agent-invocation requests with optional filters.
+
+    Plan 026R §B.4 — derived-state-aware filtering. Pre-§B.4 the
+    ``state`` filter compared ``row.get("state")`` directly against
+    the persisted ``state`` field on the request row. That field is
+    the LEGACY initial-write state (always ``"pending"`` per
+    ``create_agent_invocation_request:206``) and never updated
+    in-place when the request transitions (claimed, requeued, stale,
+    accepted, rejected, human_required) — those transitions are
+    derived from claims.jsonl + results.jsonl + bridge ledgers.
+
+    So pre-§B.4 ``state="claimed"`` returned ZERO matches (no row's
+    persisted state was ever "claimed") and ``state="pending"``
+    returned the FULL request ledger (every row's persisted state
+    was always "pending"). ci_executor + worker queries that filtered
+    by state silently degraded to "no work" or "all work" depending
+    on the value.
+
+    Post-§B.4 the ``state`` filter routes through
+    ``derive_request_state(request_id, base_dir)`` which IS the SSoT
+    for derived state (PENDING / REQUEUED / CLAIMED / SUBMITTED /
+    ACCEPTED / REJECTED / STALE / HUMAN_REQUIRED / CANCELLED /
+    ACCEPTED_PENDING_BRIDGE etc.). The derived state is cached per
+    request_id within the call so a single list() invocation pays
+    the derive cost at most once per row even when other filters
+    overlap.
+
+    Case normalisation: ``derive_request_state`` returns uppercase
+    state names (``"CLAIMED"``). Caller-supplied ``state`` is
+    normalised to uppercase for comparison so historical lowercase
+    ``state="claimed"`` invocations keep working.
+    """
     rows = load_jsonl(ensure_tools_dir(base_dir) / "agent-invocations" / "requests.jsonl")
     if state is not None:
-        rows = [row for row in rows if row.get("state") == state]
+        # Plan 026R §B.4 — per-call derived-state cache. A single list()
+        # call may iterate many rows; only derive each request_id's
+        # current state once.
+        normalised = state.upper()
+        derive_cache: dict[str, str] = {}
+
+        def _derive(rid: str) -> str:
+            if rid not in derive_cache:
+                derive_cache[rid] = derive_request_state(
+                    request_id=rid, base_dir=base_dir,
+                )
+            return derive_cache[rid]
+
+        rows = [
+            row for row in rows
+            if _derive(str(row.get("request_id"))) == normalised
+        ]
     if convergence_id is not None:
         rows = [row for row in rows if row.get("convergence_id") == convergence_id]
     if target_agent is not None:
@@ -643,7 +691,29 @@ def claim_request(
         }
         # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
         # at line 604; use the unlocked helper to avoid POSIX flock re-acquisition.
-        _append_jsonl_unlocked(claims_path, row)
+        persisted_claim_row = _append_jsonl_unlocked(claims_path, row)
+        # Plan 026R §B.3 — fuse the request envelope into the return value
+        # inside the same lock window. Pre-§B.3 the caller had to do a
+        # separate ``agent-invocations list --request-id`` fetch after
+        # claim, which opened a race window: between claim-success and
+        # list-fetch, a reaper or release could mutate the request and
+        # the caller's downstream work would operate on stale envelope
+        # fields. ``request_for_check`` is already loaded above (line
+        # 615) under the same lock, so the fusion is free.
+        claim_ledger_hash_value = str(persisted_claim_row.get("ledger_hash"))
+        # The request row's own ledger_hash is the integrity anchor for
+        # §B.5 metadata-tamper detection. Load the request row directly
+        # so we return the on-disk hash, not a derived value.
+        request_rows = load_jsonl(
+            root / "agent-invocations" / "requests.jsonl"
+        )
+        envelope_row = next(
+            (r for r in reversed(request_rows) if r.get("request_id") == request_id),
+            None,
+        )
+        request_ledger_hash_value = (
+            str(envelope_row.get("ledger_hash")) if envelope_row else ""
+        )
     append_tools_governance(
         root,
         "agent_claim_created",
@@ -654,7 +724,26 @@ def claim_request(
             "lease_expires_at": _iso(expires),
         },
     )
-    return {**row, "lease_token": lease_token}
+    # Plan 026R §B.3 — fused return. Persisted claim row stays minimal
+    # (see ``row`` above — no envelope fields written into claims.jsonl);
+    # only the IN-MEMORY return value carries the envelope so the caller
+    # can act on the request without a second fetch. Ledger-hash anchors
+    # (``claim_ledger_hash`` + ``request_ledger_hash``) feed §B.5's
+    # metadata-tamper detection.
+    envelope = request_for_check or {}
+    return {
+        **row,
+        "lease_token": lease_token,
+        # Envelope metadata (5 fields per plan §B.3):
+        "expected_output_path": envelope.get("expected_output_path"),
+        "role": envelope.get("role"),
+        "must_satisfy": envelope.get("must_satisfy", []),
+        "allowed_scope": envelope.get("allowed_scope", []),
+        "evidence_refs": envelope.get("evidence_refs", []),
+        # Ledger-hash anchors (2 fields per plan §B.3 + §B.5):
+        "claim_ledger_hash": claim_ledger_hash_value,
+        "request_ledger_hash": request_ledger_hash_value,
+    }
 
 
 def heartbeat_claim(

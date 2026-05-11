@@ -1,26 +1,29 @@
-"""Tests for Plan 025 §B — CI executor live-path fix + 3 latent bugs.
+"""Tests for Plan 025 §B + Plan 026R §B.3 — CI executor live-path fix.
 
-Covers the surface fix (use ``agent-invocations list --request-id``
-instead of the non-existent ``agent list-requests``) plus the three
-latent bugs Planner-B identified in the same audit:
+Plan 025 §B closed the original surface (use ``agent-invocations list
+--request-id`` instead of the non-existent ``agent list-requests``)
+plus three latent bugs. Plan 026R §B.3 supersedes that fix by FUSING
+the request envelope into the ``agent claim`` return value, so the
+executor no longer needs the second subprocess hop. Pre-§B.3 the
+sequence was claim → envelope-list → submit (3 subprocesses); post-
+§B.3 it is claim → submit (2 subprocesses). The §B.3 scenarios
+covered here:
 
-1. Silent swallow of ``returncode != 0`` falling through to
-   ``request_envelope = {}`` — masked every CI failure as a
-   successful no-op. Now release + return 1.
-2. ``role`` string-mangle fallback in mock branch
-   (``role or subagent_type.replace(…)``) re-introduced the
-   synthesized identity that §B-8 explicitly removed for hard-coded
-   literals. Now ``role: str`` is required at the function signature
-   and an empty role is a ValueError, not a fabricated string.
-3. ``Path("")`` from ``claim.get("expected_output_path") or ""`` —
-   the field doesn't exist on claim rows (claim_request:633-655
-   returns a minimal lease-event dict). Now sourced from the request
-   row via SSoT + validated non-empty before use.
+* Happy path: claim returns the fused envelope → submit succeeds.
+* Schema check at consume: claim returns envelope missing
+  ``expected_output_path`` or ``role`` → release + exit 1.
 
-The Tier-3 invariant test pins the canonical argv shape at module
-load time so a future regression that re-introduces the broken
-``agent list-requests`` form fails the assertion before it leaves
-the test runner.
+The pre-§B.3 ``request_envelope_load_failed`` / ``request_envelope_
+not_found`` test cases are obsolete because the kernel's exclusive-
+lock CAS path guarantees the claim either returns a valid envelope
+or fails at claim time — there is no in-between window where the
+envelope can disappear between claim and consume.
+
+The Tier-3 negative invariant (``no captured argv contains 'agent
+list-requests'``) remains because the legacy broken form should
+NEVER be re-introduced. The constant ``REQUEST_ENVELOPE_LIST_ARGV``
+is preserved in ci_executor.py as a migration audit trail and is
+asserted not to be invoked from main().
 """
 from __future__ import annotations
 
@@ -75,6 +78,10 @@ class LivePathFetchTests(unittest.TestCase):
         self.expected_output = self.tmp / "aria-tools" / "agent-invocations" / "outputs" / "REQ-live-1.json"
         self.lease_token = "lease-secret-aaaaaaaaaaaaaaaa"
         self.claim_id = "claim_live_1"
+        # Plan 026R §B.3 — claim_response now carries the fused envelope.
+        # The pre-§B.3 separate list_response_ok mock is consumed by the
+        # claim_response shape itself; the executor no longer subprocesses
+        # a second time for envelope load.
         self.claim_response = MagicMock(
             returncode=0,
             stdout=json.dumps({
@@ -82,21 +89,16 @@ class LivePathFetchTests(unittest.TestCase):
                 "claim_id": self.claim_id,
                 "request_id": self.request_id,
                 "agent_id": "ci-executor:gha-test",
+                # §B.3 fused-envelope fields:
+                "role": "evidence_judgment",
+                "expected_output_path": str(self.expected_output),
+                "must_satisfy": [{"id": "S1", "description": "test"}],
+                "evidence_refs": ["aria-kernel/src"],
+                "allowed_scope": ["aria-kernel/**"],
+                # §B.5 ledger-hash anchors (populated by §B.3):
+                "claim_ledger_hash": "sha256:" + "a" * 64,
+                "request_ledger_hash": "sha256:" + "b" * 64,
             }),
-            stderr="",
-        )
-        self.request_envelope = {
-            "$schema": "aria/agent-invocation-request/v1",
-            "request_id": self.request_id,
-            "role": "evidence_judgment",
-            "expected_output_path": str(self.expected_output),
-            "must_satisfy": [{"id": "S1", "description": "test"}],
-            "evidence_refs": ["aria-kernel/src"],
-            "allowed_scope": ["aria-kernel/**"],
-        }
-        self.list_response_ok = MagicMock(
-            returncode=0,
-            stdout=json.dumps([self.request_envelope]),
             stderr="",
         )
         self.submit_response_ok = MagicMock(
@@ -117,41 +119,34 @@ class LivePathFetchTests(unittest.TestCase):
             with patch("ci_executor.subprocess.run", fake_run):
                 return ci_executor.main([self.request_id, "aria-evidence-judge"])
 
-    def test_live_path_fetches_request_row_via_agent_invocations_list_and_submits(self) -> None:
-        # Plan 025 §B happy path: claim → agent-invocations list
-        # --request-id (NOT agent list-requests) → invoke mock → submit.
+    def test_live_path_consumes_fused_claim_envelope_and_submits(self) -> None:
+        # Plan 026R §B.3 — happy path: claim returns the fused envelope
+        # (no second subprocess), executor proceeds straight to submit.
+        # Exactly TWO subprocess calls: claim + submit.
         fake_run = _make_fake_run_sequence(
             self.claim_response,
-            self.list_response_ok,
             self.submit_response_ok,
         )
         exit_code = self._run_main(fake_run)
         self.assertEqual(exit_code, 0)
-        self.assertEqual(len(fake_run.captured), 3)
-        step2_argv = fake_run.captured[1]
-        self.assertIn("agent-invocations", step2_argv)
-        self.assertIn("list", step2_argv)
-        self.assertIn("--request-id", step2_argv)
-        self.assertNotIn("list-requests", step2_argv)
-        # Mock envelope written to the SSoT path read from the request row.
+        self.assertEqual(
+            len(fake_run.captured), 2,
+            f"§B.3 fused-envelope flow expects exactly 2 subprocess "
+            f"calls (claim + submit); got {len(fake_run.captured)} — "
+            f"argvs: {[list(c) for c in fake_run.captured]}",
+        )
+        # Mock envelope written to the SSoT path read from the claim row.
         self.assertTrue(self.expected_output.exists())
         envelope = json.loads(self.expected_output.read_text(encoding="utf-8"))
         self.assertEqual(envelope["claim_id"], self.claim_id)
         self.assertEqual(envelope["role"], "evidence_judgment")
-        # Plan 024 §B-8 binding preserved — agent_id from real
-        # subprocess output, not synthesized literal.
         self.assertEqual(envelope["agent_id"], "ci-executor:gha-test-run-1")
 
-    def test_argv_shape_pins_REQUEST_ENVELOPE_LIST_ARGV_constant(self) -> None:
-        # Plan 025 §B Tier-3 invariant: the constant pinned at module
-        # load time + no captured argv contains the legacy broken form.
-        self.assertEqual(
-            ci_executor.REQUEST_ENVELOPE_LIST_ARGV,
-            ("agent-invocations", "list", "--request-id"),
-        )
+    def test_no_argv_contains_legacy_agent_list_requests_form(self) -> None:
+        # Plan 025 §B Tier-3 invariant preserved: no captured argv
+        # contains the legacy broken ``agent list-requests`` form.
         fake_run = _make_fake_run_sequence(
             self.claim_response,
-            self.list_response_ok,
             self.submit_response_ok,
         )
         self._run_main(fake_run)
@@ -162,73 +157,84 @@ class LivePathFetchTests(unittest.TestCase):
                         f"banned argv shape detected (legacy 'agent "
                         f"list-requests'): {call_argv}"
                     )
+        # Plan 026R §B.3 — no captured argv invokes the legacy
+        # envelope-list subprocess (the constant exists as audit trail
+        # only; production callsite is gone).
+        legacy = ci_executor.REQUEST_ENVELOPE_LIST_ARGV
+        for call_argv in fake_run.captured:
+            # legacy is ("agent-invocations", "list", "--request-id")
+            for i in range(len(call_argv) - len(legacy) + 1):
+                if tuple(call_argv[i:i + len(legacy)]) == legacy:
+                    self.fail(
+                        f"§B.3 regression: captured argv still spawns "
+                        f"the pre-§B.3 envelope-list subprocess: "
+                        f"{call_argv}"
+                    )
 
-    def test_request_envelope_not_found_releases_claim_and_errors(self) -> None:
-        # Plan 025 §B — empty list result must release claim + return 1.
-        list_empty = MagicMock(returncode=0, stdout=json.dumps([]), stderr="")
+    def test_claim_response_missing_expected_output_path_releases_claim(self) -> None:
+        # Plan 026R §B.3 — schema check at consume. If the kernel
+        # returns a claim envelope missing expected_output_path (a
+        # legacy request row authored before §B-2 strict fields),
+        # the executor MUST release + exit 1.
+        claim_no_path = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "lease_token": self.lease_token,
+                "claim_id": self.claim_id,
+                "request_id": self.request_id,
+                "agent_id": "ci-executor:gha-test",
+                "role": "evidence_judgment",
+                # expected_output_path intentionally absent.
+                "must_satisfy": [{"id": "S1", "description": "test"}],
+                "evidence_refs": ["aria-kernel/src"],
+                "allowed_scope": ["aria-kernel/**"],
+            }),
+            stderr="",
+        )
         fake_run = _make_fake_run_sequence(
-            self.claim_response,
-            list_empty,
+            claim_no_path,
             self.release_response_ok,
         )
         exit_code = self._run_main(fake_run)
         self.assertEqual(exit_code, 1)
-        # Third subprocess call MUST be release with the precise reason.
-        release_argv = fake_run.captured[2]
+        # Second subprocess MUST be release with the precise reason.
+        release_argv = fake_run.captured[1]
         self.assertIn("release", release_argv)
         self.assertIn("--reason", release_argv)
         reason_idx = release_argv.index("--reason")
         self.assertEqual(
             release_argv[reason_idx + 1],
-            "request_envelope_not_found",
+            "request_envelope_missing_expected_output_path",
         )
 
-    def test_request_envelope_subprocess_nonzero_fails_fast(self) -> None:
-        # Plan 025 §B latent-bug-1 closure — pre-fix returncode != 0
-        # silently became request_envelope = {}; cost-cap then passed
-        # on an empty envelope and the run proceeded with bogus state.
-        # Now: release + return 1 with structured reason.
-        list_failure = MagicMock(
-            returncode=2,
-            stdout="",
-            stderr="invalid choice: 'list-requests'",
-        )
-        fake_run = _make_fake_run_sequence(
-            self.claim_response,
-            list_failure,
-            self.release_response_ok,
-        )
-        exit_code = self._run_main(fake_run)
-        self.assertEqual(exit_code, 1)
-        release_argv = fake_run.captured[2]
-        reason_idx = release_argv.index("--reason")
-        self.assertEqual(
-            release_argv[reason_idx + 1],
-            "request_envelope_load_failed",
-        )
-
-    def test_request_envelope_missing_expected_output_path_releases_claim(self) -> None:
-        # Plan 025 §B latent-bug-3 closure — missing field on the
-        # request row MUST release + return 1, NOT proceed with Path("").
-        envelope_no_path = {**self.request_envelope}
-        envelope_no_path.pop("expected_output_path")
-        list_no_path = MagicMock(
+    def test_claim_response_missing_role_releases_claim(self) -> None:
+        # Plan 026R §B.3 — schema check at consume for missing role.
+        claim_no_role = MagicMock(
             returncode=0,
-            stdout=json.dumps([envelope_no_path]),
+            stdout=json.dumps({
+                "lease_token": self.lease_token,
+                "claim_id": self.claim_id,
+                "request_id": self.request_id,
+                "agent_id": "ci-executor:gha-test",
+                # role intentionally absent.
+                "expected_output_path": str(self.expected_output),
+                "must_satisfy": [{"id": "S1", "description": "test"}],
+                "evidence_refs": ["aria-kernel/src"],
+                "allowed_scope": ["aria-kernel/**"],
+            }),
             stderr="",
         )
         fake_run = _make_fake_run_sequence(
-            self.claim_response,
-            list_no_path,
+            claim_no_role,
             self.release_response_ok,
         )
         exit_code = self._run_main(fake_run)
         self.assertEqual(exit_code, 1)
-        release_argv = fake_run.captured[2]
+        release_argv = fake_run.captured[1]
         reason_idx = release_argv.index("--reason")
         self.assertEqual(
             release_argv[reason_idx + 1],
-            "request_envelope_missing_expected_output_path",
+            "request_envelope_missing_role",
         )
 
     def test_invoke_claude_code_mock_empty_role_raises_no_string_mangle(self) -> None:

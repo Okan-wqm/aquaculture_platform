@@ -39,7 +39,7 @@ use async_trait::async_trait;
 use deadpool_postgres::{ManagerConfig, Pool, RecyclingMethod, Runtime};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio_postgres::types::Type as PgType;
+use tokio_postgres::types::{ToSql, Type as PgType};
 use tracing::instrument;
 
 use crate::payload::SensorReading;
@@ -343,16 +343,17 @@ impl PostgresSink {
             let value = r.value;
             let raw_value = r.value;
             let quality = i16::from(r.quality);
+            let row: [&(dyn ToSql + Sync); 6] = [
+                &ts,
+                r.sensor_id.as_uuid_ref(),
+                r.channel_id.as_uuid_ref(),
+                &value,
+                &raw_value,
+                &quality,
+            ];
             writer
                 .as_mut()
-                .write(&[
-                    &ts,
-                    r.sensor_id.as_uuid_ref(),
-                    r.channel_id.as_uuid_ref(),
-                    &value,
-                    &raw_value,
-                    &quality,
-                ])
+                .write(&row)
                 .await
                 .map_err(SinkError::Postgres)?;
         }

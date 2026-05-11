@@ -790,6 +790,12 @@ mod tests {
         let p = AuditResource::Permission {
             permission: Permission::ReadTag,
         };
+        let pg = AuditResource::Program {
+            program_id: "x".to_string(),
+        };
+        let fi = AuditResource::FirmwareImage {
+            image_digest_hex: "00".to_string(),
+        };
         let pv = AuditResource::PolicyManifestVersion { version: 1 };
         let ks = AuditResource::Keystore {
             purpose_label: "x".to_string(),

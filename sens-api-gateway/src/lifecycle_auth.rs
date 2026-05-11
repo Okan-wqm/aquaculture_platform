@@ -657,6 +657,7 @@ mod tests {
     };
     use async_trait::async_trait;
     use std::sync::Mutex as StdMutex;
+    use std::time::SystemTime;
 
     struct MockClock {
         force_nts_stale: StdMutex<bool>,

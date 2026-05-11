@@ -101,6 +101,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use moka::notification::RemovalCause;
 use moka::sync::Cache;
 use papaya::HashMap as PapayaMap;
+use serde::Deserialize;
 use tenant_context::TenantId;
 use uuid::Uuid;
 
@@ -131,7 +132,7 @@ pub const DEFAULT_TOTAL_CAPACITY: usize = 100_000;
 /// of "did the cache return a wrong-tenant value?" a one-line
 /// `assert_eq!(meta.tenant_id, expected_tenant)` rather than a key/
 /// value pairwise check at every consumer.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct SensorMeta {
     /// Unique sensor identifier (the second half of the cache key).
     pub sensor_id: Uuid,

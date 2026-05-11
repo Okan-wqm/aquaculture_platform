@@ -65,6 +65,14 @@ rumqttc = { version = "0.25", features = ["use-rustls"] }
 #     hot read path lock-free.
 moka = { version = "0.12", features = ["sync"] }
 papaya = "0.2"
+arc-swap = { workspace = true }
+
+# PostgreSQL COPY sink + TLS.
+tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"] }
+deadpool-postgres = { version = "0.14", features = ["rt_tokio_1"] }
+tokio-postgres-rustls = "0.13"
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
 
 # Error + tracing.
 anyhow = { workspace = true }

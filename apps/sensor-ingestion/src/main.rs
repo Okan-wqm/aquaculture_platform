@@ -53,6 +53,8 @@ mod cache;
 mod config;
 mod error;
 mod mqtt;
+mod payload;
+mod persistence;
 mod runtime;
 
 // Bootstrap exists in a window where `tracing` is not yet installed
@@ -215,11 +217,7 @@ async fn drain_mqtt_stream(
         std::future::pending::<()>().await;
         return;
     };
-    // Per-message bookkeeping is hoisted into [`DrainCounters`] so
-    // [`process_one_message`] can mutate them through a single `&mut`
-    // borrow — keeps the loop body tight and the function inside the
-    // workspace `clippy::too_many_lines = 100` budget.
-    let mut counters = DrainCounters::default();
+    let mut count = 0u64;
     while let Some(msg) = s.recv().await {
         count = count.saturating_add(1);
         let age_micros = msg.received_at.elapsed().as_micros();

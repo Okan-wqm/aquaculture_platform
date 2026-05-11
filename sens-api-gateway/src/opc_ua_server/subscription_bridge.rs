@@ -442,17 +442,26 @@ mod tests {
         // exists in opc_ua_server.rs::tests if available, else
         // build via the public API.
         let cfg = crate::process_image::TagConfig {
-            name: tag_name.to_string(),
-            io_type: crate::process_image::IoType::AnalogInput,
+            tag_name: tag_name.to_string(),
+            io_type: crate::process_image::IoType::AI,
             data_type: "real".to_string(),
-            address: format!("test:{tag_name}"),
-            scaling: None,
-            engineering_unit: None,
-            description: None,
-            high_high: None,
-            high: None,
-            low: None,
-            low_low: None,
+            source: TagSource::Gpio,
+            poll_interval_ms: None,
+            raw_min: None,
+            raw_max: None,
+            eng_min: None,
+            eng_max: None,
+            eng_unit: None,
+            invert: false,
+            alarm_hh: None,
+            alarm_h: None,
+            alarm_l: None,
+            alarm_ll: None,
+            deadband: None,
+            protocol_config: crate::process_image::ProtocolConfig::Gpio {
+                pin: 0,
+                direction: "input".to_string(),
+            },
         };
         let _ = browse_name; // OpcUaTagRegistry derives browse_name from tag_name
         Arc::new(OpcUaTagRegistry::build([&cfg].into_iter()).expect("registry build"))
@@ -463,7 +472,7 @@ mod tests {
             tag_name: tag_name.to_string(),
             new_value: value,
             quality: TagQuality::Good,
-            source: TagSource::Live,
+            source: TagSource::Gpio,
             timestamp: Utc::now(),
         }
     }

@@ -3203,3 +3203,23 @@ Root cause: 74 entities declared in the farm-service domain tree (`apps/farm-ser
 Fix: Tier-1 Make-Impossible. ONE comprehensive `CREATE TABLE` migration at `apps/farm-service/src/database/migrations/1789200000000-AddMissingFarmTables.ts` matching the 42 entity-declared columns 1:1 — uuid PKs, decimal precisions, enum types, jsonb columns, timestamptz audit fields, all idempotent (`CREATE TABLE IF NOT EXISTS`, `DO $$ BEGIN CREATE TYPE … EXCEPTION WHEN duplicate_object`, `CREATE INDEX IF NOT EXISTS`). Migration is registered in both `apps/farm-service/src/app.module.ts` (class-ref list for runtime MigrationRunnerService) and discovered by `apps/db-migrate` via its glob pattern. Cross-table FK declarations are deferred to a follow-up migration to avoid intra-migration dependency cycles; the application-layer TypeORM relations remain intact.
 
 Status: RESOLVED on chore/farm-comprehensive-migration.
+
+
+---
+
+## ORPHAN-HIGH-071 — sens-api-gateway test compile fails on cargo check --features health --tests
+
+Severity: HIGH. Edge gateway test suite cannot compile. CI rust-test job red.
+Discovered: 2026-05-11, while verifying edge agent during droplet recovery session.
+File: sens-api-gateway/src/lifecycle_auth.rs (line 411 test mod), sens-api-gateway/src/audit/entry.rs (line 786 audit_resource_wire_tags_stable test).
+
+Evidence:
+  error[E0433]: use of undeclared type SystemTime — src/lifecycle_auth.rs:427/687
+  error[E0425]: cannot find value pg — src/audit/entry.rs:804
+  error[E0425]: cannot find value fi — src/audit/entry.rs:805
+
+Root cause: test mod missing use std::time::SystemTime + UNIX_EPOCH imports; wire_tag assertion test references pg/fi local variables that were never declared (test was extended with Program/FirmwareImage wire_tags 2/3 but the let bindings were dropped).
+
+Fix: import std::time SystemTime+UNIX_EPOCH in lifecycle_auth tests; declare pg (AuditResource::Program) and fi (AuditResource::FirmwareImage) in audit_resource_wire_tags_stable test before the assertions.
+
+Status: RESOLVED on chore/rust-edge-test-compile-fix.

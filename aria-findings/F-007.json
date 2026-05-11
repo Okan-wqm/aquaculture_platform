@@ -3,7 +3,7 @@
   "certainty": "OBSERVED",
   "claim_summary": "Plan 025 sign-off + 10-round external Enterprise-Grade Autonomy audit identified 39 net-new architectural gaps blocking ARIA from reaching enterprise-grade autonomous-by-end-of-day operation. Phase A: append_jsonl atomic primitive + index-group lock order + verify_jsonl unconditional + JSONL strict readers + frozen no-write writer-side coverage + report_ingestion strict. Phase B: release_claim lease-token (REAL CI BUG) + workflow mock boolean (REAL CI BUG) + claim metadata fused-return + list_requests derived state + planner hook single-claim with token/metadata env separation. Phase C: planner-role auto-bridge + content_hash alias + CLI issue-challenger strict fields (ACTIVE TypeError) + cross-review pair check + bridge retry append-only ledger with BRIDGE_REQUIRED_ROLES + crash recovery. Phase D: validation_runs.jsonl + scope drift gate + PR change_id + auto-merge triple gate + no-risk evidence enforcement + apply gate empty-diff reject. Phase E (10 items): spine cache status-aware + synthetic sandbox PR block + skill genesis chain + skill_birth routing + memory canonical path + materialize_agent_draft gate + FATES recompute via canonical_path + self-output taxonomy + skill_genesis surface + tool DRAFT/SANDBOX/ARCHIVED matrix. Phase F (LOAD-BEARING): unified autonomy_orchestrator + reflection→queue + canonical AutonomyState + verify-on-read. Phase G (NEW): worker state by assignment_id + claims-SSoT reducer with recorded_at + worker submit lease-bound+active-claim+lease-expiry+multi-active corruption+provenance. Phase H: test source-marker replacement gate. 10 review rounds + 50 design clarifications integrated; ~270 new tests target (1214→1484).",
   "claim_type": "post_plan_025_enterprise_autonomy_audit",
-  "closes_in_commit": null,
+  "closes_in_commit": "6b8e0a091c760746aa2e705e5b6f23af1789a185",
   "created_at": "2026-05-11T00:00:00Z",
   "evidence_chain_id": "chain_plan_026_enterprise_autonomy_arc",
   "evidences": [
@@ -149,13 +149,19 @@
     ]
   },
   "severity": "HIGH",
-  "status": "OPEN",
+  "status": "RESOLVED",
   "status_history": [
     {
       "at": "2026-05-11T00:00:00Z",
       "by": "manual:operator-post-plan-025-enterprise-audit-10-rounds",
       "note": "Emitted after Plan 025 sign-off (HEAD faa92b4f; F-006 RESOLVED at e412ebc5). Operator's external Enterprise-Grade Autonomy Closure agent feed + 10 paralel review rounds + 13 Explore code-verify identified 39 net-new architectural gaps. Plan 026R corrective-arc tracks closure across 8 phases (A-H).",
       "status": "OPEN"
+    },
+    {
+      "at": "2026-05-11T20:00:00Z",
+      "by": "manual:operator-plan-026R-signoff",
+      "note": "Plan 026R closure: 8 phases (A-H) shipped + tested. Phase A (5 items / 55 tests) atomic append + index-group lock order + strict verify + JSONL readers + frozen no-write + report_ingestion strict. Phase B (5 items / 27 tests) agent executor contract + 2 REAL CI bugs fixed + ledger-hash claim metadata. Phase C (5 items / 30 tests) convergent planning + BRIDGE_REQUIRED_ROLES + append-only bridge ledger + crash recovery. Phase D (6 items / 31 tests) validation_runs ledger + auto-merge triple gate + change_id PR requirement + no-risk evidence enforcement + empty-diff reject. Phase E (10 items / 49 tests) spine cache status-aware + synthetic sandbox block + skill genesis chain + skill_birth routing + canonical-path + FATES recompute + self-output taxonomy + skill_genesis surface + tool lifecycle matrix. Phase F (4 items / 22 tests, LOAD-BEARING) unified autonomy_orchestrator + bounded next_cycle_queue + canonical AutonomyState reducer + verify-on-read hot-path AST invariant. Phase G (3 items / 30 tests) worker state by assignment_id + claims-SSoT reducer with recorded_at + lease-bound submit + multi-active corruption + claim provenance. Phase H (1 item / 14 conversions + invariant) AST gate forbidding source-marker substring assertions as sole safety proof + operator-approved exception list + 4 file conversions (learning router behavioral; cycle.py callsite AST-backed; auto_merge pre-merge AST-backed; verification recorded_at AST + behavioral). Test count delta: 1214 -> 1465 OK (skipped=28). Closes at 6b8e0a091c760746aa2e705e5b6f23af1789a185.",
+      "status": "RESOLVED"
     }
   ],
   "supersedes": null

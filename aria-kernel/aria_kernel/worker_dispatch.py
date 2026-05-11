@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .file_lock import with_exclusive_lock
-from .ledger import append_jsonl, load_jsonl
+from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl
 from .agent_network import latest_agent_network_hash
 from .pressure import effective_workspace_pressures
 from .tool_registry import (
@@ -530,7 +530,10 @@ def claim_assignment(
             "claimed_at": _iso(now),
             "lease_expires_at": _iso(expires),
         }
-        append_jsonl(claims_path, row)
+        # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
+        # at the enclosing block; use the unlocked helper to avoid POSIX flock
+        # re-acquisition.
+        _append_jsonl_unlocked(claims_path, row)
     # Mirror dispatch_request_state_changed event so the existing
     # state-derivation reads pick the new picked_up state without
     # adding a second derivation source.
@@ -614,7 +617,10 @@ def release_claim_assignment(
             "reason": reason,
             "released_at": _iso(_utc_now_dt()),
         }
-        append_jsonl(claims_path, row)
+        # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
+        # at the enclosing block; use the unlocked helper to avoid POSIX flock
+        # re-acquisition.
+        _append_jsonl_unlocked(claims_path, row)
     pe_id = claim_event.get("pressure_event_id")
     if pe_id:
         # State derivation rolls back to pending so the next

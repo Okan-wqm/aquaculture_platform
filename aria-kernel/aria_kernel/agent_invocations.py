@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .file_lock import with_exclusive_lock
-from .ledger import append_jsonl, load_jsonl
+from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
@@ -641,7 +641,9 @@ def claim_request(
             "claimed_at": _iso(now),
             "lease_expires_at": _iso(expires),
         }
-        append_jsonl(claims_path, row)
+        # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
+        # at line 604; use the unlocked helper to avoid POSIX flock re-acquisition.
+        _append_jsonl_unlocked(claims_path, row)
     append_tools_governance(
         root,
         "agent_claim_created",
@@ -1114,7 +1116,9 @@ def submit_claim_result(
             "checked_evidence_count": len(revalidation["checked_refs"]),
             "submitted_at": utc_now(),
         }
-        persisted = append_jsonl(results_path, row)
+        # Plan 026R §A.1 — caller already holds with_exclusive_lock(results_path)
+        # at line 936; use the unlocked helper to avoid POSIX flock re-acquisition.
+        persisted = _append_jsonl_unlocked(results_path, row)
         append_tools_governance(
             root,
             "agent_result_accepted",
@@ -1194,7 +1198,11 @@ def _persist_rejection(
         "envelope_evidence_hash": envelope_evidence_hash,
         "submitted_at": utc_now(),
     }
-    persisted = append_jsonl(root / "agent-invocations" / "results.jsonl", row)
+    # Plan 026R §A.1 — _persist_rejection is invoked from submit_claim_result
+    # while the caller holds with_exclusive_lock(results_path); use the
+    # unlocked helper to avoid POSIX flock re-acquisition (the call sites
+    # at lines 1014, 1054, 1087 are all inside the lock).
+    persisted = _append_jsonl_unlocked(root / "agent-invocations" / "results.jsonl", row)
     append_tools_governance(
         root,
         "agent_result_rejected",

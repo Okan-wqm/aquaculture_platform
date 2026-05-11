@@ -3231,3 +3231,25 @@ Operator opt-in path (after CI Rust matrix lands): set COMPOSE_PROFILES=rust-sid
 Follow-up tracked but out of scope for this PR: CI Rust build matrix that publishes the multi-arch sensor-ingestion image to GHCR so the profile can become default.
 
 Status: RESOLVED on chore/sensor-ingestion-profile-gate.
+
+
+---
+
+## ORPHAN-CRITICAL-073 — Apollo Federation supergraph composition rejects Mutation.exportTenantData collision between farm and messaging subgraphs
+
+Severity: CRITICAL. Gateway crash-loop in production. Without supergraph composition, no public-URL GraphQL query reaches any backend.
+
+Discovered: 2026-05-11.
+
+Evidence (gateway log attempt 1 of new boot):
+  A valid schema couldn't be composed. The following composition errors were found:
+  Type of field "Mutation.exportTenantData" is incompatible across subgraphs:
+  it has type "TenantExportBundleResponse!" in subgraph "farm"
+  but type "ExportJobType!" in subgraph "messaging".
+  Non-shareable field "Mutation.exportTenantData" is resolved from multiple subgraphs.
+
+Root cause: farm and messaging both defined Mutation.exportTenantData with different return types under the non-shareable default.
+
+Fix (Tier-1 Make-Impossible): rename messaging.exportTenantData to exportTenantMessages so the federation graph itself rejects future name collisions. Farm keeps exportTenantData (matches aquaculture-domain semantics).
+
+Status: RESOLVED on chore/federation-namespace-export-tenant-data.

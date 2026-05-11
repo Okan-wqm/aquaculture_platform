@@ -1,7 +1,7 @@
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 
 import { MessagingGateway } from './messaging.gateway';
 
@@ -76,7 +76,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
 
     try {
       this.connection = await connect(connectionOptions);
-      this.logger.log(`Messaging bridge connected to NATS at ${connectionOptions.servers}`);
+      this.logger.log(`Messaging bridge connected to NATS at ${Array.isArray(connectionOptions.servers) ? connectionOptions.servers.join(',') : (connectionOptions.servers ?? 'unknown')}`);
 
       this.subscribeToMessagingEvents();
       this.handleConnectionEvents();
@@ -223,7 +223,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
             this.subscribeToMessagingEvents();
             break;
           case 'error':
-            this.logger.error(`Messaging NATS error: ${String(status.data)}`);
+            this.logger.error(`Messaging NATS error: ${typeof status.data === 'string' ? status.data : JSON.stringify(status.data)}`);
             break;
         }
       }

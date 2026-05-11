@@ -6,17 +6,17 @@
  * is available when Apollo Gateway's willSendRequest forwards headers.
  */
 
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import { Injectable, NestMiddleware, Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request, Response, NextFunction } from 'express';
 
-import { JwtPayload, AuthenticatedRequest } from '../types/index';
 import {
   TokenBlacklistStore,
   TOKEN_BLACKLIST_STORE,
 } from '../guards/redis-token-blacklist.store';
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { JwtPayload, AuthenticatedRequest } from '../types/index';
 
 @Injectable()
 export class JwtMiddleware implements NestMiddleware {
@@ -56,9 +56,14 @@ export class JwtMiddleware implements NestMiddleware {
 
       // SECURITY: Composite validity check BEFORE setting req.user — covers both
       // per-token blacklist and user-level invalidation (e.g. logout-all / password reset).
+      // jti may be absent on legacy tokens; we treat its presence as the trust
+      // anchor for blacklist lookups and fall back to '' (which the store treats
+      // as "no token entry exists" — combined with the user-level invalidation
+      // path this still catches logout-all). enforceAccessTokenType has already
+      // logged the legacy-jti warning by this point.
       if (this.tokenBlacklist) {
         const valid = await this.tokenBlacklist.isValidToken(
-          payload.jti!,
+          payload.jti ?? '',
           payload.sub,
           payload.iat,
         );

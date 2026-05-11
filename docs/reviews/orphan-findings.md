@@ -3335,3 +3335,58 @@ Fix sub-class (A) (large scope — already plan): proceed with Wave 4-A.2 Phase 
 
 Status: OPEN — (B) tracked here as a self-contained Tier-1 validator fix; (A) tracked in Wave 4-A.2 plan and is the larger schema reorganization effort.
 
+---
+
+## ORPHAN-CRITICAL-077: nx-affected lint hides accumulated debt in untouched projects
+
+Severity: CRITICAL (process / supply-chain class) — every PR that does not touch a given
+project skips that project's lint, so debt accretes silently until the first cross-project
+change drags the affected set back over it.
+
+Discovered: 2026-05-11, while preparing fix/gateway-signer-apollo-body-canonicalization
+for merge. The HMAC fix (commit 9b49dab2) touched apps/gateway-api/src/app.module.ts —
+the first change to that file in months. CI's nx affected --target=lint job then surfaced
+290 lint errors across apps/gateway-api/, none of which the HMAC PR introduced; all 290
+had been latent in commits that never touched gateway-api and therefore never re-linted it.
+
+ROOT CAUSE: nx affected --target=lint is a build-graph filter, not a code-quality gate.
+Projects are only linted when their dependency closure changes. A linter rule introduced
+or tightened in a shared lib (e.g. @typescript-eslint/strict pulled in via the platform
+override) will flag pre-existing code in dependent projects only on the next PR that
+re-incorporates them into "affected". This is by design (incremental CI), but it means
+the lint baseline is silently per-project, not platform-wide, and the cost of upgrading
+a lint rule is paid in lumps across unrelated future PRs instead of at rule-rollout time.
+
+ARCHITECTURAL FIXES (suggested, none in scope for this PR):
+
+1. (Tier-1 Make-Impossible) nightly cron that runs `nx run-many --target=lint --all` and
+   opens an automatic PR per dirty project — moves the cost from per-PR-blocker to
+   pre-staged backlog with an owner.
+
+2. (Tier-2 Make-Automatic) project.json per project carries a stamped lint-baseline-sha
+   field; CI rejects a PR that touches a project whose baseline is older than N days
+   without first running its full lint. This forces re-lint on a fixed cadence.
+
+3. (Tier-3 Make-Detectable) CI matrix-job that re-runs lint on a rotating subset of
+   non-affected projects each day. Same outcome as #1 but distributed; no daily PR
+   pressure on a single owner.
+
+FIX (this PR — applied, Tier-2-and-Tier-1 hybrid):
+- All 290 errors cleared architecturally in apps/gateway-api/: type-narrowing for
+  no-unsafe-* family, explicit Promise<void> on Apollo-plugin async hooks,
+  removal of @typescript-eslint/no-extraneous-class violations via real OnModuleInit
+  lifecycle hooks (not eslint-disable), removal of `require()` in health-controller
+  via createRequire + readFileSync + typed JSON.parse, exact-cert serializer fixes,
+  proper RedisService prototype-based stub for token-blacklist tests (no `as any`,
+  no `as unknown as X`).
+- AuthenticatedDataSource HMAC fix at apps/gateway-api/src/app.module.ts:120-296 is
+  unchanged from commit 9b49dab2 (only the RequestHeaders interface above the class
+  was widened to match Express's IncomingHttpHeaders contract, and a `firstHeaderValue`
+  helper was added so willSendRequest's array-narrow Array.isArray branch is no
+  longer dead code).
+
+Closes: this finding RESOLVED by the same commit that landed the lint cleanup.
+
+Status: RESOLVED — commit SHA recorded below at branch tip after merge.
+
+

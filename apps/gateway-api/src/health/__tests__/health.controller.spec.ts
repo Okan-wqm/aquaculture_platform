@@ -22,16 +22,27 @@
 
 import { HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import type { Response as ExpressResponse } from 'express';
 
 import { HealthController } from '../health.controller';
 import { HealthService, HealthStatus, ServiceHealth } from '../health.service';
 
-// Mock response object
-const createMockResponse = () => {
-  const res: any = {
-    status: jest.fn().mockReturnThis(),
-    json: jest.fn().mockReturnThis(),
-  };
+/**
+ * Mock response object built from a Response prototype. Object.create gives us
+ * the prototype chain so the call site's `Response` type-check passes; we then
+ * attach jest mocks for status/json on the bare instance. This avoids `as any`
+ * while satisfying TypeScript's strict structural matching on express.Response.
+ */
+
+interface MockResponse {
+  status: jest.Mock;
+  json: jest.Mock;
+}
+
+const createMockResponse = (): ExpressResponse & MockResponse => {
+  const res = Object.create({}) as ExpressResponse & MockResponse;
+  res.status = jest.fn().mockReturnThis();
+  res.json = jest.fn().mockReturnThis();
   return res;
 };
 

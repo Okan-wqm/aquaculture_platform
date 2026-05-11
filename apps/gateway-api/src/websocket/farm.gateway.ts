@@ -20,6 +20,8 @@
  * @see Phase B of farm domain real-time visibility plan.
  */
 
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 import { Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -30,10 +32,8 @@ import {
   OnGatewayDisconnect,
   OnGatewayInit,
 } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
 import * as promClient from 'prom-client';
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
-import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
+import { Server, Socket } from 'socket.io';
 
 /** Per-client state tracked by the gateway. */
 interface FarmClient {

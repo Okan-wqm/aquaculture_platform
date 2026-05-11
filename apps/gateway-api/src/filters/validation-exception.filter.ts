@@ -51,14 +51,23 @@ export interface ValidationErrorResponse {
 }
 
 /**
- * Helper to safely convert unknown value to string
+ * Helper to safely convert unknown value to string.
+ *
+ * Defends against the default `Object.prototype.toString` producing
+ * "[object Object]" by explicitly JSON-stringifying any object/value
+ * that did not match a primitive branch. Falls back to '[unserialisable]'
+ * if JSON.stringify itself throws (circular references).
  */
 const argToString = (arg: unknown): string => {
   if (arg === undefined || arg === null) return '';
   if (typeof arg === 'string') return arg;
   if (typeof arg === 'number' || typeof arg === 'boolean') return String(arg);
   if (Array.isArray(arg)) return arg.map(argToString).join(', ');
-  return String(arg);
+  try {
+    return JSON.stringify(arg);
+  } catch {
+    return '[unserialisable]';
+  }
 };
 
 /**
@@ -234,8 +243,10 @@ export class ValidationExceptionFilter implements ExceptionFilter {
         const parsed = this.parseStringError(error);
         result.push(parsed);
       } else if (typeof error === 'object' && error !== null) {
-        // Object error from class-validator
-        const parsed = this.parseObjectError(error as ClassValidatorError);
+        // Object error from class-validator.
+        // Structural narrowing: every ClassValidatorError property is optional,
+        // so any non-null object satisfies the interface — no `as` needed.
+        const parsed = this.parseObjectError(error);
         result.push(parsed);
       }
     }

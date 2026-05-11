@@ -751,7 +751,7 @@ describe('PermissionGuard', () => {
       const context = createMockExecutionContext({
         roles: ['MODULE_USER'],
         permissions: undefined,
-      } as Partial<JwtPayload>);
+      });
 
       const result = guard.canActivate(context);
       expect(result).toBe(true);

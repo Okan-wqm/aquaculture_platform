@@ -1,8 +1,5 @@
 import { Logger } from '@nestjs/common';
-import type {
-  INestApplication,
-  INestApplicationContext,
-} from '@nestjs/common';
+import type { INestApplication } from '@nestjs/common';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient, type RedisClientType } from 'redis';
@@ -75,10 +72,6 @@ export class RedisIoAdapter extends IoAdapter {
   private pubClient?: RedisClientType;
   private subClient?: RedisClientType;
   private adapterConstructor?: ReturnType<typeof createAdapter>;
-
-  constructor(appOrHttpServer: INestApplicationContext) {
-    super(appOrHttpServer);
-  }
 
   /**
    * Open the Redis pub/sub connection pair and prepare the adapter
@@ -245,8 +238,12 @@ export async function registerRedisIoAdapter(
       // Silent — the adapter logs its own errors.
     }
   };
-  process.once('SIGTERM', teardown);
-  process.once('SIGINT', teardown);
+  // process.once expects (...args) => void; wrap with `void` so the returned
+  // promise is explicitly discarded (and node still awaits exit naturally
+  // because Node's signal handlers are not awaited by design anyway).
+  const teardownSync = (): void => { void teardown(); };
+  process.once('SIGTERM', teardownSync);
+  process.once('SIGINT', teardownSync);
 
   return adapter;
 }

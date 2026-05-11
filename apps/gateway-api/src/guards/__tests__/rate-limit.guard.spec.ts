@@ -140,23 +140,23 @@ describe('RateLimitGuard', () => {
   });
 
   describe('Request Limit Enforcement', () => {
-    it('should allow requests under the limit', () => {
+    it('should allow requests under the limit', async () => {
       const context = createMockExecutionContext();
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should return 429 when limit is exceeded', () => {
+    it('should return 429 when limit is exceeded', async () => {
       const context = createMockExecutionContext();
 
       // Make requests up to the limit
       for (let i = 0; i < 100; i++) {
-        guard.canActivate(context);
+        await guard.canActivate(context);
       }
 
       // Next request should fail
       try {
-        guard.canActivate(context);
+        await guard.canActivate(context);
         fail('Should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(HttpException);
@@ -166,84 +166,84 @@ describe('RateLimitGuard', () => {
   });
 
   describe('Rate Limit Window', () => {
-    it('should reset count after window expires (1 minute)', () => {
+    it('should reset count after window expires (1 minute)', async () => {
       jest.useFakeTimers();
       const context = createMockExecutionContext();
 
       // Exhaust limit
       for (let i = 0; i < 100; i++) {
-        guard.canActivate(context);
+        await guard.canActivate(context);
       }
 
       // Should fail
-      expect(() => guard.canActivate(context)).toThrow();
+      await expect(guard.canActivate(context)).rejects.toThrow();
 
       // Advance time past window
       jest.advanceTimersByTime(61000);
 
       // Should work again
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
       expect(result).toBe(true);
 
       jest.useRealTimers();
     });
 
-    it('should track requests within window correctly', () => {
+    it('should track requests within window correctly', async () => {
       const context = createMockExecutionContext();
 
       // Make 50 requests
       for (let i = 0; i < 50; i++) {
-        guard.canActivate(context);
+        await guard.canActivate(context);
       }
 
       // Should still allow 50 more
       for (let i = 0; i < 50; i++) {
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       }
 
       // 101st should fail
-      expect(() => guard.canActivate(context)).toThrow();
+      await expect(guard.canActivate(context)).rejects.toThrow();
     });
   });
 
   describe('IP-based Rate Limiting', () => {
-    it('should track limits per IP address', () => {
+    it('should track limits per IP address', async () => {
       const context1 = createMockExecutionContext('192.168.1.1');
       const context2 = createMockExecutionContext('192.168.1.2');
 
       // Exhaust limit for IP 1
       for (let i = 0; i < 100; i++) {
-        guard.canActivate(context1);
+        await guard.canActivate(context1);
       }
 
       // IP 2 should still work
-      const result = guard.canActivate(context2);
+      const result = await guard.canActivate(context2);
       expect(result).toBe(true);
 
       // IP 1 should be blocked
-      expect(() => guard.canActivate(context1)).toThrow();
+      await expect(guard.canActivate(context1)).rejects.toThrow();
     });
   });
 
   describe('User-based Rate Limiting', () => {
-    it('should track limits per user', () => {
+    it('should track limits per user', async () => {
       const context1 = createMockExecutionContext('192.168.1.1', { sub: 'user-1' });
       const context2 = createMockExecutionContext('192.168.1.1', { sub: 'user-2' });
 
       // Exhaust limit for user 1
       for (let i = 0; i < 100; i++) {
-        guard.canActivate(context1);
+        await guard.canActivate(context1);
       }
 
       // User 2 should still work
-      const result = guard.canActivate(context2);
+      const result = await guard.canActivate(context2);
       expect(result).toBe(true);
     });
   });
 
   describe('API Key Rate Limiting', () => {
-    it('should track limits per API key', () => {
+    it('should track limits per API key', async () => {
       const context1 = createMockExecutionContext('192.168.1.1', null, '/api', 'GET', {
         'x-api-key': 'key-1',
       });
@@ -253,43 +253,43 @@ describe('RateLimitGuard', () => {
 
       // Exhaust limit for key 1
       for (let i = 0; i < 100; i++) {
-        guard.canActivate(context1);
+        await guard.canActivate(context1);
       }
 
       // Key 2 should still work
-      const result = guard.canActivate(context2);
+      const result = await guard.canActivate(context2);
       expect(result).toBe(true);
     });
   });
 
   describe('Tenant-based Rate Limiting', () => {
-    it('should track limits per tenant', () => {
+    it('should track limits per tenant', async () => {
       const context1 = createMockExecutionContext('192.168.1.1', { tenantId: 'tenant-1' });
       const context2 = createMockExecutionContext('192.168.1.1', { tenantId: 'tenant-2' });
 
       // Exhaust limit for tenant 1
       for (let i = 0; i < 100; i++) {
-        guard.canActivate(context1);
+        await guard.canActivate(context1);
       }
 
       // Tenant 2 should still work
-      const result = guard.canActivate(context2);
+      const result = await guard.canActivate(context2);
       expect(result).toBe(true);
     });
   });
 
   describe('Endpoint-based Rate Limits', () => {
-    it('should apply different limits per endpoint', () => {
+    it('should apply different limits per endpoint', async () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ limit: 10 });
 
       const context = createMockExecutionContext('192.168.1.1', null, '/api/v1/sensitive');
 
       // Should only allow 10 requests
       for (let i = 0; i < 10; i++) {
-        guard.canActivate(context);
+        await guard.canActivate(context);
       }
 
-      expect(() => guard.canActivate(context)).toThrow();
+      await expect(guard.canActivate(context)).rejects.toThrow();
     });
   });
 
@@ -372,13 +372,13 @@ describe('RateLimitGuard', () => {
   });
 
   describe('Burst Allowance (Token Bucket)', () => {
-    it('should allow burst requests', () => {
+    it('should allow burst requests', async () => {
       const context = createMockExecutionContext();
 
       // Should allow burst of 10 rapid requests
       const startTime = Date.now();
       for (let i = 0; i < 10; i++) {
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       }
       const duration = Date.now() - startTime;
@@ -387,11 +387,11 @@ describe('RateLimitGuard', () => {
   });
 
   describe('Rate Limit Headers', () => {
-    it('should set X-RateLimit-Reset header', () => {
+    it('should set X-RateLimit-Reset header', async () => {
       const context = createMockExecutionContext();
       const response = getResponse(context);
 
-      guard.canActivate(context);
+      await guard.canActivate(context);
 
       expect(response.setHeader).toHaveBeenCalledWith(
         'X-RateLimit-Reset',
@@ -399,11 +399,11 @@ describe('RateLimitGuard', () => {
       );
     });
 
-    it('should set X-RateLimit-Remaining header', () => {
+    it('should set X-RateLimit-Remaining header', async () => {
       const context = createMockExecutionContext();
       const response = getResponse(context);
 
-      guard.canActivate(context);
+      await guard.canActivate(context);
 
       expect(response.setHeader).toHaveBeenCalledWith(
         'X-RateLimit-Remaining',
@@ -411,11 +411,11 @@ describe('RateLimitGuard', () => {
       );
     });
 
-    it('should set X-RateLimit-Limit header', () => {
+    it('should set X-RateLimit-Limit header', async () => {
       const context = createMockExecutionContext();
       const response = getResponse(context);
 
-      guard.canActivate(context);
+      await guard.canActivate(context);
 
       expect(response.setHeader).toHaveBeenCalledWith(
         'X-RateLimit-Limit',
@@ -423,17 +423,17 @@ describe('RateLimitGuard', () => {
       );
     });
 
-    it('should set Retry-After header when limit exceeded', () => {
+    it('should set Retry-After header when limit exceeded', async () => {
       const context = createMockExecutionContext();
       const response = getResponse(context);
 
       // Exhaust limit
       for (let i = 0; i < 100; i++) {
-        guard.canActivate(context);
+        await guard.canActivate(context);
       }
 
       try {
-        guard.canActivate(context);
+        await guard.canActivate(context);
       } catch {
         // Expected
       }
@@ -443,29 +443,34 @@ describe('RateLimitGuard', () => {
   });
 
   describe('Rate Limit Bypass Whitelist', () => {
-    it('should bypass rate limit for whitelisted IPs', () => {
-      // Mock whitelisted IP
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      jest.spyOn(guard as any, 'isWhitelisted').mockReturnValue(true);
+    it('should bypass rate limit for whitelisted IPs', async () => {
+      // Mock whitelisted IP via private-method bracket-access typed
+      // through the guard's public interface (no implicit any-spy).
+      jest
+        .spyOn(
+          guard as unknown as { isWhitelisted: (ip: string) => boolean },
+          'isWhitelisted',
+        )
+        .mockReturnValue(true);
 
       const context = createMockExecutionContext('10.0.0.1');
 
       // Should allow unlimited requests
       for (let i = 0; i < 200; i++) {
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       }
     });
   });
 
   describe('Sliding Window Algorithm', () => {
-    it('should use sliding window for accurate rate limiting', () => {
+    it('should use sliding window for accurate rate limiting', async () => {
       jest.useFakeTimers();
       const context = createMockExecutionContext();
 
       // Make 50 requests at time 0
       for (let i = 0; i < 50; i++) {
-        guard.canActivate(context);
+        await guard.canActivate(context);
       }
 
       // Advance 30 seconds (half window)
@@ -473,17 +478,17 @@ describe('RateLimitGuard', () => {
 
       // Make 50 more requests
       for (let i = 0; i < 50; i++) {
-        guard.canActivate(context);
+        await guard.canActivate(context);
       }
 
       // Should be at limit now
-      expect(() => guard.canActivate(context)).toThrow();
+      await expect(guard.canActivate(context)).rejects.toThrow();
 
       // Advance 31 more seconds (past first batch's window)
       jest.advanceTimersByTime(31000);
 
       // Should allow some requests now
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
       expect(result).toBe(true);
 
       jest.useRealTimers();
@@ -491,14 +496,14 @@ describe('RateLimitGuard', () => {
   });
 
   describe('Fixed Window Algorithm', () => {
-    it('should reset count at window boundary', () => {
+    it('should reset count at window boundary', async () => {
       jest.useFakeTimers();
 
       const context = createMockExecutionContext();
 
       // Make 100 requests
       for (let i = 0; i < 100; i++) {
-        guard.canActivate(context);
+        await guard.canActivate(context);
       }
 
       // Advance to next window
@@ -506,7 +511,7 @@ describe('RateLimitGuard', () => {
 
       // Full limit available again
       for (let i = 0; i < 100; i++) {
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       }
 
@@ -515,7 +520,7 @@ describe('RateLimitGuard', () => {
   });
 
   describe('Rate Limit by HTTP Method', () => {
-    it('should apply different limits for GET vs POST', () => {
+    it('should apply different limits for GET vs POST', async () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((_, handlers) => {
         const handler = handlers[0] as { name?: string } | undefined;
         // Return different limits based on method
@@ -527,11 +532,11 @@ describe('RateLimitGuard', () => {
 
       // GET should allow many requests
       for (let i = 0; i < 100; i++) {
-        guard.canActivate(getContext);
+        await guard.canActivate(getContext);
       }
 
       // POST should have separate limit
-      const result = guard.canActivate(postContext);
+      const result = await guard.canActivate(postContext);
       expect(result).toBe(true);
     });
   });
@@ -564,16 +569,16 @@ describe('RateLimitGuard', () => {
   });
 
   describe('Error Handling', () => {
-    it('should include rate limit info in error response', () => {
+    it('should include rate limit info in error response', async () => {
       const context = createMockExecutionContext();
 
       // Exhaust limit
       for (let i = 0; i < 100; i++) {
-        guard.canActivate(context);
+        await guard.canActivate(context);
       }
 
       try {
-        guard.canActivate(context);
+        await guard.canActivate(context);
         fail('Should have thrown');
       } catch (error) {
         const response = (error as HttpException).getResponse();
@@ -583,34 +588,37 @@ describe('RateLimitGuard', () => {
   });
 
   describe('Skip Rate Limit Decorator', () => {
-    it('should skip rate limiting when decorator is present', () => {
+    it('should skip rate limiting when decorator is present', async () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
 
       const context = createMockExecutionContext();
 
       // Should allow unlimited requests
       for (let i = 0; i < 200; i++) {
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       }
     });
   });
 
   describe('Performance', () => {
-    it('should handle high throughput efficiently', () => {
+    it('should handle high throughput efficiently', async () => {
       const startTime = Date.now();
       const contexts = Array.from({ length: 1000 }, (_, i) =>
         createMockExecutionContext(`192.168.1.${i % 255}`),
       );
 
-      // Process many requests (sync)
-      contexts.forEach((ctx) => {
+      // Process many requests. canActivate is async; awaiting in-order
+      // serialises the calls, which matches the original sync-loop's
+      // semantics (one-at-a-time) better than Promise.all (which would
+      // race for the same key and break the throughput assertion).
+      for (const ctx of contexts) {
         try {
-          guard.canActivate(ctx);
+          await guard.canActivate(ctx);
         } catch {
           // Some may fail due to rate limit
         }
-      });
+      }
 
       const duration = Date.now() - startTime;
       expect(duration).toBeLessThan(5000); // Should complete in under 5 seconds

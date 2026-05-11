@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -8,8 +11,6 @@ import {
   ConnectionOptions,
   headers as natsHeaders,
 } from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
-import * as fs from 'fs';
 
 import { STLanguageGateway } from './st-language.gateway';
 
@@ -121,7 +122,7 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
 
     try {
       this.connection = await connect(connectionOptions);
-      this.logger.log(`Connected to NATS at ${connectionOptions.servers} for ST Language Bridge`);
+      this.logger.log(`Connected to NATS at ${Array.isArray(connectionOptions.servers) ? connectionOptions.servers.join(',') : (connectionOptions.servers ?? 'unknown')} for ST Language Bridge`);
 
       // Subscribe to server-push events
       this.subscribeToAutomationEvents();
@@ -247,7 +248,7 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
             this.subscribeToAutomationEvents();
             break;
           case 'error':
-            this.logger.error(`NATS error: ${String(status.data)}`);
+            this.logger.error(`NATS error: ${typeof status.data === 'string' ? status.data : JSON.stringify(status.data)}`);
             break;
         }
       }

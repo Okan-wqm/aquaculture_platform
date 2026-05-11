@@ -12,6 +12,7 @@
  * Entries are promoted to "most recently used" by delete-then-set.
  */
 
+import { NATS_PATTERNS } from '@aquaculture/backend-common/constants';
 import {
   Injectable,
   Logger,
@@ -23,7 +24,6 @@ import { ConfigService } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 
-import { NATS_PATTERNS } from '@aquaculture/backend-common/constants';
 
 /** Shape of a single cache entry. */
 interface CacheEntry {

@@ -235,7 +235,7 @@ export function Timeout(ms: number) {
   ) {
     const originalMethod = descriptor.value as (...args: unknown[]) => unknown;
 
-    const wrappedMethod = function (this: unknown, ...args: unknown[]) {
+    const wrappedMethod = function (this: unknown, ...args: unknown[]): unknown {
       // The timeout will be handled by the middleware
       // This decorator is for documentation/metadata purposes
       return originalMethod.apply(this, args);
@@ -268,9 +268,12 @@ export function withTimeout<T>(
         clearTimeout(timer);
         resolve(result);
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         clearTimeout(timer);
-        reject(error);
+        // Promise rejection MUST be an Error subclass per
+        // @typescript-eslint/prefer-promise-reject-errors. If the upstream
+        // rejection is not already an Error (e.g. throw 'string'), wrap it.
+        reject(error instanceof Error ? error : new Error(String(error)));
       });
   });
 }

@@ -1,5 +1,6 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { Injectable, Logger, Inject } from '@nestjs/common';
+
 import { RateLimitStore } from './rate-limit.guard';
 
 /**
@@ -36,7 +37,7 @@ export class RedisRateLimitStore implements RateLimitStore {
 
       return entry;
     } catch (error) {
-      this.logger.error(`Failed to get rate limit entry: ${error}`);
+      this.logger.error(`Failed to get rate limit entry: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -50,7 +51,7 @@ export class RedisRateLimitStore implements RateLimitStore {
         ttlSeconds,
       );
     } catch (error) {
-      this.logger.error(`Failed to set rate limit entry: ${error}`);
+      this.logger.error(`Failed to set rate limit entry: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -60,7 +61,7 @@ export class RedisRateLimitStore implements RateLimitStore {
       const count = await this.redisService.incr(prefixedKey);
       return count;
     } catch (error) {
-      this.logger.error(`Failed to increment rate limit: ${error}`);
+      this.logger.error(`Failed to increment rate limit: ${error instanceof Error ? error.message : String(error)}`);
       return 1;
     }
   }
@@ -98,7 +99,7 @@ export class RedisRateLimitStore implements RateLimitStore {
 
       return { entry, isNew };
     } catch (error) {
-      this.logger.error(`Failed to incrementOrCreate rate limit: ${error}`);
+      this.logger.error(`Failed to incrementOrCreate rate limit: ${error instanceof Error ? error.message : String(error)}`);
       // Return a default entry to allow the request through on error
       // The guard will handle fail-closed behavior
       return {
@@ -117,7 +118,7 @@ export class RedisRateLimitStore implements RateLimitStore {
       await this.redisService.get('_health_check');
       return true;
     } catch (error) {
-      this.logger.error(`Redis health check failed: ${error}`);
+      this.logger.error(`Redis health check failed: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }

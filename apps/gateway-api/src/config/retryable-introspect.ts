@@ -1,4 +1,5 @@
 import { IntrospectAndCompose, ServiceEndpointDefinition } from '@apollo/gateway';
+import type { SupergraphSdlHookOptions } from '@apollo/gateway/dist/config';
 import { Logger } from '@nestjs/common';
 
 /**
@@ -71,8 +72,7 @@ export class RetryableIntrospectAndCompose extends IntrospectAndCompose {
    * @returns Composed supergraph SDL and cleanup function
    * @throws Error when all retry attempts are exhausted
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  public override async initialize(args: any): Promise<{ supergraphSdl: string; cleanup: () => Promise<void> }> {
+  public override async initialize(args: SupergraphSdlHookOptions): Promise<{ supergraphSdl: string; cleanup: () => Promise<void> }> {
     let lastError: Error | undefined;
     const totalBudgetMs = this.maxRetries * this.retryDelayMs;
 

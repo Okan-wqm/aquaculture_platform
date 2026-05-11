@@ -1,10 +1,11 @@
 // WHY: MUST be first import — see apps/admin-api-service/src/main.ts for full explanation.
 import 'reflect-metadata';
 import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
-import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import cookieParser from 'cookie-parser';
-import { json, urlencoded } from 'express';
+import { json, urlencoded, type Request, type Response, type NextFunction } from 'express';
+
 import { AppModule } from './app.module';
 import { registerRedisIoAdapter } from './websocket/adapters/redis-io.adapter';
 
@@ -65,7 +66,7 @@ bootstrapService(AppModule, {
   //       app.listen(), which is why this lives in onBeforeListen and
   //       not in a module provider.
   onBeforeListen: async (app) => {
-    app.use('/graphql', (req: any, res: any, next: any) => {
+    app.use('/graphql', (req: Request, res: Response, next: NextFunction) => {
       if (req.method === 'HEAD') {
         res.status(200).end();
         return;

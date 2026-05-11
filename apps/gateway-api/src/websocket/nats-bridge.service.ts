@@ -1,11 +1,13 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
-import { createDefaultRegistry, EventUpcasterRegistry } from '@platform/event-contracts';
 import * as fs from 'fs';
 
-import { SensorReadingsGateway } from './sensor-readings.gateway';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createDefaultRegistry, EventUpcasterRegistry } from '@platform/event-contracts';
+import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
+
+
+import { SensorReadingsGateway, type EdgeDeviceAlarm } from './sensor-readings.gateway';
 
 /** ARCH-C01: Flat reading field → parameter name mapping */
 const READING_FIELD_MAP: Record<string, string> = {
@@ -45,6 +47,25 @@ interface NatsEvent {
   readingNitrate?: number;
   readingTurbidity?: number;
   readingWaterLevel?: number;
+}
+
+/**
+ * Shape of the NATS event payload for EdgeDeviceIoData / EdgeDeviceAlarm.
+ * Both events share tenantId + deviceCode + timestamp plus a JSON-encoded
+ * payload field (tagsJson or alarmsJson).
+ */
+interface EdgeDeviceIoDataPayload {
+  tenantId?: string;
+  deviceCode?: string;
+  tagsJson?: string;
+  timestamp?: string;
+}
+
+interface EdgeDeviceAlarmPayload {
+  tenantId?: string;
+  deviceCode?: string;
+  alarmsJson?: string;
+  timestamp?: string;
 }
 
 /**
@@ -124,7 +145,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     try {
       this.connection = await connect(connectionOptions);
 
-      this.logger.log(`Connected to NATS at ${connectionOptions.servers}`);
+      this.logger.log(`Connected to NATS at ${Array.isArray(connectionOptions.servers) ? connectionOptions.servers.join(',') : (connectionOptions.servers ?? 'unknown')}`);
 
       // Subscribe to sensor reading events
       this.subscribeToSensorEvents();
@@ -163,8 +184,10 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
       for await (const msg of subscription) {
         try {
           const data = this.sc.decode(msg.data);
-          // ARCH-C01: Apply upcasters for v1→v2 migration (raw NATS, no NatsEventBus)
-          const raw = JSON.parse(data);
+          // ARCH-C01: Apply upcasters for v1→v2 migration (raw NATS, no NatsEventBus).
+          // JSON.parse is typed as `any`; widen to Record<string, unknown> so the
+          // downstream upcaster signature is satisfied without `any` flow.
+          const raw = JSON.parse(data) as Record<string, unknown>;
           // upcast returns Record<string, unknown>; validated by isValidNatsEvent below
           const event = this.upcasterRegistry.upcast(raw) as unknown as NatsEvent;
 
@@ -197,7 +220,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     (async () => {
       for await (const msg of sub) {
         try {
-          const data = JSON.parse(this.sc.decode(msg.data));
+          const data = JSON.parse(this.sc.decode(msg.data)) as EdgeDeviceIoDataPayload;
           // SECURITY: Extract tenantId from NATS subject (authoritative), not payload
           const tenantId = msg.subject.split('.')[1];
           const { deviceCode, tagsJson, timestamp } = data;
@@ -216,14 +239,19 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
           }
 
           // ARCH-C01: Deserialize tagsJson back to object for WebSocket API backward compat
-          const tags = tagsJson ? JSON.parse(tagsJson) : {};
-          this.sensorGateway.broadcastEdgeIoData({ tenantId, deviceCode, tags, timestamp });
+          const tags = tagsJson ? JSON.parse(tagsJson) as Record<string, unknown> : {};
+          this.sensorGateway.broadcastEdgeIoData({
+            tenantId,
+            deviceCode,
+            tags,
+            timestamp: timestamp ?? new Date().toISOString(),
+          });
         } catch (e) {
           this.logger.warn(`Failed to process EdgeDeviceIoData: ${(e as Error).message}`);
         }
       }
-    })().catch((error) => {
-      this.logger.error(`NATS EdgeDeviceIoData subscription loop error: ${(error as Error).message}`);
+    })().catch((error: unknown) => {
+      this.logger.error(`NATS EdgeDeviceIoData subscription loop error: ${(error instanceof Error ? error.message : String(error))}`);
     });
   }
 
@@ -238,7 +266,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     (async () => {
       for await (const msg of sub) {
         try {
-          const data = JSON.parse(this.sc.decode(msg.data));
+          const data = JSON.parse(this.sc.decode(msg.data)) as EdgeDeviceAlarmPayload;
           // SECURITY: Extract tenantId from NATS subject (authoritative), not payload
           const tenantId = msg.subject.split('.')[1];
           const { deviceCode, alarmsJson, timestamp } = data;
@@ -257,14 +285,19 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
           }
 
           // ARCH-C01: Deserialize alarmsJson back to array for WebSocket API backward compat
-          const alarms = alarmsJson ? JSON.parse(alarmsJson) : [];
-          this.sensorGateway.broadcastEdgeAlarm({ tenantId, deviceCode, alarms, timestamp });
+          const alarms = alarmsJson ? JSON.parse(alarmsJson) as EdgeDeviceAlarm[] : [];
+          this.sensorGateway.broadcastEdgeAlarm({
+            tenantId,
+            deviceCode,
+            alarms,
+            timestamp: timestamp ?? new Date().toISOString(),
+          });
         } catch (e) {
           this.logger.warn(`Failed to process EdgeDeviceAlarm: ${(e as Error).message}`);
         }
       }
-    })().catch((error) => {
-      this.logger.error(`NATS EdgeDeviceAlarm subscription loop error: ${(error as Error).message}`);
+    })().catch((error: unknown) => {
+      this.logger.error(`NATS EdgeDeviceAlarm subscription loop error: ${(error instanceof Error ? error.message : String(error))}`);
     });
   }
 
@@ -323,7 +356,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
             this.subscribeToEdgeAlarmEvents();
             break;
           case 'error':
-            this.logger.error(`NATS error: ${String(status.data)}`);
+            this.logger.error(`NATS error: ${typeof status.data === 'string' ? status.data : JSON.stringify(status.data)}`);
             break;
         }
       }

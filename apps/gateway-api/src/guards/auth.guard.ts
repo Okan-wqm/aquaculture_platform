@@ -9,6 +9,8 @@
  * request unless the route is marked with @Public().
  */
 
+import { getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { enforceAccessTokenType } from '@aquaculture/backend-common/auth';
 import {
   Injectable,
   CanActivate,
@@ -29,7 +31,7 @@ import {
   AuthenticatedRequest,
   GqlContext,
 } from '../types/index';
-import { getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+
 import {
   TokenBlacklistStore,
   TOKEN_BLACKLIST_STORE,
@@ -37,7 +39,7 @@ import {
 } from './redis-token-blacklist.store';
 import { ApiKeyAuthStrategy } from './strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from './strategies/basic-auth.strategy';
-import { enforceAccessTokenType } from '@aquaculture/backend-common/auth';
+
 
 /**
  * Public route decorator — marks a route as publicly accessible without authentication

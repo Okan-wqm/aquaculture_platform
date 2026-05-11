@@ -6,10 +6,10 @@
  * Supports HTTP, WebSocket, and SSE proxying.
  */
 
+import { buildSignedInternalHeaders, resolveTenantIdFromRequest } from '@aquaculture/backend-common/http';
 import { Injectable, Logger, BadGatewayException, GatewayTimeoutException, BadRequestException, NotImplementedException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { buildSignedInternalHeaders, resolveTenantIdFromRequest } from '@aquaculture/backend-common/http';
 
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { LoadBalancerService, ServiceInstanceStats, LoadBalancerContext } from './load-balancer.service';

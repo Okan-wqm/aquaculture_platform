@@ -284,7 +284,7 @@ describe('ErrorMappingInterceptor', () => {
                 expect(response.error.message).toBe(expectedMessage);
                 resolve();
               } catch (assertion) {
-                reject(assertion as Error);
+                reject(assertion instanceof Error ? assertion : new Error(String(assertion)));
               }
             },
           });
@@ -314,7 +314,7 @@ describe('ErrorMappingInterceptor', () => {
                 expect(response.error.message).toBe(expectedMessage);
                 resolve();
               } catch (assertion) {
-                reject(assertion as Error);
+                reject(assertion instanceof Error ? assertion : new Error(String(assertion)));
               }
             },
           });
@@ -343,7 +343,7 @@ describe('ErrorMappingInterceptor', () => {
                 expect(response.error.message).toBe(expectedMessage);
                 resolve();
               } catch (assertion) {
-                reject(assertion as Error);
+                reject(assertion instanceof Error ? assertion : new Error(String(assertion)));
               }
             },
           });
@@ -406,7 +406,7 @@ describe('ErrorMappingInterceptor', () => {
                 expect(response.error.message).toBe(expectedMessage);
                 resolve();
               } catch (assertion) {
-                reject(assertion as Error);
+                reject(assertion instanceof Error ? assertion : new Error(String(assertion)));
               }
             },
           });
@@ -435,7 +435,7 @@ describe('ErrorMappingInterceptor', () => {
                 expect(response.error.message).toBe(expectedMessage);
                 resolve();
               } catch (assertion) {
-                reject(assertion as Error);
+                reject(assertion instanceof Error ? assertion : new Error(String(assertion)));
               }
             },
           });

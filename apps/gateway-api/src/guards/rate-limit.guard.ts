@@ -89,41 +89,45 @@ class InMemoryRateLimitStore implements RateLimitStore {
     this.cleanupInterval = setInterval(() => this.cleanup(), 60000);
   }
 
-  async get(key: string): Promise<RateLimitEntry | null> {
+  // The interface is Promise-typed because Redis-backed stores are I/O bound.
+  // In-memory operations are synchronous; we return Promise.resolve(...) explicitly
+  // so the Promise contract is preserved without an empty `async` (require-await).
+  get(key: string): Promise<RateLimitEntry | null> {
     const entry = this.store.get(key);
-    if (!entry) return null;
+    if (!entry) return Promise.resolve(null);
     if (Date.now() > entry.resetTime) {
       this.store.delete(key);
-      return null;
+      return Promise.resolve(null);
     }
-    return { ...entry }; // Return copy to prevent external mutation
+    return Promise.resolve({ ...entry }); // Return copy to prevent external mutation
   }
 
-  async set(key: string, entry: RateLimitEntry, _ttlMs: number): Promise<void> {
+  set(key: string, entry: RateLimitEntry, _ttlMs: number): Promise<void> {
     this.store.set(key, { ...entry }); // Store copy
+    return Promise.resolve();
   }
 
-  async increment(key: string): Promise<number> {
+  increment(key: string): Promise<number> {
     const entry = this.store.get(key);
     if (entry && Date.now() <= entry.resetTime) {
       entry.count++;
-      return entry.count;
+      return Promise.resolve(entry.count);
     }
-    return 1;
+    return Promise.resolve(1);
   }
 
   /**
    * Atomic increment-or-create operation
    * SECURITY: This is atomic in single-threaded Node.js since we don't yield
    */
-  async incrementOrCreate(key: string, windowMs: number): Promise<{ entry: RateLimitEntry; isNew: boolean }> {
+  incrementOrCreate(key: string, windowMs: number): Promise<{ entry: RateLimitEntry; isNew: boolean }> {
     const now = Date.now();
     const existing = this.store.get(key);
 
     // Check if entry exists and is still valid
     if (existing && now <= existing.resetTime) {
       existing.count++;
-      return { entry: { ...existing }, isNew: false };
+      return Promise.resolve({ entry: { ...existing }, isNew: false });
     }
 
     // Create new entry (atomically replaces expired entry)
@@ -132,11 +136,11 @@ class InMemoryRateLimitStore implements RateLimitStore {
       resetTime: now + windowMs,
     };
     this.store.set(key, newEntry);
-    return { entry: { ...newEntry }, isNew: true };
+    return Promise.resolve({ entry: { ...newEntry }, isNew: true });
   }
 
-  async isHealthy(): Promise<boolean> {
-    return this.healthy;
+  isHealthy(): Promise<boolean> {
+    return Promise.resolve(this.healthy);
   }
 
   private cleanup(): void {
@@ -343,7 +347,10 @@ export class RateLimitGuard implements CanActivate {
     if (contextType === 'graphql') {
       const gqlContext = GqlExecutionContext.create(context);
       const ctx = gqlContext.getContext<GqlContext>();
-      return ctx.req as RateLimitRequest;
+      // ctx.req is AuthenticatedRequest; RateLimitRequest adds optional
+      // res/connection/userId fields only, so the structural assignment
+      // is valid without an explicit `as RateLimitRequest`.
+      return ctx.req;
     }
 
     return context.switchToHttp().getRequest<RateLimitRequest>();

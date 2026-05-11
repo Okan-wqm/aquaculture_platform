@@ -36,14 +36,15 @@ import {
   ApiOkResponse,
   ApiCreatedResponse,
 } from '@nestjs/swagger';
-import { FileUploadSecurityService, MinioClientService } from '@platform/storage';
-import { Request } from 'express';
 import {
   ApiStandardErrors,
   ApiNotFoundError,
 } from '@platform/shared';
+import { FileUploadSecurityService, MinioClientService } from '@platform/storage';
+import { Request } from 'express';
 
 import { AuthenticatedRequest } from '../guards/auth.guard';
+
 import {
   UploadBatchDocumentDto,
   BatchDocumentCategory,

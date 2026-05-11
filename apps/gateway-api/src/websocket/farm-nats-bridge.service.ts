@@ -58,6 +58,8 @@
  * @see Phase B of farm domain real-time visibility plan.
  */
 
+import { TENANT_ID_REGEX } from '@aquaculture/backend-common/constants';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import {
   Injectable,
   Logger,
@@ -66,6 +68,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { validateFarmEvent } from '@platform/event-contracts';
 import {
   connect,
   NatsConnection,
@@ -73,9 +76,6 @@ import {
   StringCodec,
   ConnectionOptions,
 } from 'nats';
-import { TENANT_ID_REGEX } from '@aquaculture/backend-common/constants';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
-import { validateFarmEvent } from '@platform/event-contracts';
 
 import { FarmGateway } from './farm.gateway';
 
@@ -167,8 +167,10 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
 
     try {
       this.connection = await connect(connectionOptions);
+      // connectionOptions.servers may be string | string[] | undefined.
+      // Coerce to a single joined label for the log line.
       this.logger.log(
-        `Farm bridge connected to NATS at ${connectionOptions.servers}`,
+        `Farm bridge connected to NATS at ${Array.isArray(connectionOptions.servers) ? connectionOptions.servers.join(',') : (connectionOptions.servers ?? 'unknown')}`,
       );
 
       this.subscribeToFarmEvents();
@@ -425,7 +427,7 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
             this.subscribeToFarmEvents();
             break;
           case 'error':
-            this.logger.error(`Farm NATS error: ${String(status.data)}`);
+            this.logger.error(`Farm NATS error: ${typeof status.data === 'string' ? status.data : JSON.stringify(status.data)}`);
             break;
         }
       }

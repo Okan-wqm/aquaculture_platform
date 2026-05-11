@@ -1,5 +1,5 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 
 /**
  * Token blacklist store interface (gateway-local).
@@ -114,7 +114,7 @@ export class RedisTokenBlacklistStore implements TokenBlacklistStore {
       const exists = await this.redisService.get(this.keyPrefix + jti);
       return exists !== null;
     } catch (error) {
-      this.logger.error(`Failed to check token blacklist: ${error}`);
+      this.logger.error(`Failed to check token blacklist: ${error instanceof Error ? error.message : String(error)}`);
       // SECURITY: Fail closed - if we can't verify, treat token as potentially revoked
       // This prevents revoked tokens from being used during Redis outages
       // Trade-off: Availability impact during Redis failures, but prevents security bypass
@@ -142,7 +142,7 @@ export class RedisTokenBlacklistStore implements TokenBlacklistStore {
 
       return true;
     } catch (error) {
-      this.logger.error(`Failed to validate token (fail-closed): ${error}`);
+      this.logger.error(`Failed to validate token (fail-closed): ${error instanceof Error ? error.message : String(error)}`);
       // SECURITY: Fail closed — Redis error means we cannot confirm validity
       return false;
     }
@@ -178,23 +178,24 @@ export class InMemoryTokenBlacklistStore implements TokenBlacklistStore {
     this.startCleanup();
   }
 
-  async add(jti: string, exp: number): Promise<void> {
+  add(jti: string, exp: number): Promise<void> {
     this.blacklist.set(jti, exp);
     this.logger.debug(`Token blacklisted (in-memory): ${jti.substring(0, 8)}...`);
+    return Promise.resolve();
   }
 
-  async isBlacklisted(jti: string): Promise<boolean> {
+  isBlacklisted(jti: string): Promise<boolean> {
     const exp = this.blacklist.get(jti);
     if (exp === undefined) {
-      return false;
+      return Promise.resolve(false);
     }
     // Lazy expiry: remove expired entries on access
     const now = Math.floor(Date.now() / 1000);
     if (exp < now) {
       this.blacklist.delete(jti);
-      return false;
+      return Promise.resolve(false);
     }
-    return true;
+    return Promise.resolve(true);
   }
 
   async isValidToken(jti: string, _userId: string, _issuedAt: number): Promise<boolean> {
@@ -205,9 +206,10 @@ export class InMemoryTokenBlacklistStore implements TokenBlacklistStore {
     return invalidatedAt === undefined || _issuedAt >= invalidatedAt;
   }
 
-  async blacklistUserTokens(userId: string, invalidatedAt: number): Promise<void> {
+  blacklistUserTokens(userId: string, invalidatedAt: number): Promise<void> {
     this.userInvalidations.set(userId, invalidatedAt);
     this.logger.log(`User tokens blacklisted in memory: userId=${userId}, invalidatedAt=${invalidatedAt}`);
+    return Promise.resolve();
   }
 
   cleanup(): void {

@@ -7,7 +7,6 @@
  * SECURITY: Uses async bcrypt.compare() to avoid blocking the event loop.
  */
 
-import * as bcrypt from 'bcryptjs';
 
 import {
   Injectable,
@@ -16,6 +15,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as bcrypt from 'bcryptjs';
 
 import { AuthenticatedRequest } from '../../types/index';
 

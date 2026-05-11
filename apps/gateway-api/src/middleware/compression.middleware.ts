@@ -241,7 +241,7 @@ export async function compress(
   options?: zlib.ZlibOptions,
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const callback = (error: Error | null, result: Buffer) => {
+    const callback = (error: Error | null, result: Buffer): void => {
       if (error) reject(error);
       else resolve(result);
     };
@@ -270,7 +270,7 @@ export async function decompress(
   encoding: 'gzip' | 'br' | 'deflate',
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const callback = (error: Error | null, result: Buffer) => {
+    const callback = (error: Error | null, result: Buffer): void => {
       if (error) reject(error);
       else resolve(result);
     };

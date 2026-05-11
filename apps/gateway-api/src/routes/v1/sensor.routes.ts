@@ -6,10 +6,10 @@
  * (e.g., file uploads, streaming data, WebSocket connections).
  */
 
+import { signedFetch } from '@aquaculture/backend-common/http';
 import { Module, Controller, Get, Post, Req, Res, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { signedFetch } from '@aquaculture/backend-common/http';
 
 // Helper to extract tenant UUID from incoming request for signed propagation.
 function resolveTenantId(req: Request): string {
@@ -50,7 +50,8 @@ export class SensorRoutesController {
         service: 'sensor-service',
         timestamp: new Date().toISOString(),
       };
-    } catch (error) {
+    } catch {
+      // Unreachable upstream — the caller only needs the bucket label, not the cause.
       return {
         status: 'unreachable',
         service: 'sensor-service',

@@ -77,7 +77,8 @@ export const RAW_RESPONSE_KEY = 'raw_response';
 /**
  * Decorator to skip response transformation
  */
-export const RawResponse = () => SetMetadata(RAW_RESPONSE_KEY, true);
+export const RawResponse = (): ReturnType<typeof SetMetadata> =>
+  SetMetadata(RAW_RESPONSE_KEY, true);
 
 /**
  * Metadata key for custom response wrapper
@@ -87,7 +88,9 @@ export const CUSTOM_WRAPPER_KEY = 'custom_wrapper';
 /**
  * Decorator for custom response wrapper
  */
-export const CustomWrapper = <T>(wrapper: (data: T) => unknown) =>
+export const CustomWrapper = <T>(
+  wrapper: (data: T) => unknown,
+): ReturnType<typeof SetMetadata> =>
   SetMetadata(CUSTOM_WRAPPER_KEY, wrapper);
 
 /**
@@ -374,7 +377,8 @@ export function createSuccessResponse<T>(
   return {
     success: true,
     data,
-    meta: meta as ResponseMeta,
+    // ResponseMeta has all-optional fields, so Partial<ResponseMeta> ≡ ResponseMeta.
+    meta,
   };
 }
 

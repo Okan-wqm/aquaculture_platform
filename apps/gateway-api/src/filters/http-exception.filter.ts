@@ -282,11 +282,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
     statusCode: number,
     exceptionResponse: unknown,
   ): void {
-    // Add Retry-After header for rate limiting
+    // Add Retry-After header for rate limiting.
+    // Per RFC 7231 §7.1.3 the value MUST be either an HTTP-date or a non-negative
+    // integer (delta-seconds). We only honour the numeric form here — anything else
+    // falls back to the 60s default so we never emit "[object Object]".
     if (statusCode === 429) {
       const responseObj = exceptionResponse as Record<string, unknown>;
-      const retryAfter = responseObj?.['retryAfter'] ?? 60;
-      response.setHeader('Retry-After', String(retryAfter));
+      const rawRetryAfter = responseObj?.['retryAfter'];
+      const retryAfterSeconds = typeof rawRetryAfter === 'number' && Number.isFinite(rawRetryAfter)
+        ? Math.max(0, Math.floor(rawRetryAfter))
+        : 60;
+      response.setHeader('Retry-After', String(retryAfterSeconds));
     }
 
     // Add WWW-Authenticate header for unauthorized

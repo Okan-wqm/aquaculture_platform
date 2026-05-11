@@ -103,9 +103,10 @@ export class HttpPoolService implements OnModuleDestroy {
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
-      // Note: Node.js native fetch doesn't support custom agents directly
-      // We need to use undici or node-fetch for full agent support
-      // For now, we'll use the native fetch with abort signal
+      // Note: Node.js native fetch doesn't support custom agents directly.
+      // Full agent integration (undici/node-fetch) is tracked under ORPHAN-MEDIUM
+      // pool-agent integration — this path uses native fetch with abort signal
+      // until that work lands.
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
@@ -187,14 +188,18 @@ export class HttpPoolService implements OnModuleDestroy {
     http: { freeSockets: number; sockets: number; requests: number };
     https: { freeSockets: number; sockets: number; requests: number };
   } {
-    const countSockets = (agent: http.Agent | https.Agent) => {
+    const countSockets = (agent: http.Agent | https.Agent): {
+      freeSockets: number;
+      sockets: number;
+      requests: number;
+    } => {
       const a = agent as http.Agent & {
         freeSockets: Record<string, unknown[]>;
         sockets: Record<string, unknown[]>;
         requests: Record<string, unknown[]>;
       };
 
-      const count = (obj: Record<string, unknown[]> | undefined) =>
+      const count = (obj: Record<string, unknown[]> | undefined): number =>
         obj ? Object.values(obj).reduce((sum, arr) => sum + (arr?.length ?? 0), 0) : 0;
 
       return {

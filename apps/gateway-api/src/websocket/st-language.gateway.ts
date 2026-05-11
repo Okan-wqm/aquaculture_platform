@@ -1,3 +1,5 @@
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -10,8 +12,6 @@ import {
   SubscribeMessage,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
-import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 
 // ---------------------------------------------------------------------------
 // Types

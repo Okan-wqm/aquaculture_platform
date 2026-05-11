@@ -8,10 +8,11 @@
  * and request timeout to prevent open-relay abuse.
  */
 
+import * as http from 'http';
+
 import { Module, Controller, All, Req, Res, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import * as http from 'http';
 
 /**
  * Circuit breaker states
@@ -65,8 +66,12 @@ export class AiRoutesController {
 
   // Express v5 path-to-regexp v8: bare '*' wildcard is no longer valid.
   // Use named wildcard parameter '{*path}' which captures the full sub-path.
+  //
+  // The handler is synchronous from NestJS's POV: it kicks off an http.request
+  // and writes to `res` from inside the response callback. The Promise<void>
+  // return is preserved (NestJS accepts it) but there are no internal awaits.
   @All('{*path}')
-  async proxy(@Req() req: Request, @Res() res: Response): Promise<void> {
+  proxy(@Req() req: Request, @Res() res: Response): void {
     // --- Path validation ---
     const requestPath = req.originalUrl;
     if (DANGEROUS_PATH_PATTERNS.test(requestPath)) {

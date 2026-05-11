@@ -539,9 +539,10 @@ export class CircuitBreakerService extends EventEmitter {
           clearTimeout(timer);
           resolve(result);
         })
-        .catch((error) => {
+        .catch((error: unknown) => {
           clearTimeout(timer);
-          reject(error);
+          // prefer-promise-reject-errors: rejection must be an Error subclass.
+          reject(error instanceof Error ? error : new Error(String(error)));
         });
     });
   }
@@ -572,7 +573,7 @@ export function WithCircuitBreaker(
       return circuitBreaker.execute(
         serviceName,
         () => originalMethod.apply(this, args),
-        options as ExecuteOptions<unknown>,
+        options,
       );
     };
 

@@ -1,6 +1,6 @@
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 
 /**
  * Health check result for a single service (internal use)

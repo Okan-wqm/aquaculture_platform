@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+
 import { AuthenticatedDataSource } from '../app.module';
 
 /**
@@ -126,7 +127,7 @@ describe('AuthenticatedDataSource — HMAC signer wire-body contract (ORPHAN-CRI
     // Simulate the wire round-trip: signer → bytes Apollo will send →
     // body-parser parses them → guard re-serializes for hashing.
     const wireBytes = JSON.stringify({ query, variables, extensions });
-    const subgraphParsedBody = JSON.parse(wireBytes);
+    const subgraphParsedBody = JSON.parse(wireBytes) as Record<string, unknown>;
     const subgraphReSerialized = JSON.stringify(subgraphParsedBody);
     const subgraphObservedDigest = createHash('sha256')
       .update(subgraphReSerialized)

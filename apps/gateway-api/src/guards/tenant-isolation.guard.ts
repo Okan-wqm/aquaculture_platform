@@ -244,7 +244,7 @@ export class TenantIsolationGuard implements CanActivate {
     // user.role is collapsed into the same array for the final check.
     const roles = Array.isArray(user.roles)
       ? user.roles
-      : (user.role ? [user.role as string] : []);
+      : (user.role ? [user.role] : []);
 
     if (roles.includes('platform_admin') || roles.includes('super_admin')) {
       return true;

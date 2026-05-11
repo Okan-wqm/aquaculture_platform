@@ -8,9 +8,9 @@
 
 import { EventEmitter } from 'events';
 
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 
 /**
  * Load balancing algorithms

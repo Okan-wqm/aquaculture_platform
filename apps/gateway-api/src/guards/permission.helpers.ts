@@ -7,6 +7,7 @@
  */
 
 import { JwtPayload } from '../types/index';
+
 import { ROLE_PERMISSIONS, ROLE_HIERARCHY } from './permission.guard';
 
 /**

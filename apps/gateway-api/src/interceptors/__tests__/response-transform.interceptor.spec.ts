@@ -372,7 +372,7 @@ describe('ResponseTransformInterceptor', () => {
                 expect(response.success).toBe(true);
                 resolve();
               } catch (e) {
-                reject(e as Error);
+                reject(e instanceof Error ? e : new Error(String(e)));
               }
             },
           });
@@ -402,7 +402,7 @@ describe('ResponseTransformInterceptor', () => {
                 expect(response.success).toBe(true);
                 resolve();
               } catch (e) {
-                reject(e as Error);
+                reject(e instanceof Error ? e : new Error(String(e)));
               }
             },
           });

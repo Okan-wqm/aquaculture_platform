@@ -16,11 +16,24 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { GraphQLError } from 'graphql';
+import { GraphQLError, type GraphQLResolveInfo } from 'graphql';
 
 interface RateLimitEntry {
   count: number;
   windowStart: number;
+}
+
+/**
+ * The shape of the gateway-api express request relevant for rate-limit attribution.
+ * Mirrors the runtime fields read below; explicit interface eliminates the
+ * `any` chain that previously propagated from GqlExecutionContext.getContext().
+ */
+interface GqlAuthContext {
+  req?: {
+    user?: { sub?: string };
+    ip?: string;
+    socket?: { remoteAddress?: string };
+  };
 }
 
 const WINDOW_MS = 60_000; // 1 minute
@@ -56,14 +69,14 @@ export class MutationRateLimitGuard implements CanActivate, OnModuleDestroy {
     }
 
     const gqlContext = GqlExecutionContext.create(context);
-    const info = gqlContext.getInfo();
+    const info: GraphQLResolveInfo | undefined = gqlContext.getInfo();
 
     // Only rate-limit mutations
     if (!info || info.parentType?.name !== 'Mutation') {
       return true;
     }
 
-    const req = gqlContext.getContext()?.req;
+    const req = gqlContext.getContext<GqlAuthContext>()?.req;
     const userId = req?.user?.sub;
     const ip = req?.ip ?? req?.socket?.remoteAddress ?? 'unknown';
     const key = userId ? `user:${userId}` : `ip:${ip}`;

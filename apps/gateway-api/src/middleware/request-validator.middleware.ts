@@ -175,14 +175,14 @@ export class RequestValidatorMiddleware implements NestMiddleware {
       if (req.body && typeof req.body === 'object') {
         const bodyValidation = this.validateObject(req.body as Record<string, unknown>, 'body', 0);
         errors.push(...bodyValidation.errors);
-        validatedReq.sanitizedBody = bodyValidation.sanitizedData as Record<string, unknown>;
+        validatedReq.sanitizedBody = bodyValidation.sanitizedData;
       }
 
       // Validate and sanitize query parameters
       if (req.query && typeof req.query === 'object') {
-        const queryValidation = this.validateObject(req.query as Record<string, unknown>, 'query', 0);
+        const queryValidation = this.validateObject(req.query, 'query', 0);
         errors.push(...queryValidation.errors);
-        validatedReq.sanitizedQuery = queryValidation.sanitizedData as Record<string, unknown>;
+        validatedReq.sanitizedQuery = queryValidation.sanitizedData;
       }
 
       // Validate URL path for security threats

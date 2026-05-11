@@ -7,6 +7,9 @@
  * DeviceOwnershipService (LRU-cached).
  */
 
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { DEVICE_CODE_REGEX, UUID_REGEX } from '@aquaculture/backend-common/constants';
+import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 import { Logger, Inject, Optional, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -20,9 +23,6 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
-import { DEVICE_CODE_REGEX, UUID_REGEX } from '@aquaculture/backend-common/constants';
-import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 
 import { DeviceOwnershipService } from './services/device-ownership.service';
 

@@ -10,9 +10,9 @@
  * - Logs violations in structured JSON format for monitoring/alerting
  */
 
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 import { Controller, Post, Body, HttpCode, Req, Logger, Optional } from '@nestjs/common';
 import { Request } from 'express';
-import { SecurityEventService } from '@aquaculture/backend-common/security';
 
 import { Public } from '../guards/auth.guard';
 
@@ -85,7 +85,7 @@ export class CspReportController {
     // Publish security event to NATS (best-effort, non-blocking)
     this.securityEventService?.publishCspViolation({
       ip: req.ip ?? 'unknown',
-      userAgent: req.headers['user-agent'] as string | undefined,
+      userAgent: req.headers['user-agent'],
       documentUri: report['document-uri'] as string | undefined,
       violatedDirective: report['violated-directive'] as string | undefined,
       effectiveDirective: report['effective-directive'] as string | undefined,

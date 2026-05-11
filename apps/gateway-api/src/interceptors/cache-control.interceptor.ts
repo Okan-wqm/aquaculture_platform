@@ -47,29 +47,34 @@ export interface CachePolicy {
 export const CACHE_POLICY_KEY = 'cache_policy';
 
 /**
- * Decorator to set cache policy on routes
+ * Decorator to set cache policy on routes.
+ * Return type is NestJS's CustomDecorator carrying the CACHE_POLICY_KEY metadata.
  */
-export const CachePolicy = (policy: CachePolicy) => SetMetadata(CACHE_POLICY_KEY, policy);
+export const CachePolicy = (policy: CachePolicy): ReturnType<typeof SetMetadata> =>
+  SetMetadata(CACHE_POLICY_KEY, policy);
 
 /**
  * Decorator for no-cache routes
  */
-export const NoCache = () => CachePolicy({ noCache: true, noStore: true });
+export const NoCache = (): ReturnType<typeof CachePolicy> =>
+  CachePolicy({ noCache: true, noStore: true });
 
 /**
  * Decorator for public cached routes
  */
-export const PublicCache = (maxAge: number) => CachePolicy({ public: true, maxAge });
+export const PublicCache = (maxAge: number): ReturnType<typeof CachePolicy> =>
+  CachePolicy({ public: true, maxAge });
 
 /**
  * Decorator for private cached routes
  */
-export const PrivateCache = (maxAge: number) => CachePolicy({ private: true, maxAge });
+export const PrivateCache = (maxAge: number): ReturnType<typeof CachePolicy> =>
+  CachePolicy({ private: true, maxAge });
 
 /**
  * Decorator for immutable resources
  */
-export const ImmutableCache = (maxAge: number) =>
+export const ImmutableCache = (maxAge: number): ReturnType<typeof CachePolicy> =>
   CachePolicy({ public: true, maxAge, immutable: true });
 
 /**
@@ -194,8 +199,8 @@ export class CacheControlInterceptor implements NestInterceptor {
     const ifNoneMatch = request.headers['if-none-match'];
     const ifModifiedSince = request.headers['if-modified-since'];
 
-    // These will be validated after response is generated
-    // For now, store them for later comparison
+    // These will be validated after response is generated;
+    // stash them on the request so the response interceptor can compare ETag / Last-Modified
     if (ifNoneMatch) {
       (request as Request & { conditionalETag?: string }).conditionalETag = ifNoneMatch;
     }

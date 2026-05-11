@@ -5,9 +5,10 @@
  * Used by middleware to verify tenant existence in production.
  */
 
+import { signedFetch } from '@aquaculture/backend-common/http';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { signedFetch } from '@aquaculture/backend-common/http';
+
 import {
   TenantMetadata,
   TenantStatus,

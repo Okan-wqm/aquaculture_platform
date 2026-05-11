@@ -147,11 +147,20 @@ describe('AuthGuard', () => {
   };
 
   /**
-   * Helper to assert exception response code
+   * Helper to assert exception response code.
+   *
+   * Accepts either a synchronous thrower or a promise-returning callable;
+   * `await fn()` un-wraps the result and any rejection surfaces via catch.
+   * Without this the lint flags `() => guard.canActivate(...)` (which is
+   * `() => Promise<boolean>`) as a misused-promise being passed to a
+   * `() => void` slot.
    */
-  const expectExceptionCode = (fn: () => void, expectedCode: string): void => {
+  const expectExceptionCode = async (
+    fn: () => unknown,
+    expectedCode: string,
+  ): Promise<void> => {
     try {
-      fn();
+      await fn();
       fail('Expected exception to be thrown');
     } catch (error) {
       const exception = error as ExceptionWithResponse;
@@ -220,13 +229,13 @@ describe('AuthGuard', () => {
 
   describe('JWT Authentication', () => {
     describe('Valid Tokens', () => {
-      it('should accept valid JWT token', () => {
+      it('should accept valid JWT token', async () => {
         const token = createJwtToken({});
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
 
         expect(result).toBe(true);
         const request = getRequest(context);
@@ -235,7 +244,7 @@ describe('AuthGuard', () => {
         expect(request.authMethod).toBe('jwt');
       });
 
-      it('should accept token with custom claims', () => {
+      it('should accept token with custom claims', async () => {
         const token = createJwtToken({
           sub: 'custom-user',
           email: 'test@example.com',
@@ -245,7 +254,7 @@ describe('AuthGuard', () => {
           authorization: `Bearer ${token}`,
         });
 
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
 
         expect(result).toBe(true);
         const request = getRequest(context);
@@ -253,7 +262,7 @@ describe('AuthGuard', () => {
         expect(request.user!.permissions).toEqual(['read', 'write']);
       });
 
-      it('should accept token with multiple roles', () => {
+      it('should accept token with multiple roles', async () => {
         const token = createJwtToken({
           roles: ['admin', 'manager', 'operator'],
         });
@@ -261,7 +270,7 @@ describe('AuthGuard', () => {
           authorization: `Bearer ${token}`,
         });
 
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
 
         expect(result).toBe(true);
         const request = getRequest(context);
@@ -270,44 +279,44 @@ describe('AuthGuard', () => {
     });
 
     describe('Invalid Tokens', () => {
-      it('should reject missing Authorization header', () => {
+      it('should reject missing Authorization header', async () => {
         const context = createMockExecutionContext({});
 
-        expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        expectExceptionCode(() => guard.canActivate(context), 'MISSING_AUTH_HEADER');
+        await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+        await expectExceptionCode(() => guard.canActivate(context), 'MISSING_AUTH_HEADER');
       });
 
-      it('should reject invalid token format (not 3 parts)', () => {
+      it('should reject invalid token format (not 3 parts)', async () => {
         const context = createMockExecutionContext({
           authorization: 'Bearer invalid.token',
         });
 
-        expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
+        await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
       });
 
-      it('should reject invalid auth scheme', () => {
+      it('should reject invalid auth scheme', async () => {
         const token = createJwtToken({});
         const context = createMockExecutionContext({
           authorization: `Basic ${token}`,
         });
 
-        expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        expectExceptionCode(() => guard.canActivate(context), 'INVALID_AUTH_SCHEME');
+        await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+        await expectExceptionCode(() => guard.canActivate(context), 'INVALID_AUTH_SCHEME');
       });
 
-      it('should reject token with wrong signature', () => {
+      it('should reject token with wrong signature', async () => {
         const token = createJwtToken({}, 'wrong-secret');
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        expectExceptionCode(() => guard.canActivate(context), 'INVALID_TOKEN');
+        await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+        await expectExceptionCode(() => guard.canActivate(context), 'INVALID_TOKEN');
       });
     });
 
     describe('Token Expiration', () => {
-      it('should reject expired token', () => {
+      it('should reject expired token', async () => {
         const now = Math.floor(Date.now() / 1000);
         const token = createJwtToken({
           iat: now - 7200, // 2 hours ago
@@ -317,11 +326,11 @@ describe('AuthGuard', () => {
           authorization: `Bearer ${token}`,
         });
 
-        expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        expectExceptionCode(() => guard.canActivate(context), 'TOKEN_EXPIRED');
+        await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+        await expectExceptionCode(() => guard.canActivate(context), 'TOKEN_EXPIRED');
       });
 
-      it('should accept token that expires in the future', () => {
+      it('should accept token that expires in the future', async () => {
         const now = Math.floor(Date.now() / 1000);
         const token = createJwtToken({
           iat: now,
@@ -331,11 +340,11 @@ describe('AuthGuard', () => {
           authorization: `Bearer ${token}`,
         });
 
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       });
 
-      it('should accept token expiring in 1 second', () => {
+      it('should accept token expiring in 1 second', async () => {
         const now = Math.floor(Date.now() / 1000);
         const token = createJwtToken({
           iat: now,
@@ -345,33 +354,33 @@ describe('AuthGuard', () => {
           authorization: `Bearer ${token}`,
         });
 
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       });
     });
 
     describe('Token Issuer Validation', () => {
-      it('should accept token with valid issuer', () => {
+      it('should accept token with valid issuer', async () => {
         const token = createJwtToken({ iss: JWT_ISSUER });
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       });
 
-      it('should reject token with invalid issuer', () => {
+      it('should reject token with invalid issuer', async () => {
         const token = createJwtToken({ iss: 'wrong-issuer' });
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        expectExceptionCode(() => guard.canActivate(context), 'INVALID_ISSUER');
+        await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+        await expectExceptionCode(() => guard.canActivate(context), 'INVALID_ISSUER');
       });
 
-      it('should accept token without issuer claim', () => {
+      it('should accept token without issuer claim', async () => {
         // Create token without issuer
         const header = { alg: 'HS256', typ: 'JWT' };
         const now = Math.floor(Date.now() / 1000);
@@ -396,89 +405,89 @@ describe('AuthGuard', () => {
           authorization: `Bearer ${token}`,
         });
 
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       });
     });
 
     describe('Token Audience Validation', () => {
-      it('should accept token with valid audience', () => {
+      it('should accept token with valid audience', async () => {
         const token = createJwtToken({ aud: JWT_AUDIENCE });
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       });
 
-      it('should accept token with audience array containing valid audience', () => {
+      it('should accept token with audience array containing valid audience', async () => {
         const token = createJwtToken({ aud: ['other-audience', JWT_AUDIENCE] });
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       });
 
-      it('should reject token with invalid audience', () => {
+      it('should reject token with invalid audience', async () => {
         const token = createJwtToken({ aud: 'wrong-audience' });
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        expectExceptionCode(() => guard.canActivate(context), 'INVALID_AUDIENCE');
+        await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+        await expectExceptionCode(() => guard.canActivate(context), 'INVALID_AUDIENCE');
       });
     });
 
     describe('Token Type Validation', () => {
-      it('should accept access token', () => {
+      it('should accept access token', async () => {
         const token = createJwtToken({ type: 'access' });
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       });
 
-      it('should reject refresh token', () => {
+      it('should reject refresh token', async () => {
         const token = createJwtToken({ type: 'refresh' });
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        expectExceptionCode(() => guard.canActivate(context), 'INVALID_TOKEN_TYPE');
+        await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+        await expectExceptionCode(() => guard.canActivate(context), 'INVALID_TOKEN_TYPE');
       });
     });
 
     describe('Token Blacklisting', () => {
-      it('should reject blacklisted token', () => {
+      it('should reject blacklisted token', async () => {
         const jti = 'token-to-blacklist';
         const now = Math.floor(Date.now() / 1000);
 
         // Blacklist the token
-        guard.blacklistToken(jti, now + 3600);
+        await guard.blacklistToken(jti, now + 3600);
 
         const token = createJwtToken({ jti });
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        expectExceptionCode(() => guard.canActivate(context), 'TOKEN_REVOKED');
+        await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+        await expectExceptionCode(() => guard.canActivate(context), 'TOKEN_REVOKED');
       });
 
-      it('should accept non-blacklisted token with jti', () => {
+      it('should accept non-blacklisted token with jti', async () => {
         const token = createJwtToken({ jti: 'valid-token-id' });
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        const result = guard.canActivate(context);
+        const result = await guard.canActivate(context);
         expect(result).toBe(true);
       });
     });
@@ -492,12 +501,12 @@ describe('AuthGuard', () => {
       });
     });
 
-    it('should accept valid API key in header', () => {
+    it('should accept valid API key in header', async () => {
       const context = createMockExecutionContext({
         'x-api-key': 'valid-api-key-123',
       });
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
 
       expect(result).toBe(true);
       const request = getRequest(context);
@@ -505,46 +514,46 @@ describe('AuthGuard', () => {
       expect(request.user!.sub).toBe('api-user-1');
     });
 
-    it('should accept valid API key in query parameter', () => {
+    it('should accept valid API key in query parameter', async () => {
       const context = createMockExecutionContext({}, { api_key: 'valid-api-key-123' });
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
 
       expect(result).toBe(true);
     });
 
-    it('should reject missing API key', () => {
+    it('should reject missing API key', async () => {
       const context = createMockExecutionContext({});
 
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      expectExceptionCode(() => guard.canActivate(context), 'MISSING_API_KEY');
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      await expectExceptionCode(() => guard.canActivate(context), 'MISSING_API_KEY');
     });
 
-    it('should reject invalid API key', () => {
+    it('should reject invalid API key', async () => {
       const context = createMockExecutionContext({
         'x-api-key': 'invalid-key',
       });
 
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      expectExceptionCode(() => guard.canActivate(context), 'INVALID_API_KEY');
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      await expectExceptionCode(() => guard.canActivate(context), 'INVALID_API_KEY');
     });
 
-    it('should reject disabled API key', () => {
+    it('should reject disabled API key', async () => {
       const context = createMockExecutionContext({
         'x-api-key': 'disabled-api-key',
       });
 
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      expectExceptionCode(() => guard.canActivate(context), 'API_KEY_DISABLED');
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      await expectExceptionCode(() => guard.canActivate(context), 'API_KEY_DISABLED');
     });
 
-    it('should prefer header API key over query parameter', () => {
+    it('should prefer header API key over query parameter', async () => {
       const context = createMockExecutionContext(
         { 'x-api-key': 'valid-api-key-123' },
         { api_key: 'invalid-key' },
       );
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
       expect(result).toBe(true);
     });
   });
@@ -557,13 +566,13 @@ describe('AuthGuard', () => {
       });
     });
 
-    it('should accept valid basic auth credentials', () => {
+    it('should accept valid basic auth credentials', async () => {
       const credentials = Buffer.from('admin:admin-password').toString('base64');
       const context = createMockExecutionContext({
         authorization: `Basic ${credentials}`,
       });
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
 
       expect(result).toBe(true);
       const request = getRequest(context);
@@ -571,65 +580,65 @@ describe('AuthGuard', () => {
       expect(request.user!.sub).toBe('admin');
     });
 
-    it('should accept service account credentials', () => {
+    it('should accept service account credentials', async () => {
       const credentials = Buffer.from('service:service-password').toString('base64');
       const context = createMockExecutionContext({
         authorization: `Basic ${credentials}`,
       });
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should reject missing Authorization header', () => {
+    it('should reject missing Authorization header', async () => {
       const context = createMockExecutionContext({});
 
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      expectExceptionCode(() => guard.canActivate(context), 'MISSING_AUTH_HEADER');
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      await expectExceptionCode(() => guard.canActivate(context), 'MISSING_AUTH_HEADER');
     });
 
-    it('should reject invalid auth scheme', () => {
+    it('should reject invalid auth scheme', async () => {
       const credentials = Buffer.from('admin:admin-password').toString('base64');
       const context = createMockExecutionContext({
         authorization: `Bearer ${credentials}`,
       });
 
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      expectExceptionCode(() => guard.canActivate(context), 'INVALID_AUTH_SCHEME');
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      await expectExceptionCode(() => guard.canActivate(context), 'INVALID_AUTH_SCHEME');
     });
 
-    it('should reject invalid credentials format (no colon)', () => {
+    it('should reject invalid credentials format (no colon)', async () => {
       const credentials = Buffer.from('invalidformat').toString('base64');
       const context = createMockExecutionContext({
         authorization: `Basic ${credentials}`,
       });
 
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should reject invalid username', () => {
+    it('should reject invalid username', async () => {
       const credentials = Buffer.from('wronguser:admin-password').toString('base64');
       const context = createMockExecutionContext({
         authorization: `Basic ${credentials}`,
       });
 
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      expectExceptionCode(() => guard.canActivate(context), 'INVALID_CREDENTIALS');
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      await expectExceptionCode(() => guard.canActivate(context), 'INVALID_CREDENTIALS');
     });
 
-    it('should reject invalid password', () => {
+    it('should reject invalid password', async () => {
       const credentials = Buffer.from('admin:wrong-password').toString('base64');
       const context = createMockExecutionContext({
         authorization: `Basic ${credentials}`,
       });
 
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      expectExceptionCode(() => guard.canActivate(context), 'INVALID_CREDENTIALS');
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      await expectExceptionCode(() => guard.canActivate(context), 'INVALID_CREDENTIALS');
     });
   });
 
   describe('Public Routes', () => {
-    it('should allow access to public routes without authentication', () => {
+    it('should allow access to public routes without authentication', async () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === IS_PUBLIC_KEY) return true;
         return false;
@@ -637,11 +646,11 @@ describe('AuthGuard', () => {
 
       const context = createMockExecutionContext({});
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should not require token for public routes', () => {
+    it('should not require token for public routes', async () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === IS_PUBLIC_KEY) return true;
         return false;
@@ -649,13 +658,13 @@ describe('AuthGuard', () => {
 
       const context = createMockExecutionContext({ authorization: 'invalid' });
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
       expect(result).toBe(true);
     });
   });
 
   describe('GraphQL Context', () => {
-    it('should extract request from GraphQL context', () => {
+    it('should extract request from GraphQL context', async () => {
       const token = createJwtToken({});
 
       // Since we can't easily mock the GqlExecutionContext in this test setup,
@@ -664,13 +673,13 @@ describe('AuthGuard', () => {
         authorization: `Bearer ${token}`,
       });
 
-      const result = guard.canActivate(httpContext);
+      const result = await guard.canActivate(httpContext);
       expect(result).toBe(true);
     });
   });
 
   describe('Security', () => {
-    it('should use timing-safe comparison for signatures', () => {
+    it('should use timing-safe comparison for signatures', async () => {
       // This test verifies the implementation uses timingSafeEqual
       // by checking that slightly different signatures are rejected
       const validToken = createJwtToken({});
@@ -685,10 +694,10 @@ describe('AuthGuard', () => {
         authorization: `Bearer ${tamperedToken}`,
       });
 
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should hash API keys before storage lookup', () => {
+    it('should hash API keys before storage lookup', async () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === API_KEY_AUTH_KEY) return true;
         return false;
@@ -699,17 +708,17 @@ describe('AuthGuard', () => {
         'x-api-key': 'valid-api-key-123',
       });
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should not expose sensitive information in error messages', () => {
+    it('should not expose sensitive information in error messages', async () => {
       const context = createMockExecutionContext({
         authorization: 'Bearer invalid.token.here',
       });
 
       try {
-        guard.canActivate(context);
+        await guard.canActivate(context);
         fail('Should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(UnauthorizedException);
@@ -720,43 +729,43 @@ describe('AuthGuard', () => {
   });
 
   describe('Edge Cases', () => {
-    it('should handle empty Authorization header', () => {
+    it('should handle empty Authorization header', async () => {
       const context = createMockExecutionContext({
         authorization: '',
       });
 
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should handle Authorization header with only Bearer', () => {
+    it('should handle Authorization header with only Bearer', async () => {
       const context = createMockExecutionContext({
         authorization: 'Bearer',
       });
 
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should handle Authorization header with extra spaces', () => {
+    it('should handle Authorization header with extra spaces', async () => {
       const token = createJwtToken({});
       const context = createMockExecutionContext({
         authorization: `Bearer  ${token}`,
       });
 
       // Extra space should cause validation to fail
-      expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should handle case-insensitive Bearer scheme', () => {
+    it('should handle case-insensitive Bearer scheme', async () => {
       const token = createJwtToken({});
       const context = createMockExecutionContext({
         authorization: `BEARER ${token}`,
       });
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should handle very long tokens', () => {
+    it('should handle very long tokens', async () => {
       // Create a token with a lot of claims
       const token = createJwtToken({
         permissions: Array(100)
@@ -767,13 +776,13 @@ describe('AuthGuard', () => {
         authorization: `Bearer ${token}`,
       });
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
       expect(result).toBe(true);
     });
   });
 
   describe('Performance', () => {
-    it('should handle rapid authentication requests', () => {
+    it('should handle rapid authentication requests', async () => {
       const startTime = Date.now();
 
       for (let i = 0; i < 1000; i++) {
@@ -782,7 +791,7 @@ describe('AuthGuard', () => {
           authorization: `Bearer ${token}`,
         });
 
-        guard.canActivate(context);
+        await guard.canActivate(context);
       }
 
       const duration = Date.now() - startTime;

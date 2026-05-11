@@ -487,7 +487,12 @@ export class OpaClientService extends EventEmitter implements OnModuleInit, OnMo
       }
     }
 
-    throw lastError;
+    // After the retry loop exits, lastError MUST be defined (the loop only
+    // continues when an error is caught) — but TypeScript's flow analysis
+    // can't prove that. Throw an explicit Error if the value is somehow
+    // undefined so the @typescript-eslint/only-throw-error rule is satisfied
+    // structurally rather than via a non-null assertion.
+    throw lastError ?? new Error('OPA request failed after retries (no captured error)');
   }
 
   /**

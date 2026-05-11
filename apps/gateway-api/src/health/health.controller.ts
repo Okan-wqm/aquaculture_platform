@@ -1,20 +1,40 @@
-import { Controller, Get, HttpCode, HttpException, HttpStatus, Res, UseGuards } from '@nestjs/common';
-import { Response } from 'express';
+import { readFileSync } from 'fs';
+import { createRequire } from 'module';
 
 import { Role, Roles } from '@aquaculture/backend-common/decorators';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
+import { Controller, Get, HttpCode, HttpStatus, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
+
 import { Public } from '../guards/auth.guard';
 
 import { HealthService, HealthStatus } from './health.service';
 
 /**
+ * Minimal package.json subset used by safeRequireVersion. Avoids `any` from
+ * a raw JSON.parse return.
+ */
+interface PackageManifest {
+  version?: string;
+}
+
+/**
  * Reads the version field from a package's package.json at runtime.
  * Returns 'unknown' if the package is not resolvable.
+ *
+ * Uses createRequire(import.meta-equivalent) to resolve the path via the
+ * normal Node.js module resolver, then reads the file via fs and parses
+ * it as JSON — this avoids the @typescript-eslint/no-require-imports rule
+ * (require() is restricted in TypeScript ESM-style code) while preserving
+ * the original semantics (Node resolution from the gateway-api package).
  */
+const localRequire = createRequire(__filename);
 function safeRequireVersion(packageJsonPath: string): string {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require(packageJsonPath).version;
+    const resolved = localRequire.resolve(packageJsonPath);
+    const raw = readFileSync(resolved, 'utf8');
+    const manifest = JSON.parse(raw) as PackageManifest;
+    return manifest.version ?? 'unknown';
   } catch {
     return 'unknown';
   }

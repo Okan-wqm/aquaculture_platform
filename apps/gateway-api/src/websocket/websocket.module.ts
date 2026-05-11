@@ -1,18 +1,18 @@
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 
+import { FarmNatsBridgeService } from './farm-nats-bridge.service';
+import { FarmGateway } from './farm.gateway';
+import { MessagingNatsBridgeService } from './messaging-nats-bridge.service';
+import { MessagingGateway } from './messaging.gateway';
 import { NatsBridgeService } from './nats-bridge.service';
 import { SensorReadingsGateway } from './sensor-readings.gateway';
 import { DeviceOwnershipService } from './services/device-ownership.service';
-import { STLanguageGateway } from './st-language.gateway';
 import { STLanguageBridgeService } from './st-language-bridge.service';
-import { MessagingGateway } from './messaging.gateway';
-import { MessagingNatsBridgeService } from './messaging-nats-bridge.service';
-import { FarmGateway } from './farm.gateway';
-import { FarmNatsBridgeService } from './farm-nats-bridge.service';
+import { STLanguageGateway } from './st-language.gateway';
 
 @Module({
   imports: [

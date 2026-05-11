@@ -4,8 +4,9 @@
  * Verifies the double-submit cookie CSRF protection pattern.
  */
 
-import { CsrfMiddleware } from './csrf.middleware';
 import { Request, Response, NextFunction } from 'express';
+
+import { CsrfMiddleware } from './csrf.middleware';
 
 describe('CsrfMiddleware', () => {
   let middleware: CsrfMiddleware;
@@ -14,11 +15,11 @@ describe('CsrfMiddleware', () => {
   const createMockRequest = (
     method: string,
     cookies: Record<string, string> = {},
-    headers: Record<string, string> = {},
+    headers: Record<string, string | string[] | undefined> = {},
   ): Partial<Request> => ({
     method,
     cookies,
-    headers: headers as Record<string, string | string[] | undefined>,
+    headers,
     path: '/test',
   });
 
@@ -26,19 +27,19 @@ describe('CsrfMiddleware', () => {
     statusCode: number;
     body: unknown;
     cookies: Record<string, { value: string; options: unknown }>;
-    cookie: jest.Mock;
-    status: jest.Mock;
-    json: jest.Mock;
+    cookie: jest.Mock<MockRes, [name: string, value: string, options: unknown]>;
+    status: jest.Mock<MockRes, [code: number]>;
+    json: jest.Mock<MockRes, [body: unknown]>;
   }
 
   const createMockResponse = (): MockRes => {
     const mockRes: MockRes = {
       statusCode: 200,
-      body: null as unknown,
-      cookies: {} as Record<string, { value: string; options: unknown }>,
-      cookie: jest.fn(),
-      status: jest.fn(),
-      json: jest.fn(),
+      body: null,
+      cookies: {},
+      cookie: jest.fn<MockRes, [name: string, value: string, options: unknown]>(),
+      status: jest.fn<MockRes, [code: number]>(),
+      json: jest.fn<MockRes, [body: unknown]>(),
     };
     mockRes.cookie.mockImplementation((name: string, value: string, options: unknown) => {
       mockRes.cookies[name] = { value, options };
@@ -65,7 +66,7 @@ describe('CsrfMiddleware', () => {
       const req = createMockRequest(method);
       const res = createMockResponse();
 
-      middleware.use(req as Request, res as unknown as Response, mockNext as NextFunction);
+      middleware.use(req as Request, res as unknown as Response, mockNext);
 
       expect(res.cookie).toHaveBeenCalledWith(
         'csrf-token',
@@ -77,7 +78,7 @@ describe('CsrfMiddleware', () => {
         }),
       );
       // Token should be a 64-char hex string (32 bytes)
-      const token = (res.cookie as jest.Mock).mock.calls[0][1] as string;
+      const token = res.cookie.mock.calls[0]?.[1];
       expect(token).toMatch(/^[0-9a-f]{64}$/);
       expect(mockNext).toHaveBeenCalled();
     });
@@ -88,7 +89,7 @@ describe('CsrfMiddleware', () => {
       const req = createMockRequest(method, {}, { 'x-csrf-token': 'some-token' });
       const res = createMockResponse();
 
-      middleware.use(req as Request, res as unknown as Response, mockNext as NextFunction);
+      middleware.use(req as Request, res as unknown as Response, mockNext);
 
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json).toHaveBeenCalledWith({ error: 'CSRF token missing' });
@@ -99,7 +100,7 @@ describe('CsrfMiddleware', () => {
       const req = createMockRequest(method, { 'csrf-token': 'some-token' });
       const res = createMockResponse();
 
-      middleware.use(req as Request, res as unknown as Response, mockNext as NextFunction);
+      middleware.use(req as Request, res as unknown as Response, mockNext);
 
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json).toHaveBeenCalledWith({ error: 'CSRF token missing' });
@@ -116,7 +117,7 @@ describe('CsrfMiddleware', () => {
       );
       const res = createMockResponse();
 
-      middleware.use(req as Request, res as unknown as Response, mockNext as NextFunction);
+      middleware.use(req as Request, res as unknown as Response, mockNext);
 
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json).toHaveBeenCalledWith({ error: 'CSRF token mismatch' });
@@ -134,7 +135,7 @@ describe('CsrfMiddleware', () => {
       );
       const res = createMockResponse();
 
-      middleware.use(req as Request, res as unknown as Response, mockNext as NextFunction);
+      middleware.use(req as Request, res as unknown as Response, mockNext);
 
       expect(mockNext).toHaveBeenCalled();
       expect(res.status).not.toHaveBeenCalled();
@@ -149,7 +150,7 @@ describe('CsrfMiddleware', () => {
       );
       const res = createMockResponse();
 
-      middleware.use(req as Request, res as unknown as Response, mockNext as NextFunction);
+      middleware.use(req as Request, res as unknown as Response, mockNext);
 
       expect(mockNext).toHaveBeenCalled();
     });

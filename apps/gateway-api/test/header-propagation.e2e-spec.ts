@@ -1,12 +1,18 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { AppModule } from '../src/app.module';
 import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+import request from 'supertest';
+import type { App } from 'supertest/types';
 
-// Mock ConfigService to avoid env vars dependency
+import { AppModule } from '../src/app.module';
+
+
+// Mock ConfigService to avoid env vars dependency.
+// `defaultValue` is `unknown` because ConfigService.get's overload returns
+// either the typed value or whatever default the caller passes — we don't
+// inspect it here, we just echo it.
 const mockConfigService = {
-  get: jest.fn((key: string, defaultValue: any) => {
+  get: jest.fn((key: string, defaultValue: unknown): unknown => {
     if (key === 'JWT_SECRET') return 'test-secret-at-least-32-chars-long-for-safety';
     if (key === 'NODE_ENV') return 'test';
     if (key === 'ALLOW_DEV_JWT_SECRET') return 'true';
@@ -36,7 +42,7 @@ describe('Gateway Header Propagation (e2e)', () => {
 
   describe('Health endpoint', () => {
     it('should return 200 for health check', async () => {
-      return request(app.getHttpServer())
+      return request(app.getHttpServer() as App)
         .get('/health')
         .expect(200);
     });
@@ -44,7 +50,7 @@ describe('Gateway Header Propagation (e2e)', () => {
 
   describe('Correlation ID handling', () => {
     it('should generate correlation-id if not provided', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer() as App)
         .get('/health')
         .expect(200);
 
@@ -54,7 +60,7 @@ describe('Gateway Header Propagation (e2e)', () => {
     it('should preserve correlation-id if provided', async () => {
       const correlationId = 'test-correlation-id-12345';
 
-      const response = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer() as App)
         .get('/health')
         .set('x-correlation-id', correlationId)
         .expect(200);
@@ -65,7 +71,7 @@ describe('Gateway Header Propagation (e2e)', () => {
 
   describe('Trace context handling', () => {
     it('should generate trace-id if not provided', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer() as App)
         .get('/health')
         .expect(200);
 
@@ -76,7 +82,7 @@ describe('Gateway Header Propagation (e2e)', () => {
     it('should propagate W3C traceparent header', async () => {
       const traceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
 
-      const response = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer() as App)
         .get('/health')
         .set('traceparent', traceparent)
         .expect(200);

@@ -1,22 +1,37 @@
+import { RedisService } from '@aquaculture/backend-common/redis';
+
 import { RedisTokenBlacklistStore, InMemoryTokenBlacklistStore } from '../redis-token-blacklist.store';
 
 /**
- * Tests for RedisTokenBlacklistStore and InMemoryTokenBlacklistStore
- * Verifies security-critical token blacklist behavior including fail-closed semantics
+ * Tests for RedisTokenBlacklistStore and InMemoryTokenBlacklistStore.
+ * Verifies security-critical token blacklist behavior including fail-closed semantics.
+ *
+ * RedisService's constructor needs a connection-config object; we instantiate it via
+ * Object.create(RedisService.prototype) so the prototype chain (and therefore
+ * `instanceof RedisService` checks) is satisfied without firing the real Redis
+ * connection. We then attach get/set jest mocks directly on the bare instance.
  */
+interface RedisGetSetMock {
+  get: jest.Mock<Promise<string | null>, [key: string]>;
+  set: jest.Mock<Promise<string | null>, [key: string, value: string, ttl?: number]>;
+}
+
+function createRedisServiceMock(): RedisService & RedisGetSetMock {
+  // Build a bare RedisService instance whose prototype is the real class so
+  // `instanceof RedisService` succeeds, but no real connection is opened.
+  const stub = Object.create(RedisService.prototype) as RedisService & RedisGetSetMock;
+  stub.get = jest.fn();
+  stub.set = jest.fn();
+  return stub;
+}
+
 describe('RedisTokenBlacklistStore', () => {
   let store: RedisTokenBlacklistStore;
-  let mockRedisService: jest.Mocked<{
-    get: jest.Mock;
-    set: jest.Mock;
-  }>;
+  let mockRedisService: RedisService & RedisGetSetMock;
 
   beforeEach(() => {
-    mockRedisService = {
-      get: jest.fn(),
-      set: jest.fn(),
-    };
-    store = new RedisTokenBlacklistStore(mockRedisService as any);
+    mockRedisService = createRedisServiceMock();
+    store = new RedisTokenBlacklistStore(mockRedisService);
   });
 
   describe('add', () => {
@@ -35,7 +50,7 @@ describe('RedisTokenBlacklistStore', () => {
       );
 
       // TTL should be approximately 3600 seconds (within a few seconds margin)
-      const actualTtl = mockRedisService.set.mock.calls[0][2];
+      const actualTtl = mockRedisService.set.mock.calls[0]?.[2];
       expect(actualTtl).toBeGreaterThan(3595);
       expect(actualTtl).toBeLessThanOrEqual(3600);
     });
@@ -48,7 +63,7 @@ describe('RedisTokenBlacklistStore', () => {
 
       await store.add(jti, exp);
 
-      const actualTtl = mockRedisService.set.mock.calls[0][2];
+      const actualTtl = mockRedisService.set.mock.calls[0]?.[2];
       expect(actualTtl).toBe(1);
     });
 

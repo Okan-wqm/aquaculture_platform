@@ -1,6 +1,9 @@
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 import { Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { ClientProxy } from '@nestjs/microservices';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -9,11 +12,8 @@ import {
   OnGatewayInit,
   SubscribeMessage,
 } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
-import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
-import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
+import { Server, Socket } from 'socket.io';
 
 // Types
 

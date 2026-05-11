@@ -10,9 +10,10 @@
  * from sending the cookie on cross-origin requests.
  */
 
+import * as crypto from 'crypto';
+
 import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import * as crypto from 'crypto';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const CSRF_COOKIE_NAME = 'csrf-token';

@@ -1,6 +1,6 @@
+import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 import { Controller, Get, Res, Header } from '@nestjs/common';
 import { Response } from 'express';
-import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 
 import { Public } from '../guards/auth.guard';
 

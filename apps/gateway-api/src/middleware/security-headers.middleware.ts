@@ -6,10 +6,11 @@
  * Configurable for different security levels and environments.
  */
 
+import { randomBytes } from 'node:crypto';
+
 import { Injectable, NestMiddleware, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';
-import { randomBytes } from 'node:crypto';
 
 /**
  * Security header configuration

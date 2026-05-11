@@ -250,10 +250,15 @@ class LifecyclePreservationTests(unittest.TestCase):
 
     def test_rejection_reason_uses_existing_rejected_state(self) -> None:
         from aria_kernel.agent_invocations import DERIVED_STATES
-        # 10-state list does NOT include COMPLIANCE_REJECTED.
+        # State list does NOT include COMPLIANCE_REJECTED (compliance
+        # rejection annotates the existing REJECTED state via
+        # ``rejection_reason``, no 11th state added). Plan 026R §C.5
+        # expanded the list with bridge-aware acceptance states
+        # (ACCEPTED_PENDING_BRIDGE + ACCEPTED_PENDING_BRIDGE_PERMANENT_
+        # FAIL); count is now 12.
         self.assertNotIn("COMPLIANCE_REJECTED", DERIVED_STATES)
         self.assertIn("REJECTED", DERIVED_STATES)
-        self.assertEqual(len(DERIVED_STATES), 10)
+        self.assertEqual(len(DERIVED_STATES), 12)
 
 
 class PersistenceTests(unittest.TestCase):

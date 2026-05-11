@@ -102,19 +102,33 @@ const POLICY_PATHS = {
 };
 
 /**
- * Built-in policies for fallback when OPA is unavailable
+ * Built-in policies for fallback when OPA is unavailable.
+ *
+ * Iteration order is significant — Object.entries() preserves insertion order,
+ * and `evaluateWithFallback()` returns on the first match. We list the most
+ * specific allow rules first (systemAdmin, ownerAccess) before the broader
+ * tenantIsolation gate so the audit log records WHY the request was allowed
+ * with the tightest possible reason. The semantics of tenantIsolation are
+ * also tightened: the previous "absent resource tenantId is OK" branch let
+ * unscoped resources match tenantIsolation indiscriminately and shadow the
+ * narrower ownerAccess rule. The active match now requires BOTH tenantIds
+ * to be present and equal — explicit equality, no absence-OK fall-through.
  */
 const FALLBACK_POLICIES: Record<string, (context: AuthorizationContext) => boolean> = {
   // System admin can do anything
   systemAdmin: (ctx) => ctx.subject.roles?.includes('system_admin') ?? false,
 
-  // Users can only access their own tenant
-  tenantIsolation: (ctx) =>
-    !ctx.resource.tenantId || ctx.subject.tenantId === ctx.resource.tenantId,
-
-  // Resource owner has full access
+  // Resource owner has full access (evaluated before tenantIsolation so an
+  // owner match wins even when the resource carries no tenantId)
   ownerAccess: (ctx) =>
     !!ctx.resource.ownerId && ctx.subject.id === ctx.resource.ownerId,
+
+  // Users can access resources within their own tenant. Both tenant IDs must
+  // be present AND equal — an absent resource.tenantId is no longer treated
+  // as automatic permission (the previous loose check shadowed ownerAccess
+  // for unscoped resources).
+  tenantIsolation: (ctx) =>
+    !!ctx.resource.tenantId && ctx.subject.tenantId === ctx.resource.tenantId,
 };
 
 /**

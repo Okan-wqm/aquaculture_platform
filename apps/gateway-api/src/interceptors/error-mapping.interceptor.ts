@@ -337,8 +337,18 @@ export class ErrorMappingInterceptor implements NestInterceptor {
 
   /**
    * Infer HTTP status from error pattern
+   *
+   * Pattern ordering matters: "not null violation" must be checked BEFORE
+   * the generic 'constraint' branch — both literally contain "violation",
+   * but the semantics differ. A NOT NULL violation is a client mistake
+   * (missing field) → 400 BAD_REQUEST. A unique/foreign-key constraint
+   * is a state conflict (record exists / blocked by relation) → 409
+   * CONFLICT. Folding them together loses that distinction.
    */
   private inferStatusFromPattern(pattern: string): number {
+    if (pattern.includes('not null')) {
+      return HttpStatus.BAD_REQUEST;
+    }
     if (pattern.includes('duplicate') || pattern.includes('unique') || pattern.includes('constraint')) {
       return HttpStatus.CONFLICT;
     }

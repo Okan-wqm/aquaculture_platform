@@ -21,6 +21,7 @@ import * as crypto from 'crypto';
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 
 
@@ -31,6 +32,8 @@ import {
   BASIC_AUTH_KEY,
   JwtPayload,
 } from '../auth.guard';
+import { ApiKeyAuthStrategy } from '../strategies/api-key-auth.strategy';
+import { BasicAuthStrategy } from '../strategies/basic-auth.strategy';
 
 /**
  * Interface for authenticated request
@@ -168,14 +171,103 @@ describe('AuthGuard', () => {
     }
   };
 
+  /**
+   * Mock JwtService.verifyAsync that mirrors the production verifier's contract
+   * for these tests' HS256 fixtures.
+   *
+   * WHY a real-shape mock instead of `useValue: { verifyAsync: jest.fn() }`:
+   * production AuthGuard.validateJwt relies on the verifier rejecting bad iss /
+   * aud / exp / signature / structure with library-equivalent errors. The
+   * downstream UnauthorizedException codes (INVALID_TOKEN, INVALID_ISSUER,
+   * INVALID_AUDIENCE, TOKEN_EXPIRED) are asserted by tests, so a no-op mock
+   * would silently let invalid tokens through. We re-implement the same checks
+   * against the HS256 test secret so every assertion the spec makes about JWT
+   * verification logic still runs against a contract-faithful surface.
+   *
+   * The production AuthGuard at apps/gateway-api/src/guards/auth.guard.ts
+   * verifies RS256 tokens via `getJwtVerifyOptions(configService).publicKey`.
+   * The tests pre-date the RS256 migration and still construct HS256 tokens
+   * with `JWT_SECRET`. The mock bridges the two: the guard receives a
+   * `JwtService`-shaped collaborator whose contract matches what AuthGuard
+   * relies on, while the spec keeps its HS256 fixtures.
+   */
+  const verifyHs256Token = (token: string): JwtPayload => {
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      throw new Error('jwt malformed');
+    }
+    const headerB64 = parts[0] ?? '';
+    const payloadB64 = parts[1] ?? '';
+    const signatureB64 = parts[2] ?? '';
+
+    const data = `${headerB64}.${payloadB64}`;
+    const expectedSignature = crypto
+      .createHmac('sha256', JWT_SECRET)
+      .update(data)
+      .digest();
+    const expectedSignatureB64 = base64UrlEncode(expectedSignature);
+
+    // Use timing-safe comparison to mirror production verifier semantics.
+    const a = Buffer.from(signatureB64, 'utf8');
+    const b = Buffer.from(expectedSignatureB64, 'utf8');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      throw new Error('invalid signature');
+    }
+
+    const padding = '='.repeat((4 - (payloadB64.length % 4)) % 4);
+    const payloadJson = Buffer.from(
+      payloadB64.replace(/-/g, '+').replace(/_/g, '/') + padding,
+      'base64',
+    ).toString('utf8');
+    const payload = JSON.parse(payloadJson) as JwtPayload;
+
+    const now = Math.floor(Date.now() / 1000);
+    if (typeof payload.exp === 'number' && payload.exp < now) {
+      const err = new Error('jwt expired') as Error & { name: string };
+      err.name = 'TokenExpiredError';
+      throw err;
+    }
+
+    if (payload.iss !== undefined && payload.iss !== JWT_ISSUER) {
+      const err = new Error('jwt issuer invalid') as Error & { name: string };
+      err.name = 'JsonWebTokenError';
+      throw err;
+    }
+
+    if (payload.aud !== undefined) {
+      const audMatch = Array.isArray(payload.aud)
+        ? payload.aud.includes(JWT_AUDIENCE)
+        : payload.aud === JWT_AUDIENCE;
+      if (!audMatch) {
+        const err = new Error('jwt audience invalid') as Error & { name: string };
+        err.name = 'JsonWebTokenError';
+        throw err;
+      }
+    }
+
+    return payload;
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthGuard,
+        ApiKeyAuthStrategy,
+        BasicAuthStrategy,
         {
           provide: Reflector,
           useValue: {
             getAllAndOverride: jest.fn().mockReturnValue(false),
+          },
+        },
+        {
+          provide: JwtService,
+          useValue: {
+            verifyAsync: jest.fn(async (token: string) =>
+              Promise.resolve(verifyHs256Token(token)),
+            ),
+            sign: jest.fn(),
+            verify: jest.fn(),
           },
         },
         {
@@ -186,6 +278,10 @@ describe('AuthGuard', () => {
                 JWT_SECRET: JWT_SECRET,
                 JWT_ISSUER: JWT_ISSUER,
                 JWT_AUDIENCE: JWT_AUDIENCE,
+                // Provided so production code paths that read getJwtVerifyOptions
+                // don't crash; the mock JwtService ignores the options anyway.
+                JWT_PUBLIC_KEY:
+                  '-----BEGIN PUBLIC KEY-----\nTEST-PLACEHOLDER\n-----END PUBLIC KEY-----',
                 API_KEYS: JSON.stringify([
                   {
                     key: 'valid-api-key-123',
@@ -211,9 +307,17 @@ describe('AuthGuard', () => {
                     expiresAt: new Date('2020-01-01'),
                   },
                 ]),
+                // BasicAuthStrategy.loadBasicAuthCredentials() at
+                // apps/gateway-api/src/guards/strategies/basic-auth.strategy.ts:113
+                // accepts pre-hashed bcrypt strings synchronously and only
+                // schedules async bcrypt.hash() for raw passwords. Tests need
+                // the credentials map populated before the first canActivate()
+                // call, so we provide pre-hashed bcrypt values verifiable by
+                // bcrypt.compare(plain, hash). The plain passwords correspond
+                // to 'admin-password' and 'service-password' respectively.
                 BASIC_AUTH_CREDENTIALS: JSON.stringify({
-                  admin: 'admin-password',
-                  service: 'service-password',
+                  admin: '$2b$10$TMcrSCMcXE.8I6CaUZpSwO7O/fpWsrwau8Ia0hdHoJvswji8tCyRS',
+                  service: '$2b$10$uBzZxjtSXtjzBG7Oi0slFuT7RRb7RfDQgrTsKgnmTnssjl6AEsk4e',
                 }),
               };
               return config[key] ?? defaultValue;
@@ -326,8 +430,13 @@ describe('AuthGuard', () => {
           authorization: `Bearer ${token}`,
         });
 
+        // AuthGuard collapses every verifier failure (expired / bad signature /
+        // bad iss / bad aud / structural) into a single INVALID_TOKEN code at
+        // apps/gateway-api/src/guards/auth.guard.ts:217. The previous spec
+        // expected granular codes that the production guard no longer emits;
+        // asserting the actual contract here.
         await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
-        await expectExceptionCode(() => guard.canActivate(context), 'TOKEN_EXPIRED');
+        await expectExceptionCode(() => guard.canActivate(context), 'INVALID_TOKEN');
       });
 
       it('should accept token that expires in the future', async () => {
@@ -376,8 +485,10 @@ describe('AuthGuard', () => {
           authorization: `Bearer ${token}`,
         });
 
+        // See note on the expired-token test: every verifier failure surfaces
+        // as INVALID_TOKEN in the current guard contract.
         await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
-        await expectExceptionCode(() => guard.canActivate(context), 'INVALID_ISSUER');
+        await expectExceptionCode(() => guard.canActivate(context), 'INVALID_TOKEN');
       });
 
       it('should accept token without issuer claim', async () => {
@@ -437,8 +548,10 @@ describe('AuthGuard', () => {
           authorization: `Bearer ${token}`,
         });
 
+        // See note on the expired-token test: every verifier failure surfaces
+        // as INVALID_TOKEN in the current guard contract.
         await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
-        await expectExceptionCode(() => guard.canActivate(context), 'INVALID_AUDIENCE');
+        await expectExceptionCode(() => guard.canActivate(context), 'INVALID_TOKEN');
       });
     });
 
@@ -514,12 +627,18 @@ describe('AuthGuard', () => {
       expect(request.user!.sub).toBe('api-user-1');
     });
 
-    it('should accept valid API key in query parameter', async () => {
+    it('should reject API key in query parameter (header-only by policy)', async () => {
+      // SECURITY: ApiKeyAuthStrategy.validate() at
+      // apps/gateway-api/src/guards/strategies/api-key-auth.strategy.ts:53
+      // accepts API keys ONLY from the x-api-key header. Query parameters
+      // get logged, cached, and leak into browser history / referrer headers,
+      // so the strategy intentionally refuses them. This spec asserts that
+      // header-only contract; the prior expectation that query-param keys
+      // were accepted reflected the pre-hardening behaviour.
       const context = createMockExecutionContext({}, { api_key: 'valid-api-key-123' });
 
-      const result = await guard.canActivate(context);
-
-      expect(result).toBe(true);
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      await expectExceptionCode(() => guard.canActivate(context), 'MISSING_API_KEY');
     });
 
     it('should reject missing API key', async () => {

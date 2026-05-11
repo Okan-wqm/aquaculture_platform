@@ -66,7 +66,17 @@ describe('LoadBalancerService', () => {
         {
           provide: ConfigService,
           useValue: {
-            get: jest.fn((key: string, defaultValue?: unknown) => defaultValue),
+            // INTERNAL_SERVICE_SECRET is required by buildSignedInternalHeaders
+            // (called from performHealthCheck). Injecting via ConfigService
+            // mirrors the production resolution path and keeps the test
+            // hermetic without mutating process.env. Any 32+ byte value is
+            // valid; the HMAC output isn't asserted, only that signing succeeds.
+            get: jest.fn((key: string, defaultValue?: unknown) => {
+              if (key === 'INTERNAL_SERVICE_SECRET') {
+                return 'test-shared-secret-32-bytes-min!!!';
+              }
+              return defaultValue;
+            }),
           },
         },
       ],

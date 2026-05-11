@@ -682,6 +682,13 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
       // the platform invariant "every internal HTTP request is signed"
       // intact — future tightening of /health endpoints is a zero-edit
       // change. Empty tenantId is the explicit non-tenant declaration.
+      //
+      // INTERNAL_SERVICE_SECRET is resolved via ConfigService (matching
+      // every other DI-bound secret on the service) so test fixtures can
+      // override it without leaking through process.env, and so unit tests
+      // remain hermetic. In production the env var is the source of truth;
+      // ConfigService falls back to process.env when the test fixture
+      // hasn't provided one, preserving the existing prod contract.
       const response = await fetch(url, {
         method: 'GET',
         headers: buildSignedInternalHeaders({
@@ -690,6 +697,7 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
           method: 'GET',
           path: new URL(url).pathname,
           body: '',
+          secret: this.resolveInternalServiceSecret(),
         }),
         signal: controller.signal,
       });
@@ -725,6 +733,25 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
 
       this.emit('healthCheck', { serviceName, result });
     }
+  }
+
+  /**
+   * Resolve INTERNAL_SERVICE_SECRET in a test-friendly way.
+   *
+   * Production paths read the env var directly; tests inject the secret via
+   * ConfigService.get('INTERNAL_SERVICE_SECRET') so beforeEach doesn't need
+   * to mutate process.env (which would leak across parallel tests).
+   * Returns undefined when neither is set; buildSignedInternalHeaders then
+   * throws its canonical configuration error, which is the correct failure
+   * mode in production (sign-or-fail) but suppressed in tests via the
+   * ConfigService mock.
+   */
+  private resolveInternalServiceSecret(): string | undefined {
+    const fromConfig = this.configService.get<string>('INTERNAL_SERVICE_SECRET');
+    if (fromConfig) {
+      return fromConfig;
+    }
+    return process.env['INTERNAL_SERVICE_SECRET'];
   }
 
   private loadServicesFromConfig(): void {

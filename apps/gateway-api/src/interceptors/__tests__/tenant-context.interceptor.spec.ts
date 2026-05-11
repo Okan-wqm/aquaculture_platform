@@ -219,20 +219,30 @@ describe('TenantContextInterceptor', () => {
       });
     });
 
-    it('should extract tenant ID from query parameter', (done) => {
+    it('should NOT extract tenant ID from query parameter (MT-CRITICAL-001 closure)', (done) => {
+      // SECURITY (MT-CRITICAL-001 — 3rd cycle closure, commit 799c3b68):
+      // The query-string tenantId source was deleted from extractTenantId()
+      // at apps/gateway-api/src/interceptors/tenant-context.interceptor.ts
+      // because it has no cryptographic binding and can be appended by any
+      // client. The platform invariant
+      // tests/invariants/no-query-param-tenant.spec.ts now bans this read
+      // wholesale. The prior expectation that query.tenantId was honoured
+      // is therefore architecturally incorrect; this spec locks in the
+      // current contract that a query-only tenant fails with
+      // UnauthorizedException on non-public paths.
       const context = createMockExecutionContext({
         query: { tenantId: 'query-tenant-111' },
+        path: '/api/v1/farms',
       });
       const handler = createMockCallHandler();
 
-      interceptor.intercept(context, handler).subscribe({
-        next: () => {
-          const request = context.switchToHttp().getRequest();
-          expect(request.tenantId).toBe('query-tenant-111');
-          done();
-        },
-        error: done.fail,
-      });
+      try {
+        interceptor.intercept(context, handler);
+        done.fail('Expected UnauthorizedException for query-only tenant');
+      } catch (error) {
+        expect(error).toBeInstanceOf(UnauthorizedException);
+        done();
+      }
     });
 
     it('should extract tenant ID from path parameter', (done) => {
@@ -297,7 +307,14 @@ describe('TenantContextInterceptor', () => {
       });
     });
 
-    it('should prioritize header over other sources', (done) => {
+    it('should prioritize JWT user payload over header and other sources', (done) => {
+      // SECURITY (MT-CRITICAL-001 — 3rd cycle closure, commit 799c3b68):
+      // JWT is the cryptographically verified trust anchor. The current
+      // priority order in extractTenantId() is JWT user payload first, then
+      // x-tenant-id header (for pre-auth / signed-internal RPC paths), then
+      // URL :tenantId path param, then subdomain. Query is no longer a
+      // source. The prior expectation that header wins over JWT reflected
+      // the pre-hardening contract.
       const context = createMockExecutionContext({
         headers: { 'x-tenant-id': 'header-tenant' },
         user: { sub: 'user-1', tenantId: 'jwt-tenant' },
@@ -308,7 +325,7 @@ describe('TenantContextInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         next: () => {
           const request = context.switchToHttp().getRequest();
-          expect(request.tenantId).toBe('header-tenant');
+          expect(request.tenantId).toBe('jwt-tenant');
           done();
         },
         error: done.fail,
@@ -346,21 +363,23 @@ describe('TenantContextInterceptor', () => {
   });
 
   describe('Tenant Required', () => {
-    it('should throw UnauthorizedException when tenant is required but not found', (done) => {
+    it('should throw UnauthorizedException when tenant is required but not found', () => {
+      // TenantContextInterceptor.intercept() at
+      // apps/gateway-api/src/interceptors/tenant-context.interceptor.ts:139
+      // throws UnauthorizedException SYNCHRONOUSLY before constructing the
+      // Observable — see the early-exit path before the
+      // `return new Observable(...)` block. The previous spec wrapped this
+      // in `.subscribe({ error })`, but a sync throw never reaches that
+      // callback because subscribe() is never called. The correct assertion
+      // is a sync expect().toThrow().
       const context = createMockExecutionContext({
         path: '/api/v1/farms',
         headers: { host: 'api.example.com' },
       });
       const handler = createMockCallHandler();
 
-      interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
-        error: (error) => {
-          expect(error).toBeInstanceOf(UnauthorizedException);
-          expect(error.message).toBe('Tenant context is required');
-          done();
-        },
-      });
+      expect(() => interceptor.intercept(context, handler)).toThrow(UnauthorizedException);
+      expect(() => interceptor.intercept(context, handler)).toThrow('Tenant context is required');
     });
   });
 

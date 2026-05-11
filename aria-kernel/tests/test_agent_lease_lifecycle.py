@@ -200,7 +200,10 @@ class LeaseLifecycleTests(unittest.TestCase):
         )
 
     def test_derived_states_enumeration_includes_ten_states(self) -> None:
-        self.assertEqual(len(DERIVED_STATES), 10)
+        # Plan 026R §C.5 — DERIVED_STATES expanded with two bridge-
+        # aware acceptance states (ACCEPTED_PENDING_BRIDGE +
+        # ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL). Count is now 12.
+        self.assertEqual(len(DERIVED_STATES), 12)
 
 
 if __name__ == "__main__":

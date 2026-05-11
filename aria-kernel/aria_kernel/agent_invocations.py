@@ -56,6 +56,9 @@ DERIVED_STATES = (
     "REQUEUED",
     "HUMAN_REQUIRED",
     "CANCELLED",
+    # Plan 026R §C.5 — bridge-aware acceptance states.
+    "ACCEPTED_PENDING_BRIDGE",
+    "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
 )
 
 
@@ -542,6 +545,22 @@ def derive_request_state(
         if status == "rejected":
             return "REJECTED"
         if status in ("completed", "accepted"):
+            # Plan 026R §C.5 — bridge-status-aware acceptance.
+            # If the accepted row is for a BRIDGE_REQUIRED role and the
+            # bridge has NOT succeeded yet, the request is in
+            # ACCEPTED_PENDING_BRIDGE (non-terminal — F.1 orchestrator
+            # drains pending bridges). A permanent_fail terminal lifts
+            # to ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL.
+            from .bridge_status_ledger import derive_bridge_state
+            bridge_state = derive_bridge_state(
+                base_dir=root, result_row=last,
+            )
+            bridge_label = bridge_state["state"]
+            if bridge_label == "permanent_fail":
+                return "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL"
+            if bridge_label in ("pending", "pending_retry"):
+                return "ACCEPTED_PENDING_BRIDGE"
+            # ``ok`` or ``not_required`` → standard ACCEPTED.
             return "ACCEPTED"
         if status == "partial":
             return "SUBMITTED"
@@ -1226,18 +1245,24 @@ def submit_claim_result(
         # by ``content_hash``; pre-§C.2 the modern accepted-row didn't
         # write that field so the lookup permanently returned None,
         # silently bypassing the convergence pair check.
+        # Plan 026R §C.5 — ``bridge_status`` field reflects the role
+        # at WRITE time. The result row in results.jsonl is IMMUTABLE;
+        # subsequent state lives in agent-result-bridge-status.jsonl.
+        from .bridge_status_ledger import bridge_status_for_role
+        envelope_role = envelope.get("role")
         row = {
             "$schema": "aria/agent-claim-result/v1",
             "schema_version": 1,
             "claim_id": claim_id,
             "request_id": request_id,
             "agent_id": agent_id,
-            "role": envelope.get("role"),
+            "role": envelope_role,
             "status": "accepted",
             "output_path": output.resolve().as_posix(),
             "output_hash": output_hash,
             "content_hash": output_hash,  # §C.2 alias
             "envelope_evidence_hash": submitted_hash,
+            "bridge_status": bridge_status_for_role(envelope_role),  # §C.5
             "checked_evidence_count": len(revalidation["checked_refs"]),
             "submitted_at": utc_now(),
         }
@@ -1314,6 +1339,51 @@ def submit_claim_result(
             )
     except ImportError as exc:  # pragma: no cover — judgment_bridge is in tree
         bridged["bridge_errors"].append(f"bridge_import: {exc}")
+
+    # Plan 026R §C.5 — record the bridge outcome on the append-only
+    # ``agent-result-bridge-status.jsonl`` ledger. Result row in
+    # results.jsonl stays IMMUTABLE (no patch); transitions land here.
+    from .bridge_status_ledger import (
+        BRIDGE_REQUIRED_ROLES,
+        append_bridge_status,
+    )
+    envelope_role = envelope.get("role")
+    result_row_ledger_hash = str(persisted.get("ledger_hash") or "")
+    if envelope_role not in BRIDGE_REQUIRED_ROLES:
+        # Non-required roles get a ``not_required`` transition row
+        # immediately so derive_bridge_state never trips the crash-
+        # recovery rule on them.
+        append_bridge_status(
+            base_dir=root,
+            result_row_ledger_hash=result_row_ledger_hash,
+            envelope_evidence_hash=submitted_hash,
+            role=envelope_role,
+            transition="not_required",
+            attempt_number=0,
+        )
+    elif bridged["bridge_errors"]:
+        # Bridge failed — record a ``pending_retry`` transition with
+        # attempt_number=1 (first attempt). F.1 orchestrator drains
+        # pending bridges on subsequent cycles.
+        append_bridge_status(
+            base_dir=root,
+            result_row_ledger_hash=result_row_ledger_hash,
+            envelope_evidence_hash=submitted_hash,
+            role=envelope_role,
+            transition="pending_retry",
+            attempt_number=1,
+            error_detail="; ".join(bridged["bridge_errors"])[:500],
+        )
+    else:
+        # Bridge succeeded — record ``ok`` transition.
+        append_bridge_status(
+            base_dir=root,
+            result_row_ledger_hash=result_row_ledger_hash,
+            envelope_evidence_hash=submitted_hash,
+            role=envelope_role,
+            transition="ok",
+            attempt_number=1,
+        )
 
     return {"status": "accepted", "reasons": [], "row": persisted, "bridged": bridged}
 

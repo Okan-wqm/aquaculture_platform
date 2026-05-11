@@ -106,10 +106,19 @@ class SubmitResultE2ETests(unittest.TestCase):
             base_dir=self.tools,
         )
         self.assertEqual(result["status"], "accepted", result)
-        self.assertEqual(
-            derive_request_state(request_id=request["request_id"], base_dir=self.tools),
-            "ACCEPTED",
+        # Plan 026R §C.5 — derive_request_state is bridge-aware. For
+        # BRIDGE_REQUIRED roles (this test uses evidence_judgment) the
+        # state lifts to ACCEPTED_PENDING_BRIDGE when the bridge has
+        # not yet succeeded; ACCEPTED when it has. This e2e test does
+        # not drive a fully-bridgeable judgment envelope, so the
+        # bridge may legitimately end in pending_retry. The assertion
+        # preserves the test's original architectural intent (accept
+        # != reject) without overspecifying the bridge sub-state —
+        # bridge-specific assertions live in test_bridge_retry.py.
+        state = derive_request_state(
+            request_id=request["request_id"], base_dir=self.tools,
         )
+        self.assertIn(state, {"ACCEPTED", "ACCEPTED_PENDING_BRIDGE"})
 
     def test_evidence_pointing_at_missing_file_rejected(self) -> None:
         request, claim = self._claim()

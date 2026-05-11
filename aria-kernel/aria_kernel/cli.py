@@ -1022,6 +1022,21 @@ def _main(argv: list[str] | None = None) -> int:
     pr_create = add_subparser(pr_sub, "create", help="Open a PR for the proposal (gh pr create wrap).")
     pr_create.add_argument("--proposal-id", required=True)
     pr_create.add_argument("--workspace-root", required=True)
+    # Plan 026R §D.3 — change_id anchor for the §D.4 auto-merge triple-
+    # gate. Required for non-dry-run PR creation; the kernel raises
+    # ``open_pr_change_id_required`` when --no-dry-run is set without
+    # --change-id.
+    pr_create.add_argument(
+        "--change-id",
+        required=False,
+        default=None,
+        help=(
+            "Change-ledger change_id bound to the PR; required when "
+            "--no-dry-run is set so the §D.4 auto-merge triple-gate "
+            "(head_sha == change.commit_sha + change_validated row + "
+            "validation_runs verified) can fire."
+        ),
+    )
     pr_create.add_argument("--base", default="snowball",
                            help="ARIA invariant: base MUST be snowball; any other value rejected at function entry (Plan 018 Phase 6.2).")
     pr_create.add_argument("--no-dry-run", action="store_true")
@@ -2303,6 +2318,7 @@ def _main(argv: list[str] | None = None) -> int:
                 base_dir=args.tools_dir,
                 dry_run=dry_run,
                 base=args.base,
+                change_id=args.change_id,
             )
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0

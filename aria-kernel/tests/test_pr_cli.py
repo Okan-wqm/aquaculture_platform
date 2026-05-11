@@ -198,6 +198,7 @@ class PrCliCreateTests(unittest.TestCase):
                 "--tools-dir", str(self.tools),
                 "--proposal-id", self.pid,
                 "--workspace-root", str(self.repo),
+                "--change-id", "ch-test",  # Plan 026R §D.3
                 "--no-dry-run",
             ])
         self.assertEqual(exit_code, 0)

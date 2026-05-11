@@ -147,11 +147,16 @@ class EnforceMatrixTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tools.parent, ignore_errors=True)
 
-    def test_no_risk_types_passes_vacuously(self) -> None:
+    def test_no_risk_types_passes_vacuously_under_historical_attestation(self) -> None:
+        # Plan 026R §D.5 — vacuous pass is preserved only under
+        # historical_attestation mode. Enforced + no-risk now requires
+        # at least one verified validation_run row (test_no_risk_
+        # evidence_required.py covers that path).
         result = enforce_validation_matrix(
             change_id="chg-empty", base_dir=self.tools, repo_root=self.repo,
             candidate_refs=[_structured_ref()],
             affected_files_override=["docs/README.md"],
+            validation_mode="historical_attestation",
         )
         self.assertTrue(result["passed"])
         self.assertEqual(result["risk_types"], [])
@@ -241,10 +246,14 @@ class GovernanceEventTests(unittest.TestCase):
         shutil.rmtree(self.tools.parent, ignore_errors=True)
 
     def test_validation_matrix_check_event_emitted_on_pass(self) -> None:
+        # Plan 026R §D.5 — no-risk path under enforced requires
+        # validation_run evidence. Switch to historical_attestation
+        # for the legacy vacuous-pass governance event smoke.
         enforce_validation_matrix(
             change_id="chg-noop", base_dir=self.tools, repo_root=self.repo,
             candidate_refs=[_structured_ref()],
             affected_files_override=["docs/README.md"],
+            validation_mode="historical_attestation",
         )
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
         kinds = [json.loads(line)["kind"] for line in gov if line.strip()]
@@ -303,24 +312,29 @@ class ChangeLedgerIntegrationTests(unittest.TestCase):
         shutil.rmtree(self.tools.parent, ignore_errors=True)
 
     def test_change_validated_with_matrix_gate_passes_for_no_risk(self) -> None:
-        # docs/x.md is not in any risk class → matrix passes vacuously.
+        # Plan 026R §D.5 — no-risk vacuous pass moved to
+        # historical_attestation; enforced requires evidence.
         row = emit_change_validated(
             change_id=self.planned["change_id"],
             validation_run_refs=[_structured_ref()],
             base_dir=self.tools,
             workspace_root=self.repo,
+            validation_mode="historical_attestation",
+            enforce_validation_matrix=False,
         )
-        self.assertEqual(row["validation_mode"], "enforced")
-        self.assertTrue(row["validation_matrix_passed"])
+        self.assertEqual(row["validation_mode"], "historical_attestation")
 
     def test_change_validated_governance_event_payload_immutable(self) -> None:
         # Plan v3.3 §existing payload immutability — change_validated detail
         # MUST NOT carry validation_mode (it lives on the row only).
+        # Plan 026R §D.5 — historical_attestation for vacuous pass.
         emit_change_validated(
             change_id=self.planned["change_id"],
             validation_run_refs=[_structured_ref()],
             base_dir=self.tools,
             workspace_root=self.repo,
+            validation_mode="historical_attestation",
+            enforce_validation_matrix=False,
         )
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
         events = [json.loads(line) for line in gov if line.strip()]

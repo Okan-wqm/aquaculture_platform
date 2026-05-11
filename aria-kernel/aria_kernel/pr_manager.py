@@ -73,7 +73,26 @@ def open_pr_for_action(
     dry_run: bool = True,
     base: str = ARIA_PR_BASE,
     assignment_id: str | None = None,
+    change_id: str | None = None,
 ) -> dict[str, Any]:
+    # Plan 026R §D.3 — change_id binding. PR open is the strict-
+    # pipeline tail; auto-merge §D.4 requires the PR to be bound
+    # to a change-ledger row so the triple-gate (head_sha ==
+    # change.commit_sha, change_validated row exists, validation_runs
+    # verified) can fire. Pre-§D.3 the PR existed without a change_id
+    # anchor, so merge_if_green had no way to assert the PR's commit
+    # matched the planner's intended commit.
+    #
+    # Required for non-dry-run: real PR creation MUST carry change_id.
+    # Optional for dry_run: the cycle pr_lifecycle preview path
+    # (cycle.py:638) builds bodies without needing change_id; that
+    # path's downstream consumer (the actual merge) will fail-closed
+    # if change_id is absent at merge time.
+    if not dry_run and (not change_id or not change_id.strip()):
+        raise GovernanceError(
+            "open_pr_change_id_required: non-dry-run PR creation "
+            "requires change_id (auto-merge §D.4 triple-gate anchor)"
+        )
     # Plan 018 Phase 6.2 (G7) — explicit base-branch guard.
     #
     # Why: previously the snowball-only invariant was enforced
@@ -159,6 +178,8 @@ def open_pr_for_action(
         # not pass it; legacy rows return None from pr_for_assignment
         # which fail-closes the merge path to verified_pending_merge.
         "assignment_id": assignment_id,
+        # Plan 026R §D.3 — change_id anchor for auto-merge triple-gate.
+        "change_id": change_id,
         "changed_files": action.get("changed_files", []),
         "title": proposal.get("title"),
         "body": body,

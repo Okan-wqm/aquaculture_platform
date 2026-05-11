@@ -88,6 +88,19 @@ def gate_apply_action(
                 "an empty diff; pass diff_text explicitly or ensure the "
                 "action has branch + base_sha set."
             )
+    # Plan 026R §D.6 — empty / whitespace-only diff reject. Pre-§D.6
+    # the None check above passed an empty string through (caller
+    # could pass diff_text="" or "\n" + whitespace and the suppression
+    # scan would walk an empty stream, returning zero matches and a
+    # falsely-clean ready_for_pr verdict). The gate is structurally
+    # impossible to pass on a no-content diff post-§D.6.
+    if not diff_text.strip():
+        raise GovernanceError(
+            "suppression_scan_requires_diff_content: gate_apply_action "
+            "received an empty or whitespace-only diff. An empty diff "
+            "is NOT a clean diff; pass the actual unified diff content "
+            "or recover it via the action's branch+base_sha."
+        )
     suppression_matches: list[dict[str, Any]] = []
     from .suppression_scanner import scan_unified_diff_text
 

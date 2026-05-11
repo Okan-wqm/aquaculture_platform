@@ -286,6 +286,31 @@ def emit_change_committed(
             f"change_committed sequence violation: no change_planned for {change_id!r}"
         )
 
+    # Plan 026R §D.2 — scope drift gate. Pre-§D.2 the committed row
+    # was persisted regardless of whether ``actual_affected_files``
+    # matched ``intended_affected_files`` from the corresponding
+    # change_planned row. Drift was silent — a remediation that
+    # touched 5 extra files outside the planned scope landed in the
+    # audit trail as a normal commit. Post-§D.2 the subset check is
+    # enforced at the boundary: actual MUST be a subset of intended;
+    # superset / disjoint / empty-intended all raise
+    # ``scope_drift_requires_human`` so the operator audit catches
+    # the violation before the change_committed row lands.
+    intended_files = set(planned.get("intended_affected_files") or [])
+    actual_set = set(actual_affected_files)
+    if not intended_files:
+        raise GovernanceError(
+            f"scope_drift_requires_human: change_planned for {change_id!r} "
+            f"has empty intended_affected_files; cannot validate actual scope"
+        )
+    if not actual_set.issubset(intended_files):
+        drift = sorted(actual_set - intended_files)
+        raise GovernanceError(
+            f"scope_drift_requires_human: change_committed for {change_id!r} "
+            f"touches files outside the planned scope: drift={drift}. "
+            f"intended={sorted(intended_files)} actual={sorted(actual_set)}"
+        )
+
     existing = _find_committed(tools_root, change_id)
     if existing is not None:
         if (existing.get("commit_sha") == commit_sha

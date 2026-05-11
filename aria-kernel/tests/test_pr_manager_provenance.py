@@ -143,7 +143,7 @@ class PrNumberParseTests(unittest.TestCase):
                 proposal_id=self.proposal["proposal_id"],
                 workspace_root=self.repo,
                 base_dir=self.tools,
-                dry_run=False,
+                change_id="ch-test", dry_run=False,
             )
 
     def test_canonical_url_parses(self) -> None:

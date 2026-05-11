@@ -212,7 +212,7 @@ class OpenPRForActionTests(unittest.TestCase):
                 proposal_id=proposal["proposal_id"],
                 workspace_root=self.repo,
                 base_dir=self.tools,
-                dry_run=False,
+                change_id="ch-test", dry_run=False,
             )
         self.assertEqual(result["base_branch"], "snowball")
         # Plan 022 §C-4 — open_pr_for_action now also calls
@@ -236,7 +236,7 @@ class OpenPRForActionTests(unittest.TestCase):
                     proposal_id=proposal["proposal_id"],
                     workspace_root=self.repo,
                     base_dir=self.tools,
-                    dry_run=False,
+                    change_id="ch-test", dry_run=False,
                 )
 
     def test_explicit_base_main_is_rejected_at_function_entry(self) -> None:
@@ -432,10 +432,13 @@ class ApplyGateSuppressionScanTests(unittest.TestCase):
                 )
         self.assertIn("suppression_scan_requires_diff_content", str(cm.exception))
 
-    def test_empty_diff_text_passes_when_caller_explicit(self) -> None:
-        # When the caller is explicit about there being no diff (e.g.
-        # synthetic test fixture, recovery path), pass diff_text="".
-        # The suppression scan runs over empty input -> zero matches.
+    def test_empty_diff_text_explicit_rejected_post_d6(self) -> None:
+        # Plan 026R §D.6 INVERSION — the pre-§D.6 contract said "an
+        # explicit empty diff is a valid no-content claim; suppression
+        # scan over empty input returns zero matches". §D.6 invalidates
+        # that: an empty diff is NOT a clean diff. The gate now
+        # raises on empty diff_text explicitly, structurally
+        # impossible to pass.
         pid = self._seed_proposal_and_action()
         cmp_ref = self._seed_validation_gate_row()
         with patch(
@@ -447,14 +450,14 @@ class ApplyGateSuppressionScanTests(unittest.TestCase):
                 "ledger_hash": "sha256:gate-ledger-hash",
             },
         ):
-            row = gate_apply_action(
-                proposal_id=pid,
-                validation_comparison_ref=cmp_ref,
-                base_dir=self.tools,
-                diff_text="",
-            )
-        self.assertEqual(row["status"], "ready_for_pr")
-        self.assertEqual(row.get("suppression_matches", []), [])
+            with self.assertRaises(GovernanceError) as ctx:
+                gate_apply_action(
+                    proposal_id=pid,
+                    validation_comparison_ref=cmp_ref,
+                    base_dir=self.tools,
+                    diff_text="",
+                )
+        self.assertIn("empty", str(ctx.exception).lower())
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol
 
-from .ledger import append_jsonl
+from .ledger import append_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -331,6 +331,30 @@ def evaluate_auto_merge(
     return decision
 
 
+def change_for_pr(
+    pr_number: int,
+    *,
+    base_dir: str | Path | None = None,
+) -> str | None:
+    """Plan 026R §D.3 — reverse lookup: find the change_id bound to a PR.
+
+    Scans ``pr-lifecycle.jsonl`` for the latest row matching
+    ``pr_number`` that carries a non-null ``change_id``. Returns
+    the change_id or ``None`` when no binding exists (legacy
+    pre-§D.3 PRs without the anchor).
+
+    Consumed by ``merge_if_green`` to assemble the §D.4 triple-gate
+    inputs (change_committed + change_validated + validation_runs)
+    via change_id lookup.
+    """
+    rows = load_jsonl(ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl")
+    latest_change_id: str | None = None
+    for row in rows:
+        if row.get("pr_number") == pr_number and row.get("change_id"):
+            latest_change_id = str(row["change_id"])
+    return latest_change_id
+
+
 def record_pr_lifecycle(
     pr: dict[str, Any],
     *,
@@ -363,11 +387,91 @@ def record_pr_lifecycle(
         "task_id": pr.get("task_id"),
         "proposal_id": pr.get("proposal_id"),
         "assignment_id": assignment_id or pr.get("assignment_id"),
+        # Plan 026R §D.3 — change_id anchor for the §D.4 triple-gate.
+        # ``change_for_pr`` (below) reverse-looks-up the change_id by
+        # pr_number; the auto-merge path then fetches change_committed
+        # + change_validated + validation_runs and asserts the triple.
+        "change_id": pr.get("change_id"),
         "changed_files": [_changed_file_path(item) for item in pr.get("changed_files", pr.get("files", []))],
     }
     if base_dir is None:
         return row
     return append_jsonl(ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl", row)
+
+
+def _evaluate_triple_gate(
+    *,
+    pr_number: int,
+    head_sha: str,
+    base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """Plan 026R §D.4 — auto-merge triple-gate evaluator.
+
+    Three independent assertions:
+
+    1. ``head_sha == change_committed.commit_sha`` — the PR's HEAD
+       SHA matches the commit_sha recorded in the change_ledger
+       committed row for the change_id bound to the PR.
+    2. ``change_validated`` row exists for the change_id — the
+       validation matrix recorded a passing validated event.
+    3. Every ``validation_runs`` row for the change_id verifies —
+       log_hash content-addressed binding holds (no tamper).
+
+    Returns ``{"passed": bool, "reasons": [...], "change_id": str | None}``.
+    On any assertion failure the merge MUST block; the caller appends
+    a structured ``decision`` row to ``auto-merge-decisions.jsonl``.
+    """
+    reasons: list[str] = []
+    change_id = change_for_pr(pr_number, base_dir=base_dir)
+    if not change_id:
+        return {
+            "passed": False,
+            "change_id": None,
+            "reasons": ["triple_gate_missing_change_id_binding"],
+        }
+    # Gate 1: head_sha == change.commit_sha
+    from .change_ledger import _find_committed, _find_validated_for_change
+    tools_root = ensure_tools_dir(base_dir)
+    committed = _find_committed(tools_root, change_id)
+    if committed is None:
+        reasons.append(
+            f"triple_gate_change_committed_missing: change_id={change_id!r}"
+        )
+    elif committed.get("commit_sha") != head_sha:
+        reasons.append(
+            f"triple_gate_head_sha_commit_sha_mismatch: "
+            f"head={head_sha!r} change.commit={committed.get('commit_sha')!r}"
+        )
+    # Gate 2: change_validated row exists
+    validated = _find_validated_for_change(tools_root, change_id)
+    if validated is None:
+        reasons.append(
+            f"triple_gate_change_validated_missing: change_id={change_id!r}"
+        )
+    # Gate 3: validation_runs verified
+    from .validation_runs_ledger import (
+        list_validation_runs_for_change,
+        verify_validation_run,
+    )
+    runs = list_validation_runs_for_change(change_id, base_dir=base_dir)
+    if not runs:
+        reasons.append(
+            f"triple_gate_validation_runs_missing: change_id={change_id!r}"
+        )
+    for run in runs:
+        run_id = str(run.get("validation_run_id") or "")
+        try:
+            verify_validation_run(run_id, base_dir=base_dir)
+        except Exception as exc:
+            reasons.append(
+                f"triple_gate_validation_run_unverified: "
+                f"{run_id}: {exc}"
+            )
+    return {
+        "passed": not reasons,
+        "change_id": change_id,
+        "reasons": reasons,
+    }
 
 
 def merge_if_green(
@@ -406,6 +510,39 @@ def merge_if_green(
     )
     if not decision["eligible"] or dry_run:
         return decision
+
+    # Plan 026R §D.4 — auto-merge triple-gate. The pre-§D.4 eligibility
+    # check (decision["eligible"]) covered branch protection / required
+    # reviewers / checks / conversation resolution. The triple-gate
+    # adds three change-ledger-bound assertions: head_sha == change's
+    # commit_sha, change_validated row exists, validation_runs verified.
+    # Pre-§D.4 a PR could pass GitHub-side eligibility but the change
+    # row was missing / a different commit_sha was committed / no
+    # validation run had recorded a passing log_hash. Now those three
+    # surfaces fail-closed BEFORE the merge subprocess runs.
+    head_sha_pre = str(decision["head_sha"])
+    triple = _evaluate_triple_gate(
+        pr_number=pr_number,
+        head_sha=head_sha_pre,
+        base_dir=base_dir,
+    )
+    if not triple["passed"]:
+        blocked_triple = dict(decision)
+        blocked_triple.update(
+            {
+                "recorded_at": utc_now(),
+                "decision": "blocked",
+                "eligible": False,
+                "reasons": [
+                    "auto_merge_triple_gate_blocked",
+                    *triple["reasons"],
+                ],
+                "stage": "triple_gate_pre_merge",
+                "change_id": triple.get("change_id"),
+            },
+        )
+        _append_decision(base_dir, blocked_triple)
+        return blocked_triple
 
     # Plan 024 v3 §B-6 — pre-merge full re-evaluation. Pre-fix the
     # window between snapshot construction and merge call only re-

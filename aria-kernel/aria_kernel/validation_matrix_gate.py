@@ -451,19 +451,64 @@ def enforce_validation_matrix(
         return result
 
     if not risk_types:
-        # No risk types implicated by this diff — matrix vacuously passes.
+        # Plan 026R §D.5 — under ``enforced`` mode + zero risk types
+        # the matrix MUST STILL check that at least one verified
+        # validation_run_ref backs the change. Pre-§D.5 the no-risk
+        # path returned ``passed: True`` vacuously, which let a
+        # change ship with ZERO test evidence as long as the
+        # detector flagged no risk types. The ``historical_attestation``
+        # mode preserves the vacuous-pass for legacy chain replay
+        # (handled at line 432).
+        from .validation_runs_ledger import (
+            list_validation_runs_for_change,
+            verify_validation_run,
+        )
+        runs = list_validation_runs_for_change(
+            change_id, base_dir=base_dir,
+        )
+        verified_runs: list[str] = []
+        verify_errors: list[str] = []
+        for run in runs:
+            run_id = str(run.get("validation_run_id") or "")
+            try:
+                verify_validation_run(run_id, base_dir=base_dir)
+                verified_runs.append(run_id)
+            except GovernanceError as exc:
+                verify_errors.append(f"{run_id}: {exc}")
+        if not verified_runs:
+            blocked = {
+                "change_id": change_id,
+                "validation_mode": validation_mode,
+                "passed": False,
+                "blocked": True,
+                "risk_types": [],
+                "reason": "no_risk_evidence_required",
+                "verify_errors": verify_errors,
+            }
+            append_tools_governance(
+                ensure_tools_dir(base_dir),
+                "validation_matrix_check",
+                {**blocked, "trigger": "no_risk_types_empty_evidence"},
+            )
+            raise GovernanceError(
+                f"no_risk_evidence_required: change_id={change_id!r} "
+                f"has zero verified validation_run rows; enforced mode "
+                f"requires at least one verified validation_run even "
+                f"when risk_types is empty"
+            )
         result = {
             "change_id": change_id,
             "validation_mode": validation_mode,
             "passed": True,
             "blocked": False,
             "risk_types": [],
-            "notice": "no risk-type-implicating files in change diff",
+            "verified_validation_run_ids": verified_runs,
+            "notice": "no risk-type-implicating files in change diff; verified evidence present",
         }
         append_tools_governance(
             ensure_tools_dir(base_dir),
             "validation_matrix_check",
-            {**result, "trigger": "no_risk_types"},
+            {**result, "trigger": "no_risk_types_verified"},
         )
         return result
 

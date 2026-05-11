@@ -220,7 +220,7 @@ class AutoPrFoundationTests(unittest.TestCase):
             proposal_id=proposal["proposal_id"],
             validation_comparison_ref=comparison["ledger_hash"],
             base_dir=self.tools_dir,
-            diff_text="",
+            diff_text="--- a/x.md\n+++ b/x.md\n@@ -1 +1 @@\n-old\n+new\n",
         )
         pr = open_pr_for_action(
             proposal_id=proposal["proposal_id"],

@@ -87,10 +87,14 @@ class ValidationPctMetricTests(unittest.TestCase):
         c1 = _seed_chain(self.tools, change_idx=1)
         c2 = _seed_chain(self.tools, change_idx=2)
         # Only c1 validated in enforced mode.
+        # Plan 026R §D.5 — bypass the matrix gate at test scope so
+        # the metric test focuses on validation_mode semantics; the
+        # gate behavior is tested in test_no_risk_evidence_required.
         emit_change_validated(
             change_id=c1["change_id"],
             validation_run_refs=[_structured_ref()],
             base_dir=self.tools, workspace_root=self.repo,
+            enforce_validation_matrix=False,
         )
         m = compute_plan_016_metrics(base_dir=self.tools)
         self.assertEqual(m["aria_change_chain_validation_pct"], 50)
@@ -99,10 +103,12 @@ class ValidationPctMetricTests(unittest.TestCase):
         c1 = _seed_chain(self.tools, change_idx=1)
         c2 = _seed_chain(self.tools, change_idx=2)
         # Both validated, but c2 in historical mode → only c1 counts.
+        # Plan 026R §D.5 — bypass matrix gate at test scope.
         emit_change_validated(
             change_id=c1["change_id"],
             validation_run_refs=[_structured_ref()],
             base_dir=self.tools, workspace_root=self.repo,
+            enforce_validation_matrix=False,
         )
         emit_change_validated(
             change_id=c2["change_id"],

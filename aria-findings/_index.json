@@ -59,8 +59,18 @@
       "path": "F-006.json",
       "severity": "HIGH",
       "status": "RESOLVED"
+    },
+    {
+      "claim_summary": "Plan 025 sign-off (HEAD faa92b4f; F-006 RESOLVED at e412ebc5) + external Enterprise-Grade Autonomy Closure 10-round audit identified 39 net-new architectural gaps blocking enterprise-grade autonomous-by-end-of-day operation. Plan 026R corrective-arc tracks closure across 8 phases (A-H): Global Integrity + Agent Executor Contract + Convergent Planning + Validation/PR/Merge Hard Gates + Tool/Spine/Genesis/Memory + Autonomy Orchestrator (LOAD-BEARING) + Worker Dispatch Contract + Test-Source-Marker Replacement. ~270 new tests target (1214 -> 1484).",
+      "claim_type": "post_plan_025_enterprise_autonomy_audit",
+      "created_at": "2026-05-11T00:00:00Z",
+      "evidence_chain_id": "chain_plan_026_enterprise_autonomy_arc",
+      "finding_id": "F-007",
+      "path": "F-007.json",
+      "severity": "HIGH",
+      "status": "OPEN"
     }
   ],
-  "generated_at": "2026-05-10T16:50:00Z",
+  "generated_at": "2026-05-11T00:00:00Z",
   "schema_version": 1
 }

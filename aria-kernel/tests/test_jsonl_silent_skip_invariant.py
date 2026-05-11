@@ -46,7 +46,12 @@ _SILENT_SKIP_ALLOWLIST: dict[str, str] = {
     "handoff_ledger.py": "uses read_governance_rows; remaining catch is reserved for handoff-specific parse",
     "feedback.py": "uses an `as exc:` block followed by a typed re-raise — caught for structured re-raise",
     "trailer_scan.py": "caught with `as exc:` and re-raised as PR-trailer error",
-    "report_ingestion.py": "Plan 026R §A.5 owns this surface (lands separately)",
+    # NOTE: report_ingestion.py REMOVED from allowlist after the §A.5
+    # strict-mode migration. Strict mode routes through
+    # ``read_strict_jsonl`` (no inline except); tolerant mode keeps a
+    # 3-statement body (``malformed.append`` + ``emit_ledger_corruption_
+    # diagnostic`` + ``continue``) which does NOT match the AST silent-
+    # skip predicate that only flags bare-``continue`` bodies.
 }
 
 

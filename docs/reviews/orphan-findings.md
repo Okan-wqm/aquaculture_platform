@@ -3253,3 +3253,23 @@ Root cause: farm and messaging both defined Mutation.exportTenantData with diffe
 Fix (Tier-1 Make-Impossible): rename messaging.exportTenantData to exportTenantMessages so the federation graph itself rejects future name collisions. Farm keeps exportTenantData (matches aquaculture-domain semantics).
 
 Status: RESOLVED on chore/federation-namespace-export-tenant-data.
+
+
+---
+
+## ORPHAN-CRITICAL-074 — sensor-ingestion criticality manifest entry references service hidden by compose profile gate; deploy validator rollback
+
+Severity: CRITICAL. Every default deploy fails at the critical-service health check coverage validator with "manifest references services not in docker-compose.droplet.yml: sensor-ingestion".
+
+Discovered: 2026-05-11, on the deploy after PR #269 (sensor-ingestion compose profile gate) landed but criticality manifest entry was only demoted rather than removed.
+
+Root cause: PR #269 added profiles: [rust-sidecar] to sensor-ingestion in docker-compose.droplet.yml AND demoted the service-criticality.yaml entry from level: critical to level: optional. Two issues:
+
+  1. level: 'optional' is NOT a valid CriticalityLevel — the validator type union is 'critical' | 'required' | 'warning' | 'ignored'. The yaml-side enum drifted from the code-side type.
+  2. Even if level were valid, the coverage check at check-service-health.ts:208-219 calls docker compose config --services WITHOUT any --profile flag, which intentionally hides profile-gated services. The validator then flags sensor-ingestion as referenced-but-missing and exits 2 before any health polling begins. Rollback is triggered.
+
+Fix (Tier-1 Make-Impossible): REMOVE the sensor-ingestion entry from service-criticality.yaml entirely while the service stays profile-gated. The manifest's coverage invariant is "every entry maps to a real default-compose service" — a profile-gated entry violates that invariant by construction. When the operator opts in (COMPOSE_PROFILES=rust-sidecar) AND the CI Rust build matrix publishes the multi-arch GHCR image, the manifest entry is restored as level: critical.
+
+The retained doc comment block documents the restore path so the entry is not added back accidentally with the wrong level (the previous comment said level: optional which would still fail).
+
+Status: RESOLVED on chore/sensor-ingestion-manifest-cleanup.

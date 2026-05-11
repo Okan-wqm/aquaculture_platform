@@ -21,6 +21,7 @@ from .tool_registry import (
     ensure_tools_binding,
     ensure_tools_dir,
     update_tools_index,
+    utc_now,
 )
 from .triage import derive_required_tests, resolve_target_agent
 from .workspace import WorkspacePaths
@@ -720,6 +721,136 @@ def _latest_request_states(root: Path) -> dict[str, str]:
         if pe and to_state:
             states[pe] = str(to_state)
     return states
+
+
+def _latest_assignment_states(root: Path) -> dict[str, str]:
+    """Plan 026R §G.1+§G.2 — assignment-id-keyed state derivation.
+
+    Pre-§G.1 ``_latest_request_states`` was pressure_event_id-keyed
+    so two assignments for the same pressure (e.g. a retry after a
+    rejected first attempt) clobbered each other in the state map.
+    Multi-assignment-per-pe is a real flow; the legacy keying made
+    list_dispatch_requests / mark_dispatch_picked_up ambiguous.
+
+    Reducer fold rules (Plan 026R §G.2):
+
+    1. Collect events from claims.jsonl ∪ worker-results.jsonl ∪
+       verification-results.jsonl. governance.jsonl is audit-trail
+       ONLY — the reducer does NOT read it for state.
+    2. Sort by ``(recorded_at, source_priority, sequence_number)``.
+       source_priority: verification-results > worker-results > claims.
+       Legacy rows lacking ``recorded_at`` fall back to a deterministic
+       (source_priority, sequence_number) ordering so the fold remains
+       deterministic across runs.
+    3. Fold: initial state ``pending``; each event applies a transition.
+    4. Terminal precedence: ``{stale, human_required, verified}`` are
+       terminal — later non-terminal events ignored.
+    5. Multiple-active-claim corruption: if at any moment >1 active
+       claim exists for an assignment_id, the assignment's state is
+       set to ``multiple_active_claims_corruption`` so operators see
+       the corruption signal rather than a derived state.
+    """
+    SOURCE_PRIORITY = {
+        "verification-results": 3,
+        "worker-results": 2,
+        "claims": 1,
+    }
+    TERMINAL_STATES = frozenset({"stale", "human_required", "verified"})
+
+    events: list[tuple[Any, int, int, str, dict[str, Any]]] = []
+    for seq, row in enumerate(load_jsonl(root / "dispatch" / "claims.jsonl")):
+        ts = row.get("claimed_at") or row.get("released_at") or row.get("at") or ""
+        events.append((ts, SOURCE_PRIORITY["claims"], seq, "claims", row))
+    for seq, row in enumerate(load_jsonl(root / "dispatch" / "worker-results.jsonl")):
+        events.append((
+            row.get("recorded_at") or "",
+            SOURCE_PRIORITY["worker-results"], seq, "worker-results", row,
+        ))
+    for seq, row in enumerate(load_jsonl(root / "dispatch" / "verification-results.jsonl")):
+        events.append((
+            row.get("recorded_at") or "",
+            SOURCE_PRIORITY["verification-results"], seq, "verification-results", row,
+        ))
+    events.sort(key=lambda e: (e[0], e[1], e[2]))
+
+    states: dict[str, str] = {}
+    active_claims: dict[str, set[str]] = {}
+    for _ts, _prio, _seq, source, row in events:
+        assignment_id = str(row.get("assignment_id") or "")
+        if not assignment_id:
+            continue
+        if states.get(assignment_id) in TERMINAL_STATES:
+            continue
+        if source == "claims":
+            event = row.get("event")
+            claim_id = str(row.get("claim_id") or "")
+            if event == "claimed" and claim_id:
+                active_claims.setdefault(assignment_id, set()).add(claim_id)
+                if len(active_claims[assignment_id]) > 1:
+                    states[assignment_id] = "multiple_active_claims_corruption"
+                else:
+                    states[assignment_id] = "picked_up"
+            elif event == "released" and claim_id:
+                active_claims.setdefault(assignment_id, set()).discard(claim_id)
+                states[assignment_id] = "pending"
+            elif event == "stale":
+                states[assignment_id] = "stale"
+            elif event == "human_required":
+                states[assignment_id] = "human_required"
+        elif source == "worker-results":
+            state_val = row.get("state")
+            if state_val == "accepted":
+                states[assignment_id] = "submitted"
+            elif state_val == "rejected":
+                states[assignment_id] = "submit_rejected"
+        elif source == "verification-results":
+            status_val = row.get("status")
+            if status_val == "passed":
+                states[assignment_id] = "verified"
+            elif status_val == "failed":
+                states[assignment_id] = "verification_failed"
+    return states
+
+
+def recover_orphan_governance(base_dir: str | Path | None = None) -> dict[str, Any]:
+    """Plan 026R §G.2 — boot-time scanner that emits recovery audit
+    events for claims rows without matching governance entries.
+
+    Idempotent. Not load-bearing for state correctness (the reducer
+    does not read governance.jsonl), but restores operator audit
+    trail when governance.jsonl loses a row.
+    """
+    root = ensure_tools_dir(base_dir)
+    claim_rows = load_jsonl(root / "dispatch" / "claims.jsonl")
+    gov_rows = load_jsonl(root / "governance.jsonl")
+    gov_claim_ids: set[str] = set()
+    for row in gov_rows:
+        kind = str(row.get("kind") or "")
+        if not (kind.startswith("worker_claim_") or kind.startswith("dispatch_")):
+            continue
+        details = row.get("details") or {}
+        cid = details.get("claim_id")
+        if cid:
+            gov_claim_ids.add(str(cid))
+    recovered = 0
+    for row in claim_rows:
+        cid = row.get("claim_id")
+        event = row.get("event")
+        if not cid or str(cid) in gov_claim_ids:
+            continue
+        if event in ("claimed", "released", "stale", "human_required"):
+            append_tools_governance(
+                root,
+                f"worker_claim_recovered_{event}",
+                {
+                    "claim_id": cid,
+                    "assignment_id": row.get("assignment_id"),
+                    "agent_id": row.get("agent_id"),
+                    "recovered_at": utc_now(),
+                },
+            )
+            recovered += 1
+    return {"recovered_count": recovered}
 
 
 def _parse_iso(value: Any) -> datetime | None:

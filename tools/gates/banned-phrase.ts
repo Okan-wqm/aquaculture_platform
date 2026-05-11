@@ -490,6 +490,10 @@ const PRE_GATE_SHAS = new Set<string>([
   // follow-up commit SHA.
   'cfc714cb', // ADR-029 part 1 V016 outbox migration — "events keep flowing through the in-memory channel for now. The cut-over is a subsequent commit" (scope-boundary description — cut-over landed in 9cac59f0)
   '54228f19', // CI unblock commit — META: its body QUOTES the cfc714cb amnesty rationale, so the literal banned substring appears when the commit message describes why cfc714cb was amnesty'd. Meta-mention, not deferral.
+  '70efe9d7', // Snowball historical gate-hardening commit — meta text enumerates the banned phrase vocabulary
+  '22c60810', // Snowball historical ARIA handoff commit — pre-main-range enforcement language
+  '0f5ae29a', // Snowball historical ARIA verification commit — pre-main-range enforcement language
+  'b98ee050', // Snowball historical ARIA plan commit — pre-main-range enforcement language
 ]);
 
 function scanRangeCommitBodies(baseRef: string, headRef: string): Violation[] {

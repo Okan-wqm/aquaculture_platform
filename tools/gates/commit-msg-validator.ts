@@ -197,6 +197,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   'c0e7d492', // W3-D backup-manifest-invariant CI gate — pre-Phase-6 landing
   '955c8caa', // Phase 8.4 queryKey ESLint rule — old `#P0-1` short-form trailer
   '973394b3', // Phase 11 platform-services split — old `#P0-5` short-form trailer
+  'b403a4e5', // Snowball/main merge-reconciliation metadata fix — landed via PR #273; amending is forbidden
 ]);
 
 interface Commit {

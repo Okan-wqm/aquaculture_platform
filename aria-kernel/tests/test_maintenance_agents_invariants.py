@@ -6,7 +6,7 @@ async queue; the runtime domain dispatcher must never resolve them. This
 test asserts:
 
 - the three files exist;
-- each frontmatter declares `model: opus`, `effort: high`, and
+- each frontmatter declares `model: opus`, `effort: xhigh`, and
   `tools: Read, Grep, Glob`;
 - each `name` field matches the ARIA whitelist in agent_contract.py;
 - the body cites the kernel-issued envelope as the only invocation path;
@@ -62,7 +62,7 @@ class MaintenanceAgentInvariantTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             front = _parse_frontmatter(text)
             self.assertEqual(front.get("model"), "opus", f"{name}: model not opus")
-            self.assertEqual(front.get("effort"), "high", f"{name}: effort not high")
+            self.assertEqual(front.get("effort"), "xhigh", f"{name}: effort not xhigh")
             tools = front.get("tools", "")
             self.assertEqual(
                 set(t.strip() for t in tools.split(",")),

@@ -1080,6 +1080,43 @@ def _main(argv: list[str] | None = None) -> int:
                                      help="List baseline / postcheck / regression events.")
     sp_status.add_argument("--plan-id", default=None)
 
+    # Plan 026R §F.1 + §F.3 — autonomy orchestrator CLI surface.
+    # `aria-kernel autonomy run` executes the unified state machine
+    # (cycle + planner-dispatch drain + bridge drain + worker-dispatch
+    # drain + optional auto-merge). `aria-kernel autonomy status`
+    # routes through AutonomyStateReducer.derive_current so manual
+    # operator queries and the orchestrator's own transitions share
+    # one canonical state surface.
+    autonomy_parser = add_subparser(
+        sub, "autonomy",
+        help="Plan 026R §F — unified autonomy orchestrator (LOAD-BEARING).",
+    )
+    autonomy_sub = autonomy_parser.add_subparsers(
+        dest="autonomy_command", required=True,
+    )
+    auto_run = add_subparser(
+        autonomy_sub, "run",
+        help="Run one or more autonomy cycles (cycle + planner + bridge + worker drains).",
+    )
+    auto_run.add_argument("--workspace-root", default=None)
+    auto_run.add_argument(
+        "--max-cycles", type=int, default=1,
+        help="Number of cycles to run before clean exit (default 1).",
+    )
+    auto_run.add_argument(
+        "--max-iterations-per-phase", type=int, default=10,
+        help="Bound for planner/worker dispatch drain loops per cycle (default 10).",
+    )
+    auto_run.add_argument(
+        "--daemon-id", default="autonomy",
+        help="fcntl single-instance lock id (default: autonomy).",
+    )
+    auto_status = add_subparser(
+        autonomy_sub, "status",
+        help="Print the canonical AutonomyState derived from autonomy_state.jsonl.",
+    )
+    # No additional args — reducer reads from the bound tools dir.
+
     # Plan 020 Phase 4.C — fresh adapter orchestrator manual invocation.
     sp_refresh = add_subparser(spine_sub, "refresh",
                                       help="Plan 020 Phase 4 — re-run any spine adapter whose latest run is stale.")
@@ -1267,6 +1304,11 @@ def _main(argv: list[str] | None = None) -> int:
     paths = (
         resolve_paths(args)
         if hasattr(args, "workspace_root")
+        # Plan 026R §F.1 — autonomy is NOT in this list: workspace_root
+        # is optional for `autonomy run` (orchestrator handles None
+        # internally — cycle.run_enterprise_cycle is the surface that
+        # actually requires workspace_root, and operator-controlled
+        # cycles supply it explicitly via --workspace-root).
         and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune", "worktree", "agent", "impact", "agent-network", "capability-gap", "plan", "agent-genesis", "skill-genesis"}
         and not legacy_pressure_explain
         else None
@@ -2622,6 +2664,30 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("status") == "passed" else 1
+
+    if args.command == "autonomy" and args.autonomy_command == "run":
+        # Plan 026R §F.1 — unified orchestrator entry point.
+        from .autonomy_orchestrator import run_autonomy_orchestrator
+        result = run_autonomy_orchestrator(
+            base_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            max_cycles=args.max_cycles,
+            max_iterations_per_phase=args.max_iterations_per_phase,
+            daemon_id=args.daemon_id,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # Exit non-zero only when the orchestrator could not start
+        # (lock contention) — every other exit_reason (max_cycles,
+        # aria_stop, profile_frozen) is a clean halt the operator
+        # asked for and returns 0.
+        return 0 if result.get("exits_clean") else 1
+
+    if args.command == "autonomy" and args.autonomy_command == "status":
+        # Plan 026R §F.3 — canonical state via the reducer.
+        from .autonomy_state import AutonomyStateReducer
+        state = AutonomyStateReducer.derive_current(args.tools_dir)
+        print(json.dumps(state.to_dict(), indent=2, sort_keys=True))
+        return 0
 
     if args.command == "integrity" and args.integrity_command == "rollback-tools-v2-to-v1":
         result = rollback_tools_v2_to_v1(

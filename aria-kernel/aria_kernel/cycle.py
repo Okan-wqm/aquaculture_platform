@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .feedback import derive_pressure
-from .ledger import verify_index_hashes, write_index
+from .ledger import load_jsonl_verified, verify_index_hashes, write_index
 from .learning import run_learning_pass
 from .workspace import WorkspacePaths, ensure_workspace, workspace_paths
 from .discovery import run_discovery
@@ -347,7 +347,11 @@ def run_enterprise_cycle(
             base_dir=root,
         )
         decisions.append(decision)
-    for run in load_jsonl(runs_path(root)):
+    # Plan 026R §A.2 — strict verified load of the runs ledger. Pre-§A.2
+    # the loader accepted hashless / tampered rows silently; the strict
+    # primitive raises `LedgerIntegrityError` so cycle summarisation
+    # cannot proceed on a corrupt ledger.
+    for run in load_jsonl_verified(runs_path(root)):
         if run.get("cycle_id") != cycle_id:
             continue
         run_summary.append(

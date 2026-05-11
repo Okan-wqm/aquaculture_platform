@@ -18,6 +18,7 @@ __all__ = [
     "file_hash",
     "load_index",
     "load_jsonl",
+    "load_jsonl_verified",
     "read_jsonl",
     "rewrite_jsonl",
     "verify_index_hashes",
@@ -193,6 +194,14 @@ def _append_jsonl_unlocked(path: Path, record: dict[str, Any]) -> dict[str, Any]
 
     NO ``prior_hash`` kwarg in v1: a stale prior hash supplied by a caller
     that read the tail outside the lock window would re-corrupt the chain.
+
+    Stale-chain stripping (caught by A.2 strict verify on
+    ``memory.py:322``-style ``row = dict(belief)`` re-appends): both
+    ``previous_ledger_hash`` and ``ledger_hash`` are always unconditionally
+    overwritten with the actual chain values. A caller that passes a row
+    dict re-loaded from an earlier ledger entry (carrying its old chain
+    hashes) cannot inject those stale values into the new chain link —
+    the primitive is the sole authority over chain hash fields.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = read_jsonl(path)
@@ -202,7 +211,7 @@ def _append_jsonl_unlocked(path: Path, record: dict[str, Any]) -> dict[str, Any]
         else None
     )
     stored = dict(record)
-    stored.setdefault("previous_ledger_hash", previous_hash)
+    stored["previous_ledger_hash"] = previous_hash
     stored["ledger_hash"] = _record_hash(stored, previous_hash)
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     try:
@@ -275,6 +284,24 @@ def _rewrite_jsonl_unlocked(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def verify_jsonl(path: Path) -> dict[str, Any]:
+    """Plan 026R §A.2 — unconditional strict hash-chain verifier.
+
+    For every non-empty row, ``ledger_hash`` MUST be present and MUST equal
+    ``_record_hash(row, previous_hash)`` (canonical). ``previous_ledger_hash``
+    MUST equal the prior row's ``ledger_hash`` (or None for the first row).
+
+    Pre-§A.2 behaviour silently accepted hashless rows (``if expected:``
+    skip). That conditional has been removed — hashless rows now mark the
+    file invalid with ``reason="ledger_hash_missing"``. Hot-path consumers
+    should use ``load_jsonl_verified`` to convert invalid results into a
+    raised ``LedgerIntegrityError``.
+
+    Backfill discipline: any hashless fixture under
+    ``aria-kernel/tests/fixtures/`` is migrated by
+    ``aria-kernel/scripts/backfill-ledger-hashes.py`` before this strict
+    flip lands; production ledgers under ``aria-tools/`` are hash-chained
+    via ``append_jsonl`` and are already strict-clean.
+    """
     if not path.exists():
         return {"path": path.as_posix(), "valid": True, "row_count": 0, "missing": True}
     rows: list[dict[str, Any]] = []
@@ -288,30 +315,60 @@ def verify_jsonl(path: Path) -> dict[str, Any]:
                 return {"path": path.as_posix(), "valid": False, "line": line_no, "reason": "row_not_object"}
             rows.append(row)
             expected = row.get("ledger_hash")
-            if expected:
-                actual = _record_hash(row, previous_hash)
-                if expected != actual:
-                    return {
-                        "path": path.as_posix(),
-                        "valid": False,
-                        "line": line_no,
-                        "reason": "ledger_hash_mismatch",
-                        "expected": expected,
-                        "actual": actual,
-                    }
-                if row.get("previous_ledger_hash") != previous_hash:
-                    return {
-                        "path": path.as_posix(),
-                        "valid": False,
-                        "line": line_no,
-                        "reason": "previous_hash_mismatch",
-                    }
-            previous_hash = str(expected) if expected else previous_hash
+            if not expected:
+                return {
+                    "path": path.as_posix(),
+                    "valid": False,
+                    "line": line_no,
+                    "reason": "ledger_hash_missing",
+                }
+            actual = _record_hash(row, previous_hash)
+            if expected != actual:
+                return {
+                    "path": path.as_posix(),
+                    "valid": False,
+                    "line": line_no,
+                    "reason": "ledger_hash_mismatch",
+                    "expected": expected,
+                    "actual": actual,
+                }
+            if row.get("previous_ledger_hash") != previous_hash:
+                return {
+                    "path": path.as_posix(),
+                    "valid": False,
+                    "line": line_no,
+                    "reason": "previous_hash_mismatch",
+                }
+            previous_hash = str(expected)
     except json.JSONDecodeError as exc:
         return {"path": path.as_posix(), "valid": False, "line": exc.lineno, "reason": str(exc)}
     except OSError as exc:
         return {"path": path.as_posix(), "valid": False, "reason": str(exc)}
     return {"path": path.as_posix(), "valid": True, "row_count": len(rows), "last_hash": previous_hash}
+
+
+def load_jsonl_verified(path: Path) -> list[dict[str, Any]]:
+    """Plan 026R §A.2 — strict load with full hash-chain verification.
+
+    Runs ``verify_jsonl(path)`` and raises ``LedgerIntegrityError`` if the
+    file fails strict verification (missing ledger_hash, chain mismatch,
+    canonical drift, malformed JSON). On success, returns the loaded rows.
+
+    Hot-path consumers (``cycle.py`` runs-loader, ``reflection.py`` runs +
+    auto-merge + beliefs loaders) MUST use this primitive instead of
+    plain ``load_jsonl`` so that an in-flight tamper or partial-write
+    visible to a reader surfaces as a failure rather than a silent
+    downstream miscount. Migration anchored by an AST invariant test.
+    """
+    if not path.exists():
+        return []
+    result = verify_jsonl(path)
+    if not result.get("valid", False):
+        raise LedgerIntegrityError(
+            f"strict verification failed for {path.as_posix()}: "
+            f"reason={result.get('reason')} line={result.get('line')}"
+        )
+    return read_jsonl(path)
 
 
 def load_index(path: Path) -> dict[str, Any]:
@@ -339,46 +396,76 @@ def verify_index_hashes(index_path: Path, ledgers: dict[str, Path]) -> dict[str,
 
 
 def write_index(index_path: Path, index: dict[str, Any], ledgers: dict[str, Path]) -> None:
-    """Plan 026R §A.1 — write integrity_index.json atomically.
+    """Plan 026R §A.1+§A.2 — write integrity_index.json atomically.
 
     Reads ``file_hash`` for each ledger in ``ledgers`` and persists the
-    consolidated index. Caller is responsible for holding any necessary
-    per-file locks so the hashes are consistent snapshots; the held-lock-
-    aware ``_refresh_adjacent_index_grouped`` is the canonical consumer.
-    External callers that bypass the held-lock-aware refresh accept a
-    snapshot-consistency window (audit / one-shot migration paths only).
+    consolidated index. Acquires ``with_exclusive_lock(index_path)`` so
+    every concurrent writer (including the index-group lock holders from
+    the held-lock-aware refresh path) serialises on the index file's
+    side-car lock — that prevents the fixed-tmp-name clobber race
+    surfaced by ``test_concurrent_submit_race_5_subprocesses`` (5 procs
+    each calling ``update_tools_index`` after their own append).
+
+    Caller is still responsible for any per-ledger locks needed so the
+    hashes are consistent snapshots; the held-lock-aware
+    ``_refresh_adjacent_index_grouped`` is the canonical consumer for
+    indexed-group appends. External callers (boot init, migrations) use
+    this primitive standalone and pay the snapshot-consistency window.
     """
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    index.pop("pressure_keys_emitted", None)
-    index["ledger_hashes"] = {name: file_hash(path) for name, path in ledgers.items()}
-    index["schema_version"] = 2
-    _atomic_write_text(index_path, json.dumps(index, indent=2, sort_keys=True) + "\n")
+    with with_exclusive_lock(index_path):
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index.pop("pressure_keys_emitted", None)
+        index["ledger_hashes"] = {name: file_hash(path) for name, path in ledgers.items()}
+        index["schema_version"] = 2
+        _atomic_write_text(index_path, json.dumps(index, indent=2, sort_keys=True) + "\n")
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
-    """Plan 026R §A.1 — atomic write with full fsync durability.
+    """Plan 026R §A.1+§A.2 — atomic write with full fsync durability.
 
     Steps:
-      1. Write to a temp side-car file (``<path>.tmp``).
+      1. Write to a per-call unique temp side-car (PID + monotonic_ns +
+         4-byte random suffix). Pre-§A.2 the tmp filename was a fixed
+         ``.<name>.tmp`` which let two concurrent writers (e.g. five
+         subprocesses each running ``update_tools_index``) clobber each
+         other's tmp file before the rename — the second
+         ``tmp.replace(path)`` failed with FileNotFoundError because the
+         first rename had already consumed the shared tmp inode. The
+         unique-suffix tmp eliminates that race in the worst-case path
+         where a caller bypasses the index-group lock; with the lock
+         taken (the §A.2 ``write_index`` change), it is defense-in-depth
+         against any future caller that forgets to lock.
       2. ``os.fsync(tmp_fd)`` BEFORE ``tmp.replace(path)`` so the new data
-         is on stable storage before the inode swap (otherwise crash-then-
-         power-loss leaves rename pointing at empty/partial bytes).
-      3. ``tmp.replace(path)`` (atomic rename on POSIX, ``MoveFileEx`` with
-         ``MOVEFILE_REPLACE_EXISTING`` semantics on Windows).
+         is on stable storage before the inode swap.
+      3. ``tmp.replace(path)`` (atomic rename on POSIX; ``MoveFileEx``
+         with ``MOVEFILE_REPLACE_EXISTING`` semantics on Windows).
       4. ``os.fsync(parent_dir_fd)`` AFTER rename so the directory entry
-         update is durable (ext4/xfs may otherwise lose the rename across
-         crash). POSIX only — Windows skips this step (rename + close
-         covers the durability story on NTFS).
+         update is durable (ext4/xfs may otherwise lose the rename
+         across crash). POSIX only — Windows skips (rename + close covers
+         the durability story on NTFS).
+
+    On any exception between tmp open and rename, the tmp file is
+    unlinked best-effort so a half-written side-car does not accumulate.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    import secrets
+    import time as _time
+    unique = f"{os.getpid()}.{_time.monotonic_ns()}.{secrets.token_hex(4)}"
+    tmp = path.with_name(f".{path.name}.{unique}.tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:
-        os.write(fd, content.encode("utf-8"))
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    tmp.replace(path)
+        try:
+            os.write(fd, content.encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        tmp.replace(path)
+    except BaseException:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     if not sys.platform.startswith("win"):
         dir_fd = os.open(str(path.parent), os.O_RDONLY)
         try:

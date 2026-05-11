@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_jsonl, load_jsonl, load_jsonl_verified
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
@@ -18,13 +18,26 @@ def run_reflection(
     repo_root: str | Path | None = None,
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
-    runs = [row for row in load_jsonl(runs_path(base_dir)) if row.get("cycle_id") == cycle_id]
-    all_runs = load_jsonl(runs_path(base_dir))
+    # Plan 026R §A.2 — hot-path consumers move from `load_jsonl` (silent
+    # accept of tampered / hashless rows) to `load_jsonl_verified` which
+    # raises `LedgerIntegrityError` on chain mismatch, missing
+    # `ledger_hash`, or canonical drift. All four ledgers below are
+    # written via `append_jsonl` so every row is hash-chained at write
+    # time; a strict read here is the read-side gate that catches mid-
+    # flight tamper or partial-write visible to a reader.
+    all_runs = load_jsonl_verified(runs_path(base_dir))
+    runs = [row for row in all_runs if row.get("cycle_id") == cycle_id]
     tool_runtime = _tool_runtime_table(runs, all_runs, cycle_id)
     pressure_payload = _load_pressure(root, cycle_id)
     pressures = pressure_payload.get("summary", {})
-    auto_merge_decisions = [row for row in load_jsonl(root / "auto-merge-decisions.jsonl") if row.get("cycle_id") == cycle_id]
-    beliefs = _latest_by_id(load_jsonl(root / "memory" / "beliefs.jsonl"), "belief_id")
+    auto_merge_decisions = [
+        row
+        for row in load_jsonl_verified(root / "auto-merge-decisions.jsonl")
+        if row.get("cycle_id") == cycle_id
+    ]
+    beliefs = _latest_by_id(
+        load_jsonl_verified(root / "memory" / "beliefs.jsonl"), "belief_id"
+    )
     top_pressures = pressure_payload.get("pressures", [])[:3] if isinstance(pressure_payload.get("pressures"), list) else []
     committed = _committed_findings_and_debts(root, repo_root_override=repo_root)
     human_required = _human_required_summary(root)

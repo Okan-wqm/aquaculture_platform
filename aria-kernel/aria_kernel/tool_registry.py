@@ -245,11 +245,26 @@ def append_tools_governance(
     kind: str,
     details: dict[str, Any],
 ) -> dict[str, Any]:
+    """Plan 026R §A.2 — append a governance row and rely on A.1's grouped
+    index refresh to keep ``integrity_index.json`` current.
+
+    ``governance.jsonl`` is a member of the tools integrity-index group;
+    ``append_jsonl`` therefore acquires the index-group lock OUTER + the
+    per-file lock INNER and rewrites ``integrity_index.json`` under both
+    locks via ``_refresh_adjacent_index_grouped``. The pre-§A.2 extra
+    ``update_tools_index(root)`` call BELOW the lock was redundant (same
+    output) AND racy: under N concurrent ``append_tools_governance``
+    calls, two writers raced on the fixed ``.integrity_index.json.tmp``
+    side-car and one ``tmp.replace(path)`` failed with FileNotFoundError
+    (surfaced by ``test_concurrent_submit_race_5_subprocesses``).
+    Removing the duplicate eliminates both the race and the extra fcntl
+    pair per governance event.
+    """
     root = Path(base_dir)
     root.mkdir(parents=True, exist_ok=True)
-    row = append_jsonl(root / "governance.jsonl", governance_event(kind=kind, details=details))
-    update_tools_index(root)
-    return row
+    return append_jsonl(
+        root / "governance.jsonl", governance_event(kind=kind, details=details)
+    )
 
 
 def _prepare_tools_dirs(root: Path) -> None:

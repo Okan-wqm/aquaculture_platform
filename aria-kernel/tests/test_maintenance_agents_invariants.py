@@ -62,7 +62,11 @@ class MaintenanceAgentInvariantTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             front = _parse_frontmatter(text)
             self.assertEqual(front.get("model"), "opus", f"{name}: model not opus")
-            self.assertEqual(front.get("effort"), "xhigh", f"{name}: effort not xhigh")
+            self.assertEqual(
+                front.get("effort"), "xhigh",
+                f"{name}: effort not xhigh (canonical platform policy — "
+                "see prompt-writer.md §Platform policy)",
+            )
             tools = front.get("tools", "")
             self.assertEqual(
                 set(t.strip() for t in tools.split(",")),

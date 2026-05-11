@@ -119,7 +119,21 @@ def _is_fresh(
     freshness_max_age_seconds: int,
     now: datetime,
 ) -> bool:
+    """Plan 026R §E.1 — status-aware freshness check.
+
+    Pre-§E.1 the predicate considered only repo_state_id + age, so a
+    cached FAILED adapter run (``status: crash``,
+    ``status: budget_exceeded``, ``status: schema_error``) would
+    satisfy "fresh" and the spine orchestrator would re-use the
+    failure as the new baseline. §E.1 also requires the cached row
+    to carry a successful status in
+    ``{"pass", "ok", "completed"}``; any other status (or missing)
+    forces a re-run.
+    """
     if not run_row:
+        return False
+    status = str(run_row.get("status") or "").lower()
+    if status not in {"pass", "ok", "completed"}:
         return False
     snapshot = run_row.get("repo_snapshot") or {}
     rsid = snapshot.get("repo_state_id")

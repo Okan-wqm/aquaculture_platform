@@ -147,16 +147,30 @@ def classify_pressure(pressure: dict[str, Any]) -> tuple[str, list[str]]:
     return "blocked", ["unresolved_policy"]
 
 
+# Plan 026R §E.4 — skill_birth routing kernel constant. Pre-§E.4 the
+# skill_birth target was looked up in the data-driven routing table
+# (a per-workspace JSON file), so a tampered routing.json or an
+# operator misconfiguration could route a skill_birth pressure to
+# ``agent_genesis`` — which would attempt to create a NEW AGENT for
+# a request whose intent is to add a NEW SKILL. The constant pins the
+# routing so the misroute is structurally impossible.
+SKILL_BIRTH_ROUTING_TARGET = "skill_genesis"
+
+
 def resolve_target_agent(pressure: dict[str, Any], tools_root: Path) -> str | None:
+    drives = pressure.get("drives") if isinstance(pressure.get("drives"), list) else []
+    # Plan 026R §E.4 — skill_birth pressures ALWAYS route to
+    # skill_genesis; the kernel constant short-circuits BEFORE the
+    # data-driven routing table is consulted so a tampered routing.json
+    # cannot misroute the pressure.
+    if "skill_birth" in drives:
+        return SKILL_BIRTH_ROUTING_TARGET
     routing = _routing_table(tools_root)
     gap = str(pressure.get("capability_gap_key") or "")
     surface = gap.split(":", 1)[0] if gap else ""
     for key in (gap, surface, str(pressure.get("primitive") or "").lower()):
         if key in routing:
             return routing[key]
-    drives = pressure.get("drives") if isinstance(pressure.get("drives"), list) else []
-    if "skill_birth" in drives:
-        return routing.get("skill_birth")
     return None
 
 

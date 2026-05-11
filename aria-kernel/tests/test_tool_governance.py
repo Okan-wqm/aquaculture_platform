@@ -527,7 +527,13 @@ class ToolGovernanceTests(unittest.TestCase):
 
     def test_calibrated_tool_cannot_return_to_active_without_fixtures(self):
         register_active_for_test(valid_tool(status="CALIBRATE"), base_dir=self.tools_dir)
-        with self.assertRaisesRegex(GovernanceError, "pass through SHADOW"):
+        # Plan 026R §E.10 — error message now
+        # ``tool_lifecycle_forbidden_active_promotion``; accept the
+        # legacy "pass through SHADOW" message too for forward-compat.
+        with self.assertRaisesRegex(
+            GovernanceError,
+            "pass through SHADOW|tool_lifecycle_forbidden_active_promotion",
+        ):
             transition_tool(
                 "ts-adapter",
                 "ACTIVE",

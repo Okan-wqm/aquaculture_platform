@@ -790,6 +790,16 @@ def update_tool(
     return result
 
 
+# Plan 026R §E.10 — forbidden direct-to-ACTIVE source states.
+# Lifecycle invariant: a tool can only reach ACTIVE via the documented
+# SHADOW -> ACTIVE promotion path (with precision threshold + operator
+# approval). Pre-§E.10 the kernel only checked CALIBRATE explicitly;
+# every other source state silently succeeded.
+_FORBIDDEN_ACTIVE_SOURCES: frozenset[str] = frozenset({
+    "DRAFT", "SANDBOX", "ARCHIVED", "QUARANTINED", "CALIBRATE",
+})
+
+
 def transition_tool(
     tool_id: str,
     target_status: str,
@@ -821,9 +831,23 @@ def transition_tool(
     if current == "CALIBRATE" and target_status == "SHADOW" and not fixture_suite_passed:
         raise GovernanceError("CALIBRATE -> SHADOW requires fixture_suite_passed")
     if target_status == "ACTIVE":
+        # Plan 026R §E.10 — explicit lifecycle matrix. Pre-§E.10 only
+        # ``CALIBRATE → ACTIVE`` and ``SHADOW → ACTIVE`` were
+        # explicitly checked; ``DRAFT → ACTIVE`` /
+        # ``SANDBOX → ACTIVE`` / ``ARCHIVED → ACTIVE`` /
+        # ``QUARANTINED → ACTIVE`` silently succeeded because no
+        # branch handled them. The matrix below names every forbidden
+        # source explicitly so the kernel rejects the typo /
+        # malicious / accident.
+        if current in _FORBIDDEN_ACTIVE_SOURCES:
+            raise GovernanceError(
+                f"tool_lifecycle_forbidden_active_promotion: "
+                f"{current} -> ACTIVE is not permitted. "
+                f"Forbidden sources: {sorted(_FORBIDDEN_ACTIVE_SOURCES)}. "
+                f"Use the documented lifecycle path (e.g. SHADOW -> "
+                f"ACTIVE with precision threshold + operator approval)."
+            )
         threshold = float(tool["health_thresholds"].get("precision_min", 0.85))
-        if current == "CALIBRATE":
-            raise GovernanceError("CALIBRATE tools must pass through SHADOW before ACTIVE")
         if current == "SHADOW":
             if precision is None or precision < threshold:
                 raise GovernanceError("SHADOW -> ACTIVE requires precision above threshold")

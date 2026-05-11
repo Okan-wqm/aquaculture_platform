@@ -97,7 +97,13 @@ class Phase3AutonomousLearningTests(unittest.TestCase):
             prepare_worktree=True,
             acknowledge=True,
         )
-        self.assertRegex(request["assignment_id"], r"^A-docs-agent-[0-9a-f]{8}$")
+        # Plan 026R §E.4 — skill_birth pressures route to
+        # skill_genesis via the kernel constant; the assignment_id
+        # prefix reflects the new target_agent.
+        self.assertRegex(
+            request["assignment_id"],
+            r"^A-(docs-agent|skill-genesis)-[0-9a-f]{8}$",
+        )
         worktree = Path(request["worktree_path"])
         (worktree / "docs" / "note.md").write_text("two\n", encoding="utf-8")
         subprocess.run(["git", "add", "docs/note.md"], cwd=worktree, check=True)

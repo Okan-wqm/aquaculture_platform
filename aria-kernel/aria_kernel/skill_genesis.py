@@ -41,6 +41,19 @@ def draft_skill(
     handoff_agents: list[str],
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Plan 026R §E.3 — skill genesis chain: draft requires request.
+
+    Pre-§E.3 a draft_skill call accepted any request_id string — no
+    check that a matching skill-genesis request row existed. Genesis
+    chain integrity demands every draft trace to a real request;
+    silent acceptance lets a skill enter the pipeline with no
+    audit-trail anchor.
+    """
+    request = _find_request(request_id, base_dir)
+    if request is None:
+        raise GovernanceError(
+            f"skill_draft_request_not_found: request_id={request_id!r}"
+        )
     if not re.match(r"^[a-z][a-z0-9-]{1,80}$", name or ""):
         raise GovernanceError("skill name is invalid")
     if not owners or not handoff_agents:
@@ -78,6 +91,8 @@ def sandbox_skill(
 ) -> dict[str, Any]:
     """Validate a skill draft against fixture coverage.
 
+    Plan 026R §E.3 — chain: sandbox requires a matching draft row.
+
     Two input modes (mutually exclusive):
     - markdown_path: parse `## Fixture: <id>` blocks from skill markdown content (preferred).
     - checklist_results: explicit JSON array — kept for backward compat (deprecated).
@@ -85,6 +100,11 @@ def sandbox_skill(
     Both paths require at least MIN_FIXTURES (3) entries; failure entries flip
     decision to "fail" without bypassing the minimum-count guard.
     """
+    # Plan 026R §E.3 — chain enforcement.
+    if _find_draft(draft_id, base_dir) is None:
+        raise GovernanceError(
+            f"skill_sandbox_draft_not_found: draft_id={draft_id!r}"
+        )
     if markdown_path is not None and checklist_results is not None:
         raise GovernanceError("provide either markdown_path or checklist_results, not both")
     if markdown_path is not None:
@@ -122,6 +142,17 @@ def materialize_skill(
     if not acknowledge:
         raise GovernanceError("materialize_skill_requires_acknowledge")
     draft = _find_draft(draft_id, base_dir)
+    if draft is None:
+        raise GovernanceError(
+            f"skill_materialize_draft_not_found: draft_id={draft_id!r}"
+        )
+    # Plan 026R §E.3 — chain: materialise requires a passing sandbox.
+    sandbox = _latest_sandbox(draft_id, base_dir)
+    if not sandbox or sandbox.get("decision") != "pass":
+        raise GovernanceError(
+            f"skill_materialize_requires_passing_sandbox: "
+            f"draft_id={draft_id!r} sandbox={sandbox}"
+        )
     dispatch = _find_dispatch(assignment_id, base_dir)
     worktree = Path(str(dispatch.get("worktree_path") or ""))
     if not worktree.is_absolute():
@@ -189,11 +220,37 @@ def _render_skill(*, name: str, description: str, owners: list[str], handoff_age
     )
 
 
-def _find_draft(draft_id: str, base_dir: str | Path | None) -> dict[str, Any]:
+def _find_request(
+    request_id: str, base_dir: str | Path | None,
+) -> dict[str, Any] | None:
+    """Plan 026R §E.3 — chain anchor lookup for draft_skill."""
+    for row in reversed(list_skill_genesis(base_dir=base_dir, kind="requests")):
+        if row.get("request_id") == request_id:
+            return row
+    return None
+
+
+def _find_draft(
+    draft_id: str, base_dir: str | Path | None,
+) -> dict[str, Any] | None:
+    """Plan 026R §E.3 — return None on miss instead of raising, so the
+    callers (sandbox_skill, materialize_skill) can emit specific
+    chain-violation errors rather than the generic legacy raise."""
     for row in reversed(list_skill_genesis(base_dir=base_dir, kind="drafts")):
         if row.get("draft_id") == draft_id:
             return row
-    raise GovernanceError(f"skill draft not found: {draft_id}")
+    return None
+
+
+def _latest_sandbox(
+    draft_id: str, base_dir: str | Path | None,
+) -> dict[str, Any] | None:
+    """Plan 026R §E.3 — return the latest sandbox row for a draft_id."""
+    latest: dict[str, Any] | None = None
+    for row in list_skill_genesis(base_dir=base_dir, kind="sandbox"):
+        if row.get("draft_id") == draft_id:
+            latest = row
+    return latest
 
 
 def _find_dispatch(assignment_id: str, base_dir: str | Path | None) -> dict[str, Any]:

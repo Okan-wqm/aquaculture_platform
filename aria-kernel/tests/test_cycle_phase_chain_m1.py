@@ -91,16 +91,20 @@ class ExtendedPhaseDispatchTests(unittest.TestCase):
 
 class CycleRunPhasesUnknownTests(unittest.TestCase):
     def test_unknown_phase_raises_value_error(self) -> None:
+        # Plan 026R §E.7 — use a fresh per-test tempdir so FATES
+        # residue from a prior /tmp/nonexistent-aria-m1 run does NOT
+        # trigger my E.7 hash-mismatch check before the unknown-phase
+        # check fires.
+        import tempfile
         from aria_kernel.cycle import run_enterprise_cycle
-        # Call with no real workspace; we only need the early phase-name
-        # validation to fire.
-        with self.assertRaises(ValueError) as cm:
-            run_enterprise_cycle(
-                workspace_root="/tmp/nonexistent-aria-m1",
-                cycle_id="cyc-1",
-                base_dir="/tmp/nonexistent-aria-m1/aria-tools",
-                run_phases=("teleport",),
-            )
+        with tempfile.TemporaryDirectory(prefix="aria-m1-clean-") as tmp:
+            with self.assertRaises(ValueError) as cm:
+                run_enterprise_cycle(
+                    workspace_root=tmp,
+                    cycle_id="cyc-1",
+                    base_dir=f"{tmp}/aria-tools",
+                    run_phases=("teleport",),
+                )
         self.assertIn("teleport", str(cm.exception))
 
 

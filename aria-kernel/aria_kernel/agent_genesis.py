@@ -234,13 +234,33 @@ def approve_agent_pr(
     draft_id: str,
     operator_approval_ref: str,
     base_dir: str | Path | None = None,
+    operator_synthetic_override: bool = False,
 ) -> dict[str, Any]:
+    """Approve a genesis draft for PR creation.
+
+    Plan 026R §E.2 — synthetic-sandbox reject. Pre-§E.2 the gate only
+    asserted ``sandbox.decision == 'pass'``; a sandbox run flagged
+    ``synthetic_test_mode: true`` would still satisfy the predicate
+    and the draft could ship through to the agent-PR lane. Synthetic
+    flows are fixture-bound; an agent built on a synthetic sandbox
+    decision has no real-evidence chain backing the approval. Post-
+    §E.2: synthetic_test_mode=true rejects unless the operator
+    explicitly passes ``operator_synthetic_override=True``.
+    """
     if not operator_approval_ref.strip():
         raise GovernanceError("operator approval ref is required")
     draft = _find_draft(draft_id, base_dir)
     sandbox = _latest_sandbox(draft_id, base_dir)
     if not sandbox or sandbox.get("decision") != "pass":
         raise GovernanceError("agent draft must pass genesis sandbox before PR approval")
+    if sandbox.get("synthetic_test_mode") is True and not operator_synthetic_override:
+        raise GovernanceError(
+            "synthetic_sandbox_cannot_approve_agent_pr: sandbox "
+            f"run for draft {draft_id!r} ran with synthetic_test_mode=True; "
+            "synthetic fixtures cannot back a real agent PR. Pass "
+            "operator_synthetic_override=True ONLY if you have an audit "
+            "trail proving the synthetic equivalence."
+        )
     row = dict(draft)
     row["recorded_at"] = utc_now()
     row["status"] = "approved_for_agent_pr"
@@ -297,10 +317,36 @@ def materialize_agent_draft(
     base_dir: str | Path | None = None,
     acknowledge: bool = False,
     run_invariants: bool = False,
+    operator_synthetic_override: bool = False,
 ) -> dict[str, Any]:
+    """Materialise an approved genesis draft onto the worktree.
+
+    Plan 026R §E.6 — sandbox + synthetic gate at the materialise
+    boundary. Pre-§E.6 ``materialize_agent_draft`` only required the
+    operator ``acknowledge`` flag; it did NOT check whether a
+    passing sandbox decision backed the draft, and it did NOT
+    block synthetic-sandbox materialisation. The result: a draft
+    whose sandbox FAILED (or never ran) could be materialised
+    silently, or a synthetic-mode sandbox could promote a fixture
+    into production. §E.6 mirrors §E.2's approve gate at the
+    materialise boundary.
+    """
     if not acknowledge:
         raise GovernanceError("materialize_agent_draft_requires_acknowledge")
     draft = _find_draft(draft_id, base_dir)
+    sandbox = _latest_sandbox(draft_id, base_dir)
+    if not sandbox or sandbox.get("decision") != "pass":
+        raise GovernanceError(
+            "materialize_requires_passing_sandbox: draft "
+            f"{draft_id!r} has no passing genesis sandbox row"
+        )
+    if sandbox.get("synthetic_test_mode") is True and not operator_synthetic_override:
+        raise GovernanceError(
+            "synthetic_sandbox_cannot_materialize: draft "
+            f"{draft_id!r} sandbox ran with synthetic_test_mode=True; "
+            "synthetic fixtures cannot back a real agent materialisation. "
+            "Pass operator_synthetic_override=True ONLY with audit trail."
+        )
     dispatch = _find_dispatch(assignment_id, base_dir)
     worktree = Path(str(dispatch.get("worktree_path") or ""))
     if not worktree.is_absolute():

@@ -364,7 +364,12 @@ def run_enterprise_cycle(
                 "emitted_observations_count": len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0,
             },
         )
-    memory = update_memory(cycle_id=cycle_id, base_dir=root)
+    # Plan 026R §E.7 — pass workspace_root so update_memory's FATES
+    # hash recompute check fires. Pre-§E.7 legacy callers omitted
+    # workspace_root and the integrity check silently skipped.
+    memory = update_memory(
+        cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
+    )
     pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
     reflection = run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
     metrics = record_cycle_metrics(

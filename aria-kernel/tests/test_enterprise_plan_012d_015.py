@@ -281,10 +281,12 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             base_dir=self.tools_dir,
             synthetic_test_mode=True,
         )
+        # Plan 026R §E.2 — synthetic-mode sandbox requires override.
         approve_agent_pr(
             draft_id="draft-aria-demo",
             operator_approval_ref="approval:genesis",
             base_dir=self.tools_dir,
+            operator_synthetic_override=True,
         )
         lane = prepare_agent_pr_lane(
             draft_id="draft-aria-demo",

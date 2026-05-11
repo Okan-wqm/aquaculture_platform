@@ -1219,6 +1219,13 @@ def submit_claim_result(
 
         # Accepted path.
         output_hash = "sha256:" + hashlib.sha256(output.read_bytes()).hexdigest()
+        # Plan 026R §C.2 — write BOTH ``output_hash`` (modern submit
+        # path field name) AND ``content_hash`` (legacy
+        # submit_agent_invocation_result field name at line 290).
+        # Cross-review (§C.4) and convergent-planning consumers query
+        # by ``content_hash``; pre-§C.2 the modern accepted-row didn't
+        # write that field so the lookup permanently returned None,
+        # silently bypassing the convergence pair check.
         row = {
             "$schema": "aria/agent-claim-result/v1",
             "schema_version": 1,
@@ -1229,6 +1236,7 @@ def submit_claim_result(
             "status": "accepted",
             "output_path": output.resolve().as_posix(),
             "output_hash": output_hash,
+            "content_hash": output_hash,  # §C.2 alias
             "envelope_evidence_hash": submitted_hash,
             "checked_evidence_count": len(revalidation["checked_refs"]),
             "submitted_at": utc_now(),
@@ -1281,6 +1289,29 @@ def submit_claim_result(
                 "agent_bridge_warning",
                 {"claim_id": claim_id, "request_id": request_id, "kind": "supporting_bridge", "error": str(exc)},
             )
+        # Plan 026R §C.1 — planner-role auto-bridge. Pre-§C.1 planner
+        # roles (primary_plan / challenger_plan / cross_review) fell
+        # through every bridge silently; convergent-planning state
+        # never saw the accepted submission. record_plan_result
+        # dispatches by role to the correct plan_convergence mutation
+        # (record_revision / submit_challenger_plan / record_cross_review).
+        # Returns None for non-planner roles so judge / supporting
+        # paths above stay unaffected.
+        try:
+            from .plan_convergence_bridge import record_plan_result
+            bridged["plan_convergence"] = record_plan_result(
+                role=envelope.get("role"),
+                request=request,
+                response=envelope,
+                base_dir=base_dir,
+            )
+        except GovernanceError as exc:
+            bridged["bridge_errors"].append(f"plan_convergence_bridge: {exc}")
+            append_tools_governance(
+                root,
+                "agent_bridge_warning",
+                {"claim_id": claim_id, "request_id": request_id, "kind": "plan_convergence_bridge", "error": str(exc)},
+            )
     except ImportError as exc:  # pragma: no cover — judgment_bridge is in tree
         bridged["bridge_errors"].append(f"bridge_import: {exc}")
 
@@ -1303,6 +1334,21 @@ def _persist_rejection(
     # or rejected — carries the hash so the §A.1 idempotency gate can
     # decide drift vs. byte-identical replay vs. legacy-undecidable on
     # the next submit attempt.
+    # Plan 026R §C.2 — write BOTH ``output_hash`` and ``content_hash``
+    # on rejection rows too so cross-review / convergence consumers
+    # resolve the hash regardless of acceptance status. Compute from
+    # the on-disk output file when it exists; null when the output
+    # path is empty / unreadable (e.g. envelope_unreadable rejections
+    # at line 1138).
+    rejection_output_hash: str | None = None
+    try:
+        if output_path.exists() and output_path.is_file():
+            rejection_output_hash = (
+                "sha256:"
+                + hashlib.sha256(output_path.read_bytes()).hexdigest()
+            )
+    except OSError:
+        rejection_output_hash = None
     row = {
         "$schema": "aria/agent-claim-result/v1",
         "schema_version": 1,
@@ -1311,6 +1357,8 @@ def _persist_rejection(
         "agent_id": agent_id,
         "status": "rejected",
         "output_path": output_path.resolve().as_posix(),
+        "output_hash": rejection_output_hash,
+        "content_hash": rejection_output_hash,  # §C.2 alias
         "rejection_reasons": reasons,
         "envelope_evidence_hash": envelope_evidence_hash,
         "submitted_at": utc_now(),

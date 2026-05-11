@@ -470,6 +470,94 @@ def _find_by_idempotency(root: Path, key: str) -> dict[str, Any] | None:
     return None
 
 
+def _results_pair_hash_check(
+    *,
+    plan_id: str,
+    round_number: int,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Plan 026R §C.4 — bidirectional cross-review result-pair check.
+
+    A convergent-planning round expects TWO accepted cross-review
+    result rows (one per direction: primary→challenger and
+    challenger→primary). This helper asserts:
+
+    1. Both rows EXIST in ``agent-invocations/results.jsonl`` for the
+       given ``(plan_id, round_number)``.
+    2. Both rows carry a non-null ``content_hash`` field (§C.2 made
+       this alias non-None on every accepted result row; pre-§C.4 the
+       lookup was permanently None).
+    3. The two ``content_hash`` values DIFFER. Identical hashes mean
+       the same reviewer wrote both reviews — a collusion / single-
+       agent signal that defeats the cross-review's adversarial
+       contract.
+
+    Raises ``GovernanceError`` with a structured reason code on any
+    failure:
+
+    * ``cross_review_pair_missing`` — zero rows found.
+    * ``cross_review_pair_single_role_only`` — one direction filed.
+    * ``cross_review_pair_identical_content_hash`` — collusion signal.
+
+    On success returns ``{"plan_id", "round_number", "pair":
+    [row_a, row_b]}`` so callers can chain ledger writes against the
+    pair without re-querying.
+    """
+    from .ledger import load_jsonl as _load_jsonl
+    root = Path(base_dir) if base_dir else Path.cwd()
+    results = _load_jsonl(root / "agent-invocations" / "results.jsonl")
+    candidates: list[dict[str, Any]] = []
+    for row in results:
+        if row.get("status") != "accepted":
+            continue
+        if row.get("role") != "cross_review":
+            continue
+        # Match on convergence_id OR plan_id; the kernel persists both
+        # on different historical schemas, so accept either.
+        row_plan_id = (
+            row.get("plan_id")
+            or row.get("convergence_id")
+            or row.get("convergence_plan_id")
+        )
+        if row_plan_id != plan_id:
+            continue
+        if int(row.get("round_number") or row.get("round") or 0) != round_number:
+            continue
+        candidates.append(row)
+    if not candidates:
+        raise GovernanceError(
+            f"cross_review_pair_missing: plan_id={plan_id!r} "
+            f"round_number={round_number}"
+        )
+    if len(candidates) == 1:
+        raise GovernanceError(
+            f"cross_review_pair_single_role_only: plan_id={plan_id!r} "
+            f"round_number={round_number} found 1 cross-review row, "
+            f"need 2 (one per direction)"
+        )
+    # Take the most recent 2 (a round may have retries; the pair is
+    # the last 2 by submission order).
+    pair = candidates[-2:]
+    hashes = [row.get("content_hash") for row in pair]
+    if any(h is None for h in hashes):
+        raise GovernanceError(
+            f"cross_review_pair_missing_content_hash: plan_id={plan_id!r} "
+            f"round_number={round_number} hashes={hashes}"
+        )
+    if hashes[0] == hashes[1]:
+        raise GovernanceError(
+            f"cross_review_pair_identical_content_hash: plan_id={plan_id!r} "
+            f"round_number={round_number} hash={hashes[0]!r} — "
+            f"identical reviews defeat the cross-review's adversarial "
+            f"contract (collusion / single-agent signal)"
+        )
+    return {
+        "plan_id": plan_id,
+        "round_number": round_number,
+        "pair": pair,
+    }
+
+
 def _cross_review_hash_mismatch(root: Path, payload: dict[str, Any]) -> dict[str, Any] | None:
     request_id = payload.get("agent_invocation_request_id")
     if not request_id:

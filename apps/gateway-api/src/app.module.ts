@@ -110,7 +110,9 @@ interface GatewayContext {
  * Custom data source that forwards headers to subgraphs
  * Includes error logging for transient failures
  */
-class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
+// Exported for unit tests that pin willSendRequest's HMAC-canonical-input
+// behaviour against Apollo's RemoteGraphQLDataSource wire-body contract.
+export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
   private readonly logger = new Logger('AuthenticatedDataSource');
   private readonly secret?: string;
 
@@ -120,7 +122,13 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
   }
 
   override willSendRequest(params: {
-    request: { http?: { headers: { set: (key: string, value: string) => void } } };
+    request: {
+      http?: { headers: { set: (key: string, value: string) => void }; url?: string; method?: string };
+      query?: string;
+      variables?: Record<string, unknown>;
+      operationName?: string;
+      extensions?: Record<string, unknown>;
+    };
     context?: GatewayContext | Record<string, unknown>;
   }): void {
     const { request, context } = params;
@@ -215,27 +223,44 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     // (the receiver re-derives sha256(body) and rejects on mismatch). If
     // no tenant applies (public / pre-auth paths), tenantId is empty string.
     //
+    // ROOT-CAUSE NOTE (2026-05-11, ORPHAN-CRITICAL-075):
+    // Apollo Gateway's RemoteGraphQLDataSource does NOT populate
+    // `request.http.body` before calling willSendRequest. The actual wire
+    // body is computed inside `sendRequest()` as
+    // `JSON.stringify({...request, http: undefined})` — i.e. every request
+    // field EXCEPT `http`. Signing `request.http.body` here therefore
+    // produced an HMAC over `""` while the subgraph received the real
+    // {query, variables, operationName?, extensions?} payload, so the
+    // recomputed body-hash never matched and every authenticated mutation
+    // was rejected with "Invalid service identity signature".
+    //
+    // Fix: replicate Apollo's exact serialization (strip `http`, JSON.stringify
+    // the rest) so the bytes we sign equal the bytes Apollo will actually
+    // send. Apollo's upstream contract: see
+    // @apollo/gateway/dist/datasources/RemoteGraphQLDataSource.js
+    // (`sendRequest` — `const { http, ...requestWithoutHttp } = request;
+    //  body: JSON.stringify(requestWithoutHttp);`). Subgraph body-parser
+    // re-parses those bytes into an equivalent object and the guard's
+    // `JSON.stringify(req.body)` re-derives the identical canonical string
+    // (V8 JSON.stringify is deterministic on insertion order, and
+    // JSON.parse preserves byte-order as insertion order).
+    //
     // Closes: SEC-CRITICAL-001 — sender side; subgraph guards already accept v2
     // via verifyServiceIdentityRequest in libs/backend-common/src/guards.
+    // Closes: docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-075
     if (this.secret) {
       const signedTenantId = uuidRegex.test(resolvedTenantId ?? '')
         ? (resolvedTenantId as string)
         : '';
-      // Apollo's runtime httpRequest exposes the to-be-sent verb, URL, and
-      // body, but its public type only guarantees the header mutator.
-      // Path is extracted without the query string per v2 contract.
-      const outgoingRequest = httpRequest as typeof httpRequest & {
-        url?: string;
-        method?: string;
-        body?: unknown;
-      };
-      const subgraphUrl = new URL(outgoingRequest.url ?? '/graphql', 'http://subgraph.local');
+      const httpEnvelope = request.http;
+      const subgraphUrl = new URL(httpEnvelope?.url ?? '/graphql', 'http://subgraph.local');
       const subgraphPath = subgraphUrl.pathname;
-      const subgraphMethod = outgoingRequest.method ?? 'POST';
-      const subgraphBody =
-        typeof outgoingRequest.body === 'string'
-          ? outgoingRequest.body
-          : JSON.stringify(outgoingRequest.body ?? '');
+      const subgraphMethod = httpEnvelope?.method ?? 'POST';
+      // Replicate Apollo's wire-body serialization byte-for-byte.
+      // WHY this and not request.http.body: see ROOT-CAUSE NOTE above.
+      const { http: _http, ...requestWithoutHttp } = request;
+      void _http;
+      const subgraphBody = JSON.stringify(requestWithoutHttp);
       const identityHeaders = buildSignedInternalHeaders({
         serviceName: 'gateway-api',
         tenantId: signedTenantId,

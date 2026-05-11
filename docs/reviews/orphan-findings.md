@@ -3273,3 +3273,65 @@ Fix (Tier-1 Make-Impossible): REMOVE the sensor-ingestion entry from service-cri
 The retained doc comment block documents the restore path so the entry is not added back accidentally with the wrong level (the previous comment said level: optional which would still fail).
 
 Status: RESOLVED on chore/sensor-ingestion-manifest-cleanup.
+
+
+---
+
+## ORPHAN-CRITICAL-075 — Gateway HMAC signer signs `request.http.body` which Apollo Gateway never populates; every authenticated subgraph mutation rejected with "Invalid service identity signature"
+
+Severity: CRITICAL. Production droplet 28/28 healthy, but every login mutation and every authenticated GraphQL operation rejected by subgraph ServiceIdentityGuard with outcome.reason = `invalid-hmac`. by-okan@live.com cannot authenticate via https://app.suderra.com/login despite cold-boot bringing all containers green and supergraph composition succeeding.
+
+Discovered: 2026-05-11, while triaging operator report "Invalid service identity signature" on production droplet after schema bootstrap restoration cold-boot.
+
+Reproduction:
+1. `curl -X POST https://app.suderra.com/graphql -d '{"query":"mutation Login(...){ login(...){ accessToken } }","variables":{...}}'`
+2. Response: `{"errors":[{"message":"Invalid service identity signature. Request may be forged, expired, or fields tampered with.","extensions":{"code":"FORBIDDEN"}}]}`
+3. Auth-service log: `Rejected request: invalid-hmac from "gateway-api"` from `ServiceIdentityGuard`.
+4. Manual signed POST from gateway container directly to `http://auth-service:3000/graphql` with hand-computed v2 canonical input → status 200. Confirms secret, path, method, tenant, version are all correct end-to-end; only the gateway's automatic signer is wrong.
+
+Root cause: `apps/gateway-api/src/app.module.ts:227` reads `outgoingRequest.body` from `request.http`, but Apollo Gateway's `@apollo/gateway/dist/datasources/RemoteGraphQLDataSource.js` sets `request.http = { method: 'POST', url: this.url, headers }` (lines 40-44) BEFORE calling willSendRequest — `request.http.body` is never populated. The actual wire body is computed inside `sendRequest()` as
+
+```js
+const { http, ...requestWithoutHttp } = request;
+const stringifiedRequestWithoutHttp = JSON.stringify(requestWithoutHttp);
+// body: stringifiedRequestWithoutHttp
+```
+
+So the gateway signer signs an HMAC over `JSON.stringify(undefined ?? '')` = `'""'` while Apollo Gateway actually sends `JSON.stringify({query, variables, operationName?, extensions?})`. The subgraph re-derives `sha256(observedBody)` from the wire bytes, gets a digest that does not match the signed `X-Service-Body-Hash` header, and step 2 of `verifyServiceIdentityV2` (signed-claim ↔ wire observation cross-check) fails → step 3 HMAC re-derivation never agrees → reason = `invalid-hmac`.
+
+The bug surface: every POST mutation through federation. The bug was MASKED previously because integration tests stubbed `request.http.body` to a non-empty string and never exercised Apollo's actual willSendRequest contract. Once the production droplet boot graph forced a real federated mutation through, the divergence surfaced.
+
+Fix (Tier-1 Make-Impossible): replicate Apollo's exact wire-body serialization inside willSendRequest by extracting `request` (NOT `request.http`), stripping the `http` envelope, and JSON.stringify'ing the remaining fields. The bytes we sign are now byte-for-byte identical to what Apollo will send. V8 JSON.parse + JSON.stringify is deterministic on insertion order, so the subgraph guard's `JSON.stringify(req.body)` produces the same canonical string. Tier-1 because the wire body bytes are now structurally derived from the same source on both sides; canonical-input drift is mathematically eliminated.
+
+Defense in depth (separate follow-up, NOT in this fix): enable NestJS `rawBody: true` on every subgraph and have ServiceIdentityGuard hash `req.rawBody` (Buffer of exact wire bytes) rather than `JSON.stringify(req.body)`. This removes even the dependency on V8 JSON-canonicalization determinism. Tracked separately because it touches every subgraph's bootstrap.
+
+Detectability follow-up (separate, NOT in this fix): `verifyServiceIdentityV2` returns `boolean` and the dispatcher collapses 5 distinct fail modes (stale-timestamp, method-mismatch, path-mismatch, body-mismatch, hmac-mismatch) into one generic `invalid-hmac` reason. Operator debugging of HMAC failures cannot distinguish these cases. Refactor `verifyServiceIdentityV2` to return `VerificationOutcome` so the guard log surfaces the actual failure step. Tier-3 — does not prevent the bug class, but makes the next instance debuggable in seconds rather than hours.
+
+Status: RESOLVED on fix/gateway-signer-apollo-body-canonicalization.
+
+
+---
+
+## ORPHAN-CRITICAL-076 — Schema drift validator reports 84+ entity↔DB violations across 7 services; deploy boot-signal asserter rejects deploy as failed even when containers are healthy
+
+Severity: CRITICAL (deploy validator surface) / HIGH (genuine entity drift surface). Deploy validator at scripts/deploy/check-service-health.sh reports `Round 30/30: 7 signal(s) pending` and rolls back deploy because 7 services (auth, farm, hr, alert, billing, notification, config) never emit the `Schema drift scan clean — SchemaDriftValidator found zero violations (ADR-012)` boot signal. The signal is gated on zero ERROR-severity drifts found by SchemaDriftValidator.
+
+Discovered: 2026-05-11, on production droplet deploy log after PR #271 (sensor-ingestion criticality cleanup) and PR #267 (farm 42-table migration) shipped.
+
+Two distinct sub-classes inside this finding:
+
+(A) **Genuine entity↔DB drift** (HIGH severity, schema reorganization scope):
+- farm-service: 84 violations — entity declares columns the DB has not had since the Wave 4-A baseline (`farm.departments.capacity`, `farm.departments.notes`, `farm.systems.departmentId`, `farm.systems.totalVolumeM3`, `farm.systems.tankCount`, `farm.equipment.parentEquipmentId`, plus NOT-NULL discipline mismatches on every base column). Indicates baseline migration is column-incomplete relative to the entity model.
+- hr-service / alert-engine / billing-service / notification-service / config-service: similar patterns expected; full violation report on each in cold-boot logs.
+
+This sub-class is the exact problem Wave 4-A.2 plan (`docs/plans/2026-05-08-bootstrap-completion-schema-reorganization/`) was scoped to solve via comprehensive baseline extension + migration robustification. The drift detected today is the symptom that plan addresses.
+
+(B) **Validator false-positive on array columns** (Tier-1 validator bug):
+- auth-service: 1 ERROR violation `[shared.audit_logs.relatedAuditIds] entity declares uuid but DB is ARRAY`. The entity at `libs/backend-common/src/audit/audit-log.entity.ts:386` declares `@Column({ type: 'uuid', array: true, nullable: true })` — the DB column is `uuid[]` (postgres array) — which is the CORRECT shape. SchemaDriftValidator compares entity `column.type === 'uuid'` against DB `information_schema.columns.data_type === 'ARRAY'` without consulting `column.isArray` on the entity side or `udt_name === '_uuid'` on the DB side. Result: a structurally correct array column is reported as drift.
+
+Fix sub-class (B) (Tier-1 in validator code): in `libs/backend-common/src/database/schema-drift-validator.service.ts` compareColumn step, when `entityColumn.isArray === true` AND DB `data_type === 'ARRAY'`, compare `entityColumn.type` (or normalized form) against DB `udt_name` with leading underscore stripped (e.g. `_uuid` → `uuid`). When this matches, classify as PASS — not drift. Plus widen the validator to support all postgres array element types we use in entities (uuid, text, jsonb, varchar).
+
+Fix sub-class (A) (large scope — already plan): proceed with Wave 4-A.2 Phase 2 baseline extension as docs/plans/2026-05-08-bootstrap-completion-schema-reorganization/ specifies. Out of scope for the gateway-signer fix.
+
+Status: OPEN — (B) tracked here as a self-contained Tier-1 validator fix; (A) tracked in Wave 4-A.2 plan and is the larger schema reorganization effort.
+

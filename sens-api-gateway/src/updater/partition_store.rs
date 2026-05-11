@@ -143,14 +143,12 @@ impl PartitionLockGuard {
             })?;
 
         let flock_guard = Flock::lock(file, FlockArg::LockExclusive).map_err(|(_, e)| {
-            PartitionStoreError::IoError(format!(
-                "flock LOCK_EX on {}: {}",
-                lock_path.display(),
-                e
-            ))
+            PartitionStoreError::IoError(format!("flock LOCK_EX on {}: {}", lock_path.display(), e))
         })?;
 
-        Ok(Self { _flock: flock_guard })
+        Ok(Self {
+            _flock: flock_guard,
+        })
     }
 }
 
@@ -234,10 +232,7 @@ pub enum PartitionStoreError {
     /// but independent of the caller — closes any cross-caller
     /// race window where two concurrent apply calls could both
     /// observe the same pre-bump floor.
-    StaleVersion {
-        claimed: u64,
-        highest_seen: u64,
-    },
+    StaleVersion { claimed: u64, highest_seen: u64 },
 }
 
 impl std::fmt::Display for PartitionStoreError {
@@ -245,13 +240,20 @@ impl std::fmt::Display for PartitionStoreError {
         match self {
             Self::IoError(e) => write!(f, "partition store IO: {}", e),
             Self::ParseError(e) => write!(f, "partition store parse: {}", e),
-            Self::InvalidTransition { from_a, from_b, roll } => write!(
+            Self::InvalidTransition {
+                from_a,
+                from_b,
+                roll,
+            } => write!(
                 f,
                 "invalid partition transition: roll={} current: A={:?} B={:?}",
                 roll, from_a, from_b
             ),
             Self::LockPoisoned => write!(f, "partition store mutex poisoned"),
-            Self::StaleVersion { claimed, highest_seen } => write!(
+            Self::StaleVersion {
+                claimed,
+                highest_seen,
+            } => write!(
                 f,
                 "stale firmware version: claimed={} not > highest_seen={}",
                 claimed, highest_seen
@@ -295,18 +297,10 @@ impl PartitionStore {
             return Ok(PartitionState::initial());
         }
         let bytes = std::fs::read(&self.path).map_err(|e| {
-            PartitionStoreError::IoError(format!(
-                "reread {}: {}",
-                self.path.display(),
-                e
-            ))
+            PartitionStoreError::IoError(format!("reread {}: {}", self.path.display(), e))
         })?;
         serde_json::from_slice(&bytes).map_err(|e| {
-            PartitionStoreError::ParseError(format!(
-                "reread parse {}: {}",
-                self.path.display(),
-                e
-            ))
+            PartitionStoreError::ParseError(format!("reread parse {}: {}", self.path.display(), e))
         })
     }
 
@@ -325,28 +319,16 @@ impl PartitionStore {
 
         if let Some(parent) = path_buf.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                PartitionStoreError::IoError(format!(
-                    "mkdir {}: {}",
-                    parent.display(),
-                    e
-                ))
+                PartitionStoreError::IoError(format!("mkdir {}: {}", parent.display(), e))
             })?;
         }
 
         let state = if path_buf.exists() {
             let bytes = std::fs::read(&path_buf).map_err(|e| {
-                PartitionStoreError::IoError(format!(
-                    "read {}: {}",
-                    path_buf.display(),
-                    e
-                ))
+                PartitionStoreError::IoError(format!("read {}: {}", path_buf.display(), e))
             })?;
             serde_json::from_slice(&bytes).map_err(|e| {
-                PartitionStoreError::ParseError(format!(
-                    "parse {}: {}",
-                    path_buf.display(),
-                    e
-                ))
+                PartitionStoreError::ParseError(format!("parse {}: {}", path_buf.display(), e))
             })?
         } else {
             let initial = PartitionState::initial();
@@ -370,7 +352,10 @@ impl PartitionStore {
 
     /// Clone the current state under a brief read guard.
     pub fn snapshot(&self) -> Result<PartitionState, PartitionStoreError> {
-        let guard = self.state.lock().map_err(|_| PartitionStoreError::LockPoisoned)?;
+        let guard = self
+            .state
+            .lock()
+            .map_err(|_| PartitionStoreError::LockPoisoned)?;
         Ok(guard.clone())
     }
 
@@ -404,7 +389,10 @@ impl PartitionStore {
     ) -> Result<PartitionState, PartitionStoreError> {
         let _file_lock = PartitionLockGuard::acquire(&self.lock_path())?;
 
-        let mut guard = self.state.lock().map_err(|_| PartitionStoreError::LockPoisoned)?;
+        let mut guard = self
+            .state
+            .lock()
+            .map_err(|_| PartitionStoreError::LockPoisoned)?;
 
         // Refresh in-memory state from disk while holding
         // the flock. Picks up any changes made by other
@@ -477,7 +465,10 @@ impl PartitionStore {
     ) -> Result<PartitionState, PartitionStoreError> {
         let _file_lock = PartitionLockGuard::acquire(&self.lock_path())?;
 
-        let mut guard = self.state.lock().map_err(|_| PartitionStoreError::LockPoisoned)?;
+        let mut guard = self
+            .state
+            .lock()
+            .map_err(|_| PartitionStoreError::LockPoisoned)?;
 
         // Batch 121: refresh from disk under the flock so
         // the monotonic-version gate validates against the
@@ -549,11 +540,13 @@ impl PartitionStore {
                 }
                 guard.set_state_of(target, SlotState::PendingConfirm);
                 guard.active = target;
-                guard.pending_confirm_deadline_unix_secs = Some(
-                    now_secs.saturating_add(cold_boot_budget_secs as i64),
-                );
+                guard.pending_confirm_deadline_unix_secs =
+                    Some(now_secs.saturating_add(cold_boot_budget_secs as i64));
             }
-            PartitionRoll::SwapToPending { old_active, new_pending } => {
+            PartitionRoll::SwapToPending {
+                old_active,
+                new_pending,
+            } => {
                 if guard.active != old_active {
                     return Err(PartitionStoreError::InvalidTransition {
                         from_a: guard.slot_a_state,
@@ -578,9 +571,8 @@ impl PartitionStore {
                 guard.set_state_of(old_active, SlotState::Standby);
                 guard.set_state_of(new_pending, SlotState::PendingConfirm);
                 guard.active = new_pending;
-                guard.pending_confirm_deadline_unix_secs = Some(
-                    now_secs.saturating_add(cold_boot_budget_secs as i64),
-                );
+                guard.pending_confirm_deadline_unix_secs =
+                    Some(now_secs.saturating_add(cold_boot_budget_secs as i64));
             }
             PartitionRoll::Confirm { slot } => {
                 if guard.state_of(slot) != SlotState::PendingConfirm {
@@ -594,7 +586,10 @@ impl PartitionStore {
                 guard.active = slot;
                 guard.pending_confirm_deadline_unix_secs = None;
             }
-            PartitionRoll::Rollback { failed, restored_active } => {
+            PartitionRoll::Rollback {
+                failed,
+                restored_active,
+            } => {
                 if guard.state_of(failed) != SlotState::PendingConfirm {
                     return Err(PartitionStoreError::InvalidTransition {
                         from_a: guard.slot_a_state,
@@ -621,9 +616,8 @@ impl PartitionStore {
 
     /// Persist state to disk atomically via tempfile + rename.
     fn persist(&self, state: &PartitionState) -> Result<(), PartitionStoreError> {
-        let json = serde_json::to_vec_pretty(state).map_err(|e| {
-            PartitionStoreError::ParseError(format!("serialize: {}", e))
-        })?;
+        let json = serde_json::to_vec_pretty(state)
+            .map_err(|e| PartitionStoreError::ParseError(format!("serialize: {}", e)))?;
 
         let tmp_path = self.path.with_extension("json.tmp");
 
@@ -643,15 +637,12 @@ impl PartitionStore {
                         e
                     ))
                 })?;
-            std::io::Write::write_all(&mut file, &json).map_err(|e| {
-                PartitionStoreError::IoError(format!("write tempfile: {}", e))
-            })?;
-            std::io::Write::flush(&mut file).map_err(|e| {
-                PartitionStoreError::IoError(format!("flush tempfile: {}", e))
-            })?;
-            file.sync_all().map_err(|e| {
-                PartitionStoreError::IoError(format!("fsync tempfile: {}", e))
-            })?;
+            std::io::Write::write_all(&mut file, &json)
+                .map_err(|e| PartitionStoreError::IoError(format!("write tempfile: {}", e)))?;
+            std::io::Write::flush(&mut file)
+                .map_err(|e| PartitionStoreError::IoError(format!("flush tempfile: {}", e)))?;
+            file.sync_all()
+                .map_err(|e| PartitionStoreError::IoError(format!("fsync tempfile: {}", e)))?;
         }
 
         #[cfg(not(unix))]
@@ -749,7 +740,12 @@ mod tests {
             )
             .expect("install");
         store
-            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 90)
+            .apply_roll(
+                PartitionRoll::Confirm {
+                    slot: AbPartition::A,
+                },
+                90,
+            )
             .expect("confirm");
 
         let snap = store.snapshot().expect("snap");
@@ -767,12 +763,19 @@ mod tests {
         // Set up: slot A = Active.
         store
             .apply_roll(
-                PartitionRoll::InitialInstall { target: AbPartition::A },
+                PartitionRoll::InitialInstall {
+                    target: AbPartition::A,
+                },
                 90,
             )
             .expect("install");
         store
-            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 90)
+            .apply_roll(
+                PartitionRoll::Confirm {
+                    slot: AbPartition::A,
+                },
+                90,
+            )
             .expect("confirm");
 
         // Update lands on slot B.
@@ -800,12 +803,19 @@ mod tests {
         let store = PartitionStore::open(Some(&path)).expect("open");
         store
             .apply_roll(
-                PartitionRoll::InitialInstall { target: AbPartition::A },
+                PartitionRoll::InitialInstall {
+                    target: AbPartition::A,
+                },
                 90,
             )
             .expect("install");
         store
-            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 90)
+            .apply_roll(
+                PartitionRoll::Confirm {
+                    slot: AbPartition::A,
+                },
+                90,
+            )
             .expect("confirm");
         store
             .apply_roll(
@@ -841,12 +851,14 @@ mod tests {
 
         // Confirming an Empty slot is invalid.
         let err = store
-            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 90)
+            .apply_roll(
+                PartitionRoll::Confirm {
+                    slot: AbPartition::A,
+                },
+                90,
+            )
             .expect_err("must reject");
-        assert!(matches!(
-            err,
-            PartitionStoreError::InvalidTransition { .. }
-        ));
+        assert!(matches!(err, PartitionStoreError::InvalidTransition { .. }));
 
         // State unchanged.
         let snap = store.snapshot().expect("snap");
@@ -869,10 +881,7 @@ mod tests {
                 90,
             )
             .expect_err("must reject");
-        assert!(matches!(
-            err,
-            PartitionStoreError::InvalidTransition { .. }
-        ));
+        assert!(matches!(err, PartitionStoreError::InvalidTransition { .. }));
         let _ = std::fs::remove_file(&path);
     }
 
@@ -887,7 +896,9 @@ mod tests {
             .as_secs() as i64;
         store
             .apply_roll(
-                PartitionRoll::InitialInstall { target: AbPartition::A },
+                PartitionRoll::InitialInstall {
+                    target: AbPartition::A,
+                },
                 120,
             )
             .expect("install");
@@ -910,7 +921,9 @@ mod tests {
         let store = PartitionStore::open(Some(&path)).expect("open");
         let new_state = store
             .apply_roll_with_version_bump(
-                PartitionRoll::InitialInstall { target: AbPartition::A },
+                PartitionRoll::InitialInstall {
+                    target: AbPartition::A,
+                },
                 90,
                 42,
             )
@@ -934,13 +947,20 @@ mod tests {
         let store = PartitionStore::open(Some(&path)).expect("open");
         store
             .apply_roll_with_version_bump(
-                PartitionRoll::InitialInstall { target: AbPartition::A },
+                PartitionRoll::InitialInstall {
+                    target: AbPartition::A,
+                },
                 90,
                 10,
             )
             .expect("install + bump");
         store
-            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 90)
+            .apply_roll(
+                PartitionRoll::Confirm {
+                    slot: AbPartition::A,
+                },
+                90,
+            )
             .expect("confirm");
 
         // Re-attempt with an EQUAL version — must reject
@@ -999,13 +1019,20 @@ mod tests {
         let store = PartitionStore::open(Some(&path)).expect("open");
         store
             .apply_roll_with_version_bump(
-                PartitionRoll::InitialInstall { target: AbPartition::A },
+                PartitionRoll::InitialInstall {
+                    target: AbPartition::A,
+                },
                 90,
                 100,
             )
             .expect("install v100");
         store
-            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 90)
+            .apply_roll(
+                PartitionRoll::Confirm {
+                    slot: AbPartition::A,
+                },
+                90,
+            )
             .expect("confirm v100");
 
         let before = SystemTime::now()
@@ -1044,15 +1071,14 @@ mod tests {
         // advance when the transition itself is rejected.
         let err = store
             .apply_roll_with_version_bump(
-                PartitionRoll::Confirm { slot: AbPartition::A },
+                PartitionRoll::Confirm {
+                    slot: AbPartition::A,
+                },
                 90,
                 7,
             )
             .expect_err("must reject");
-        assert!(matches!(
-            err,
-            PartitionStoreError::InvalidTransition { .. }
-        ));
+        assert!(matches!(err, PartitionStoreError::InvalidTransition { .. }));
         let snap = store.snapshot().expect("snap");
         assert_eq!(snap.active_firmware_version, 0);
         let _ = std::fs::remove_file(&path);
@@ -1085,7 +1111,9 @@ mod tests {
         assert!(!lock_p.exists());
         store
             .apply_roll(
-                PartitionRoll::InitialInstall { target: AbPartition::A },
+                PartitionRoll::InitialInstall {
+                    target: AbPartition::A,
+                },
                 90,
             )
             .expect("install");
@@ -1118,7 +1146,9 @@ mod tests {
         let store_a = PartitionStore::open(Some(&path)).expect("A open");
         store_a
             .apply_roll(
-                PartitionRoll::InitialInstall { target: AbPartition::A },
+                PartitionRoll::InitialInstall {
+                    target: AbPartition::A,
+                },
                 3600,
             )
             .expect("A install");
@@ -1128,7 +1158,12 @@ mod tests {
         // --confirm-active CLI opening the same file.
         let store_b = PartitionStore::open(Some(&path)).expect("B open");
         store_b
-            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
+            .apply_roll(
+                PartitionRoll::Confirm {
+                    slot: AbPartition::A,
+                },
+                3600,
+            )
             .expect("B confirm");
 
         // Drop B so the flock is released.
@@ -1180,13 +1215,20 @@ mod tests {
         let store_a = PartitionStore::open(Some(&path)).expect("A open");
         store_a
             .apply_roll_with_version_bump(
-                PartitionRoll::InitialInstall { target: AbPartition::A },
+                PartitionRoll::InitialInstall {
+                    target: AbPartition::A,
+                },
                 3600,
                 10,
             )
             .expect("A install v10");
         store_a
-            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
+            .apply_roll(
+                PartitionRoll::Confirm {
+                    slot: AbPartition::A,
+                },
+                3600,
+            )
             .expect("A confirm v10");
 
         let store_b = PartitionStore::open(Some(&path)).expect("B open");
@@ -1207,7 +1249,9 @@ mod tests {
         // 10. With re-read, A observes v20 > 15 → reject.
         let err = store_a
             .apply_roll_with_version_bump(
-                PartitionRoll::Confirm { slot: AbPartition::B },
+                PartitionRoll::Confirm {
+                    slot: AbPartition::B,
+                },
                 3600,
                 15,
             )

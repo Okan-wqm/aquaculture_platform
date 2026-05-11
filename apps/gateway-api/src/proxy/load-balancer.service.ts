@@ -687,6 +687,9 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
         headers: buildSignedInternalHeaders({
           serviceName: 'gateway-api',
           tenantId: '',
+          method: 'GET',
+          path: new URL(url).pathname,
+          body: '',
         }),
         signal: controller.signal,
       });

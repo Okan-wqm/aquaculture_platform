@@ -16,7 +16,7 @@ import {
  * Each template bundles sensor types, dashboard layouts, and alert presets.
  */
 @ObjectType()
-@Entity('industry_templates', { schema: 'sensor' })
+@Entity('industry_templates')
 export class IndustryTemplate {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

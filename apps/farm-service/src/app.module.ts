@@ -11,18 +11,17 @@ import { join } from 'path';
 import { Request } from 'express';
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
+import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
+import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import {
-  TenantContextMiddleware,
   CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  TenantGuard,
-  RolesGuard,
+  TenantContextMiddleware,
   UserContextMiddleware,
-  SourceSchemaBootstrapService,
-  ServiceIdentityGuard,
-  ThrottlerModule,
-  PlatformJwtModule,
-} from '@aquaculture/backend-common';
+} from '@aquaculture/backend-common/middleware';
+import { ThrottlerModule } from '@aquaculture/backend-common/security';
 
 /**
  * Extended request interface for GraphQL context
@@ -96,6 +95,7 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
 // MigrationRunnerService (database.module) executes these on OnApplicationBootstrap
 // AFTER SourceSchemaBootstrapService.synchronize() has run, ensuring tables exist
 // before the migrations attempt to ALTER them.
+import { CreateInitialSchema1700000000000 } from './database/migrations/1700000000000-CreateInitialSchema';
 import { AddSystemHierarchy1734336000000 } from './database/migrations/1734336000000-AddSystemHierarchy';
 import { AddBatchDocuments1734500000000 } from './database/migrations/1734500000000-AddBatchDocuments';
 // `MakeDepartmentSiteIdNullable1765012800000` was deleted: its intent
@@ -173,6 +173,7 @@ import { AddDailyTankWaterQualityMaterializedView1787500000000 } from './databas
 import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrations/1788100000000-WireSupplierSitesAndSiteContacts';
 import { DedupeEquipmentTypesByCode1788200000000 } from './database/migrations/1788200000000-DedupeEquipmentTypesByCode';
 import { AddBiomassReports1788300000000 } from './database/migrations/1788300000000-AddBiomassReports';
+import { AddMissingFarmTables1789200000000 } from './database/migrations/1789200000000-AddMissingFarmTables';
 
 @Module({
   imports: [
@@ -203,6 +204,7 @@ import { AddBiomassReports1788300000000 } from './database/migrations/1788300000
           // so SourceSchemaBootstrapService.synchronize() (OnModuleInit)
           // creates base tables BEFORE any ALTER statement runs.
           migrations: [
+            CreateInitialSchema1700000000000,
             AddSystemHierarchy1734336000000,
             AddBatchDocuments1734500000000,
             AddRegulatorySettings1769000000000,
@@ -234,6 +236,7 @@ import { AddBiomassReports1788300000000 } from './database/migrations/1788300000
             WireSupplierSitesAndSiteContacts1788100000000,
             DedupeEquipmentTypesByCode1788200000000,
             AddBiomassReports1788300000000,
+            AddMissingFarmTables1789200000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
@@ -258,6 +261,13 @@ import { AddBiomassReports1788300000000 } from './database/migrations/1788300000
       inject: [ConfigService, GraphQLContextFactory],
       useFactory: (configService: ConfigService, contextFactory: GraphQLContextFactory) => ({
         autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+        /** SEC-CSRF: Apollo CSRF prevention. Rejects simple-CORS GraphQL
+         *  requests that cannot carry a custom header — defense against
+         *  cross-site GraphQL execution from a victim's browser. The
+         *  gateway already enforces this; subgraphs do too as
+         *  defense-in-depth in case a subgraph becomes directly
+         *  accessible. Validated by scripts/ci/check-apollo-csrf-prevention.mjs. */
+        csrfPrevention: true,
         /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
          *  The gateway already blocks batching, but subgraphs must also enforce this as
          *  defense-in-depth in case a subgraph becomes directly accessible. */

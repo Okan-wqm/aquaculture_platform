@@ -104,21 +104,13 @@ use std::path::Path;
 
 use zeroize::Zeroizing;
 
-use super::consumer_context::{
-    context_bytes_for_purpose, ConsumerContext, ConsumerContextError,
-};
-use super::manifest::{
-    manifest_path_for_db, read_manifest, DbMigrationError,
-};
+use super::consumer_context::{ConsumerContext, ConsumerContextError, context_bytes_for_purpose};
+use super::manifest::{DbMigrationError, manifest_path_for_db, read_manifest};
 use super::schema_version::DbKeySchemaVersion;
-use super::v1_legacy_key::{
-    derive_v1_legacy_key, format_sqlcipher_pragma_key_hex,
-};
-use super::v2_keystore_key::{
-    derive_v2_sqlcipher_pragma_key_hex, V2DerivationError,
-};
-use crate::keystore::purpose::KeyPurpose;
+use super::v1_legacy_key::{derive_v1_legacy_key, format_sqlcipher_pragma_key_hex};
+use super::v2_keystore_key::{V2DerivationError, derive_v2_sqlcipher_pragma_key_hex};
 use crate::keystore::Keystore;
+use crate::keystore::purpose::KeyPurpose;
 
 /// V1-path inputs that the resolver needs in addition
 /// to the v2 path's keystore + context. Caller plumbs
@@ -234,10 +226,7 @@ pub async fn resolve_consumer_pragma_key(
             // v1 fallback — caller-provided machine_id +
             // secret_key bytes through the pure HMAC
             // kernel (Batch #331/#335).
-            let key_bytes = derive_v1_legacy_key(
-                &v1_inputs.machine_id,
-                &v1_inputs.secret_key,
-            );
+            let key_bytes = derive_v1_legacy_key(&v1_inputs.machine_id, &v1_inputs.secret_key);
             // Wrap in Zeroizing immediately. The
             // intermediate plain String exists for one
             // statement before being moved into
@@ -250,12 +239,7 @@ pub async fn resolve_consumer_pragma_key(
             // v2 path — context-bytes resolver (Batch
             // #7) + v2 shim (Batch #332/#336).
             let ctx_bytes = context_bytes_for_purpose(purpose, ctx)?;
-            derive_v2_sqlcipher_pragma_key_hex(
-                keystore,
-                purpose,
-                ctx_bytes,
-            )
-            .await?
+            derive_v2_sqlcipher_pragma_key_hex(keystore, purpose, ctx_bytes).await?
         }
     };
 
@@ -268,10 +252,8 @@ pub async fn resolve_consumer_pragma_key(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db_migration::manifest::{write_manifest, DbKeySourceManifest};
-    use crate::keystore::error::{
-        KeyDerivationError, KeystoreError, KeystoreErrorKind,
-    };
+    use crate::db_migration::manifest::{DbKeySourceManifest, write_manifest};
+    use crate::keystore::error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
     use crate::keystore::purpose::DerivedKeyId;
     use crate::keystore::secret::KeyMaterial;
     use crate::keystore::{KeyBackend, RotationSource};
@@ -305,11 +287,7 @@ mod tests {
             Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
         }
 
-        fn derived_key_id(
-            &self,
-            _purpose: KeyPurpose,
-            _context: &[u8],
-        ) -> DerivedKeyId {
+        fn derived_key_id(&self, _purpose: KeyPurpose, _context: &[u8]) -> DerivedKeyId {
             DerivedKeyId([0u8; 16])
         }
 
@@ -366,10 +344,12 @@ mod tests {
         );
         // 64-char lower-hex.
         assert_eq!(resolved.pragma_key_hex.len(), 64);
-        assert!(resolved
-            .pragma_key_hex
-            .chars()
-            .all(|c| matches!(c, '0'..='9' | 'a'..='f')));
+        assert!(
+            resolved
+                .pragma_key_hex
+                .chars()
+                .all(|c| matches!(c, '0'..='9' | 'a'..='f'))
+        );
     }
 
     #[tokio::test]
@@ -402,12 +382,8 @@ mod tests {
         // these inputs; pin the first byte (full hex
         // would be a brittle KAT — the v1 kernel's
         // own RFC 4231 KAT is the algorithm pin).
-        let v1_bytes = derive_v1_legacy_key(
-            b"machine-resolver",
-            b"secret-resolver-32bytes-key!!",
-        );
-        let expected =
-            format_sqlcipher_pragma_key_hex(&v1_bytes);
+        let v1_bytes = derive_v1_legacy_key(b"machine-resolver", b"secret-resolver-32bytes-key!!");
+        let expected = format_sqlcipher_pragma_key_hex(&v1_bytes);
         assert_eq!(*resolved.pragma_key_hex, expected);
     }
 
@@ -446,11 +422,7 @@ mod tests {
     async fn resolve_corrupt_manifest_returns_manifest_error() {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = dir.path().join("offline_queue.db");
-        std::fs::write(
-            manifest_path_for_db(&db),
-            b"not valid JSON",
-        )
-        .expect("seed corrupt");
+        std::fs::write(manifest_path_for_db(&db), b"not valid JSON").expect("seed corrupt");
 
         let err = resolve_consumer_pragma_key(
             &db,
@@ -493,13 +465,8 @@ mod tests {
         .await
         .expect_err("must error");
         match err {
-            ResolverError::Context(
-                ConsumerContextError::ProgramSha256Required { purpose },
-            ) => {
-                assert_eq!(
-                    purpose,
-                    KeyPurpose::SqlCipherRetainPersistence
-                );
+            ResolverError::Context(ConsumerContextError::ProgramSha256Required { purpose }) => {
+                assert_eq!(purpose, KeyPurpose::SqlCipherRetainPersistence);
             }
             other => {
                 panic!("expected Context::ProgramSha256Required, got {other:?}")
@@ -538,11 +505,8 @@ mod tests {
         assert!(
             matches!(
                 err,
-                ResolverError::Context(
-                    ConsumerContextError::WrongPurpose { .. }
-                ) | ResolverError::V2Derivation(
-                    V2DerivationError::WrongPurpose { .. }
-                )
+                ResolverError::Context(ConsumerContextError::WrongPurpose { .. })
+                    | ResolverError::V2Derivation(V2DerivationError::WrongPurpose { .. })
             ),
             "expected WrongPurpose from either Context or V2Derivation, got {err:?}"
         );
@@ -559,19 +523,15 @@ mod tests {
                 "consumer_key_resolver_manifest_failed",
             ),
             (
-                ResolverError::Context(
-                    ConsumerContextError::WrongPurpose {
-                        got: KeyPurpose::AuditHmacChain,
-                    },
-                ),
+                ResolverError::Context(ConsumerContextError::WrongPurpose {
+                    got: KeyPurpose::AuditHmacChain,
+                }),
                 "consumer_key_resolver_context_failed",
             ),
             (
-                ResolverError::V2Derivation(
-                    V2DerivationError::WrongPurpose {
-                        got: KeyPurpose::AuditHmacChain,
-                    },
-                ),
+                ResolverError::V2Derivation(V2DerivationError::WrongPurpose {
+                    got: KeyPurpose::AuditHmacChain,
+                }),
                 "consumer_key_resolver_v2_derivation_failed",
             ),
         ];

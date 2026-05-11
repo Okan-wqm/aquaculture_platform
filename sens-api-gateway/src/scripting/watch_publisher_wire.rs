@@ -55,22 +55,16 @@ impl MqttWatchPublishSink {
 
 #[async_trait::async_trait]
 impl WatchPublishSink for MqttWatchPublishSink {
-    async fn publish(
-        &self,
-        topic: &str,
-        payload: Vec<u8>,
-    ) -> Result<(), String> {
+    async fn publish(&self, topic: &str, payload: Vec<u8>) -> Result<(), String> {
         let s = self.state.read().await;
         match s.mqtt_client.as_ref() {
             Some(client) => client
                 .publish_raw(topic, &payload)
                 .await
                 .map_err(|e| e.to_string()),
-            None => Err(
-                "mqtt client unavailable — agent booted without MQTT \
+            None => Err("mqtt client unavailable — agent booted without MQTT \
                  (dev mode) so watch payloads cannot publish"
-                    .to_string(),
-            ),
+                .to_string()),
         }
     }
 }

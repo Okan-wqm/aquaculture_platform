@@ -32,6 +32,10 @@ import {
   FileCheck,
 } from 'lucide-react';
 import { securityApi } from '../../services/adminApi';
+import type {
+  ComplianceReport as ApiComplianceReport,
+  DataSubjectRequest,
+} from '../../services/types/security';
 
 // ============================================================================
 // Types
@@ -124,7 +128,9 @@ async function fetchDataRequests(params: {
   if (params.requestType && params.requestType !== 'all') apiParams.type = params.requestType;
 
   const result = await securityApi.getDataRequests(apiParams);
-  const data = Array.isArray(result?.data) ? result.data : [];
+  const data = Array.isArray(result?.data)
+    ? result.data.map(mapDataSubjectRequest)
+    : [];
   const total = typeof result?.total === 'number' ? result.total : data.length;
   return {
     data,
@@ -147,7 +153,7 @@ async function fetchComplianceReports(): Promise<ComplianceReport[]> {
   if (!Array.isArray(result)) {
     throw new Error(`Compliance reports: expected array, got ${typeof result}`);
   }
-  return result;
+  return result.map(mapComplianceReport);
 }
 
 async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck[]> {
@@ -156,12 +162,83 @@ async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck
   // might return {checks: [...], requirements: [...]} wrapper or error object.
   // Only accept arrays; if wrapped, extract the array.
   if (Array.isArray(result)) {
-    return result;
+    return result.map(mapComplianceCheck);
   }
-  if (result && typeof result === 'object' && 'checks' in result && Array.isArray(result.checks)) {
-    return result.checks;
+  if (result && typeof result === 'object' && 'checks' in result) {
+    const checks = (result as { checks?: unknown }).checks;
+    if (Array.isArray(checks)) {
+      return checks.map(mapComplianceCheck);
+    }
   }
   throw new Error(`Compliance checks: expected array, got ${typeof result}`);
+}
+
+function mapDataSubjectRequest(request: DataSubjectRequest): DataRequest {
+  return {
+    id: request.id,
+    requestType: request.type,
+    complianceFramework: 'gdpr',
+    status: request.status,
+    tenantId: request.tenantId ?? '',
+    tenantName: request.tenantId ?? 'Unknown tenant',
+    requesterName: request.subjectName ?? request.subjectEmail,
+    requesterEmail: request.subjectEmail,
+    description: request.notes ?? '',
+    submittedAt: request.requestedAt,
+    dueDate: request.dueDate,
+    assignedToName: request.handledBy,
+    identityVerified: request.status !== 'pending',
+    completedAt: request.completedAt,
+    isOverdue: request.status !== 'completed' && new Date(request.dueDate).getTime() < Date.now(),
+  };
+}
+
+function mapComplianceReport(report: ApiComplianceReport): ComplianceReport {
+  return {
+    id: report.id,
+    complianceType: report.type === 'custom' ? 'soc2' : report.type,
+    reportPeriodStart: report.generatedAt,
+    reportPeriodEnd: report.validUntil,
+    generatedAt: report.generatedAt,
+    generatedBy: '',
+    generatedByName: 'System',
+    overallScore: report.score,
+    totalChecks: report.findings.length,
+    passedChecks: report.findings.filter((finding) => finding.status === 'pass').length,
+    failedChecks: report.findings.filter((finding) => finding.status === 'fail').length,
+    warnings: report.findings.filter((finding) => finding.status === 'warning').length,
+    findings: report.findings.map((finding) => ({
+      category: finding.area,
+      status: finding.status === 'warning' ? 'warning' : finding.status === 'fail' ? 'fail' : 'pass',
+      description: finding.details,
+    })),
+  };
+}
+
+function mapComplianceCheck(
+  check: {
+    id: string;
+    category: string;
+    requirement: string;
+    description: string;
+    status: string;
+    evidence?: string;
+    lastChecked: string;
+    nextReview: string;
+  },
+): ComplianceCheck {
+  const allowed: ComplianceCheck['status'][] = [
+    'compliant',
+    'non_compliant',
+    'partial',
+    'not_applicable',
+  ];
+  return {
+    ...check,
+    status: allowed.includes(check.status as ComplianceCheck['status'])
+      ? (check.status as ComplianceCheck['status'])
+      : 'not_applicable',
+  };
 }
 
 // ============================================================================

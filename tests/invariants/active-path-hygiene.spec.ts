@@ -114,6 +114,7 @@ function collectActiveAgentNames(): Set<string> {
     '.claude/agents',
     '.claude/agents/product-audit',
     '.claude/agents/_maintenance',
+    '.claude/agents/edge-docs',
   ];
   for (const dir of agentDirs) {
     for (const file of walkMdFiles(dir)) {

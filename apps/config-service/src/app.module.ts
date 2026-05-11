@@ -7,21 +7,51 @@ import { join } from 'path';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, PlatformJwtModule } from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
+import {
+  AuditColumnsModule,
+  createMigrationRunnerService,
+  createServiceTypeOrmConfig,
+  RlsModule,
+  SchemaDriftModule,
+} from '@aquaculture/backend-common/database';
+import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import { LoggingModule } from '@aquaculture/backend-common/logging';
 
 /**
- * ConfigMigrationRunnerService — runs pending TypeORM migrations in the
- * public schema (config-service's current source — will migrate to a
- * dedicated `config` schema in P6-P10 of the 2026-04-14 teardown plan).
+ * ConfigMigrationRunnerService — runs pending TypeORM migrations against
+ * the `config` schema at OnApplicationBootstrap.
  *
- * Added in P2c of the teardown: migrations/ starts empty because
- * config-service currently relies on TypeORM autoLoadEntities + the RLS
- * bootstrap for schema state. The runner is wired now so that future
- * drift-correcting or RLS-installing migrations can land as deterministic
- * commits rather than another round of hand-applied psql statements (see
- * RlsSchemaBootstrap docblock lines 14-27 for the gap this closes).
+ * # Why schema: 'config' (not 'public')
+ *
+ * Every config-service entity declares
+ * `@Entity('<table>', { schema: 'config' })` (see
+ * `configuration.entity.ts`) and every migration body issues
+ * `CREATE TABLE config.<table>` / `pinSearchPath(qr, 'config')`. Passing
+ * `'public'` to the runner factory tells the runner to advisory-lock and
+ * pin `search_path` against `public` while the DDL targets `config` — an
+ * incoherent state where the runner attempts to maintain the migration
+ * ledger (`typeorm_migrations`) in `public`, requiring CREATE privilege
+ * on `public` that the per-service DB role does not have. Production
+ * cold-boot crashed with:
+ *
+ *   Migration "AlignConfigEntitySurface1789000000000" failed on "public":
+ *   permission denied for database aquaculture
+ *
+ * Aligning the runner with the schema the entities + migrations target
+ * is the canonical platform shape (billing-service:
+ * `createMigrationRunnerService('billing')`, hr-service: `('hr')`,
+ * ai-service: `('ai')`). The aqua-db-migrate orchestrator container
+ * already applies config migrations against `config`; this restores the
+ * per-service runner to the same target so the orchestrator and
+ * per-service runner stay aligned (idempotent — the runner skips
+ * already-applied migrations via the per-schema `typeorm_migrations`
+ * ledger via `MigrationExecutor.getPendingMigrations()`).
+ *
+ * Closes: docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-069
  */
-const ConfigMigrationRunnerService = createMigrationRunnerService('public');
+const ConfigMigrationRunnerService = createMigrationRunnerService('config');
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -35,19 +65,24 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       cache: true,
     }),
 
-    // Database connection — config-service currently lives in the `public`
-    // schema (will migrate to dedicated `config` schema in P6-P10 of the
-    // 2026-04-14 teardown plan). Uses the platform TypeORM factory.
+    // Database connection — config-service owns the `config` schema
+    // (per ADR-011 schema-per-service). Every entity in
+    // `configuration/entities/*.entity.ts` declares
+    // `@Entity('<table>', { schema: 'config' })` and every migration body
+    // is schema-qualified to `config.<table>`. The TypeORM factory pins
+    // `search_path` to `config,public` so unqualified reads land in the
+    // owned schema and the runner ledger lives where the role has CREATE.
     // ConfigMigrationRunnerService (provider above) executes migrations
-    // at OnApplicationBootstrap; factory's migrationsRun:false default
-    // keeps TypeORM out of that codepath.
+    // at OnApplicationBootstrap against the same `config` schema;
+    // factory's migrationsRun:false default keeps TypeORM out of that
+    // codepath.
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) =>
         createServiceTypeOrmConfig(configService, {
           serviceName: 'config',
-          schema: 'public',
+          schema: 'config',
           migrations: [__dirname + '/database/migrations/*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
@@ -109,8 +144,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      * config-service stores per-tenant configuration in a single global
      * table — RLS is the only DB-level isolation guard for it.
      *
-     * autoApply runs the helper at OnApplicationBootstrap because there
-     * is no migration runner wired in for this service.
+     * autoApply runs the helper at OnApplicationBootstrap to install /
+     * verify the RLS policy alongside the schema migrations applied by
+     * ConfigMigrationRunnerService (declared at the top of this file).
+     * The two lifecycle hooks are independent: the migration runner
+     * shapes the table surface, the RLS bootstrap pins the policy on
+     * top of it. Idempotent in both directions.
      */
     RlsModule.forPoolService({
       serviceName: 'config',
@@ -119,10 +158,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
      *
-     * config-service has no TypeORM migration runner — schema state is
-     * managed via TypeORM autoLoadEntities + the RLS bootstrap above.
-     * The audit-column bootstrap closes NEW-H1 on the same lifecycle
-     * hook. Idempotent.
+     * Works alongside ConfigMigrationRunnerService (above) — the runner
+     * applies any pending DDL via the migration ledger; this bootstrap
+     * normalises the audit column type independently of migration order
+     * (idempotent ALTER TYPE that is a no-op once the columns are
+     * TIMESTAMPTZ). Closes NEW-H1 on the same OnApplicationBootstrap
+     * hook.
      */
     AuditColumnsModule.forRoot({ serviceName: 'config' }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */

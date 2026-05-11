@@ -93,7 +93,7 @@ export class WorkHours {
 }
 
 @ObjectType()
-@Entity('payrolls', { schema: 'hr' })
+@Entity('payrolls')
 @Index(['tenantId', 'employeeId', 'payPeriodStart', 'payPeriodEnd'], { unique: true })
 @Index(['tenantId', 'payrollNumber'], { unique: true })
 @Index(['tenantId', 'status'])

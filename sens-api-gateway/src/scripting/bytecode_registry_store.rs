@@ -106,36 +106,22 @@ impl BytecodeRegistryStore {
         if let Some(parent) = db_path.as_ref().parent() {
             if !parent.exists() {
                 std::fs::create_dir_all(parent).map_err(|e| {
-                    StoreError::ConnectionFailed(format!(
-                        "create parent dir: {}",
-                        e
-                    ))
+                    StoreError::ConnectionFailed(format!("create parent dir: {}", e))
                 })?;
             }
         }
 
-        let conn = Connection::open(&db_path).map_err(|e| {
-            StoreError::ConnectionFailed(format!("open: {}", e))
-        })?;
+        let conn = Connection::open(&db_path)
+            .map_err(|e| StoreError::ConnectionFailed(format!("open: {}", e)))?;
 
         // Apply SQLCipher master-key derivation — same
         // shared path used by offline_queue +
         // persistence so all agent SQLCipher stores
         // share one key ceremony.
         let hex_key = crate::offline_queue::derive_db_encryption_key()
-            .map_err(|e| {
-                StoreError::ConnectionFailed(format!(
-                    "derive encryption key: {}",
-                    e
-                ))
-            })?;
+            .map_err(|e| StoreError::ConnectionFailed(format!("derive encryption key: {}", e)))?;
         conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .map_err(|e| {
-                StoreError::ConnectionFailed(format!(
-                    "apply encryption key: {}",
-                    e
-                ))
-            })?;
+            .map_err(|e| StoreError::ConnectionFailed(format!("apply encryption key: {}", e)))?;
 
         Self::finalize_open(conn, path_str)
     }
@@ -180,10 +166,7 @@ impl BytecodeRegistryStore {
         if let Some(parent) = db_path.as_ref().parent() {
             if !parent.exists() {
                 std::fs::create_dir_all(parent).map_err(|e| {
-                    StoreError::ConnectionFailed(format!(
-                        "create parent dir: {}",
-                        e
-                    ))
+                    StoreError::ConnectionFailed(format!("create parent dir: {}", e))
                 })?;
             }
         }
@@ -191,19 +174,10 @@ impl BytecodeRegistryStore {
         // Pull v1 inputs via the SSoT (Batch #14 db_secret
         // + Batch #344 machine_id) — resolver only USES
         // them on v1 / missing-manifest path.
-        let machine_id = crate::machine_id::read().map_err(|e| {
-            StoreError::ConnectionFailed(format!(
-                "machine_id read: {}",
-                e
-            ))
-        })?;
+        let machine_id = crate::machine_id::read()
+            .map_err(|e| StoreError::ConnectionFailed(format!("machine_id read: {}", e)))?;
         let secret_key = crate::db_secret::read_or_create_v1_secret()
-            .map_err(|e| {
-                StoreError::ConnectionFailed(format!(
-                    "secret_key read: {}",
-                    e
-                ))
-            })?;
+            .map_err(|e| StoreError::ConnectionFailed(format!("secret_key read: {}", e)))?;
         let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
             machine_id: machine_id.into_bytes(),
             secret_key,
@@ -214,35 +188,23 @@ impl BytecodeRegistryStore {
             program_artifact_sha256: Some(program_artifact_sha256),
         };
 
-        let resolved =
-            crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
-                db_path.as_ref(),
-                crate::keystore::purpose::KeyPurpose::SqlCipherBytecodeRetain,
-                &ctx,
-                keystore.as_ref(),
-                &v1_inputs,
-            )
-            .await
-            .map_err(|e| {
-                StoreError::ConnectionFailed(format!(
-                    "resolver: {}",
-                    e
-                ))
-            })?;
+        let resolved = crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+            db_path.as_ref(),
+            crate::keystore::purpose::KeyPurpose::SqlCipherBytecodeRetain,
+            &ctx,
+            keystore.as_ref(),
+            &v1_inputs,
+        )
+        .await
+        .map_err(|e| StoreError::ConnectionFailed(format!("resolver: {}", e)))?;
 
-        let conn = Connection::open(&db_path).map_err(|e| {
-            StoreError::ConnectionFailed(format!("open: {}", e))
-        })?;
+        let conn = Connection::open(&db_path)
+            .map_err(|e| StoreError::ConnectionFailed(format!("open: {}", e)))?;
         conn.execute_batch(&format!(
             "PRAGMA key = \"x'{}'\";",
             resolved.pragma_key_hex.as_str()
         ))
-        .map_err(|e| {
-            StoreError::ConnectionFailed(format!(
-                "apply encryption key: {}",
-                e
-            ))
-        })?;
+        .map_err(|e| StoreError::ConnectionFailed(format!("apply encryption key: {}", e)))?;
 
         Self::finalize_open(conn, path_str)
     }
@@ -252,10 +214,7 @@ impl BytecodeRegistryStore {
     /// `new_with_keystore_derivation` share the SAME
     /// post-key sequence — no drift in WAL mode or
     /// migration discipline between callers.
-    fn finalize_open(
-        conn: Connection,
-        path_str: String,
-    ) -> Result<Self, StoreError> {
+    fn finalize_open(conn: Connection, path_str: String) -> Result<Self, StoreError> {
         // WAL mode + sane defaults (same as
         // SqlitePersistence).
         conn.execute_batch(
@@ -291,10 +250,7 @@ impl BytecodeRegistryStore {
     }
 
     fn run_migrations(&self) -> Result<(), StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
 
         conn.execute_batch(
             r#"
@@ -325,10 +281,7 @@ impl BytecodeRegistryStore {
         let deployed_secs = entry.deployed_at.timestamp();
         let enabled_int = if entry.enabled { 1 } else { 0 };
 
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         conn.execute(
             r#"INSERT INTO bytecode_programs
                  (program_id, tenant_id, policy_version, enabled,
@@ -356,10 +309,7 @@ impl BytecodeRegistryStore {
     /// Load every persisted program. Used at boot to
     /// rehydrate the in-memory registry.
     pub fn load_all(&self) -> Result<Vec<ProgramEntry>, StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         let mut stmt = conn
             .prepare(
                 r#"SELECT program_id, tenant_id, policy_version, enabled,
@@ -399,11 +349,9 @@ impl BytecodeRegistryStore {
                 bytecode_json,
             ) = row.map_err(|e| StoreError::Sql(e.to_string()))?;
 
-            let bytecode: Bytecode = serde_json::from_str(&bytecode_json)
-                .map_err(|e| StoreError::Encoding(format!(
-                    "bytecode_json for `{}`: {}",
-                    program_id, e
-                )))?;
+            let bytecode: Bytecode = serde_json::from_str(&bytecode_json).map_err(|e| {
+                StoreError::Encoding(format!("bytecode_json for `{}`: {}", program_id, e))
+            })?;
 
             let deployed_at: DateTime<Utc> = Utc
                 .timestamp_opt(deployed_at_secs, 0)
@@ -427,10 +375,7 @@ impl BytecodeRegistryStore {
     /// id is NOT an error (the caller can always invoke
     /// delete + treat 0-row-affected as benign).
     pub fn delete(&self, program_id: &str) -> Result<(), StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         conn.execute(
             "DELETE FROM bytecode_programs WHERE program_id = ?1",
             params![program_id],
@@ -441,16 +386,11 @@ impl BytecodeRegistryStore {
 
     /// Row count — diagnostic helper for health endpoints.
     pub fn count(&self) -> Result<u64, StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM bytecode_programs",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM bytecode_programs", [], |row| {
+                row.get(0)
+            })
             .map_err(|e| StoreError::Sql(e.to_string()))?;
         Ok(count as u64)
     }
@@ -504,10 +444,10 @@ pub async fn load_into_registry(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::bytecode::Opcode;
-    use async_trait::async_trait;
+    use super::*;
     use crate::keystore::purpose::KeyPurpose;
+    use async_trait::async_trait;
 
     fn mk_bc(program_id: &str, version: u64) -> Bytecode {
         Bytecode {
@@ -659,8 +599,7 @@ mod tests {
     // -------- Batch #15 — manifest-aware constructor tests --------
 
     use crate::db_migration::manifest::{
-        manifest_path_for_db, write_manifest as write_db_manifest,
-        DbKeySourceManifest,
+        DbKeySourceManifest, manifest_path_for_db, write_manifest as write_db_manifest,
     };
     use crate::db_migration::schema_version::DbKeySchemaVersion;
     use crate::keystore::error::{
@@ -694,17 +633,11 @@ mod tests {
             Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
         }
 
-        fn derived_key_id(
-            &self,
-            _purpose: KeyPurpose,
-            _context: &[u8],
-        ) -> DerivedKeyId {
+        fn derived_key_id(&self, _purpose: KeyPurpose, _context: &[u8]) -> DerivedKeyId {
             DerivedKeyId([0u8; 16])
         }
 
-        async fn rotate_master(
-            &self,
-        ) -> std::result::Result<(), KeystoreError> {
+        async fn rotate_master(&self) -> std::result::Result<(), KeystoreError> {
             Err(KeystoreError::new(
                 KeystoreErrorKind::NotImplemented,
                 String::from("stub"),
@@ -769,10 +702,7 @@ mod tests {
         // Compute v2 key: StubKeystore returns 0xb4-prefix.
         let mut v2_bytes = [0u8; 32];
         v2_bytes[0] = 0xb4;
-        let v2_hex =
-            crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(
-                &v2_bytes,
-            );
+        let v2_hex = crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(&v2_bytes);
 
         {
             let conn = Connection::open(&db_path).expect("seed");
@@ -821,8 +751,7 @@ mod tests {
         let secret = dir.path().join("db.key");
         let db_path = dir.path().join("bytecode_retain.db");
 
-        std::fs::write(manifest_path_for_db(&db_path), b"not valid json")
-            .expect("seed corrupt");
+        std::fs::write(manifest_path_for_db(&db_path), b"not valid json").expect("seed corrupt");
 
         // SAFETY: env-mutation serialized.
         unsafe {

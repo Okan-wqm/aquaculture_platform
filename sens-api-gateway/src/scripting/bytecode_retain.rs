@@ -79,12 +79,20 @@ impl std::fmt::Display for RetainError {
             Self::Persistence(e) => {
                 write!(f, "retain: persistence: {}", e)
             }
-            Self::TypeDrift { var_name, expected, got_json } => write!(
+            Self::TypeDrift {
+                var_name,
+                expected,
+                got_json,
+            } => write!(
                 f,
                 "retain: type drift on `{}`: expected {:?}, got JSON `{}`",
                 var_name, expected, got_json
             ),
-            Self::BadLocalIndex { var_name, index, locals_len } => write!(
+            Self::BadLocalIndex {
+                var_name,
+                index,
+                locals_len,
+            } => write!(
                 f,
                 "retain: bad local_index on `{}`: index={} >= locals_len={}",
                 var_name, index, locals_len
@@ -257,10 +265,11 @@ mod tests {
     #[test]
     fn json_to_stvalue_rejects_type_drift() {
         let json = stvalue_to_json(&StValue::Int(5));
-        let err = json_to_stvalue(&json, "count", StValueType::Real)
-            .expect_err("drift");
+        let err = json_to_stvalue(&json, "count", StValueType::Real).expect_err("drift");
         match err {
-            RetainError::TypeDrift { var_name, expected, .. } => {
+            RetainError::TypeDrift {
+                var_name, expected, ..
+            } => {
                 assert_eq!(var_name, "count");
                 assert_eq!(expected, StValueType::Real);
             }
@@ -271,8 +280,7 @@ mod tests {
     #[test]
     fn json_to_stvalue_rejects_malformed_json() {
         let not_stvalue = serde_json::json!({ "kind": "wibble" });
-        let err = json_to_stvalue(&not_stvalue, "wat", StValueType::Int)
-            .expect_err("malformed");
+        let err = json_to_stvalue(&not_stvalue, "wat", StValueType::Int).expect_err("malformed");
         assert!(matches!(err, RetainError::TypeDrift { .. }));
     }
 
@@ -280,19 +288,11 @@ mod tests {
     async fn load_retain_vars_fills_locals_from_persistence() {
         let persistence = SqlitePersistence::in_memory().expect("ok");
         persistence
-            .save_async(
-                "prog1",
-                "counter",
-                &stvalue_to_json(&StValue::Int(99)),
-            )
+            .save_async("prog1", "counter", &stvalue_to_json(&StValue::Int(99)))
             .await
             .expect("save counter");
         persistence
-            .save_async(
-                "prog1",
-                "flag",
-                &stvalue_to_json(&StValue::Bool(true)),
-            )
+            .save_async("prog1", "flag", &stvalue_to_json(&StValue::Bool(true)))
             .await
             .expect("save flag");
 
@@ -323,11 +323,7 @@ mod tests {
         ];
         // Caller's initial values are deliberately
         // "wrong" to prove load_retain_vars overrides them.
-        let mut locals = vec![
-            StValue::Bool(true),
-            StValue::Int(999),
-            StValue::Real(99.9),
-        ];
+        let mut locals = vec![StValue::Bool(true), StValue::Int(999), StValue::Real(99.9)];
         load_retain_vars(&persistence, "prog1", &retain_vars, &mut locals)
             .await
             .expect("load");
@@ -372,15 +368,15 @@ mod tests {
     #[tokio::test]
     async fn load_bad_local_index_errors() {
         let persistence = SqlitePersistence::in_memory().expect("ok");
-        let retain_vars = vec![
-            ("wild".to_string(), 99u32, StValueType::Int),
-        ];
+        let retain_vars = vec![("wild".to_string(), 99u32, StValueType::Int)];
         let mut locals = vec![StValue::Bool(false); 2];
         let err = load_retain_vars(&persistence, "prog1", &retain_vars, &mut locals)
             .await
             .expect_err("bad idx");
         match err {
-            RetainError::BadLocalIndex { index, locals_len, .. } => {
+            RetainError::BadLocalIndex {
+                index, locals_len, ..
+            } => {
                 assert_eq!(index, 99);
                 assert_eq!(locals_len, 2);
             }
@@ -391,9 +387,7 @@ mod tests {
     #[tokio::test]
     async fn save_bad_local_index_errors() {
         let persistence = SqlitePersistence::in_memory().expect("ok");
-        let retain_vars = vec![
-            ("wild".to_string(), 99u32, StValueType::Int),
-        ];
+        let retain_vars = vec![("wild".to_string(), 99u32, StValueType::Int)];
         let locals = vec![StValue::Bool(false); 2];
         let err = save_retain_vars(&persistence, "prog1", &retain_vars, &locals)
             .await
@@ -408,17 +402,11 @@ mod tests {
         // coercing.
         let persistence = SqlitePersistence::in_memory().expect("ok");
         persistence
-            .save_async(
-                "prog1",
-                "counter",
-                &stvalue_to_json(&StValue::Real(1.5)),
-            )
+            .save_async("prog1", "counter", &stvalue_to_json(&StValue::Real(1.5)))
             .await
             .expect("save");
 
-        let retain_vars = vec![
-            ("counter".to_string(), 0u32, StValueType::Int),
-        ];
+        let retain_vars = vec![("counter".to_string(), 0u32, StValueType::Int)];
         let mut locals = vec![StValue::Int(0)];
         let err = load_retain_vars(&persistence, "prog1", &retain_vars, &mut locals)
             .await

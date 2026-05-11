@@ -222,10 +222,7 @@ impl CertRotation {
     /// ledger walk. First-boot deployments with no `PhaseTransition`
     /// entry on the ledger default to `LegacyAccept` per the
     /// in-place-upgrade contract.
-    pub fn new(
-        pki_store: Arc<PkiStore>,
-        initial_mode: Option<OpcUaPkiMode>,
-    ) -> Self {
+    pub fn new(pki_store: Arc<PkiStore>, initial_mode: Option<OpcUaPkiMode>) -> Self {
         Self {
             pki_store,
             state: RwLock::new(initial_mode.unwrap_or(OpcUaPkiMode::LegacyAccept)),
@@ -253,9 +250,7 @@ impl CertRotation {
     /// always defaulted to `LegacyAccept` regardless of any prior
     /// promotion. Production now uses this walker so a promoted fleet
     /// stays promoted across agent restarts.
-    pub fn load_from_pki_store(
-        pki_store: Arc<PkiStore>,
-    ) -> Result<Self, CertRotationError> {
+    pub fn load_from_pki_store(pki_store: Arc<PkiStore>) -> Result<Self, CertRotationError> {
         let entries = pki_store.ledger_entries()?;
         let recovered_mode = scan_last_phase_transition(&entries)?;
         let initial = recovered_mode.unwrap_or(OpcUaPkiMode::LegacyAccept);
@@ -363,16 +358,11 @@ mod tests {
     use crate::opc_ua_server::pki_store::CertFingerprint;
     use tempfile::TempDir;
 
-    fn fresh_rotation_with_n_pins(
-        n: usize,
-    ) -> (TempDir, Arc<PkiStore>, CertRotation) {
+    fn fresh_rotation_with_n_pins(n: usize) -> (TempDir, Arc<PkiStore>, CertRotation) {
         let tmp = TempDir::new().expect("tempdir");
         let pki = Arc::new(
-            PkiStore::open_or_initialize(
-                tmp.path(),
-                "test-device-rotation".to_string(),
-            )
-            .expect("first-boot pki"),
+            PkiStore::open_or_initialize(tmp.path(), "test-device-rotation".to_string())
+                .expect("first-boot pki"),
         );
         for i in 0..n {
             let der = format!("CERT_{i}").into_bytes();
@@ -519,12 +509,10 @@ mod tests {
     #[test]
     fn strictness_ordering_is_monotonic() {
         assert!(
-            OpcUaPkiMode::LegacyAccept.strictness()
-                < OpcUaPkiMode::WarnOnMismatch.strictness()
+            OpcUaPkiMode::LegacyAccept.strictness() < OpcUaPkiMode::WarnOnMismatch.strictness()
         );
         assert!(
-            OpcUaPkiMode::WarnOnMismatch.strictness()
-                < OpcUaPkiMode::StrictPinOnly.strictness()
+            OpcUaPkiMode::WarnOnMismatch.strictness() < OpcUaPkiMode::StrictPinOnly.strictness()
         );
     }
 
@@ -537,10 +525,7 @@ mod tests {
             OpcUaPkiMode::WarnOnMismatch.wire_label(),
             "warn_on_mismatch"
         );
-        assert_eq!(
-            OpcUaPkiMode::StrictPinOnly.wire_label(),
-            "strict_pin_only"
-        );
+        assert_eq!(OpcUaPkiMode::StrictPinOnly.wire_label(), "strict_pin_only");
     }
 
     /// Ledger entry fires on successful transition (sequence advances).
@@ -548,8 +533,7 @@ mod tests {
     fn successful_transition_appends_ledger() {
         let (_tmp, pki, rot) = fresh_rotation_with_n_pins(1);
         let pre_seq = pki.snapshot().expect("snap").last_sequence;
-        rot.transition_to(OpcUaPkiMode::WarnOnMismatch)
-            .expect("ok");
+        rot.transition_to(OpcUaPkiMode::WarnOnMismatch).expect("ok");
         let post_seq = pki.snapshot().expect("snap").last_sequence;
         assert_eq!(post_seq, pre_seq + 1);
     }
@@ -581,8 +565,7 @@ mod tests {
             OpcUaPkiMode::StrictPinOnly,
         ] {
             let json = serde_json::to_string(&m).expect("ser");
-            let back: OpcUaPkiMode =
-                serde_json::from_str(&json).expect("deser");
+            let back: OpcUaPkiMode = serde_json::from_str(&json).expect("deser");
             assert_eq!(back, m);
             assert!(json.contains(m.wire_label()));
         }
@@ -619,8 +602,7 @@ mod tests {
             .expect("promote to warn");
         // Drop the in-memory CertRotation; reload from ledger.
         drop(rot);
-        let rot2 = CertRotation::load_from_pki_store(pki.clone())
-            .expect("reload from ledger");
+        let rot2 = CertRotation::load_from_pki_store(pki.clone()).expect("reload from ledger");
         assert_eq!(rot2.mode(), OpcUaPkiMode::WarnOnMismatch);
     }
 
@@ -634,8 +616,7 @@ mod tests {
         rot.transition_to(OpcUaPkiMode::StrictPinOnly)
             .expect("strict");
         drop(rot);
-        let rot2 = CertRotation::load_from_pki_store(pki.clone())
-            .expect("reload");
+        let rot2 = CertRotation::load_from_pki_store(pki.clone()).expect("reload");
         assert_eq!(rot2.mode(), OpcUaPkiMode::StrictPinOnly);
     }
 
@@ -651,8 +632,7 @@ mod tests {
         pki.add_trusted_cert(b"POST_TRANSITION_CERT", "post".to_string())
             .expect("add post-transition cert");
         drop(rot);
-        let rot2 = CertRotation::load_from_pki_store(pki.clone())
-            .expect("reload");
+        let rot2 = CertRotation::load_from_pki_store(pki.clone()).expect("reload");
         assert_eq!(rot2.mode(), OpcUaPkiMode::WarnOnMismatch);
     }
 
@@ -666,8 +646,7 @@ mod tests {
             OpcUaPkiMode::WarnOnMismatch,
             OpcUaPkiMode::StrictPinOnly,
         ] {
-            let parsed = parse_wire_label(m.wire_label())
-                .expect("round-trip must succeed");
+            let parsed = parse_wire_label(m.wire_label()).expect("round-trip must succeed");
             assert_eq!(parsed, m);
         }
     }
@@ -677,8 +656,7 @@ mod tests {
     /// than silently treating it as `LegacyAccept`.
     #[test]
     fn parse_wire_label_rejects_unknown_string() {
-        let err = parse_wire_label("future_phase_v2")
-            .expect_err("unknown label must fail");
+        let err = parse_wire_label("future_phase_v2").expect_err("unknown label must fail");
         assert!(matches!(err, CertRotationError::LedgerWriteFailed(_)));
     }
 }

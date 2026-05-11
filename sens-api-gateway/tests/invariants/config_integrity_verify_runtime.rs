@@ -48,7 +48,8 @@ fn enforcing_mode_fails_closed_on_failure() {
     // any network listener binds — attackers observing the
     // boot path cannot distinguish "device refused to boot
     // because config tampered" from "device offline".
-    let _contract = "Enforcing mode: verify failure -> Err(reason) -> exit(1) before network listen";
+    let _contract =
+        "Enforcing mode: verify failure -> Err(reason) -> exit(1) before network listen";
     assert!(!_contract.is_empty());
 }
 
@@ -238,13 +239,15 @@ fn d5_verify_at_boot_err_arm_is_fail_closed() {
     let main_rs = read_main_rs();
 
     // Find the verify_at_boot invocation.
-    let call_idx = main_rs.find("config_integrity::verify_at_boot(").unwrap_or_else(|| {
-        panic!(
-            "BUG: D-5 wire invariant — verify_at_boot call not found \
+    let call_idx = main_rs
+        .find("config_integrity::verify_at_boot(")
+        .unwrap_or_else(|| {
+            panic!(
+                "BUG: D-5 wire invariant — verify_at_boot call not found \
              (this should have been caught by the sibling test \
              `d5_verify_at_boot_called_from_main_before_otel_init`)"
-        )
-    });
+            )
+        });
 
     // Look at the next ~1500 chars after the call site —
     // the match arm should be there.

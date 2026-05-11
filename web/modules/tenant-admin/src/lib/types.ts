@@ -370,6 +370,171 @@ export interface TenantProvisioningKey {
 }
 
 // ============================================================================
+// Communication Types — Messaging, Support, Announcements
+// ============================================================================
+
+/**
+ * Thread status enum matching backend ThreadStatus.
+ */
+export type ThreadStatus = 'open' | 'closed';
+
+/**
+ * A messaging thread between TenantAdmin and SuperAdmin.
+ * Fields match the myThreads / thread GraphQL queries.
+ */
+export interface MessageThread {
+  id: string;
+  tenantId: string;
+  tenantName?: string;
+  subject: string;
+  lastMessage?: string;
+  lastMessageAt?: string;
+  lastMessageBy?: string;
+  unreadCount: number;
+  messageCount: number;
+  status: ThreadStatus;
+  isClosed?: boolean;
+  createdBy?: string;
+  createdByAdmin?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A single message within a thread.
+ * Fields match the threadMessages GraphQL query.
+ */
+export interface Message {
+  id: string;
+  threadId: string;
+  senderId: string;
+  senderType: 'admin' | 'tenant' | 'tenant_admin';
+  senderName: string;
+  content: string;
+  status: string;
+  isInternal: boolean;
+  attachments?: Array<{
+    id: string;
+    filename: string;
+    url: string;
+    size: number;
+    mimeType?: string;
+  }>;
+  readAt?: string;
+  createdAt: string;
+}
+
+/**
+ * An announcement from the platform.
+ * Fields match the myAnnouncements GraphQL query.
+ */
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  type: string;
+  status: string;
+  scope?: string;
+  isGlobal?: boolean;
+  publishAt?: string;
+  publishedAt?: string;
+  expiresAt?: string;
+  requiresAcknowledgment: boolean;
+  viewCount?: number;
+  acknowledgmentCount?: number;
+  createdBy?: string;
+  createdByName?: string;
+  createdAt: string;
+  isActive?: boolean;
+  hasViewed?: boolean;
+  hasAcknowledged?: boolean;
+  priority?: string;
+}
+
+/**
+ * Ticket priority levels.
+ */
+export type ApiTicketPriority = 'critical' | 'high' | 'medium' | 'low';
+
+/**
+ * Ticket status values.
+ */
+export type ApiTicketStatus =
+  | 'open'
+  | 'in_progress'
+  | 'waiting_customer'
+  | 'pending_customer'
+  | 'resolved'
+  | 'closed';
+
+/**
+ * Ticket category values.
+ */
+export type ApiTicketCategory =
+  | 'technical'
+  | 'billing'
+  | 'feature_request'
+  | 'bug'
+  | 'general';
+
+/**
+ * A support ticket from the API.
+ * Fields match the myTickets / ticket GraphQL queries.
+ */
+export interface ApiSupportTicket {
+  id: string;
+  ticketNumber: string;
+  tenantId?: string;
+  tenantName?: string;
+  subject: string;
+  description: string;
+  category: string;
+  priority: string;
+  status: string;
+  assignedTo?: string;
+  assignedToName?: string;
+  reportedBy?: string;
+  reportedByName?: string;
+  createdBy?: string;
+  createdByName?: string;
+  commentCount: number;
+  slaResponseDeadline?: string;
+  slaResolutionDeadline?: string;
+  firstResponseAt?: string;
+  resolvedAt?: string;
+  satisfactionRating?: number;
+  satisfactionComment?: string;
+  isResponseSLABreached?: boolean;
+  isResolutionSLABreached?: boolean;
+  tags?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A comment on a support ticket.
+ * Fields match the ticketComments GraphQL query.
+ */
+export interface ApiTicketComment {
+  id: string;
+  ticketId: string;
+  authorId: string;
+  authorName: string;
+  authorType: 'admin' | 'tenant' | 'tenant_admin' | 'system';
+  content: string;
+  isInternal: boolean;
+  attachments?: Array<{
+    id: string;
+    filename: string;
+    fileName?: string;
+    url: string;
+    size: number;
+    fileSize?: number;
+  }>;
+  createdAt: string;
+}
+
+// ============================================================================
 // Re-export Permission Types
 // ============================================================================
 

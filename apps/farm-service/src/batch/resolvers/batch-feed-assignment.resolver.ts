@@ -98,7 +98,7 @@ export class BatchFeedAssignmentResolver {
     // lookup tenant-scoped even if the search_path mechanism ever
     // changes — defence in depth.
     const batch = await this.batchRepo.findOne({
-      where: { id: input.batchId, tenantId, isDeleted: false },
+      where: { id: input.batchId, tenantId, isActive: true },
     });
     if (!batch) {
       throw new NotFoundException(`Batch ${input.batchId} not found`);

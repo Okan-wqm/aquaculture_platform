@@ -154,8 +154,15 @@ fn simulated_tag_quality_has_unique_code() {
     //              TagQuality::Good.to_quality_code());)
     let good = 192_u8;
     let simulated = 216_u8;
-    assert_ne!(good, simulated, "TagQuality::Good and ::Simulated must map to distinct OPC UA codes");
-    assert_eq!(simulated, 0xC0 | 0x18, "TagQuality::Simulated code must equal Good|LocalOverride");
+    assert_ne!(
+        good, simulated,
+        "TagQuality::Good and ::Simulated must map to distinct OPC UA codes"
+    );
+    assert_eq!(
+        simulated,
+        0xC0 | 0x18,
+        "TagQuality::Simulated code must equal Good|LocalOverride"
+    );
 }
 
 #[test]

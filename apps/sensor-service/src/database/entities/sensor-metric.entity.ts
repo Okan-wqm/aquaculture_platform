@@ -75,7 +75,7 @@ export const QualityCodes = {
  * Schema comes from search_path (tenant-specific)
  */
 @ObjectType()
-@Entity('sensor_metrics', { schema: 'sensor' })
+@Entity('sensor_metrics')
 @Index(['sensorId', 'time'])
 @Index(['channelId', 'time'])
 @Index(['tenantId', 'time'])

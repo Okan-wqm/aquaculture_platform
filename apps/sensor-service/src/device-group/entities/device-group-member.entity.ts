@@ -24,7 +24,7 @@ registerEnumType(DeviceMemberType, {
 });
 
 @ObjectType()
-@Entity('device_group_members', { schema: 'sensor' })
+@Entity('device_group_members')
 @Unique(['groupId', 'deviceType', 'deviceId'])
 @Index(['groupId'])
 @Index(['deviceType', 'deviceId'])

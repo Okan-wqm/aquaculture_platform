@@ -56,7 +56,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import type { DataSourceOptions } from 'typeorm';
+import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 
 import { SCHEMA_REGISTRY } from './schema-registry';
 import {
@@ -125,7 +125,7 @@ function envOr(name: string, fallback: string): string {
  * DATABASE_SSL_REJECT_UNAUTHORIZED). Default: disabled, to match the
  * local-dev compose.
  */
-function buildSsl(): DataSourceOptions['ssl'] {
+function buildSsl(): PostgresConnectionOptions['ssl'] {
   const enabled = envOr('DATABASE_SSL', 'false') === 'true';
   if (!enabled) return false;
   const caPath = process.env['DATABASE_SSL_CA'];

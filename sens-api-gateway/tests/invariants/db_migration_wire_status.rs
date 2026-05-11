@@ -183,9 +183,7 @@ fn d3_wire_schema_version_uses_kebab_case() {
 fn d3_wire_manifest_suffix_constant_is_ssot() {
     let src = read_source(MANIFEST_RS);
     assert!(
-        src.contains(
-            "pub const DB_KEY_SOURCE_MANIFEST_SUFFIX: &str = \".key-source.json\";"
-        ),
+        src.contains("pub const DB_KEY_SOURCE_MANIFEST_SUFFIX: &str = \".key-source.json\";"),
         "D-3 WIRE INVARIANT VIOLATED: {MANIFEST_RS} no longer \
          declares DB_KEY_SOURCE_MANIFEST_SUFFIX as the canonical \
          constant. Consumers would have to hardcode the literal \
@@ -310,9 +308,7 @@ fn d3_wire_manifest_enforces_timestamp_sanity_floor() {
     // The floor MUST be checked at read time, not just
     // declared.
     assert!(
-        src.contains(
-            "if parsed.last_updated_at_unix_secs < TIMESTAMP_SANITY_FLOOR_UNIX_SECS"
-        ),
+        src.contains("if parsed.last_updated_at_unix_secs < TIMESTAMP_SANITY_FLOOR_UNIX_SECS"),
         "D-3 WIRE INVARIANT VIOLATED: read_manifest no longer \
          enforces the timestamp sanity floor — the constant \
          exists but no comparison gates the parse path."
@@ -394,8 +390,7 @@ fn d3_wire_boot_detector_missing_manifest_is_legacy_v1() {
     // Pin both halves: the Ok(None) arm AND the
     // V1MachineIdDerived assignment within it.
     assert!(
-        src.contains("Ok(None) =>") &&
-        src.contains("DbKeySchemaVersion::V1MachineIdDerived"),
+        src.contains("Ok(None) =>") && src.contains("DbKeySchemaVersion::V1MachineIdDerived"),
         "D-3 WIRE INVARIANT VIOLATED: {BOOT_DETECTOR_RS} no \
          longer dispatches Ok(None) (missing manifest) to \
          DbKeySchemaVersion::V1MachineIdDerived. Treating \
@@ -444,9 +439,7 @@ fn d3_wire_boot_detector_emits_canonical_summary_event_kind() {
 fn d3_wire_boot_detector_detection_failure_references_runbook() {
     let src = read_source(BOOT_DETECTOR_RS);
     assert!(
-        src.contains(
-            "runbook_url = \"docs/runbooks/db-migration-detection-failure.md\""
-        ),
+        src.contains("runbook_url = \"docs/runbooks/db-migration-detection-failure.md\""),
         "D-3 WIRE INVARIANT VIOLATED: detection-failure ERROR in \
          {BOOT_DETECTOR_RS} no longer carries the `runbook_url` \
          structured field. Operators reading the log line lose \
@@ -454,14 +447,8 @@ fn d3_wire_boot_detector_detection_failure_references_runbook() {
     );
     // The runbook file itself MUST exist.
     assert!(
-        std::path::Path::new(
-            "../docs/runbooks/db-migration-detection-failure.md"
-        )
-        .exists()
-            || std::path::Path::new(
-                "docs/runbooks/db-migration-detection-failure.md"
-            )
-            .exists(),
+        std::path::Path::new("../docs/runbooks/db-migration-detection-failure.md").exists()
+            || std::path::Path::new("docs/runbooks/db-migration-detection-failure.md").exists(),
         "D-3 WIRE INVARIANT VIOLATED: \
          docs/runbooks/db-migration-detection-failure.md is \
          missing. The runbook_url log field references a non-\
@@ -544,9 +531,7 @@ fn d3_wire_v1_kernel_hmac_role_assignment() {
 fn d3_wire_offline_queue_delegates_to_v1_kernel() {
     let src = read_source("src/offline_queue.rs");
     assert!(
-        src.contains(
-            "crate::db_migration::v1_legacy_key::derive_v1_legacy_key"
-        ),
+        src.contains("crate::db_migration::v1_legacy_key::derive_v1_legacy_key"),
         "D-3 WIRE INVARIANT VIOLATED: src/offline_queue.rs no \
          longer delegates to crate::db_migration::v1_legacy_key:: \
          derive_v1_legacy_key. Re-inlining the HMAC into \
@@ -556,9 +541,7 @@ fn d3_wire_offline_queue_delegates_to_v1_kernel() {
          delegation closed."
     );
     assert!(
-        src.contains(
-            "crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex"
-        ),
+        src.contains("crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex"),
         "D-3 WIRE INVARIANT VIOLATED: src/offline_queue.rs no \
          longer uses the kernel's hex formatter. Re-inlining \
          the format!(\"{{:02x}}\", b) loop loses the lower-hex \
@@ -707,9 +690,7 @@ fn d3_wire_v2_shim_wrong_purpose_variant_present() {
 fn d3_wire_v2_shim_returns_zeroize_wrapped_types() {
     let src = read_source(V2_KEYSTORE_KEY_RS);
     assert!(
-        src.contains(
-            "-> Result<Zeroizing<[u8; 32]>, V2DerivationError>"
-        ),
+        src.contains("-> Result<Zeroizing<[u8; 32]>, V2DerivationError>"),
         "D-3 WIRE INVARIANT VIOLATED: derive_v2_sqlcipher_key \
          no longer returns Zeroizing<[u8; 32]>. A plain \
          [u8; 32] return escapes the KeyMaterial Zeroize \
@@ -717,9 +698,7 @@ fn d3_wire_v2_shim_returns_zeroize_wrapped_types() {
          rationale in {V2_KEYSTORE_KEY_RS}."
     );
     assert!(
-        src.contains(
-            "-> Result<Zeroizing<String>, V2DerivationError>"
-        ),
+        src.contains("-> Result<Zeroizing<String>, V2DerivationError>"),
         "D-3 WIRE INVARIANT VIOLATED: \
          derive_v2_sqlcipher_pragma_key_hex no longer returns \
          Zeroizing<String>. The hex form leaks key bytes via \

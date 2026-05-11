@@ -63,7 +63,7 @@ pub use chain::{
 
 pub use sink::{AuditHmacKey, AuditSink, AuditSinkError};
 
-pub use verify::{verify_audit_log, VerifyInput, VerifyOutcome};
+pub use verify::{VerifyInput, VerifyOutcome, verify_audit_log};
 
 pub use entry::{
     AuditAction, AuditActor, AuditEntry, AuditEntryCanonicalBytesError, AuditOutcome, AuditPhase,
@@ -225,8 +225,7 @@ pub fn try_emit_mtls_forensic_event(
     // exercise the helper. The tenant field is informational on
     // forensic events — the chain HMAC + the action discriminator are
     // the load-bearing fields.
-    let tenant = current_agent_tenant()
-        .unwrap_or_else(|| TenantId::new_from_verified([0u8; 16]));
+    let tenant = current_agent_tenant().unwrap_or_else(|| TenantId::new_from_verified([0u8; 16]));
     let Some(sink) = current_audit_sink() else {
         // Test / pre-init context — emit through tracing as the only
         // available channel. Operators reading structured logs still

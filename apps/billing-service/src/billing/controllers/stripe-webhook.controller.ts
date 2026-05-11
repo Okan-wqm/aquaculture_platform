@@ -14,6 +14,8 @@ import { Request, Response } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Public } from '@aquaculture/backend-common/decorators';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { AuditLogService, AuditSeverity } from '@aquaculture/backend-common/audit';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 import { StripeWebhookService } from './stripe-webhook.service';
 import { StripeWebhookEventEntity } from '../entities/stripe-webhook-event.entity';
 

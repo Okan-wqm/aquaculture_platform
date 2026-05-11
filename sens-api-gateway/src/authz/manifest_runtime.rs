@@ -128,11 +128,7 @@ impl RbacManifestStore {
             path.display()
         );
 
-        let outcome = self.load_from_file_inner(
-            signing_pubkey_hex,
-            &path,
-            expected_tenant,
-        );
+        let outcome = self.load_from_file_inner(signing_pubkey_hex, &path, expected_tenant);
 
         match (mode, outcome) {
             (RbacManifestMode::Disabled, _) => Ok(()), // unreachable (early return)
@@ -148,10 +144,7 @@ impl RbacManifestStore {
                         *guard = Some(manifest);
                     }
                     Err(_) => {
-                        return Err(
-                            "RwLock poisoned on RBAC manifest store write"
-                                .to_string(),
-                        );
+                        return Err("RwLock poisoned on RBAC manifest store write".to_string());
                     }
                 }
                 Ok(())
@@ -178,13 +171,8 @@ impl RbacManifestStore {
         path: &Path,
         expected_tenant: &TenantId,
     ) -> Result<RbacManifest, String> {
-        let bytes = std::fs::read(path).map_err(|e| {
-            format!(
-                "Failed to read RBAC manifest at {}: {}",
-                path.display(),
-                e
-            )
-        })?;
+        let bytes = std::fs::read(path)
+            .map_err(|e| format!("Failed to read RBAC manifest at {}: {}", path.display(), e))?;
 
         self.verify_and_floor(signing_pubkey_hex, &bytes, expected_tenant)
             .map_err(|e| format!("{} (source={})", e, path.display()))
@@ -215,13 +203,13 @@ impl RbacManifestStore {
         expected_tenant: &TenantId,
     ) -> Result<RbacManifest, String> {
         let hex = signing_pubkey_hex.ok_or_else(|| {
-            "manifest_signing_pubkey_hex is None — Batch 66 Rule 12 should have caught this".to_string()
+            "manifest_signing_pubkey_hex is None — Batch 66 Rule 12 should have caught this"
+                .to_string()
         })?;
         let pubkey = parse_ed25519_pubkey_hex(hex)?;
 
-        let signed: SignedRbacManifest = serde_json::from_slice(bytes).map_err(|e| {
-            format!("Failed to parse RBAC manifest JSON: {}", e)
-        })?;
+        let signed: SignedRbacManifest = serde_json::from_slice(bytes)
+            .map_err(|e| format!("Failed to parse RBAC manifest JSON: {}", e))?;
 
         // Batch 71 Sprint 6.1 full wire: read the persisted
         // floor when a version store is attached; fall back to
@@ -312,9 +300,7 @@ impl RbacManifestStore {
                 *guard = Some(verified);
             }
             Err(_) => {
-                return Err(
-                    "RwLock poisoned on RBAC manifest hot-reload swap".to_string(),
-                );
+                return Err("RwLock poisoned on RBAC manifest hot-reload swap".to_string());
             }
         }
 
@@ -371,10 +357,7 @@ impl RbacManifestStore {
     ///   or Permissive mode with load failure).
     /// - Operator not in the manifest's operator_bindings.
     /// - RwLock poisoned (treated as miss; logged by caller).
-    pub fn lookup_operator_pubkey(
-        &self,
-        operator_id: &OperatorId,
-    ) -> Option<[u8; 32]> {
+    pub fn lookup_operator_pubkey(&self, operator_id: &OperatorId) -> Option<[u8; 32]> {
         let guard = match self.current.read() {
             Ok(g) => g,
             Err(_) => return None,
@@ -395,10 +378,10 @@ impl RbacManifestStore {
     /// counts so operators see the post-reload manifest shape
     /// without a separate GET round-trip.
     pub fn snapshot_counts(&self) -> Option<(usize, usize)> {
-        self.current
-            .read()
-            .ok()
-            .and_then(|g| g.as_ref().map(|m| (m.operator_bindings.len(), m.roles.len())))
+        self.current.read().ok().and_then(|g| {
+            g.as_ref()
+                .map(|m| (m.operator_bindings.len(), m.roles.len()))
+        })
     }
 
     /// Snapshot-observer helper: returns whether the store
@@ -407,10 +390,7 @@ impl RbacManifestStore {
     /// Used by the boot-banner follow-up + Sprint 6.1
     /// cmd_get_config expansion.
     pub fn is_loaded(&self) -> bool {
-        self.current
-            .read()
-            .map(|g| g.is_some())
-            .unwrap_or(false)
+        self.current.read().map(|g| g.is_some()).unwrap_or(false)
     }
 
     /// Snapshot-observer helper: returns the policy_version
@@ -480,10 +460,9 @@ fn parse_ed25519_pubkey_hex(hex: &str) -> Result<ed25519_dalek::VerifyingKey, St
     super::signing_key_util::parse_ed25519_pubkey_hex(hex).map_err(|e| {
         use super::signing_key_util::SigningKeyHexError;
         match e {
-            SigningKeyHexError::WrongLength { got } => format!(
-                "manifest_signing_pubkey_hex must be 64 chars, got {}",
-                got
-            ),
+            SigningKeyHexError::WrongLength { got } => {
+                format!("manifest_signing_pubkey_hex must be 64 chars, got {}", got)
+            }
             SigningKeyHexError::InvalidHexAt { byte_index, reason } => {
                 format!("invalid hex at byte {}: {}", byte_index, reason)
             }

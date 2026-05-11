@@ -7,7 +7,11 @@ import {
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
-import { TenantScopedRepository } from '@aquaculture/backend-common/database';
+import {
+  runInTenantTransaction,
+  TenantScopedRepository,
+} from '@aquaculture/backend-common/database';
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent } from '@platform/event-contracts';
 import { CreateChannelCommand } from './create-channel.command';

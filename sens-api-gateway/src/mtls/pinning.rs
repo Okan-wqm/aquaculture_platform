@@ -473,8 +473,7 @@ mod tests {
     fn validate_bridge_window_accepts_one_second_past_floor() {
         let now = 1_750_000_000;
         let bridge_until = now + MIN_BRIDGE_WINDOW_SECS + 1;
-        validate_bridge_window(bridge_until, now)
-            .expect("1 second past floor must be accepted");
+        validate_bridge_window(bridge_until, now).expect("1 second past floor must be accepted");
     }
 
     /// `bridge_until` in the past is rejected with `WindowTooShort`.
@@ -486,8 +485,8 @@ mod tests {
     fn validate_bridge_window_rejects_past_time() {
         let now = 1_750_000_000;
         let past = now - 86_400; // 1 day in the past
-        let err = validate_bridge_window(past, now)
-            .expect_err("past bridge_until must be rejected");
+        let err =
+            validate_bridge_window(past, now).expect_err("past bridge_until must be rejected");
         assert!(matches!(
             err,
             BridgeWindowError::WindowTooShort {
@@ -502,8 +501,7 @@ mod tests {
     /// like the future via integer-arithmetic underflow.
     #[test]
     fn validate_bridge_window_rejects_negative_now() {
-        let err = validate_bridge_window(1_000_000, -1)
-            .expect_err("negative now must be rejected");
+        let err = validate_bridge_window(1_000_000, -1).expect_err("negative now must be rejected");
         assert!(matches!(
             err,
             BridgeWindowError::InvalidNow { now_unix_secs: -1 }
@@ -554,13 +552,8 @@ mod tests {
         let out = canned_cert(0x01, "out");
         let inc = canned_cert(0x02, "inc");
         let valid = now + 86_400; // 1 day window
-        let stage = CertRotationStage::try_bridge_rotation(
-            out.clone(),
-            inc.clone(),
-            valid,
-            now,
-        )
-        .expect("1-day window must be accepted");
+        let stage = CertRotationStage::try_bridge_rotation(out.clone(), inc.clone(), valid, now)
+            .expect("1-day window must be accepted");
         match stage {
             CertRotationStage::BridgeRotation {
                 outgoing,

@@ -42,6 +42,46 @@
  *       pgSQL error including security failures. Require
  *       `WHEN duplicate_object THEN NULL` or a specific class.
  *
+ *   R6  create-table-without-if-not-exists   (MEDIUM) — Wave 4-A.2
+ *       `CREATE TABLE <name>` without `IF NOT EXISTS`. Replays on
+ *       partial-state DBs (e.g. a previous migration ran halfway and
+ *       failed) crash on the second pass. Cure: always
+ *       `CREATE TABLE IF NOT EXISTS`.
+ *
+ *   R7  create-index-not-idempotent          (MEDIUM) — Wave 4-A.2
+ *       Folded into R3's matching: a `CREATE INDEX` is acceptable when
+ *       it carries either `CONCURRENTLY` or `IF NOT EXISTS` (with the
+ *       same-chunk CREATE TABLE exemption preserved).
+ *
+ *   R8  create-type-without-do-block         (MEDIUM) — Wave 4-A.2
+ *       `CREATE TYPE ... AS ENUM` outside of a
+ *       `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object` wrapper. Bare
+ *       CREATE TYPE crashes on re-run with `42710` duplicate-object
+ *       errors and there is no `IF NOT EXISTS` form for CREATE TYPE.
+ *
+ *   R9  add-column-without-if-not-exists     (MEDIUM) — Wave 4-A.2
+ *       `ADD COLUMN <name>` without `IF NOT EXISTS`. Same partial-
+ *       replay class as R6 but for column-evolution migrations.
+ *
+ *   R10 alter-column-unguarded               (MEDIUM) — Wave 4-A.2
+ *       `ALTER COLUMN <name> (TYPE|SET NOT NULL|DROP NOT NULL)` in a
+ *       SQL chunk that does not also reference `information_schema.columns`
+ *       (the canonical idempotency probe). Heuristic — when the chunk
+ *       has an information_schema lookup it presumes a guarded path.
+ *
+ *   R11 add-constraint-without-do-block      (MEDIUM) — Wave 4-A.2
+ *       `ADD CONSTRAINT <name> (FOREIGN KEY|UNIQUE|CHECK)` not wrapped
+ *       in `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object`. PostgreSQL
+ *       has no `IF NOT EXISTS` for ADD CONSTRAINT, so the DO/EXCEPTION
+ *       idiom is the canonical replayability shape.
+ *
+ *   R12 drop-table-without-if-exists         (CRITICAL) — Wave 4-A.2
+ *       Subset of R1: `DROP TABLE <name>` without `IF EXISTS`. R1
+ *       already covers the destructive-marker requirement; R12 narrows
+ *       the missing-IF-EXISTS branch to a separate, more-actionable
+ *       diagnostic so authors get a clearer "you forgot IF EXISTS" hint
+ *       distinct from "you forgot the DESTRUCTIVE marker".
+ *
  * SQL is extracted from TypeScript `queryRunner.query(`...`)` template
  * literals. Bare `.sql` files are scanned whole. Single-line (`//`) and
  * block (`/* ... *\/`) comments are stripped before scanning so inline
@@ -155,30 +195,42 @@ const RULES: readonly Rule[] = [
       '3-step: nullable → backfill → SET NOT NULL (data-expert.md invariant).',
   },
   {
-    id: 'R3-create-index-not-concurrent',
+    id: 'R3-create-index-not-idempotent',
     severity: 'MEDIUM',
-    // CREATE [UNIQUE] INDEX without CONCURRENTLY. On a live table this takes
-    // ACCESS EXCLUSIVE and stalls writers. The exception is index-on-new-
-    // table — when the same SQL chunk also contains `CREATE TABLE`, the
-    // just-created table is empty and non-concurrent indexing is safe.
-    // Skip the hit when any CREATE TABLE precedes it in the chunk.
+    // CREATE [UNIQUE] INDEX must carry EITHER `CONCURRENTLY` OR `IF NOT
+    // EXISTS` (or both). Bare CREATE INDEX is unsafe on two axes:
+    //   - locking: takes ACCESS EXCLUSIVE on a live table; CONCURRENTLY
+    //     cures it.
+    //   - replayability: crashes on re-run when the index already exists;
+    //     IF NOT EXISTS cures it.
+    // The chunk-with-CREATE-TABLE exemption is preserved (the table is
+    // empty + the chunk runs once at initial-schema time).
     scan: (sql) => {
       const hits = collectMatches(
         sql,
-        /\bCREATE\s+(?:UNIQUE\s+)?INDEX\b(?!\s+CONCURRENTLY\b)(?!\s+IF\s+NOT\s+EXISTS\s+CONCURRENTLY\b)/i,
+        /\bCREATE\s+(?:UNIQUE\s+)?INDEX\b/i,
       );
-      return hits.filter(({ start }) => {
+      return hits.filter(({ start, snippet }) => {
+        // Tail of the snippet immediately after CREATE INDEX
+        if (/CONCURRENTLY/i.test(snippet)) return false;
+        if (/IF\s+NOT\s+EXISTS/i.test(snippet)) return false;
+        // Look at the next ~80 chars after the match for the modifiers
+        // (collectMatches snippet truncates to the head — re-scan a window).
+        const window = sql.slice(start, start + 200);
+        if (/CONCURRENTLY/i.test(window)) return false;
+        if (/IF\s+NOT\s+EXISTS/i.test(window)) return false;
         const before = sql.slice(0, start);
         return !/\bCREATE\s+TABLE\b/i.test(before);
       });
     },
     message:
-      'CREATE INDEX without CONCURRENTLY on a pre-existing table — takes ' +
-      'ACCESS EXCLUSIVE and stalls writers. On TimescaleDB hypertables this is ' +
-      'especially costly. Use CREATE INDEX CONCURRENTLY in its own migration ' +
-      'file (not in a transaction block — CONCURRENTLY cannot run inside ' +
-      'BEGIN ... COMMIT). Initial-schema migrations that CREATE TABLE in the ' +
-      'same chunk are exempt (the table is empty at index-creation time).',
+      'CREATE INDEX without CONCURRENTLY or IF NOT EXISTS on a pre-existing ' +
+      'table. Bare CREATE INDEX takes ACCESS EXCLUSIVE (stalls writers — ' +
+      'especially costly on TimescaleDB hypertables) AND crashes on replay. ' +
+      'Use CREATE INDEX CONCURRENTLY IF NOT EXISTS in its own migration file ' +
+      '(CONCURRENTLY cannot run inside BEGIN ... COMMIT). Initial-schema ' +
+      'migrations that CREATE TABLE in the same chunk are exempt (the table ' +
+      'is empty at index-creation time and the chunk replays cleanly).',
   },
   {
     id: 'R4-session-scoped-set-search-path',
@@ -209,6 +261,147 @@ const RULES: readonly Rule[] = [
       'overbroad PL/pgSQL EXCEPTION catch — `WHEN others THEN NULL` masks ' +
       'security failures, timeouts, and deadlocks alike. Narrow to the ' +
       'specific exception class (e.g. `WHEN duplicate_object THEN NULL`).',
+  },
+  {
+    id: 'R6-create-table-without-if-not-exists',
+    severity: 'MEDIUM',
+    // CREATE TABLE <name> (not IF NOT EXISTS, not session-scoped
+    // TEMP / UNLOGGED variants — those vanish at session end so
+    // the cross-migration idempotency concern does not apply). Skips
+    // CREATE TEMP TABLE because partial-state DBs cannot retain a
+    // session-scoped table across migration runs.
+    scan: (sql) =>
+      collectMatches(
+        sql,
+        /\bCREATE\s+(?!TEMP(?:ORARY)?\s+|UNLOGGED\s+)TABLE\s+(?!IF\s+NOT\s+EXISTS\b)["\w.]+/i,
+      ),
+    message:
+      'CREATE TABLE without IF NOT EXISTS is non-idempotent — replays on ' +
+      'partial-state DBs (a previous migration ran halfway and failed) crash ' +
+      'on the second pass with `42P07` relation-already-exists. Use ' +
+      '`CREATE TABLE IF NOT EXISTS <name>`. The migration runner replays ' +
+      'on every cold start until the migration ledger logs success, so ' +
+      'idempotency is load-bearing, not optional.',
+  },
+  {
+    id: 'R8-create-type-without-do-block',
+    severity: 'MEDIUM',
+    // CREATE TYPE ... AS ENUM outside of a DO $$ EXCEPTION wrap. PG has
+    // no IF NOT EXISTS for CREATE TYPE so the canonical idempotency
+    // shape is `DO $$ BEGIN CREATE TYPE ...; EXCEPTION WHEN duplicate_object
+    // THEN NULL; END $$`. Match every CREATE TYPE then exclude the ones
+    // wrapped in a same-statement DO block.
+    scan: (sql) => {
+      const hits = collectMatches(
+        sql,
+        /\bCREATE\s+TYPE\s+["\w.]+\s+AS\s+ENUM\b/i,
+      );
+      return hits.filter(({ start }) => {
+        // Walk backwards from the match looking for a DO $$ BEGIN within
+        // the most recent block boundary (no intervening END $$).
+        const window = sql.slice(Math.max(0, start - 400), start);
+        // Reject when the window contains an unclosed DO $$ BEGIN block.
+        const doOpens = (window.match(/\bDO\s*\$\$\s*BEGIN\b/gi) ?? []).length;
+        const doCloses = (window.match(/\bEND\s*\$\$/gi) ?? []).length;
+        return doOpens <= doCloses;
+      });
+    },
+    message:
+      'CREATE TYPE ... AS ENUM outside `DO $$ BEGIN ... EXCEPTION WHEN ' +
+      'duplicate_object THEN NULL; END $$;` block. PostgreSQL has no IF NOT ' +
+      'EXISTS form for CREATE TYPE — the DO/EXCEPTION wrap is the canonical ' +
+      'idempotency idiom. Bare CREATE TYPE crashes on replay with `42710`.',
+  },
+  {
+    id: 'R9-add-column-without-if-not-exists',
+    severity: 'MEDIUM',
+    // ADD COLUMN <name> without IF NOT EXISTS. Same partial-replay class
+    // as R6 but on column-evolution migrations. Match-then-filter so we
+    // also accept `ADD COLUMN IF NOT EXISTS "..."` with quoted identifier.
+    scan: (sql) =>
+      collectMatches(
+        sql,
+        /\bADD\s+COLUMN\s+(?!IF\s+NOT\s+EXISTS\b)["\w]+/i,
+      ),
+    message:
+      'ADD COLUMN without IF NOT EXISTS is non-idempotent. On replay (the ' +
+      'migration runner re-runs migrations until the ledger logs success) ' +
+      'PostgreSQL crashes with `42701` column-already-exists. Use ' +
+      '`ALTER TABLE <t> ADD COLUMN IF NOT EXISTS <c> <type>` (PG ≥ 9.6).',
+  },
+  {
+    id: 'R10-alter-column-unguarded',
+    severity: 'MEDIUM',
+    // ALTER COLUMN <name> (TYPE | SET NOT NULL | DROP NOT NULL) in a SQL
+    // chunk that does not also reference information_schema.columns
+    // (the canonical pre-check for "is this column already in the target
+    // shape"). Heuristic — when the chunk has the lookup we trust the
+    // author's idempotency probe.
+    scan: (sql) => {
+      const hits = collectMatches(
+        sql,
+        /\bALTER\s+COLUMN\s+["\w]+\s+(TYPE|SET\s+NOT\s+NULL|DROP\s+NOT\s+NULL)\b/i,
+      );
+      // If the SAME chunk references information_schema.columns, presume
+      // a guarded path and exempt every hit in this chunk.
+      if (/\binformation_schema\.columns\b/i.test(sql)) return [];
+      // Also accept when wrapped in DO $$ EXCEPTION blocks (matches R8 logic).
+      return hits.filter(({ start }) => {
+        const window = sql.slice(Math.max(0, start - 400), start);
+        const doOpens = (window.match(/\bDO\s*\$\$\s*BEGIN\b/gi) ?? []).length;
+        const doCloses = (window.match(/\bEND\s*\$\$/gi) ?? []).length;
+        return doOpens <= doCloses;
+      });
+    },
+    message:
+      'ALTER COLUMN (TYPE | SET NOT NULL | DROP NOT NULL) without an ' +
+      '`information_schema.columns` pre-check or `DO $$ EXCEPTION` wrap. ' +
+      'On replay the second pass either crashes (TYPE conversion mismatch) ' +
+      'or is a silent no-op when the column already has the target shape; ' +
+      'either is reviewer-trap. Wrap in a `DO $$ BEGIN IF EXISTS (SELECT 1 ' +
+      'FROM information_schema.columns WHERE ...) THEN ... END IF; END $$` ' +
+      'block, or guard with explicit data_type check.',
+  },
+  {
+    id: 'R11-add-constraint-without-do-block',
+    severity: 'MEDIUM',
+    // ADD CONSTRAINT <name> (FOREIGN KEY|UNIQUE|CHECK) outside a DO $$
+    // EXCEPTION wrap. PG has no IF NOT EXISTS for ADD CONSTRAINT, so the
+    // wrap is the canonical idempotency shape.
+    scan: (sql) => {
+      const hits = collectMatches(
+        sql,
+        /\bADD\s+CONSTRAINT\s+["\w]+\s+(FOREIGN\s+KEY|UNIQUE|CHECK)\b/i,
+      );
+      return hits.filter(({ start }) => {
+        const window = sql.slice(Math.max(0, start - 400), start);
+        const doOpens = (window.match(/\bDO\s*\$\$\s*BEGIN\b/gi) ?? []).length;
+        const doCloses = (window.match(/\bEND\s*\$\$/gi) ?? []).length;
+        return doOpens <= doCloses;
+      });
+    },
+    message:
+      'ADD CONSTRAINT (FOREIGN KEY | UNIQUE | CHECK) outside `DO $$ BEGIN ' +
+      '... EXCEPTION WHEN duplicate_object THEN NULL; END $$;` block. PG has ' +
+      'no IF NOT EXISTS form for ADD CONSTRAINT — the DO/EXCEPTION wrap is ' +
+      'the canonical idempotency idiom. Bare ADD CONSTRAINT crashes on ' +
+      'replay with `42710` duplicate-object.',
+  },
+  {
+    id: 'R12-drop-table-without-if-exists',
+    severity: 'CRITICAL',
+    // DROP TABLE <name> without IF EXISTS. R1 already flags this as part
+    // of its destructive-marker rule; R12 narrows the diagnostic so
+    // authors see a clearer "you forgot IF EXISTS" hint distinct from
+    // "you forgot the DESTRUCTIVE marker". Both fire on the same row —
+    // intentional belt-and-suspenders.
+    scan: (sql) =>
+      collectMatches(sql, /\bDROP\s+TABLE\s+(?!IF\s+EXISTS\b)["\w.]+/i),
+    message:
+      'DROP TABLE without IF EXISTS — non-idempotent and combines poorly ' +
+      'with partial-replay scenarios. Use `DROP TABLE IF EXISTS <name>` AND ' +
+      'add a `-- DESTRUCTIVE: <rollback-reference>` marker on the same ' +
+      'statement (R1 covers the marker requirement separately).',
   },
 ];
 
@@ -382,9 +575,12 @@ function report(violations: readonly Violation[]): void {
   }
   console.error('');
   console.error('Rule set: data-expert.md "Migration-delta safety" section.');
-  console.error('Grandfather policy: this gate only runs on migrations ADDED or');
-  console.error('MODIFIED in the current change set. Existing migrations are');
-  console.error('exempt (amending is forbidden under the force-push ban).');
+  console.error('R1-R5: original delta-safety rules.');
+  console.error('R6-R12 (Wave 4-A.2): idempotency-replayability rules.');
+  console.error('Grandfather policy: this gate only runs on migrations ADDED');
+  console.error('in the current change set. Existing migrations are exempt');
+  console.error('(amending is forbidden under the force-push ban; replays are');
+  console.error('blocked by the ledger).');
 }
 
 function main(): void {

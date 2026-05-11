@@ -74,6 +74,7 @@ describe('OverlayHandler', () => {
     expect(openOverlay).toHaveBeenCalledWith({
       type: 'dialog',
       screenId: 'dialog-screen',
+      position: { x: 300, y: 160 },
       size: { width: 800, height: 600 },
     });
   });

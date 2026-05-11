@@ -87,7 +87,7 @@ export interface TagHierarchy {
  * UnifiedTag entity - represents a unified tag point across all sources
  */
 @ObjectType()
-@Entity('unified_tags', { schema: 'sensor' })
+@Entity('unified_tags')
 @Index(['tenantId', 'fqn'], { unique: true })
 export class UnifiedTag {
   @Field(() => ID)

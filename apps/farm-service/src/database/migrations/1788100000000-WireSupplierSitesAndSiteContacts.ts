@@ -1,5 +1,9 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger, pinSearchPath } from '@aquaculture/backend-common/database';
+import {
+  MigrationLogger,
+  pinSearchPath,
+  tableExists as backendTableExists,
+} from '@aquaculture/backend-common/database';
 
 /**
  * WireSupplierSitesAndSiteContacts1788100000000
@@ -100,6 +104,23 @@ export class WireSupplierSitesAndSiteContacts1788100000000 implements MigrationI
     // -----------------------------------------------------------------
     // 1. supplier_sites
     // -----------------------------------------------------------------
+    // Wave 4-A.2 Dalga 3 bootstrap-restoration guard: the FK clauses
+    // below reference `suppliers` and `sites`. Both are produced by
+    // the source-schema baseline (or sibling per-tenant migrations on
+    // tenant fan-out). On fresh-volume bootstrap that runs this
+    // migration before the suppliers table lands, the CREATE TABLE
+    // crashes on the FK clause. Skip cleanly when suppliers is absent
+    // — the parent migration that creates it will run later, and a
+    // re-run of the migration list (idempotent path) will land the
+    // junction table when both parents are present.
+    const hasSuppliers = await backendTableExists(queryRunner, 'suppliers');
+    if (!hasSuppliers) {
+      this.logger.log(
+        'Skipping supplier_sites/site_contacts CREATE — suppliers table not present on this DB (installed by sibling baseline migration; junction tables land on re-run)',
+      );
+      return;
+    }
+
     const hasSupplierSites = await this.tableExists(queryRunner, 'supplier_sites');
     if (!hasSupplierSites) {
       // CREATE TABLE + indexes ship in ONE query chunk so the

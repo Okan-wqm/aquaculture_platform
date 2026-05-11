@@ -1,7 +1,7 @@
 # ADR-016: Deploy Resilience Architecture
 
-**Status:** Accepted (Phase A landed; Phases B-F roadmap)
-**Date:** 2026-04-14
+**Status:** Accepted (Phase A landed; Phase D-Topology landed; Phases B-F roadmap)
+**Date:** 2026-04-14 (Phase D-Topology added 2026-05-10)
 **Deciders:** platform team
 **Related:** ADR-011, ADR-013, ADR-014, ADR-015 (the architectural series this ADR closes the operational loop on)
 
@@ -142,6 +142,72 @@ No staging means every deploy is gambling. Even minimum staging:
 This is THE single-biggest deploy improvement available. Without
 it, every cert regen / migration / config change is high-stakes.
 
+#### D-Topology — Topology-aware staging gate (LANDED 2026-05-10)
+
+Phase D's deploy-staging.yml + prod-side staging-gate landed on the
+implicit assumption that a staging droplet is ALWAYS provisioned.
+That assumption breaks at repo init and during single-droplet
+operator topologies (one droplet running prod only): the staging
+deploy hard-fails with `error: missing server host` because the
+SSH action receives an empty `STAGING_DROPLET_HOST`, no
+`deployed/staging-<sha>` tag is ever emitted, and prod's gate
+hangs for 55 minutes then fails — permanently blocking prod
+deploys until the operator either provisions staging or manually
+runs every prod deploy with `bypass_staging_gate=true`.
+
+The architectural invariant — "every prod deploy was green on
+staging" — only applies WHEN staging exists. Phase D-Topology
+codifies this:
+
+**Two architecturally-valid topologies, both supported as
+first-class:**
+
+- **Topology A (multi-droplet):** `STAGING_DROPLET_HOST` secret
+  set in the `staging` GitHub Environment + `STAGING_ENABLED=true`
+  repo variable. `deploy-staging.yml` runs the full staging deploy
+  on every push to main; prod gate enforces the
+  `deployed/staging-<sha>` tag.
+- **Topology B (single-droplet):** `STAGING_DROPLET_HOST` empty
+  OR `STAGING_ENABLED` not 'true'. `deploy-staging.yml` skips all
+  jobs with a workflow notice; prod gate auto-bypasses on the same
+  signal. Prod deploys directly without operator intervention.
+
+**Discriminator: secret presence (Tier-1 Make-Impossible).**
+GitHub Actions does not allow secret expressions in job-level
+`if:` conditions (security boundary preventing secret leakage via
+conditional evaluation). Detection therefore lives in a step that
+reads `secrets.STAGING_DROPLET_HOST` into an env var, then exposes
+the result via `steps.<id>.outputs.configured` for downstream
+job-level `if:` consumption.
+
+The structural-truth signal (secret presence) is paired with the
+operator-intent signal (`STAGING_ENABLED` repo variable). The
+gate auto-bypasses on EITHER signal of an unconfigured staging:
+
+- If the operator sets `STAGING_ENABLED=true` but forgets the
+  secrets, secret-presence catches it (gate cannot wait for a
+  deploy that physically cannot run).
+- If the operator adds the secrets but forgets the variable,
+  the variable check still requires explicit opt-in (prevents
+  accidental gating mid-rollout).
+
+**Operator migration path (Topology B → A) requires no workflow
+file change:** provision the staging droplet (Terraform module),
+add the three secrets to the `staging` GitHub Environment, set
+the `STAGING_ENABLED=true` repo variable. Next push to main runs
+the full staging deploy and prod begins gating on it.
+
+**The emergency `bypass_staging_gate=true` workflow_dispatch
+input is preserved.** Topology-aware auto-bypass handles the
+"staging not provisioned" case; the manual bypass handles the
+"staging is provisioned but currently broken" case (CVE hotfix,
+staging droplet offline, etc.).
+
+References:
+- `.github/workflows/deploy-staging.yml` — `staging-configured` job
+- `.github/workflows/deploy-digitalocean.yml` — `staging-gate.enablement` step
+- `docs/runbooks/staging-environment.md` — operator runbook
+
 ### Phase E — Migration container isolation (ROADMAP)
 
 Migration runners currently fire on `OnApplicationBootstrap` of
@@ -254,6 +320,7 @@ Dedicated migration container:
 - [ ] Phase B4 — cert script reads services.yaml (BACKLOG-NATS-002)
 - [ ] Phase C — per-service health (ROADMAP)
 - [ ] Phase D — staging environment (ROADMAP — biggest single win)
+- [x] Phase D-Topology — topology-aware staging gate (2026-05-10)
 - [ ] Phase E — migration container isolation (ROADMAP)
 - [ ] Phase F — observability assertion (ROADMAP)
 

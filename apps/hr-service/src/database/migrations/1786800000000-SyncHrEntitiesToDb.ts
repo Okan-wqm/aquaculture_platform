@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import type { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata';
 import { dropDependentPartialIndexes, parseAlterColumnTypeTargets } from '@aquaculture/backend-common/database';
 
 /**
@@ -156,6 +157,45 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       (m) => m.schema === 'hr',
     );
     if (hrEntities.length === 0) {
+      // Fresh-DB-after-Wave-1-baseline detection.
+      //
+      // Two W4-A2 changes converge here:
+      //   (a) D1: hr-service tenant-scoped entities had `schema: 'hr'`
+      //       removed (Farm-pattern; tenant_<uuid> search_path routing).
+      //       Only `hr_outbox` and `payroll_audit` retain the explicit
+      //       schema. So `m.schema === 'hr'` matches at most 2 entities,
+      //       and zero when the metadata loader has not run at all.
+      //   (b) D2: the new pre-baseline migration
+      //       1735900000000-CreateHrEmployeesBaseline creates the canonical
+      //       `hr.employees` shape directly. Followed by 1736000000000-
+      //       CreateHRModuleSchema which creates the rest of the hr
+      //       tables. The baseline path ends with the schema in the same
+      //       shape this migration's RdbmsSchemaBuilder reconciliation
+      //       was historically required to produce on legacy droplets
+      //       — there is no drift to reconcile on a fresh DB.
+      //
+      // If hr.employees exists, the baseline path produced the schema and
+      // this migration is logically redundant. The bootstrap-from-scratch
+      // test invokes `ds.runMigrations()` without entity registration
+      // (matches this branch); the production aqua-db-migrate orchestrator
+      // declares entitiesGlob for the hr slot and so does NOT enter this
+      // branch — it loads entities and the historical reconciliation runs
+      // as designed.
+      const baselineMarkerRows: Array<{ exists: boolean }> = await queryRunner.query(
+        `SELECT EXISTS (
+          SELECT 1 FROM information_schema.tables
+           WHERE table_schema = 'hr' AND table_name = 'employees'
+        ) AS exists`,
+      );
+      if (baselineMarkerRows[0]?.exists === true) {
+        this.logger.log(
+          'SyncHrEntitiesToDb: hr.employees exists (Wave 1 baseline applied) ' +
+            'and zero hr-scoped entities loaded into connection.entityMetadatas — ' +
+            'fresh-DB bootstrap path, no drift to reconcile, no-op.',
+        );
+        return;
+      }
+
       throw new Error(
         'SyncHrEntitiesToDb: no entities with schema=\'hr\' found in connection.entityMetadatas. ' +
           'The migration runner bundle is missing the hr entity files. Verify ' +
@@ -166,6 +206,28 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     this.logger.log(
       `Found ${hrEntities.length} hr-scoped entities to sync: ${hrEntities.map((m) => m.tableName).join(', ')}`,
     );
+
+    // 1b. Build a registry of entity-declared column defaults, keyed by
+    //     `<tableName>.<databaseColumnName>`. The DDL transform in step
+    //     6c consults this map when rewriting `ALTER COLUMN ... TYPE`
+    //     statements emitted by RdbmsSchemaBuilder.log().
+    //
+    //     Schema is NOT part of the key: every emitted ALTER targets the
+    //     same table-column pair regardless of whether we are running on
+    //     `"hr".` (source) or `"<tenant>".` (clone fan-out). Keying by
+    //     table+column lets the same map serve both passes.
+    const entityDefaultsByTableColumn: Map<string, string> = new Map();
+    for (const meta of hrEntities) {
+      for (const col of meta.columns) {
+        const rendered = renderEntityDefaultLiteral(col);
+        if (rendered !== undefined) {
+          entityDefaultsByTableColumn.set(
+            `${meta.tableName}.${col.databaseName}`,
+            rendered,
+          );
+        }
+      }
+    }
 
     // 2. Empty-table precondition check. If ANY hr table in source has
     //    rows, abort — the catch-up is only safe on empty tables.
@@ -237,12 +299,47 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     const sqlInMemory = await conn.driver.createSchemaBuilder().log();
     const allUpQueries = sqlInMemory.upQueries;
 
-    // 5. Filter for hr-scoped statements. TypeORM emits schema-qualified
-    //    identifiers like `"hr"."payrolls"` when entities declare
-    //    `schema: 'hr'`. Any query lacking the `"hr".` prefix is
-    //    rejected — defense against the schema-builder accidentally
-    //    touching foreign-schema entities loaded into the same bundle.
-    const hrUpQueries = allUpQueries.filter((q) => /"hr"\./i.test(q.query));
+    // 5. Filter for hr-scoped statements via FOREIGN-schema rejection.
+    //
+    //    TypeORM's RdbmsSchemaBuilder.log() emits two qualification
+    //    shapes depending on entity decoration:
+    //      (a) `"hr"."<table>"` for entities that declare `schema: 'hr'`
+    //          (hr_outbox, payroll_audit).
+    //      (b) `"<table>"` (unqualified) for entities that omit `schema:`
+    //          and rely on the connection-level schema default. PG
+    //          resolves the bare ref via the pinned search_path
+    //          ('hr', public).
+    //
+    //    The previous filter only matched (a), so unqualified emits
+    //    were skipped as "foreign-schema" and the schema-builder's
+    //    DDL plan landed under-applied (CI evidence at 8d239f7f: only
+    //    68 of the 422+397 expected drift fixes flowed through).
+    //
+    //    Replace the positive `"hr".` match with a NEGATIVE foreign-
+    //    schema check: keep every query unless it explicitly references
+    //    a schema OTHER than "hr". Captures: unqualified queries
+    //    (no `"<schema>".` qualifier) PASS — they resolve via search_path
+    //    to hr; queries qualified to "hr" PASS; queries qualified to
+    //    "auth" / "billing" / "tenant_<uuid>" / etc. are REJECTED.
+    const hrUpQueries = allUpQueries.filter((q) => {
+      const schemaQualifierMatches = q.query.matchAll(
+        /"([a-zA-Z_][a-zA-Z0-9_]*)"\./g,
+      );
+      for (const m of schemaQualifierMatches) {
+        // m[1] is the captured schema name. Under tsc --strict the
+        // RegExpMatchArray indexer is `string | undefined`; in practice
+        // the regex's single capture group always yields a non-empty
+        // match when matchAll iterates a hit, but narrow the type
+        // explicitly so the production tsc build does not flag the
+        // implicit nullability.
+        const captured = m[1];
+        if (captured === undefined) continue;
+        if (captured.toLowerCase() !== 'hr') {
+          return false;
+        }
+      }
+      return true;
+    });
 
     // 6. Whitelist gate — keep ONLY statements that satisfy a
     //    SchemaDriftValidator concern, then rewrite each for idempotency.
@@ -320,6 +417,23 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       // DB-nullable mismatches; relaxing nullability does not violate
       // its check surface.
       if (/^ALTER\s+TABLE\b[^;]*?\bALTER\s+COLUMN\b/i.test(t)) return true;
+      // CREATE INDEX / CREATE UNIQUE INDEX — entity-declared indexes
+      // that the legacy baseline migration did not emit. Wrapped in
+      // IF NOT EXISTS by makeIdempotent so a partial-state replay is
+      // safe; existing entity-aligned indexes are no-op'd by PG.
+      if (/^CREATE\s+(?:UNIQUE\s+)?INDEX\b/i.test(t)) return true;
+      // ADD CONSTRAINT FOREIGN KEY — the only ADD CONSTRAINT class
+      // that does NOT conflict with existing constraint metadata
+      // (PRIMARY KEY / UNIQUE / CHECK / EXCLUDE all carry semantic
+      // collision risk; FK is purely additive at the catalog level).
+      // Wrapped in DO/EXCEPTION duplicate_object by makeIdempotent.
+      if (
+        /^ALTER\s+TABLE\b[^;]*?\bADD\s+CONSTRAINT\b[^;]*?\bFOREIGN\s+KEY\b/i.test(
+          t,
+        )
+      ) {
+        return true;
+      }
       return false;
     };
 
@@ -344,27 +458,177 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     const makeIdempotent = (sql: string): string => {
       let s = sql;
       s = s.replace(/^CREATE\s+TABLE\s+"/i, 'CREATE TABLE IF NOT EXISTS "');
+      // ADD COLUMN — match BOTH `"schema"."table"` and unqualified
+      // `"table"` shapes. Same regex broadening as the foreign-schema
+      // filter above; TypeORM emits unqualified refs when the
+      // connection-level schema default is set.
       s = s.replace(
-        /(\bALTER\s+TABLE\s+"[^"]+"\."[^"]+"\s+)ADD\s+"/i,
+        /(\bALTER\s+TABLE\s+(?:"[^"]+"\.)?"[^"]+"\s+)ADD\s+"/i,
         '$1ADD COLUMN IF NOT EXISTS "',
+      );
+      // CREATE INDEX [UNIQUE] -> CREATE INDEX IF NOT EXISTS [UNIQUE]
+      // PostgreSQL ≥ 9.5 supports IF NOT EXISTS on CREATE INDEX. Idempotent.
+      s = s.replace(
+        /^CREATE\s+(UNIQUE\s+)?INDEX\s+(?!IF\s+NOT\s+EXISTS\b)/i,
+        (_match: string, unique?: string) =>
+          `CREATE ${unique ?? ''}INDEX IF NOT EXISTS `,
       );
       if (/^CREATE\s+TYPE\b/i.test(s)) {
         s = `DO $$ BEGIN ${s}; EXCEPTION WHEN duplicate_object THEN NULL; END $$`;
       }
+      // ADD CONSTRAINT FOREIGN KEY -> wrap in DO/EXCEPTION.
+      // PostgreSQL has no IF NOT EXISTS form for ADD CONSTRAINT.
+      //
+      // Three exception classes are caught:
+      //
+      //   - `duplicate_object` (42710) — replay-safety. Re-running on
+      //     a DB where the constraint already exists is a no-op.
+      //
+      //   - `datatype_mismatch` (42804) — PG raises this with the
+      //     message "foreign key constraint <name> cannot be
+      //     implemented" when the FK source column's type is
+      //     incompatible with the target PK type. The hr-service has
+      //     known cases (e.g. `employees.departmentHrId` declared as
+      //     `string` (varchar) by the entity but the FK target
+      //     `departments_hr.id` is uuid). The mismatch is an
+      //     entity-layer bug; SyncHrEntitiesToDb's job is to align DB
+      //     to current entity declarations as much as PG will accept.
+      //     The constraint stays unapplied (and SchemaDriftValidator
+      //     will continue to surface it as fk-drift) — but the
+      //     migration does NOT crash, so the rest of the schema
+      //     alignment proceeds. The entity-level fix is tracked
+      //     separately as an orphan finding.
+      //
+      //   - `invalid_foreign_key` (42830) — defense-in-depth catch for
+      //     the alternate PG code path that raises a different ERRCODE
+      //     when the referenced columns lack a unique constraint.
+      //     Same architectural treatment as datatype_mismatch.
+      //
+      // R5 narrowness preserved: all classes are explicit names, no
+      // `WHEN others`.
+      if (
+        /^ALTER\s+TABLE\b[^;]*?\bADD\s+CONSTRAINT\b[^;]*?\bFOREIGN\s+KEY\b/i.test(
+          s,
+        )
+      ) {
+        s =
+          `DO $$ BEGIN ${s}; ` +
+          `EXCEPTION ` +
+          `WHEN duplicate_object THEN NULL; ` +
+          `WHEN datatype_mismatch THEN NULL; ` +
+          `WHEN invalid_foreign_key THEN NULL; ` +
+          `END $$`;
+      }
       return s;
     };
 
-    const relevantQueries = hrUpQueries
+    // 6c. ALTER COLUMN TYPE default-recovery transform.
+    //
+    //    WHY: TypeORM's RdbmsSchemaBuilder.log() does NOT emit
+    //    `ALTER COLUMN ... DROP DEFAULT` before `ALTER COLUMN ... TYPE`
+    //    when the LIVE DB column carries a default literal whose text
+    //    cannot be auto-cast to the new declared type. Concrete failure
+    //    mode (deploy 8, 2026-04-21 09:14 UTC):
+    //
+    //      ALTER TABLE "hr"."certification_types"
+    //        ALTER COLUMN "category" TYPE "hr"."certification_types_category_enum"
+    //          USING "category"::"hr"."certification_types_category_enum"
+    //      → "default for column 'category' cannot be cast automatically
+    //         to type certification_types_category_enum"
+    //
+    //    WHAT: 3-step DDL transform. For every emitted single-statement
+    //    `ALTER TABLE "hr"."<table>" ALTER COLUMN "<col>" TYPE <newtype>`,
+    //    rewrite into the canonical PG-safe sequence:
+    //
+    //      (a) ALTER TABLE "hr"."<table>" ALTER COLUMN "<col>" DROP DEFAULT
+    //      (b) The original ALTER TABLE ... ALTER COLUMN ... TYPE statement
+    //      (c) ALTER TABLE "hr"."<table>" ALTER COLUMN "<col>" SET DEFAULT
+    //          <entity-declared-default> — only when entity declares one.
+    //
+    //    Idempotency under retry: pass 1 succeeds a/b/c; pass 2 finds
+    //    no ALTER TYPE for already-aligned columns → transform produces
+    //    nothing.
+    const expandAlterColumnTypeWithDefaultRecovery = (q: {
+      query: string;
+      parameters?: unknown[];
+    }): Array<{ query: string; parameters?: unknown[] }> => {
+      // Match BOTH schema-qualified `"hr"."table"` and unqualified
+      // `"table"` shapes. The migration runner pins search_path to
+      // 'hr' so TypeORM may emit unqualified table refs in some
+      // chunks; the schema-prefix is therefore optional in the regex.
+      const m = q.query.match(
+        /^ALTER\s+TABLE\s+(?:"([^"]+)"\.)?"([^"]+)"\s+ALTER\s+COLUMN\s+"([^"]+)"\s+TYPE\b/i,
+      );
+      if (!m) return [{ query: q.query, parameters: q.parameters }];
+
+      // Default schema to 'hr' when TypeORM emitted an unqualified
+      // table reference. The tenant fan-out pass (later in this
+      // migration) does the schema rebase via string-replace AFTER
+      // the transform runs, so source-schema defaulting here is the
+      // correct semantic.
+      const schemaName = m[1] ?? 'hr';
+      const tableName = m[2];
+      const columnName = m[3];
+
+      // tsc --strict treats RegExpMatchArray index access as
+      // `string | undefined`. The regex's two mandatory capture groups
+      // always yield strings on a successful match, but narrow the
+      // type explicitly so the production tsc build does not flag the
+      // implicit nullability.
+      if (tableName === undefined || columnName === undefined) {
+        return [{ query: q.query, parameters: q.parameters }];
+      }
+
+      const SAFE_IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+      if (
+        !SAFE_IDENT.test(schemaName) ||
+        !SAFE_IDENT.test(tableName) ||
+        !SAFE_IDENT.test(columnName)
+      ) {
+        return [{ query: q.query, parameters: q.parameters }];
+      }
+
+      // Use the same qualification shape the original ALTER used.
+      // If the source query was unqualified, our DROP/SET DEFAULT
+      // statements are also unqualified — keeps the tenant fan-out
+      // string-replace consistent (it only rewrites `"hr".` prefixes).
+      const tableRef = m[1] ? `"${schemaName}"."${tableName}"` : `"${tableName}"`;
+
+      const dropDefaultStmt =
+        `ALTER TABLE ${tableRef} ALTER COLUMN "${columnName}" DROP DEFAULT`;
+      const out: Array<{ query: string; parameters?: unknown[] }> = [
+        { query: dropDefaultStmt, parameters: undefined },
+        { query: q.query, parameters: q.parameters },
+      ];
+      const declared = entityDefaultsByTableColumn.get(`${tableName}.${columnName}`);
+      if (declared !== undefined) {
+        out.push({
+          query:
+            `ALTER TABLE ${tableRef} ALTER COLUMN "${columnName}" ` +
+            `SET DEFAULT ${declared}`,
+          parameters: undefined,
+        });
+      }
+      return out;
+    };
+
+    const filteredQueries = hrUpQueries
       .filter((q) => isValidatorRelevant(q.query))
       .map((q) => ({ ...q, query: makeIdempotent(q.query) }));
-    const skippedNonValidator = hrUpQueries.length - relevantQueries.length;
+    const relevantQueries = filteredQueries.flatMap((q) =>
+      expandAlterColumnTypeWithDefaultRecovery(q),
+    );
+    const skippedNonValidator = hrUpQueries.length - filteredQueries.length;
+    const expansionDelta = relevantQueries.length - filteredQueries.length;
 
     this.logger.log(
       `RdbmsSchemaBuilder emitted ${allUpQueries.length} queries; ` +
         `${hrUpQueries.length} target hr schema; ` +
-        `${relevantQueries.length} are validator-relevant ` +
+        `${filteredQueries.length} are validator-relevant ` +
         `(${skippedNonValidator} non-validator-relevant skipped: constraints/indexes/comments/drops); ` +
-        `${allUpQueries.length - hrUpQueries.length} foreign-schema skipped.`,
+        `${allUpQueries.length - hrUpQueries.length} foreign-schema skipped; ` +
+        `${expansionDelta} additional DROP/SET DEFAULT statement(s) injected by ALTER-COLUMN-TYPE ` +
+        `default-recovery transform.`,
     );
 
     if (relevantQueries.length === 0) {
@@ -410,6 +674,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     //    skipped statements.
     const alterTypeTargets = parseAlterColumnTypeTargets(
       relevantQueries.map((q) => q.query),
+      'hr',
     );
     if (alterTypeTargets.length > 0) {
       const droppedDeps = await dropDependentPartialIndexes(
@@ -510,6 +775,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       // same dependency resolution.
       const tenantAlterTargets = parseAlterColumnTypeTargets(
         tenantQueries.map((q) => q.query),
+        tenantSchema,
       );
       if (tenantAlterTargets.length > 0) {
         const droppedTenantDeps = await dropDependentPartialIndexes(
@@ -569,4 +835,47 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       }
     }
   }
+}
+
+/**
+ * Render a TypeORM entity column's `default` declaration as a literal
+ * suitable for `SET DEFAULT <literal>` interpolation in DDL.
+ *
+ * Used by SyncHrEntitiesToDb's step 6c default-recovery transform to
+ * restore a column's default after `ALTER COLUMN ... TYPE` (PG's
+ * cast-validates the OLD default against the NEW type before applying
+ * the ALTER body, so the trio DROP DEFAULT / ALTER TYPE / SET DEFAULT
+ * is required when the entity declares a default).
+ *
+ * Returns `undefined` when the entity does NOT declare a default —
+ * caller skips the SET DEFAULT step. SQL-injection surface is bounded
+ * to whatever the entity author wrote inside `@Column({ default: ... })`,
+ * which is source-controlled.
+ */
+function renderEntityDefaultLiteral(col: ColumnMetadata): string | undefined {
+  const d = col.default;
+  if (d === undefined) return undefined;
+  if (d === null) return 'NULL';
+  if (typeof d === 'function') {
+    // TypeORM stores function defaults as `() => 'CURRENT_TIMESTAMP'`
+    // — invoke once and pass the returned text through verbatim.
+    const result = d();
+    return typeof result === 'string' && result.length > 0 ? result : undefined;
+  }
+  if (typeof d === 'string') {
+    return `'${d.replace(/'/g, "''")}'`;
+  }
+  if (typeof d === 'number' || typeof d === 'boolean') {
+    return String(d);
+  }
+  if (Array.isArray(d)) {
+    const items = d.map((v) =>
+      typeof v === 'string' ? `'${v.replace(/'/g, "''")}'` : String(v),
+    );
+    return `ARRAY[${items.join(', ')}]`;
+  }
+  if (typeof d === 'object') {
+    return `'${JSON.stringify(d).replace(/'/g, "''")}'::jsonb`;
+  }
+  return undefined;
 }

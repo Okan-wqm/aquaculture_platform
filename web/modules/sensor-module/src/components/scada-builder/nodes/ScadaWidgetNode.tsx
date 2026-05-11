@@ -19,8 +19,11 @@ import { Handle, Position } from 'reactflow';
 import { Lock } from 'lucide-react';
 import { WidgetRenderer } from '../WidgetRenderer';
 import { WidgetTooltip } from '../WidgetTooltip';
-import type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
-import type { EquipmentConnectionPoint } from '../../../types/scada-widget.types';
+import type {
+  ConnectionPointKey,
+  EquipmentConnectionPoint,
+  ScadaWidgetNodeData,
+} from '../../../types/scada-widget.types';
 import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
 import {
   buildTransformCSS,
@@ -531,7 +534,10 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     const lookupKey = data.widgetType === 'equipment'
       ? (data.config.equipmentSubType as string) || ''
       : data.widgetType;
-    const points = CONNECTION_POINTS[lookupKey];
+    const points =
+      lookupKey in CONNECTION_POINTS
+        ? CONNECTION_POINTS[lookupKey as ConnectionPointKey]
+        : undefined;
     if (!points || points.length === 0) return null;
     return points;
   }, [data.widgetType, data.config.equipmentSubType]);

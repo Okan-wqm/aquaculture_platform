@@ -38,9 +38,7 @@
 #[path = "db_migration_v1_legacy_key_support/mod.rs"]
 mod db_migration;
 
-use db_migration::v1_legacy_key::{
-    derive_v1_legacy_key, format_sqlcipher_pragma_key_hex,
-};
+use db_migration::v1_legacy_key::{derive_v1_legacy_key, format_sqlcipher_pragma_key_hex};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
@@ -150,7 +148,10 @@ fn d3_v1_key_matches_reference_reimplementation() {
     // non-empty inputs.
     let cases: &[(&[u8], &[u8])] = &[
         (b"machine-aaa", b"secret-aaa"),
-        (b"abcdef0123456789abcdef0123456789", b"32-byte-secret-key-canonical!!"),
+        (
+            b"abcdef0123456789abcdef0123456789",
+            b"32-byte-secret-key-canonical!!",
+        ),
         // Long machine_id (ASCII).
         (
             b"this-is-a-very-long-machine-identifier-that-exceeds-the-typical-32-char-budget",
@@ -205,10 +206,7 @@ fn d3_pragma_key_hex_is_64_char_lower_hex_zero_padded() {
 #[test]
 fn d3_pragma_key_hex_round_trips_via_hex_decode() {
     // Build a deterministic 32-byte key.
-    let key = derive_v1_legacy_key(
-        b"round-trip-machine-id",
-        b"round-trip-secret",
-    );
+    let key = derive_v1_legacy_key(b"round-trip-machine-id", b"round-trip-secret");
     let hex_str = format_sqlcipher_pragma_key_hex(&key);
 
     // Manual hex-decode (no hex crate dep needed for
@@ -274,8 +272,7 @@ fn d3_v1_key_rfc_4231_test_case_2() {
     let hex = format_sqlcipher_pragma_key_hex(&key);
 
     // From RFC 4231 §4 Test Case 2.
-    let expected =
-        "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843";
+    let expected = "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843";
     assert_eq!(
         hex, expected,
         "D-3 v1-key kernel disagreed with RFC 4231 §4 Test Case 2 — \

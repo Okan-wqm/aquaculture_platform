@@ -102,6 +102,9 @@
     "findings:export": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts export csv",
     "invariants:fast": "jest --config tests/invariants/jest.config.ts --maxWorkers=3 --selectProjects layer-1 layer-3",
     "invariants:full": "jest --config tests/invariants/jest.config.ts --maxWorkers=3",
+    "test:bootstrap": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns bootstrap-from-scratch",
+    "test:tenant-clone": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns tenant-clone-parity",
+    "test:schema-invariants": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns schema-invariants",
     "gates:banned-phrase": "ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.ts",
     "gates:apollo-csrf": "node scripts/ci/check-apollo-csrf-prevention.mjs",
     "gates:dependency-policy": "node scripts/ci/check-dependency-policy.mjs",
@@ -113,12 +116,16 @@
     "gates:banned-phrase:test": "ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.spec.ts",
     "gates:tier-claim": "ts-node --project tools/gates/tsconfig.json tools/gates/tier-claim-lint.ts",
     "gates:deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/main-deletion-witness.ts",
+    "gates:migration-deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-deletion-witness.ts",
+    "gates:schema-drift-registration": "ts-node --project tools/gates/tsconfig.json tools/gates/schema-drift-registration.ts",
     "gates:all": "npm run gates:banned-phrase && npm run gates:migration-sql && npm run gates:tier-claim",
     "ripple": "npx ts-node --project tools/ripple-tracer/tsconfig.json tools/ripple-tracer/cli.ts",
     "aria": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools cycle run --workspace-root .. --cycle-id aria-$(date -u +%Y%m%dT%H%M%SZ)",
     "aria:index": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools agent-network index --workspace-root ..",
     "aria:gaps": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools capability-gap detect --workspace-root .. --cycle-id aria-manual",
-    "aria:requests": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools agent-invocations list"
+    "aria:requests": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools agent-invocations list",
+    "factory:reset:dry": "node --experimental-strip-types tools/factory-reset/factory-reset.ts --dry-run",
+    "factory:reset:execute": "FACTORY_RESET_ALLOWED=1 node --experimental-strip-types tools/factory-reset/factory-reset.ts --execute"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",
@@ -221,6 +228,8 @@
     "@types/amqplib": "^0.10.8",
     "@types/cookie-parser": "^1.4.10",
     "@types/graphql-depth-limit": "^1.1.6",
+    "@types/hapi__catbox": "^10.2.6",
+    "@types/hapi__shot": "^4.1.6",
     "@types/jest": "30.0.0",
     "@types/multer": "^2.0.0",
     "@types/node": "20.19.9",
@@ -231,6 +240,7 @@
     "@types/react-dom": "^18.2.18",
     "@types/sanitize-html": "^2.16.1",
     "@types/supertest": "^6.0.3",
+    "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.59.1",
     "@typescript-eslint/parser": "^8.59.1",
     "bcrypt": "^6.0.0",
@@ -276,12 +286,18 @@
     "eslint": {
       "minimatch": "3.1.5"
     },
+    "express-rate-limit": "^8.5.1",
+    "fast-uri": "^3.1.2",
+    "fast-xml-builder": "^1.2.0",
     "glob": {
       "minimatch": "3.1.5"
     },
+    "hono": "^4.12.18",
+    "ip-address": "^10.2.0",
     "lodash": "4.18.1",
     "typeorm": {
-      "minimatch": "9.0.9"
+      "minimatch": "9.0.9",
+      "uuid": "^11.1.1"
     }
   },
   "optionalDependencies": {

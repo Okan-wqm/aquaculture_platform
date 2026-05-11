@@ -584,10 +584,14 @@ export interface ScadaScript {
   id: string;
   name: string;
   code: string;
-  mode: ScriptMode;
+  mode?: ScriptMode;
   enabled: boolean;
   scheduling?: ScriptScheduling;
   params?: ScriptParam[];
+  trigger?: 'event' | 'tagChange' | 'interval' | 'load';
+  triggerTag?: string;
+  triggerInterval?: number;
+  deviceId?: string | null;
 }
 
 export interface ScriptScheduling {

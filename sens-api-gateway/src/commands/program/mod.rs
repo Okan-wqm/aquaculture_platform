@@ -48,7 +48,6 @@
 //! before MQTT publish because AST can be MB for large programs
 //! and would blow the broker's payload limit.
 
-
 // Batch #304 ULTRA-HIGH-013 ceiling extension: program.rs
 // (631 lines) split into 4 sub-files. The
 // EffectiveDeployLimits + compute_effective_deploy_limits
@@ -114,7 +113,6 @@ pub(super) fn compute_effective_deploy_limits(
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,12 +176,7 @@ mod tests {
         use crate::license::EdgeLicenseLimits;
         let c = EdgeLicenseLimits::conservative();
         // Generous config: fb=100, scan=50.
-        let eff = compute_effective_deploy_limits(
-            100,
-            50,
-            c.max_fb_instances,
-            c.min_scan_cycle_ms,
-        );
+        let eff = compute_effective_deploy_limits(100, 50, c.max_fb_instances, c.min_scan_cycle_ms);
         // STARTER caps should win.
         assert_eq!(eff.effective_max_fbs, c.max_fb_instances as usize);
         assert_eq!(eff.effective_min_scan_ms, c.min_scan_cycle_ms as u64);

@@ -295,6 +295,36 @@ const STATUS_GOOD: u32 = 0x00000000;
 /// Bad status code mask
 const STATUS_BAD_MASK: u32 = 0x80000000;
 
+fn checked_range(offset: usize, width: usize) -> Result<std::ops::Range<usize>> {
+    let end = offset
+        .checked_add(width)
+        .ok_or_else(|| anyhow!("OPC UA binary offset overflow"))?;
+    Ok(offset..end)
+}
+
+fn read_exact_at<const N: usize>(data: &[u8], offset: usize) -> Result<[u8; N]> {
+    data.get(checked_range(offset, N)?)
+        .ok_or_else(|| anyhow!("OPC UA frame truncated at offset {}", offset))?
+        .try_into()
+        .map_err(|_| anyhow!("OPC UA fixed-width read mismatch at offset {}", offset))
+}
+
+fn read_le_u32_at(data: &[u8], offset: usize) -> Result<u32> {
+    Ok(u32::from_le_bytes(read_exact_at(data, offset)?))
+}
+
+fn read_le_i32_at(data: &[u8], offset: usize) -> Result<i32> {
+    Ok(i32::from_le_bytes(read_exact_at(data, offset)?))
+}
+
+fn read_le_f32_at(data: &[u8], offset: usize) -> Result<f32> {
+    Ok(f32::from_le_bytes(read_exact_at(data, offset)?))
+}
+
+fn read_le_f64_at(data: &[u8], offset: usize) -> Result<f64> {
+    Ok(f64::from_le_bytes(read_exact_at(data, offset)?))
+}
+
 // ============================================================================
 // OPC UA Attribute IDs
 // ============================================================================
@@ -751,8 +781,8 @@ impl Variant {
                 for elem in elements {
                     let encoded = elem.encode();
                     // Skip the type byte (already in the array header)
-                    if encoded.len() > 1 {
-                        data.extend_from_slice(&encoded[1..]);
+                    if let Some(payload) = encoded.get(1..) {
+                        data.extend_from_slice(payload);
                     }
                 }
             }
@@ -906,7 +936,7 @@ impl Variant {
                 if data.len() < 5 {
                     return Err(anyhow!("Insufficient data for String length"));
                 }
-                let len = u32::from_le_bytes([data[1], data[2], data[3], data[4]]);
+                let len = read_le_u32_at(data, 1)?;
                 if len == 0xFFFFFFFF {
                     return Ok((Self::String(String::new()), 5));
                 }
@@ -915,7 +945,11 @@ impl Variant {
                 if data.len() < offset + len {
                     return Err(anyhow!("Insufficient data for String value"));
                 }
-                let s = String::from_utf8_lossy(&data[offset..offset + len]).to_string();
+                let s = String::from_utf8_lossy(
+                    data.get(offset..offset + len)
+                        .ok_or_else(|| anyhow!("Insufficient data for String value"))?,
+                )
+                .to_string();
                 Ok((Self::String(s), offset + len))
             }
             0x0D => {
@@ -943,13 +977,20 @@ impl Variant {
                     return Err(anyhow!("Insufficient data for ByteString value"));
                 }
                 Ok((
-                    Self::ByteString(data[offset..offset + len].to_vec()),
+                    Self::ByteString(
+                        data.get(offset..offset + len)
+                            .ok_or_else(|| anyhow!("Insufficient data for ByteString value"))?
+                            .to_vec(),
+                    ),
                     offset + len,
                 ))
             }
             0x11 => {
                 // NodeId
-                let (node_id, consumed) = NodeId::decode(&data[1..])?;
+                let (node_id, consumed) = NodeId::decode(
+                    data.get(1..)
+                        .ok_or_else(|| anyhow!("Insufficient data for NodeId value"))?,
+                )?;
                 Ok((Self::NodeId(node_id), 1 + consumed))
             }
             0x13 => {
@@ -1177,7 +1218,11 @@ impl BrowseReference {
         if data.len() < offset + 1 {
             return Err(anyhow!("Insufficient data for BrowseReference IsForward"));
         }
-        let is_forward = data[offset] != 0;
+        let is_forward = data
+            .get(offset)
+            .copied()
+            .ok_or_else(|| anyhow!("Insufficient data for BrowseReference IsForward"))?
+            != 0;
         offset += 1;
 
         // NodeId (ExpandedNodeId)
@@ -1389,7 +1434,9 @@ impl OpcUaClient {
 
         // Update message size
         let size = msg.len() as u32;
-        msg[size_pos..size_pos + 4].copy_from_slice(&size.to_le_bytes());
+        if let Some(size_slot) = msg.get_mut(size_pos..size_pos + 4) {
+            size_slot.copy_from_slice(&size.to_le_bytes());
+        }
 
         msg
     }
@@ -1460,7 +1507,9 @@ impl OpcUaClient {
 
         // Update size
         let size = msg.len() as u32;
-        msg[size_pos..size_pos + 4].copy_from_slice(&size.to_le_bytes());
+        if let Some(size_slot) = msg.get_mut(size_pos..size_pos + 4) {
+            size_slot.copy_from_slice(&size.to_le_bytes());
+        }
 
         msg
     }
@@ -1497,22 +1546,15 @@ impl OpcUaClient {
         // Check message type
         if &header[0..3] == MSG_ERROR {
             // Parse OPC UA ERR message: size(4) at [4..8], error_code(4) at [8..12], reason string at [12..]
-            let err_size =
-                u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
+            let err_size = read_le_u32_at(&header, 4)? as usize;
             if err_size > 8 && err_size <= MAX_OPCUA_MESSAGE_SIZE {
                 let remaining = err_size - 8; // Already read 8-byte header
                 let mut err_body = vec![0u8; remaining];
                 let _ = timeout(io_timeout, conn.read_exact(&mut err_body)).await;
                 if err_body.len() >= 4 {
-                    let error_code =
-                        u32::from_le_bytes([err_body[0], err_body[1], err_body[2], err_body[3]]);
+                    let error_code = read_le_u32_at(&err_body, 0)?;
                     let reason = if err_body.len() >= 8 {
-                        let str_len = u32::from_le_bytes([
-                            err_body[4],
-                            err_body[5],
-                            err_body[6],
-                            err_body[7],
-                        ]);
+                        let str_len = read_le_u32_at(&err_body, 4)?;
                         if str_len != 0xFFFFFFFF
                             && (str_len as usize) <= err_body.len().saturating_sub(8)
                         {
@@ -1559,7 +1601,10 @@ impl OpcUaClient {
         // Read rest of first chunk with timeout
         let mut response = header.to_vec();
         response.resize(size, 0);
-        timeout(io_timeout, conn.read_exact(&mut response[8..]))
+        let response_body = response
+            .get_mut(8..)
+            .ok_or_else(|| anyhow!("OPC UA response body slot missing"))?;
+        timeout(io_timeout, conn.read_exact(response_body))
             .await
             .map_err(|_| {
                 anyhow!(
@@ -1620,7 +1665,11 @@ impl OpcUaClient {
 
                 // Append payload (skip security + sequence headers = 16 bytes)
                 let payload_start = std::cmp::min(16, chunk_body.len());
-                response.extend_from_slice(&chunk_body[payload_start..]);
+                response.extend_from_slice(
+                    chunk_body
+                        .get(payload_start..)
+                        .ok_or_else(|| anyhow!("OPC UA chunk payload missing"))?,
+                );
 
                 total_chunks += 1;
 
@@ -1632,9 +1681,14 @@ impl OpcUaClient {
 
             // Update total size in the response header
             let total_size = response.len() as u32;
-            response[4..8].copy_from_slice(&total_size.to_le_bytes());
+            response
+                .get_mut(4..8)
+                .ok_or_else(|| anyhow!("OPC UA response header missing size slot"))?
+                .copy_from_slice(&total_size.to_le_bytes());
             // Mark as final chunk
-            response[3] = b'F';
+            *response
+                .get_mut(3)
+                .ok_or_else(|| anyhow!("OPC UA response header missing chunk type"))? = b'F';
         } else if chunk_type == b'A' {
             return Err(anyhow!("OPC UA server aborted message transfer"));
         }
@@ -1898,7 +1952,9 @@ impl OpcUaClient {
         }
 
         // Parse response body
-        let body = &response[body_start..];
+        let body = response
+            .get(body_start..)
+            .ok_or_else(|| anyhow!("OPC UA response missing body"))?;
         let mut offset = 0;
 
         // Skip Type ID (CreateSessionResponse = 464)
@@ -1942,12 +1998,7 @@ impl OpcUaClient {
 
         // Skip StringTable (array of strings)
         if body.len() >= offset + 4 {
-            let array_len = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let array_len = read_le_i32_at(body, offset)?;
             offset += 4;
             if array_len > 0 {
                 // Skip strings
@@ -1955,12 +2006,7 @@ impl OpcUaClient {
                     if body.len() < offset + 4 {
                         break;
                     }
-                    let str_len = u32::from_le_bytes([
-                        body[offset],
-                        body[offset + 1],
-                        body[offset + 2],
-                        body[offset + 3],
-                    ]);
+                    let str_len = read_le_u32_at(body, offset)?;
                     offset += 4;
                     if str_len != 0xFFFFFFFF {
                         offset += str_len as usize;
@@ -1980,12 +2026,7 @@ impl OpcUaClient {
                 if ext_encoding == 0x01 {
                     // Has body
                     if body.len() >= offset + 4 {
-                        let body_len = u32::from_le_bytes([
-                            body[offset],
-                            body[offset + 1],
-                            body[offset + 2],
-                            body[offset + 3],
-                        ]);
+                        let body_len = read_le_u32_at(body, offset)?;
                         offset += 4 + body_len as usize;
                     }
                 }
@@ -2103,11 +2144,16 @@ impl OpcUaClient {
             return Err(anyhow!("ActivateSession response body missing"));
         }
 
-        let body = &response[body_start..];
+        let body = response
+            .get(body_start..)
+            .ok_or_else(|| anyhow!("CreateMonitoredItems response missing body"))?;
         let mut offset = 0;
 
         // Skip Type ID
-        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        let (_, consumed) = NodeId::decode(
+            body.get(offset..)
+                .ok_or_else(|| anyhow!("OPC UA response missing type id"))?,
+        )?;
         offset += consumed;
 
         // Check ServiceResult in response header
@@ -2190,11 +2236,16 @@ impl OpcUaClient {
         }
 
         let body_start = 24;
-        let body = &response[body_start..];
+        let body = response
+            .get(body_start..)
+            .ok_or_else(|| anyhow!("CreateMonitoredItems response missing body"))?;
         let mut offset = 0;
 
         // Skip Type ID
-        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        let (_, consumed) = NodeId::decode(
+            body.get(offset..)
+                .ok_or_else(|| anyhow!("CreateMonitoredItems response missing type id"))?,
+        )?;
         offset += consumed;
 
         // Skip response header (simplified)
@@ -2203,12 +2254,7 @@ impl OpcUaClient {
 
         // Check ServiceResult
         if body.len() >= offset + 4 {
-            let service_result = u32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let service_result = read_le_u32_at(body, offset)?;
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
                 return Err(anyhow!(
@@ -2219,30 +2265,20 @@ impl OpcUaClient {
         }
 
         // Skip DiagnosticInfo
-        if body.len() > offset && body[offset] == 0x00 {
+        if body.get(offset).copied() == Some(0x00) {
             offset += 1;
         }
 
         // Skip StringTable
         if body.len() >= offset + 4 {
-            let array_len = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let array_len = read_le_i32_at(body, offset)?;
             offset += 4;
             if array_len > 0 {
                 for _ in 0..array_len {
                     if body.len() < offset + 4 {
                         break;
                     }
-                    let str_len = u32::from_le_bytes([
-                        body[offset],
-                        body[offset + 1],
-                        body[offset + 2],
-                        body[offset + 3],
-                    ]);
+                    let str_len = read_le_u32_at(body, offset)?;
                     offset += 4;
                     if str_len != 0xFFFFFFFF {
                         offset += str_len as usize;
@@ -2253,7 +2289,10 @@ impl OpcUaClient {
 
         // Skip AdditionalHeader
         if body.len() > offset + 2 {
-            let (_, consumed) = NodeId::decode(&body[offset..])?;
+            let (_, consumed) = NodeId::decode(
+                body.get(offset..)
+                    .ok_or_else(|| anyhow!("OPC UA response missing additional header"))?,
+            )?;
             offset += consumed;
             if body.len() > offset {
                 offset += 1; // Encoding byte
@@ -2267,12 +2306,7 @@ impl OpcUaClient {
             return Ok(references);
         }
 
-        let results_len = i32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let results_len = read_le_i32_at(body, offset)?;
         offset += 4;
 
         if results_len <= 0 {
@@ -2284,12 +2318,7 @@ impl OpcUaClient {
         if body.len() < offset + 4 {
             return Ok(references);
         }
-        let browse_status = u32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let browse_status = read_le_u32_at(body, offset)?;
         offset += 4;
 
         if browse_status & STATUS_BAD_MASK != 0 {
@@ -2301,12 +2330,7 @@ impl OpcUaClient {
         if body.len() < offset + 4 {
             return Ok(references);
         }
-        let cp_len = u32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let cp_len = read_le_u32_at(body, offset)?;
         offset += 4;
         if cp_len != 0xFFFFFFFF {
             offset += cp_len as usize;
@@ -2316,12 +2340,7 @@ impl OpcUaClient {
         if body.len() < offset + 4 {
             return Ok(references);
         }
-        let refs_len = i32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let refs_len = read_le_i32_at(body, offset)?;
         offset += 4;
 
         if refs_len <= 0 {
@@ -2389,11 +2408,16 @@ impl OpcUaClient {
         }
 
         let body_start = 24;
-        let body = &response[body_start..];
+        let body = response
+            .get(body_start..)
+            .ok_or_else(|| anyhow!("CreateSubscription response missing body"))?;
         let mut offset = 0;
 
         // Skip Type ID
-        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        let (_, consumed) = NodeId::decode(
+            body.get(offset..)
+                .ok_or_else(|| anyhow!("CreateSubscription response missing type id"))?,
+        )?;
         offset += consumed;
 
         // Skip response header (simplified)
@@ -2402,12 +2426,7 @@ impl OpcUaClient {
 
         // Check ServiceResult
         if body.len() >= offset + 4 {
-            let service_result = u32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let service_result = read_le_u32_at(body, offset)?;
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
                 return Err(anyhow!("Read failed with status: 0x{:08X}", service_result));
@@ -2415,30 +2434,20 @@ impl OpcUaClient {
         }
 
         // Skip DiagnosticInfo
-        if body.len() > offset && body[offset] == 0x00 {
+        if body.get(offset).copied() == Some(0x00) {
             offset += 1;
         }
 
         // Skip StringTable
         if body.len() >= offset + 4 {
-            let array_len = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let array_len = read_le_i32_at(body, offset)?;
             offset += 4;
             if array_len > 0 {
                 for _ in 0..array_len {
                     if body.len() < offset + 4 {
                         break;
                     }
-                    let str_len = u32::from_le_bytes([
-                        body[offset],
-                        body[offset + 1],
-                        body[offset + 2],
-                        body[offset + 3],
-                    ]);
+                    let str_len = read_le_u32_at(body, offset)?;
                     offset += 4;
                     if str_len != 0xFFFFFFFF {
                         offset += str_len as usize;
@@ -2461,12 +2470,7 @@ impl OpcUaClient {
             return Err(anyhow!("Read response missing results"));
         }
 
-        let results_len = i32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let results_len = read_le_i32_at(body, offset)?;
         offset += 4;
 
         if results_len <= 0 {
@@ -2514,11 +2518,16 @@ impl OpcUaClient {
         }
 
         let body_start = 24;
-        let body = &response[body_start..];
+        let body = response
+            .get(body_start..)
+            .ok_or_else(|| anyhow!("Publish response missing body"))?;
         let mut offset = 0;
 
         // Skip Type ID
-        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        let (_, consumed) = NodeId::decode(
+            body.get(offset..)
+                .ok_or_else(|| anyhow!("Publish response missing type id"))?,
+        )?;
         offset += consumed;
 
         // Skip response header (simplified)
@@ -2527,12 +2536,7 @@ impl OpcUaClient {
 
         // Check ServiceResult
         let service_result = if body.len() >= offset + 4 {
-            let result = u32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let result = read_le_u32_at(body, offset)?;
             offset += 4;
             result
         } else {
@@ -2547,30 +2551,20 @@ impl OpcUaClient {
         }
 
         // Skip DiagnosticInfo
-        if body.len() > offset && body[offset] == 0x00 {
+        if body.get(offset).copied() == Some(0x00) {
             offset += 1;
         }
 
         // Skip StringTable
         if body.len() >= offset + 4 {
-            let array_len = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let array_len = read_le_i32_at(body, offset)?;
             offset += 4;
             if array_len > 0 {
                 for _ in 0..array_len {
                     if body.len() < offset + 4 {
                         break;
                     }
-                    let str_len = u32::from_le_bytes([
-                        body[offset],
-                        body[offset + 1],
-                        body[offset + 2],
-                        body[offset + 3],
-                    ]);
+                    let str_len = read_le_u32_at(body, offset)?;
                     offset += 4;
                     if str_len != 0xFFFFFFFF {
                         offset += str_len as usize;
@@ -2593,21 +2587,11 @@ impl OpcUaClient {
             return Ok(STATUS_GOOD);
         }
 
-        let results_len = i32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let results_len = read_le_i32_at(body, offset)?;
         offset += 4;
 
         if results_len > 0 && body.len() >= offset + 4 {
-            let result_status = u32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let result_status = read_le_u32_at(body, offset)?;
             debug!("Write result status: 0x{:08X}", result_status);
             return Ok(result_status);
         }
@@ -2655,11 +2639,16 @@ impl OpcUaClient {
         }
 
         let body_start = 24;
-        let body = &response[body_start..];
+        let body = response
+            .get(body_start..)
+            .ok_or_else(|| anyhow!("Publish response missing body"))?;
         let mut offset = 0;
 
         // Skip Type ID
-        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        let (_, consumed) = NodeId::decode(
+            body.get(offset..)
+                .ok_or_else(|| anyhow!("BrowseNext response missing type id"))?,
+        )?;
         offset += consumed;
 
         // Skip response header (simplified)
@@ -2668,12 +2657,7 @@ impl OpcUaClient {
 
         // Check ServiceResult
         if body.len() >= offset + 4 {
-            let service_result = u32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let service_result = read_le_u32_at(body, offset)?;
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
                 return Err(anyhow!("Call failed with status: 0x{:08X}", service_result));
@@ -2681,30 +2665,20 @@ impl OpcUaClient {
         }
 
         // Skip DiagnosticInfo
-        if body.len() > offset && body[offset] == 0x00 {
+        if body.get(offset).copied() == Some(0x00) {
             offset += 1;
         }
 
         // Skip StringTable
         if body.len() >= offset + 4 {
-            let array_len = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let array_len = read_le_i32_at(body, offset)?;
             offset += 4;
             if array_len > 0 {
                 for _ in 0..array_len {
                     if body.len() < offset + 4 {
                         break;
                     }
-                    let str_len = u32::from_le_bytes([
-                        body[offset],
-                        body[offset + 1],
-                        body[offset + 2],
-                        body[offset + 3],
-                    ]);
+                    let str_len = read_le_u32_at(body, offset)?;
                     offset += 4;
                     if str_len != 0xFFFFFFFF {
                         offset += str_len as usize;
@@ -2729,12 +2703,7 @@ impl OpcUaClient {
             return Ok(output_arguments);
         }
 
-        let results_len = i32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let results_len = read_le_i32_at(body, offset)?;
         offset += 4;
 
         if results_len <= 0 {
@@ -2746,12 +2715,7 @@ impl OpcUaClient {
         if body.len() < offset + 4 {
             return Ok(output_arguments);
         }
-        let call_status = u32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let call_status = read_le_u32_at(body, offset)?;
         offset += 4;
 
         if call_status & STATUS_BAD_MASK != 0 {
@@ -2765,12 +2729,7 @@ impl OpcUaClient {
         if body.len() < offset + 4 {
             return Ok(output_arguments);
         }
-        let input_results_len = i32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let input_results_len = read_le_i32_at(body, offset)?;
         offset += 4;
         if input_results_len > 0 {
             offset += (input_results_len as usize) * 4; // Each StatusCode is 4 bytes
@@ -2780,12 +2739,7 @@ impl OpcUaClient {
         if body.len() < offset + 4 {
             return Ok(output_arguments);
         }
-        let diag_len = i32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let diag_len = read_le_i32_at(body, offset)?;
         offset += 4;
         if diag_len > 0 {
             // Skip diagnostic infos (simplified)
@@ -2800,12 +2754,7 @@ impl OpcUaClient {
         if body.len() < offset + 4 {
             return Ok(output_arguments);
         }
-        let output_len = i32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let output_len = read_le_i32_at(body, offset)?;
         offset += 4;
 
         for _ in 0..output_len {
@@ -2860,12 +2809,7 @@ impl OpcUaClient {
                     if let Ok((_, consumed)) = NodeId::decode(body) {
                         let offset = consumed;
                         if body.len() >= offset + 12 {
-                            let service_result = u32::from_le_bytes([
-                                body[offset + 8],
-                                body[offset + 9],
-                                body[offset + 10],
-                                body[offset + 11],
-                            ]);
+                            let service_result = read_le_u32_at(body, offset + 8)?;
                             if service_result & STATUS_BAD_MASK != 0 {
                                 debug!("CloseSession returned status: 0x{:08X}", service_result);
                             }
@@ -2997,12 +2941,7 @@ impl OpcUaClient {
             // Simplified: scan for token after the channel id
             let body_start = 8; // After OPN + size
             if response.len() > body_start + 4 {
-                let resp_channel_id = u32::from_le_bytes([
-                    response[body_start],
-                    response[body_start + 1],
-                    response[body_start + 2],
-                    response[body_start + 3],
-                ]);
+                let resp_channel_id = read_le_u32_at(&response, body_start)?;
                 *self.secure_channel_id.lock().await = resp_channel_id;
             }
 
@@ -3012,23 +2951,16 @@ impl OpcUaClient {
             let scan_start = 24; // After security + sequence headers
             if response.len() > scan_start + 40 {
                 // Skip TypeId + ResponseHeader to find SecurityToken
-                let (_, type_consumed) =
-                    NodeId::decode(&response[scan_start..]).unwrap_or((NodeId::null(), 0));
+                let (_, type_consumed) = NodeId::decode(
+                    response
+                        .get(scan_start..)
+                        .ok_or_else(|| anyhow!("RenewSecureChannel response missing type id"))?,
+                )?;
                 let token_offset = scan_start + type_consumed + 8 + 4 + 4 + 1 + 4 + 3;
                 // SecurityToken: channel_id(4) + token_id(4) + created_at(8) + revised_lifetime(4)
                 if response.len() >= token_offset + 20 {
-                    let new_token_id = u32::from_le_bytes([
-                        response[token_offset + 4],
-                        response[token_offset + 5],
-                        response[token_offset + 6],
-                        response[token_offset + 7],
-                    ]);
-                    let revised_lifetime = u32::from_le_bytes([
-                        response[token_offset + 16],
-                        response[token_offset + 17],
-                        response[token_offset + 18],
-                        response[token_offset + 19],
-                    ]);
+                    let new_token_id = read_le_u32_at(&response, token_offset + 4)?;
+                    let revised_lifetime = read_le_u32_at(&response, token_offset + 16)?;
 
                     *self.token_id.lock().await = new_token_id;
                     *self.token_created_at.lock().await = std::time::Instant::now();
@@ -3269,11 +3201,16 @@ impl OpcUaClient {
         }
 
         let body_start = 24;
-        let body = &response[body_start..];
+        let body = response
+            .get(body_start..)
+            .ok_or_else(|| anyhow!("CreateMonitoredItems response missing body"))?;
         let mut offset = 0;
 
         // Skip Type ID
-        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        let (_, consumed) = NodeId::decode(
+            body.get(offset..)
+                .ok_or_else(|| anyhow!("CreateMonitoredItems response missing type id"))?,
+        )?;
         offset += consumed;
 
         // Skip response header
@@ -3282,12 +3219,7 @@ impl OpcUaClient {
 
         // Check ServiceResult
         if body.len() >= offset + 4 {
-            let service_result = u32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let service_result = read_le_u32_at(body, offset)?;
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
                 return Err(anyhow!(
@@ -3298,30 +3230,20 @@ impl OpcUaClient {
         }
 
         // Skip DiagnosticInfo
-        if body.len() > offset && body[offset] == 0x00 {
+        if body.get(offset).copied() == Some(0x00) {
             offset += 1;
         }
 
         // Skip StringTable
         if body.len() >= offset + 4 {
-            let array_len = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let array_len = read_le_i32_at(body, offset)?;
             offset += 4;
             if array_len > 0 {
                 for _ in 0..array_len {
                     if body.len() < offset + 4 {
                         break;
                     }
-                    let str_len = u32::from_le_bytes([
-                        body[offset],
-                        body[offset + 1],
-                        body[offset + 2],
-                        body[offset + 3],
-                    ]);
+                    let str_len = read_le_u32_at(body, offset)?;
                     offset += 4;
                     if str_len != 0xFFFFFFFF {
                         offset += str_len as usize;
@@ -3347,12 +3269,7 @@ impl OpcUaClient {
             return Ok((references, next_cp));
         }
 
-        let results_len = i32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let results_len = read_le_i32_at(body, offset)?;
         offset += 4;
 
         if results_len <= 0 {
@@ -3364,12 +3281,7 @@ impl OpcUaClient {
         if body.len() < offset + 4 {
             return Ok((references, next_cp));
         }
-        let browse_status = u32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let browse_status = read_le_u32_at(body, offset)?;
         offset += 4;
 
         if browse_status & STATUS_BAD_MASK != 0 {
@@ -3380,12 +3292,7 @@ impl OpcUaClient {
         if body.len() < offset + 4 {
             return Ok((references, next_cp));
         }
-        let cp_len = u32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let cp_len = read_le_u32_at(body, offset)?;
         offset += 4;
         if cp_len != 0xFFFFFFFF && cp_len > 0 {
             let cp_len = cp_len as usize;
@@ -3397,12 +3304,7 @@ impl OpcUaClient {
 
         // References array
         if body.len() >= offset + 4 {
-            let refs_len = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let refs_len = read_le_i32_at(body, offset)?;
             offset += 4;
 
             if refs_len > 0 {
@@ -3509,11 +3411,16 @@ impl OpcUaClient {
         }
 
         let body_start = 24;
-        let body = &response[body_start..];
+        let body = response
+            .get(body_start..)
+            .ok_or_else(|| anyhow!("Publish response missing body"))?;
         let mut offset = 0;
 
         // Skip Type ID
-        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        let (_, consumed) = NodeId::decode(
+            body.get(offset..)
+                .ok_or_else(|| anyhow!("Publish response missing type id"))?,
+        )?;
         offset += consumed;
 
         // Skip response header
@@ -3522,12 +3429,7 @@ impl OpcUaClient {
 
         // Check ServiceResult
         if body.len() >= offset + 4 {
-            let service_result = u32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let service_result = read_le_u32_at(body, offset)?;
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
                 return Err(anyhow!(
@@ -3538,28 +3440,18 @@ impl OpcUaClient {
         }
 
         // Skip DiagnosticInfo + StringTable + AdditionalHeader
-        if body.len() > offset && body[offset] == 0x00 {
+        if body.get(offset).copied() == Some(0x00) {
             offset += 1;
         }
         if body.len() >= offset + 4 {
-            let arr_len = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let arr_len = read_le_i32_at(body, offset)?;
             offset += 4;
             if arr_len > 0 {
                 for _ in 0..arr_len {
                     if body.len() < offset + 4 {
                         break;
                     }
-                    let slen = u32::from_le_bytes([
-                        body[offset],
-                        body[offset + 1],
-                        body[offset + 2],
-                        body[offset + 3],
-                    ]);
+                    let slen = read_le_u32_at(body, offset)?;
                     offset += 4;
                     if slen != 0xFFFFFFFF {
                         offset += slen as usize;
@@ -3568,7 +3460,9 @@ impl OpcUaClient {
             }
         }
         if body.len() > offset + 2 {
-            let (_, consumed) = NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
+            let (_, consumed) = NodeId::decode(body.get(offset..).ok_or_else(|| {
+                anyhow!("CreateSubscription response missing additional header")
+            })?)?;
             offset += consumed;
             if body.len() > offset {
                 offset += 1;
@@ -3581,12 +3475,7 @@ impl OpcUaClient {
                 "CreateSubscription response: missing subscription ID"
             ));
         }
-        let subscription_id = u32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let subscription_id = read_le_u32_at(body, offset)?;
 
         debug!("Created OPC UA subscription: id={}", subscription_id);
         Ok(subscription_id)
@@ -3652,11 +3541,16 @@ impl OpcUaClient {
         }
 
         let body_start = 24;
-        let body = &response[body_start..];
+        let body = response
+            .get(body_start..)
+            .ok_or_else(|| anyhow!("CreateMonitoredItems response missing body"))?;
         let mut offset = 0;
 
         // Skip Type ID
-        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        let (_, consumed) = NodeId::decode(
+            body.get(offset..)
+                .ok_or_else(|| anyhow!("CreateMonitoredItems response missing type id"))?,
+        )?;
         offset += consumed;
 
         // Skip response header
@@ -3665,12 +3559,7 @@ impl OpcUaClient {
 
         // Check ServiceResult
         if body.len() >= offset + 4 {
-            let service_result = u32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let service_result = read_le_u32_at(body, offset)?;
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
                 return Err(anyhow!(
@@ -3681,28 +3570,18 @@ impl OpcUaClient {
         }
 
         // Skip DiagnosticInfo + StringTable + AdditionalHeader (simplified)
-        if body.len() > offset && body[offset] == 0x00 {
+        if body.get(offset).copied() == Some(0x00) {
             offset += 1;
         }
         if body.len() >= offset + 4 {
-            let arr_len = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let arr_len = read_le_i32_at(body, offset)?;
             offset += 4;
             if arr_len > 0 {
                 for _ in 0..arr_len {
                     if body.len() < offset + 4 {
                         break;
                     }
-                    let slen = u32::from_le_bytes([
-                        body[offset],
-                        body[offset + 1],
-                        body[offset + 2],
-                        body[offset + 3],
-                    ]);
+                    let slen = read_le_u32_at(body, offset)?;
                     offset += 4;
                     if slen != 0xFFFFFFFF {
                         offset += slen as usize;
@@ -3711,7 +3590,9 @@ impl OpcUaClient {
             }
         }
         if body.len() > offset + 2 {
-            let (_, consumed) = NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
+            let (_, consumed) = NodeId::decode(body.get(offset..).ok_or_else(|| {
+                anyhow!("CreateMonitoredItems response missing additional header")
+            })?)?;
             offset += consumed;
             if body.len() > offset {
                 offset += 1;
@@ -3722,38 +3603,24 @@ impl OpcUaClient {
         // StatusCode(4) + MonitoredItemId(4) + RevisedSamplingInterval(8) + RevisedQueueSize(4) + FilterResult(var)
         let mut monitored_item_ids = Vec::new();
         if body.len() >= offset + 4 {
-            let results_len = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let results_len = read_le_i32_at(body, offset)?;
             offset += 4;
 
             for _ in 0..results_len {
                 if body.len() < offset + 16 {
                     break;
                 }
-                let status = u32::from_le_bytes([
-                    body[offset],
-                    body[offset + 1],
-                    body[offset + 2],
-                    body[offset + 3],
-                ]);
+                let status = read_le_u32_at(body, offset)?;
                 offset += 4;
-                let item_id = u32::from_le_bytes([
-                    body[offset],
-                    body[offset + 1],
-                    body[offset + 2],
-                    body[offset + 3],
-                ]);
+                let item_id = read_le_u32_at(body, offset)?;
                 offset += 4;
                 offset += 8; // RevisedSamplingInterval (Double)
                 offset += 4; // RevisedQueueSize (UInt32)
                 // FilterResult (null ExtensionObject)
                 if body.len() > offset + 2 {
-                    let (_, consumed) =
-                        NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
+                    let (_, consumed) = NodeId::decode(body.get(offset..).ok_or_else(|| {
+                        anyhow!("CreateMonitoredItems response missing filter result")
+                    })?)?;
                     offset += consumed;
                     if body.len() > offset {
                         offset += 1;
@@ -3860,11 +3727,16 @@ impl OpcUaClient {
         }
 
         let body_start = 24;
-        let body = &response[body_start..];
+        let body = response
+            .get(body_start..)
+            .ok_or_else(|| anyhow!("Publish response missing body"))?;
         let mut offset = 0;
 
         // Skip Type ID
-        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        let (_, consumed) = NodeId::decode(
+            body.get(offset..)
+                .ok_or_else(|| anyhow!("Publish response missing type id"))?,
+        )?;
         offset += consumed;
 
         // Skip response header
@@ -3873,12 +3745,7 @@ impl OpcUaClient {
 
         // Check ServiceResult
         if body.len() >= offset + 4 {
-            let service_result = u32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let service_result = read_le_u32_at(body, offset)?;
             offset += 4;
             if service_result & STATUS_BAD_MASK != 0 {
                 return Err(anyhow!("Publish failed: 0x{:08X}", service_result));
@@ -3886,28 +3753,18 @@ impl OpcUaClient {
         }
 
         // Skip DiagnosticInfo + StringTable + AdditionalHeader
-        if body.len() > offset && body[offset] == 0x00 {
+        if body.get(offset).copied() == Some(0x00) {
             offset += 1;
         }
         if body.len() >= offset + 4 {
-            let arr_len = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let arr_len = read_le_i32_at(body, offset)?;
             offset += 4;
             if arr_len > 0 {
                 for _ in 0..arr_len {
                     if body.len() < offset + 4 {
                         break;
                     }
-                    let slen = u32::from_le_bytes([
-                        body[offset],
-                        body[offset + 1],
-                        body[offset + 2],
-                        body[offset + 3],
-                    ]);
+                    let slen = read_le_u32_at(body, offset)?;
                     offset += 4;
                     if slen != 0xFFFFFFFF {
                         offset += slen as usize;
@@ -3916,7 +3773,10 @@ impl OpcUaClient {
             }
         }
         if body.len() > offset + 2 {
-            let (_, consumed) = NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
+            let (_, consumed) = NodeId::decode(
+                body.get(offset..)
+                    .ok_or_else(|| anyhow!("Publish response missing additional header"))?,
+            )?;
             offset += consumed;
             if body.len() > offset {
                 offset += 1;
@@ -3928,22 +3788,12 @@ impl OpcUaClient {
         if body.len() < offset + 4 {
             return Ok(result);
         }
-        let subscription_id = u32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let subscription_id = read_le_u32_at(body, offset)?;
         offset += 4;
 
         // AvailableSequenceNumbers (skip)
         if body.len() >= offset + 4 {
-            let seq_count = i32::from_le_bytes([
-                body[offset],
-                body[offset + 1],
-                body[offset + 2],
-                body[offset + 3],
-            ]);
+            let seq_count = read_le_i32_at(body, offset)?;
             offset += 4;
             if seq_count > 0 {
                 offset += (seq_count as usize) * 4; // Each is UInt32
@@ -3972,12 +3822,7 @@ impl OpcUaClient {
         if body.len() < offset + 4 {
             return Ok(result);
         }
-        let notif_count = i32::from_le_bytes([
-            body[offset],
-            body[offset + 1],
-            body[offset + 2],
-            body[offset + 3],
-        ]);
+        let notif_count = read_le_i32_at(body, offset)?;
         offset += 4;
 
         let mut items = Vec::new();
@@ -3989,15 +3834,20 @@ impl OpcUaClient {
 
             // NotificationData is an ExtensionObject
             // TypeId
-            let (_notif_type_id, consumed) =
-                NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
+            let (_notif_type_id, consumed) = NodeId::decode(
+                body.get(offset..)
+                    .ok_or_else(|| anyhow!("Publish response missing notification type id"))?,
+            )?;
             offset += consumed;
 
             // Encoding byte
             if body.len() <= offset {
                 break;
             }
-            let encoding = body[offset];
+            let encoding = body
+                .get(offset)
+                .copied()
+                .ok_or_else(|| anyhow!("Publish response missing notification encoding"))?;
             offset += 1;
 
             if encoding == 0x01 {
@@ -4005,23 +3855,13 @@ impl OpcUaClient {
                 if body.len() < offset + 4 {
                     break;
                 }
-                let _body_len = u32::from_le_bytes([
-                    body[offset],
-                    body[offset + 1],
-                    body[offset + 2],
-                    body[offset + 3],
-                ]) as usize;
+                let _body_len = read_le_u32_at(body, offset)? as usize;
                 offset += 4;
 
                 // DataChangeNotification (TypeId 811)
                 // Parse monitored items
                 if body.len() >= offset + 4 {
-                    let item_count = i32::from_le_bytes([
-                        body[offset],
-                        body[offset + 1],
-                        body[offset + 2],
-                        body[offset + 3],
-                    ]);
+                    let item_count = read_le_i32_at(body, offset)?;
                     offset += 4;
 
                     for _ in 0..item_count {
@@ -4029,17 +3869,15 @@ impl OpcUaClient {
                             break;
                         }
                         // ClientHandle (UInt32)
-                        let client_handle = u32::from_le_bytes([
-                            body[offset],
-                            body[offset + 1],
-                            body[offset + 2],
-                            body[offset + 3],
-                        ]);
+                        let client_handle = read_le_u32_at(body, offset)?;
                         offset += 4;
 
                         // DataValue
                         if body.len() > offset {
-                            match DataValue::decode(&body[offset..]) {
+                            match DataValue::decode(
+                                body.get(offset..)
+                                    .ok_or_else(|| anyhow!("Publish response missing DataValue"))?,
+                            ) {
                                 Ok((dv, consumed)) => {
                                     items.push((client_handle, dv));
                                     offset += consumed;
@@ -4054,12 +3892,7 @@ impl OpcUaClient {
 
                     // Skip DiagnosticInfos array
                     if body.len() >= offset + 4 {
-                        let diag_count = i32::from_le_bytes([
-                            body[offset],
-                            body[offset + 1],
-                            body[offset + 2],
-                            body[offset + 3],
-                        ]);
+                        let diag_count = read_le_i32_at(body, offset)?;
                         offset += 4;
                         // Skip diagnostic infos (simplified)
                         if diag_count > 0 {
@@ -4192,8 +4025,7 @@ impl PlcProgrammer for OpcUaClient {
         // Parse secure channel response
         // Need at least 12 bytes to access indices [8..11] for channel_id
         if response.len() >= 12 {
-            let channel_id =
-                u32::from_le_bytes([response[8], response[9], response[10], response[11]]);
+            let channel_id = read_le_u32_at(&response, 8)?;
             *self.secure_channel_id.lock().await = channel_id;
             debug!("OPC UA Secure channel opened: {}", channel_id);
         }
@@ -5389,7 +5221,10 @@ impl PlcProgrammer for OpcUaClient {
                 let encoded = variant.encode();
                 // Return the raw encoded bytes (skip the type byte)
                 if encoded.len() > 1 {
-                    Ok(encoded[1..].to_vec())
+                    Ok(encoded
+                        .get(1..)
+                        .ok_or_else(|| anyhow!("OPC UA encoded variant missing payload"))?
+                        .to_vec())
                 } else {
                     Ok(Vec::new())
                 }
@@ -5417,30 +5252,28 @@ impl PlcProgrammer for OpcUaClient {
             }
             super::PlcDataType::Int => {
                 if data.len() >= 2 {
-                    Variant::Int16(i16::from_le_bytes([data[0], data[1]]))
+                    Variant::Int16(i16::from_le_bytes(read_exact_at(data, 0)?))
                 } else {
                     return Err(anyhow!("Insufficient data for INT write"));
                 }
             }
             super::PlcDataType::Dint => {
                 if data.len() >= 4 {
-                    Variant::Int32(i32::from_le_bytes([data[0], data[1], data[2], data[3]]))
+                    Variant::Int32(i32::from_le_bytes(read_exact_at(data, 0)?))
                 } else {
                     return Err(anyhow!("Insufficient data for DINT write"));
                 }
             }
             super::PlcDataType::Real => {
                 if data.len() >= 4 {
-                    Variant::Float(f32::from_le_bytes([data[0], data[1], data[2], data[3]]))
+                    Variant::Float(read_le_f32_at(data, 0)?)
                 } else {
                     return Err(anyhow!("Insufficient data for REAL write"));
                 }
             }
             super::PlcDataType::Lreal => {
                 if data.len() >= 8 {
-                    Variant::Double(f64::from_le_bytes([
-                        data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-                    ]))
+                    Variant::Double(read_le_f64_at(data, 0)?)
                 } else {
                     return Err(anyhow!("Insufficient data for LREAL write"));
                 }
@@ -5448,17 +5281,21 @@ impl PlcProgrammer for OpcUaClient {
             super::PlcDataType::String => {
                 Variant::String(String::from_utf8_lossy(data).to_string())
             }
-            super::PlcDataType::Byte => Variant::Byte(data.first().copied().unwrap_or(0)),
+            super::PlcDataType::Byte => Variant::Byte(
+                data.first()
+                    .copied()
+                    .ok_or_else(|| anyhow!("Insufficient data for BYTE write"))?,
+            ),
             super::PlcDataType::Word => {
                 if data.len() >= 2 {
-                    Variant::UInt16(u16::from_le_bytes([data[0], data[1]]))
+                    Variant::UInt16(u16::from_le_bytes(read_exact_at(data, 0)?))
                 } else {
                     return Err(anyhow!("Insufficient data for WORD write"));
                 }
             }
             super::PlcDataType::Dword => {
                 if data.len() >= 4 {
-                    Variant::UInt32(u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
+                    Variant::UInt32(read_le_u32_at(data, 0)?)
                 } else {
                     return Err(anyhow!("Insufficient data for DWORD write"));
                 }

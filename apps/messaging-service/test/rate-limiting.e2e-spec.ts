@@ -26,6 +26,7 @@ import {
   USER_A2,
   ADMIN_A,
   E2eTestContext,
+  closeE2eTestApp,
 } from './e2e-setup';
 
 // ── GraphQL Operations ─────────────────────────────────────────────────────
@@ -46,7 +47,6 @@ const SEND_MESSAGE = `
 
 describe('Rate Limiting (E2E)', () => {
   let ctx: E2eTestContext;
-  let app: INestApplication;
   let httpServer: ReturnType<INestApplication['getHttpServer']>;
   let dataSource: DataSource;
   let redis: Redis;
@@ -56,7 +56,7 @@ describe('Rate Limiting (E2E)', () => {
   beforeAll(async () => {
     // IMPORTANT: Enable rate limiting for this test suite
     ctx = await createE2eTestApp({ enableRateLimiting: true });
-    ({ app, httpServer, dataSource, redis } = ctx);
+    ({ httpServer, dataSource, redis } = ctx);
     await setupTenantSchemas(dataSource, [TENANT_A]);
     resetIdempotencyCounter();
 
@@ -88,7 +88,7 @@ describe('Rate Limiting (E2E)', () => {
     await flushAllTestRedisKeys(redis);
     // Restore THROTTLE_SKIP for other test suites
     process.env['THROTTLE_SKIP'] = 'true';
-    await app.close();
+    await closeE2eTestApp(ctx);
   });
 
   // ── Sliding Window Rate Limiter ──────────────────────────────────────────

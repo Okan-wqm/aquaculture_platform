@@ -33,7 +33,37 @@ export interface SimConfig {
 
 }
 
-export type SimStateName = 'IDLE' | 'DOSING_EC' | 'DOSING_PH' | 'DILUTE';
+export type SimStateName =
+  | 'IDLE'
+  | 'EC'
+  | 'EC_WAIT'
+  | 'CHEM_DT'
+  | 'PH'
+  | 'PH_WAIT'
+  | 'DILUTE'
+  | 'ALARM';
+
+export interface PIDState {
+  integral: number;
+  prevError: number;
+  prevMeasurement?: number;
+  prevPV: number;
+  prevDerivative: number;
+  output: number;
+}
+
+export interface PIDParams {
+  Kp: number;
+  Ki: number;
+  Kd: number;
+  N: number;
+  rateMax: number;
+}
+
+export interface PumpConfig {
+  maxFlowRate_mL_min: number;
+  concentration_g_L: number;
+}
 
 export interface SimState {
   tick: number;

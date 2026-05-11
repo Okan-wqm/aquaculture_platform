@@ -51,7 +51,7 @@ export interface RestorableEntity {
   id: string;
   tenantId: string;
   isDeleted: boolean;
-  isActive?: boolean;
+  isActive?: boolean | (() => boolean);
   restore(): void;
 }
 

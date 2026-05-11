@@ -278,8 +278,7 @@ impl MqttClient {
         // Configure TLS transport if enabled (IEC 62443 SL2 FR4)
         let mut mtls_verifier_state = None;
         if config.mqtt.tls.enabled {
-            let (tls_config, verifier_state) =
-                Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
+            let (tls_config, verifier_state) = Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
             mtls_verifier_state = verifier_state;
             options.set_transport(tls_config);
             info!("MQTT TLS enabled");
@@ -1170,11 +1169,8 @@ impl MqttClient {
                 )
             })?,
         );
-        let fallback = crate::mtls::build_fallback_webpki(
-            root_store_arc,
-            suderra_provider.clone(),
-        )
-        .map_err(|e| anyhow::anyhow!(e))?;
+        let fallback = crate::mtls::build_fallback_webpki(root_store_arc, suderra_provider.clone())
+            .map_err(|e| anyhow::anyhow!(e))?;
         let verifier = Arc::new(crate::mtls::MtlsDelegatingVerifier::new(
             mtls_verifier_state.clone(),
             fallback,
@@ -1185,18 +1181,17 @@ impl MqttClient {
             mtls_config.pinned_leaf_fingerprints_hex.len()
         );
 
-        let builder = rumqttc::tokio_rustls::rustls::ClientConfig::builder_with_provider(
-            suderra_provider,
-        )
-        .with_protocol_versions(&[&rumqttc::tokio_rustls::rustls::version::TLS13])
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "ClientConfig::builder_with_provider rejected TLS 1.3 pin: {:?}",
-                e
-            )
-        })?
-        .dangerous()
-        .with_custom_certificate_verifier(verifier);
+        let builder =
+            rumqttc::tokio_rustls::rustls::ClientConfig::builder_with_provider(suderra_provider)
+                .with_protocol_versions(&[&rumqttc::tokio_rustls::rustls::version::TLS13])
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "ClientConfig::builder_with_provider rejected TLS 1.3 pin: {:?}",
+                        e
+                    )
+                })?
+                .dangerous()
+                .with_custom_certificate_verifier(verifier);
 
         let mut client_config = if let Some((cert_bytes, key_bytes)) = client_auth {
             use rustls::pki_types::pem::PemObject;
@@ -1210,9 +1205,11 @@ impl MqttClient {
                     })?;
             let key = PrivateKeyDer::from_pem_slice(&key_bytes)
                 .map_err(|e| anyhow::anyhow!("Failed to parse MQTT client key PEM: {}", e))?;
-            builder.with_client_auth_cert(cert_chain, key).map_err(|e| {
-                anyhow::anyhow!("Failed to configure MQTT client certificate auth: {:?}", e)
-            })?
+            builder
+                .with_client_auth_cert(cert_chain, key)
+                .map_err(|e| {
+                    anyhow::anyhow!("Failed to configure MQTT client certificate auth: {:?}", e)
+                })?
         } else {
             builder.with_no_client_auth()
         };

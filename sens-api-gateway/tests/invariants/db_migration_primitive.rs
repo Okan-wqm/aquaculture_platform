@@ -76,9 +76,8 @@ mod shared_io;
 mod db_migration;
 
 use db_migration::manifest::{
-    manifest_path_for_db, read_manifest, write_manifest,
-    DbKeySourceManifest, DbMigrationError,
-    DB_KEY_SOURCE_MANIFEST_SUFFIX,
+    DB_KEY_SOURCE_MANIFEST_SUFFIX, DbKeySourceManifest, DbMigrationError, manifest_path_for_db,
+    read_manifest, write_manifest,
 };
 use db_migration::schema_version::DbKeySchemaVersion;
 use std::fs;
@@ -113,13 +112,11 @@ fn d3_manifest_suffix_is_canonical_kebab_case_json() {
 #[test]
 fn d3_schema_version_serializes_to_kebab_case() {
     assert_eq!(
-        serde_json::to_string(&DbKeySchemaVersion::V1MachineIdDerived)
-            .expect("ser"),
+        serde_json::to_string(&DbKeySchemaVersion::V1MachineIdDerived).expect("ser"),
         "\"v1-machine-id-derived\""
     );
     assert_eq!(
-        serde_json::to_string(&DbKeySchemaVersion::V2KeystoreDerived)
-            .expect("ser"),
+        serde_json::to_string(&DbKeySchemaVersion::V2KeystoreDerived).expect("ser"),
         "\"v2-keystore-derived\""
     );
 }
@@ -129,8 +126,7 @@ fn d3_schema_version_serializes_to_kebab_case() {
 /// must NOT silently parse as v2 on an older reader.
 #[test]
 fn d3_schema_version_rejects_unknown_discriminator() {
-    let r: Result<DbKeySchemaVersion, _> =
-        serde_json::from_str("\"v99-future-format\"");
+    let r: Result<DbKeySchemaVersion, _> = serde_json::from_str("\"v99-future-format\"");
     assert!(r.is_err());
 }
 
@@ -150,10 +146,8 @@ fn d3_current_target_is_v2_keystore_derived() {
 /// on this exact semantic.
 #[test]
 fn d3_requires_migration_predicate_fires_for_v1_only() {
-    assert!(DbKeySchemaVersion::V1MachineIdDerived
-        .requires_migration_to_current_target());
-    assert!(!DbKeySchemaVersion::V2KeystoreDerived
-        .requires_migration_to_current_target());
+    assert!(DbKeySchemaVersion::V1MachineIdDerived.requires_migration_to_current_target());
+    assert!(!DbKeySchemaVersion::V2KeystoreDerived.requires_migration_to_current_target());
 }
 
 /// **D-3 primitive invariant 6:** write-then-read
@@ -167,9 +161,7 @@ fn d3_write_then_read_round_trips_all_fields() {
         last_updated_at_unix_secs: 1_700_000_000,
     };
     write_manifest(&manifest_path, &original).expect("write");
-    let loaded = read_manifest(&manifest_path)
-        .expect("read")
-        .expect("Some");
+    let loaded = read_manifest(&manifest_path).expect("read").expect("Some");
     assert_eq!(loaded, original);
 }
 
@@ -277,13 +269,8 @@ fn d3_rewrite_replaces_previous_contents() {
         },
     )
     .expect("write v2");
-    let loaded = read_manifest(&manifest_path)
-        .expect("read")
-        .expect("Some");
-    assert_eq!(
-        loaded.schema_version,
-        DbKeySchemaVersion::V2KeystoreDerived
-    );
+    let loaded = read_manifest(&manifest_path).expect("read").expect("Some");
+    assert_eq!(loaded.schema_version, DbKeySchemaVersion::V2KeystoreDerived);
     assert_eq!(loaded.last_updated_at_unix_secs, 1_700_000_000);
 }
 

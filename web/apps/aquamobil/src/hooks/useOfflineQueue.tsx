@@ -18,6 +18,8 @@ interface SyncResult {
   failed: number;
 }
 
+export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'failed';
+
 interface OfflineContextValue {
   pendingCount: number;
   pendingOperations: QueuedOperation[];
@@ -27,6 +29,7 @@ interface OfflineContextValue {
   addToQueue: (type: OperationType, payload: OperationPayload) => Promise<string>;
   syncNow: () => Promise<SyncResult>;
   removeFromQueue: (id: string) => Promise<void>;
+  getSyncStatus: (id: string) => SyncStatus;
   refreshQueue: () => Promise<void>;
   clearError: () => void;
 }
@@ -34,7 +37,7 @@ interface OfflineContextValue {
 const OfflineContext = createContext<OfflineContextValue | null>(null);
 
 // GraphQL mutations for sync - tenantId/userId extracted from JWT by backend
-const MUTATIONS: Record<OperationType, string> = {
+const MUTATIONS: Record<OperationType | 'submitLeaveRequest', string> = {
   recordMortality: `
     mutation RecordMortality($input: RecordMortalityInput!) {
       recordMortality(input: $input) {
@@ -101,6 +104,14 @@ const MUTATIONS: Record<OperationType, string> = {
         startDate
         endDate
         totalDays
+        status
+      }
+    }
+  `,
+  submitLeaveRequest: `
+    mutation SubmitLeaveRequest($id: ID!) {
+      submitLeaveRequest(id: $id) {
+        id
         status
       }
     }
@@ -191,9 +202,11 @@ const MUTATIONS: Record<OperationType, string> = {
 
 export function OfflineProvider({ children }: { children: ReactNode }) {
   const { accessToken, tenantId, user, refreshAuth } = useAuth();
+  const queryClient = useQueryClient();
   const isOnline = useNetworkStatus();
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingOperations, setPendingOperations] = useState<QueuedOperation[]>([]);
+  const [syncResults, setSyncResults] = useState<Map<string, SyncStatus>>(() => new Map());
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
 
@@ -303,6 +316,37 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         throw new Error(result.errors[0]?.message || 'GraphQL error');
       }
 
+      if (type === 'createLeaveRequest') {
+        const created = result.data as { createLeaveRequest?: { id?: string } } | undefined;
+        const createdId = created?.createLeaveRequest?.id;
+        if (!createdId) {
+          throw new Error('Leave request was created without an id');
+        }
+
+        const submitResponse = await fetch('/graphql', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+            'X-Tenant-Id': tenantId,
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          body: JSON.stringify({
+            query: MUTATIONS.submitLeaveRequest,
+            variables: { id: createdId },
+          }),
+        });
+
+        if (!submitResponse.ok) {
+          throw new Error(`HTTP error: ${submitResponse.status}`);
+        }
+
+        const submitResult = await submitResponse.json() as { data?: unknown; errors?: Array<{ message: string }> };
+        if (submitResult.errors && submitResult.errors.length > 0) {
+          throw new Error(submitResult.errors[0]?.message || 'GraphQL error');
+        }
+      }
+
       return result.data;
     },
     [accessToken, tenantId, user]
@@ -337,6 +381,15 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       if (!tenantId) {
         return { success: 0, failed: 0 };
       }
+      const preSyncOps = await getPendingOperations(tenantId);
+      setSyncResults((prev) => {
+        const next = new Map(prev);
+        for (const op of preSyncOps) {
+          next.set(op.id, 'syncing');
+        }
+        return next;
+      });
+
       const result = await syncAllOperations(tenantId, executeGraphQL);
       await refreshQueue();
 
@@ -386,7 +439,21 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [isOnline, executeGraphQL, refreshQueue, pendingCount, accessToken, refreshAuth, tenantId]);
+  }, [isOnline, executeGraphQL, refreshQueue, pendingCount, accessToken, refreshAuth, tenantId, queryClient]);
+
+  const getSyncStatus = useCallback(
+    (id: string): SyncStatus => {
+      const cached = syncResults.get(id);
+      if (cached) return cached;
+
+      const operation = pendingOperations.find((op) => op.id === id);
+      if (!operation) return 'synced';
+      if (operation.status === 'failed') return 'failed';
+      if (operation.status === 'syncing' || (isSyncing && isOnline)) return 'syncing';
+      return 'pending';
+    },
+    [isOnline, isSyncing, pendingOperations, syncResults],
+  );
 
   // Keep ref in sync so the auto-sync effect always calls the latest version
   // without needing syncNow in its dependency array (PERF-04).
@@ -464,6 +531,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         addToQueue,
         syncNow,
         removeFromQueue: removeFromQueueHandler,
+        getSyncStatus,
         refreshQueue,
         clearError,
       }}

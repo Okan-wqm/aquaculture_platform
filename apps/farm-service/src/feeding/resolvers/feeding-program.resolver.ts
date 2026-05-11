@@ -750,7 +750,7 @@ export class FeedingProgramResolver {
   ): Promise<FeedingProgram> {
     this.validateTenantAndUser(tenantId, user, 'restoreFeedingProgram');
     this.logger.log(`Restoring feeding program ${id} for tenant ${tenantId} by user ${user.sub}`);
-    return this.restoreService.restore(
+    return this.restoreService.restore<FeedingProgram>(
       this.feedingProgramRepository,
       FeedingProgram,
       id,

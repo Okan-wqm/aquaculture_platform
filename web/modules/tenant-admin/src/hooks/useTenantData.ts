@@ -5,7 +5,6 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   getMyTenant,
   getTenantStats,
@@ -16,7 +15,32 @@ import {
   getTableData,
   assignModuleManager,
   removeModuleManager,
-  updateTenantSettings,
+  updateTenant,
+  getMyModuleIds,
+  getModuleUsageStats,
+  getEdgeDevices,
+  getDeviceEvents,
+  createTenantUser,
+  updateTenantUser as updateTenantUserApi,
+  deleteTenantUser as deleteTenantUserApi,
+  deactivateTenantUser as deactivateTenantUserApi,
+  getNotificationPreferences,
+  updateNotificationPreferences as updateNotificationPrefsApi,
+  getMobileUsersSettings,
+  updateMobileUserSettings as updateMobileUserSettingsApi,
+  // Communication
+  getMyThreads,
+  getThreadMessages,
+  sendMessage,
+  createThread,
+  getMyTickets,
+  getTicketComments,
+  createTicket,
+  addTicketComment,
+  rateTicket,
+  getMyAnnouncements,
+  viewAnnouncement,
+  acknowledgeAnnouncement as acknowledgeAnnouncementApi,
 } from '../lib/api';
 import type {
   Tenant,
@@ -24,7 +48,35 @@ import type {
   TenantModule,
   User,
   TenantDatabaseInfo,
+  TableSchemaInfo,
+  TableDataResult,
+  GetTableDataInput,
+  MessageThread,
+  Message,
+  Announcement,
+  ApiSupportTicket,
+  ApiTicketComment,
+  ApiTicketCategory,
 } from '../lib/types';
+import { apiClient } from '../services/api-client';
+import {
+  APPROVE_DEVICE_MUTATION,
+  PING_DEVICE_MUTATION,
+  REBOOT_DEVICE_MUTATION,
+  MAINTENANCE_DEVICE_MUTATION,
+  DECOMMISSION_DEVICE_MUTATION,
+} from '../graphql';
+
+/**
+ * Execute GraphQL query/mutation (used by device action hook).
+ * @deprecated Use typed functions from lib/api.ts instead.
+ */
+async function graphqlRequest<T>(
+  query: string,
+  variables?: Record<string, unknown>,
+): Promise<T> {
+  return apiClient.graphql<T>(query, variables);
+}
 
 // ============================================================================
 // Query Keys
@@ -153,6 +205,7 @@ export function useAssignModuleManager() {
  */
 export function useRemoveModuleManager() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (moduleId: string) => removeModuleManager(moduleId),
     onSuccess: () => {
@@ -233,16 +286,13 @@ interface EdgeDevicesFilters {
 export function useEdgeDevices(filters: EdgeDevicesFilters) {
   return useQuery({
     queryKey: tenantKeys.devices(filters as unknown as Record<string, unknown>),
-    queryFn: async () => {
-      const variables: Record<string, unknown> = {
-        page: filters.page,
-        limit: filters.limit,
-      };
-      if (filters.search) variables.search = filters.search;
-      if (filters.lifecycleState) variables.lifecycleState = filters.lifecycleState;
-      if (filters.isOnline !== undefined) variables.isOnline = filters.isOnline;
-      return graphqlRequest<EdgeDevicesResponse>(EDGE_DEVICES_QUERY, variables);
-    },
+    queryFn: () => getEdgeDevices({
+      page: filters.page,
+      limit: filters.limit,
+      search: filters.search,
+      lifecycleState: filters.lifecycleState,
+      isOnline: filters.isOnline,
+    }),
     staleTime: 30 * 1000,
   });
 }
@@ -262,10 +312,8 @@ export function useDeviceEvents(deviceId: string, enabled = true) {
   return useQuery({
     queryKey: tenantKeys.deviceEvents(deviceId),
     queryFn: async () => {
-      const data = await graphqlRequest<{
-        deviceEvents: { items: DeviceEvent[] };
-      }>(DEVICE_EVENTS_QUERY, { deviceId, page: 1, limit: 50 });
-      return data.deviceEvents.items;
+      const data = await getDeviceEvents(deviceId, 1, 50);
+      return data.items;
     },
     enabled: !!deviceId && enabled,
     staleTime: 30 * 1000,
@@ -297,10 +345,7 @@ export function useDeviceAction() {
 export function useMessageThreads() {
   return useQuery({
     queryKey: tenantKeys.threads(),
-    queryFn: async () => {
-      const result = await messagingApi.getThreads();
-      return result.data || [];
-    },
+    queryFn: () => getMyThreads(),
     staleTime: 30 * 1000,
   });
 }
@@ -314,13 +359,10 @@ export function useThreadMessages(threadId: string | null) {
     queryKey: tenantKeys.threadMessages(threadId || ''),
     queryFn: async () => {
       if (!threadId) return [];
-      const [msgs] = await Promise.all([
-        messagingApi.getThreadMessages(threadId),
-        messagingApi.markAsRead(threadId).catch(() => null),
-      ]);
+      const msgs = await getThreadMessages(threadId);
       // Refresh threads to update unread count
       queryClient.invalidateQueries({ queryKey: tenantKeys.threads() });
-      return msgs || [];
+      return msgs;
     },
     enabled: !!threadId,
     staleTime: 15 * 1000,
@@ -334,7 +376,7 @@ export function useSendMessage() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ threadId, content, senderName }: { threadId: string; content: string; senderName: string }) =>
-      messagingApi.sendMessage(threadId, content, senderName),
+      sendMessage({ threadId, content, senderName }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.threadMessages(variables.threadId) });
       queryClient.invalidateQueries({ queryKey: tenantKeys.threads() });
@@ -349,7 +391,7 @@ export function useCreateThread() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ subject, content, senderName }: { subject: string; content: string; senderName: string }) =>
-      messagingApi.createThread(subject, content, senderName),
+      createThread({ subject, content, senderName }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.threads() });
     },
@@ -366,10 +408,7 @@ export function useCreateThread() {
 export function useSupportTickets() {
   return useQuery({
     queryKey: tenantKeys.tickets(),
-    queryFn: async () => {
-      const result = await ticketsApi.getTickets();
-      return result.data || [];
-    },
+    queryFn: () => getMyTickets(),
     staleTime: 60 * 1000,
   });
 }
@@ -380,7 +419,7 @@ export function useSupportTickets() {
 export function useTicketComments(ticketId: string | null) {
   return useQuery({
     queryKey: tenantKeys.ticketComments(ticketId || ''),
-    queryFn: () => ticketsApi.getComments(ticketId!),
+    queryFn: () => getTicketComments(ticketId!),
     enabled: !!ticketId,
     staleTime: 30 * 1000,
   });
@@ -399,7 +438,7 @@ export function useCreateTicket() {
       priority?: 'low' | 'medium' | 'high' | 'critical';
       createdByName: string;
       createdByEmail?: string;
-    }) => ticketsApi.createTicket(data),
+    }) => createTicket(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.tickets() });
     },
@@ -413,7 +452,7 @@ export function useAddTicketComment() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ ticketId, content, authorName }: { ticketId: string; content: string; authorName: string }) =>
-      ticketsApi.addComment(ticketId, content, authorName),
+      addTicketComment({ ticketId, content, authorName }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.ticketComments(variables.ticketId) });
       queryClient.invalidateQueries({ queryKey: tenantKeys.tickets() });
@@ -428,7 +467,7 @@ export function useSubmitTicketRating() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ ticketId, rating }: { ticketId: string; rating: number }) =>
-      ticketsApi.submitRating(ticketId, rating),
+      rateTicket({ ticketId, rating }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.tickets() });
     },
@@ -445,7 +484,7 @@ export function useSubmitTicketRating() {
 export function useAnnouncements() {
   return useQuery({
     queryKey: tenantKeys.announcements(),
-    queryFn: () => announcementsApi.getAnnouncements(),
+    queryFn: () => getMyAnnouncements(),
     staleTime: 2 * 60 * 1000,
   });
 }
@@ -456,7 +495,7 @@ export function useAnnouncements() {
 export function useAcknowledgeAnnouncement() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (announcementId: string) => announcementsApi.acknowledgeAnnouncement(announcementId),
+    mutationFn: (announcementId: string) => acknowledgeAnnouncementApi(announcementId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.announcements() });
     },
@@ -469,7 +508,7 @@ export function useAcknowledgeAnnouncement() {
 export function useMarkAnnouncementViewed() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (announcementId: string) => announcementsApi.markAsViewed(announcementId),
+    mutationFn: (announcementId: string) => viewAnnouncement(announcementId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.announcements() });
     },
@@ -479,18 +518,6 @@ export function useMarkAnnouncementViewed() {
 // ============================================================================
 // User Mutation Hooks
 // ============================================================================
-
-interface ApiUser {
-  id: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  role: string;
-  isActive: boolean;
-  isEmailVerified?: boolean;
-  lastLoginAt?: string;
-  createdAt: string;
-}
 
 /**
  * Hook to fetch tenant users with pagination and filters (returns raw API users)
@@ -504,14 +531,13 @@ export function useTenantUsersRaw(options: {
   return useQuery({
     queryKey: tenantKeys.users(options),
     queryFn: async () => {
-      const variables: Record<string, unknown> = {
+      const variables: { limit: number; offset: number; status?: string; role?: string } = {
         limit: options.limit,
         offset: options.offset,
       };
       if (options.status && options.status !== 'all') variables.status = options.status;
       if (options.role && options.role !== 'all') variables.role = options.role;
-      const data = await graphqlRequest<{ tenantUsers: ApiUser[] }>(TENANT_USERS_GQL, variables);
-      return data.tenantUsers || [];
+      return getTenantUsers(variables);
     },
     staleTime: 2 * 60 * 1000,
   });
@@ -527,9 +553,9 @@ export function useCreateTenantUser() {
       firstName: string;
       lastName: string;
       email: string;
-      roleId: string;
+      roleId?: string;
       sendInvitation?: boolean;
-    }) => graphqlRequest(CREATE_TENANT_USER_MUTATION, { input }),
+    }) => createTenantUser(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
     },
@@ -543,7 +569,7 @@ export function useUpdateTenantUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ userId, input }: { userId: string; input: { firstName?: string; lastName?: string; roleId?: string } }) =>
-      graphqlRequest(UPDATE_USER_MUTATION, { userId, input }),
+      updateTenantUserApi(userId, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
     },
@@ -556,7 +582,7 @@ export function useUpdateTenantUser() {
 export function useDeleteTenantUser() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (userId: string) => graphqlRequest(DELETE_USER_MUTATION, { userId }),
+    mutationFn: (userId: string) => deleteTenantUserApi(userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
     },
@@ -569,7 +595,7 @@ export function useDeleteTenantUser() {
 export function useDeactivateTenantUser() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (userId: string) => graphqlRequest(DEACTIVATE_TENANT_USER_MUTATION, { userId }),
+    mutationFn: (userId: string) => deactivateTenantUserApi(userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
     },
@@ -587,9 +613,9 @@ export function useModuleIds() {
   return useQuery({
     queryKey: tenantKeys.moduleIds(),
     queryFn: async () => {
-      const data = await graphqlRequest<{ myModules: Array<{ id: string; code: string }> }>(MY_MODULES_ID_QUERY);
+      const modules = await getMyModuleIds();
       const map: Record<string, string> = {};
-      (data.myModules || []).forEach((m) => {
+      (modules || []).forEach((m: { id: string; code: string }) => {
         if (m.code) map[m.code] = m.id;
       });
       return map;
@@ -598,7 +624,7 @@ export function useModuleIds() {
   });
 }
 
-interface ModuleUsageStat {
+interface LocalModuleUsageStat {
   moduleCode: string;
   userCount: number;
   lastAccessAt: string | null;
@@ -613,9 +639,9 @@ export function useModuleUsageStats() {
   return useQuery({
     queryKey: tenantKeys.moduleUsageStats(),
     queryFn: async () => {
-      const data = await graphqlRequest<{ moduleUsageStats: ModuleUsageStat[] }>(MODULE_USAGE_STATS_QUERY);
-      const map: Record<string, ModuleUsageStat> = {};
-      (data.moduleUsageStats || []).forEach((s) => {
+      const stats = await getModuleUsageStats();
+      const map: Record<string, LocalModuleUsageStat> = {};
+      (stats || []).forEach((s: LocalModuleUsageStat) => {
         map[s.moduleCode] = s;
       });
       return map;
@@ -659,30 +685,13 @@ export function useTableData(input: GetTableDataInput & { enabled?: boolean }) {
 // Settings Hooks (additional)
 // ============================================================================
 
-interface NotificationPreferences {
-  emailEnabled: boolean;
-  smsEnabled: boolean;
-  pushEnabled: boolean;
-  quietHoursStart: string;
-  quietHoursEnd: string;
-  quietHoursTimezone: string;
-  alertNotifications: boolean;
-  taskNotifications: boolean;
-  systemNotifications: boolean;
-}
-
 /**
  * Hook to fetch notification preferences
  */
 export function useNotificationPreferences(enabled = false) {
   return useQuery({
     queryKey: tenantKeys.notificationPreferences(),
-    queryFn: async () => {
-      const data = await graphqlRequest<{ getMyNotificationPreferences: NotificationPreferences }>(
-        GET_NOTIFICATION_PREFERENCES_QUERY,
-      );
-      return data.getMyNotificationPreferences;
-    },
+    queryFn: () => getNotificationPreferences(),
     enabled,
     staleTime: 5 * 60 * 1000,
   });
@@ -690,31 +699,44 @@ export function useNotificationPreferences(enabled = false) {
 
 /**
  * Hook to update notification preferences
+ *
+ * FIX HIGH-08: Uses optimistic updates to prevent notification overwrite bug.
+ * The mutation optimistically writes the new prefs into the cache so that a
+ * concurrent read never returns stale data that would overwrite a save in
+ * progress. On error the previous value is rolled back.
  */
 export function useUpdateNotificationPreferences() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: Partial<NotificationPreferences>) =>
-      graphqlRequest(UPDATE_NOTIFICATION_PREFERENCES_MUTATION, { input }),
-    onSuccess: () => {
+    mutationFn: (input: Partial<import('../lib/types').NotificationPreferences>) =>
+      updateNotificationPrefsApi(input),
+    onMutate: async (newPrefs) => {
+      // Cancel outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: tenantKeys.notificationPreferences() });
+
+      // Snapshot the previous value
+      const previousPrefs = queryClient.getQueryData(tenantKeys.notificationPreferences());
+
+      // Optimistically update the cache
+      queryClient.setQueryData(
+        tenantKeys.notificationPreferences(),
+        (old: import('../lib/types').NotificationPreferences | undefined) =>
+          old ? { ...old, ...newPrefs } : newPrefs,
+      );
+
+      return { previousPrefs };
+    },
+    onError: (_err, _newPrefs, context) => {
+      // Rollback to the previous value on error
+      if (context?.previousPrefs !== undefined) {
+        queryClient.setQueryData(tenantKeys.notificationPreferences(), context.previousPrefs);
+      }
+    },
+    onSettled: () => {
+      // Always refetch after error or success to ensure server state
       queryClient.invalidateQueries({ queryKey: tenantKeys.notificationPreferences() });
     },
   });
-}
-
-interface MobileUserSettingsData {
-  id: string;
-  userId: string;
-  tenantId: string;
-  isMobileEnabled: boolean;
-  allowedFeatures: {
-    mortality: boolean;
-    cull: boolean;
-    harvest: boolean;
-    feeding: boolean;
-    waterQuality: boolean;
-    tankView: boolean;
-  };
 }
 
 interface TenantUserBasic {
@@ -733,16 +755,23 @@ export function useMobileUsersData(enabled = false) {
   return useQuery({
     queryKey: tenantKeys.mobileUsersSettings(),
     queryFn: async () => {
-      const [usersData, settingsData] = await Promise.all([
-        graphqlRequest<{ tenantUsers: TenantUserBasic[] }>(TENANT_USERS_GQL),
-        graphqlRequest<{ getMobileUsersSettings: MobileUserSettingsData[] }>(GET_MOBILE_USERS_SETTINGS_QUERY),
+      const [users, settings] = await Promise.all([
+        getTenantUsers(),
+        getMobileUsersSettings(),
       ]);
-      const settingsMap = new Map<string, MobileUserSettingsData>();
-      for (const s of settingsData.getMobileUsersSettings || []) {
+      const settingsMap = new Map<string, import('../lib/types').MobileUserSettingsData>();
+      for (const s of settings || []) {
         settingsMap.set(s.userId, s);
       }
       return {
-        users: usersData.tenantUsers || [],
+        users: (users || []).map((u): TenantUserBasic => ({
+          id: u.id,
+          email: u.email,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          role: u.role,
+          isActive: u.isActive ?? true,
+        })),
         settings: settingsMap,
       };
     },
@@ -766,7 +795,7 @@ export function useUpdateMobileUserSettings() {
       feeding: boolean;
       waterQuality: boolean;
       tankView: boolean;
-    }) => graphqlRequest(UPDATE_MOBILE_USER_SETTINGS_MUTATION, { input }),
+    }) => updateMobileUserSettingsApi(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.mobileUsersSettings() });
     },
@@ -781,8 +810,12 @@ export type { Tenant, TenantStats, TenantModule, User, TenantDatabaseInfo, Table
 export type { MessageThread, Message, Announcement };
 export type { ApiSupportTicket, ApiTicketComment, ApiTicketCategory };
 export type { EdgeDeviceListItem, DeviceStats, EdgeDevicesFilters, EdgeDevicesResponse, DeviceEvent };
-export type { NotificationPreferences, MobileUserSettingsData, TenantUserBasic };
-export type { ModuleUsageStat };
+export type { TenantUserBasic };
+export type {
+  NotificationPreferences,
+  MobileUserSettingsData,
+  ModuleUsageStat,
+} from '../lib/types';
 
 // Re-export GraphQL mutation constants for pages that need them directly
 export {

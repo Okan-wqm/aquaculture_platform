@@ -104,9 +104,7 @@ pub fn read_or_create_v1_secret() -> Result<Vec<u8>> {
     let secret_path: &Path = path_buf.as_path();
 
     if secret_path.exists() {
-        let key = std::fs::read(secret_path).context(
-            "Failed to read database secret key",
-        )?;
+        let key = std::fs::read(secret_path).context("Failed to read database secret key")?;
         if key.len() < MIN_SECRET_KEY_LEN {
             anyhow::bail!(
                 "Database secret key is too short ({} bytes), expected >= {}",
@@ -153,8 +151,7 @@ pub fn read_or_create_v1_secret() -> Result<Vec<u8>> {
 
     #[cfg(not(unix))]
     {
-        std::fs::write(secret_path, &key)
-            .context("Failed to write database secret key")?;
+        std::fs::write(secret_path, &key).context("Failed to write database secret key")?;
     }
 
     tracing::info!(

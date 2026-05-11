@@ -41,7 +41,7 @@ export class AddTenantsCustomDomainPartialUnique1787300000000
   name = 'AddTenantsCustomDomainPartialUnique1787300000000';
 
   // CREATE INDEX CONCURRENTLY cannot run inside a transaction block.
-  transaction: 'none' = 'none';
+  transaction = false;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     const offenders: Array<{ count: string }> = await queryRunner.query(`

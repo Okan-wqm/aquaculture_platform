@@ -69,7 +69,7 @@ export class SensorReadings {
  */
 @ObjectType()
 @Directive('@key(fields: "id")')
-@Entity('sensor_readings', { schema: 'sensor' })
+@Entity('sensor_readings')
 @Index(['sensorId', 'timestamp'])
 @Index(['tenantId', 'timestamp'])
 @Index(['pondId', 'timestamp'])

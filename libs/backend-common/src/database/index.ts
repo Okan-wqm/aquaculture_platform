@@ -29,6 +29,11 @@ export * from './tenant-schema.utils';
 // Migration Logger (structured logging for TypeORM migrations outside DI)
 export { MigrationLogger } from './migration-logger';
 
+// Migration helpers — column/table existence guards. Shared across all
+// services for migrations that reference state created by squashed
+// earlier migrations. See migration-helpers.ts docblock for rationale.
+export { columnExists, tableExists } from './migration-helpers';
+
 // SQL fragments — compile-time SQL injection prevention. Branded SqlIdent
 // + SqlFragment types make raw-string interpolation a TypeScript compile
 // error. Prereq for Phase 3 primitives rewrite (plan v3 R2 CRITICAL).

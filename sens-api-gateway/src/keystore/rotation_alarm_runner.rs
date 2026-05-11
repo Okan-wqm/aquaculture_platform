@@ -91,7 +91,7 @@ use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 
 use super::rotation_deadline::RotationStatus;
-use super::rotation_marker_store::{read_marker, MarkerStoreError};
+use super::rotation_marker_store::{MarkerStoreError, read_marker};
 use crate::runtime_safety::clock::ClockAuthority;
 
 /// Default tick interval — 1 hour. Matches the cadence
@@ -177,11 +177,7 @@ pub async fn run_keystore_rotation_alarm_task(
 /// Single tick — pure logic, called from the runner
 /// loop AND directly from tests. Updates the summary in
 /// place.
-async fn tick_once(
-    marker_path: &Path,
-    clock: &dyn ClockAuthority,
-    summary: &mut AlarmRunSummary,
-) {
+async fn tick_once(marker_path: &Path, clock: &dyn ClockAuthority, summary: &mut AlarmRunSummary) {
     summary.ticks_executed += 1;
 
     let deadline = match read_marker(marker_path) {
@@ -201,10 +197,7 @@ async fn tick_once(
             // Surface as warn but do not increment
             // alarm counters — those are reserved for
             // the deadline-status alarms.
-            warn!(
-                "Keystore rotation alarm tick: marker read failed: {}",
-                e
-            );
+            warn!("Keystore rotation alarm tick: marker read failed: {}", e);
             summary.clock_unhealthy_ticks += 1;
             return;
         }
@@ -263,9 +256,7 @@ mod tests {
     use super::*;
     use crate::keystore::rotation_deadline::KeystoreRotationDeadline;
     use crate::keystore::rotation_marker_store::write_marker;
-    use crate::runtime_safety::clock::{
-        ClockError, MonotonicAnchor, WallClockReading,
-    };
+    use crate::runtime_safety::clock::{ClockError, MonotonicAnchor, WallClockReading};
     use async_trait::async_trait;
     use std::sync::Mutex;
     use std::time::SystemTime;
@@ -301,9 +292,7 @@ mod tests {
         fn monotonic_now(&self) -> Result<MonotonicAnchor, ClockError> {
             Ok(MonotonicAnchor::for_test(0))
         }
-        async fn trustworthy_wall_clock(
-            &self,
-        ) -> Result<WallClockReading, ClockError> {
+        async fn trustworthy_wall_clock(&self) -> Result<WallClockReading, ClockError> {
             let s = self.state.lock().unwrap();
             if s.force_nts_stale {
                 return Err(ClockError::NtsSyncStale {
@@ -335,9 +324,7 @@ mod tests {
     #[tokio::test]
     async fn tick_with_missing_marker_increments_marker_missing() {
         let (_d, path) = marker_path();
-        let clock = MockClock::new(
-            SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
-        );
+        let clock = MockClock::new(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000));
         let mut summary = AlarmRunSummary::default();
         tick_once(&path, &clock, &mut summary).await;
         assert_eq!(summary.ticks_executed, 1);
@@ -353,10 +340,7 @@ mod tests {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let clock = MockClock::new(now);
         // Just rotated -> within policy.
-        let deadline = KeystoreRotationDeadline::new_with_defaults(
-            1_700_000_000,
-        )
-        .unwrap();
+        let deadline = KeystoreRotationDeadline::new_with_defaults(1_700_000_000).unwrap();
         write_marker(&path, &deadline).unwrap();
 
         let mut summary = AlarmRunSummary::default();
@@ -373,10 +357,8 @@ mod tests {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let clock = MockClock::new(now);
         // Rotation 155 days ago -> 25 days remaining = lead-time band.
-        let deadline = KeystoreRotationDeadline::new_with_defaults(
-            1_700_000_000 - 155 * 86_400,
-        )
-        .unwrap();
+        let deadline =
+            KeystoreRotationDeadline::new_with_defaults(1_700_000_000 - 155 * 86_400).unwrap();
         write_marker(&path, &deadline).unwrap();
 
         let mut summary = AlarmRunSummary::default();
@@ -392,10 +374,8 @@ mod tests {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let clock = MockClock::new(now);
         // Rotation 200 days ago -> 20 days overdue.
-        let deadline = KeystoreRotationDeadline::new_with_defaults(
-            1_700_000_000 - 200 * 86_400,
-        )
-        .unwrap();
+        let deadline =
+            KeystoreRotationDeadline::new_with_defaults(1_700_000_000 - 200 * 86_400).unwrap();
         write_marker(&path, &deadline).unwrap();
 
         let mut summary = AlarmRunSummary::default();
@@ -414,10 +394,8 @@ mod tests {
         let (_d, path) = marker_path();
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let clock = MockClock::new(now);
-        let deadline = KeystoreRotationDeadline::new_with_defaults(
-            1_700_000_000 - 200 * 86_400,
-        )
-        .unwrap();
+        let deadline =
+            KeystoreRotationDeadline::new_with_defaults(1_700_000_000 - 200 * 86_400).unwrap();
         write_marker(&path, &deadline).unwrap();
 
         let mut summary = AlarmRunSummary::default();
@@ -438,10 +416,8 @@ mod tests {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let clock = MockClock::new(now);
         clock.set_force_nts_stale(true);
-        let deadline = KeystoreRotationDeadline::new_with_defaults(
-            1_700_000_000 - 200 * 86_400,
-        )
-        .unwrap();
+        let deadline =
+            KeystoreRotationDeadline::new_with_defaults(1_700_000_000 - 200 * 86_400).unwrap();
         write_marker(&path, &deadline).unwrap();
 
         let mut summary = AlarmRunSummary::default();
@@ -492,13 +468,8 @@ mod tests {
         let task_path = path.clone();
         let task_clock = clock.clone();
         let handle = tokio::spawn(async move {
-            run_keystore_rotation_alarm_task(
-                task_path,
-                task_clock,
-                Duration::from_millis(10),
-                rx,
-            )
-            .await
+            run_keystore_rotation_alarm_task(task_path, task_clock, Duration::from_millis(10), rx)
+                .await
         });
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -521,13 +492,8 @@ mod tests {
         let task_path = path.clone();
         let task_clock = clock.clone();
         let handle = tokio::spawn(async move {
-            run_keystore_rotation_alarm_task(
-                task_path,
-                task_clock,
-                Duration::from_millis(10),
-                rx,
-            )
-            .await
+            run_keystore_rotation_alarm_task(task_path, task_clock, Duration::from_millis(10), rx)
+                .await
         });
 
         tokio::time::sleep(Duration::from_millis(30)).await;

@@ -90,12 +90,28 @@ on:
     paths:
       - 'apps/*/src/**/migrations/**'
       - 'apps/*/src/**/*.entity.ts'
+      - 'infrastructure/docker/init-scripts/**'
+      - 'e2e/tests/integration/bootstrap-from-scratch.spec.ts'
+      - 'e2e/tests/integration/tenant-clone-parity.spec.ts'
+      - 'e2e/tests/integration/schema-invariants.spec.ts'
       - '.github/workflows/db-migration-check.yml'
   push:
     branches: [main, develop]
     paths:
       - 'apps/*/src/**/migrations/**'
+      - 'infrastructure/docker/init-scripts/**'
+      - 'e2e/tests/integration/bootstrap-from-scratch.spec.ts'
+      - 'e2e/tests/integration/tenant-clone-parity.spec.ts'
+      - 'e2e/tests/integration/schema-invariants.spec.ts'
       - '.github/workflows/db-migration-check.yml'
+  # Wave 4-A.2 Dalga 5 — nightly run catches drift that touched zero
+  # path-filtered files but introduced runtime drift (e.g. an
+  # init-script change merged through a different filename, or a
+  # silent platform-image bump in docker-compose.infra.yml). 03:00
+  # UTC chosen to follow the post-midnight infra-quiet window in
+  # docs/runbooks/.
+  schedule:
+    - cron: '0 3 * * *'
 
 # SEC-CI-021: Minimum token permissions.
 permissions:
@@ -227,3 +243,246 @@ jobs:
       # conventions. The whole-service compile is no longer this
       # workflow's concern.
       # -------------------------------------------------------------------
+
+  # ===================================================================
+  # bootstrap-from-scratch — fresh-volume integration check.
+  #
+  # Runs the e2e/tests/integration/bootstrap-from-scratch.spec.ts test,
+  # which spins up an empty Postgres testcontainer with the production
+  # init-scripts mounted, runs every service's TypeORM migration chain
+  # against it, and asserts the resulting schema state is what the
+  # current entity surface expects.
+  #
+  # Why a separate job: this one needs a Docker daemon and ~5 minutes;
+  # the conventions checks above are pure-shell <30s. Splitting keeps
+  # PR feedback fast for the 99% case (filename/class-name regressions)
+  # while still gating the rarer-but-catastrophic squash regression.
+  #
+  # GHA runners have docker preinstalled and the testcontainers library
+  # autoreaches it; no extra setup beyond `npm ci`.
+  # ===================================================================
+  bootstrap-from-scratch:
+    runs-on: ubuntu-latest
+    # Wave 4-A.2 Dalga 5 — bootstrap-from-scratch is now ~8 minutes
+    # because the entity-surface coverage matrix runs per service AND
+    # the SchemaDriftValidator runtime gate (Part A.4) iterates each
+    # service's metadata. 12-minute ceiling gives ~50% headroom while
+    # keeping the zombie-job blast radius bounded.
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      # Wave 4-A.2 Dalga 5 — testcontainers image cache extension.
+      # The Postgres pull (~250 MB compressed) dominates cold-start
+      # time; restoring the image tarball from a cache key shaves
+      # 60-90 seconds off every CI run that touches a path-filtered
+      # surface. Cache key bound to the pinned digest in the spec
+      # so a digest bump invalidates the cache (correct behaviour).
+      - name: Restore docker image cache
+        id: docker-image-cache
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: /tmp/docker-image-cache
+          key: db-migration-check-pg16-timescaledb-${{ hashFiles('e2e/tests/integration/bootstrap-from-scratch.spec.ts') }}
+
+      - name: Load cached image (if present)
+        if: steps.docker-image-cache.outputs.cache-hit == 'true'
+        run: |
+          if [ -f /tmp/docker-image-cache/timescaledb-pg16.tar ]; then
+            docker load -i /tmp/docker-image-cache/timescaledb-pg16.tar
+          fi
+
+      - name: Run bootstrap-from-scratch test
+        run: npm run test:bootstrap
+        env:
+          # testcontainers reuse cuts seconds off subsequent runs and is
+          # safe in single-job CI (we don't reuse across jobs).
+          TESTCONTAINERS_REUSE_ENABLE: 'true'
+
+      - name: Save docker image cache
+        if: steps.docker-image-cache.outputs.cache-hit != 'true'
+        run: |
+          # Best-effort: save the timescaledb-ha image to the cache for
+          # future runs. The grep|head pipeline can return empty if the
+          # testcontainer cleaned up before this step runs (race), or
+          # produce an `<none>:<none>` tag when an image is referenced
+          # only by digest. Both yield `docker save` "invalid reference
+          # format" and a non-zero exit code that fails the whole job.
+          # The cache is an optimization, not a correctness gate — the
+          # bootstrap test has already completed successfully by the
+          # time this step runs. Guard the docker invocation so a cache
+          # miss-save degrades to a no-op instead of failing CI.
+          mkdir -p /tmp/docker-image-cache
+          IMAGE_REF=$(docker images --format '{{.Repository}}:{{.Tag}}' \
+            | grep timescaledb-ha \
+            | grep -v '<none>' \
+            | head -1)
+          if [ -z "$IMAGE_REF" ]; then
+            echo "No timescaledb-ha image with a usable tag found; skipping cache save."
+            exit 0
+          fi
+          docker save -o /tmp/docker-image-cache/timescaledb-pg16.tar "$IMAGE_REF" \
+            || echo "docker save failed for $IMAGE_REF; cache will be regenerated on next run."
+
+  # ===================================================================
+  # tenant-clone-parity — Wave 4-A.2 Dalga 5 Part C.
+  #
+  # Asserts that per-tenant schema clones are a structurally faithful,
+  # RLS-enabled mirror of every source-schema table. Runs against a
+  # live Postgres service container (NOT testcontainers) because the
+  # spec assumes the e2e shared DB is already populated by earlier
+  # migration runs — pattern matches schema-invariants.spec.ts and
+  # nats-invariants.spec.ts.
+  #
+  # Why a separate job from bootstrap-from-scratch: the bootstrap spec
+  # is hermetic (its own testcontainer); tenant-clone-parity targets
+  # the running e2e Postgres so it can exercise the actual production
+  # provisioning path, not a hand-rolled mock. Splitting also lets
+  # this job complete in ~3 minutes vs the bootstrap job's 8.
+  # ===================================================================
+  tenant-clone-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
+        env:
+          POSTGRES_DB: aquaculture
+          POSTGRES_USER: aquaculture
+          POSTGRES_PASSWORD: aquaculture-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aquaculture"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Run init-scripts against test DB
+        env:
+          PGPASSWORD: aquaculture-test
+          # PGHOST/PGUSER/PGDATABASE: every psql invocation inside the
+          # .sh init-scripts inherits these via libpq env. Without
+          # PGHOST psql falls back to the unix socket which doesn't
+          # exist on the GHA runner (postgres is exposed via TCP from
+          # the `services:` container). POSTGRES_USER/POSTGRES_DB:
+          # 00-init-schemas.sh reads these to wire its internal psql
+          # `--username` / `--dbname` flags — defaults are `postgres`
+          # but the GHA service was provisioned with `aquaculture`,
+          # so the defaults would crash with `role "postgres" does
+          # not exist`. Setting both at the step env layer keeps the
+          # script source untouched.
+          PGHOST: localhost
+          PGUSER: aquaculture
+          PGDATABASE: aquaculture
+          POSTGRES_USER: aquaculture
+          POSTGRES_DB: aquaculture
+        run: |
+          # Apply the production init scripts to the e2e DB so the
+          # source-schema table inventory matches what tenant-clone-
+          # parity asserts. Order matters: 00-init-schemas.sh first
+          # (creates schemas), then the .sql files alphabetically.
+          for script in infrastructure/docker/init-scripts/*; do
+            case "$script" in
+              *.sh) bash "$script" ;;
+              *.sql) psql -h localhost -U aquaculture -d aquaculture -f "$script" ;;
+            esac
+          done
+
+      - name: Run tenant-clone-parity test
+        run: npm run test:tenant-clone
+        env:
+          DATABASE_URL: postgresql://aquaculture:aquaculture-test@localhost:5432/aquaculture
+
+  # ===================================================================
+  # migration-deletion-witness — pre-merge gate.
+  #
+  # Catches the silent-regression class where a migration file (or
+  # an init-script with table-creating SQL) is deleted without
+  # either a sibling-service migration carrying the same CREATE
+  # forward, an init-script equivalent, or an explicit
+  # `DELETE-OK: <reason>` line in the PR body. See
+  # tools/gates/migration-deletion-witness.ts docblock for the full
+  # algorithm.
+  # ===================================================================
+  migration-deletion-witness:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Need the merge-base for git diff name-status.
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Run migration-deletion-witness gate
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: npm run gates:migration-deletion-witness
+
+  # ===================================================================
+  # schema-drift-registration — AST gate.
+  #
+  # Asserts every canonical service's app.module.ts registers
+  # SchemaDriftModule.forRoot({ serviceName: '<svc>' }). Without
+  # registration, the runtime drift validator never instantiates and
+  # silently disarms ADR-012's third defense layer. Static gate runs
+  # in seconds; no DB needed.
+  # ===================================================================
+  schema-drift-registration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Run schema-drift-registration gate
+        run: npm run gates:schema-drift-registration

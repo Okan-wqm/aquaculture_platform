@@ -60,7 +60,7 @@ export class AddMessageAttachmentIsDeletedIndex1782800000000
    * Setting transaction='none' opts this migration out of the runner's
    * default transactional wrapper.
    */
-  transaction: 'none' = 'none';
+  transaction = false;
 
   private readonly logger = new Logger(
     AddMessageAttachmentIsDeletedIndex1782800000000.name,

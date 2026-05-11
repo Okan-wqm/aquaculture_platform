@@ -688,8 +688,7 @@ mod tests {
         // the edge-side single signature is the ed25519 manifest
         // signature, not an operator single-person action.
         assert!(!Permission::ManagePolicy.requires_two_person_integrity());
-        assert!(!Permission::ManageUserTokenManifest
-            .requires_two_person_integrity());
+        assert!(!Permission::ManageUserTokenManifest.requires_two_person_integrity());
     }
 
     // WHY: is_mutating drives signature-enforcement routing; same regression

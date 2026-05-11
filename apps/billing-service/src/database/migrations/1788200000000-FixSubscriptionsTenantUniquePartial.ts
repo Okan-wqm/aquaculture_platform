@@ -1,4 +1,9 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import {
+  MigrationLogger,
+  columnExists,
+  tableExists,
+} from '@aquaculture/backend-common/database';
 
 /**
  * FixSubscriptionsTenantUniquePartial1788200000000
@@ -51,18 +56,86 @@ export class FixSubscriptionsTenantUniquePartial1788200000000
   // billing.subscriptions is a pre-existing table — the migration-sql-lint
   // R3 rule rightly enforces CONCURRENTLY here to avoid an ACCESS EXCLUSIVE
   // lock that would stall live writers during a deploy.
-  transaction: 'none' = 'none';
+  transaction = false;
+
+  private readonly logger = new MigrationLogger(
+    'FixSubscriptionsTenantUniquePartial1788200000000',
+  );
+
+  /**
+   * Wave 4-A.2 Dalga 3 column-naming convergence.
+   *
+   * The Wave 4-A.1 baseline rebuilt `billing.subscriptions` with
+   * snake_case column names (`tenant_id`, `is_deleted`) per the
+   * canonical entity decorators. Legacy DBs still carry the original
+   * camelCase shape (`"tenantId"`, `"isDeleted"`). This migration
+   * therefore probes both column names at runtime and emits SQL
+   * targeting whichever one is actually present, instead of failing
+   * with `column "tenantId" does not exist` on fresh-volume bootstrap.
+   *
+   * The two columns are introspected together — if either is missing
+   * AND the snake_case fallback is also missing, we skip the migration
+   * with a structured log line rather than crash. The follow-up
+   * Wave 4-A.X ConvergeBillingColumnNames migration handles the
+   * complete column-rename when an environment carries the legacy
+   * camelCase shape.
+   */
+  private async resolveColumnNames(
+    queryRunner: QueryRunner,
+  ): Promise<{ tenantIdCol: string; isDeletedCol: string } | null> {
+    const tenantIdCol = (await columnExists(
+      queryRunner,
+      'subscriptions',
+      'tenantId',
+    ))
+      ? 'tenantId'
+      : (await columnExists(queryRunner, 'subscriptions', 'tenant_id'))
+        ? 'tenant_id'
+        : null;
+
+    const isDeletedCol = (await columnExists(
+      queryRunner,
+      'subscriptions',
+      'isDeleted',
+    ))
+      ? 'isDeleted'
+      : (await columnExists(queryRunner, 'subscriptions', 'is_deleted'))
+        ? 'is_deleted'
+        : null;
+
+    if (tenantIdCol === null || isDeletedCol === null) return null;
+    return { tenantIdCol, isDeletedCol };
+  }
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Bootstrap-restoration guard: the body assumes `subscriptions`
+    // exists. On fresh-volume bootstrap that runs this migration before
+    // the Wave 4-A.1 baseline, the table is absent. Skip cleanly.
+    if (!(await tableExists(queryRunner, 'subscriptions'))) {
+      this.logger.log(
+        'Skipping FixSubscriptionsTenantUniquePartial — subscriptions table not present on this DB (installed by sibling baseline migration)',
+      );
+      return;
+    }
+
+    const cols = await this.resolveColumnNames(queryRunner);
+    if (cols === null) {
+      this.logger.log(
+        'Skipping FixSubscriptionsTenantUniquePartial — neither camelCase nor snake_case tenantId/isDeleted columns present on subscriptions (column rename pending in sibling migration)',
+      );
+      return;
+    }
+    const { tenantIdCol, isDeletedCol } = cols;
+
     // Pre-flight: detect rows that would violate even the partial unique.
     // GROUP BY tenantId, count active rows; reject if any tenant has >1.
     const offenders: Array<{ count: string }> = await queryRunner.query(`
       SELECT COUNT(*)::text AS count
       FROM (
-        SELECT "tenantId"
+        SELECT "${tenantIdCol}"
         FROM billing.subscriptions
-        WHERE "isDeleted" = false
-        GROUP BY "tenantId"
+        WHERE "${isDeletedCol}" = false
+        GROUP BY "${tenantIdCol}"
         HAVING COUNT(*) > 1
       ) AS multi
     `);
@@ -88,12 +161,15 @@ export class FixSubscriptionsTenantUniquePartial1788200000000
       DROP INDEX IF EXISTS billing."UQ_subscriptions_tenantId";
       DROP INDEX IF EXISTS billing.subscriptions_tenantId_idx;
       DROP INDEX IF EXISTS billing."subscriptions_tenantId_unique";
+      DROP INDEX IF EXISTS billing."IDX_subscriptions_tenant_id_unique";
+      DROP INDEX IF EXISTS billing."UQ_subscriptions_tenant_id";
+      DROP INDEX IF EXISTS billing."subscriptions_tenant_id_unique";
     `);
 
     // Find any remaining unique index on the tenantId column and drop it.
     // This catches TypeORM's auto-generated names which vary by version.
     // Match unique indexes on the tenantId column. The substring
-    // 'UNIQUE' + '("tenantId")' is fragmented across two LIKE patterns
+    // 'UNIQUE' + '(...)' is fragmented across two LIKE patterns
     // so the migration-sql-lint R3 false-positive that triggers on the
     // literal 'CREATE UNIQUE INDEX' substring inside string literals
     // does not fire here (the actual DDL CREATE INDEX statements below
@@ -103,7 +179,7 @@ export class FixSubscriptionsTenantUniquePartial1788200000000
       WHERE schemaname = 'billing'
         AND tablename = 'subscriptions'
         AND indexdef ILIKE '%UNIQUE%'
-        AND indexdef LIKE '%("tenantId")%'
+        AND (indexdef LIKE '%("${tenantIdCol}")%' OR indexdef LIKE '%(${tenantIdCol})%')
     `);
     for (const idx of oldUniques) {
       await queryRunner.query(`DROP INDEX IF EXISTS billing."${idx.indexname}"`);
@@ -113,19 +189,28 @@ export class FixSubscriptionsTenantUniquePartial1788200000000
     // CONCURRENTLY because billing.subscriptions is a pre-existing table
     // with live writers (migration-sql-lint R3). Each statement is
     // issued individually because CONCURRENTLY cannot run in a multi-
-    // statement transaction block.
+    // statement transaction block. Index names always carry the legacy
+    // camelCase suffix so cross-environment monitoring/alerting that
+    // looks for the index by name keeps working post-rename.
     await queryRunner.query(`
       CREATE INDEX CONCURRENTLY IF NOT EXISTS "IDX_subscriptions_tenantId"
-        ON billing.subscriptions ("tenantId")
+        ON billing.subscriptions ("${tenantIdCol}")
     `);
     await queryRunner.query(`
       CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "UQ_subscriptions_tenantId_active"
-        ON billing.subscriptions ("tenantId")
-        WHERE "isDeleted" = false
+        ON billing.subscriptions ("${tenantIdCol}")
+        WHERE "${isDeletedCol}" = false
     `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    if (!(await tableExists(queryRunner, 'subscriptions'))) {
+      return;
+    }
+    const cols = await this.resolveColumnNames(queryRunner);
+    if (cols === null) return;
+    const { tenantIdCol } = cols;
+
     // -- DESTRUCTIVE: rollback drops both the partial + supporting
     //    indexes, re-adds the full unique. The full unique then
     //    blocks the soft-delete pattern again — operators should
@@ -135,7 +220,7 @@ export class FixSubscriptionsTenantUniquePartial1788200000000
     await queryRunner.query(`DROP INDEX IF EXISTS billing."IDX_subscriptions_tenantId"`);
     await queryRunner.query(`
       CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "UQ_subscriptions_tenantId"
-        ON billing.subscriptions ("tenantId")
+        ON billing.subscriptions ("${tenantIdCol}")
     `);
   }
 }

@@ -71,7 +71,7 @@ export class AlertCondition {
  * Defines conditions for triggering alerts
  */
 @ObjectType()
-@Entity('alert_rules', { schema: 'alert' })
+@Entity('alert_rules')
 @Index(['tenantId', 'isActive'])
 @Index(['name', 'tenantId'], { unique: true })
 export class AlertRule {

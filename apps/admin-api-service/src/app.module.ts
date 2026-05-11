@@ -1,4 +1,15 @@
-import { ThrottlerModule, RedisModule, LoggingModule, RlsModule, AdminBypassRlsInterceptor, SchemaDriftModule, PlatformJwtModule } from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import {
+  AdminBypassRlsInterceptor,
+  buildDatabaseSslConfig,
+  createServiceTypeOrmConfig,
+  RlsModule,
+  SchemaDriftModule,
+} from '@aquaculture/backend-common/database';
+import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { RedisModule } from '@aquaculture/backend-common/redis';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
+import { ThrottlerModule } from '@aquaculture/backend-common/security';
 import { Module, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';

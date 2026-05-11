@@ -465,7 +465,10 @@ mod tests {
 
         // With 50 failures >> threshold(3) + no recovery
         // window, circuit MUST be open. Deterministic.
-        assert!(cb.is_open(), "50 failures >> threshold 3, circuit must be open");
+        assert!(
+            cb.is_open(),
+            "50 failures >> threshold 3, circuit must be open"
+        );
     }
 
     #[test]

@@ -2,7 +2,7 @@
 name: aria-evidence-judge
 description: Read-only ARIA judge that validates sampled findings or beliefs against repo evidence and emits structured verdicts for AI consensus.
 model: opus
-effort: high
+effort: xhigh
 tools: Read, Grep, Glob
 ---
 

@@ -2853,3 +2853,719 @@ PYTHONPATH=aria-kernel python3 -m unittest aria-kernel.tests.test_event_contract
 Estimated effort ≈ ½ batch (audit + 2 module setUp rewrites + invariant test ≤ 2-3h).
 
 **Why this is NOT inside Plan 025 sign-off scope:** the affected tests do not exercise any Plan 025 code path; the flake reproduces on pre-Plan-025 HEADs. Closing Plan 025 §E sign-off at HEAD `1ae1cd25` is correct; Plan 026 (or a dedicated test-isolation plan) owns the harness fix.
+## ORPHAN-HIGH-055 — auth-service migration history was squashed; baseline `CREATE TABLE auth.*` chain is missing, so fresh-volume bootstraps crash on later ALTER-COLUMN migrations (Phase: bootstrap-restoration, 2026-05-07)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: data-expert / auth-service maintainer. Deadline: gated on this orphan finding being closed by `apps/auth-service/src/migrations/1700000000000-CreateInitialSchema.ts` landing on `main` AND a fresh-volume bootstrap E2E proving the chain replays cleanly.
+
+**Scope:** `apps/auth-service/src/migrations/*` and the legacy `infrastructure/docker/init-scripts/01-init-databases.sql` boundary.
+
+**Root cause:** several earlier `CREATE TABLE` migrations under `apps/auth-service/src/migrations/` were squashed out of source. The init script (`infrastructure/docker/init-scripts/01-init-databases.sql`) covers a partial set only — `auth.users`, `auth.tenants`, `auth.invitations`, `auth.tenant_modules`, `auth.tenant_roles`. Every subsequent `ALTER` migration in the `1711700000000+` range assumes baseline tables / columns that no longer have a creation step. Concrete failure on a fresh DB: `1781100000000-ConvertTimestampToTimestamptz` ALTERs `auth.users.mfaLockedUntil` which was never created.
+
+**Why this is HIGH (not CRITICAL):** existing droplet volumes already have the historical objects populated through the prior (now-deleted) migration entries; the failure surfaces only on fresh-volume bootstraps (new environments, factory-reset, ephemeral CI envs). It is not a runtime fault on populated production volumes — but it blocks every clean-environment bring-up, including disaster-recovery rebuilds.
+
+**Architectural fix landing in this orphan-close commit:**
+
+1. **`apps/auth-service/src/migrations/1700000000000-CreateInitialSchema.ts`** creates 12 missing tables (`refresh_tokens`, `webauthn_credentials`, `user_module_assignments`, `mobile_user_settings`, `modules`, `announcements`, `announcement_acknowledgments`, `message_threads`, `messages`, `support_tickets`, `ticket_comments`, `audit_logs`) and adds 5 missing columns to `auth.users` (`accessType`, `mfaRecoveryCodes`, `mfaFailedAttempts`, `mfaLockedUntil`, `notificationPreferences`).
+
+2. **Idempotent end-to-end** — every DDL statement uses `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`, plus `DO $$ ... EXCEPTION WHEN duplicate_object` blocks for enum types and FK constraints. Production replay against an already-populated volume is a no-op; the migration ledger insert occurs once.
+
+3. **Topological order respected** — parents before FK children: `modules` / `mobile_user_settings` (no auth.* FKs) → `user_module_assignments` (FK to users + modules) → `refresh_tokens`, `webauthn_credentials` (FK to users) → `announcements` (FK to tenants) → `announcement_acknowledgments` (FK to announcements) → `message_threads` (FK to tenants) → `messages` (FK to message_threads) → `support_tickets` (FK to tenants) → `ticket_comments` (FK to support_tickets) → `audit_logs` (no FKs; standalone — audit rows must survive deletion of the entities they describe).
+
+4. **Lint-chunk discipline (R3 exemption)** — every CREATE TABLE statement and its sibling CREATE INDEX statements are bundled into a single `queryRunner.query()` template literal. The migration-sql-lint `R3-create-index-not-concurrent` rule scans each `queryRunner.query` call as one independent SQL chunk; an index call without a sibling CREATE TABLE in the same chunk is flagged as "index on pre-existing table — must be CONCURRENTLY". Co-emitting the index with the CREATE TABLE inside one chunk lets R3 recognize the just-created-table exemption (the table is empty at index-creation time so ACCESS EXCLUSIVE is safe).
+
+5. **TIMESTAMPTZ from birth** — every `timestamp` column in the new tables is created as `timestamptz` so the later `1781100000000-ConvertTimestampToTimestamptz` migration sees nothing to convert (it tolerates already-timestamptz columns via its `information_schema` check).
+
+6. **`auth.audit_logs.ipAddress` typed as `inet` from birth** — matches the entity declaration so the later `1787400000000-ConvertAuthAuditIpToInet` migration is a no-op on fresh DBs (it pre-checks for inet via `information_schema`).
+
+7. **`auth.audit_logs.legalHold` created with `NOT NULL DEFAULT false`** — the immutability triggers installed by `1787100000000-AddAuthAuditLogsImmutability` find the column already in place; that later migration's `ADD COLUMN IF NOT EXISTS` step is then a no-op.
+
+**HOW to close the rest of this orphan:**
+
+- **Fresh-volume bootstrap E2E proof.** Spin a fresh postgres volume, run the full auth-service migration chain (`1700000000000` first, then every subsequent migration in timestamp order), assert no failure. Land that test under `e2e/tests/integration/auth-fresh-volume-bootstrap.spec.ts` and reference it from this orphan's closing commit.
+
+- **Init-script boundary documented in code.** Add a top-of-file comment to `infrastructure/docker/init-scripts/01-init-databases.sql` listing exactly the 5 tables it owns, with a note that `1700000000000-CreateInitialSchema.ts` owns the rest. The boundary is currently implicit (knowable only by reading both files); making it explicit prevents future "let's add a table to the init script" drift.
+
+- **Squashed-migration audit.** Walk back through `git log --diff-filter=D -- apps/auth-service/src/migrations/` to enumerate exactly which historical CREATE migrations were deleted and when. The 12 tables this baseline restores match the entity surface today; an audit confirms no other deleted migrations need restoring (e.g. trigger migrations, view migrations).
+
+**Closure path discipline:** this is not a yama. The squashed-history damage is permanent (cannot recover the deleted migration files without rewriting history), so the architectural fix is to write a NEW baseline migration that aligns with the current entity surface. A future entity addition follows the same migration-per-change discipline; this one batch closes the historical gap.
+
+
+## ORPHAN-MEDIUM-056 — `nats-invariants.spec.ts` cert-CN extraction regex broken since WS1 (commit 0d249dd0); 1:1 invariant `services.yaml ↔ cert CN list` no longer fires (Phase: pre-flight-rewire, 2026-05-08)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: nats-invariants test maintainer. Deadline: gated on `loadCertCnList` being rewritten to match the current loop form AND the rewritten test failing on a deliberately drifted services.yaml entry.
+
+**Scope:** `e2e/tests/integration/nats-invariants.spec.ts` (specifically `loadCertCnList()` and the `services.yaml names ↔ cert CN list are 1:1` test case).
+
+**Root cause:** the cert-script previously hardcoded the per-service NATS CN list as a literal whitespace-separated argument to `for svc in <names>; do` (e.g. `for svc in auth_service farm_service ...; do`). The invariant test extracts that list with the regex `/for svc in\s+([\s\S]+?);\s*do/` and compares the names to `services.yaml`. WS1 (commit 0d249dd0) refactored the loop to read the list from a python3+yaml.safe_load extraction and iterate via `for svc in $SERVICE_NAMES; do`. The regex still matches (capturing `$SERVICE_NAMES`), but `loadCertCnList()` now returns the literal string `["$SERVICE_NAMES"]` instead of the 12 actual CNs. The 1:1 set comparison then yields `onlyInYaml = [12 names]` and `onlyInCerts = ["$SERVICE_NAMES"]` — which SHOULD throw on every CI run, but does not. We have not pinpointed why the spec is currently green on `main`; either the spec is silently skipped on the active CI gate, or it was already failing and the failure is being absorbed by some test-suite split. Investigation is part of the fix.
+
+**Why this is MEDIUM (not HIGH):** the structural SSoT IS still enforced — the cert-script reads `services.yaml` at script-run time via `python3 -c "...yaml.safe_load..."`, so an operator who edits services.yaml will get the corresponding cert minted on the next `generate-internal-certs.sh` run with no possible drift. The integration test was the SECOND-LINE drift detector (catch-it-before-the-script-runs); its silent failure is a defense-in-depth regression, not a correctness regression. The Phase A3 grep assertion in `.github/workflows/ci-affected.yml` (and the pre-flight rewire's mirror of it) is the FIRST-LINE structural guard and remains intact (this orphan is opened in the same commit that restores the Phase A3 guard).
+
+**Architectural fix (HOW to close):**
+
+1. **Rewrite `loadCertCnList()`** to actually invoke the script in a way that exercises the runtime python extraction and capture the printed CN list. Two viable shapes:
+   - **Tier-1 (preferred): execute the python extractor inline against `infrastructure/nats/services.yaml`** — the same one-liner the bash script uses, called from the Jest test via `child_process.execFileSync('python3', ['-c', '<one-liner>', SERVICES_YAML])`. This makes the test verify the SAME parsing logic that runs at cert-mint time, eliminating the "test parses regex; script parses yaml" double-implementation that drifted.
+   - **Tier-2: source the script via `bash -c "source <script>; echo \"$SERVICE_NAMES\""`** — sources the bash up to the SERVICE_NAMES assignment then emits it. Requires the script to be source-safe (it currently runs cert-generation as a side effect at top-level; would need a `SOURCE_ONLY=1` early-return guard, which is more script churn than Tier-1).
+
+2. **Add a deliberate-drift fixture test** under `e2e/tests/integration/__tests__/nats-invariants-loadCertCnList.spec.ts` that copies services.yaml to a temp file, removes one service entry, points the parser at the temp file, and asserts the 1:1 check throws with both `onlyInYaml` and `onlyInCerts` populated. Without this, "test passes" is uninformative — we need to confirm the test FAILS when drift exists.
+
+3. **Update the test's helper comment** that currently says "The names are whitespace-separated on one or more continuation lines (ending in `\`). Extract the full list." — that comment described the pre-WS1 hardcoded list. The new comment should describe the runtime-extraction model.
+
+4. **Investigate why this is currently green on main** — either (a) the spec is in a `.skip` block somewhere, (b) the e2e job split that runs this spec is non-blocking, or (c) the regex captures something that happens to match by coincidence. Whichever it is, document the finding in the closing commit so the failure mode that hid this for 24 days is itself fixed.
+
+**Why this is documented here (not as part of the PR #236 cert script fix):** the script-side fix (single-line `python3 -c "...yaml.safe_load..."` form) is in scope for the pre-flight-rewire PR. The integration-test-side fix is a separate concern with its own scope (Jest spec rewrite + deliberate-drift fixture + investigation of why it's green) and would balloon the PR. Per `feedback_orphan_findings_doc.md` the right move is documenting the finding here with the fix path, then opening a follow-up commit.
+
+---
+
+## ORPHAN-012 — `FARM-DATAMIG-001` registry id violates `findings.jsonl.schema.json` id pattern
+
+**Severity:** MEDIUM
+**Discovered:** 2026-05-10, while implementing /tmp/ci-cleanup-plans/invariants-deferred.md §2 Option A (evidence-pattern relax)
+**File:** `docs/reviews/_registry/findings.jsonl` (entry id `FARM-DATAMIG-001`, appended 6b372511 on 2026-04-24)
+
+**Evidence:**
+- `docs/reviews/_registry/findings.jsonl.schema.json:22` — id pattern `^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|...)-(CRITICAL|HIGH|MEDIUM|LOW|CVE)-[0-9]{3}$` requires CLASSIFIER ∈ {CRITICAL, HIGH, MEDIUM, LOW, CVE}.
+- `docs/reviews/_registry/findings.jsonl` line 97 — entry has `"id":"FARM-DATAMIG-001"` with `"severity":"HIGH"`. The CLASSIFIER segment is `DATAMIG`, a domain tag, not the entry's severity.
+- AJV failure observed via `npm run invariants:fast -- --testPathPatterns=finding-registry-integrity`: `instancePath:/id, schemaPath:#/properties/id/pattern, ... must match pattern`.
+- Discovered separately from the 94 `evidence/items/pattern` violations addressed by the schema relax in this same batch — Option A's recommended scope was strictly the evidence pattern, so this id-pattern fail is left for a follow-up architectural decision.
+
+**Why this is an orphan, not a yama:**
+The entry is in a hash-chained append-only ledger. Editing the id rewrites `content_hash` and breaks every subsequent entry's `prev_hash` pointer — exactly the chain-replay corruption the integrity invariant exists to detect (see `finding-registry-integrity.spec.ts` hash-chain checks). So the cure is on the SCHEMA side (same architectural pattern as the evidence-pattern relax landing in this commit).
+
+**Two architectural options:**
+
+1. **Extend the id pattern enum.** Add `DATAMIG` to the CLASSIFIER alternation:
+   ```
+   ^(DATA|SEC|PLAT|...)-(CRITICAL|HIGH|MEDIUM|LOW|CVE|DATAMIG)-[0-9]{3}$
+   ```
+   This admits the existing entry. But CLASSIFIER's whole purpose per the schema description is severity (or `CVE` as a stable upstream identifier). Adding a domain-tag value to the same slot conflates two orthogonal axes (severity vs. domain) and invites more drift later (someone next adds `MIGRATION`, `ROLLOUT`, etc.). Cheap, but architecturally weak.
+
+2. **Append a corrective re-issue.** Treat `FARM-DATAMIG-001` as schema-malformed-on-arrival and append a NEW entry `FARM-HIGH-NNN` (next available HIGH index for FARM) with `override_of: "FARM-DATAMIG-001"` and identical evidence/title/state. The original chain entry stays (cannot be rewritten); the override pointer documents the cure. Still leaves the historical id violating the schema, so the integrity test still fails on the entry's id — meaning option 2 alone does NOT close the test failure.
+
+3. **Hybrid: relax the id pattern at one named carve-out.** Add a single explicit `FARM-DATAMIG-001` exception to the schema (via `if/then` allOf branch grandfathering the one known entry). Documents the malformed entry, doesn't widen the CLASSIFIER enum. Minimum-blast-radius cure. Architecturally tidy: the historical malform is acknowledged exactly once and future entries face the original pattern.
+
+**Recommended:** Option 3 (named carve-out) — preserves the original CLASSIFIER convention for future writers, narrowly grandfathers the one bad entry, doesn't conflate severity with domain. Track and close in a follow-up commit.
+
+**Test coverage to add when closed:**
+- AJV must validate `FARM-DATAMIG-001` exactly (and only it) under the named carve-out.
+- A different malformed id (e.g. `FARM-FOOBAR-001`) must still fail.
+- The integrity test (`every entry conforms to findings.jsonl.schema.json`) must turn green end-to-end.
+
+**Status:** RESOLVED — `properties.id` rewritten as a `oneOf` with two branches: (1) the original CLASSIFIER alternation, (2) a `const: "FARM-DATAMIG-001"` literal grandfathering exactly the one historical malformed entry. AJV passes the entry, the original alternation remains intact for every future writer, and unrelated malformed ids (e.g. `FARM-FOOBAR-001`) still fail because they match neither branch. Closed by the same commit that registered `ajv-formats` (PR #236 invariants-fast green-up). The pre-flight rewire bundle landed Fix 1 (ajv-formats registration) and Fix 2 (this carve-out + a sibling `deadline` `anyOf` admitting both `format: date` and `format: date-time` for ORPHAN-HIGH-035 / ORPHAN-HIGH-039 / ULTRA-HIGH-071, which was a separate format-precision issue unmasked by the same compile-time crash).
+
+
+
+## ORPHAN-013 — `aquamobil` Docker build cannot resolve `react/jsx-runtime` from aliased `farm-shared` source
+
+**Severity:** HIGH (blocks droplet auto-deploy: `Deploy to DigitalOcean (Staging)` fails on every push to main)
+**Discovered:** 2026-05-10, while operationalising the staging deploy pipeline
+**File:** `web/apps/aquamobil/vite.config.ts` (resolve config), `infrastructure/docker/Dockerfile.aquamobil` (build context shape), `libs/farm-shared/src/components/DynamicMeasurementForm.tsx` (the importing module)
+
+**Evidence (Rollup error inside `infrastructure/docker/Dockerfile.aquamobil` build):**
+```
+[vite]: Rollup failed to resolve import "react/jsx-runtime" from
+        "/monorepo/libs/farm-shared/src/components/DynamicMeasurementForm.tsx"
+ERROR: process "/bin/sh -c npx vite build" did not complete successfully: exit code: 1
+```
+
+Reproduced locally on 2026-05-10:
+- Run: `docker build -f infrastructure/docker/Dockerfile.aquamobil .` from a clean `origin/main`.
+- Result: identical Rollup error → buildx exits 1 → `build-frontend-images (aquamobil, ...)` job fails → `deploy` job blocked because it `needs: [build-frontend-images]`.
+
+**Root cause:** The aquamobil Dockerfile builds in a STANDALONE context — `npm ci` runs from `/monorepo/web/apps/aquamobil/`, so the only `node_modules/` tree is at `/monorepo/web/apps/aquamobil/node_modules/`. The shared component lib `libs/farm-shared` is `COPY`'d in separately under `/monorepo/libs/farm-shared/` (not installed via npm) and consumed via the Vite alias `@aquaculture/farm-shared`. When Rollup processes a TSX file under `/monorepo/libs/farm-shared/src/...`, the JSX transform emits a bare-specifier import `react/jsx-runtime`. Node's resolution algorithm walks UP from `/monorepo/libs/farm-shared/`, finds no `node_modules/` at `/monorepo/libs/` or `/monorepo/`, and aborts. React is right there — at `/monorepo/web/apps/aquamobil/node_modules/react/jsx-runtime.js` — but the resolver doesn't know to look "sideways" into a sibling package's installed deps.
+
+**Why it doesn't bite the other 8 microfrontends:** they all build OUTSIDE Docker (in the `build-frontend` job on the GHA runner) and then their pre-built `dist/` is COPY-only into `infrastructure/docker/Dockerfile.microfrontend.simple`. On the host runner, `node_modules/` exists at the workspace root and farm-shared resolves React via that tree. Aquamobil is the lone exception that runs `vite build` INSIDE its image's build stage.
+
+**Fix (Tier-1 "make it impossible" per CLAUDE.md):** add `resolve.dedupe: ['react', 'react-dom']` to `web/apps/aquamobil/vite.config.ts`. This is the documented Vite escape hatch for monorepo-aliased React libs: `dedupe` forces every bare `react` / `react-dom` / subpath specifier (including `react/jsx-runtime` and `react/jsx-dev-runtime`) to resolve to the consuming project's `node_modules/react/...`, regardless of which file does the importing. Aquamobil already declares `react@^18.2.0` and `react-dom@^18.2.0` as direct deps in its package.json, so the consuming project already owns the canonical copy. With `dedupe`, no consumer can ever pick up a second React via the aliased boundary.
+
+**Status:** RESOLVED — fixed in branch `chore/aquamobil-react-runtime-fix` via PR. Verified locally with `docker build -f infrastructure/docker/Dockerfile.aquamobil .` succeeding (`vite v7.3.2 ... ✓ built in 21.50s` with no Rollup error).
+
+---
+
+## ORPHAN-HIGH-056 — `deploy-staging.yml` hard-requires `STAGING_DROPLET_*` secrets, then `deploy-digitalocean.yml` permanently blocks prod for single-droplet operators
+
+**Severity:** HIGH (single-droplet operators cannot deploy to production at all without manual `bypass_staging_gate=true` on every push)
+**Discovered:** 2026-05-10, while operationalising the staging deploy pipeline (paired with ORPHAN-013)
+**File:** `.github/workflows/deploy-staging.yml`, `.github/workflows/deploy-digitalocean.yml`, `docs/adr/016-deploy-resilience-architecture.md` (Phase D contract)
+
+**Evidence (failure shape on a repo without `STAGING_DROPLET_HOST` set):**
+```
+Run appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2
+  with:
+    host:
+    username:
+    key: ***
+    command_timeout: 50m
+    envs: IMAGE_TAG
+    script: ...
+error: missing server host
+```
+
+The `deploy` job inside `deploy-staging.yml` fails immediately on the SSH step. No `deployed/staging-<sha>` tag is ever pushed to origin. On the SAME push to main, `deploy-digitalocean.yml`'s `staging-gate` job then enters its 55-minute polling loop, never finds the tag (because staging never produced it), times out, and aborts the prod deploy. The operator has two unappealing options on every push: wait 55min for the timeout then rerun manually with `bypass_staging_gate=true`, or run `workflow_dispatch` from the start with the bypass.
+
+**Root cause:** `deploy-staging.yml` was written with the implicit assumption that a staging droplet is ALWAYS provisioned (ADR-016 Phase D, 2026-04-14). Phase D codifies a "deploy to staging first, then prod" architecture — entirely correct for a multi-droplet operator. But it does not specify the lifecycle BEFORE staging exists, or for operators who never plan to provision staging (single-droplet topology — one droplet running prod only, with PR review + droplet snapshots as the change-management gate). The workflow therefore unconditionally invokes `appleboy/ssh-action` with empty secrets and fails at runtime; the prod-side gate, written with the symmetrical assumption, gates on a tag that will never arrive.
+
+**Why this is architecturally distinct from the existing `STAGING_ENABLED` repo variable:** `deploy-digitalocean.yml`'s `staging-gate` already has a `vars.STAGING_ENABLED` opt-in flag that auto-bypasses the gate when set to `false` (or unset). That signal is human-fallible — an operator can set `STAGING_ENABLED=true` without adding the secrets (or vice versa) and the two workflows can drift relative to each other. The structural truth is "staging cannot deploy without `STAGING_DROPLET_HOST`", which is a function of secret presence, not of operator intent.
+
+**Fix (Tier-1 "make it impossible" per CLAUDE.md):** make secret presence the discriminator on BOTH workflow sides:
+
+1. `deploy-staging.yml` — new top-level `staging-configured` job reads `secrets.STAGING_DROPLET_HOST` into a step env var, exposes `configured=true|false` as a job output. Every downstream job (`prepare`, `build-backend`, `build-frontend`, `build-backend-images`, `build-frontend-images`, `deploy`) gates on `if: needs.staging-configured.outputs.configured == 'true'`. When the secret is empty, every job skips with a workflow notice; the SSH step never runs and never throws "missing server host".
+
+2. `deploy-digitalocean.yml` — `staging-gate.enablement` step extended to read `secrets.STAGING_DROPLET_HOST` into env. Auto-bypass on EITHER signal: (a) `STAGING_ENABLED` repo variable not 'true' (operator intent), or (b) `STAGING_DROPLET_HOST` empty (structural truth — staging cannot physically deploy). The two checks together are belt-and-braces — operator can only enable Topology A (multi-droplet, gate enforces) when BOTH are configured, which makes accidental gating impossible.
+
+**Two architecturally-valid topologies, both first-class:**
+- **Topology A (multi-droplet):** secrets + opt-in flag set → full staging deploy → tag → prod gate enforces.
+- **Topology B (single-droplet):** either signal absent → staging skips → prod auto-bypasses → prod deploys directly.
+
+GitHub Actions security boundary: secret expressions cannot appear directly in job-level `if:` conditions. Detection therefore lives inside a step that reads the secret into env, exposes the result as `steps.<id>.outputs.configured`, then downstream jobs consume it via `needs.<job>.outputs.configured`. Same pattern on both workflows.
+
+The emergency `bypass_staging_gate=true` workflow_dispatch input is preserved unchanged — it covers the orthogonal "staging exists but is broken" emergency case.
+
+**Status:** RESOLVED — fixed in branch `chore/deploy-staging-topology-aware`. ADR-016 updated with Phase D-Topology section formalizing the two-topology contract.
+
+
+## ORPHAN-CRITICAL-057 — `deploy-digitalocean.yml`'s inline ssh-action `script: |` block silently regressed past the 21K expression limit; every push to main since d155d2a3 fails workflow parse with HTTP 422 and 0 jobs
+
+**Severity:** CRITICAL — production deploy chain entirely broken on push-to-main; failure mode is invisible (parse failure recorded as a 0-job run, no actionable signal in CI checks UI)
+**Discovered:** 2026-05-10, while validating the post-merge prod deploy chain after PR #243 (topology-aware staging gate) landed
+**File:** `.github/workflows/deploy-digitalocean.yml` (line 885 col 19, the `script: |` heredoc following `appleboy/ssh-action`)
+
+**Evidence:**
+
+```
+gh workflow run deploy-digitalocean.yml --ref main
+HTTP 422: Invalid Argument - failed to parse workflow:
+(Line: 885, Col: 19): Exceeded max expression length 21000
+```
+
+```
+$ gh api repos/Okan-wqm/aquaculture_platform/actions/runs/<run-id>/jobs
+{"total_count":0,"jobs":[]}
+```
+
+Every prod-deploy run on main since d155d2a3 (`Merge branch 'worktree-ws10-phase-1' into tmp-consolidate-agentic`) shows `conclusion: failure` with 0 jobs registered. The CI checks UI gives no actionable hint — the workflow is "running" then "failed", but no job was ever scheduled because the workflow file itself never parsed.
+
+**Root cause:** The architectural fix had already been done in commit `c92539b9` (`fix(deploy-digitalocean): extract ssh-action bash to avoid 21k expression limit`), which moved the entire SSH bash payload from the YAML `script: |` block into `scripts/deploy/droplet-up.sh`. The YAML script block was thereby reduced from ~530 lines to ~12. A subsequent merge from a parallel feature branch (`worktree-ws10-phase-1`, mainlined as commit d155d2a3) re-inlined the bash. Per-file diff history:
+
+| Commit  | script-block size | status |
+|---------|-------------------|--------|
+| `c92539b9` | 696 bytes / 12 lines | ✅ thin invoker (working) |
+| `d155d2a3` (merge) | 32163 bytes / 528 lines | ❌ regressed; 21K cap exceeded |
+| current main | 32163 bytes / 528 lines | ❌ persistent regression |
+
+The 32K block contains TLS cert generation, GHCR auth, healthcheck poll loops, rollback logic — all ALSO present in `scripts/deploy/droplet-up.sh` (571 lines, fully featured, untouched by the regression). The inlined logic and the script duplicate each other, with the inlined version winning because the YAML block executes first and the script is then bypassed (the regressed YAML never gets to `bash scripts/deploy/droplet-up.sh`).
+
+**Why the regression went undetected:** GHA's "exceeded max expression length" parse failure surfaces as a 0-jobs failure run, which most CI dashboards (the GitHub Actions UI included) render identically to a "deploy succeeded with no jobs to run" outcome. There is no `actionlint` rule that catches `script: |` blocks growing past 21K. The PR-time `actionlint` run (if any) doesn't report the size violation as an error because GHA's per-expression cap is not part of the lint.
+
+**Fix (Tier-1 Make-Impossible):** Restore the thin-invoker form from `c92539b9`. The YAML `script: |` block becomes ~12 lines: env var passthrough + `bash scripts/deploy/droplet-up.sh`. All deploy logic lives in the script file, which:
+
+  - is bash-shellcheckable
+  - is locally testable on a multipass / docker droplet stand-in
+  - has a single source of truth for cert / healthcheck / rollback flows
+  - cannot be silently re-inlined without re-triggering the same parse error at PR time (which is now visible because workflow parse runs in the PR's CI - Affected pre-flight gate)
+
+**Why this is structurally durable, not just a revert:** The previous fix had no enforcement. The current state — where the architectural fix is restored AND the topology-aware deploy gate (ORPHAN-HIGH-056) makes prod parse failures visible at PR time — closes the loop. Future re-inline attempts will fail the PR's `pre-flight` validate-workflows step (already in place since PR #236 landed `chore(ci): rewire pre-flight to preflight-validate.ts`) before they can mainline.
+
+**Status:** RESOLVED — restored thin-invoker form on branch `chore/restore-thin-deploy-invoker`. YAML script block: 1449 bytes / 24 lines (cap is 21000). YAML parses, env var contract preserved (DEPLOY_SHA/SERVICES/FULL_DEPLOY/GHCR_TOKEN/GHCR_ACTOR), droplet-up.sh untouched.
+
+
+## ORPHAN-CRITICAL-058 — `apps/db-migrate/src/migration-orchestrator.ts` unconditionally wraps every migration in a transaction, ignoring `migration.instance.transaction = false`; CONCURRENTLY-scoped DDL fails at runtime in production deploy
+
+**Severity:** CRITICAL — every CONCURRENTLY-scoped DDL migration (CREATE INDEX CONCURRENTLY, DROP INDEX CONCURRENTLY) fails at runtime in `db-migrate`, blocking the entire deploy chain. Production was DOWN until manual recovery.
+**Discovered:** 2026-05-10, during the post-thin-invoker prod deploy on the live droplet
+**File:** `apps/db-migrate/src/migration-orchestrator.ts` lines 240-271
+
+**Evidence (live production deploy log):**
+
+```
+{"level":"error","message":"Migration failed","schema":"auth",
+ "migration":"AddTenantsCustomDomainPartialUnique1787300000000",
+ "error":"CREATE INDEX CONCURRENTLY cannot run inside a transaction block"}
+```
+
+```
+{"level":"error","message":"Migration failed","schema":"farm",
+ "migration":"AlignCodeSequencesSchema1786900000000",
+ "error":"DROP INDEX CONCURRENTLY cannot run inside a transaction block"}
+```
+
+The failing migrations BOTH explicitly declare `transaction = false` at the class level (e.g. `apps/auth-service/src/migrations/1787300000000-AddTenantsCustomDomainPartialUnique.ts:47`):
+
+```typescript
+export class AddTenantsCustomDomainPartialUnique1787300000000
+  implements MigrationInterface {
+  // CREATE INDEX CONCURRENTLY cannot run inside a transaction block.
+  transaction = false;
+  // ...
+}
+```
+
+This declaration is the documented TypeORM contract for opting out of the per-migration transaction wrapper. CLAUDE.md §migration-runners explicitly cites the contract: "Blue-green safe migrations: nullable column → backfill → NOT NULL constraint" plus "CONCURRENTLY index'ler `transaction = false` override ile ayrı migration'lara konur".
+
+**Root cause:** The orchestrator's hot loop at line 240-271 calls `await queryRunner.startTransaction()` UNCONDITIONALLY before every migration:
+
+```typescript
+for (const migration of pending) {
+  await queryRunner.query(`SET search_path TO "${schema}", public`);
+  await queryRunner.startTransaction();  // <-- ALWAYS, ignoring instance.transaction
+  try {
+    await executor.executeMigration(migration);
+    await queryRunner.commitTransaction();
+    // ...
+  } catch (err) {
+    await queryRunner.rollbackTransaction();
+    // ...
+  }
+}
+```
+
+TypeORM's own `MigrationExecutor.executePendingMigrations()` would have honored the instance-level override correctly — the relevant code path at `node_modules/typeorm/migration/MigrationExecutor.js`:
+
+```javascript
+const instanceTx = migration.instance.transaction;
+if (instanceTx === undefined) migration.transaction = txModeDefault;
+else migration.transaction = instanceTx;
+// ...
+if (migration.transaction && !queryRunner.isTransactionActive) {
+    await queryRunner.startTransaction();
+    transactionStartedByUs = true;
+}
+```
+
+But the orchestrator was wrapping the executor's call in an OUTER transaction layer, so by the time TypeORM's executor saw the queryRunner, it was already inside a transaction. The instance-level opt-out had no effect.
+
+**Why this regression went undetected for so long:** The orchestrator was added in WS10/ADR-016 Phase E (centralised migration runner) AFTER the per-service migration runners (which lived in `libs/backend-common/src/database/migration-runner/`). The per-service runners DID respect the migration instance's `transaction` property — they simply called `executor.executePendingMigrations()` and let TypeORM handle the transaction boundary. The orchestrator's reimplementation introduced the unconditional `startTransaction()` as a defensive measure (WS10's "deterministic order BEFORE any backend service") without auditing whether existing migrations in the codebase used the `transaction = false` opt-out.
+
+The bug surfaced ONLY when the centralised `db-migrate` container ran on a fresh droplet with the FULL pending migration set. Before this session, the prior per-service runners had already applied those CONCURRENTLY migrations on the live droplet. The orchestrator's first prod-equivalent run was today's deploy; the regression manifested immediately.
+
+**Fix (Tier-1 Make-Impossible):** Honor `migration.instance.transaction === false` in the orchestrator's hot loop. The new code:
+
+```typescript
+const useTransaction =
+  (migration as { instance?: { transaction?: boolean } }).instance
+    ?.transaction !== false;
+
+if (useTransaction) {
+  await queryRunner.startTransaction();
+}
+try {
+  await executor.executeMigration(migration);
+  if (useTransaction && queryRunner.isTransactionActive) {
+    await queryRunner.commitTransaction();
+  }
+  // ...
+} catch (err) {
+  if (useTransaction && queryRunner.isTransactionActive) {
+    await queryRunner.rollbackTransaction();
+  }
+  // ...
+}
+```
+
+The check is structural — it cannot regress silently because any future migration that adds `transaction = false` will be honored without further orchestrator changes.
+
+**Production recovery (this session):**
+
+1. Manually applied `CREATE UNIQUE INDEX CONCURRENTLY "UQ_tenants_customDomain"` via psql autocommit (no transaction wrapper).
+2. Inserted the migration record into `auth.migrations` to mark it as applied: `INSERT INTO auth.migrations (timestamp, name) VALUES (1787300000000, 'AddTenantsCustomDomainPartialUnique1787300000000')`.
+3. Patched the orchestrator locally and rebuilt the `db-migrate:latest` image inline by `docker create` + `docker cp` + `docker commit`.
+4. Re-ran `docker compose up db-migrate --no-deps` — **EXIT 0** with the new orchestrator handling `transaction = false` correctly. All farm-schema CONCURRENTLY migrations now apply cleanly.
+5. Brought up the rest of the stack (`docker compose up -d --no-deps <23 services>`).
+
+**Status:** RESOLVED — orchestrator fix landed on branch `chore/fix-orchestrator-transaction-override`. Live production restored on droplet via the inline-rebuild path; canonical fix lands in repo via this commit so the next deploy uses the structurally-correct image.
+
+
+---
+
+## ORPHAN-CRITICAL-064 — CursorEdge<T> generic ObjectType crashed hr-service GraphQL schema build
+
+**Severity:** CRITICAL — hr-service crash-loops in production after fresh deploy. Every consumer of HR data (workforce schedules, payroll feeds, leave balances, mobile shift assignments) is offline.
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** libs/backend-common/src/pagination/cursor.ts
+
+**Evidence (hr-service container log):**
+
+    Bootstrap failed: Undefined type error. Make sure you are providing an
+    explicit type for the "node" of the "CursorEdge" class.
+
+**Root cause:** NestJS GraphQL code-first schema builder reflects field types via reflectTypeFromMetadata. For a generic class, the type-parameter T erases to undefined at runtime. The previous CursorEdge<T> exported a single concrete @ObjectType with @Field() node!: T (no explicit type resolver), so the schema builder saw undefined for the node type and threw at bootstrap the moment any module registered a sub-class of it.
+
+**Fix (Tier-1 Make-Impossible):** convert CursorEdge<T> to a factory function CursorEdge(classRef: Type<T>) returning an abstract @ObjectType whose @Field(() => classRef) decorator passes the consumer-provided type explicitly. Concrete edges then extend CursorEdge(MyEntity). Plus expose ICursorEdge<T> structural interface for non-GraphQL consumers.
+
+**Status:** RESOLVED on chore/hr-cursor-edge-graphql-type. After redeploy, hr-service bootstraps and all CursorEdge-consuming services build a valid schema.
+## ORPHAN-CRITICAL-059 — `apps/gateway-api/src/app.module.ts` registers `AuditedOperationModule.forRoot()` (which depends on TypeORM `DataSource`) but never imports `TypeOrmModule.forRoot()`; cold-boot DI resolution crashes the gateway
+
+**Severity:** CRITICAL — gateway-api is the platform's edge entry point. With the gateway in a crash loop, no client (web shell, mobile, integrations) can reach any backend. by-okan@live.com cannot log in; the platform is functionally offline even though every other backend service is up.
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** `apps/gateway-api/src/app.module.ts`
+---
+
+## ORPHAN-CRITICAL-061 — `docker-compose.droplet.yml` declares `NATS_TLS_CA` / `NATS_TLS_CERT` / `NATS_TLS_KEY` env on `observability-service` without mounting `./certs/nats/*` into the container; bootstrap crash-loops the service in production
+
+**Severity:** CRITICAL — observability-service crash-loops at bootstrap on the production droplet. The platform's central security-events sink + migration audit sink is unavailable, blowing through the SLO for security-event capture and breaking the schema-migration audit trail (ADR-022 R6).
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** `docker-compose.droplet.yml` lines 1278–1326 (the `observability-service:` block)
+
+**Evidence (live container log):**
+
+```
+Nest can't resolve dependencies of the AuditedOperationInterceptor (Reflector, ?).
+Please make sure that the argument DataSource at index [1] is available
+in the AuditedOperationModule module.
+```
+
+**Root cause:** `AuditedOperationInterceptor.constructor` injects `DataSource` from TypeORM. The `AuditedOperationModule.forRoot()` factory registers the interceptor globally (`APP_INTERCEPTOR`) but does NOT import a `TypeOrmModule` of its own — by design, the audit module is meant to use whatever `DataSource` the consuming application has registered. Every other consumer (auth, farm, sensor, hr, billing, etc.) DOES import `TypeOrmModule.forRoot()` alongside `AuditedOperationModule.forRoot()`. gateway-api was the lone exception: the audit module was imported (per the AUDITTRAIL-CRITICAL-002 sweep invariant `tests/invariants/audited-operation-module-wired.spec.ts`) but the supporting TypeORM root was never added.
+
+The drift was masked for >2 days because the older deployed image's `AuditedOperationInterceptor` had not yet acquired the `DataSource` constructor dependency. After it did, the gateway's audit interceptor became unresolvable. Today's cold-boot (post-deploy of the new image) surfaced the regression.
+
+The compose file already declares `DATABASE_HOST` / `DATABASE_USER=gateway_service` / `DATABASE_PASSWORD` / `DATABASE_NAME=aquaculture` env for the gateway-api container — wiring was always intended; only the application-side `imports: [TypeOrmModule.forRoot(...)]` was missing.
+
+**Fix (Tier-1 Make-Impossible):** add `TypeOrmModule.forRootAsync` using the platform-canonical `createServiceTypeOrmConfig` factory in `apps/gateway-api/src/app.module.ts`. gateway-api owns no schema (no migrations to run, no entities to register beyond `AuditLogEntity` which the audit module touches), so the config is minimal:
+
+```typescript
+TypeOrmModule.forRootAsync({
+  imports: [ConfigModule],
+  inject: [ConfigService],
+  useFactory: (config: ConfigService) => ({
+    ...createServiceTypeOrmConfig(config, {
+      serviceName: 'gateway',
+      schema: 'shared',  // gateway only writes shared.audit_logs
+      migrations: [],
+      migrationsRun: false,
+    }),
+    entities: [AuditLogEntity],
+  }),
+}),
+```
+
+A unit-level invariant (`tests/invariants/audited-operation-module-wired.spec.ts`) is extended to also assert that every service in the audit-wired list ALSO imports `TypeOrmModule.forRoot()` so the regression class is structurally caught at PR time — Tier-1 promotion of an existing Tier-3 invariant.
+
+**Status:** RESOLVED — `chore/gateway-api-typeorm-for-audit` lands the TypeORM root + entity registration + invariant extension. After redeploy, gateway-api bootstraps cleanly and login is restored.
+Bootstrap failed: [nats-connection.factory] NATS_TLS_CA is set to
+"/etc/ssl/nats-ca.pem" but the file could not be read: ENOENT: no such
+file or directory, open '/etc/ssl/nats-ca.pem'.
+Check that the deploy script mounts /etc/ssl/nats-ca.pem (or the path you
+configured) into the container from
+./certs/nats/clients/observability_service-cert.pem (or whatever your cert
+directory is).
+```
+
+**Root cause:** Configuration drift in `docker-compose.droplet.yml`. The `observability-service` block merges `<<: *nats-observability-env` (line 1306), which sets four NATS TLS env paths inside the container:
+
+```yaml
+NATS_URL: tls://nats:4222
+NATS_TLS_CA: /etc/ssl/nats-ca.pem
+NATS_TLS_CERT: /etc/ssl/nats-clients/observability_service-cert.pem
+NATS_TLS_KEY:  /etc/ssl/nats-clients/observability_service-key.pem
+NATS_TLS_ENABLED: "true"
+```
+
+But the service was missing the corresponding `volumes:` block. Every other NATS-using service in this compose file (auth, farm, sensor, gateway, alert, billing, hr, hydroponics, messaging, notification, sensor-ingestion) mounts the same four anchors:
+
+```yaml
+volumes:
+  - *nats-ca-mount             # ./certs/nats/ca-cert.pem      → /etc/ssl/nats-ca.pem
+  - *nats-clients-mount        # ./certs/nats/clients/         → /etc/ssl/nats-clients/
+  - *nats-client-cert-mount    # ./certs/nats/client-cert.pem  → /etc/ssl/nats-client-cert.pem
+  - *nats-client-key-mount     # ./certs/nats/client-key.pem   → /etc/ssl/nats-client-key.pem
+```
+
+`libs/backend-common/src/nats/nats-connection.factory.ts` resolves `NATS_TLS_CA` with `fs.readFileSync()` at bootstrap and hard-fails with the message above when the file isn't present at the configured path. With no `volumes:` block, `/etc/ssl/nats-ca.pem` did not exist inside the container, so Nest bootstrap aborted before any module was even constructed.
+
+The cert files themselves were correctly generated — `infrastructure/nats/services.yaml` lists `observability_service` (line 86), and `infrastructure/docker/scripts/generate-internal-certs.sh` derives its cert-CN list from that SSoT (no hardcoded list). `./certs/nats/clients/observability_service-cert.pem` and `-key.pem` exist on disk on the droplet. The failure was 100 % on the compose-file side: env paths declared, mounts missing.
+
+**Why the regression went undetected at PR time:** the CI pre-flight Phase A2 (`docker compose config --quiet`) only validates that `${VAR:?}` interpolations resolve and YAML parses — it does NOT correlate `NATS_TLS_CA` env paths against `volumes:` bind targets. There is currently no invariant test that asserts "every service whose merged env declares `NATS_TLS_*` paths must also mount the corresponding cert files at those paths". The drift was therefore structurally invisible to CI: services.yaml was right, nats.conf was right, the cert was generated, and YAML interpolation passed. Only the runtime ENOENT surfaced it.
+
+**Fix (Tier-2 Make-Automatic — landed in this commit):** add the four standard NATS cert mount anchors to the `observability-service` block in `docker-compose.droplet.yml`, aligning it with every other NATS-using service in the file:
+
+```yaml
+volumes:
+  - *nats-ca-mount
+  - *nats-clients-mount
+  - *nats-client-cert-mount
+  - *nats-client-key-mount
+```
+
+Anchors are reused (not redefined) so the cert layout stays a single declaration site. After this change, `docker compose -f docker-compose.droplet.yml config` resolves the four bind mounts onto `/var/aqua-saas/certs/nats/...` and the runtime path matches the env paths, so `nats-connection.factory` finds the CA file at bootstrap.
+
+**Tier-1 Make-Impossible follow-up (not in this commit — tracked):** add a CI invariant that asserts, for every service in every compose file, the post-merge env's `NATS_TLS_CA` / `NATS_TLS_CERT` / `NATS_TLS_KEY` paths each have a matching `volumes:` bind entry whose target equals the env path. The natural home is `e2e/tests/integration/nats-invariants.spec.ts` (extending the existing services.yaml ↔ cert-CN ↔ nats.conf trio with a fourth assertion: compose env paths ↔ volume bind targets). Filed separately so this hot-fix lands without dragging the invariant scope into the same PR. Without that guard, the same class of drift can recur whenever a new NATS-using service is added.
+
+**Status:** RESOLVED for the immediate crash-loop — `chore/observability-nats-cert-mount` adds the missing `volumes:` block. Tier-1 invariant follow-up tracked above; commit message names the gap so the work is visible.
+
+
+---
+
+## ORPHAN-CRITICAL-062 — `FileUploadSecurityService` injects an opaque `Array` token without a matching DI provider; `farm-service` crash-loops at bootstrap when the global `StorageModule` is loaded
+
+**Severity:** CRITICAL — farm-service (the platform's primary aquaculture domain — highest fan-out of downstream consumers per ADR-011 §domain-priority) cannot bootstrap on the production droplet. Side-effect: every dependent surface that reads farm-domain data (alert-engine, billing, sensor aggregates, dashboards, mobile app) loses its upstream until farm comes back.
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** `libs/storage/src/file-upload-security.service.ts`, `libs/storage/src/storage.module.ts`
+
+**Evidence (live container log):**
+
+```
+Nest can't resolve dependencies of the FileUploadSecurityService (MinioClientService, ?).
+Please make sure that the argument Array at index [1] is available in the StorageModule module.
+Potential solutions:
+- Is StorageModule a valid NestJS module?
+- If Array is a provider, is it part of the current StorageModule?
+```
+
+**Root cause:** `FileUploadSecurityService` declares `@Inject(FILE_UPLOAD_POLICIES) policies: UploadPolicy[]` as its second constructor argument. The token `FILE_UPLOAD_POLICIES` was added to the service signature but the provider that satisfies it was never registered in `StorageModule.forRoot()` / `StorageModule.forRootAsync()`. The factory built the dynamic module with `MinioClientService` + `FileUploadSecurityService` only — nothing supplied the `UploadPolicy[]` array. NestJS prints "Array at index [1]" because, with no provider for the symbol token, the type system falls back to the constructor parameter's declared type (`UploadPolicy[]` ≈ `Array`).
+
+The drift was masked for >2 days because the older deployed image did not yet include the policy-array constructor argument. Today's cold-boot exposed it.
+
+**Fix (Tier-1 Make-Impossible):** centralise the policy-array provider in `StorageModule` so both `forRoot` and `forRootAsync` use the same fallback shape. Specifically:
+
+  1. Export a typed `UploadPolicy` interface and a token symbol `FILE_UPLOAD_POLICIES` from `libs/storage/src/file-upload-security.service.ts` (so consumers can import the canonical declaration without re-declaring).
+  2. Export a `DEFAULT_UPLOAD_POLICIES` constant (per-MIME-type rules sourced from the existing config) so the module has a sensible safe default.
+  3. Build a `Provider` shape in `storage.module.ts` that resolves either: (a) the operator-supplied `policies: UploadPolicy[]` from `forRoot(config)` arguments, or (b) `DEFAULT_UPLOAD_POLICIES` if absent.
+  4. Add the provider to BOTH `forRoot` and `forRootAsync` `providers[]` arrays.
+  5. Add a unit test (`__tests__/storage.module.spec.ts`) that asserts the module wires `FILE_UPLOAD_POLICIES` end-to-end so the regression is structurally caught at PR time.
+
+**Status:** RESOLVED — `chore/farm-storage-policies-di` lands the policy-array provider with default fallback + unit test. After redeploy, farm-service bootstraps cleanly and the entire downstream-consumer surface is restored.
+
+---
+
+## ORPHAN-CRITICAL-063 — `migrationsTransactionMode` defaulted to TypeORM's `'all'` for legacy auth/admin-api/event-store services; pre-merge migrations with class-level `transaction = false` raised `ForbiddenTransactionModeOverrideError` at production cold-boot
+
+**Severity:** CRITICAL — messaging-service and admin-api-service crash-loop at boot. Without messaging the in-app chat surface is dead; without admin-api the platform-management UI is offline. Both services were stuck repeating the same fatal exception every restart cycle until the fix landed.
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** `libs/backend-common/src/database/typeorm-config.factory.ts`, `libs/backend-common/src/database/migration-runner/migration-runner.service.ts`
+
+**Evidence (live container logs):**
+
+```
+Migrations "AddMessageAttachmentIsDeletedIndex1782800000000" override the
+transaction mode, but the global transaction mode is "all"
+```
+
+```
+Migrations "AddUserConsentsNaturalKeyUnique1787700000000",
+"AddAuditLogShapeExtension1788100000000",
+"CreateSharedAccessLogs1788400000000" override the transaction mode,
+but the global transaction mode is "all"
+```
+
+**Root cause:** TypeORM's `DataSource` constructor defaults `migrationsTransactionMode` to `'all'` when the caller omits the option (`node_modules/typeorm/data-source/DataSource.js` lines 261-264). In `'all'` mode, TypeORM's `MigrationExecutor.executePendingMigrations` raises `ForbiddenTransactionModeOverrideError` the instant any pending migration declares an instance-level `transaction` opt-out (the documented escape hatch for `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, and other DDL Postgres rejects inside a transaction block).
+
+`createServiceTypeOrmConfig` (the platform-wide factory) was NOT setting `migrationsTransactionMode`, so every legacy service that kept TypeORM's built-in `migrationsRun: true` (auth-service explicitly; admin-api-service and messaging-service via newer migrations whose `transaction` overrides surfaced after the cold-boot) inherited the unsafe default.
+
+The platform's primary `MigrationRunnerService` (the one that 12 of 14 services use) does NOT trigger this error because it owns the per-migration transaction loop directly. PR #245 fixed the centralised `db-migrate` orchestrator's matching loop. This finding closes the third leg of the same architectural gap: the TypeORM-built-in path is the third migration runner in the platform, and it was using the unsafe default.
+
+**Fix (Tier-1 Make-Impossible):** pin `migrationsTransactionMode: 'each'` in `createServiceTypeOrmConfig` so EVERY legacy service that still relies on TypeORM's built-in migration runner inherits the correct mode automatically. The factory is the SSoT for service TypeORM config — no per-service override is required.
+
+The platform's per-service `MigrationRunnerService` ALSO has its `executor.transaction = 'each'` re-affirmed with an architectural-rationale block describing the three-runner topology: built-in TypeORM (legacy), platform per-service runner (mainline), centralised db-migrate orchestrator (Phase E). All three honour the same `transaction = false` opt-out structurally so a CONCURRENTLY migration deploys identically through any of them.
+
+**Status:** RESOLVED — `chore/migration-tx-mode-each-canon` lands the pin in the factory + architectural docs in the runner. After redeploy, messaging and admin-api bootstrap cleanly.
+
+---
+
+## ORPHAN-CRITICAL-064 — `CursorEdge<T>` GraphQL ObjectType emitted `node` with no explicit `@Field(() => T)` resolver; `hr-service` schema build crash-loops at bootstrap with "Undefined type error … node"
+
+**Severity:** CRITICAL — hr-service is dead in production. Every consumer of HR data (workforce schedules, payroll feeds, leave balances, mobile shift assignments) is offline. The pagination utility is shared across multiple services so the regression class is contagious — any future consumer that imports `CursorEdge` inherits the same crash unless the helper is fixed structurally.
+**Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
+**File:** `libs/backend-common/src/pagination/cursor.ts` and the matching GraphQL `@ObjectType` declarations across consuming services
+
+**Evidence (hr-service container log):**
+
+```
+Bootstrap failed: Undefined type error. Make sure you are providing an
+explicit type for the "node" of the "CursorEdge" class.
+```
+
+**Root cause:** NestJS GraphQL's code-first schema builder reflects field types at runtime via `reflectTypeFromMetadata`. For a generic class, the type-parameter `T` erases to `undefined` at runtime — TypeScript decorators emit the design-time type, not the resolved one. The previous `CursorEdge<T>` exported a single concrete `@ObjectType` class with `@Field() node!: T` (no explicit type resolver), so the schema builder saw `undefined` for the node type and threw at bootstrap the moment any module registered a sub-class of it.
+
+The drift was masked for >2 days because the older deployed image's `CursorEdge` did not include the `@Field()` decorator on `node` (or the consuming services had not yet imported it through the schema graph). Today's cold-boot exposed it.
+
+**Fix (Tier-1 Make-Impossible):** convert `CursorEdge<T>` from a single concrete `@ObjectType` into a factory function `CursorEdge(classRef: Type<T>)` that returns an abstract `@ObjectType({ isAbstract: true })` whose `@Field(() => classRef)` decorator passes the consumer-provided type explicitly. Concrete edges then `extend CursorEdge(MyEntity)`. Plus expose a `ICursorEdge<T>` structural interface so non-GraphQL consumers (REST, internal services) can still type the runtime payload without touching the GraphQL emission layer. Plus a unit test (`__tests__/cursor.spec.ts`) that constructs an edge for two arbitrary entities and asserts the schema build succeeds.
+
+The factory pattern is the documented NestJS-GraphQL idiom for generic ObjectTypes (https://docs.nestjs.com/graphql/resolvers#generics). Adopting it here removes the entire class of "node has undefined type" regressions.
+
+**Status:** RESOLVED — `chore/hr-cursor-edge-graphql-type` lands the factory + interface + test. After redeploy, hr-service bootstraps and all CursorEdge-consuming services build a valid schema.
+
+
+---
+
+## ORPHAN-CRITICAL-068 — hr-service entity-declared tables payrolls/holidays/goals have no migration; SourceSchemaBootstrap guard rejects cold-boot
+
+Severity: CRITICAL. hr-service crash-loops in production at boot. Workforce/payroll/leave functionality offline.
+Discovered: 2026-05-10, on the live droplet during the post-recovery deploy.
+File: apps/hr-service/src/database/migrations/ (gap), entities exist at payroll.entity.ts, holiday.entity.ts, goal.entity.ts.
+
+Evidence: SourceSchemaBootstrap "Source schema hr is missing 3/24 declared tables: payrolls, holidays, goals."
+
+Root cause: entities relied on TypeORM synchronize=true in dev; production DATABASE_SYNC=false correctly. No migration ever created these 3 tables.
+
+Fix: Tier-1 canonical migration matching entity column shapes 1:1 with idempotent CREATE patterns.
+
+Status: RESOLVED on chore/hr-payrolls-holidays-goals-migration.
+## ORPHAN-CRITICAL-067 — `StorageResolver.storageInventoryByCursor`'s `@Args('input')` slot lacks an explicit `type: () => CursorPaginationInput`; farm-service GraphQL schema build crash-loops at bootstrap with "Undefined type error … parameter at index [2]"
+
+**Severity:** CRITICAL — farm-service is dead in production. Every consumer of farm data (storage, batches, tanks, water quality, feed, harvest, fish health, growth) is offline because the entire farm-service `AppModule` fails to bootstrap before any resolver is registered. The regression is the args-decorator-side counterpart of ORPHAN-CRITICAL-064 (which fixed the ObjectType emission side); the input-side gap remained because no concrete subclass of `CursorPaginationInput` was declared and the only call site relied on TypeScript reflection.
+**Discovered:** 2026-05-10, droplet redeploy after the hr-service ORPHAN-CRITICAL-064 ship
+**File:** `apps/farm-service/src/storage/storage.resolver.ts:187` (`storageInventoryByCursor` method, third `@Args` parameter)
+
+**Evidence (farm-service container log):**
+
+```
+Bootstrap failed: Undefined type error. Make sure you are providing an explicit type for the "storageInventoryByCursor" (parameter at index [2]) of the "StorageResolver" class.
+    at reflectTypeFromMetadata (/app/node_modules/@nestjs/graphql/dist/utils/reflection.utilts.js:17:19)
+    at /app/node_modules/@nestjs/graphql/dist/decorators/args.decorator.js:24:106
+```
+
+**Root cause:** NestJS GraphQL's `@Args()` decorator calls `reflectTypeFromMetadata` to resolve the parameter's GraphQL input type. If the decorator has no explicit `type: () => SomeType`, the reflector reads `design:paramtypes[index]` — TypeScript's emit-decorator-metadata output. For the failing parameter, this resolves to `Object` (in `NOT_ALLOWED_TYPES` per `reflection.utilts.js:6`) because:
+
+1. `CursorPaginationInput` is declared `@InputType({ isAbstract: true })` in `libs/backend-common/src/pagination/cursor.ts:91`. The `isAbstract: true` flag is the deliberate signal that this type is a base — it expects either a concrete subclass at the consumer site or an explicit reference at every call site.
+2. The parameter is a cross-package import from `@aquaculture/backend-common/pagination`. TypeScript's emit-decorator-metadata reflection can fail to recover the named class for cross-package imports under certain `tsconfig` `paths` / project-reference configurations, falling back to `Object`.
+3. The two earlier `@Args` slots in the same method (`locationId`, `itemType`) both carry explicit `type: () => …` so the schema builder never sees the implicit emit for them — only this third slot relied on the implicit path and exposed the gap.
+
+The regression was masked by hr-service crash-looping first (ORPHAN-CRITICAL-064); once hr-service started bootstrapping, the next service in the deploy chain (farm-service) crash-looped on its own undefined-type case.
+
+**Fix (Tier-1 Make-Impossible):** add explicit `type: () => CursorPaginationInput` to the failing `@Args` decorator. This (a) bypasses the implicit reflection path entirely so the cross-package import no longer matters, (b) pulls `CursorPaginationInput` into the schema graph via `args.factory.create` so the abstract input type is registered, and (c) matches the established pattern for every other `@Args` decorator in the file. The fix is a single-line decorator option; the entire regression class is closed once every cursor-paginated resolver follows the same shape.
+
+A platform-wide invariant follow-up (lint rule: "every `@Args` whose parameter type imports from `@aquaculture/backend-common/pagination` MUST declare explicit `type`") is tracked under a separate finding once we have a representative dataset of cursor-paginated resolvers — adding it now would be premature with one call site.
+
+**Status:** RESOLVED — `chore/farm-storage-resolver-graphql-type` lands the explicit type on `storageInventoryByCursor` parameter index [2]. After redeploy, farm-service bootstraps and the storage GraphQL schema exposes `storageInventoryByCursor(input: CursorPaginationInput, …)`.
+
+---
+
+## ORPHAN-CRITICAL-069 — `config-service`'s per-service `MigrationRunnerService` is registered with the wrong source schema (`'public'`) while every entity / migration targets `'config'`; production cold-boot crash on the first config-schema migration
+
+**Severity:** CRITICAL
+**Discovered:** 2026-05-10, production droplet config-service crash log
+**File:** `apps/config-service/src/app.module.ts` line 34 (`createMigrationRunnerService('public')`) + `apps/config-service/src/database/data-source.ts` line 28 (`schema: 'public'`) + `docker-compose.droplet.yml` lines 1355-1360 (config-service DATABASE_USER wired as `gateway_service`)
+
+**Evidence (production droplet container log):**
+
+```
+{"level":"error","service":"config-service","context":"MigrationRunnerService[public]",
+ "message":"Migration \"AlignConfigEntitySurface1789000000000\" failed on \"public\":
+ permission denied for database aquaculture"}
+```
+
+**Root cause:** Three places in the config-service wiring point at the legacy `public` schema while the entity and migration surface have already moved to a dedicated `config` schema:
+
+1. `apps/config-service/src/app.module.ts:34` — `createMigrationRunnerService('public')`. The factory captures the source schema in a closure: the resulting `MigrationRunnerService[public]` advisory-locks `public`, pins `search_path TO public, public`, and maintains the migration ledger as `public.typeorm_migrations`. The connecting DB role (`gateway_service` per docker-compose, see point 3 below) has **no CREATE privilege on `public`** — the runner crashes on the very first `INSERT INTO public.typeorm_migrations` it attempts after applying any pending DDL.
+2. `apps/config-service/src/database/data-source.ts:28` — `schema: 'public'`. The CLI DataSource (used by operator-only `npm run typeorm -- migration:show / migration:revert` paths) points to `public`, so any operator-driven inspection reads/writes the wrong ledger relative to the actual entity + migration target.
+3. `docker-compose.droplet.yml:1355-1360` — `DATABASE_USER: ${GATEWAY_SERVICE_DB_USER:-gateway_service}` plus the explicit comment `"NOTE: config-service does not have a dedicated schema in 00-init-schemas.sh yet."` is **factually stale**: `00-init-schemas.sh:118 + 138-141 + 175 + 193 + 460-469` provisions the `config_service` role, creates the `config` schema with `AUTHORIZATION config_service`, and grants `ALL PRIVILEGES ON ALL TABLES IN SCHEMA config TO config_service`. Connecting as `gateway_service` (which has grants only on the `gateway` schema, not `config`) closes the privilege gap into a fail-stop wall on first boot.
+
+Meanwhile, the entity surface and migration body declared the architectural truth:
+- `apps/config-service/src/configuration/entities/configuration.entity.ts:52` — `@Entity('configurations', { schema: 'config' })`
+- `apps/config-service/src/configuration/entities/configuration.entity.ts:177` — `@Entity('configuration_history', { schema: 'config' })`
+- `apps/config-service/src/database/migrations/1789000000000-AlignConfigEntitySurface.ts:30 + 32 + 53 + 91 + 113` — every DDL statement schema-qualified to `config.*` plus `pinSearchPath(qr, 'config')` defence-in-depth
+
+The centralised `aqua-db-migrate` orchestrator (which runs as `service_completed_successfully` precondition for every service container per the WS10 contract — `docker-compose.droplet.yml:1374-1376`) was already applying the AlignConfigEntitySurface DDL against the `config` schema correctly. So the table surface in production is correct; only the per-service `MigrationRunnerService` boots, attempts to re-confirm the ledger entry on the wrong schema, and crashes the container at `OnApplicationBootstrap`.
+
+**Fix (Tier-1 Make-Impossible):** Align the four callsites with the schema the entities + migrations target — `'config'`. No new code paths, no shim — every change is the value already declared by the entity decorators and migration bodies:
+
+1. `apps/config-service/src/app.module.ts:34` — `createMigrationRunnerService('config')`. Matches the canonical platform pattern (`billing-service`: `('billing')`, `hr-service`: `('hr')`, `ai-service`: `('ai')`). The runner now pins `search_path TO config, public`, advisory-locks `config`, and maintains the ledger as `config.typeorm_migrations` — where the `config_service` role has CREATE.
+2. `apps/config-service/src/app.module.ts:60` — `createServiceTypeOrmConfig({ schema: 'config' })`. The TypeORM factory composes the `search_path=config,public` connection option from this field, so unqualified entity reads in runtime queries land in the owned schema before falling back to `public` (where extensions / `typeorm_migrations` legacy artefacts live).
+3. `apps/config-service/src/database/data-source.ts:28` — `schema: 'config'` + `username: ... ?? 'config_service'`. CLI parity with the runtime runner so operator `migration:show / migration:revert` paths read the same ledger the service writes.
+4. `docker-compose.droplet.yml:1355-1360` — `DATABASE_USER: ${CONFIG_SERVICE_DB_USER:-config_service}`. Closes the role-vs-schema mismatch: the runtime user (used by both the request hot-path and the OnApplicationBootstrap runner) now has CREATE on `config`. `00-init-schemas.sh:50 + 58` already initialises `CONFIG_SERVICE_DB_PASS` from the matching env var operators set in their `.env`.
+
+Idempotent on every redeploy: the runner uses `MigrationExecutor.getPendingMigrations()` which reads the per-schema `typeorm_migrations` ledger and skips already-applied migrations. The aqua-db-migrate orchestrator continues to be the canonical first-pass applier (per the WS10 contract); the per-service runner is now a no-op warm-start signal in production because the orchestrator has already advanced the ledger. The two stale `@Module` docblocks ("config-service has no TypeORM migration runner — schema state is managed via TypeORM autoLoadEntities + the RLS bootstrap") were also corrected in the same commit so future readers see the architectural shape that actually exists.
+
+**Status:** RESOLVED — `chore/config-service-runner-schema` lands the four-callsite alignment. After redeploy, the boot log shows `MigrationRunnerService[config]` (not `[public]`), the per-schema runner emits "No pending migrations on 'config'" because the aqua-db-migrate container already advanced the ledger, and the service container reaches the HTTP health probe without a permission-denied crash. The wider architectural debt (config-service connecting as a per-service role rather than a shared one) closes in the same commit, completing the schema-per-service convergence for config that hr/farm/billing/ai/notification/alert already cleared.
+
+
+---
+
+## ORPHAN-CRITICAL-065 — docker-compose.droplet.yml farm-service block missing MINIO_ACCESS_KEY/SECRET_KEY env; service refuses to start
+
+Severity: CRITICAL. farm-service crash-loops in production at cold-boot.
+Discovered: 2026-05-10, on the live droplet.
+File: docker-compose.droplet.yml farm-service block (line 745+).
+
+Evidence: "CRITICAL: MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be explicitly configured in production. Farm-service startup aborted to prevent use of default credentials."
+
+Root cause: gateway-api and messaging-service compose blocks declare MINIO env vars for FileUploadSecurityService. farm-service uses the same service but the compose block never forwarded the env. Configuration-drift bug.
+
+Fix: Tier-2 Make-Automatic. Mirror the MINIO env block from gateway/messaging — MINIO_ENDPOINT/PORT/USE_SSL/ACCESS_KEY/SECRET_KEY/BUCKET/REGION.
+
+Status: RESOLVED on chore/farm-minio-env-compose.
+
+
+## ORPHAN-CRITICAL-070 — farm-service entity-declared 42 tables have no migration; SourceSchemaBootstrap rejects cold-boot
+Severity: CRITICAL. farm-service crash-loops in production. Web login blocked.
+Discovered: 2026-05-10, on the live droplet after MINIO env wiring (ORPHAN-CRITICAL-065) unblocked the next layer of cold-boot validation.
+File: apps/farm-service/src entity tree vs. production farm schema.
+
+Evidence: Production farm schema contains 33 tables, but the farm-service entity tree declares 74 `@Entity('...')` classes. SourceSchemaBootstrapService surfaced the gap on cold-boot:
+
+"Bootstrap failed: Source schema 'farm' is missing 42 declared tables (auto_rules, chemicals, chemical_sites, chemical_types, daily_feeding_executions, equipment_systems, farm_audit_logs, farm_workers, feed_inventory, feed_sites, feed_type_species, feed_types, feeding_program_tanks, feeding_programs, feeding_protocols, feeding_records, feeding_tables, feeds, growth_measurements, harvest_plans, harvest_records, health_events, inventory_count_items, inventory_counts, maintenance_schedules, mortality_records, recurring_templates, sentinel_hub_settings, site_contacts, spare_parts, sub_equipment, sub_equipment_types, supplier_sites, supplier_types, suppliers, tank_operations, tasks, water_quality_measurements, water_quality_param_equipment, water_quality_parameter_configs, work_orders). Refusing to fall back to runtime synchronize() per INFRA-CRITICAL-009."
+
+Root cause: 74 entities declared in the farm-service domain tree (`apps/farm-service/src/{batch,equipment,farm,feed,feeding,fish-health,growth,harvest,maintenance,site,storage,supplier,task,water-quality,...}/entities/*.entity.ts`) but only 33 corresponding tables provisioned by prior migrations (CreateInitialSchema + the 30+ delta migrations through 1788300000000). Pre-existing TypeORM `synchronize: true` in some dev/staging environment masked the gap until cold-boot in production where `DATABASE_SYNC=false` is mandatory. The schema-bootstrap guard installed per INFRA-CRITICAL-009 fired correctly on first cold deploy, refusing to fall through to a runtime DDL fallback.
+
+Fix: Tier-1 Make-Impossible. ONE comprehensive `CREATE TABLE` migration at `apps/farm-service/src/database/migrations/1789200000000-AddMissingFarmTables.ts` matching the 42 entity-declared columns 1:1 — uuid PKs, decimal precisions, enum types, jsonb columns, timestamptz audit fields, all idempotent (`CREATE TABLE IF NOT EXISTS`, `DO $$ BEGIN CREATE TYPE … EXCEPTION WHEN duplicate_object`, `CREATE INDEX IF NOT EXISTS`). Migration is registered in both `apps/farm-service/src/app.module.ts` (class-ref list for runtime MigrationRunnerService) and discovered by `apps/db-migrate` via its glob pattern. Cross-table FK declarations are deferred to a follow-up migration to avoid intra-migration dependency cycles; the application-layer TypeORM relations remain intact.
+
+Status: RESOLVED on chore/farm-comprehensive-migration.
+
+
+---
+
+## ORPHAN-CRITICAL-072 — sensor-ingestion image not published by CI; every droplet deploy crashes on missing manifest
+
+Severity: CRITICAL. Every push-to-main deploy fails identically: sensor-ingestion image pull returns "no matching manifest for linux/amd64", docker compose up -d exits non-zero (masked by |\| true), zero containers start, 300s critical-service SLA times out, rollback required, exit 1.
+
+Discovered: 2026-05-10/11, after 17 architectural cold-boot fix PRs landed but every deploy still failed at the same step.
+
+Evidence (deploy log pattern across runs 25637861685, 25642208052, 25655583156):
+  Image ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:latest Error
+  no matching manifest for linux/amd64 in the manifest list entries:
+  failed to resolve reference \"ghcr.io/okan-wqm/.../sensor-ingestion:latest\": not found
+  ...
+  Error: 8 critical service(s) failed to reach healthy within 300s SLA.
+
+Root cause: sensor-ingestion is a Rust sidecar (sens-api-gateway repo subdirectory, ADR-025 strangler-fig). The TypeScript/Node CI build matrix (.github/workflows/ci-affected.yml) does not include a Rust cargo build + Dockerfile build + GHCR push step for it. The compose file unconditionally references the GHCR image; deploy unconditionally tries to pull. The pull fails permanently because the image never exists.
+
+Architectural fix shape (Tier-1 Make-Impossible, two-part):
+  1. docker-compose.droplet.yml: add profiles: ["rust-sidecar"] to the sensor-ingestion service block. Default compose contexts (every deploy today) skip the service entirely — no pull attempt, no manifest error.
+  2. infrastructure/deploy/service-criticality.yaml: demote sensor-ingestion from level: critical → level: optional. Without the demotion, the 300s health check still reports it missing and rolls back.
+
+Operator opt-in path (after CI Rust matrix lands): set COMPOSE_PROFILES=rust-sidecar in droplet .env and promote the criticality entry back to critical.
+
+Follow-up tracked but out of scope for this PR: CI Rust build matrix that publishes the multi-arch sensor-ingestion image to GHCR so the profile can become default.
+
+Status: RESOLVED on chore/sensor-ingestion-profile-gate.
+
+
+---
+
+## ORPHAN-CRITICAL-073 — Apollo Federation supergraph composition rejects Mutation.exportTenantData collision between farm and messaging subgraphs
+
+Severity: CRITICAL. Gateway crash-loop in production. Without supergraph composition, no public-URL GraphQL query reaches any backend.
+
+Discovered: 2026-05-11.
+
+Evidence (gateway log attempt 1 of new boot):
+  A valid schema couldn't be composed. The following composition errors were found:
+  Type of field "Mutation.exportTenantData" is incompatible across subgraphs:
+  it has type "TenantExportBundleResponse!" in subgraph "farm"
+  but type "ExportJobType!" in subgraph "messaging".
+  Non-shareable field "Mutation.exportTenantData" is resolved from multiple subgraphs.
+
+Root cause: farm and messaging both defined Mutation.exportTenantData with different return types under the non-shareable default.
+
+Fix (Tier-1 Make-Impossible): rename messaging.exportTenantData to exportTenantMessages so the federation graph itself rejects future name collisions. Farm keeps exportTenantData (matches aquaculture-domain semantics).
+
+Status: RESOLVED on chore/federation-namespace-export-tenant-data.
+
+
+---
+
+## ORPHAN-CRITICAL-074 — sensor-ingestion criticality manifest entry references service hidden by compose profile gate; deploy validator rollback
+
+Severity: CRITICAL. Every default deploy fails at the critical-service health check coverage validator with "manifest references services not in docker-compose.droplet.yml: sensor-ingestion".
+
+Discovered: 2026-05-11, on the deploy after PR #269 (sensor-ingestion compose profile gate) landed but criticality manifest entry was only demoted rather than removed.
+
+Root cause: PR #269 added profiles: [rust-sidecar] to sensor-ingestion in docker-compose.droplet.yml AND demoted the service-criticality.yaml entry from level: critical to level: optional. Two issues:
+
+  1. level: 'optional' is NOT a valid CriticalityLevel — the validator type union is 'critical' | 'required' | 'warning' | 'ignored'. The yaml-side enum drifted from the code-side type.
+  2. Even if level were valid, the coverage check at check-service-health.ts:208-219 calls docker compose config --services WITHOUT any --profile flag, which intentionally hides profile-gated services. The validator then flags sensor-ingestion as referenced-but-missing and exits 2 before any health polling begins. Rollback is triggered.
+
+Fix (Tier-1 Make-Impossible): REMOVE the sensor-ingestion entry from service-criticality.yaml entirely while the service stays profile-gated. The manifest's coverage invariant is "every entry maps to a real default-compose service" — a profile-gated entry violates that invariant by construction. When the operator opts in (COMPOSE_PROFILES=rust-sidecar) AND the CI Rust build matrix publishes the multi-arch GHCR image, the manifest entry is restored as level: critical.
+
+The retained doc comment block documents the restore path so the entry is not added back accidentally with the wrong level (the previous comment said level: optional which would still fail).
+
+Status: RESOLVED on chore/sensor-ingestion-manifest-cleanup.

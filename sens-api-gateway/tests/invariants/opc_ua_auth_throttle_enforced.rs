@@ -133,9 +133,7 @@ fn b2_sens_auth_manager_holds_throttle() {
 fn b2_constructor_requires_throttle_param() {
     let src = read_source("src/opc_ua_sens_auth_manager.rs");
     assert!(
-        src.contains(
-            "throttle: Arc<crate::opc_ua_server::auth_throttle::FailedAuthWindow>,"
-        ),
+        src.contains("throttle: Arc<crate::opc_ua_server::auth_throttle::FailedAuthWindow>,"),
         "B-2 WIRE INVARIANT VIOLATED: src/opc_ua_sens_auth_manager.rs \
          `SensAuthManager::new` signature does not require \
          `throttle: Arc<...FailedAuthWindow>`. A throttle-less constructor \
@@ -226,8 +224,7 @@ fn b2_audit_action_variant_present_with_stable_wire_tag() {
 fn b2_boot_wires_throttle_from_config() {
     let src = read_source("src/opc_ua_server_runtime.rs");
     assert!(
-        src.contains("FailedAuthWindow::new(")
-            && src.contains("config.max_failed_auth_per_60s"),
+        src.contains("FailedAuthWindow::new(") && src.contains("config.max_failed_auth_per_60s"),
         "B-2 BOOT WIRE INVARIANT VIOLATED: src/opc_ua_server_runtime.rs \
          init path does not construct `FailedAuthWindow::new(config.max_failed_auth_per_60s)`. \
          The operator-tunable cap is the architectural contract — \

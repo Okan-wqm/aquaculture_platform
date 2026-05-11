@@ -142,7 +142,7 @@ export interface SensorConnectionStatus {
 @Auditable()
 @ObjectType()
 @Directive('@key(fields: "id")')
-@Entity('sensors', { schema: 'sensor' })
+@Entity('sensors')
 @Index(['tenantId', 'status'])
 @Index('IDX_sensors_serial_number', ['serialNumber'], { unique: true })
 @Index(['tenantId', 'siteId'])

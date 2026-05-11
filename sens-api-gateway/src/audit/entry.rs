@@ -784,7 +784,9 @@ mod tests {
     ///      stability contract for audit-verify CLI retroactive chain walk.
     #[test]
     fn audit_resource_wire_tags_stable() {
-        let t = AuditResource::Tag { name: "x".to_string() };
+        let t = AuditResource::Tag {
+            name: "x".to_string(),
+        };
         let p = AuditResource::Permission {
             permission: Permission::ReadTag,
         };

@@ -80,6 +80,20 @@ GRANT shared_schema_owner TO notification_service;
 GRANT shared_schema_owner TO hydroponics_service;
 GRANT shared_schema_owner TO ai_service;
 GRANT shared_schema_owner TO messaging_service;
+-- Wave 4-A.2: extend membership to the 4 service roles that were
+-- previously omitted. ai/observability/event_store/config all read
+-- shared.user_permissions for RBAC enforcement, and config emits
+-- shared.audit_logs rows for configuration changes.
+GRANT shared_schema_owner TO observability_service;
+GRANT shared_schema_owner TO event_store_service;
+GRANT shared_schema_owner TO config_service;
+
+-- admin_service needs USAGE on auth so admin-api analytics queries
+-- (cross-tenant tenant lifecycle reads) resolve auth.tenants names.
+-- Restated here defensively — 00-init-schemas.sh emits the same grant
+-- but ordering between the two scripts is a deploy-time invariant we
+-- prefer to assert in both files.
+GRANT USAGE ON SCHEMA auth TO admin_service;
 
 -- Grant USAGE so service users can resolve names in the schema.
 GRANT USAGE ON SCHEMA shared TO PUBLIC;

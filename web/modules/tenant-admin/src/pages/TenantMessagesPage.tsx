@@ -31,6 +31,7 @@ import {
   type MessageThread,
   type Message,
 } from '../hooks/useTenantData';
+import { sanitizeErrorMessage } from '../utils/error-handling';
 
 // ============================================================================
 // Component

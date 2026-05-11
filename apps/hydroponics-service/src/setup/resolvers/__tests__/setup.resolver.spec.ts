@@ -7,9 +7,12 @@
  * - Resolver does NOT carry @Public() (which would bypass auth)
  */
 
+import { ROLES_KEY } from '@aquaculture/backend-common/decorators';
 import { Reflector } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ROLES_KEY } from '@aquaculture/backend-common/decorators';
+import { getRepositoryToken } from '@nestjs/typeorm';
+
+import { HydroponicsConfig } from '../../entities/hydroponics-config.entity';
 import { SetupResolver } from '../setup.resolver';
 
 describe('SetupResolver', () => {

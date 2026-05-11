@@ -108,10 +108,19 @@ pub enum SessionQuotaError {
     /// tenant cannot acquire. On a single-tenant agent this is
     /// equivalent to a global cap distinct from `max_sessions` (the
     /// hard floor).
-    TenantCapExceeded { tenant: String, cap: u32, current: u32 },
+    TenantCapExceeded {
+        tenant: String,
+        cap: u32,
+        current: u32,
+    },
     /// Per-user cap reached within the tenant. The most common path —
     /// fairness floor against single-credential session monopoly.
-    UserCapExceeded { tenant: String, user: String, cap: u32, current: u32 },
+    UserCapExceeded {
+        tenant: String,
+        user: String,
+        cap: u32,
+        current: u32,
+    },
     /// Internal mutex poisoned by previous panic.
     LockPoisoned,
 }
@@ -187,11 +196,7 @@ struct SessionQuotaInner {
 
 impl std::fmt::Debug for SessionQuota {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let tenant_total = self
-            .inner
-            .lock()
-            .map(|g| g.tenant_total)
-            .unwrap_or(0);
+        let tenant_total = self.inner.lock().map(|g| g.tenant_total).unwrap_or(0);
         f.debug_struct("SessionQuota")
             .field("tenant", &self.tenant)
             .field("per_tenant_cap", &self.per_tenant_cap)
@@ -205,11 +210,7 @@ impl SessionQuota {
     /// Construct a quota for `tenant` with the configured caps. Both
     /// caps MUST be >= 1 (caller-side invariant; `OpcUaServerConfig::validate`
     /// enforces upstream).
-    pub fn new(
-        tenant: String,
-        per_tenant_cap: u32,
-        per_user_cap: u32,
-    ) -> Arc<Self> {
+    pub fn new(tenant: String, per_tenant_cap: u32, per_user_cap: u32) -> Arc<Self> {
         assert!(per_tenant_cap >= 1, "per_tenant_cap MUST be >= 1");
         assert!(per_user_cap >= 1, "per_user_cap MUST be >= 1");
         assert!(
@@ -231,10 +232,7 @@ impl SessionQuota {
     /// Attempt to acquire a session lease for `user` in this quota's
     /// tenant. Atomically checks both caps; on success, increments the
     /// counters + returns a `SessionLease` whose Drop will decrement.
-    pub fn try_acquire(
-        self: &Arc<Self>,
-        user: &str,
-    ) -> Result<SessionLease, SessionQuotaError> {
+    pub fn try_acquire(self: &Arc<Self>, user: &str) -> Result<SessionLease, SessionQuotaError> {
         let now = Instant::now();
         let key = QuotaKey {
             tenant: self.tenant.clone(),
@@ -252,11 +250,7 @@ impl SessionQuota {
         // entry scans worst case. Fast.
         Self::sweep_expired_locked(&mut guard, now);
 
-        let user_count = guard
-            .counts
-            .get(&key)
-            .map(|v| v.len() as u32)
-            .unwrap_or(0);
+        let user_count = guard.counts.get(&key).map(|v| v.len() as u32).unwrap_or(0);
         if user_count >= self.per_user_cap {
             return Err(SessionQuotaError::UserCapExceeded {
                 tenant: self.tenant.clone(),
@@ -274,11 +268,7 @@ impl SessionQuota {
         }
 
         let entry = LeaseEntry { acquired_at: now };
-        guard
-            .counts
-            .entry(key.clone())
-            .or_default()
-            .push(entry);
+        guard.counts.entry(key.clone()).or_default().push(entry);
         guard.tenant_total += 1;
 
         Ok(SessionLease {
@@ -306,10 +296,7 @@ impl SessionQuota {
 
     /// Read-only inspector — current tenant total.
     pub fn current_tenant_total(&self) -> u32 {
-        self.inner
-            .lock()
-            .map(|g| g.tenant_total)
-            .unwrap_or(0)
+        self.inner.lock().map(|g| g.tenant_total).unwrap_or(0)
     }
 
     /// Internal — release a lease. Called by `SessionLease::drop`.
@@ -320,9 +307,7 @@ impl SessionQuota {
         };
         if let Ok(mut guard) = self.inner.lock() {
             if let Some(entries) = guard.counts.get_mut(&key) {
-                if let Some(pos) =
-                    entries.iter().position(|e| e.acquired_at == acquired_at)
-                {
+                if let Some(pos) = entries.iter().position(|e| e.acquired_at == acquired_at) {
                     entries.remove(pos);
                     guard.tenant_total = guard.tenant_total.saturating_sub(1);
                     if entries.is_empty() {
@@ -333,16 +318,11 @@ impl SessionQuota {
         }
     }
 
-    fn sweep_expired_locked(
-        inner: &mut SessionQuotaInner,
-        now: Instant,
-    ) {
+    fn sweep_expired_locked(inner: &mut SessionQuotaInner, now: Instant) {
         let mut to_remove: Vec<QuotaKey> = Vec::new();
         for (key, entries) in inner.counts.iter_mut() {
             let before = entries.len();
-            entries.retain(|e| {
-                now.duration_since(e.acquired_at) < LEASE_FAIL_SAFE_TTL
-            });
+            entries.retain(|e| now.duration_since(e.acquired_at) < LEASE_FAIL_SAFE_TTL);
             let after = entries.len();
             let evicted = (before - after) as u32;
             inner.tenant_total = inner.tenant_total.saturating_sub(evicted);
@@ -609,11 +589,13 @@ mod tests {
         // OR fewer (some attempts hit the cap). At any single instant
         // during the burst, simultaneously-held leases never exceeded
         // the per-user cap = 3.
-        let total_successes =
-            success_counter.load(std::sync::atomic::Ordering::SeqCst);
+        let total_successes = success_counter.load(std::sync::atomic::Ordering::SeqCst);
         // Loose upper-bound check — exact race-result depends on
         // scheduler. Assert lower bound = at least some attempts
         // succeeded.
-        assert!(total_successes > 0, "no acquires succeeded under contention");
+        assert!(
+            total_successes > 0,
+            "no acquires succeeded under contention"
+        );
     }
 }

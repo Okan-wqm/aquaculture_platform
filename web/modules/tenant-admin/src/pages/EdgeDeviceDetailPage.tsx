@@ -18,15 +18,16 @@ import {
   X,
 } from 'lucide-react';
 
-import {
-  approveDevice,
-  pingDevice,
-  rebootDevice,
-  setDeviceMaintenanceMode,
-  decommissionDevice,
-  getDeviceEvents,
-} from '../lib/api';
 import { useDevicePolling } from '../hooks/useDevicePolling';
+import {
+  useDeviceEvents,
+  useDeviceAction,
+  APPROVE_DEVICE_MUTATION,
+  PING_DEVICE_MUTATION,
+  REBOOT_DEVICE_MUTATION,
+  MAINTENANCE_DEVICE_MUTATION,
+  DECOMMISSION_DEVICE_MUTATION,
+} from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 import { formatDateTime } from '../utils/date-utils';
 import { useAuthContext } from '@aquaculture/shared-ui';
@@ -166,34 +167,24 @@ const EdgeDeviceDetailPage: React.FC = () => {
   const [showDecommissionModal, setShowDecommissionModal] = useState(false);
   const [showRebootModal, setShowRebootModal] = useState(false);
 
-  const runAction = async (name: string, actionFn: () => Promise<unknown>) => {
-    setActionLoading(name);
+  // TanStack Query hooks
+  const deviceActionMutation = useDeviceAction();
+  const { data: events = [], refetch: refetchEvents } = useDeviceEvents(
+    deviceId || '',
+    activeTab === 'events',
+  );
+
+  const actionLoading = deviceActionMutation.isPending ? actionName : null;
+
+  const runAction = async (name: string, mutation: string, variables: Record<string, unknown>) => {
+    setActionName(name);
     try {
-      await actionFn();
+      await deviceActionMutation.mutateAsync({ mutation, variables });
       refetch();
     } catch (err) {
       logError(`EdgeDeviceDetail.${name}`, err);
     } finally {
-      setActionLoading(null);
-    }
-  };
-
-  // BUG-009: Load events when tab is already active on mount (e.g. deep link to events tab)
-  useEffect(() => {
-    if (activeTab === 'events' && !eventsLoaded && deviceId) {
-      loadEvents();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, deviceId]);
-
-  const loadEvents = async () => {
-    if (!deviceId) return;
-    try {
-      const data = await getDeviceEvents(deviceId, 1, 50);
-      setEvents(data.items);
-      setEventsLoaded(true);
-    } catch (err) {
-      logError('EdgeDeviceDetail.loadEvents', err);
+      setActionName(null);
     }
   };
 
@@ -262,7 +253,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
         <div className="flex items-center gap-2">
           {device.lifecycleState === 'pending_approval' && (
             <button
-              onClick={() => runAction('approve', () => approveDevice(device.id))}
+              onClick={() => runAction('approve', APPROVE_DEVICE_MUTATION, { id: device.id })}
               disabled={!!actionLoading}
               className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
             >
@@ -271,7 +262,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
             </button>
           )}
           <button
-            onClick={() => runAction('ping', () => pingDevice(device.id))}
+            onClick={() => runAction('ping', PING_DEVICE_MUTATION, { id: device.id })}
             disabled={!!actionLoading}
             className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
           >
@@ -386,7 +377,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
               <button
                 onClick={() => {
                   const enabled = device.lifecycleState !== 'maintenance';
-                  runAction('maintenance', () => setDeviceMaintenanceMode(device.id, enabled));
+                  runAction('maintenance', MAINTENANCE_DEVICE_MUTATION, { id: device.id, enabled });
                 }}
                 disabled={!!actionLoading}
                 className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm disabled:opacity-50"
@@ -450,34 +441,25 @@ const EdgeDeviceDetailPage: React.FC = () => {
             </button>
           </div>
           {events.length > 0 ? (
-            <>
-              <div className="space-y-2">
-                {events.map((event) => (
-                  <div key={event.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                    <span className={`mt-0.5 px-1.5 py-0.5 rounded text-xs font-medium ${
-                      severityColors[event.severity] || 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {event.severity}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-900">{event.message}</p>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                        <span>{event.eventType.replace(/_/g, ' ')}</span>
-                        <span>·</span>
-                        <span>{formatDateTime(event.createdAt)}</span>
-                      </div>
+            <div className="space-y-2">
+              {events.map((event) => (
+                <div key={event.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                  <span className={`mt-0.5 px-1.5 py-0.5 rounded text-xs font-medium ${
+                    severityColors[event.severity] || 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {event.severity}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-900">{event.message}</p>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                      <span>{event.eventType.replace(/_/g, ' ')}</span>
+                      <span>·</span>
+                      <span>{formatDateTime(event.createdAt)}</span>
                     </div>
                   </div>
-                ))}
-              </div>
-              {/* MED-23: Load More */}
-              <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
-                <span className="text-xs text-gray-500">Showing {events.length} of {eventsTotal} events</span>
-                {hasMoreEvents && (
-                  <button onClick={() => setEventsLimit((prev) => prev + EVENTS_PAGE_SIZE)} className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100">Load More</button>
-                )}
-              </div>
-            </>
+                </div>
+              ))}
+            </div>
           ) : (
             <p className="text-sm text-gray-500">No events recorded</p>
           )}
@@ -491,7 +473,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
       onClose={() => setShowRebootModal(false)}
       onConfirm={() => {
         setShowRebootModal(false);
-        runAction('reboot', () => rebootDevice(device.id, 'Admin reboot'));
+        runAction('reboot', REBOOT_DEVICE_MUTATION, { id: device.id, reason: 'Admin reboot' });
       }}
       loading={actionLoading === 'reboot'}
     />
@@ -502,7 +484,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
       onClose={() => setShowDecommissionModal(false)}
       onConfirm={(reason) => {
         setShowDecommissionModal(false);
-        runAction('decommission', () => decommissionDevice(device.id, reason));
+        runAction('decommission', DECOMMISSION_DEVICE_MUTATION, { id: device.id, reason });
       }}
       loading={actionLoading === 'decommission'}
     />

@@ -117,8 +117,7 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
     // machine_uid::get() with the same error context);
     // CI / test paths can sandbox the machine-id read
     // alongside the SUDERRA_DB_KEY_PATH override.
-    let machine_id = crate::machine_id::read()
-        .context("Cannot derive database encryption key")?;
+    let machine_id = crate::machine_id::read().context("Cannot derive database encryption key")?;
 
     let secret_key = load_or_create_db_secret()?;
 
@@ -129,9 +128,7 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
         machine_id.as_bytes(),
         &secret_key,
     );
-    let hex = crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(
-        &key_bytes,
-    );
+    let hex = crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(&key_bytes);
 
     // Store via OnceLock::get_or_init to handle the race
     // where multiple threads invoke derive_db_encryption_
@@ -552,18 +549,16 @@ impl OfflineQueue {
         )
         .await
         .map_err(|e| {
-            anyhow::anyhow!(
-                "OfflineQueue with_keystore_derivation: resolver failed: {e}"
-            )
+            anyhow::anyhow!("OfflineQueue with_keystore_derivation: resolver failed: {e}")
         })?;
 
-        let conn = Connection::open(db_path).with_context(|| {
-            format!("Failed to open queue database: {}", db_path.display())
-        })?;
+        let conn = Connection::open(db_path)
+            .with_context(|| format!("Failed to open queue database: {}", db_path.display()))?;
         apply_pragma_key_hex(&conn, resolved.pragma_key_hex.as_str())?;
 
         let queue = Self {
             conn: Mutex::new(conn),
+            db_path: Some(db_path.to_path_buf()),
             max_size,
             max_age_secs,
             max_disk_bytes,
@@ -1625,10 +1620,8 @@ mod tests {
     /// see the cached value regardless of thread interleaving.
     static TEST_KEY_PATH_INIT: std::sync::LazyLock<std::path::PathBuf> =
         std::sync::LazyLock::new(|| {
-            let dir = std::env::temp_dir().join(format!(
-                "suderra-offline-queue-test-{}",
-                std::process::id()
-            ));
+            let dir = std::env::temp_dir()
+                .join(format!("suderra-offline-queue-test-{}", std::process::id()));
             std::fs::create_dir_all(&dir).expect("mkdir test key dir");
             let path = dir.join("db.key");
             // SAFETY: set_var happens ONCE inside LazyLock::
@@ -1914,12 +1907,10 @@ mod tests {
     // tempdir for the DB + manifest sidecar.
 
     use crate::db_migration::manifest::{
-        manifest_path_for_db, write_manifest, DbKeySourceManifest,
+        DbKeySourceManifest, manifest_path_for_db, write_manifest,
     };
     use crate::db_migration::schema_version::DbKeySchemaVersion;
-    use crate::keystore::error::{
-        KeyDerivationError, KeystoreError, KeystoreErrorKind,
-    };
+    use crate::keystore::error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
     use crate::keystore::purpose::{DerivedKeyId, KeyPurpose};
     use crate::keystore::secret::KeyMaterial;
     use crate::keystore::{KeyBackend, RotationSource};
@@ -1950,11 +1941,7 @@ mod tests {
             Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
         }
 
-        fn derived_key_id(
-            &self,
-            _purpose: KeyPurpose,
-            _context: &[u8],
-        ) -> DerivedKeyId {
+        fn derived_key_id(&self, _purpose: KeyPurpose, _context: &[u8]) -> DerivedKeyId {
             DerivedKeyId([0u8; 16])
         }
 
@@ -2069,8 +2056,7 @@ mod tests {
         let db_path = dir.path().join("offline_queue.db");
 
         // Write a corrupt manifest sidecar.
-        std::fs::write(manifest_path_for_db(&db_path), b"not valid json")
-            .expect("seed corrupt");
+        std::fs::write(manifest_path_for_db(&db_path), b"not valid json").expect("seed corrupt");
 
         let result = OfflineQueue::with_keystore_derivation(
             &db_path,

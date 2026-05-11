@@ -53,8 +53,8 @@ import type {
   AlarmHistoryFilter,
   HistoricalDataPoint,
   TagValueChange,
-} from '../../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
-import { ScadaSocketEvent } from '../../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+} from '../scada-types';
+import { ScadaSocketEvent } from '../scada-types';
 
 import { TagManagerService } from './tag-manager.service';
 import { AlarmEngineService } from './alarm-engine.service';

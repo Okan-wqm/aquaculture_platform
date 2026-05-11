@@ -124,11 +124,7 @@ pub fn build_suderra_https_client_config() -> Result<Arc<ClientConfig>, String> 
 
     let cfg = ClientConfig::builder_with_provider(provider)
         .with_protocol_versions(&[&rustls::version::TLS13])
-        .map_err(|e| {
-            format!(
-                "ClientConfig::builder_with_provider rejected TLS 1.3 pin: {e:?}"
-            )
-        })?
+        .map_err(|e| format!("ClientConfig::builder_with_provider rejected TLS 1.3 pin: {e:?}"))?
         .with_root_certificates(root_store)
         .with_no_client_auth();
     Ok(Arc::new(cfg))

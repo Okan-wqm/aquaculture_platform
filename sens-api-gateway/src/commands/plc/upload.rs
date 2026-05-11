@@ -46,15 +46,17 @@ use std::time::Duration;
 use tracing::{error, info};
 
 use crate::plc_programming::{
-    AdsClient, CodesysClient, EtherNetIpClient, OpcUaClient, PlcProgram, PlcProgrammer,
-    S7Client,
+    AdsClient, CodesysClient, EtherNetIpClient, OpcUaClient, PlcProgram, PlcProgrammer, S7Client,
 };
 
 impl super::super::CommandHandler {
     /// Upload program to external PLC
     ///
     /// Supported protocols: codesys, s7, opcua, ethernet_ip, ads
-    pub(in crate::commands) async fn cmd_plc_upload(&self, params: &Value) -> (bool, Value, Option<String>) {
+    pub(in crate::commands) async fn cmd_plc_upload(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing plc_upload command");
 
         // Parse protocol
@@ -87,7 +89,11 @@ impl super::super::CommandHandler {
         // Reject loopback, link-local, and broadcast addresses (consistent with deploy_to_codesys)
         if let Ok(ip) = address.parse::<std::net::Ipv4Addr>() {
             if ip.is_loopback() || ip.is_link_local() || ip.is_broadcast() || ip.is_unspecified() {
-                return (false, json!(null), Some("PLC address cannot be loopback, link-local, or broadcast".to_string()));
+                return (
+                    false,
+                    json!(null),
+                    Some("PLC address cannot be loopback, link-local, or broadcast".to_string()),
+                );
             }
         }
 

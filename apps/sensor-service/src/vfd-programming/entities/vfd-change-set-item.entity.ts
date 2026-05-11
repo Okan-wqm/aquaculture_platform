@@ -18,7 +18,7 @@ import { VfdChangeSet } from './vfd-change-set.entity';
  * Tracks requested, previous, and applied values for verification.
  */
 @ObjectType({ description: 'Individual parameter change within a VFD change set' })
-@Entity('vfd_change_set_items', { schema: 'sensor' })
+@Entity('vfd_change_set_items')
 @Index(['changeSetId'])
 export class VfdChangeSetItem {
   @Field(() => ID)

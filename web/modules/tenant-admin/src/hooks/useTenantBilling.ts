@@ -8,7 +8,8 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { getTenantBilling } from '../lib/api';
+import { graphqlRequest } from '../services/tenant-api.service';
+import { TENANT_BILLING_QUERY } from '../graphql';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
@@ -84,7 +85,10 @@ export function useTenantBilling() {
     queryKey: billingKeys.details(),
     queryFn: async (): Promise<TenantBillingData> => {
       try {
-        return await getTenantBilling() as unknown as TenantBillingData;
+        const data = await graphqlRequest<{ tenantBilling: TenantBillingData }>(
+          TENANT_BILLING_QUERY,
+        );
+        return data.tenantBilling;
       } catch (err) {
         logError('useTenantBilling', err);
         throw err;

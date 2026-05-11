@@ -138,9 +138,7 @@ fn b3_sens_auth_manager_holds_quota() {
 fn b3_constructor_requires_session_quota_param() {
     let src = read_source("src/opc_ua_sens_auth_manager.rs");
     assert!(
-        src.contains(
-            "session_quota: Arc<crate::opc_ua_server::session_quota::SessionQuota>"
-        ),
+        src.contains("session_quota: Arc<crate::opc_ua_server::session_quota::SessionQuota>"),
         "B-3 WIRE INVARIANT VIOLATED: SensAuthManager::new signature \
          does not require `session_quota: Arc<...SessionQuota>`. A \
          quota-less constructor would let a future caller bypass the \

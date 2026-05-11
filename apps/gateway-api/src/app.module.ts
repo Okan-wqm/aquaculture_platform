@@ -11,24 +11,27 @@ import { GraphQLModule } from '@nestjs/graphql';
 // verification. JwtService is provided by PlatformJwtModule (which re-exports
 // JwtModule), so we still need the named-type import here for DI metadata.
 import { JwtService } from '@nestjs/jwt';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import depthLimit from 'graphql-depth-limit';
 import {
   getComplexity,
   simpleEstimator,
   fieldExtensionsEstimator,
 } from 'graphql-query-complexity';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import {
-  UserContextMiddleware,
-  TenantContextMiddleware,
   CorrelationIdMiddleware,
   RequestLoggingMiddleware,
-  RequestContextMiddleware,
-  MetricsMiddleware,
-  RedisModule,
-  RedisService,
-  generateServiceIdentityHeaders,
-  PlatformJwtModule,
-} from '@aquaculture/backend-common';
+  TenantContextMiddleware,
+  UserContextMiddleware,
+} from '@aquaculture/backend-common/middleware';
+import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
+import { generateServiceIdentityHeaders } from '@aquaculture/backend-common/utils';
+import { AuditedOperationModule, AuditLogEntity } from '@aquaculture/backend-common/audit';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -218,13 +221,21 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       const signedTenantId = uuidRegex.test(resolvedTenantId ?? '')
         ? (resolvedTenantId as string)
         : '';
-      // Apollo's httpRequest exposes the to-be-sent verb, URL, and body.
+      // Apollo's runtime httpRequest exposes the to-be-sent verb, URL, and
+      // body, but its public type only guarantees the header mutator.
       // Path is extracted without the query string per v2 contract.
-      const subgraphUrl = new URL(httpRequest.url);
+      const outgoingRequest = httpRequest as typeof httpRequest & {
+        url?: string;
+        method?: string;
+        body?: unknown;
+      };
+      const subgraphUrl = new URL(outgoingRequest.url ?? '/graphql', 'http://subgraph.local');
       const subgraphPath = subgraphUrl.pathname;
-      const subgraphMethod = httpRequest.method ?? 'POST';
+      const subgraphMethod = outgoingRequest.method ?? 'POST';
       const subgraphBody =
-        typeof httpRequest.body === 'string' ? httpRequest.body : JSON.stringify(httpRequest.body ?? '');
+        typeof outgoingRequest.body === 'string'
+          ? outgoingRequest.body
+          : JSON.stringify(outgoingRequest.body ?? '');
       const identityHeaders = buildSignedInternalHeaders({
         serviceName: 'gateway-api',
         tenantId: signedTenantId,
@@ -286,6 +297,99 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     // fallback. Tracked separately because removing the dev path requires
     // updating dev-onboarding scripts.
     PlatformJwtModule,
+
+    /**
+     * ORPHAN-CRITICAL-059 cure: wire a TypeORM root connection so the
+     * AuditedOperationInterceptor's `DataSource` constructor dependency
+     * resolves at NestJS DI graph build time. Pre-cure, importing
+     * `AuditedOperationModule.forRoot()` here registered the interceptor
+     * as a global APP_INTERCEPTOR, but no `TypeOrmModule.forRoot(...)`
+     * existed in this AppModule's imports[] — so when Nest tried to
+     * instantiate `AuditedOperationInterceptor(reflector, dataSource)`
+     * at cold boot, it failed with:
+     *
+     *   "Nest can't resolve dependencies of the AuditedOperationInterceptor
+     *    (Reflector, ?). Please make sure that the argument DataSource at
+     *    index [1] is available in the AuditedOperationModule module."
+     *
+     * The crash blocked NestFactory.create() before any HTTP server bound,
+     * which then blocked the gateway's /health/live → blocked the droplet
+     * compose healthcheck → blocked every login flow proxied through
+     * gateway-api. by-okan@live.com could not authenticate against the
+     * production droplet for ~2 days. The regression was masked while the
+     * older deployed image was still running because that image's
+     * AuditedOperationInterceptor signature didn't yet include DataSource.
+     * Today's cold-boot exposed it.
+     *
+     * # Why gateway-api needs a DB connection at all
+     *
+     * gateway-api owns NO domain schema (no entities, no migrations) but
+     * the platform's mandatory audit-trail contract (AUDITTRAIL-CRITICAL-002)
+     * registers `AuditedOperationInterceptor` GLOBALLY in every service.
+     * The interceptor's job is to write `shared.audit_logs` rows for any
+     * handler decorated with `@AuditedOperation()`. gateway-api currently
+     * has zero such handlers — it is a pure GraphQL federation proxy — so
+     * the interceptor's `intercept()` short-circuits at the metadata-read
+     * gate and never actually runs `dataSource.getRepository(...)`. But
+     * the constructor itself must still resolve at module-bootstrap time,
+     * which requires the DataSource to be in the DI graph.
+     *
+     * # Why we register AuditLogEntity in entities[]
+     *
+     * The interceptor's success path is `dataSource.getRepository(AuditLogEntity)
+     * .save(...)`. `getRepository(EntityClass)` requires the entity be in
+     * the connection's metadata, which means it must appear in the
+     * `entities` array of `TypeOrmModule.forRoot()` (or be picked up by
+     * `autoLoadEntities` via a `forFeature` registration). gateway-api
+     * has no `forFeature` calls, so we list `AuditLogEntity` explicitly.
+     * This makes the interceptor's repo lookup correct on the rare day
+     * a future contributor adds an `@AuditedOperation()` decorated handler
+     * here — instead of failing with "No metadata for 'AuditLogEntity'".
+     *
+     * # Why no migrations
+     *
+     * gateway-api owns no schema. The only table the interceptor would
+     * ever touch (`shared.audit_logs`) is created by the postgres init
+     * scripts (`infrastructure/docker/init-scripts/10-shared-schema.sql`)
+     * + maintained by every domain service that owns `AuditLogModule.forRoot()`.
+     * `migrations: []` + `migrationsRun: false` makes it structurally
+     * impossible for gateway-api to execute migrations against a schema
+     * it doesn't own.
+     *
+     * # Schema choice: 'shared' (not 'gateway')
+     *
+     * The compose env var `DATABASE_USER=gateway_service` has its own
+     * `gateway` schema reserved by 00-init-schemas.sh:332 ("gateway-api
+     * is stateless today but reserves a `gateway` schema for"...). But
+     * gateway-api has no entities of its own — the only table it ever
+     * needs to resolve is `shared.audit_logs`. Using `schema: 'shared'`
+     * sets the no-context connection's default `search_path` to
+     * `shared,public`, so the interceptor's `getRepository(AuditLogEntity)`
+     * resolves to `shared.audit_logs` without needing a TypeORM-level
+     * `@Entity({schema:'shared'})` lookup hop. The `gateway_service`
+     * Postgres role already holds USAGE+DML on `shared.audit_logs`
+     * via the `shared_schema_owner` group membership granted in
+     * `10-shared-schema.sql:78`.
+     */
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'gateway',
+          schema: 'shared',
+          // gateway-api owns NO migrations — see docblock above.
+          migrations: [],
+          migrationsRun: false,
+          // Explicit entity list (instead of autoLoadEntities) so the
+          // gateway-api connection only ever knows about the one entity
+          // it could conceivably touch. Adding more entities here without
+          // a clear ownership story would silently re-introduce the
+          // PR #226 surface that motivated removing RlsModule.forRoot()
+          // from this AppModule (see large comment block lower down).
+          entities: [AuditLogEntity],
+        }),
+    }),
 
     // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
     AuditedOperationModule.forRoot(),

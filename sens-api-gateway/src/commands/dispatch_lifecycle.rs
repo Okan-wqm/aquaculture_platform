@@ -32,8 +32,8 @@
 //! externally because the call site assumes the upstream MQTT
 //! pipeline already ran retain/replay/dedup gates.
 
-use serde_json::json;
 use chrono::Utc;
+use serde_json::json;
 use tracing::{debug, info, warn};
 
 use crate::mqtt::{CommandMessage, CommandResponse};
@@ -46,10 +46,7 @@ impl super::CommandHandler {
     /// MQTT-side gates: retained reject, parse, replay window,
     /// dedup) and return the serializable [`CommandResponse`] the
     /// MQTT publisher will send.
-    pub(super) async fn execute_command(
-        &mut self,
-        command: &CommandMessage,
-    ) -> CommandResponse {
+    pub(super) async fn execute_command(&mut self, command: &CommandMessage) -> CommandResponse {
         // v1.2.6: Track command execution time for observability
         let start_time = std::time::Instant::now();
         info!(
@@ -437,11 +434,7 @@ impl super::CommandHandler {
                 result_summary
             ),
             (None, true) => format!("elapsed_ms={}", elapsed.as_millis()),
-            (None, false) => format!(
-                "elapsed_ms={} {}",
-                elapsed.as_millis(),
-                result_summary
-            ),
+            (None, false) => format!("elapsed_ms={} {}", elapsed.as_millis(), result_summary),
         };
         audit_emit::emit_post_event(
             audit_sink.as_ref(),

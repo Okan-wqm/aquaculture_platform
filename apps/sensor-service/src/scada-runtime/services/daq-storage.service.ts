@@ -90,8 +90,7 @@ function rowsToDataMap(
   for (const id of tagIds) result[id] = [];
 
   for (const row of rows) {
-    if (!result[row.tag_id]) result[row.tag_id] = [];
-    result[row.tag_id].push({
+    (result[row.tag_id] ??= []).push({
       timestamp: row.ts instanceof Date ? row.ts.getTime() : Number(row.ts),
       value: row.value ?? 0,
     });
@@ -108,8 +107,7 @@ function aggRowsToDataMap(
   for (const id of tagIds) result[id] = [];
 
   for (const row of rows) {
-    if (!result[row.tag_id]) result[row.tag_id] = [];
-    result[row.tag_id].push({
+    (result[row.tag_id] ??= []).push({
       timestamp: row.bucket instanceof Date ? row.bucket.getTime() : Number(row.bucket),
       value: row.agg_value ?? 0,
     });
@@ -402,7 +400,7 @@ export class DaqStorageService {
     );
 
     for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
+      const chunk = chunks[i]!;
       const hasMore = i < chunks.length - 1;
 
       let data: Record<string, HistoricalDataPoint[]>;

@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * ConvertAuditIpColumnsToInet1788000000000
@@ -60,7 +61,53 @@ export class ConvertAuditIpColumnsToInet1788000000000
 {
   name = 'ConvertAuditIpColumnsToInet1788000000000';
 
+  private readonly logger = new MigrationLogger(
+    'ConvertAuditIpColumnsToInet1788000000000',
+  );
+
+  /**
+   * Wave 4-A.2 Dalga 3 bootstrap-restoration guards.
+   *
+   * `shared.audit_logs` and `admin.audit_logs` are created by sibling
+   * migrations in admin-api (`1782200000000-MoveSharedTablesFromAdminToShared`
+   * and `1787100000000-CreateAdminAuditLogsTable`). On fresh-volume
+   * bootstrap that runs this migration before the parent tables exist,
+   * the ALTER block crashes. Skip cleanly when either table is absent.
+   */
+  private async tableInSchema(
+    queryRunner: QueryRunner,
+    schema: string,
+    table: string,
+  ): Promise<boolean> {
+    const rows: Array<{ exists: boolean }> = await queryRunner.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.tables
+         WHERE table_schema = $1 AND table_name = $2
+       ) AS exists`,
+      [schema, table],
+    );
+    return rows[0]?.exists === true;
+  }
+
   public async up(queryRunner: QueryRunner): Promise<void> {
+    const hasSharedAuditLogs = await this.tableInSchema(
+      queryRunner,
+      'shared',
+      'audit_logs',
+    );
+    const hasAdminAuditLogs = await this.tableInSchema(
+      queryRunner,
+      'admin',
+      'audit_logs',
+    );
+
+    if (!hasSharedAuditLogs && !hasAdminAuditLogs) {
+      this.logger.log(
+        'Skipping ConvertAuditIpColumnsToInet — neither shared.audit_logs nor admin.audit_logs is present on this DB (installed by sibling baseline migrations)',
+      );
+      return;
+    }
+
     // Step 1: pre-flight scan for malformed values.
     //
     // WHY: ALTER COLUMN TYPE inet USING (col::inet) raises on the
@@ -71,26 +118,29 @@ export class ConvertAuditIpColumnsToInet1788000000000
     // WHAT: PostgreSQL function inet_in() is the canonical validator.
     // We use a per-row TRY/CATCH simulation via a function-call wrap
     // and COUNT rows that would fail.
-    const scanQuery = `
-      SELECT
-        SUM(
-          CASE WHEN ip IS NULL OR ip ~ '^([0-9.]+|[0-9a-fA-F:]+(/[0-9]+)?)$'
-            THEN 0 ELSE 1
-          END
-        )::text AS malformed_shared,
-        (SELECT
-          COUNT(*) FILTER (
-            WHERE "ipAddress" IS NOT NULL
-              AND NOT ("ipAddress" ~ '^([0-9.]+|[0-9a-fA-F:]+(/[0-9]+)?)$')
-          )::text
-         FROM admin.audit_logs
-        ) AS malformed_admin
-      FROM shared.audit_logs
-    `;
-    const scan: Array<{ malformed_shared: string; malformed_admin: string }> =
-      await queryRunner.query(scanQuery);
-    const sharedBad = Number(scan[0]?.malformed_shared ?? '0');
-    const adminBad = Number(scan[0]?.malformed_admin ?? '0');
+    let sharedBad = 0;
+    let adminBad = 0;
+    if (hasSharedAuditLogs) {
+      const sharedScan: Array<{ count: string }> = await queryRunner.query(`
+        SELECT COUNT(*) FILTER (
+          WHERE ip IS NOT NULL
+            AND NOT (ip ~ '^([0-9.]+|[0-9a-fA-F:]+(/[0-9]+)?)$')
+        )::text AS count
+        FROM shared.audit_logs
+      `);
+      sharedBad = Number(sharedScan[0]?.count ?? '0');
+    }
+    if (hasAdminAuditLogs) {
+      const adminScan: Array<{ count: string }> = await queryRunner.query(`
+        SELECT COUNT(*) FILTER (
+          WHERE "ipAddress" IS NOT NULL
+            AND NOT ("ipAddress" ~ '^([0-9.]+|[0-9a-fA-F:]+(/[0-9]+)?)$')
+        )::text AS count
+        FROM admin.audit_logs
+      `);
+      adminBad = Number(adminScan[0]?.count ?? '0');
+    }
+
     if (sharedBad > 0 || adminBad > 0) {
       throw new Error(
         `Refusing to convert audit IP columns to inet: ` +
@@ -108,26 +158,34 @@ export class ConvertAuditIpColumnsToInet1788000000000
     // the cast — a row that the pre-flight scan missed (e.g. due to
     // regex incompleteness) still raises here, aborting the
     // transaction safely.
-    await queryRunner.query(`
-      ALTER TABLE shared.audit_logs
-        ALTER COLUMN ip TYPE inet USING (ip::inet)
-    `);
+    if (hasSharedAuditLogs) {
+      await queryRunner.query(`
+        ALTER TABLE shared.audit_logs
+          ALTER COLUMN ip TYPE inet USING (ip::inet)
+      `);
+    }
 
     // Step 3: admin.audit_logs.ipAddress → inet
-    await queryRunner.query(`
-      ALTER TABLE admin.audit_logs
-        ALTER COLUMN "ipAddress" TYPE inet USING ("ipAddress"::inet)
-    `);
+    if (hasAdminAuditLogs) {
+      await queryRunner.query(`
+        ALTER TABLE admin.audit_logs
+          ALTER COLUMN "ipAddress" TYPE inet USING ("ipAddress"::inet)
+      `);
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`
-      ALTER TABLE admin.audit_logs
-        ALTER COLUMN "ipAddress" TYPE varchar(45) USING ("ipAddress"::text)
-    `);
-    await queryRunner.query(`
-      ALTER TABLE shared.audit_logs
-        ALTER COLUMN ip TYPE varchar(45) USING (ip::text)
-    `);
+    if (await this.tableInSchema(queryRunner, 'admin', 'audit_logs')) {
+      await queryRunner.query(`
+        ALTER TABLE admin.audit_logs
+          ALTER COLUMN "ipAddress" TYPE varchar(45) USING ("ipAddress"::text)
+      `);
+    }
+    if (await this.tableInSchema(queryRunner, 'shared', 'audit_logs')) {
+      await queryRunner.query(`
+        ALTER TABLE shared.audit_logs
+          ALTER COLUMN ip TYPE varchar(45) USING (ip::text)
+      `);
+    }
   }
 }

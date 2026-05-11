@@ -107,8 +107,8 @@ function buildCsv(lines: ChartLine[], data: Record<string, HistoricalDataPoint[]
   if (timestamps.length === 0) return 'Timestamp\n';
 
   // Index points per tagId -> map<timestamp, value>
-  const seriesMaps: Map<number, number | string>[] = lines.map((line) => {
-    const m = new Map<number, number | string>();
+  const seriesMaps: Map<number, number | string | boolean>[] = lines.map((line) => {
+    const m = new Map<number, number | string | boolean>();
     const pts = data[line.tagId] ?? [];
     for (const pt of pts) m.set(pt.timestamp, pt.value);
     return m;

@@ -113,14 +113,40 @@ class UpdateMemoryFatesIntegrationTests(unittest.TestCase):
     is provided."""
 
     def test_cycle_py_callsite_passes_workspace_root(self) -> None:
-        # Plan 026R §E.7 — cycle.py:369 (post-edit) MUST pass
-        # workspace_root to update_memory. AST-grep on the call.
-        cycle_src = (
+        # Plan 026R §E.7 + §H.1 — AST-backed assertion.
+        # cycle.py MUST contain an update_memory(...) Call node whose
+        # keyword arguments include workspace_root. Plan 026R §H.1
+        # converts the pre-existing substring assertion to an AST
+        # node-shape inspection: the AST proves the call signature
+        # rather than coincidental string presence.
+        import ast as _ast
+        cycle_path = (
             Path(__file__).resolve().parent.parent
             / "aria_kernel" / "cycle.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn("update_memory(", cycle_src)
-        self.assertIn("workspace_root=workspace_root", cycle_src)
+        )
+        tree = _ast.parse(cycle_path.read_text(encoding="utf-8"))
+        found_call = False
+        found_kwarg = False
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, _ast.Name) and func.id == "update_memory":
+                found_call = True
+                for kw in node.keywords:
+                    if kw.arg == "workspace_root":
+                        found_kwarg = True
+                        break
+                if found_kwarg:
+                    break
+        self.assertTrue(
+            found_call, "cycle.py: no update_memory(...) call found",
+        )
+        self.assertTrue(
+            found_kwarg,
+            "cycle.py: update_memory(...) callsite missing "
+            "workspace_root kwarg — Plan 026R §E.7 contract",
+        )
 
     def test_update_memory_signature_accepts_workspace_root(self) -> None:
         # Signature check via inspect.

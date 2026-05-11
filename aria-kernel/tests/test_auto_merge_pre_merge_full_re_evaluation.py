@@ -62,36 +62,112 @@ class SnapshotAdapterStrictHeadShaTests(unittest.TestCase):
 
 
 class MergeIfGreenReEvaluationSourceTests(unittest.TestCase):
-    def test_pre_merge_re_evaluation_path_wired_in_source(self) -> None:
-        """Plan 024 §B-6 acceptance (2) source scan: the merge_if_green
-        function calls collect_github_snapshot a second time after
-        evaluate_auto_merge succeeds; the block emitted from that
-        re-evaluation carries the pre_merge_re_evaluation_blocked tag
-        and stage='pre_merge_re_evaluation'. Integration coverage in
-        tests/test_auto_merge.py exercises the head-SHA-changed path
-        which now hits the re-eval branch (the existing test was
-        updated to accept either the legacy reason or the re-eval
-        tag)."""
-        auto_merge_src = (
+    def test_pre_merge_re_evaluation_path_wired_via_ast(self) -> None:
+        """Plan 024 §B-6 + Plan 026R §H.1 — AST-backed conversion.
+
+        Pre-§H.1 this test scanned auto_merge.py for substring markers.
+        The converted form parses the module with ``ast`` and asserts:
+
+        * ``merge_if_green`` exists as a function in auto_merge.
+        * Its body contains a Call to ``collect_github_snapshot`` with
+          ``fresh_pr`` as the second positional argument (the re-eval
+          collection site).
+        * The body contains a string constant
+          ``pre_merge_re_evaluation_blocked`` (the block-row tag) AND
+          a string constant ``pre_merge_re_evaluation`` (the stage
+          indicator). AST-level constant lookup proves these literals
+          are in the function body, not just somewhere in the file.
+        * The class ``SnapshotGitHubAdapter`` defines
+          ``get_latest_head_sha`` and its body does NOT contain
+          ``self.payload.get("pr", ...)`` access (strict head-SHA
+          accessor must not fall back to pr.head_sha).
+        """
+        import ast as _ast
+        auto_merge_path = (
             Path(__file__).resolve().parent.parent
             / "aria_kernel"
             / "auto_merge.py"
-        ).read_text(encoding="utf-8")
-        # The fresh re-eval call site must reuse collect_github_snapshot.
-        self.assertIn("collect_github_snapshot(adapter, fresh_pr)",
-                      auto_merge_src,
-            "Plan 024 §B-6 — fresh snapshot must reuse collect_github_snapshot")
-        self.assertIn("pre_merge_re_evaluation_blocked", auto_merge_src,
-            "Plan 024 §B-6 — re-eval block must carry distinguishing tag")
-        self.assertIn('"stage": "pre_merge_re_evaluation"', auto_merge_src,
-            "Plan 024 §B-6 — block payload must carry stage indicator")
-        # Sanity: the strict head-SHA accessor doesn't fall back to pr.
-        # Lines around the SnapshotGitHubAdapter.get_latest_head_sha
-        # implementation.
+        )
+        tree = _ast.parse(auto_merge_path.read_text(encoding="utf-8"))
+        merge_fn = next(
+            (
+                n for n in _ast.walk(tree)
+                if isinstance(n, _ast.FunctionDef)
+                and n.name == "merge_if_green"
+            ),
+            None,
+        )
+        self.assertIsNotNone(
+            merge_fn, "auto_merge.py: merge_if_green not found",
+        )
+        body_consts = {
+            node.value for node in _ast.walk(merge_fn)
+            if isinstance(node, _ast.Constant)
+            and isinstance(node.value, str)
+        }
+        self.assertIn(
+            "pre_merge_re_evaluation_blocked", body_consts,
+            "merge_if_green: missing distinguishing tag literal",
+        )
+        self.assertIn(
+            "pre_merge_re_evaluation", body_consts,
+            "merge_if_green: missing stage indicator literal",
+        )
+        found_fresh_pr_call = False
+        for node in _ast.walk(merge_fn):
+            if not isinstance(node, _ast.Call):
+                continue
+            func = node.func
+            is_target = (
+                isinstance(func, _ast.Name)
+                and func.id == "collect_github_snapshot"
+            ) or (
+                isinstance(func, _ast.Attribute)
+                and func.attr == "collect_github_snapshot"
+            )
+            if not is_target:
+                continue
+            if any(
+                isinstance(arg, _ast.Name) and arg.id == "fresh_pr"
+                for arg in node.args
+            ):
+                found_fresh_pr_call = True
+                break
+        self.assertTrue(
+            found_fresh_pr_call,
+            "merge_if_green: no "
+            "collect_github_snapshot(..., fresh_pr) call — Plan 024 §B-6 "
+            "fresh snapshot site missing",
+        )
+        # Strict head-SHA accessor invariant.
+        adapter_cls = next(
+            (
+                n for n in _ast.walk(tree)
+                if isinstance(n, _ast.ClassDef)
+                and n.name == "SnapshotGitHubAdapter"
+            ),
+            None,
+        )
+        self.assertIsNotNone(
+            adapter_cls,
+            "auto_merge.py: SnapshotGitHubAdapter not found",
+        )
+        head_sha_fn = next(
+            (
+                n for n in adapter_cls.body
+                if isinstance(n, _ast.FunctionDef)
+                and n.name == "get_latest_head_sha"
+            ),
+            None,
+        )
+        self.assertIsNotNone(
+            head_sha_fn,
+            "SnapshotGitHubAdapter: get_latest_head_sha not found",
+        )
+        head_sha_src = _ast.unparse(head_sha_fn)
         self.assertNotIn(
-            'self.payload.get("pr", {}).get("head_sha")',
-            auto_merge_src.split("def get_latest_head_sha")[1].split("def ")[0],
-            "Plan 024 §B-6 — get_latest_head_sha must not fall back to pr.head_sha",
+            'self.payload.get("pr"', head_sha_src,
+            "get_latest_head_sha must not fall back to pr.head_sha",
         )
 
 

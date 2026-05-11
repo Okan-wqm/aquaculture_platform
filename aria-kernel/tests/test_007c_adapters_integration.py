@@ -13,6 +13,8 @@ class Phase007cAdaptersIntegrationTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
         self.repo_root = Path(__file__).resolve().parents[2]
+        if not (self.repo_root / "node_modules" / ".bin" / "ts-node").exists():
+            self.skipTest("TS adapter integration requires local node_modules/.bin/ts-node")
 
     def tearDown(self):
         self.tmp.cleanup()

@@ -410,6 +410,7 @@ fn hex_nibble(byte: &u8) -> Option<u8> {
 mod tests {
     use super::*;
     use crate::runtime_safety::SystemClockAuthority;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_key() -> LifecycleAuthKey {
         LifecycleAuthKey::from_bytes(vec![0x42u8; 32]).expect("valid")

@@ -116,7 +116,7 @@ jobs:
       # requires rustc >= 1.89 (smol_str 0.3.6 transitive). taiki-e/install-action
       # ships precompiled binaries — no MSRV treadmill, no source build, ~5s.
       - name: Install cargo-audit (precompiled)
-        uses: taiki-e/install-action@db5fb34fa772531a3ece57ca434f579eb334e0fb # v2.75.30
+        uses: taiki-e/install-action@fa0dd4cd0a40696e6f9766370614a5ce482e6aa8 # v2.77.5
         with:
           tool: cargo-audit
       # Advisory ignores live in .cargo/audit.toml (mirrors deny.toml [advisories]).
@@ -219,7 +219,7 @@ jobs:
         # no cargo install from source, no MSRV surprises, ~5s. The
         # pinned SHA matches the one the audit job uses so every binary
         # we pull is from the same verified release chain.
-        uses: taiki-e/install-action@db5fb34fa772531a3ece57ca434f579eb334e0fb # v2.75.30
+        uses: taiki-e/install-action@fa0dd4cd0a40696e6f9766370614a5ce482e6aa8 # v2.77.5
         with:
           tool: cross
       - name: Cache cargo registry + target

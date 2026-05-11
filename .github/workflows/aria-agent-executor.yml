@@ -1,0 +1,147 @@
+name: aria-agent-executor
+
+# Plan 019 Phase 8 — scheduled CI executor for ARIA's bound-agent
+# pipeline. Runs once per off-hours window OR on manual dispatch; pulls
+# the next pending agent request from the kernel's queue, invokes
+# Claude Code via OAuth, submits the result.
+#
+# Operator critique #9: the actual `claude code agent ...` invocation
+# contract is NOT yet verified — see tools/aria-poc/ci_executor_contract
+# _spike.md for the gap analysis. This workflow ships with
+# CLAUDE_CODE_MOCK=1 by default so the outer pipeline can be exercised
+# end-to-end; flip CLAUDE_CODE_MOCK=0 in repository variables once the
+# operator validates the CLI contract against a live binary.
+#
+# Lease-token redaction:
+#   - LEASE token flows ONLY through ARIA_LEASE_TOKEN env var.
+#   - artifact upload limited to expected_output_path only.
+#   - the GHA log ::add-mask:: directive masks any accidental leak.
+
+on:
+  schedule:
+    # 02:00 UTC daily (off-hours for most ARIA contributors)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: 'Specific request ID to process (overrides next-pending lookup)'
+        required: false
+        type: string
+      mock:
+        description: 'Run in mock mode (no real Claude Code invocation)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+concurrency:
+  group: aria-agent-executor-snowball
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  executor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    if: github.ref == 'refs/heads/snowball'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: snowball
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      # Plan 020 Phase 3.C — session_start handoff snapshot.
+      # WHY here: every CI executor run is a discrete session boundary.
+      # Snapshotting at start captures "what was open before we touched
+      # anything" — the operator-readable diff against session_stop is
+      # how an audit reviewer reconstructs what the run actually changed
+      # without having to grep governance.jsonl by timestamp.
+      - name: Handoff snapshot — session_start
+        id: handoff_start
+        run: |
+          set -euo pipefail
+          SESSION_ID="gha-aria-agent-executor-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "session_id=${SESSION_ID}" >> "$GITHUB_OUTPUT"
+          PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
+            --session-id "${SESSION_ID}" \
+            --trigger session_start \
+            --tools-dir aria-tools \
+            --repo-root .
+
+      - name: Find next pending request
+        id: pending
+        env:
+          # Plan 024 v3 §B-3 — env-only interpolation; raw shell access
+          # to ${{ github.event.inputs.request_id }} is closed because
+          # GHA expands the substitution into the script source where
+          # an attacker-controlled value can escape quoting.
+          REQUEST_ID_INPUT: ${{ github.event.inputs.request_id }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REQUEST_ID_INPUT:-}" ]; then
+            # Plan 024 v3 §B-3 — request_id regex matches the kernel's
+            # AIR-* request_id schema (alphanumeric + - + _, ≤ 64 chars).
+            if ! [[ "$REQUEST_ID_INPUT" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
+              echo "::error::invalid request_id format: $REQUEST_ID_INPUT" >&2
+              exit 1
+            fi
+            echo "request_id=${REQUEST_ID_INPUT}" >> "$GITHUB_OUTPUT"
+          else
+            REQ_ID=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent next-pending \
+              --tools-dir aria-tools | jq -r '.request_id // empty')
+            echo "request_id=${REQ_ID}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if no pending request
+        if: steps.pending.outputs.request_id == ''
+        run: echo "no pending requests; exiting cleanly"
+
+      - name: Run CI executor
+        if: steps.pending.outputs.request_id != ''
+        env:
+          CLAUDE_CODE_MOCK: ${{ github.event.inputs.mock || 'true' }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MAX_TURNS_PER_RUN: '12'
+          MAX_REQUESTS_PER_RUN: '30'
+          MAX_TIMEOUT_SECONDS: '1800'
+        run: |
+          # ::add-mask:: ensures the OAuth token never appears in logs
+          # even on accidental echo.
+          echo "::add-mask::${CLAUDE_CODE_OAUTH_TOKEN:-NEVER_SET}"
+          PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py \
+            "${{ steps.pending.outputs.request_id }}"
+
+      - name: Upload response envelope (artefact)
+        if: steps.pending.outputs.request_id != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          # Limited scope — only the response envelope. claims.jsonl +
+          # runs.jsonl deliberately excluded (lease token / over-disclosure
+          # protection per spike doc artefact policy).
+          name: aria-response-${{ steps.pending.outputs.request_id }}
+          path: aria-tools/agent-invocations/outputs/**
+          retention-days: 30
+
+      # Plan 020 Phase 3.C — session_stop handoff snapshot.
+      # WHY here (post-upload, always): runs even when the executor
+      # short-circuits the request lookup ("no pending requests; exiting
+      # cleanly") so the audit trail still captures session boundary
+      # state. The if: always() pairs with handoff_start so an audit
+      # reviewer can diff session_start vs session_stop snapshots and
+      # see exactly what the run touched (or did not touch).
+      - name: Handoff snapshot — session_stop
+        if: always() && steps.handoff_start.outputs.session_id != ''
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
+            --session-id "${{ steps.handoff_start.outputs.session_id }}" \
+            --trigger session_stop \
+            --tools-dir aria-tools \
+            --repo-root .

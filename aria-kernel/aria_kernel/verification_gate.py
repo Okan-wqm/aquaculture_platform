@@ -1,12 +1,94 @@
 from __future__ import annotations
 
-import subprocess
+import hashlib
 import shlex
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, load_jsonl
-from .tool_registry import append_tools_governance, ensure_tools_dir, update_tools_index
+from .tool_registry import append_tools_governance, ensure_tools_dir, update_tools_index, utc_now
+
+
+def _hash_lease_token(token: str) -> str:
+    """Plan 026R §G.3 — mirror of worker_dispatch._hash_lease_token /
+    agent_invocations._hash_lease_token. Token never leaves the
+    hashed form once recorded on the claim row."""
+    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _resolve_active_claim_for_submit(
+    root: Path, assignment_id: str, *, lease_token: str,
+) -> dict[str, Any] | str:
+    """Plan 026R §G.3 — three-gate active-claim resolution for worker
+    submit.
+
+    Returns the active claim dict on success, or a reason string when
+    the submit must be rejected. Reason codes:
+
+    * ``submit_worker_result_multiple_active_claims_corruption``
+    * ``submit_worker_result_no_active_claim``
+    * ``submit_worker_result_lease_token_mismatch``
+    * ``submit_worker_result_lease_expired``
+    * ``submit_worker_result_claim_already_released`` (etc. for
+      terminal events).
+
+    Gate order:
+    1. Multi-active-claim corruption (token NOT verified — corruption
+       is the more serious signal).
+    2. Active-claim lease verify.
+    3. Lease-expiry fail-closed.
+    """
+    claims_path = root / "dispatch" / "claims.jsonl"
+    claim_rows = load_jsonl(claims_path)
+    # Group by claim_id to find active (claimed without terminal).
+    by_claim: dict[str, list[dict[str, Any]]] = {}
+    for row in claim_rows:
+        if row.get("assignment_id") != assignment_id:
+            continue
+        cid = str(row.get("claim_id") or "")
+        if not cid:
+            continue
+        by_claim.setdefault(cid, []).append(row)
+    terminal_events = frozenset({"released", "stale", "human_required"})
+    active_claims: list[dict[str, Any]] = []
+    for cid, events in by_claim.items():
+        # Sort by recorded_at fallback to sequence.
+        events_sorted = events
+        latest = events_sorted[-1]
+        if latest.get("event") == "claimed":
+            active_claims.append(latest)
+        elif latest.get("event") in terminal_events:
+            # Check if this claim_id's token matches the submit token.
+            # If yes, return a specific reason (already released/stale).
+            if (
+                latest.get("lease_token_hash") == _hash_lease_token(lease_token)
+                or any(
+                    e.get("lease_token_hash") == _hash_lease_token(lease_token)
+                    for e in events_sorted
+                )
+            ):
+                return f"submit_worker_result_claim_already_{latest.get('event')}"
+    if len(active_claims) > 1:
+        return "submit_worker_result_multiple_active_claims_corruption"
+    if not active_claims:
+        return "submit_worker_result_no_active_claim"
+    active = active_claims[0]
+    if active.get("lease_token_hash") != _hash_lease_token(lease_token):
+        return "submit_worker_result_lease_token_mismatch"
+    # Lease-expiry check — mirror agent_invocations.
+    expires_raw = active.get("lease_expires_at")
+    if expires_raw:
+        try:
+            expires = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
+        except ValueError:
+            expires = None
+        if expires is not None:
+            now = datetime.now(timezone.utc)
+            if expires < now:
+                return "submit_worker_result_lease_expired"
+    return active
 
 
 MAX_DIFF_BYTES = 1024 * 1024
@@ -26,7 +108,25 @@ def submit_worker_result(
     assignment_id: str | None = None,
     validation_commands: list[str] | None = None,
     tools_root: str | Path | None = None,
+    lease_token: str | None = None,
 ) -> dict[str, Any]:
+    """Submit a worker result for verification.
+
+    Plan 026R §G.3 — ``lease_token`` is REQUIRED for new callers; the
+    agent submit path (``agent_invocations.submit_claim_result``)
+    already enforces hash + active-claim + expiry checks. The worker
+    submit path mirrors that contract:
+
+    * Multi-active-claim corruption (detected first, no token verify).
+    * Active-claim lease verify: hash matches the LATEST claim row
+      whose ``event == "claimed"`` and no subsequent
+      released/stale/human_required event.
+    * Lease-expiry fail-closed (mirror of agent_invocations:884-893):
+      latest_active_claim.lease_expires_at < now → reject.
+
+    Legacy callers (lease_token=None) preserve the pre-§G.3 path so
+    existing fixtures don't break; new code MUST pass the token.
+    """
     root = ensure_tools_dir(tools_root)
     worktree = Path(from_worktree).resolve()
     request = _request_for(root, assignment_id=assignment_id, worktree=worktree)
@@ -44,6 +144,23 @@ def submit_worker_result(
     required = set(str(command) for command in request.get("required_tests") or [])
     if any(command not in required for command in commands):
         return _reject(root, "validation_command_not_required", assignment_id=str(request["assignment_id"]), worktree=worktree, details={"required_tests": sorted(required), "commands": commands})
+    # Plan 026R §G.3 — lease-bound submit (when lease_token provided).
+    active_claim: dict[str, Any] | None = None
+    if lease_token is not None:
+        if not lease_token.strip():
+            return _reject(
+                root, "submit_worker_result_lease_token_required",
+                assignment_id=str(request["assignment_id"]), worktree=worktree,
+            )
+        active_claim_or_reject = _resolve_active_claim_for_submit(
+            root, str(request["assignment_id"]), lease_token=lease_token,
+        )
+        if isinstance(active_claim_or_reject, str):
+            return _reject(
+                root, active_claim_or_reject,
+                assignment_id=str(request["assignment_id"]), worktree=worktree,
+            )
+        active_claim = active_claim_or_reject
     base_sha = str(request["base_sha"])
     head_sha = _git(worktree, "rev-parse", "HEAD")
     diff = _git(worktree, "diff", f"{base_sha}...{head_sha}")
@@ -61,7 +178,18 @@ def submit_worker_result(
         "unified_diff": "" if too_large else diff,
         "diff_truncated": too_large,
         "state": "accepted",
+        # Plan 026R §G.2 — recorded_at timestamp for the reducer fold's
+        # deterministic ordering (the fold sorts by recorded_at + source
+        # priority + sequence number).
+        "recorded_at": utc_now(),
     }
+    # Plan 026R §G.3 — provenance fields on accepted worker-result row.
+    # The accepted row anchors the originating claim event for audit +
+    # re-claim trace + verification correlation. NEVER persist the raw
+    # lease_token or lease_token_hash — those stay claim-ledger only.
+    if active_claim is not None:
+        row["claim_id"] = active_claim.get("claim_id")
+        row["agent_id"] = active_claim.get("agent_id")
     stored = append_jsonl(root / "dispatch" / "worker-results.jsonl", row)
     update_tools_index(root)
     append_tools_governance(root, "worker_result_accepted", {"assignment_id": request["assignment_id"], "target_agent": request["target_agent"], "diff_truncated": too_large})
@@ -111,6 +239,9 @@ def _verification(root: Path, assignment_id: str, status: str, failures: list[st
         "failures": failures,
         "auto_merge_eligible_flag": auto_merge_eligible,
         "auto_merge_evaluated": auto_merge_evaluated,
+        # Plan 026R §G.2 — recorded_at timestamp for the reducer fold's
+        # deterministic ordering.
+        "recorded_at": utc_now(),
     }
     stored = append_jsonl(root / "dispatch" / "verification-results.jsonl", row)
     update_tools_index(root)

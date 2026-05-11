@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .evidence_validator import validate_tool_output_evidence
+from .runtime_profile import enforce_profile_for_write
 from .snapshot import build_repo_snapshot, ignored_dirty_path, normalize_path, snapshot_allowed_set
 from .tool_health import can_emit_operator_facing, find_scope_violations, record_run
 from .tool_registry import GovernanceError, get_tool
@@ -27,6 +28,15 @@ def run_tool(
     workspace_root: str | os.PathLike[str] | None = None,
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
+    # Plan 020 Phase 1.B — runtime profile write gate (single chokepoint).
+    # Why: every adapter / spine_orchestrator invocation routes through
+    # run_tool, and each invocation appends to runs.jsonl. Frozen profile
+    # forbids tool-run writes; observe profile blocks all tool runs since
+    # adapters mutate scan output beyond observation class. Gating at the
+    # top of run_tool is the single chokepoint that covers Phase 4 spine
+    # orchestrator + Phase 10 agent-harness-security adapter + every
+    # backend adapter without each call site having to remember the gate.
+    enforce_profile_for_write("tool_runs", base_dir=base_dir)
     tool = get_tool(tool_id, base_dir)
     if tool["status"] == "QUARANTINED":
         raise GovernanceError("QUARANTINED tool cannot be run by the normal runner")
@@ -53,6 +63,14 @@ def run_tool(
 
     input_bytes = _canonical_json_bytes(input_payload)
     before = _workspace_snapshot(root, tool)
+    # Plan 022 §C-5 — capture an unfiltered raw snapshot alongside the
+    # scoped view. The pre-fix mutation comparison ran on the
+    # tool-scope-filtered status output, so a buggy/malicious adapter
+    # mutating files OUTSIDE its declared scope (package.json, CI
+    # configs, registry.json) was invisible. Raw snapshots let us
+    # partition the diff into scoped vs scope_out mutations and surface
+    # the latter as a hard quarantine signal.
+    before_raw = _workspace_snapshot_raw(root)
     started = time.monotonic()
     stdout = ""
     stderr = ""
@@ -60,6 +78,12 @@ def run_tool(
     timed_out = False
     status = "ok"
     output: dict[str, Any] | None = None
+    # Plan 023 v3 §C-2 — runner envelope carries the specific parse
+    # error code so observability sees the field-level reason instead
+    # of a generic "schema_error" status. Default None (parser
+    # succeeded or did not run); populated with codes from
+    # PARSE_ERROR_CODES on rejection.
+    parse_error: str | None = None
 
     try:
         if _runner_missing_node_deps(cwd, runner["argv"]):
@@ -83,7 +107,7 @@ def run_tool(
             if completed.returncode != 0:
                 status = "crash"
             else:
-                output = _parse_tool_output(stdout, tool)
+                output, parse_error = _parse_tool_output(stdout, tool)
                 if output is None:
                     status = "schema_error"
     except subprocess.TimeoutExpired as exc:
@@ -97,7 +121,15 @@ def run_tool(
 
     duration_ms = int(round((time.monotonic() - started) * 1000))
     after = _workspace_snapshot(root, tool)
-    mutated = before != after
+    after_raw = _workspace_snapshot_raw(root)
+    # Plan 022 §C-5 — partition every mutated path into scoped vs
+    # scope-out using the raw before/after. `mutated` retains its
+    # original semantic for backward-compat with downstream consumers
+    # that only care whether ANY files changed.
+    scoped_mutations, scope_out_mutations = _partition_mutations(
+        before_raw=before_raw, after_raw=after_raw, tool=tool,
+    )
+    mutated = before != after or bool(scope_out_mutations)
 
     if output is None:
         output = {}
@@ -143,10 +175,38 @@ def run_tool(
             "raw_observations_count": len(_array_or_empty(raw_observations)),
             "raw_findings_count": len(_array_or_empty(raw_findings)),
             "raw_findings_sample": _raw_finding_sample(_array_or_empty(raw_findings)),
+            # Plan 022 §C-5 — partitioned mutation lists.
+            # scoped_mutations: paths inside the tool's declared scope
+            # (expected/permitted writes). scope_out_mutations: writes
+            # outside the declared scope — a hard signal that the
+            # adapter exceeded its sandbox. tool_health.record_run
+            # treats non-empty scope_out_mutations as a quarantine
+            # trigger via the immediate_quarantine_reason path.
+            "scoped_mutations": list(scoped_mutations),
+            "scope_out_mutations": list(scope_out_mutations),
+            # Plan 023 v3 §C-2 — specific parser rejection code, or None
+            # when the parser succeeded. Closed vocabulary listed in
+            # PARSE_ERROR_CODES (plus dynamic missing_field:<f> /
+            # field_not_list:<f> shapes for minimum-output fields).
+            "parse_error": parse_error,
         },
         "repo_snapshot": _compact_snapshot(repo_snapshot),
     }
-    return record_run(envelope, base_dir=base_dir)
+    decision = record_run(envelope, base_dir=base_dir)
+    # Plan 024 v3 §B-7 — return contract split. Pre-fix run_tool returned
+    # ONLY the registry-side health_decision (decision dict from
+    # record_run); the runner envelope (with the canonical 'ok|crash|
+    # schema_error|...' status vocabulary) was a side-effect write to
+    # runs.jsonl that callers could not project from the return value.
+    # CLI exit-code mapping and spine_orchestrator status whitelist
+    # both need the envelope status; H-6 atomic with this fix migrates
+    # spine_orchestrator to read result['envelope']['status']. Existing
+    # callers that rely on the top-level health_decision keys (e.g.
+    # tests asserting result.get('status') == 'ACTIVE') keep working —
+    # decision keys are merged at the top of the returned dict for
+    # backward compatibility; the new envelope + health_decision keys
+    # are the canonical access points going forward.
+    return {**decision, "envelope": envelope, "health_decision": decision}
 
 
 def _input_repo_snapshot(input_payload: Any) -> dict[str, Any] | None:
@@ -211,28 +271,61 @@ def _is_glob_ref(ref: str) -> bool:
     return any(char in ref for char in "*?[]")
 
 
-def _parse_tool_output(stdout: str, tool: dict[str, Any]) -> dict[str, Any] | None:
+# Plan 023 v3 §C-2 — closed error-code vocabulary for tool-output parse
+# rejection. Returned in the tuple second slot so the runner envelope
+# carries `runner.parse_error = <code>` and observability / operator
+# audit see the specific reason instead of a generic "schema_error".
+PARSE_ERROR_CODES: frozenset[str] = frozenset({
+    "output_not_json",
+    "output_not_dict",
+    "cost_units_invalid",
+    "metadata_not_dict",
+    "belief_candidates_not_list",
+    # Plus dynamic codes:
+    #   missing_field:<field>
+    #   field_not_list:<field>
+    # produced by the parser when a required minimum-output field is
+    # absent or wrong-typed. The closed set above lists the static
+    # codes; the dynamic shape is asserted at the caller via prefix.
+})
+
+
+def _parse_tool_output(
+    stdout: str, tool: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Plan 023 v3 §C-2 — discriminated parse result.
+
+    Pre-Plan-023 this returned `dict | None`; rejection lost the reason.
+    Post-fix: `(payload, None)` on success, `(None, error_code)` on
+    rejection. The runner-envelope writer carries `runner.parse_error`
+    so operators and observability layers see the specific failure
+    mode.
+    """
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError:
-        return None
+        return None, "output_not_json"
     if not isinstance(payload, dict):
-        return None
+        return None, "output_not_dict"
     required = set(MINIMUM_OUTPUT_FIELDS)
     required.update(tool.get("output_schema", {}).get("required", []))
-    for field in required:
+    # Deterministic order for missing-field detection — the caller's
+    # `parse_error` then encodes a stable single field name when
+    # multiple are missing (the first in sorted order). Stable ordering
+    # makes test assertions reliable and reproducible.
+    for field in sorted(required):
         if field not in payload:
-            return None
+            return None, f"missing_field:{field}"
     for field in MINIMUM_OUTPUT_FIELDS:
         if not isinstance(payload.get(field), list):
-            return None
+            return None, f"field_not_list:{field}"
     if "cost_units" in payload and _non_negative_number(payload["cost_units"], default=None) is None:
-        return None
+        return None, "cost_units_invalid"
     if "metadata" in payload and not isinstance(payload["metadata"], dict):
-        return None
+        return None, "metadata_not_dict"
     if "belief_candidates" in payload and not isinstance(payload["belief_candidates"], list):
-        return None
-    return payload
+        return None, "belief_candidates_not_list"
+    return payload, None
 
 
 def _workspace_snapshot(root: Path, tool: dict[str, Any] | None = None) -> Any:
@@ -247,6 +340,84 @@ def _workspace_snapshot(root: Path, tool: dict[str, Any] | None = None) -> Any:
         if completed.returncode == 0:
             return ("git", _normalized_git_status(completed.stdout, tool))
     return ("dir", _directory_snapshot(root))
+
+
+def _workspace_snapshot_raw(root: Path) -> Any:
+    """Plan 022 §C-5 — unfiltered workspace snapshot.
+
+    Mirrors _workspace_snapshot but does NOT apply the tool-scope
+    filter. The raw view is the load-bearing input for scope-out
+    mutation detection: comparing before_raw vs after_raw catches
+    every mutation regardless of declared scope.
+    """
+    git_dir = root / ".git"
+    if git_dir.exists():
+        completed = subprocess.run(
+            ["git", "status", "--porcelain", "-z"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode == 0:
+            return ("git", _normalized_git_status_raw(completed.stdout))
+    return ("dir", _directory_snapshot(root))
+
+
+def _normalized_git_status_raw(stdout: bytes) -> tuple[str, ...]:
+    """Like _normalized_git_status but never applies the tool-scope filter."""
+    entries = [entry.decode("utf-8", errors="replace") for entry in stdout.split(b"\0") if entry]
+    paths: list[str] = []
+    skip_next = False
+    for entry in entries:
+        if skip_next:
+            skip_next = False
+            continue
+        status = entry[:2]
+        path = entry[3:] if len(entry) > 3 else entry
+        if status.startswith("R") or status.startswith("C"):
+            skip_next = True
+        normalized = normalize_path(path)
+        if normalized and not ignored_dirty_path(normalized):
+            paths.append(f"{status} {normalized}")
+    return tuple(sorted(paths))
+
+
+def _partition_mutations(
+    *,
+    before_raw: Any,
+    after_raw: Any,
+    tool: dict[str, Any] | None,
+) -> tuple[list[str], list[str]]:
+    """Plan 022 §C-5 — partition raw mutation diff into scoped vs scope-out.
+
+    Both before_raw and after_raw are the tuple-shaped output of
+    _workspace_snapshot_raw. The diff is the symmetric difference
+    interpreted as path-string set; partitioning applies the tool's
+    allowed_read_globs / declared_scope via find_scope_violations.
+
+    Returns (scoped, scope_out) lists sorted for stable envelope shape.
+    """
+    if before_raw == after_raw:
+        return [], []
+    before_set = set(before_raw[1] if isinstance(before_raw, tuple) and len(before_raw) > 1 else ())
+    after_set = set(after_raw[1] if isinstance(after_raw, tuple) and len(after_raw) > 1 else ())
+    diff = sorted(before_set ^ after_set)
+    scoped: list[str] = []
+    scope_out: list[str] = []
+    for entry in diff:
+        # entry shape from _normalized_git_status_raw mirrors git status
+        # --porcelain output: "<2-char status><space><path>". Strip the
+        # 3-char prefix to recover the path; fall back to the rsplit
+        # result for any unexpected shape.
+        if len(entry) > 3 and entry[2] == " ":
+            path = entry[3:]
+        else:
+            path = entry.rsplit(" ", 1)[-1]
+        if _mutation_path_in_tool_scope(tool, path):
+            scoped.append(entry)
+        else:
+            scope_out.append(entry)
+    return scoped, scope_out
 
 
 def _normalized_git_status(stdout: bytes, tool: dict[str, Any] | None = None) -> tuple[str, ...]:

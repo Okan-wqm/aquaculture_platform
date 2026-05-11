@@ -23,7 +23,16 @@ def report_ingestion_scan(
     backfill_limit: int = DEFAULT_BACKFILL_LIMIT,
     confirm_large_backfill: bool = False,
     acknowledge: bool = False,
+    strict_registry: bool = True,
 ) -> dict[str, Any]:
+    """Plan 026R §A.5 — ``strict_registry=True`` (default) makes
+    ``_read_registry`` raise GovernanceError on the first corrupt
+    row. Operator opt-in ``strict_registry=False`` preserves the
+    legacy tolerant tuple shape (rows, malformed) for compatibility
+    with downstream reports that count malformed rows; corrupt
+    rows still emit ``ledger_row_corrupt`` to the diagnostic sink
+    (Plan 024 §H-7) so the audit trail records them either way.
+    """
     registry = paths.repo_root / "docs" / "reviews" / "_registry" / "findings.jsonl"
     cache_path = paths.state_dir / "ingested_findings.json"
     if not registry.exists():
@@ -34,7 +43,11 @@ def report_ingestion_scan(
         )
         return {"schema_version": 1, "cycle_id": cycle_id, "status": "skipped", "reason": "registry_missing", "ingested_count": 0}
 
-    rows, malformed = _read_registry(registry)
+    # Plan 026R §A.5 — strict by default; corrupt rows raise.
+    # Operator-opt-in tolerant mode preserves the legacy
+    # ``malformed_count`` reporting for known-imperfect upstream
+    # exports (e.g. partial third-party scan dumps).
+    rows, malformed = _read_registry(registry, strict=strict_registry)
     if len(rows) > LARGE_BACKFILL_THRESHOLD and not (confirm_large_backfill and acknowledge):
         raise ValueError("large_backfill_requires_confirm_large_backfill_and_acknowledge")
 
@@ -105,16 +118,74 @@ def report_ingestion_scan(
     }
 
 
-def _read_registry(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _read_registry(
+    path: Path,
+    *,
+    strict: bool = True,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Plan 026R §A.5 — strict-by-default registry reader.
+
+    Two modes:
+
+    * **strict (default)** — routes through
+      ``strict_jsonl_reader.read_strict_jsonl`` so the first corrupt
+      row raises ``GovernanceError`` AFTER emitting the
+      ``ledger_row_corrupt`` diagnostic. Returns (rows, []).
+    * **tolerant** (operator opt-in via
+      ``ingest_external_reports(strict_registry=False)``) — preserves
+      the legacy (rows, malformed) tuple shape. Corrupt rows are
+      tracked in the ``malformed`` list AND emit
+      ``ledger_row_corrupt`` to the diagnostic sink, so the audit
+      trail is recorded either way. Operators choose this mode
+      when consuming known-imperfect third-party scan exports where
+      "drop the bad row, keep going" is the desired behaviour.
+
+    Non-dict rows (e.g. an array literal where an object is
+    expected) are tracked as ``row_not_object`` in tolerant mode and
+    raise ``GovernanceError`` in strict mode — a schema break is a
+    real defect, not a missing-row.
+    """
     rows: list[dict[str, Any]] = []
     malformed: list[dict[str, Any]] = []
-    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    if not path.exists():
+        return rows, malformed
+    if strict:
+        from .strict_jsonl_reader import read_strict_jsonl
+        from .tool_registry import GovernanceError
+        for line_no, row in enumerate(
+            read_strict_jsonl(path, base_dir=path.parent), start=1,
+        ):
+            if not isinstance(row, dict):
+                raise GovernanceError(
+                    f"report_ingestion_row_not_object: "
+                    f"{path}:{line_no}"
+                )
+            rows.append(row)
+        return rows, malformed
+    # Tolerant mode — explicit diagnostic emit + malformed tracking +
+    # continue. Body is 3 statements (track + emit + continue), so it
+    # does NOT match the §A.3 silent-skip AST predicate (which flags
+    # only bare-``continue`` bodies inside JSONL-row-iteration loops).
+    from .diagnostics import emit_ledger_corruption_diagnostic
+    for line_no, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1,
+    ):
         if not line.strip():
             continue
         try:
             row = json.loads(line)
         except json.JSONDecodeError as exc:
             malformed.append({"line": line_no, "reason": str(exc)})
+            emit_ledger_corruption_diagnostic(
+                {
+                    "kind": "ledger_row_corrupt",
+                    "ledger": str(path),
+                    "line_no": line_no,
+                    "error": str(exc),
+                    "raw_excerpt": line[:200],
+                },
+                base_dir=path.parent,
+            )
             continue
         if not isinstance(row, dict):
             malformed.append({"line": line_no, "reason": "row_not_object"})

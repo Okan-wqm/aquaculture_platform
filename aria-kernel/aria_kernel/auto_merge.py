@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol
 
-from .ledger import append_jsonl
+from .ledger import append_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -93,6 +93,19 @@ class GitHubAdapter(Protocol):
     def get_unresolved_conversation_count(self, number: int) -> dict[str, Any]:
         ...
 
+    def get_pr_diff(self, number: int) -> str | None:
+        """Plan 023 v3 §P-6 — required Protocol method.
+
+        Live mode (GhCliGitHubAdapter) implements via `gh pr diff
+        <number>`. Snapshot/test mode returns the diff fixture from
+        the seeded payload. evaluate_auto_merge fails-closed on
+        empty / whitespace / malformed diff content (P-6 fix), so an
+        adapter implementation that returns None / empty surfaces as
+        an explicit auto_merge_blocked reason rather than a silent
+        path-class-only acceptance.
+        """
+        ...
+
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
         ...
 
@@ -164,17 +177,81 @@ def evaluate_auto_merge(
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     dry_run: bool = True,
+    diff_text: str | None = None,
 ) -> dict[str, Any]:
     active_policy = normalize_policy(policy)
     reasons: list[str] = []
     pr_number = pr.get("number")
     base_branch = _first_string(pr, "base_branch", "baseRefName", "base")
     head_sha = _first_string(pr, "head_sha", "headRefOid", "head")
-    latest_head_sha = _first_string(github, "latest_head_sha") or head_sha
+    # Plan 023 v3 §P-4 — strict latest_head_sha lookup. Pre-fix the
+    # `or head_sha` fallback meant a failed lookup (network 5xx, gh
+    # adapter bug, missing snapshot field) silently substituted the
+    # PR's own head_sha. The follow-up equality check then always
+    # passed because both values were the same — defeating the
+    # force-push detection that latest_head_sha exists to provide.
+    # Post-fix: empty / missing falls through to the
+    # "latest PR head SHA unavailable" reason below; gate blocks.
+    latest_head_sha = _first_string(github, "latest_head_sha")
     changed_files = pr.get("changed_files", pr.get("files", []))
     if not isinstance(changed_files, list):
         changed_files = []
     risk = classify_changed_files(changed_files, policy=active_policy)
+
+    # Plan 022 §H-2 — diff content scan. classify_changed_files only
+    # looks at path globs; pre-fix a low-risk path (apps/**/*.ts) could
+    # carry suppression patterns (`as any`, `// @ts-ignore`, `.skip`)
+    # that auto-merge would silently approve. Now the diff is scanned
+    # via suppression_scanner.scan_unified_diff_text and any hit
+    # demotes the risk to 'unknown'.
+    suppression_hits: list[dict[str, Any]] = []
+    if diff_text is None and pr.get("diff_text"):
+        diff_text = pr.get("diff_text")
+    if diff_text is None:
+        # Diff content REQUIRED for auto-merge. Fail-closed: caller
+        # must supply diff (typically via gh pr diff <pr_number>) so
+        # path-class + content-class AND-merge can run.
+        reasons.append("diff_text missing — auto_merge_requires_diff_content")
+    elif not diff_text.strip():
+        # Plan 023 v3 §P-6 — empty / whitespace-only diff treated as a
+        # missing diff. Pre-fix scan_unified_diff_text("") returned []
+        # and the gate concluded "clean". Empty diff is a signal that
+        # diff fetching broke; the gate fails closed.
+        reasons.append(
+            "auto_merge_requires_nonempty_unified_diff: diff_text was "
+            "empty or whitespace-only; auto-merge cannot evaluate "
+            "content-class without diff content"
+        )
+    elif "+++ b/" not in diff_text and "rename to " not in diff_text and "new file mode" not in diff_text:
+        # Plan 023 v3 §P-6 — minimal unified-diff structural check.
+        # A blob without any +++ b/<path> header / rename to / new file
+        # mode line is not a unified diff; the suppression scanner's
+        # parse_unified_diff() would silently produce zero file_changes
+        # and return zero matches.
+        reasons.append(
+            "auto_merge_diff_unparseable_or_empty: diff_text does not "
+            "contain a unified-diff file header (+++ b/<path>, "
+            "rename to, or new file mode); auto-merge cannot trust "
+            "the content-class result"
+        )
+    else:
+        from .suppression_scanner import scan_unified_diff_text
+        for match in scan_unified_diff_text(diff_text):
+            suppression_hits.append({
+                "category": match.category,
+                "detector": match.detector,
+                "file": match.file,
+                "line": match.line,
+                "text": match.text,
+            })
+        if suppression_hits:
+            # Path-class + content-class AND merge: any suppression hit
+            # demotes the eligibility regardless of path classification.
+            risk = {**risk, "eligible": False,
+                    "risk_class": "unknown",
+                    "suppression_hits": suppression_hits}
+            reasons.append(f"diff carries {len(suppression_hits)} suppression "
+                           f"pattern(s); auto-merge blocked")
 
     if active_policy.get("enabled") is not True:
         reasons.append("policy disabled")
@@ -193,7 +270,16 @@ def evaluate_auto_merge(
 
     required = _required_checks(github)
     if not required["readable"]:
-        reasons.append("branch protection required checks unreadable")
+        # Plan 023 v3.1 §P-2-followup — surface the specific
+        # lookup_error code (branch_protection_disabled_on_base /
+        # branch_protection_lookup_permission_denied /
+        # branch_protection_lookup_failed / etc.) so operator audit
+        # sees WHY the gate blocked, not just "unreadable".
+        lookup_error = required.get("lookup_error")
+        if lookup_error:
+            reasons.append(f"branch protection lookup failed: {lookup_error}")
+        else:
+            reasons.append("branch protection required checks unreadable")
     elif not required["checks"]:
         reasons.append("branch protection has no required checks")
     check_result = _required_checks_result(github, required["checks"], head_sha)
@@ -245,13 +331,51 @@ def evaluate_auto_merge(
     return decision
 
 
+def change_for_pr(
+    pr_number: int,
+    *,
+    base_dir: str | Path | None = None,
+) -> str | None:
+    """Plan 026R §D.3 — reverse lookup: find the change_id bound to a PR.
+
+    Scans ``pr-lifecycle.jsonl`` for the latest row matching
+    ``pr_number`` that carries a non-null ``change_id``. Returns
+    the change_id or ``None`` when no binding exists (legacy
+    pre-§D.3 PRs without the anchor).
+
+    Consumed by ``merge_if_green`` to assemble the §D.4 triple-gate
+    inputs (change_committed + change_validated + validation_runs)
+    via change_id lookup.
+    """
+    rows = load_jsonl(ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl")
+    latest_change_id: str | None = None
+    for row in rows:
+        if row.get("pr_number") == pr_number and row.get("change_id"):
+            latest_change_id = str(row["change_id"])
+    return latest_change_id
+
+
 def record_pr_lifecycle(
     pr: dict[str, Any],
     *,
     event: str = "observed",
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    assignment_id: str | None = None,
 ) -> dict[str, Any]:
+    """Append a row to pr-lifecycle.jsonl describing a PR event.
+
+    Plan 025 §E — ``assignment_id`` is the optional bridge between a
+    worker dispatch (dispatch/requests.jsonl) and the resulting PR.
+    When the autonomous worker scheduler verifies a worker run and
+    routes to merge_if_green, it needs to find the PR number for the
+    verified assignment; the bridge lives on this row's
+    ``assignment_id`` field. Falls back to ``pr["assignment_id"]``
+    when the kwarg is omitted but the source payload carries it.
+    Legacy rows without assignment_id return None from the helper
+    worker_dispatch.pr_for_assignment, which fail-closes the merge
+    path (verified_pending_merge).
+    """
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -262,11 +386,92 @@ def record_pr_lifecycle(
         "head_sha": _first_string(pr, "head_sha", "headRefOid", "head"),
         "task_id": pr.get("task_id"),
         "proposal_id": pr.get("proposal_id"),
+        "assignment_id": assignment_id or pr.get("assignment_id"),
+        # Plan 026R §D.3 — change_id anchor for the §D.4 triple-gate.
+        # ``change_for_pr`` (below) reverse-looks-up the change_id by
+        # pr_number; the auto-merge path then fetches change_committed
+        # + change_validated + validation_runs and asserts the triple.
+        "change_id": pr.get("change_id"),
         "changed_files": [_changed_file_path(item) for item in pr.get("changed_files", pr.get("files", []))],
     }
     if base_dir is None:
         return row
     return append_jsonl(ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl", row)
+
+
+def _evaluate_triple_gate(
+    *,
+    pr_number: int,
+    head_sha: str,
+    base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """Plan 026R §D.4 — auto-merge triple-gate evaluator.
+
+    Three independent assertions:
+
+    1. ``head_sha == change_committed.commit_sha`` — the PR's HEAD
+       SHA matches the commit_sha recorded in the change_ledger
+       committed row for the change_id bound to the PR.
+    2. ``change_validated`` row exists for the change_id — the
+       validation matrix recorded a passing validated event.
+    3. Every ``validation_runs`` row for the change_id verifies —
+       log_hash content-addressed binding holds (no tamper).
+
+    Returns ``{"passed": bool, "reasons": [...], "change_id": str | None}``.
+    On any assertion failure the merge MUST block; the caller appends
+    a structured ``decision`` row to ``auto-merge-decisions.jsonl``.
+    """
+    reasons: list[str] = []
+    change_id = change_for_pr(pr_number, base_dir=base_dir)
+    if not change_id:
+        return {
+            "passed": False,
+            "change_id": None,
+            "reasons": ["triple_gate_missing_change_id_binding"],
+        }
+    # Gate 1: head_sha == change.commit_sha
+    from .change_ledger import _find_committed, _find_validated_for_change
+    tools_root = ensure_tools_dir(base_dir)
+    committed = _find_committed(tools_root, change_id)
+    if committed is None:
+        reasons.append(
+            f"triple_gate_change_committed_missing: change_id={change_id!r}"
+        )
+    elif committed.get("commit_sha") != head_sha:
+        reasons.append(
+            f"triple_gate_head_sha_commit_sha_mismatch: "
+            f"head={head_sha!r} change.commit={committed.get('commit_sha')!r}"
+        )
+    # Gate 2: change_validated row exists
+    validated = _find_validated_for_change(tools_root, change_id)
+    if validated is None:
+        reasons.append(
+            f"triple_gate_change_validated_missing: change_id={change_id!r}"
+        )
+    # Gate 3: validation_runs verified
+    from .validation_runs_ledger import (
+        list_validation_runs_for_change,
+        verify_validation_run,
+    )
+    runs = list_validation_runs_for_change(change_id, base_dir=base_dir)
+    if not runs:
+        reasons.append(
+            f"triple_gate_validation_runs_missing: change_id={change_id!r}"
+        )
+    for run in runs:
+        run_id = str(run.get("validation_run_id") or "")
+        try:
+            verify_validation_run(run_id, base_dir=base_dir)
+        except Exception as exc:
+            reasons.append(
+                f"triple_gate_validation_run_unverified: "
+                f"{run_id}: {exc}"
+            )
+    return {
+        "passed": not reasons,
+        "change_id": change_id,
+        "reasons": reasons,
+    }
 
 
 def merge_if_green(
@@ -277,10 +482,23 @@ def merge_if_green(
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     dry_run: bool = True,
+    diff_text: str | None = None,
 ) -> dict[str, Any]:
     pr = adapter.get_pr(pr_number)
     record_pr_lifecycle(pr, event="observed", base_dir=base_dir, cycle_id=cycle_id)
     github = collect_github_snapshot(adapter, pr)
+    # Plan 022 §H-2 — auto-merge content scan requires diff_text. If
+    # caller didn't pass it, fall back to pr.diff_text (some adapters
+    # surface it directly), then to the adapter if it exposes a
+    # get_pr_diff() optional method. Otherwise pass None and let
+    # evaluate_auto_merge fail-closed.
+    if diff_text is None:
+        diff_text = pr.get("diff_text")
+        if diff_text is None and hasattr(adapter, "get_pr_diff"):
+            try:
+                diff_text = adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
+            except Exception:
+                diff_text = None
     decision = evaluate_auto_merge(
         pr=pr,
         github=github,
@@ -288,12 +506,94 @@ def merge_if_green(
         base_dir=base_dir,
         cycle_id=cycle_id,
         dry_run=dry_run,
+        diff_text=diff_text,
     )
     if not decision["eligible"] or dry_run:
         return decision
 
+    # Plan 026R §D.4 — auto-merge triple-gate. The pre-§D.4 eligibility
+    # check (decision["eligible"]) covered branch protection / required
+    # reviewers / checks / conversation resolution. The triple-gate
+    # adds three change-ledger-bound assertions: head_sha == change's
+    # commit_sha, change_validated row exists, validation_runs verified.
+    # Pre-§D.4 a PR could pass GitHub-side eligibility but the change
+    # row was missing / a different commit_sha was committed / no
+    # validation run had recorded a passing log_hash. Now those three
+    # surfaces fail-closed BEFORE the merge subprocess runs.
+    head_sha_pre = str(decision["head_sha"])
+    triple = _evaluate_triple_gate(
+        pr_number=pr_number,
+        head_sha=head_sha_pre,
+        base_dir=base_dir,
+    )
+    if not triple["passed"]:
+        blocked_triple = dict(decision)
+        blocked_triple.update(
+            {
+                "recorded_at": utc_now(),
+                "decision": "blocked",
+                "eligible": False,
+                "reasons": [
+                    "auto_merge_triple_gate_blocked",
+                    *triple["reasons"],
+                ],
+                "stage": "triple_gate_pre_merge",
+                "change_id": triple.get("change_id"),
+            },
+        )
+        _append_decision(base_dir, blocked_triple)
+        return blocked_triple
+
+    # Plan 024 v3 §B-6 — pre-merge full re-evaluation. Pre-fix the
+    # window between snapshot construction and merge call only re-
+    # fetched the head SHA; reviews / checks / conversations / diff
+    # were not re-collected. A force-push between snapshot and merge
+    # only invalidated the head SHA branch, but a required reviewer
+    # could dismiss approval, a check could fail, an unresolved
+    # comment could be added — and the merge would still proceed.
+    # The fix re-runs the full snapshot collector and pipes a fresh
+    # evaluate_auto_merge so EVERY eligibility surface is re-checked
+    # at the merge boundary. expected_head_sha on the merge_pr call
+    # is the GitHub-side defense-in-depth; the API rejects 409 on
+    # SHA drift even after the local re-check passes.
     head_sha = str(decision["head_sha"])
-    latest_head_sha = adapter.get_latest_head_sha(pr_number)
+    fresh_pr = adapter.get_pr(pr_number)
+    fresh_github = collect_github_snapshot(adapter, fresh_pr)
+    fresh_diff: str | None = None
+    if hasattr(adapter, "get_pr_diff"):
+        try:
+            fresh_diff = adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
+        except Exception:
+            fresh_diff = None
+    if fresh_diff is None:
+        fresh_diff = fresh_pr.get("diff_text")
+    fresh_decision = evaluate_auto_merge(
+        pr=fresh_pr,
+        github=fresh_github,
+        policy=policy,
+        base_dir=None,  # do not append the fresh-eval probe to the decision ledger
+        cycle_id=cycle_id,
+        dry_run=True,
+        diff_text=fresh_diff,
+    )
+    if not fresh_decision.get("eligible"):
+        blocked = dict(decision)
+        blocked.update(
+            {
+                "recorded_at": utc_now(),
+                "decision": "blocked",
+                "eligible": False,
+                "latest_head_sha": fresh_decision.get("head_sha"),
+                "reasons": [
+                    "pre_merge_re_evaluation_blocked",
+                    *list(fresh_decision.get("reasons") or []),
+                ],
+                "stage": "pre_merge_re_evaluation",
+            },
+        )
+        _append_decision(base_dir, blocked)
+        return blocked
+    latest_head_sha = fresh_decision.get("head_sha")
     if latest_head_sha != head_sha:
         blocked = dict(decision)
         blocked.update(
@@ -374,8 +674,17 @@ class SnapshotGitHubAdapter:
         return deepcopy(pr)
 
     def get_latest_head_sha(self, number: int) -> str | None:
+        # Plan 024 v3 §B-6 — strict snapshot resolution. Pre-fix the
+        # `or pr.head_sha` fallback masked missing fixture data: a
+        # snapshot test that forgot to seed github.latest_head_sha
+        # silently fell back to the PR's pre-merge head_sha and
+        # auto_merge believed nothing had drifted. Plan 023 §P-4
+        # closed the same fallback in evaluate_auto_merge but the
+        # snapshot adapter copy persisted. Strict semantics: None
+        # signals lookup failure; evaluate_auto_merge then blocks on
+        # latest_head_sha_lookup_failed.
         _ = number
-        return self.payload.get("github", {}).get("latest_head_sha") or self.payload.get("pr", {}).get("head_sha")
+        return self.payload.get("github", {}).get("latest_head_sha")
 
     def get_required_checks(self, base_branch: str) -> dict[str, Any]:
         _ = base_branch
@@ -394,6 +703,16 @@ class SnapshotGitHubAdapter:
         return deepcopy(
             self.payload.get("github", {}).get("conversations", {"readable": True, "unresolved_count": 0}),
         )
+
+    def get_pr_diff(self, number: int) -> str | None:
+        """Plan 023 v3 §P-6 — read pre-seeded diff from the snapshot
+        payload. Returns None when the fixture didn't supply a diff so
+        evaluate_auto_merge's empty-diff fail-closed gate fires."""
+        _ = number
+        diff = self.payload.get("github", {}).get("pr_diff")
+        if not isinstance(diff, str) or not diff.strip():
+            return None
+        return diff
 
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
         call = {"number": number, "method": method, "expected_head_sha": expected_head_sha}
@@ -502,6 +821,26 @@ class GhCliGitHubAdapter:
                 return {"readable": True, "unresolved_count": unresolved}
             cursor = page_info.get("endCursor")
 
+    def get_pr_diff(self, number: int) -> str | None:
+        """Plan 023 v3 §P-6 — fetch the unified diff from gh CLI.
+
+        Returns the diff text on success, or None on any subprocess
+        failure / empty output. evaluate_auto_merge's empty-diff gate
+        then converts the None / empty case into an explicit
+        auto_merge_requires_nonempty_unified_diff blocking reason.
+        """
+        try:
+            completed = subprocess.run(
+                ["gh", "pr", "diff", str(number)],
+                cwd=self.cwd, capture_output=True, text=True, check=False,
+            )
+        except (FileNotFoundError, OSError):
+            return None
+        if completed.returncode != 0:
+            return None
+        diff = completed.stdout or ""
+        return diff if diff.strip() else None
+
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
         if method != "squash":
             raise GovernanceError("only squash merge is allowed")
@@ -547,7 +886,24 @@ def _required_checks(github: dict[str, Any]) -> dict[str, Any]:
     if isinstance(protection, list):
         return {"readable": True, "checks": sorted({str(item) for item in protection if item})}
     if not isinstance(protection, dict):
-        return {"readable": False, "checks": []}
+        return {"readable": False, "checks": [], "lookup_error": "branch_protection_payload_unreadable"}
+    # Plan 023 v3.1 §P-2-followup — propagate lookup_error from the
+    # _fetch_branch_protection_contexts helper. Pre-Plan-023.1 the
+    # helper populated github.branch_protection.lookup_error on
+    # network/HTTP failure but evaluate_auto_merge never read it; the
+    # gate fell through to checks validation as if branch protection
+    # had been fetched cleanly. Auto-merge then proceeded against a
+    # stale / fabricated required-checks list. Post-fix: lookup_error
+    # makes _required_checks return readable=False AND surfaces the
+    # specific error code so evaluate_auto_merge's downstream blocking
+    # reason carries the operator-readable cause (404 / 403 / network).
+    lookup_error = protection.get("lookup_error")
+    if lookup_error:
+        return {
+            "readable": False,
+            "checks": [],
+            "lookup_error": str(lookup_error),
+        }
     readable = protection.get("readable", True) is True
     checks = protection.get("required_checks", protection.get("contexts", protection.get("checks", [])))
     names: list[str] = []

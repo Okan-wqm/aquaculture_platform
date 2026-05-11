@@ -1,0 +1,53 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "Adapter signal: TypeORM migration surfaces show repeated boilerplate across services \u2014 at least three migrations follow the same add-column-then-index pattern with no shared helper",
+  "claim_type": "duplication",
+  "closes_in_commit": null,
+  "created_at": "2026-05-07T07:37:04Z",
+  "evidence_chain_id": "chain_c05abc8bbe3674be",
+  "evidences": [
+    {
+      "ref": "apps/observability-service/src/database/migrations/1806300000000-AddMigrationBackfillProgress.ts:1",
+      "summary": "TypeORM migration: add-column then index pattern"
+    },
+    {
+      "ref": "apps/observability-service/src/database/migrations/1806100000000-AddSchemaObjectHistory.ts:1",
+      "summary": "TypeORM migration: add-column then index pattern"
+    },
+    {
+      "ref": "apps/observability-service/src/database/migrations/1805000000000-AddTenantCostRollup.ts:1",
+      "summary": "TypeORM migration: add-column then index pattern"
+    }
+  ],
+  "facts": [
+    "Migration 1806300000000 adds backfill progress columns and an index in the same file.",
+    "Migration 1806100000000 adds schema object history columns and an index in the same file.",
+    "Migration 1805000000000 adds tenant cost rollup columns and an index in the same file.",
+    "Pressure event pressure:migration-surface-repeat:repetition recorded score 87.572 across the same surface."
+  ],
+  "finding_id": "F-001",
+  "interpretations": [
+    {
+      "text": "The repetition may be load-bearing: each migration is intentionally small and self-contained for blue-green safety. Investigate before refactoring.",
+      "verification_required": true
+    }
+  ],
+  "originating_pressure_event_id": "pressure:migration-surface-repeat:repetition",
+  "originating_run_id": null,
+  "originating_skill": "migration-runner-adapter@shadow",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "data-expert"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "apps/observability-service/src/database/migrations/1806300000000-AddMigrationBackfillProgress.ts",
+      "apps/observability-service/src/database/migrations/1806100000000-AddSchemaObjectHistory.ts",
+      "apps/observability-service/src/database/migrations/1805000000000-AddTenantCostRollup.ts"
+    ]
+  },
+  "severity": "LOW",
+  "status": "OPEN"
+}

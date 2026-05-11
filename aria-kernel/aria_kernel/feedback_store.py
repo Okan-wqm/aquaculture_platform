@@ -45,13 +45,22 @@ def record_raw_findings_for_run(
     if not isinstance(raw_findings, list) or not raw_findings:
         return
     confirmed_false_positives = _confirmed_false_positive_fingerprints(base_dir)
+    # Plan 023 v3 §C-6 — scope-out mutation also marks raw findings as
+    # invalid_evidence. Plan 022 §C-5 added scope_out_mutations to the
+    # runner envelope and triggered immediate quarantine via
+    # immediate_quarantine_reason; the raw findings the run produced
+    # still landed here with status='raw' because the existing mapping
+    # only checked run.status. A scope-escape adapter's findings are a
+    # security signal, not a sampling source — re-flag them as invalid.
+    runner_block = run.get("runner") or {}
+    has_scope_out = bool(runner_block.get("scope_out_mutations"))
     for finding in raw_findings:
         if not isinstance(finding, dict):
             continue
         fingerprint = finding_fingerprint(run["tool_id"], finding)
         suppressed = confirmed_false_positives.get(fingerprint)
         status = "raw"
-        if run.get("status") in ("evidence_error", "scope_violation"):
+        if run.get("status") in ("evidence_error", "scope_violation") or has_scope_out:
             status = "invalid_evidence"
         elif suppressed:
             status = "suppressed_false_positive"
@@ -717,14 +726,37 @@ def _optional_string_list(value: Any) -> list[str]:
 
 
 def _confirmed_false_positive_fingerprints(base_dir: str | Path | None) -> dict[str, dict[str, Any]]:
+    """Plan 023 v3 §F-1 — suppression eligibility filter.
+
+    Pre-Plan-023 this read filtered ONLY on `verdict == "false_positive"`,
+    accepting any row regardless of source_type. A single raw `ai_judge`
+    verdict could suppress identical findings forever — no human review,
+    no consensus, no audit trail. The pre-existing `compute_ai_consensus_
+    for_tool` aggregator (lines 300-356) already produces ai_consensus
+    rows from ≥2 raw ai_judge verdicts with verdict agreement +
+    avg_confidence threshold, but the suppression filter never required
+    them.
+
+    Plan 023 v3 §F-1 fix: only `human` and `ai_consensus` source_types
+    are eligible for suppression. Raw `ai_judge` rows alone never
+    suppress directly — they flow through compute_ai_consensus_for_tool
+    first; if they coalesce into an `ai_consensus` row, the suppression
+    takes effect via that synthesized row.
+    """
     confirmed: dict[str, dict[str, Any]] = {}
     for row in load_feedback(base_dir=base_dir):
         if row.get("verdict") != "false_positive":
             continue
+        # Plan 023 v3 §F-1 — source_type filter. raw ai_judge rows are
+        # NOT suppression-eligible; they must pass through the
+        # consensus aggregator first.
+        source_type = row.get("source_type", "human")
+        if source_type not in ("human", "ai_consensus"):
+            continue
         fingerprint = str(row.get("finding_fingerprint") or "")
         if fingerprint:
             confirmed[fingerprint] = {
-                "source_type": row.get("source_type", "human"),
+                "source_type": source_type,
                 "run_id": row.get("run_id"),
                 "finding_id": row.get("finding_id"),
                 "recorded_at": row.get("recorded_at"),

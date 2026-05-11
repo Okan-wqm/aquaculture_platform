@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -9,6 +10,7 @@ from .apply_engine import list_apply_actions
 from .auto_merge import record_pr_lifecycle
 from .ledger import append_jsonl, load_jsonl
 from .proposal import get_proposal
+from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
 
@@ -60,13 +62,56 @@ def build_pr_body(*, proposal: dict[str, Any], action: dict[str, Any]) -> str:
     )
 
 
+ARIA_PR_BASE = "snowball"
+
+
 def open_pr_for_action(
     *,
     proposal_id: str,
     workspace_root: str | Path,
     base_dir: str | Path | None = None,
     dry_run: bool = True,
+    base: str = ARIA_PR_BASE,
+    assignment_id: str | None = None,
+    change_id: str | None = None,
 ) -> dict[str, Any]:
+    # Plan 026R §D.3 — change_id binding. PR open is the strict-
+    # pipeline tail; auto-merge §D.4 requires the PR to be bound
+    # to a change-ledger row so the triple-gate (head_sha ==
+    # change.commit_sha, change_validated row exists, validation_runs
+    # verified) can fire. Pre-§D.3 the PR existed without a change_id
+    # anchor, so merge_if_green had no way to assert the PR's commit
+    # matched the planner's intended commit.
+    #
+    # Required for non-dry-run: real PR creation MUST carry change_id.
+    # Optional for dry_run: the cycle pr_lifecycle preview path
+    # (cycle.py:638) builds bodies without needing change_id; that
+    # path's downstream consumer (the actual merge) will fail-closed
+    # if change_id is absent at merge time.
+    if not dry_run and (not change_id or not change_id.strip()):
+        raise GovernanceError(
+            "open_pr_change_id_required: non-dry-run PR creation "
+            "requires change_id (auto-merge §D.4 triple-gate anchor)"
+        )
+    # Plan 018 Phase 6.2 (G7) — explicit base-branch guard.
+    #
+    # Why: previously the snowball-only invariant was enforced
+    # implicitly by the hardcoded `--base snowball` argv passed to
+    # `gh pr create`. Convention-only enforcement at the subprocess
+    # boundary leaves the function signature itself permissive — a
+    # caller cannot tell from the function contract that base=main is
+    # forbidden, and a future `gh` argv refactor could silently drop
+    # the constraint. The explicit `base` parameter + GovernanceError
+    # surfaces the rule structurally; the subprocess argv keeps
+    # `--base snowball` as defense-in-depth.
+    if base != ARIA_PR_BASE:
+        raise GovernanceError(
+            f"ARIA PRs MUST target {ARIA_PR_BASE!r}; got base={base!r}"
+        )
+    # Plan 020 Phase 1.B — runtime profile dispatch gate.
+    # Why: PR open is the strict-pipeline tail; standard profile must commit
+    # but not auto-PR, observe must not PR at all, frozen must not PR at all.
+    enforce_profile_for_action("pr_open", base_dir=base_dir)
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if not action:
@@ -83,32 +128,120 @@ def open_pr_for_action(
         action["validation_run_refs"] = latest_validation.get("run_refs", [])
     body = build_pr_body(proposal=proposal, action=action)
     _validate_pr_body(body)
+
+    # Plan 022 §C-4 — head_sha is the proposal commit (action.branch HEAD),
+    # not action.base_sha. Plan 023 v3 §P-3 — fail-hard on missing branch
+    # or unresolvable rev. Pre-Plan-023 a missing action.branch resulted
+    # in resolved_head_sha=None silently kept; auto-merge later compared
+    # head_sha to latest_head_sha and a None-vs-None pass spuriously
+    # cleared the gate.
+    workspace_path = Path(workspace_root).resolve()
+    branch = action.get("branch")
+    if not branch or not isinstance(branch, str) or not branch.strip():
+        raise GovernanceError(
+            "open_pr_branch_missing: apply action does not carry "
+            "action.branch; cannot resolve head_sha or pass --head to "
+            "gh pr create"
+        )
+    rev_completed = subprocess.run(
+        ["git", "rev-parse", str(branch)],
+        cwd=workspace_path, capture_output=True, text=True, check=False,
+    )
+    if rev_completed.returncode != 0:
+        raise GovernanceError(
+            "open_pr_head_sha_unresolvable: "
+            f"git rev-parse {branch!r} failed with returncode="
+            f"{rev_completed.returncode}, stderr="
+            f"{(rev_completed.stderr or '').strip()!r}"
+        )
+    resolved_head_sha = (rev_completed.stdout or "").strip() or None
+    if not resolved_head_sha:
+        raise GovernanceError(
+            f"open_pr_head_sha_unresolvable: git rev-parse {branch!r} "
+            f"produced empty stdout"
+        )
+
     payload = {
         "number": None,
-        "base_branch": "snowball",
-        "head_sha": action.get("base_sha"),
+        "base_branch": ARIA_PR_BASE,
+        "head_sha": resolved_head_sha,
+        "base_sha": action.get("base_sha"),
+        "branch": branch,
         "task_id": proposal.get("task_id"),
         "proposal_id": proposal_id,
+        # Plan 025 §E — assignment_id bridge between worker dispatch
+        # and the resulting PR. When the autonomous worker scheduler
+        # calls open_pr_for_action with assignment_id, the lifecycle
+        # row carries the bridge so worker_dispatch.pr_for_assignment
+        # can later resolve the PR for merge_if_green. Optional kwarg
+        # — proposal-only callers (the cycle pr_lifecycle phase) do
+        # not pass it; legacy rows return None from pr_for_assignment
+        # which fail-closes the merge path to verified_pending_merge.
+        "assignment_id": assignment_id,
+        # Plan 026R §D.3 — change_id anchor for auto-merge triple-gate.
+        "change_id": change_id,
         "changed_files": action.get("changed_files", []),
         "title": proposal.get("title"),
         "body": body,
         "dry_run": dry_run,
     }
     if dry_run:
-        row = record_pr_lifecycle(payload, event="pr_dry_run", base_dir=base_dir)
+        row = record_pr_lifecycle(
+            payload, event="pr_dry_run", base_dir=base_dir,
+            assignment_id=assignment_id,
+        )
         row["body"] = body
+        # Plan 022 §C-4 — surface base_sha alongside head_sha so callers
+        # can verify provenance distinct-ness without re-reading the
+        # source payload. record_pr_lifecycle persists pr_number /
+        # head_sha / base_branch but drops base_sha.
+        row["base_sha"] = payload.get("base_sha")
         return row
+    # Plan 023 v3 §P-3 — `--head <branch>` always passed. Pre-fix gh
+    # inferred the branch from the current checkout, which could be
+    # wrong (the gate may have run on a different worktree than the
+    # one being PR'd). Explicit --head ties the PR to action.branch.
     completed = subprocess.run(
-        ["gh", "pr", "create", "--base", "snowball", "--title", str(proposal.get("title")), "--body", body],
-        cwd=Path(workspace_root).resolve(),
+        [
+            "gh", "pr", "create",
+            "--base", ARIA_PR_BASE,
+            "--head", branch,
+            "--title", str(proposal.get("title")),
+            "--body", body,
+        ],
+        cwd=workspace_path,
         capture_output=True,
         text=True,
         check=False,
     )
     if completed.returncode != 0:
         raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh pr create failed")
-    payload["url"] = completed.stdout.strip()
-    return record_pr_lifecycle(payload, event="opened", base_dir=base_dir)
+    stdout = completed.stdout or ""
+    payload["url"] = stdout.strip()
+
+    # Plan 022 §C-4 — robust PR number parse. Earlier `r"/pull/(\d+)$"`
+    # pattern failed on stdout with trailing newline, leading diagnostic
+    # lines, or mixed-content. The new regex tolerates whitespace or
+    # end-of-string after the digits.
+    pr_url_match = _PR_URL_RE.search(stdout)
+    if pr_url_match is None:
+        raise GovernanceError(
+            f"pr_create_url_unparseable: gh pr create stdout does not contain a "
+            f"GitHub /pull/<n> URL. stdout={stdout!r}"
+        )
+    payload["number"] = int(pr_url_match.group(1))
+    payload["url"] = pr_url_match.group(0)
+    return record_pr_lifecycle(
+        payload, event="opened", base_dir=base_dir,
+        assignment_id=assignment_id,
+    )
+
+
+# Plan 022 §C-4 — robust GitHub PR URL regex. Matches https://github.com/
+# <owner>/<repo>/pull/<n> with permissive trailing context (whitespace or
+# end-of-string), so a `gh pr create` stdout that adds a newline or
+# diagnostic line still parses cleanly.
+_PR_URL_RE = re.compile(r"https?://[^\s]+/pull/(\d+)(?:\s|$)")
 
 
 def prepare_branch(

@@ -3,17 +3,26 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
+from typing import Any
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from aria_kernel.cycle import run_cycle
 from aria_kernel.agent_invocations import (
+    DEFAULT_HEARTBEAT_EXTEND_SECONDS,
+    DEFAULT_LEASE_SECONDS,
+    claim_request,
     create_agent_invocation_request,
+    heartbeat_claim,
     list_agent_invocation_requests,
-    submit_agent_invocation_result,
+    next_pending_request,
+    reap_stale_claims,
+    release_claim,
+    submit_claim_result,
 )
 from aria_kernel.agent_genesis import (
     draft_agent_from_gap,
@@ -61,6 +70,38 @@ from aria_kernel.skill_genesis import (
 )
 from aria_kernel.reverify import reverify_pressures
 from aria_kernel.telemetry import export_telemetry
+from aria_kernel.context_budget_gate import (
+    audit_dispatch_context,
+    enforce_context_budget,
+    list_context_audits,
+)
+from aria_kernel.agent_compliance import (
+    list_compliance_grades,
+    record_compliance_grade,
+)
+from aria_kernel.validation_matrix_gate import (
+    detect_risk_types_for_change,
+    enforce_validation_matrix,
+    list_required_tests,
+)
+from aria_kernel.agent_eval import (
+    add_fixture as eval_add_fixture,
+    aggregate_eval_metrics,
+    list_eval_runs,
+    list_fixtures as eval_list_fixtures_fn,
+    run_agent_eval,
+)
+from aria_kernel.handoff_ledger import (
+    list_handoffs,
+    read_handoff,
+    take_handoff_snapshot,
+)
+from aria_kernel.runtime_profile import (
+    PROFILES,
+    get_profile,
+    list_profile_history,
+    set_profile,
+)
 from aria_kernel.tool_registry import GovernanceError, list_tools, register_tool
 from aria_kernel.tool_runner import run_tool
 from aria_kernel.triage import (
@@ -78,6 +119,7 @@ from aria_kernel.worker_dispatch import (
     prune_worktrees,
 )
 from aria_kernel.workspace import ensure_workspace, require_workspace_v2, workspace_paths
+from aria_kernel.worktree import preflight as worktree_preflight
 
 
 ERROR_EXIT_CODES = {
@@ -89,16 +131,133 @@ ERROR_EXIT_CODES = {
 }
 
 
+# Plan 024 v3 §B-7 — closed enum mapping run_tool envelope status to
+# CLI exit code. Operator scripts pattern-match on exit code for
+# failure detection; pre-fix the CLI returned 0 unconditionally even
+# when the runner crashed / parsed invalid output / hit budget caps.
+# The mapping shares vocabulary with spine_orchestrator's whitelist
+# (H-6); a future status addition in tool_runner must update both.
+_TOOL_RUN_EXIT_CODES: dict[str, int] = {
+    "ok": 0,
+    "crash": 1,
+    "schema_error": 1,
+    "output_unparseable": 1,
+    "budget_exceeded": 2,
+    "tool_unhealthy": 3,
+}
+
+
 def add_workspace_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--workspace-root", default=".", help="Repository root to bind to ARIA workspace")
     parser.add_argument("--workspace-base", default=None, help="Override ~/.aria/workspaces for tests or sandboxes")
 
 
-def add_tools_arg(parser: argparse.ArgumentParser, *, required: bool = False) -> None:
-    kwargs: dict[str, object] = {"required": required, "help": "Override ARIA tools directory"}
-    if not required:
-        kwargs["default"] = argparse.SUPPRESS
-    parser.add_argument("--tools-dir", **kwargs)
+# Plan 024 v3 followup F (ORPHAN-MEDIUM-058) — single architectural
+# point for --tools-dir across every subcommand at every nesting
+# level. The parents=[_TOOLS_DIR_PARENT] mechanism makes a future
+# subcommand author STRUCTURALLY UNABLE to register a parser
+# without --tools-dir; the add_subparser factory funnels every
+# add_parser call through the parent. The invariant test
+# test_cli_tools_dir_no_raw_add_parser pins this barrier.
+_TOOLS_DIR_PARENT = argparse.ArgumentParser(add_help=False)
+_TOOLS_DIR_PARENT.add_argument(
+    "--tools-dir",
+    default=argparse.SUPPRESS,
+    help="Override ARIA tools directory (also accepts ARIA_TOOLS_DIR env var).",
+)
+
+
+def add_subparser(
+    sub_action: argparse._SubParsersAction,
+    name: str,
+    **kwargs: Any,
+) -> argparse.ArgumentParser:
+    """Plan 024 §F — single funnel for every subparser registration.
+
+    Forces parents=[_TOOLS_DIR_PARENT] so --tools-dir is available on
+    every subcommand at every nesting level (operator can type the
+    flag BEFORE the subcommand, AFTER it, or at any nesting in
+    between). A future author CANNOT register a subcommand by any
+    path that omits the flag — there is no second registration
+    mechanism. Enforced by tests/test_cli_tools_dir_invariant.py.
+    """
+    parents = list(kwargs.pop("parents", []))
+    if _TOOLS_DIR_PARENT not in parents:
+        parents.append(_TOOLS_DIR_PARENT)
+    return sub_action.add_parser(name, parents=parents, **kwargs)
+
+
+# Plan 024 §F — post-parse table of commands that genuinely require an
+# operator-supplied --tools-dir (no env-var or default fallback). Both
+# entries are destructive integrity migrations where the operator MUST
+# name the directory explicitly. All other 168 subparsers accept the
+# flag but treat it as optional (env-var fallback or downstream None).
+_TOOLS_DIR_REQUIRED_COMMANDS: frozenset[tuple[str, ...]] = frozenset({
+    ("integrity", "migrate-tools-v1-to-v2"),
+    ("integrity", "rollback-tools-v2-to-v1"),
+})
+
+
+def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
+    """Build the (command, sub_command, ...) tuple for table lookup.
+
+    Walks the known sub-command attribute names (one per top-level
+    command). New nesting hierarchies append their dest attribute
+    here so the required-validation table can reach them.
+    """
+    path: list[str] = [args.command]
+    for attr in (
+        "integrity_command",
+        "feedback_command",
+        "discovery_command",
+        "tool_command",
+        "validation_matrix_command",
+        "agent_compliance_command",
+        "agent_eval_command",
+        "handoff_command",
+        "context_command",
+        "profile_command",
+        "memory_command",
+        "pressure_command",
+        "telemetry_command",
+        "worker_command",
+        "scheduler_command",
+        "planner_dispatch_command",
+        "worker_dispatch_command",
+        "worktree_command",
+        "agent_report_command",
+        "triage_command",
+        "agent_network_command",
+        "capability_gap_command",
+        "plan_command",
+        "agent_invocation_command",
+        "agent_command",
+        "budget_command",
+        "adapter_portfolio_command",
+        "review_command",
+        "architecture_command",
+        "research_command",
+        "critical_observation_command",
+        "convergent_plan_command",
+        "impact_command",
+        "apply_command",
+        "pr_command",
+        "spine_command",
+        "change_command",
+        "metrics_command",
+        "cycle_guard_command",
+        "human_required_command",
+        "consensus_command",
+        "agent_genesis_command",
+        "skill_genesis_command",
+        "worker_result_command",
+        "verification_command",
+        "cycle_command",
+    ):
+        sub = getattr(args, attr, None)
+        if sub:
+            path.append(sub)
+    return tuple(path)
 
 
 def resolve_paths(args: argparse.Namespace):
@@ -132,13 +291,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="aria-kernel")
-    parser.add_argument("--tools-dir", default=None, help="Override ARIA tools directory")
+    # Plan 024 §F — root parser inherits --tools-dir via parents=[_TOOLS_DIR_PARENT].
+    # The previous explicit add_argument("--tools-dir", default=None) was a
+    # second registration site that drifted the help text and required
+    # operators to type the flag BEFORE the subcommand. The parents-based
+    # approach delivers a single SSoT and accepts the flag at every nesting
+    # level. Required-validation moves to _TOOLS_DIR_REQUIRED_COMMANDS.
+    parser = argparse.ArgumentParser(prog="aria-kernel", parents=[_TOOLS_DIR_PARENT])
     sub = parser.add_subparsers(dest="command", required=True)
 
-    cycle_parser = sub.add_parser("cycle")
+    cycle_parser = add_subparser(sub, "cycle")
     cycle_sub = cycle_parser.add_subparsers(dest="cycle_command")
-    cycle_run = cycle_sub.add_parser("run")
+    cycle_run = add_subparser(cycle_sub, "run")
     add_workspace_args(cycle_run)
     cycle_run.add_argument("--cycle-id", required=True)
     cycle_run.add_argument("--discovery-only", action="store_true")
@@ -147,10 +311,10 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(cycle_legacy)
     cycle_legacy.add_argument("--cycle-id", default=None)
 
-    feedback_parser = sub.add_parser("feedback")
+    feedback_parser = add_subparser(sub, "feedback")
     feedback_sub = feedback_parser.add_subparsers(dest="feedback_command", required=True)
 
-    add_parser = feedback_sub.add_parser("add")
+    add_parser = add_subparser(feedback_sub, "add")
     add_workspace_args(add_parser)
     add_parser.add_argument("--kind", required=True)
     add_parser.add_argument("--summary", required=True)
@@ -165,77 +329,196 @@ def _main(argv: list[str] | None = None) -> int:
     add_parser.add_argument("--evidence-ref", action="append", default=[])
     add_parser.add_argument("--evidence-chain", action="append", default=[])
 
-    import_parser = feedback_sub.add_parser("import")
+    import_parser = add_subparser(feedback_sub, "import")
     add_workspace_args(import_parser)
     import_parser.add_argument("--file", required=True)
     import_parser.add_argument("--cycle-id", default=None)
 
-    list_parser = feedback_sub.add_parser("list")
+    list_parser = add_subparser(feedback_sub, "list")
     add_workspace_args(list_parser)
     list_parser.add_argument("--kind", default=None)
 
-    migrate_parser = feedback_sub.add_parser("migrate-v1-to-v2")
+    migrate_parser = add_subparser(feedback_sub, "migrate-v1-to-v2")
     add_workspace_args(migrate_parser)
     migrate_parser.add_argument("--acknowledge", action="store_true")
     migrate_parser.add_argument("--reason", required=True)
 
-    rollback_parser = feedback_sub.add_parser("rollback-v2-to-v1")
+    rollback_parser = add_subparser(feedback_sub, "rollback-v2-to-v1")
     add_workspace_args(rollback_parser)
     rollback_parser.add_argument("--from-backup", required=True)
     rollback_parser.add_argument("--acknowledge", action="store_true")
     rollback_parser.add_argument("--reason", required=True)
     rollback_parser.add_argument("--force-discard-since-migration", action="store_true")
 
-    discovery_parser = sub.add_parser("discovery")
+    discovery_parser = add_subparser(sub, "discovery")
     discovery_sub = discovery_parser.add_subparsers(dest="discovery_command", required=True)
-    discovery_run = discovery_sub.add_parser("run")
+    discovery_run = add_subparser(discovery_sub, "run")
     add_workspace_args(discovery_run)
-    add_tools_arg(discovery_run)
     discovery_run.add_argument("--cycle-id", required=True)
     discovery_run.add_argument("--snapshot-mode", default="committed", choices=["committed", "working_tree", "working-tree"])
 
-    integrity_parser = sub.add_parser("integrity")
+    integrity_parser = add_subparser(sub, "integrity")
     integrity_sub = integrity_parser.add_subparsers(dest="integrity_command", required=True)
-    verify_parser = integrity_sub.add_parser("verify")
+    verify_parser = add_subparser(integrity_sub, "verify")
     verify_parser.add_argument("--workspace-root", default=None)
     verify_parser.add_argument("--workspace-base", default=None)
-    add_tools_arg(verify_parser)
-    migrate_tools = integrity_sub.add_parser("migrate-tools-v1-to-v2")
-    migrate_tools.add_argument("--tools-dir", required=True)
+    migrate_tools = add_subparser(integrity_sub, "migrate-tools-v1-to-v2")
     migrate_tools.add_argument("--workspace-root", required=True)
     migrate_tools.add_argument("--acknowledge", action="store_true")
     migrate_tools.add_argument("--reason", required=True)
-    rollback_tools = integrity_sub.add_parser("rollback-tools-v2-to-v1")
-    rollback_tools.add_argument("--tools-dir", required=True)
+    rollback_tools = add_subparser(integrity_sub, "rollback-tools-v2-to-v1")
     rollback_tools.add_argument("--from-backup", required=True)
     rollback_tools.add_argument("--acknowledge", action="store_true")
     rollback_tools.add_argument("--reason", required=True)
     rollback_tools.add_argument("--force-discard-since-migration", action="store_true")
 
-    tool_parser = sub.add_parser("tool")
+    tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
-    tool_register = tool_sub.add_parser("register")
+    tool_register = add_subparser(tool_sub, "register")
     tool_register.add_argument("--file", required=True)
-    tool_list = tool_sub.add_parser("list")
+    tool_list = add_subparser(tool_sub, "list")
     tool_list.add_argument("--status", default=None)
-    tool_quarantine = tool_sub.add_parser("quarantine")
+    tool_quarantine = add_subparser(tool_sub, "quarantine")
     tool_quarantine.add_argument("--tool-id", required=True)
     tool_quarantine.add_argument("--reason", required=True)
-    tool_run = tool_sub.add_parser("run")
+    tool_run = add_subparser(tool_sub, "run")
     tool_run.add_argument("--tool-id", required=True)
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
 
-    memory_parser = sub.add_parser("memory")
+    # Plan 020 Phase 8.C — validation matrix CLI.
+    matrix_parser = add_subparser(sub, "validation-matrix")
+    matrix_sub = matrix_parser.add_subparsers(dest="validation_matrix_command", required=True)
+    matrix_check = add_subparser(matrix_sub, "check")
+    matrix_check.add_argument("--change-id", required=True)
+    matrix_check.add_argument("--repo-root", default=".")
+    matrix_check.add_argument("--validation-run-ref-json", default=None,
+        help="Path to JSON list of structured validation_run_refs (cmd, exit_code, log_path, ran_at).")
+    matrix_check.add_argument("--validation-mode", choices=["enforced", "historical_attestation"],
+        default="enforced")
+    matrix_required = add_subparser(matrix_sub, "list-required")
+    matrix_required.add_argument("--risk-type", action="append", required=True,
+        choices=["auth_change", "tenant_change", "schema_change", "event_change"])
+
+    # Plan 020 Phase 7.C — agent compliance harness CLI.
+    compliance_parser = add_subparser(sub, "agent-compliance")
+    compliance_sub = compliance_parser.add_subparsers(dest="agent_compliance_command", required=True)
+    comp_grade = add_subparser(compliance_sub, "grade")
+    comp_grade.add_argument("--claim-id", required=True)
+    comp_grade.add_argument("--request-file", required=True)
+    comp_grade.add_argument("--response-file", required=True)
+    comp_grade.add_argument("--response-path", default=None,
+        help="Where the agent claims it wrote the response (output_path_match check).")
+    comp_grade.add_argument("--workspace-root", default=".")
+    comp_list = add_subparser(compliance_sub, "list")
+    comp_list.add_argument("--claim-id", default=None)
+    comp_list.add_argument("--rejected-only", action="store_true")
+    comp_list.add_argument("--limit", type=int, default=None)
+
+    # Plan 020 Phase 6.C — agent eval harness CLI.
+    eval_parser = add_subparser(sub, "agent-eval")
+    eval_sub = eval_parser.add_subparsers(dest="agent_eval_command", required=True)
+    eval_add = add_subparser(eval_sub, "add-fixture")
+    eval_add.add_argument("--fixture-file", required=True,
+        help="Path to JSON fixture file conforming to aria/agent-eval-fixture/v1.")
+    eval_run = add_subparser(eval_sub, "run")
+    eval_run.add_argument("--fixture-id", required=True)
+    eval_run.add_argument("--mock-mode", action="store_true", default=True,
+        help="Run mock-mode (default; produces deterministic envelope).")
+    eval_run.add_argument("--real-envelope-file", default=None,
+        help="JSON file with real_response_envelope (required when --mock-mode is unset).")
+    eval_run.add_argument("--no-mock-mode", action="store_true",
+        help="Disable mock mode; requires --real-envelope-file.")
+    eval_aggregate = add_subparser(eval_sub, "aggregate")
+    eval_aggregate.add_argument("--target-agent", required=True)
+    eval_aggregate.add_argument("--window-days", type=int, default=30)
+    eval_aggregate.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    eval_list = add_subparser(eval_sub, "list")
+    eval_list.add_argument("--target-agent", default=None)
+    eval_list.add_argument("--fixture-id", default=None)
+    eval_list.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    eval_list.add_argument("--limit", type=int, default=None)
+    eval_list_fixtures = add_subparser(eval_sub, "list-fixtures")
+
+    # Plan 023 v3 §D-1 — shadow-sample CLI parser entry. Plan 022 §H-5
+    # added the sample_shadow_raw_findings Python function but no CLI
+    # subparser; operators could only call via Python REPL. Post-fix:
+    # `aria-kernel agent-eval shadow-sample [--threshold N]` runs the
+    # function and emits JSON output.
+    eval_shadow_sample = add_subparser(eval_sub, 
+        "shadow-sample",
+        help="Sample SHADOW raw findings from the last 24h (Plan 022 §H-5).",
+    )
+    eval_shadow_sample.add_argument(
+        "--threshold", type=int, default=None,
+        help="Optional override for the 24h raw-findings threshold "
+             "(default: SHADOW_SAMPLE_THRESHOLD_24H).",
+    )
+
+    # Plan 020 Phase 3.B — handoff snapshot sub-command.
+    # WHY a CLI surface: session_start + session_stop GHA workflow steps
+    # invoke this entry point. Operators use the same surface for manual
+    # handoff between session boundaries.
+    handoff_parser = add_subparser(sub, "handoff")
+    handoff_sub = handoff_parser.add_subparsers(dest="handoff_command", required=True)
+    handoff_snapshot = add_subparser(handoff_sub, "snapshot")
+    handoff_snapshot.add_argument("--session-id", required=True)
+    handoff_snapshot.add_argument("--trigger", required=True,
+        choices=["manual", "session_start", "pre_compact", "session_stop"])
+    handoff_snapshot.add_argument("--repo-root", default=".")
+    handoff_snapshot.add_argument("--operator-note", default=None)
+    handoff_list = add_subparser(handoff_sub, "list")
+    handoff_list.add_argument("--session-id", default=None)
+    handoff_list.add_argument("--trigger", default=None)
+    handoff_list.add_argument("--limit", type=int, default=None)
+    handoff_read = add_subparser(handoff_sub, "read")
+    handoff_read.add_argument("--session-id", required=True)
+
+    # Plan 020 Phase 2.C — context budget audit / enforce sub-command.
+    # WHY a CLI surface: operators inspecting why a planner packet got
+    # rejected need a one-shot audit ('aria-kernel context audit
+    # --target-agent X --role Y --request-file ...') that mirrors the
+    # in-pipeline gate. The list sub-command surfaces audit history.
+    context_parser = add_subparser(sub, "context")
+    context_sub = context_parser.add_subparsers(dest="context_command", required=True)
+    context_audit = add_subparser(context_sub, "audit")
+    context_audit.add_argument("--target-agent", required=True)
+    context_audit.add_argument("--role", required=True)
+    context_audit.add_argument("--request-file", default=None,
+        help="Path to JSON file with the request envelope (defaults to empty).")
+    context_audit.add_argument("--repo-root", default=".")
+    context_audit.add_argument("--context-window-tokens", type=int, default=None)
+    context_audit.add_argument("--enforce", action="store_true",
+        help="Raise GovernanceError on cap breach (vs read-only audit).")
+    context_list = add_subparser(context_sub, "list")
+    context_list.add_argument("--target-agent", default=None)
+    context_list.add_argument("--limit", type=int, default=None)
+
+    # Plan 020 Phase 1.C — runtime profile sub-command (set/get/history).
+    # WHY a dedicated sub-command exists: every profile transition is a
+    # control-plane operation that bypasses enforce_profile_for_write so
+    # operators can THAW a frozen surface. The CLI surface keeps the
+    # operator_approval_ref REQUIRED at parse time so a forgotten flag
+    # is not silently swapped for an empty string at the kernel boundary.
+    profile_parser = add_subparser(sub, "profile")
+    profile_sub = profile_parser.add_subparsers(dest="profile_command", required=True)
+    profile_set = add_subparser(profile_sub, "set")
+    profile_set.add_argument("--profile", required=True, choices=list(PROFILES))
+    profile_set.add_argument("--operator-approval-ref", required=True)
+    profile_set.add_argument("--set-by", default="operator")
+    profile_get = add_subparser(profile_sub, "get")
+    profile_history = add_subparser(profile_sub, "history")
+
+    memory_parser = add_subparser(sub, "memory")
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
-    memory_withdraw = memory_sub.add_parser("withdraw")
+    memory_withdraw = add_subparser(memory_sub, "withdraw")
     memory_withdraw.add_argument("--belief-id", required=True)
     memory_withdraw.add_argument("--reason", required=True)
 
-    pressure_parser = sub.add_parser("pressure")
+    pressure_parser = add_subparser(sub, "pressure")
     pressure_sub = pressure_parser.add_subparsers(dest="pressure_command", required=True)
-    pressure_list = pressure_sub.add_parser("list")
+    pressure_list = add_subparser(pressure_sub, "list")
     add_workspace_args(pressure_list)
     pressure_list.add_argument("--age-buckets", action="store_true")
     pressure_list.add_argument("--json", action="store_true")
@@ -244,12 +527,12 @@ def _main(argv: list[str] | None = None) -> int:
     pressure_list.add_argument("--include-archived", action="store_true")
     pressure_list.add_argument("--include-closed", action="store_true")
     pressure_list.add_argument("--include-satisfied", action="store_true")
-    pressure_explain = pressure_sub.add_parser("explain")
+    pressure_explain = add_subparser(pressure_sub, "explain")
     add_workspace_args(pressure_explain)
     pressure_explain.add_argument("pressure_event_id", nargs="?")
     pressure_explain.add_argument("--cycle-id", default=None)
     pressure_explain.add_argument("--pressure-id", default=None)
-    pressure_reverify = pressure_sub.add_parser("reverify")
+    pressure_reverify = add_subparser(pressure_sub, "reverify")
     add_workspace_args(pressure_reverify)
     pressure_reverify.add_argument("--sample-rate", type=float, default=0.10)
     pressure_reverify.add_argument("--dry-run", action="store_true")
@@ -258,147 +541,190 @@ def _main(argv: list[str] | None = None) -> int:
     pressure_reverify.add_argument("--reason", default=None)
     pressure_reverify.add_argument("--reset-cursor", action="store_true")
 
-    telemetry_parser = sub.add_parser("telemetry")
+    telemetry_parser = add_subparser(sub, "telemetry")
     telemetry_sub = telemetry_parser.add_subparsers(dest="telemetry_command", required=True)
-    telemetry_export = telemetry_sub.add_parser("export")
+    telemetry_export = add_subparser(telemetry_sub, "export")
     add_workspace_args(telemetry_export)
     telemetry_export.add_argument("--format", choices=["prometheus", "otel"], required=True)
     telemetry_export.add_argument("--output", default=None)
 
-    worker_parser = sub.add_parser("worker")
+    worker_parser = add_subparser(sub, "worker")
     worker_sub = worker_parser.add_subparsers(dest="worker_command", required=True)
-    worker_dispatch = worker_sub.add_parser("dispatch")
+    worker_dispatch = add_subparser(worker_sub, "dispatch")
     add_workspace_args(worker_dispatch)
-    add_tools_arg(worker_dispatch)
     worker_dispatch.add_argument("--pressure-event-id", default=None)
     worker_dispatch.add_argument("--target-agent", default=None)
     worker_dispatch.add_argument("--prepare-worktree", action="store_true")
     worker_dispatch.add_argument("--acknowledge", action="store_true")
     worker_dispatch.add_argument("--auto-batch", action="store_true")
     worker_dispatch.add_argument("--limit", type=int, default=10)
-    worker_list = worker_sub.add_parser("list")
-    add_tools_arg(worker_list, required=True)
+    worker_list = add_subparser(worker_sub, "list")
     worker_list.add_argument("--state", default=None)
     worker_list.add_argument("--target-agent", default=None)
     worker_list.add_argument("--pressure-event-id", default=None)
     worker_list.add_argument("--json", action="store_true")
-    worker_mark = worker_sub.add_parser("mark-picked-up")
-    add_tools_arg(worker_mark, required=True)
+    worker_mark = add_subparser(worker_sub, "mark-picked-up")
     worker_mark.add_argument("pressure_event_id")
     worker_mark.add_argument("--by", required=True)
-    worker_cancel = worker_sub.add_parser("cancel")
-    add_tools_arg(worker_cancel, required=True)
+    worker_cancel = add_subparser(worker_sub, "cancel")
     worker_cancel.add_argument("pressure_event_id")
     worker_cancel.add_argument("--reason", required=True)
 
-    worktree_prune_parser = sub.add_parser("worktree-prune")
+    # Plan 025 §D — autonomous scheduler family. ``planner-dispatch``
+    # runs the in-kernel daemon that polls next_pending_request and
+    # routes claimed requests to ci_executor.py. The subparser shape
+    # mirrors ``worker`` (line 548) and inherits --tools-dir via the
+    # add_subparser factory.
+    scheduler_parser = add_subparser(sub, "scheduler")
+    scheduler_sub = scheduler_parser.add_subparsers(
+        dest="scheduler_command", required=True,
+    )
+    planner_dispatch_parser = add_subparser(scheduler_sub, "planner-dispatch")
+    pd_sub = planner_dispatch_parser.add_subparsers(
+        dest="planner_dispatch_command", required=True,
+    )
+    pd_run = add_subparser(pd_sub, "run")
+    add_workspace_args(pd_run)
+    pd_run.add_argument("--max-iterations", type=int, default=None)
+    pd_run.add_argument(
+        "--poll-interval-seconds", type=float, default=30.0,
+    )
+    pd_run.add_argument("--daemon-id", default="planner-dispatch")
+    pd_run.add_argument(
+        "--roles", default="primary_plan,challenger_plan",
+        help="Comma-separated planner roles to poll, in priority order.",
+    )
+    pd_run.add_argument("--lease-seconds", type=int, default=1800)
+
+    # Plan 025 §E — autonomous worker scheduler daemon. Mirror of
+    # planner-dispatch shape (lock, ARIA_STOP, profile gate,
+    # max_iterations, exit_reason taxonomy); per-tick hook is
+    # worker_dispatch_hook.dispatch_one_pending_worker_assignment.
+    worker_dispatch_parser = add_subparser(scheduler_sub, "worker-dispatch")
+    wd_sub = worker_dispatch_parser.add_subparsers(
+        dest="worker_dispatch_command", required=True,
+    )
+    wd_run = add_subparser(wd_sub, "run")
+    add_workspace_args(wd_run)
+    wd_run.add_argument("--max-iterations", type=int, default=None)
+    wd_run.add_argument(
+        "--poll-interval-seconds", type=float, default=30.0,
+    )
+    wd_run.add_argument("--daemon-id", default="worker-scheduler")
+    wd_run.add_argument("--max-workers", type=int, default=1)
+    wd_run.add_argument("--lease-seconds", type=int, default=1800)
+
+    worktree_prune_parser = add_subparser(sub, "worktree-prune")
     add_workspace_args(worktree_prune_parser)
-    add_tools_arg(worktree_prune_parser, required=True)
     worktree_prune_parser.add_argument("--acknowledge", action="store_true")
     worktree_prune_parser.add_argument("--ttl-days", type=int, default=7)
 
-    agent_report_parser = sub.add_parser("agent-report")
+    worktree_parser = add_subparser(sub, 
+        "worktree",
+        help="Worktree-level operations (Plan 016 Faz 0 stable naming).",
+    )
+    worktree_sub = worktree_parser.add_subparsers(dest="worktree_command", required=True)
+    worktree_preflight_parser = add_subparser(worktree_sub, 
+        "preflight",
+        help="Record a hash-chained worktree_preflight governance event.",
+    )
+    add_workspace_args(worktree_preflight_parser)
+    worktree_preflight_parser.add_argument(
+        "--expected-branch",
+        default="snowball",
+        help="Branch the worktree must be checked out to (default: snowball).",
+    )
+    worktree_preflight_parser.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="Skip the best-effort origin fetch (offline mode).",
+    )
+
+    agent_report_parser = add_subparser(sub, "agent-report")
     agent_report_sub = agent_report_parser.add_subparsers(dest="agent_report_command", required=True)
-    ar_scan = agent_report_sub.add_parser("scan-registry")
+    ar_scan = add_subparser(agent_report_sub, "scan-registry")
     add_workspace_args(ar_scan)
-    add_tools_arg(ar_scan)
     ar_scan.add_argument("--cycle-id", required=True)
     ar_scan.add_argument("--backfill-open", action="store_true")
     ar_scan.add_argument("--limit", type=int, default=100)
     ar_scan.add_argument("--confirm-large-backfill", action="store_true")
     ar_scan.add_argument("--acknowledge", action="store_true")
-    ar_import = agent_report_sub.add_parser("import")
+    ar_import = add_subparser(agent_report_sub, "import")
     add_workspace_args(ar_import)
     ar_import.add_argument("--file", required=True)
     ar_import.add_argument("--cycle-id", default=None)
-    ar_list = agent_report_sub.add_parser("list")
+    ar_list = add_subparser(agent_report_sub, "list")
     add_workspace_args(ar_list)
     ar_list.add_argument("--json", action="store_true")
 
-    triage_parser = sub.add_parser("triage")
+    triage_parser = add_subparser(sub, "triage")
     triage_sub = triage_parser.add_subparsers(dest="triage_command", required=True)
-    triage_run = triage_sub.add_parser("run")
+    triage_run = add_subparser(triage_sub, "run")
     add_workspace_args(triage_run)
-    add_tools_arg(triage_run, required=True)
     triage_run.add_argument("--cycle-id", required=True)
-    triage_list = triage_sub.add_parser("list")
-    add_tools_arg(triage_list, required=True)
+    triage_list = add_subparser(triage_sub, "list")
     triage_list.add_argument("--tier", default=None)
     triage_list.add_argument("--target-agent", default=None)
     triage_list.add_argument("--cycle-id", default=None)
     triage_list.add_argument("--json", action="store_true")
-    triage_explain = triage_sub.add_parser("explain")
-    add_tools_arg(triage_explain, required=True)
+    triage_explain = add_subparser(triage_sub, "explain")
     triage_explain.add_argument("triage_id")
 
-    agent_network_parser = sub.add_parser("agent-network")
+    agent_network_parser = add_subparser(sub, "agent-network")
     agent_network_sub = agent_network_parser.add_subparsers(dest="agent_network_command", required=True)
-    agent_network_build = agent_network_sub.add_parser("index")
+    agent_network_build = add_subparser(agent_network_sub, "index")
     add_workspace_args(agent_network_build)
-    add_tools_arg(agent_network_build, required=True)
     agent_network_build.add_argument("--cycle-id", default=None)
 
-    capability_gap_parser = sub.add_parser("capability-gap")
+    capability_gap_parser = add_subparser(sub, "capability-gap")
     capability_gap_sub = capability_gap_parser.add_subparsers(dest="capability_gap_command", required=True)
-    capability_gap_detect = capability_gap_sub.add_parser("detect")
+    capability_gap_detect = add_subparser(capability_gap_sub, "detect")
     add_workspace_args(capability_gap_detect)
-    add_tools_arg(capability_gap_detect, required=True)
     capability_gap_detect.add_argument("--cycle-id", required=True)
 
-    plan_parser = sub.add_parser("plan")
+    plan_parser = add_subparser(sub, "plan")
     plan_sub = plan_parser.add_subparsers(dest="plan_command", required=True)
-    plan_start = plan_sub.add_parser("start")
-    add_tools_arg(plan_start, required=True)
+    plan_start = add_subparser(plan_sub, "start")
     plan_start.add_argument("--plan-id", required=True)
     plan_start.add_argument("--initial-revision-id", required=True)
     plan_start.add_argument("--plan-file", required=True)
-    plan_challenger = plan_sub.add_parser("submit-challenger")
-    add_tools_arg(plan_challenger, required=True)
+    plan_challenger = add_subparser(plan_sub, "submit-challenger")
     plan_challenger.add_argument("--plan-id", required=True)
     plan_challenger.add_argument("--challenger-file", required=True)
-    plan_cross_request = plan_sub.add_parser("request-cross-review")
-    add_tools_arg(plan_cross_request, required=True)
+    plan_cross_request = add_subparser(plan_sub, "request-cross-review")
     plan_cross_request.add_argument("--plan-id", required=True)
     plan_cross_request.add_argument("--request-file", required=True)
-    plan_cross_retry = plan_sub.add_parser("request-cross-review-retry")
-    add_tools_arg(plan_cross_retry, required=True)
+    plan_cross_retry = add_subparser(plan_sub, "request-cross-review-retry")
     plan_cross_retry.add_argument("--plan-id", required=True)
     plan_cross_retry.add_argument("--request-file", required=True)
-    plan_cross_record = plan_sub.add_parser("record-cross-review")
+    plan_cross_record = add_subparser(plan_sub, "record-cross-review")
     add_workspace_args(plan_cross_record)
-    add_tools_arg(plan_cross_record, required=True)
     plan_cross_record.add_argument("--plan-id", required=True)
     plan_cross_record.add_argument("--review-file", required=True)
-    plan_revision = plan_sub.add_parser("record-revision")
-    add_tools_arg(plan_revision, required=True)
+    plan_revision = add_subparser(plan_sub, "record-revision")
     plan_revision.add_argument("--plan-id", required=True)
     plan_revision.add_argument("--revision-file", required=True)
-    plan_advance = plan_sub.add_parser("advance")
-    add_tools_arg(plan_advance, required=True)
+    plan_advance = add_subparser(plan_sub, "advance")
     plan_advance.add_argument("--plan-id", required=True)
     plan_advance.add_argument("--round-number", type=int, required=True)
     plan_advance.add_argument("--max-rounds", type=int, default=5)
-    plan_promote = plan_sub.add_parser("promote-to-dispatch")
+    plan_promote = add_subparser(plan_sub, "promote-to-dispatch")
     add_workspace_args(plan_promote)
-    add_tools_arg(plan_promote, required=True)
     plan_promote.add_argument("--plan-id", required=True)
     plan_promote.add_argument("--pressure-event-id", required=True)
     plan_promote.add_argument("--target-agent", default=None)
     plan_promote.add_argument("--prepare-worktree", action="store_true")
     plan_promote.add_argument("--acknowledge", action="store_true")
-    plan_force = plan_sub.add_parser("force-human-required")
-    add_tools_arg(plan_force, required=True)
+    plan_force = add_subparser(plan_sub, "force-human-required")
     plan_force.add_argument("--plan-id", required=True)
     plan_force.add_argument("--round-number", type=int, required=True)
     plan_force.add_argument("--reason-code", action="append", required=True)
-    plan_status_parser = plan_sub.add_parser("status")
-    add_tools_arg(plan_status_parser, required=True)
+    plan_status_parser = add_subparser(plan_sub, "status")
     plan_status_parser.add_argument("--plan-id", required=True)
 
-    inv_parser = sub.add_parser("agent-invocations")
+    inv_parser = add_subparser(sub, "agent-invocations")
     inv_sub = inv_parser.add_subparsers(dest="agent_invocation_command", required=True)
-    inv_request = inv_sub.add_parser("request")
-    add_tools_arg(inv_request, required=True)
+    inv_request = add_subparser(inv_sub, "request")
     inv_request.add_argument("--target-agent", required=True)
     inv_request.add_argument("--role", required=True)
     inv_request.add_argument("--prompt-file", required=True)
@@ -406,89 +732,502 @@ def _main(argv: list[str] | None = None) -> int:
     inv_request.add_argument("--pressure-event-id", default=None)
     inv_request.add_argument("--round-number", type=int, default=None)
     inv_request.add_argument("--expected-output-path", default=None)
-    inv_submit = inv_sub.add_parser("submit-result")
-    add_tools_arg(inv_submit, required=True)
-    inv_submit.add_argument("--request-id", required=True)
-    inv_submit.add_argument("--output-path", required=True)
-    inv_submit.add_argument("--status", choices=["completed", "rejected", "partial"], default="completed")
-    inv_submit.add_argument("--by", default=None)
-    inv_submit.add_argument("--rejection-reason", default=None)
-    inv_list = inv_sub.add_parser("list")
-    add_tools_arg(inv_list, required=True)
+    # Plan 024 §B-2 — strict fields persisted on the request row.
+    # --must-satisfy-file: path to JSON file containing list[dict] of
+    #   satisfaction criteria.
+    # --allowed-scope: comma-separated glob list (e.g. 'aria-kernel/**,
+    #   apps/farm-service/**').
+    # --evidence-refs-file: path to JSON file containing list[str] of
+    #   pre-attached evidence path refs.
+    # --legacy-strict-fields-optional: explicit operator opt-out;
+    #   emits legacy_request_creation_without_strict_fields governance
+    #   event when set.
+    inv_request.add_argument("--must-satisfy-file", default=None)
+    inv_request.add_argument("--allowed-scope", default=None,
+        help="Comma-separated glob list, e.g. aria-kernel/**,apps/farm-service/**")
+    inv_request.add_argument("--evidence-refs-file", default=None)
+    inv_request.add_argument(
+        "--legacy-strict-fields-optional",
+        action="store_true",
+        help="Operator opt-out from must_satisfy + allowed_scope strict "
+             "enforcement; emits legacy_request_creation_without_strict_fields.",
+    )
+    # Plan 024 §B-1 — legacy `agent-invocations submit-result` subparser
+    # removed. The strict, lease-bound submission path is the only public
+    # surface now (`agent submit-result`, line ~656). The underlying
+    # legacy function is renamed to
+    # `_submit_legacy_invocation_result_internal` and gated behind an
+    # operator_migration_approval_ref. `request` and `list` subparsers
+    # below are intentionally preserved.
+    inv_list = add_subparser(inv_sub, "list")
     inv_list.add_argument("--state", default=None)
     inv_list.add_argument("--convergence-id", default=None)
     inv_list.add_argument("--target-agent", default=None)
     inv_list.add_argument("--request-id", default=None)
     inv_list.add_argument("--role", default=None)
 
-    agent_genesis_parser = sub.add_parser("agent-genesis")
+    # Plan 016 Faz C2 stable hierarchical CLI: `agent <action>`. The legacy
+    # `agent-invocations ...` sub-command stays for backward compatibility
+    # but is no longer advertised in v3 documentation.
+    agent_parser = add_subparser(sub, 
+        "agent",
+        help="Plan 016 bound-agent execution (next-pending / claim / heartbeat / submit-result / release / reap-stale).",
+    )
+    agent_sub = agent_parser.add_subparsers(dest="agent_command", required=True)
+
+    a_next = add_subparser(agent_sub, 
+        "next-pending",
+        help="Return the oldest unclaimed pending request matching role/target.",
+    )
+    a_next.add_argument("--role", default=None)
+    a_next.add_argument("--target-agent", default=None)
+
+    a_claim = add_subparser(agent_sub, 
+        "claim",
+        help="Issue a lease on a pending request. Raw lease_token is returned once.",
+    )
+    a_claim.add_argument("--request-id", required=True)
+    a_claim.add_argument("--agent-id", required=True)
+    a_claim.add_argument("--lease-seconds", type=int, default=None)
+
+    a_heartbeat = add_subparser(agent_sub, 
+        "heartbeat",
+        help="Extend an active lease. Requires the raw lease_token from claim.",
+    )
+    a_heartbeat.add_argument("--claim-id", required=True)
+    a_heartbeat.add_argument("--agent-id", required=True)
+    a_heartbeat.add_argument("--lease-token", required=True)
+    a_heartbeat.add_argument("--extend-seconds", type=int, default=None)
+
+    a_release = add_subparser(agent_sub,
+        "release",
+        help="Release a claim before submission. Triggers requeue or HUMAN_REQUIRED.",
+    )
+    a_release.add_argument("--claim-id", required=True)
+    a_release.add_argument("--agent-id", required=True)
+    a_release.add_argument("--reason", required=True)
+    # Plan 026R §B.1 — lease-bound release. The raw lease_token must
+    # arrive via an environment variable (NEVER argv — argv is logged in
+    # most CI/journald setups and would leak the token). Mirrors the
+    # heartbeat / submit-result lease handling.
+    a_release.add_argument(
+        "--lease-token",
+        required=False,
+        default=None,
+        help=(
+            "Raw lease_token (DISCOURAGED — argv may be logged). "
+            "Prefer --lease-token-from-env."
+        ),
+    )
+    a_release.add_argument(
+        "--lease-token-from-env",
+        required=False,
+        default=None,
+        metavar="ENV_VAR_NAME",
+        help=(
+            "Name of an environment variable that holds the lease_token. "
+            "Required unless --lease-token is provided."
+        ),
+    )
+
+    a_submit = add_subparser(agent_sub, 
+        "submit-result",
+        help="Submit a claim result. Validates response schema, satisfaction matrix, and evidence refs.",
+    )
+    add_workspace_args(a_submit)
+    a_submit.add_argument("--claim-id", required=True)
+    a_submit.add_argument("--agent-id", required=True)
+    a_submit.add_argument("--lease-token", required=True)
+    a_submit.add_argument("--output-path", required=True)
+
+    a_reap = add_subparser(agent_sub, 
+        "reap-stale",
+        help="Mark expired leases stale and emit requeue / human_required follow-ups.",
+    )
+    budget_parser = add_subparser(sub, 
+        "budget",
+        help="Plan 016 Faz D6 — LLM budget check / record / list.",
+    )
+    budget_sub = budget_parser.add_subparsers(dest="budget_command", required=True)
+    b_check = add_subparser(budget_sub, "check")
+    b_check.add_argument("--estimated-usd", type=float, required=True)
+    b_check.add_argument("--action", required=True)
+    b_record = add_subparser(budget_sub, "record")
+    b_record.add_argument("--actual-usd", type=float, required=True)
+    b_record.add_argument("--action", required=True)
+    b_record.add_argument("--note", default="")
+    b_list = add_subparser(budget_sub, "list")
+    adapter_parser = add_subparser(sub, 
+        "adapter-portfolio",
+        help="Plan 016 Faz F1+F2 — MVP adapter registration + parse-window signature backfill.",
+    )
+    adapter_sub = adapter_parser.add_subparsers(dest="adapter_portfolio_command", required=True)
+    ap_register = add_subparser(adapter_sub, "register-mvp")
+    ap_backfill = add_subparser(adapter_sub, "backfill-window-metadata")
+    ap_backfill.add_argument("--freshness-hours", type=int, default=None)
+    ap_status = add_subparser(adapter_sub, "status")
+    review_parser = add_subparser(sub, 
+        "review",
+        help="Plan 017 Phase 6.1 — operator review record ledger.",
+    )
+    review_sub = review_parser.add_subparsers(dest="review_command", required=True)
+    rv_record = add_subparser(review_sub, "record")
+    rv_record.add_argument("--scope", required=True)
+    rv_record.add_argument("--summary", required=True)
+    rv_record.add_argument("--reviewer", required=True)
+    rv_record.add_argument("--finding", action="append", default=None,
+                            help="Repeatable: F-NNN finding referenced by the review.")
+    rv_record.add_argument("--debt", action="append", default=None,
+                            help="Repeatable: DEBT-YYYY-MM-DD-NNN referenced by the review.")
+    rv_list = add_subparser(review_sub, "list")
+    rv_list.add_argument("--scope-substring", default=None)
+    rv_list.add_argument("--reviewer", default=None)
+
+    arch_parser = add_subparser(sub, 
+        "architecture",
+        help="Plan 016 Faz E1 — architecture-first review (fix_in_place / replace_with_adr / etc.).",
+    )
+    arch_sub = arch_parser.add_subparsers(dest="architecture_command", required=True)
+    arch_review = add_subparser(arch_sub, "review")
+    arch_review.add_argument("--technology", required=True)
+    arch_review.add_argument("--proposed-action", required=True)
+    arch_review.add_argument("--root-cause", required=True)
+    arch_review.add_argument("--evidence-ref", action="append", required=True)
+    arch_review.add_argument("--authoritative-ref", action="append", default=None)
+    arch_review.add_argument("--repo-prior-ref", action="append", default=None)
+    arch_review.add_argument("--replacement-ground", action="append", default=None)
+    arch_review.add_argument("--migration-plan", default="")
+    arch_review.add_argument("--rollback-plan", default="")
+    arch_review.add_argument("--cycle-id", default=None)
+    arch_list = add_subparser(arch_sub, "list")
+    research_parser = add_subparser(sub, 
+        "research",
+        help="Plan 016 Faz E2 — sanitized research fetch + source / policy ledger.",
+    )
+    research_sub = research_parser.add_subparsers(dest="research_command", required=True)
+    rs_fetch = add_subparser(research_sub, "fetch")
+    rs_fetch.add_argument("--url", required=True)
+    rs_fetch.add_argument("--source-tier", required=True)
+    rs_fetch.add_argument("--title", default="")
+    rs_fetch.add_argument("--allowed-domain", action="append", default=None)
+    rs_fetch.add_argument("--content-file", default=None,
+                           help="Optional: read fetch payload from a file (avoids real HTTP in tests).")
+    rs_list = add_subparser(research_sub, "list")
+    rs_policy = add_subparser(research_sub, "set-policy")
+    rs_policy.add_argument("--allowed-domain", action="append", required=True)
+
+    co_parser = add_subparser(sub, 
+        "critical-observation",
+        help="Plan 016 Faz E3 — critical observation persistence + escalation surface.",
+    )
+    co_sub = co_parser.add_subparsers(dest="critical_observation_command", required=True)
+    co_record = add_subparser(co_sub, "record")
+    co_record.add_argument("--severity", required=True, choices=["CRITICAL", "HIGH", "MEDIUM"])
+    co_record.add_argument("--category", required=True,
+                            choices=["security", "data_integrity", "regulatory", "production_affecting", "plc_safety"])
+    co_record.add_argument("--summary", required=True)
+    co_record.add_argument("--evidence-ref", required=True)
+    co_record.add_argument("--detail", default="")
+    co_record.add_argument("--cycle-id", default=None)
+    co_list = add_subparser(co_sub, "list")
+    co_list.add_argument("--include-resolved", action="store_true")
+    co_ack = add_subparser(co_sub, "acknowledge")
+    co_ack.add_argument("--observation-id", required=True)
+    co_ack.add_argument("--acknowledged-by", required=True)
+    co_resolve = add_subparser(co_sub, "resolve")
+    co_resolve.add_argument("--observation-id", required=True)
+    co_resolve.add_argument("--resolved-by", required=True)
+    co_resolve.add_argument("--resolution-note", required=True)
+
+    cp_parser = add_subparser(sub, 
+        "convergent-plan",
+        help="Plan 016 Faz D2 — convergent planning loop with envelope wiring.",
+    )
+    cp_sub = cp_parser.add_subparsers(dest="convergent_plan_command", required=True)
+    cp_start = add_subparser(cp_sub, "start")
+    cp_start.add_argument("--plan-id", required=True)
+    cp_start.add_argument("--initial-revision-id", required=True)
+    cp_start.add_argument("--plan-content-file", required=True)
+    cp_start.add_argument("--must-satisfy-file", required=True)
+    cp_start.add_argument("--evidence-ref", action="append", required=True)
+    cp_start.add_argument("--allowed-scope", action="append", required=True)
+    cp_challenger = add_subparser(cp_sub, "issue-challenger")
+    cp_challenger.add_argument("--plan-id", required=True)
+    cp_challenger.add_argument("--round-number", type=int, required=True)
+    # Plan 026R §C.3 — ACTIVE TypeError fix. issue_challenger_envelope's
+    # signature requires must_satisfy + evidence_refs + allowed_scope
+    # (Plan 024 §B-2 strict-fields invariant — challenger inherits the
+    # same bounding box as the primary planner). Pre-§C.3 the parser
+    # registered only --plan-id + --round-number, so any operator who
+    # ran ``aria-kernel convergent-plan issue-challenger ...`` hit a
+    # raw TypeError at :2187 before the CLI even reached the kernel
+    # primitive. The parser now mirrors the ``start`` subcommand
+    # surface for the three boundary args.
+    cp_challenger.add_argument("--must-satisfy-file", required=True)
+    cp_challenger.add_argument("--evidence-ref", action="append", required=True)
+    cp_challenger.add_argument("--allowed-scope", action="append", required=True)
+
+    impact_parser = add_subparser(sub, 
+        "impact",
+        help="Plan 016 Faz D1 — recursive impact graph (six-source).",
+    )
+    impact_sub = impact_parser.add_subparsers(dest="impact_command", required=True)
+    i_compute = add_subparser(impact_sub, "compute")
+    add_workspace_args(i_compute)
+    i_compute.add_argument(
+        "--intended-file",
+        action="append",
+        required=True,
+        help="Repeatable: paths the change intends to modify.",
+    )
+    i_compute.add_argument("--max-depth", type=int, default=None)
+
+    apply_parser = add_subparser(sub, 
+        "apply",
+        help="Plan 016 Faz D5 — apply gate utilities (suppression scan, etc.).",
+    )
+    apply_sub = apply_parser.add_subparsers(dest="apply_command", required=True)
+    a_scan = add_subparser(apply_sub, 
+        "scan-diff",
+        help="Run the suppression-scanner against a unified-diff file.",
+    )
+    a_scan.add_argument("--diff-file", required=True)
+
+    # Plan 019 Phase 3 — pr sub-command surface delegating to pr_manager.
+    # Why argparser-only: pr_manager.py already carries the load-bearing
+    # logic (12 e2e tests, ARIA_PR_BASE constant, Plan 018 explicit base
+    # guard). The CLI binding lets operators reach those functions
+    # without writing Python; no new kernel work is added beyond argv
+    # parsing + delegation.
+    pr_parser = add_subparser(sub, 
+        "pr",
+        help="Plan 016 §Snowball + Plan 019 Phase 3 — PR pipeline CLI (delegates to pr_manager).",
+    )
+    pr_sub = pr_parser.add_subparsers(dest="pr_command", required=True)
+    pr_prepare = add_subparser(pr_sub, "prepare", help="Prepare an aria/* branch for the proposal.")
+    pr_prepare.add_argument("--proposal-id", required=True)
+    pr_prepare.add_argument("--workspace-root", required=True)
+    pr_prepare.add_argument("--no-dry-run", action="store_true",
+                            help="Default is --dry-run (record only). Pass --no-dry-run to run real git checkout.")
+    pr_commit = add_subparser(pr_sub, "commit", help="Commit the prepared branch.")
+    pr_commit.add_argument("--proposal-id", required=True)
+    pr_commit.add_argument("--workspace-root", required=True)
+    pr_commit.add_argument("--message", default=None)
+    pr_commit.add_argument("--no-dry-run", action="store_true")
+    pr_push = add_subparser(pr_sub, "push", help="Push the prepared branch to remote.")
+    pr_push.add_argument("--proposal-id", required=True)
+    pr_push.add_argument("--workspace-root", required=True)
+    pr_push.add_argument("--remote", default="origin")
+    pr_push.add_argument("--no-dry-run", action="store_true")
+    pr_create = add_subparser(pr_sub, "create", help="Open a PR for the proposal (gh pr create wrap).")
+    pr_create.add_argument("--proposal-id", required=True)
+    pr_create.add_argument("--workspace-root", required=True)
+    # Plan 026R §D.3 — change_id anchor for the §D.4 auto-merge triple-
+    # gate. Required for non-dry-run PR creation; the kernel raises
+    # ``open_pr_change_id_required`` when --no-dry-run is set without
+    # --change-id.
+    pr_create.add_argument(
+        "--change-id",
+        required=False,
+        default=None,
+        help=(
+            "Change-ledger change_id bound to the PR; required when "
+            "--no-dry-run is set so the §D.4 auto-merge triple-gate "
+            "(head_sha == change.commit_sha + change_validated row + "
+            "validation_runs verified) can fire."
+        ),
+    )
+    pr_create.add_argument("--base", default="snowball",
+                           help="ARIA invariant: base MUST be snowball; any other value rejected at function entry (Plan 018 Phase 6.2).")
+    pr_create.add_argument("--no-dry-run", action="store_true")
+    pr_status = add_subparser(pr_sub, "list-actions", help="List recorded pr lifecycle actions (prepare/commit/push).")
+    pr_lifecycle = add_subparser(pr_sub, "lifecycle-plan",
+                                     help="Plan stale/close recommendations for open PRs (read-only).")
+    pr_lifecycle.add_argument("--open-prs-file", required=True,
+                              help="JSON file with [{number, updated_at, title, proposal_id}, ...].")
+    pr_lifecycle.add_argument("--cycle-id", default=None)
+    pr_lifecycle.add_argument("--stale-after-days", type=int, default=7)
+    pr_lifecycle.add_argument("--close-after-days", type=int, default=30)
+    pr_split = add_subparser(pr_sub, "split-plan",
+                                 help="Plan a PR split when changed_files exceed max_files_per_pr.")
+    pr_split.add_argument("--proposal-id", required=True)
+    pr_split.add_argument("--changed-file", action="append", required=True,
+                          help="Repeatable: each changed file path.")
+    pr_split.add_argument("--cycle-id", default=None)
+    pr_split.add_argument("--max-files-per-pr", type=int, default=12)
+
+    # Plan 019 Phase 5.5 — Architecture Spine Gate CLI surface.
+    # Operator runs `aria-kernel spine baseline` before a remediation
+    # round, then `aria-kernel spine postcheck` after. The kernel's
+    # 5-round HUMAN_REQUIRED escalation is automatic per call.
+    spine_parser = add_subparser(sub, 
+        "spine",
+        help="Plan 019 Phase 5.5 — Architecture Spine Gate baseline / postcheck / status.",
+    )
+    spine_sub = spine_parser.add_subparsers(dest="spine_command", required=True)
+    sp_baseline = add_subparser(spine_sub, "baseline",
+                                       help="Snapshot the 4 architectural invariants for plan_id.")
+    sp_baseline.add_argument("--plan-id", required=True)
+    sp_baseline.add_argument("--cycle-id", required=True)
+    sp_baseline.add_argument("--workspace-root", default=None)
+    sp_postcheck = add_subparser(spine_sub, "postcheck",
+                                        help="Re-snapshot + diff vs latest baseline; emit regression event if drift detected.")
+    sp_postcheck.add_argument("--plan-id", required=True)
+    sp_postcheck.add_argument("--cycle-id", required=True)
+    sp_postcheck.add_argument("--workspace-root", default=None)
+    sp_postcheck.add_argument("--max-regression-rounds", type=int, default=5)
+    sp_status = add_subparser(spine_sub, "status",
+                                     help="List baseline / postcheck / regression events.")
+    sp_status.add_argument("--plan-id", default=None)
+
+    # Plan 020 Phase 4.C — fresh adapter orchestrator manual invocation.
+    sp_refresh = add_subparser(spine_sub, "refresh",
+                                      help="Plan 020 Phase 4 — re-run any spine adapter whose latest run is stale.")
+    sp_refresh.add_argument("--workspace-root", default=".")
+    sp_refresh.add_argument("--cycle-id", default=None)
+    sp_refresh.add_argument("--freshness-max-age-seconds", type=int, default=600)
+    sp_refresh.add_argument("--max-workers", type=int, default=1)
+
+    # Plan 019 Phase 7 — Change Ledger CLI surface.
+    change_parser = add_subparser(sub, 
+        "change",
+        help="Plan 019 Phase 7 — append-only change-ledger (planned/committed/validated chain).",
+    )
+    change_sub = change_parser.add_subparsers(dest="change_command", required=True)
+    ch_plan = add_subparser(change_sub, "plan", help="Open a change chain (change_planned event).")
+    ch_plan.add_argument("--plan-id", required=True)
+    ch_plan.add_argument("--finding-id", required=True)
+    ch_plan.add_argument("--intended-file", action="append", required=True,
+                         help="Repeatable: each intended affected file.")
+    ch_plan.add_argument("--intended-validation-ref", action="append", default=None,
+                         help="Repeatable: validation refs the change will run.")
+    ch_plan.add_argument("--rollback-ref", default=None)
+    ch_plan.add_argument("--architectural-tier", type=int, required=True, choices=[1, 2, 3, 4])
+    ch_plan.add_argument("--intended-request-id", default=None)
+    ch_commit = add_subparser(change_sub, "commit", help="Record commit landing for a planned change.")
+    ch_commit.add_argument("--change-id", required=True)
+    ch_commit.add_argument("--commit-sha", required=True)
+    ch_commit.add_argument("--actual-file", action="append", required=True)
+    ch_commit.add_argument("--claim-id", default=None)
+    ch_validate = add_subparser(change_sub, "validate", help="Close a change chain with validation refs.")
+    ch_validate.add_argument("--change-id", required=True)
+    ch_validate.add_argument("--validation-ref", action="append", required=True)
+    ch_validate.add_argument("--baseline-comparison-ref", default=None)
+    ch_validate.add_argument("--invariants-file", default=None,
+                             help="Optional JSON file with post_remediation_invariants dict.")
+    ch_show = add_subparser(change_sub, "show", help="Get the {planned,committed,validated} blocks for a change_id.")
+    ch_show.add_argument("--change-id", required=True)
+    ch_list = add_subparser(change_sub, "list", help="List change chains, optionally filtered.")
+    ch_list.add_argument("--plan-id", default=None)
+    ch_list.add_argument("--finding-id", default=None)
+    ch_find = add_subparser(change_sub, "find", help="Find chains that touched a specific file.")
+    ch_find.add_argument("--file", required=True)
+
+    metrics_parser = add_subparser(sub, 
+        "metrics",
+        help="Plan 016 Faz D7 — nine-counter metric set + dashboard writer.",
+    )
+    metrics_sub = metrics_parser.add_subparsers(dest="metrics_command", required=True)
+    m_compute = add_subparser(metrics_sub, "plan-016")
+    m_dashboard = add_subparser(metrics_sub, "dashboard")
+    m_dashboard.add_argument("--workspace-root", default=None)
+    m_dashboard.add_argument("--out", default=None)
+
+    cycle_guard_parser = add_subparser(sub, 
+        "cycle-guard",
+        help="Plan 016 Faz D8 — empty-cycle guard advisor.",
+    )
+    cg_sub = cycle_guard_parser.add_subparsers(dest="cycle_guard_command", required=True)
+    cg_eval = add_subparser(cg_sub, "evaluate")
+    cg_eval.add_argument("--cycle-id", required=True)
+    cg_eval.add_argument("--pressure-threshold", type=float, default=None)
+    cg_eval.add_argument("--workspace-root", default=None)
+
+    hr_parser = add_subparser(sub, 
+        "human-required",
+        help="Plan 016 Faz D9 — operator triage queue for HUMAN_REQUIRED escalations.",
+    )
+    hr_sub = hr_parser.add_subparsers(dest="human_required_command", required=True)
+    hr_record = add_subparser(hr_sub, "record")
+    hr_record.add_argument("--request-id", required=True)
+    hr_record.add_argument("--severity", default=None)
+    hr_record.add_argument("--reason", required=True)
+    hr_list = add_subparser(hr_sub, "list")
+    hr_list.add_argument("--include-resolved", action="store_true")
+    hr_resolve = add_subparser(hr_sub, "resolve")
+    hr_resolve.add_argument("--request-id", required=True)
+    hr_resolve.add_argument("--resolution-note", required=True)
+    hr_sweep = add_subparser(hr_sub, "sweep")
+    consensus_parser = add_subparser(sub, 
+        "consensus",
+        help="Plan 016 Faz C5/C6 — compute consensus over recorded ai_judge verdicts.",
+    )
+    consensus_sub = consensus_parser.add_subparsers(dest="consensus_command", required=True)
+    c_run = add_subparser(consensus_sub, 
+        "run",
+        help="Compute consensus for a tool_id (and optional cycle_id) over the existing feedback ledger.",
+    )
+    c_run.add_argument("--tool-id", required=True)
+    c_run.add_argument("--cycle-id", default=None)
+    c_run.add_argument("--min-confidence", type=float, default=None)
+
+    agent_genesis_parser = add_subparser(sub, "agent-genesis")
     agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
-    ag_draft = agent_genesis_sub.add_parser("draft")
-    add_tools_arg(ag_draft, required=True)
+    ag_draft = add_subparser(agent_genesis_sub, "draft")
     ag_draft.add_argument("--gap-id", required=True)
-    ag_sandbox = agent_genesis_sub.add_parser("sandbox")
-    add_tools_arg(ag_sandbox, required=True)
+    ag_sandbox = add_subparser(agent_genesis_sub, "sandbox")
     ag_sandbox.add_argument("--draft-id", required=True)
     ag_sandbox.add_argument("--fixture-results-file", required=True)
-    ag_materialize = agent_genesis_sub.add_parser("materialize")
+    ag_materialize = add_subparser(agent_genesis_sub, "materialize")
     add_workspace_args(ag_materialize)
-    add_tools_arg(ag_materialize, required=True)
     ag_materialize.add_argument("--draft-id", required=True)
     ag_materialize.add_argument("--assignment-id", required=True)
     ag_materialize.add_argument("--acknowledge", action="store_true")
     ag_materialize.add_argument("--run-invariants", action="store_true")
-    ag_list = agent_genesis_sub.add_parser("list")
-    add_tools_arg(ag_list, required=True)
+    ag_list = add_subparser(agent_genesis_sub, "list")
     ag_list.add_argument("--materializations", action="store_true")
 
-    skill_genesis_parser = sub.add_parser("skill-genesis")
+    skill_genesis_parser = add_subparser(sub, "skill-genesis")
     skill_genesis_sub = skill_genesis_parser.add_subparsers(dest="skill_genesis_command", required=True)
-    sg_request = skill_genesis_sub.add_parser("request")
-    add_tools_arg(sg_request, required=True)
+    sg_request = add_subparser(skill_genesis_sub, "request")
     sg_request.add_argument("--capability-gap-key", required=True)
     sg_request.add_argument("--title", required=True)
-    sg_draft = skill_genesis_sub.add_parser("draft")
-    add_tools_arg(sg_draft, required=True)
+    sg_draft = add_subparser(skill_genesis_sub, "draft")
     sg_draft.add_argument("--request-id", required=True)
     sg_draft.add_argument("--name", required=True)
     sg_draft.add_argument("--description", required=True)
     sg_draft.add_argument("--owner", action="append", required=True)
     sg_draft.add_argument("--handoff-agent", action="append", required=True)
-    sg_sandbox = skill_genesis_sub.add_parser("sandbox")
-    add_tools_arg(sg_sandbox, required=True)
+    sg_sandbox = add_subparser(skill_genesis_sub, "sandbox")
     sg_sandbox.add_argument("--draft-id", required=True)
     sg_sandbox_input = sg_sandbox.add_mutually_exclusive_group(required=True)
     sg_sandbox_input.add_argument("--markdown-file", default=None,
                                   help="Skill markdown source — parsed for ## Fixture: <id> blocks (preferred).")
     sg_sandbox_input.add_argument("--checklist-results-file", default=None,
                                   help="Explicit JSON checklist results array (deprecated; use --markdown-file).")
-    sg_materialize = skill_genesis_sub.add_parser("materialize")
+    sg_materialize = add_subparser(skill_genesis_sub, "materialize")
     add_workspace_args(sg_materialize)
-    add_tools_arg(sg_materialize, required=True)
     sg_materialize.add_argument("--draft-id", required=True)
     sg_materialize.add_argument("--assignment-id", required=True)
     sg_materialize.add_argument("--acknowledge", action="store_true")
     sg_materialize.add_argument("--run-invariants", action="store_true")
-    sg_list = skill_genesis_sub.add_parser("list")
-    add_tools_arg(sg_list, required=True)
+    sg_list = add_subparser(skill_genesis_sub, "list")
     sg_list.add_argument("--kind", choices=["requests", "drafts", "sandbox", "materializations"], default="drafts")
 
-    worker_result = sub.add_parser("worker-result")
+    worker_result = add_subparser(sub, "worker-result")
     worker_result_sub = worker_result.add_subparsers(dest="worker_result_command", required=True)
-    worker_result_submit = worker_result_sub.add_parser("submit")
-    add_tools_arg(worker_result_submit)
+    worker_result_submit = add_subparser(worker_result_sub, "submit")
     worker_result_submit.add_argument("--assignment-id", default=None)
     worker_result_submit.add_argument("--from-worktree", required=True)
     worker_result_submit.add_argument("--validation-command", action="append", default=[])
 
-    verification_parser = sub.add_parser("verification")
+    verification_parser = add_subparser(sub, "verification")
     verification_sub = verification_parser.add_subparsers(dest="verification_command", required=True)
-    verification_verify = verification_sub.add_parser("verify")
-    add_tools_arg(verification_verify)
+    verification_verify = add_subparser(verification_sub, "verify")
     verification_verify.add_argument("--assignment-id", required=True)
     verification_verify.add_argument("--auto-merge-eligible", action="store_true")
 
-    curate_parser = sub.add_parser("curate")
+    curate_parser = add_subparser(sub, "curate")
     add_workspace_args(curate_parser)
     curate_parser.add_argument("--since", default="90d")
     curate_parser.add_argument("--apply", action="store_true")
@@ -497,6 +1236,28 @@ def _main(argv: list[str] | None = None) -> int:
     curate_parser.add_argument("--cycle-id", default=None)
 
     args = parser.parse_args(argv)
+
+    # Plan 024 §F — post-parse path resolution + required-validation.
+    # (a) ENV var fallback: ARIA_TOOLS_DIR is the zero-effort default
+    #     when neither flag position carried a value. We always set
+    #     args.tools_dir on the Namespace (even to None) so downstream
+    #     dispatch sites can call args.tools_dir without AttributeError;
+    #     downstream resolvers (e.g. tool_registry.tools_dir(None))
+    #     already handle None by falling back to "aria-tools".
+    # (b) Required-validation: 2 commands genuinely require operator-
+    #     supplied --tools-dir (integrity migrate/rollback). Validation
+    #     in a single dict avoids 89 per-callsite required=True flags.
+    if not getattr(args, "tools_dir", None):
+        env_default = os.environ.get("ARIA_TOOLS_DIR")
+        args.tools_dir = env_default if env_default else None
+
+    cmd_path = _command_path(args)
+    if cmd_path in _TOOLS_DIR_REQUIRED_COMMANDS and not args.tools_dir:
+        parser.error(
+            f"--tools-dir is required for command {' '.join(cmd_path)} "
+            f"(or set ARIA_TOOLS_DIR env var)"
+        )
+
     legacy_pressure_explain = (
         args.command == "pressure"
         and args.pressure_command == "explain"
@@ -506,7 +1267,7 @@ def _main(argv: list[str] | None = None) -> int:
     paths = (
         resolve_paths(args)
         if hasattr(args, "workspace_root")
-        and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune", "agent-network", "capability-gap", "plan", "agent-genesis", "skill-genesis"}
+        and args.command in {"feedback", "pressure", "curate", "telemetry", "worker", "agent-report", "triage", "worktree-prune", "worktree", "agent", "impact", "agent-network", "capability-gap", "plan", "agent-genesis", "skill-genesis"}
         and not legacy_pressure_explain
         else None
     )
@@ -622,13 +1383,196 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "tool" and args.tool_command == "run":
         payload = json.loads(args.input)
-        print(
-            json.dumps(
-                run_tool(args.tool_id, payload, args.cycle_id, workspace_root=args.workspace_root, base_dir=args.tools_dir),
-                indent=2,
-                sort_keys=True,
-            ),
+        result = run_tool(
+            args.tool_id, payload, args.cycle_id,
+            workspace_root=args.workspace_root, base_dir=args.tools_dir,
         )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # Plan 024 v3 §B-7 — exit code reflects envelope status (the
+        # canonical ok|crash|schema_error|... vocabulary), NOT the
+        # registry status (ACTIVE|SHADOW|QUARANTINED). Operator scripts
+        # can pattern-match exit code for failure detection.
+        envelope_status = (result.get("envelope") or {}).get("status", "ok")
+        return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
+
+    # Plan 020 Phase 8.C — validation matrix CLI dispatch.
+    if args.command == "validation-matrix" and args.validation_matrix_command == "check":
+        candidate_refs: list[Any] = []
+        if args.validation_run_ref_json:
+            candidate_refs = json.loads(Path(args.validation_run_ref_json).read_text(encoding="utf-8"))
+        try:
+            result = enforce_validation_matrix(
+                change_id=args.change_id,
+                base_dir=args.tools_dir,
+                repo_root=args.repo_root,
+                candidate_refs=candidate_refs,
+                validation_mode=args.validation_mode,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        except GovernanceError as exc:
+            # Surface the matrix detail for operator triage; CI fails-closed.
+            print(json.dumps({"blocked": True, "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+    if args.command == "validation-matrix" and args.validation_matrix_command == "list-required":
+        rows = list_required_tests(args.risk_type)
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+
+    # Plan 020 Phase 7.C — agent compliance CLI dispatch.
+    if args.command == "agent-compliance" and args.agent_compliance_command == "grade":
+        request = json.loads(Path(args.request_file).read_text(encoding="utf-8"))
+        response = json.loads(Path(args.response_file).read_text(encoding="utf-8"))
+        response_path = Path(args.response_path) if args.response_path else None
+        result = record_compliance_grade(
+            claim_id=args.claim_id,
+            request=request,
+            response=response,
+            response_path=response_path,
+            workspace_root=Path(args.workspace_root).resolve(),
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-compliance" and args.agent_compliance_command == "list":
+        rows = list_compliance_grades(
+            base_dir=args.tools_dir,
+            claim_id=args.claim_id,
+            rejected_only=args.rejected_only,
+            limit=args.limit,
+        )
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+
+    # Plan 020 Phase 6.C — agent eval CLI dispatch.
+    if args.command == "agent-eval" and args.agent_eval_command == "add-fixture":
+        fixture = json.loads(Path(args.fixture_file).read_text(encoding="utf-8"))
+        result = eval_add_fixture(fixture=fixture, base_dir=args.tools_dir)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "run":
+        mock_mode = not args.no_mock_mode
+        envelope = None
+        if not mock_mode:
+            if not args.real_envelope_file:
+                parser.error("--no-mock-mode requires --real-envelope-file")
+            envelope = json.loads(Path(args.real_envelope_file).read_text(encoding="utf-8"))
+        run = run_agent_eval(
+            fixture_id=args.fixture_id,
+            base_dir=args.tools_dir,
+            mock_mode=mock_mode,
+            real_response_envelope=envelope,
+        )
+        print(json.dumps(run, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "aggregate":
+        mock_filter: Any = None
+        if args.mock_mode == "true":
+            mock_filter = True
+        elif args.mock_mode == "false":
+            mock_filter = False
+        result = aggregate_eval_metrics(
+            target_agent=args.target_agent,
+            base_dir=args.tools_dir,
+            window_days=args.window_days,
+            mock_mode=mock_filter,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "list":
+        mock_filter = None
+        if args.mock_mode == "true":
+            mock_filter = True
+        elif args.mock_mode == "false":
+            mock_filter = False
+        rows = list_eval_runs(
+            base_dir=args.tools_dir,
+            target_agent=args.target_agent,
+            fixture_id=args.fixture_id,
+            mock_mode=mock_filter,
+            limit=args.limit,
+        )
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "list-fixtures":
+        rows = eval_list_fixtures_fn(base_dir=args.tools_dir)
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    # Plan 023 v3 §D-1 — shadow-sample CLI dispatch.
+    if args.command == "agent-eval" and args.agent_eval_command == "shadow-sample":
+        from .agent_eval import sample_shadow_raw_findings, SHADOW_SAMPLE_THRESHOLD_24H
+        threshold = args.threshold if args.threshold is not None else SHADOW_SAMPLE_THRESHOLD_24H
+        result = sample_shadow_raw_findings(
+            base_dir=args.tools_dir, threshold_24h=threshold,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    # Plan 020 Phase 3.B — handoff CLI dispatch.
+    if args.command == "handoff" and args.handoff_command == "snapshot":
+        snap = take_handoff_snapshot(
+            session_id=args.session_id,
+            trigger=args.trigger,
+            base_dir=args.tools_dir,
+            repo_root=args.repo_root,
+            operator_note=args.operator_note,
+        )
+        print(json.dumps(snap, indent=2, sort_keys=True))
+        return 0
+    if args.command == "handoff" and args.handoff_command == "list":
+        rows = list_handoffs(
+            base_dir=args.tools_dir,
+            session_id=args.session_id,
+            trigger=args.trigger,
+            limit=args.limit,
+        )
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    if args.command == "handoff" and args.handoff_command == "read":
+        snap = read_handoff(session_id=args.session_id, base_dir=args.tools_dir)
+        print(json.dumps(snap, indent=2, sort_keys=True))
+        return 0
+
+    # Plan 020 Phase 2.C — context budget CLI dispatch.
+    if args.command == "context" and args.context_command == "audit":
+        request_payload: Any = {}
+        if args.request_file:
+            request_payload = json.loads(Path(args.request_file).read_text(encoding="utf-8"))
+        runner = enforce_context_budget if args.enforce else audit_dispatch_context
+        result = runner(
+            request=request_payload,
+            target_agent=args.target_agent,
+            role=args.role,
+            base_dir=args.tools_dir,
+            repo_root=args.repo_root,
+            context_window_tokens_override=args.context_window_tokens,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "context" and args.context_command == "list":
+        rows = list_context_audits(
+            base_dir=args.tools_dir,
+            target_agent=args.target_agent,
+            limit=args.limit,
+        )
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+
+    # Plan 020 Phase 1.C — runtime profile CLI dispatch.
+    if args.command == "profile" and args.profile_command == "set":
+        result = set_profile(
+            args.profile,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+            set_by=args.set_by,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "profile" and args.profile_command == "get":
+        print(json.dumps({"active_profile": get_profile(base_dir=args.tools_dir)}, indent=2, sort_keys=True))
+        return 0
+    if args.command == "profile" and args.profile_command == "history":
+        print(json.dumps(list_profile_history(base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
 
     if args.command == "memory" and args.memory_command == "withdraw":
@@ -750,6 +1694,60 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("status") in {"cancelled", "already_cancelled"} else 1
 
+    if (
+        args.command == "scheduler"
+        and args.scheduler_command == "planner-dispatch"
+        and args.planner_dispatch_command == "run"
+    ):
+        # Plan 025 §D — autonomous planner dispatcher daemon entry.
+        # workspace_root falls back to paths.repo_root when paths is
+        # bound (worktree-aware); otherwise to the explicit argv path.
+        from .autonomous_planner_dispatcher import run_planner_dispatch_daemon
+        workspace = (
+            paths.repo_root if paths is not None
+            else Path(args.workspace_root).resolve()
+        )
+        roles = tuple(
+            r.strip() for r in args.roles.split(",") if r.strip()
+        )
+        if not roles:
+            parser.error("--roles must contain at least one planner role")
+        result = run_planner_dispatch_daemon(
+            base_dir=args.tools_dir,
+            workspace_root=workspace,
+            max_iterations=args.max_iterations,
+            poll_interval_seconds=args.poll_interval_seconds,
+            daemon_id=args.daemon_id,
+            roles=roles,
+            lease_seconds=args.lease_seconds,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("exits_clean") else 1
+
+    if (
+        args.command == "scheduler"
+        and args.scheduler_command == "worker-dispatch"
+        and args.worker_dispatch_command == "run"
+    ):
+        # Plan 025 §E — autonomous worker scheduler daemon entry.
+        # Mirrors the planner-dispatch wiring above.
+        from .autonomous_worker_scheduler import run_worker_scheduler_daemon
+        workspace = (
+            paths.repo_root if paths is not None
+            else Path(args.workspace_root).resolve()
+        )
+        result = run_worker_scheduler_daemon(
+            base_dir=args.tools_dir,
+            workspace_root=workspace,
+            max_iterations=args.max_iterations,
+            poll_interval_seconds=args.poll_interval_seconds,
+            daemon_id=args.daemon_id,
+            max_workers=args.max_workers,
+            lease_seconds=args.lease_seconds,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("exits_clean") else 1
+
     if args.command == "worktree-prune":
         result = prune_worktrees(
             paths.repo_root if paths is not None else Path(args.workspace_root).resolve(),
@@ -759,6 +1757,17 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("status") == "ok" else 1
+
+    if args.command == "worktree" and args.worktree_command == "preflight":
+        repo_root = paths.repo_root if paths is not None else Path(args.workspace_root).resolve()
+        result = worktree_preflight(
+            workspace_root=repo_root,
+            base_dir=args.tools_dir,
+            expected_branch=args.expected_branch,
+            skip_fetch=args.no_fetch,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("gate_pass") else 1
 
     if args.command == "agent-report" and args.agent_report_command == "scan-registry":
         require_workspace_v2(paths)
@@ -876,25 +1885,39 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "agent-invocations":
         if args.agent_invocation_command == "request":
+            # Plan 024 §B-2 — read strict fields from the new CLI args.
+            must_satisfy = None
+            if args.must_satisfy_file:
+                must_satisfy = json.loads(
+                    Path(args.must_satisfy_file).read_text(encoding="utf-8"))
+            allowed_scope = None
+            if args.allowed_scope:
+                allowed_scope = [
+                    g.strip() for g in args.allowed_scope.split(",") if g.strip()
+                ]
+            evidence_refs = None
+            if args.evidence_refs_file:
+                evidence_refs = json.loads(
+                    Path(args.evidence_refs_file).read_text(encoding="utf-8"))
             result = create_agent_invocation_request(
                 target_agent=args.target_agent,
                 role=args.role,
                 suggested_prompt=Path(args.prompt_file).read_text(encoding="utf-8"),
+                must_satisfy=must_satisfy,
+                allowed_scope=allowed_scope,
+                evidence_refs=evidence_refs,
+                legacy_strict_fields_optional=args.legacy_strict_fields_optional,
                 convergence_id=args.convergence_id,
                 pressure_event_id=args.pressure_event_id,
                 round_number=args.round_number,
                 expected_output_path=args.expected_output_path,
                 base_dir=args.tools_dir,
             )
-        elif args.agent_invocation_command == "submit-result":
-            result = submit_agent_invocation_result(
-                request_id=args.request_id,
-                output_path=args.output_path,
-                status=args.status,
-                by=args.by,
-                rejection_reason=args.rejection_reason,
-                base_dir=args.tools_dir,
-            )
+        # Plan 024 §B-1 — `submit-result` dispatch removed alongside the
+        # subparser. Operators use `agent submit-result` (strict path) or,
+        # for ad-hoc migration scripts, the kernel-private
+        # `_submit_legacy_invocation_result_internal` helper guarded by
+        # `operator_migration_approval_ref`.
         elif args.agent_invocation_command == "list":
             result = list_agent_invocation_requests(
                 base_dir=args.tools_dir,
@@ -908,6 +1931,612 @@ def _main(argv: list[str] | None = None) -> int:
             parser.error("unknown agent-invocations command")
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if not isinstance(result, dict) or result.get("status") != "rejected" else 1
+
+    if args.command == "agent":
+        if args.agent_command == "next-pending":
+            row = next_pending_request(
+                role=args.role, target_agent=args.target_agent, base_dir=args.tools_dir
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0 if row is not None else 0
+        if args.agent_command == "claim":
+            lease_seconds = args.lease_seconds if args.lease_seconds is not None else DEFAULT_LEASE_SECONDS
+            row = claim_request(
+                request_id=args.request_id,
+                agent_id=args.agent_id,
+                base_dir=args.tools_dir,
+                lease_seconds=lease_seconds,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.agent_command == "heartbeat":
+            extend = args.extend_seconds if args.extend_seconds is not None else DEFAULT_HEARTBEAT_EXTEND_SECONDS
+            row = heartbeat_claim(
+                claim_id=args.claim_id,
+                agent_id=args.agent_id,
+                lease_token=args.lease_token,
+                base_dir=args.tools_dir,
+                extend_seconds=extend,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.agent_command == "release":
+            # Plan 026R §B.1 — resolve lease_token from --lease-token or
+            # from --lease-token-from-env. Exactly one MUST be set.
+            lease_token = args.lease_token
+            if args.lease_token_from_env:
+                env_value = os.environ.get(args.lease_token_from_env)
+                if not env_value:
+                    print(
+                        f"lease-token-from-env: env var "
+                        f"{args.lease_token_from_env!r} is empty or unset",
+                        file=sys.stderr,
+                    )
+                    return 2
+                if lease_token is not None:
+                    print(
+                        "--lease-token and --lease-token-from-env are "
+                        "mutually exclusive",
+                        file=sys.stderr,
+                    )
+                    return 2
+                lease_token = env_value
+            if not lease_token:
+                print(
+                    "release requires --lease-token or "
+                    "--lease-token-from-env",
+                    file=sys.stderr,
+                )
+                return 2
+            row = release_claim(
+                claim_id=args.claim_id,
+                agent_id=args.agent_id,
+                lease_token=lease_token,
+                reason=args.reason,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.agent_command == "reap-stale":
+            result = reap_stale_claims(base_dir=args.tools_dir)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.agent_command == "submit-result":
+            workspace = paths.repo_root if paths is not None else Path(args.workspace_root).resolve()
+            result = submit_claim_result(
+                claim_id=args.claim_id,
+                agent_id=args.agent_id,
+                lease_token=args.lease_token,
+                output_path=args.output_path,
+                workspace_root=workspace,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0 if result.get("status") == "accepted" else 1
+        parser.error("unknown agent command")
+
+    if args.command == "budget":
+        from aria_kernel.budget import check_budget, list_budget_usage, record_budget_usage
+
+        if args.budget_command == "check":
+            row = check_budget(
+                estimated_usd=args.estimated_usd, action=args.action, base_dir=args.tools_dir
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0 if row.get("status") == "ok" else 1
+        if args.budget_command == "record":
+            row = record_budget_usage(
+                actual_usd=args.actual_usd,
+                action=args.action,
+                note=args.note,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.budget_command == "list":
+            rows = list_budget_usage(base_dir=args.tools_dir)
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown budget command")
+
+    if args.command == "adapter-portfolio":
+        from aria_kernel.adapter_portfolio import (
+            DEFAULT_FRESHNESS_WINDOW_HOURS,
+            backfill_window_metadata,
+            list_mvp_status,
+            register_mvp_adapters,
+        )
+
+        if args.adapter_portfolio_command == "register-mvp":
+            result = register_mvp_adapters(base_dir=args.tools_dir)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.adapter_portfolio_command == "backfill-window-metadata":
+            freshness = args.freshness_hours if args.freshness_hours is not None else DEFAULT_FRESHNESS_WINDOW_HOURS
+            result = backfill_window_metadata(base_dir=args.tools_dir, freshness_hours=freshness)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.adapter_portfolio_command == "status":
+            result = list_mvp_status(base_dir=args.tools_dir)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0 if not result["missing"] else 2
+        parser.error("unknown adapter-portfolio command")
+
+    if args.command == "review":
+        from aria_kernel.review_record import list_reviews, record_review
+
+        if args.review_command == "record":
+            row = record_review(
+                scope=args.scope,
+                summary=args.summary,
+                reviewer=args.reviewer,
+                findings_referenced=args.finding,
+                debts_referenced=args.debt,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.review_command == "list":
+            rows = list_reviews(
+                base_dir=args.tools_dir,
+                scope_substring=args.scope_substring,
+                reviewer=args.reviewer,
+            )
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown review command")
+
+    if args.command == "architecture":
+        from aria_kernel.architecture import (
+            list_architecture_reviews,
+            review_architecture_decision,
+        )
+
+        if args.architecture_command == "review":
+            row = review_architecture_decision(
+                technology=args.technology,
+                proposed_action=args.proposed_action,
+                evidence_refs=args.evidence_ref,
+                root_cause=args.root_cause,
+                authoritative_refs=args.authoritative_ref,
+                repo_prior_refs=args.repo_prior_ref,
+                replacement_grounds=args.replacement_ground,
+                migration_plan=args.migration_plan,
+                rollback_plan=args.rollback_plan,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.architecture_command == "list":
+            print(json.dumps(list_architecture_reviews(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown architecture command")
+
+    if args.command == "research":
+        from aria_kernel.research import (
+            fetch_research_source,
+            list_research_fetches,
+            record_research_policy,
+        )
+
+        if args.research_command == "fetch":
+            content_override = None
+            if args.content_file:
+                content_override = Path(args.content_file).read_text(encoding="utf-8")
+            row = fetch_research_source(
+                url=args.url,
+                source_tier=args.source_tier,
+                title=args.title,
+                allowed_domains=args.allowed_domain,
+                content_override=content_override,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.research_command == "list":
+            print(json.dumps(list_research_fetches(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        if args.research_command == "set-policy":
+            row = record_research_policy(
+                allowed_domains=args.allowed_domain, base_dir=args.tools_dir
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown research command")
+
+    if args.command == "critical-observation":
+        from aria_kernel.critical_observation import (
+            acknowledge_critical_observation,
+            list_critical_observations,
+            record_critical_observation,
+            resolve_critical_observation,
+        )
+
+        if args.critical_observation_command == "record":
+            row = record_critical_observation(
+                severity=args.severity,
+                category=args.category,
+                summary=args.summary,
+                evidence_ref=args.evidence_ref,
+                detail=args.detail,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.critical_observation_command == "list":
+            rows = list_critical_observations(
+                base_dir=args.tools_dir, include_resolved=args.include_resolved
+            )
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        if args.critical_observation_command == "acknowledge":
+            row = acknowledge_critical_observation(
+                observation_id=args.observation_id,
+                acknowledged_by=args.acknowledged_by,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.critical_observation_command == "resolve":
+            row = resolve_critical_observation(
+                observation_id=args.observation_id,
+                resolved_by=args.resolved_by,
+                resolution_note=args.resolution_note,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown critical-observation command")
+
+    if args.command == "convergent-plan":
+        from aria_kernel.convergent_planning_bridge import (
+            issue_challenger_envelope,
+            start_convergent_plan_with_envelope,
+        )
+
+        if args.convergent_plan_command == "start":
+            content = json.loads(Path(args.plan_content_file).read_text(encoding="utf-8"))
+            must_satisfy = json.loads(Path(args.must_satisfy_file).read_text(encoding="utf-8"))
+            result = start_convergent_plan_with_envelope(
+                plan_id=args.plan_id,
+                plan_content=content,
+                initial_revision_id=args.initial_revision_id,
+                must_satisfy=must_satisfy,
+                evidence_refs=args.evidence_ref,
+                allowed_scope=args.allowed_scope,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.convergent_plan_command == "issue-challenger":
+            # Plan 026R §C.3 — pass through the three bounding-box args
+            # the kernel primitive requires. Pre-§C.3 the call site
+            # omitted them entirely and the function raised TypeError
+            # before any kernel work happened.
+            must_satisfy = json.loads(
+                Path(args.must_satisfy_file).read_text(encoding="utf-8"),
+            )
+            row = issue_challenger_envelope(
+                plan_id=args.plan_id,
+                round_number=args.round_number,
+                must_satisfy=must_satisfy,
+                evidence_refs=args.evidence_ref,
+                allowed_scope=args.allowed_scope,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown convergent-plan command")
+
+    if args.command == "impact" and args.impact_command == "compute":
+        from aria_kernel.recursive_impact import DEFAULT_MAX_DEPTH, compute_recursive_impact
+
+        depth = args.max_depth if args.max_depth is not None else DEFAULT_MAX_DEPTH
+        workspace = paths.repo_root if paths is not None else Path(args.workspace_root).resolve()
+        result = compute_recursive_impact(
+            intended_files=args.intended_file,
+            workspace_root=workspace,
+            base_dir=args.tools_dir,
+            max_depth=depth,
+        )
+        print(json.dumps({
+            "fingerprint": result["intended_fingerprint"],
+            "summary": result["summary"],
+        }, indent=2, sort_keys=True))
+        return 0 if result["summary"]["by_status"].get("unknown", 0) == 0 else 2
+
+    if args.command == "apply" and args.apply_command == "scan-diff":
+        from aria_kernel.suppression_scanner import scan_unified_diff_text
+
+        diff_text = Path(args.diff_file).read_text(encoding="utf-8")
+        matches = scan_unified_diff_text(diff_text)
+        result = {
+            "match_count": len(matches),
+            "matches": [
+                {"category": m.category, "detector": m.detector, "file": m.file, "line": m.line, "text": m.text}
+                for m in matches
+            ],
+            "blocked": len(matches) > 0,
+        }
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["match_count"] == 0 else 1
+
+    # Plan 019 Phase 3 — pr command dispatch (delegates to pr_manager).
+    if args.command == "pr":
+        from aria_kernel.pr_manager import (
+            ARIA_PR_BASE,
+            commit_prepared_branch,
+            list_pr_actions,
+            open_pr_for_action,
+            plan_pr_lifecycle,
+            plan_pr_split,
+            prepare_branch,
+            push_prepared_branch,
+        )
+
+        # CLI default is dry-run; --no-dry-run flips it.
+        dry_run = not args.no_dry_run if hasattr(args, "no_dry_run") else True
+
+        if args.pr_command == "prepare":
+            row = prepare_branch(
+                proposal_id=args.proposal_id,
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                dry_run=dry_run,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "commit":
+            row = commit_prepared_branch(
+                proposal_id=args.proposal_id,
+                workspace_root=args.workspace_root,
+                message=args.message,
+                base_dir=args.tools_dir,
+                dry_run=dry_run,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "push":
+            row = push_prepared_branch(
+                proposal_id=args.proposal_id,
+                workspace_root=args.workspace_root,
+                remote=args.remote,
+                base_dir=args.tools_dir,
+                dry_run=dry_run,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "create":
+            # Plan 018 Phase 6.2 — explicit base guard fires inside
+            # open_pr_for_action; we forward the operator's --base value
+            # verbatim so the kernel can fail-closed on base != snowball.
+            row = open_pr_for_action(
+                proposal_id=args.proposal_id,
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                dry_run=dry_run,
+                base=args.base,
+                change_id=args.change_id,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "list-actions":
+            print(json.dumps(list_pr_actions(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "lifecycle-plan":
+            open_prs = json.loads(Path(args.open_prs_file).read_text(encoding="utf-8"))
+            row = plan_pr_lifecycle(
+                open_prs=open_prs,
+                base_dir=args.tools_dir,
+                cycle_id=args.cycle_id,
+                stale_after_days=args.stale_after_days,
+                close_after_days=args.close_after_days,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.pr_command == "split-plan":
+            row = plan_pr_split(
+                proposal_id=args.proposal_id,
+                changed_files=args.changed_file,
+                base_dir=args.tools_dir,
+                cycle_id=args.cycle_id,
+                max_files_per_pr=args.max_files_per_pr,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown pr command")
+
+    # Plan 019 Phase 7 — Change Ledger dispatch.
+    if args.command == "change":
+        from aria_kernel.change_ledger import (
+            emit_change_committed,
+            emit_change_planned,
+            emit_change_validated,
+            find_changes_by_file,
+            get_change_chain,
+            list_change_chains,
+        )
+        if args.change_command == "plan":
+            row = emit_change_planned(
+                plan_id=args.plan_id,
+                finding_id=args.finding_id,
+                intended_affected_files=args.intended_file,
+                intended_validation_refs=args.intended_validation_ref or [],
+                rollback_ref=args.rollback_ref,
+                architectural_tier=args.architectural_tier,
+                intended_request_id=args.intended_request_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.change_command == "commit":
+            row = emit_change_committed(
+                change_id=args.change_id,
+                commit_sha=args.commit_sha,
+                actual_affected_files=args.actual_file,
+                claim_id=args.claim_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.change_command == "validate":
+            invariants = (
+                json.loads(Path(args.invariants_file).read_text(encoding="utf-8"))
+                if args.invariants_file else None
+            )
+            row = emit_change_validated(
+                change_id=args.change_id,
+                validation_run_refs=args.validation_ref,
+                baseline_comparison_ref=args.baseline_comparison_ref,
+                post_remediation_invariants=invariants,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.change_command == "show":
+            chain = get_change_chain(change_id=args.change_id, base_dir=args.tools_dir)
+            print(json.dumps(chain, indent=2, sort_keys=True))
+            return 0
+        if args.change_command == "list":
+            chains = list_change_chains(
+                plan_id=args.plan_id,
+                finding_id=args.finding_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(chains, indent=2, sort_keys=True))
+            return 0
+        if args.change_command == "find":
+            chains = find_changes_by_file(file_path=args.file, base_dir=args.tools_dir)
+            print(json.dumps(chains, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown change command")
+
+    # Plan 019 Phase 5.5 — Architecture Spine Gate dispatch.
+    if args.command == "spine":
+        from aria_kernel.architecture_spine_gate import (
+            list_spine_events,
+            take_baseline,
+            take_postcheck,
+        )
+
+        workspace = args.workspace_root if hasattr(args, "workspace_root") and args.workspace_root else "."
+        if args.spine_command == "baseline":
+            row = take_baseline(
+                plan_id=args.plan_id,
+                cycle_id=args.cycle_id,
+                workspace_root=workspace,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.spine_command == "postcheck":
+            row = take_postcheck(
+                plan_id=args.plan_id,
+                cycle_id=args.cycle_id,
+                workspace_root=workspace,
+                base_dir=args.tools_dir,
+                max_regression_rounds=args.max_regression_rounds,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            # Exit 1 on regression so CI can fail-closed.
+            return 1 if row.get("regression_count", 0) > 0 else 0
+        if args.spine_command == "status":
+            events = list_spine_events(plan_id=args.plan_id, base_dir=args.tools_dir)
+            print(json.dumps(events, indent=2, sort_keys=True))
+            return 0
+        if args.spine_command == "refresh":
+            from aria_kernel.spine_orchestrator import refresh_spine_adapters
+            summary = refresh_spine_adapters(
+                base_dir=args.tools_dir,
+                workspace_root=workspace,
+                freshness_max_age_seconds=args.freshness_max_age_seconds,
+                cycle_id=args.cycle_id,
+                max_workers=args.max_workers,
+            )
+            print(json.dumps(summary, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown spine command")
+
+    if args.command == "metrics":
+        from aria_kernel.plan_016_metrics import compute_plan_016_metrics, write_dashboard
+
+        if args.metrics_command == "plan-016":
+            print(json.dumps(compute_plan_016_metrics(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        if args.metrics_command == "dashboard":
+            target = write_dashboard(
+                base_dir=args.tools_dir,
+                repo_root=args.workspace_root,
+                out_path=args.out,
+            )
+            print(json.dumps({"path": str(target)}, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown metrics command")
+
+    if args.command == "cycle-guard" and args.cycle_guard_command == "evaluate":
+        from aria_kernel.cycle_guard import DEFAULT_PRESSURE_THRESHOLD, evaluate_cycle_emptiness
+        from dataclasses import asdict
+
+        threshold = args.pressure_threshold if args.pressure_threshold is not None else DEFAULT_PRESSURE_THRESHOLD
+        verdict = evaluate_cycle_emptiness(
+            cycle_id=args.cycle_id,
+            base_dir=args.tools_dir,
+            pressure_threshold=threshold,
+            repo_root_override=args.workspace_root,
+        )
+        print(json.dumps(asdict(verdict), indent=2, sort_keys=True))
+        # Exit 0 when non-empty (work to do); 2 when empty (caller may skip).
+        return 0 if not verdict.is_empty else 2
+
+    if args.command == "human-required":
+        from aria_kernel.human_required import (
+            list_human_required,
+            record_human_required,
+            resolve_human_required,
+            sweep_lease_lifecycle_for_human_required,
+        )
+
+        if args.human_required_command == "record":
+            row = record_human_required(
+                request_id=args.request_id,
+                severity=args.severity,
+                reason=args.reason,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.human_required_command == "list":
+            rows = list_human_required(base_dir=args.tools_dir, include_resolved=args.include_resolved)
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        if args.human_required_command == "resolve":
+            row = resolve_human_required(
+                request_id=args.request_id,
+                resolution_note=args.resolution_note,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.human_required_command == "sweep":
+            result = sweep_lease_lifecycle_for_human_required(base_dir=args.tools_dir)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown human-required command")
+
+    if args.command == "consensus" and args.consensus_command == "run":
+        from aria_kernel.feedback_store import CONSENSUS_MIN_CONFIDENCE
+        from aria_kernel.judgment_bridge import run_consensus
+
+        result = run_consensus(
+            tool_id=args.tool_id,
+            cycle_id=args.cycle_id,
+            min_confidence=args.min_confidence if args.min_confidence is not None else CONSENSUS_MIN_CONFIDENCE,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "agent-genesis":
         if args.agent_genesis_command == "draft":

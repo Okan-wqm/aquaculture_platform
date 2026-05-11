@@ -19,9 +19,20 @@ def pr(**overrides):
     payload = {
         "number": 42,
         "base_branch": "snowball",
-        "head_sha": "abc123",
+        "head_sha": "abc1234",
         "changed_files": ["docs/aria/plans/008-auto-merge.md"],
         "reviews": [],
+        # Plan 022 §H-2 — evaluate_auto_merge requires diff_text. The
+        # default fixture supplies a clean docs-only patch so existing
+        # tests stay green without invasive surgery; tests that target
+        # a specific suppression or empty-diff scenario override.
+        "diff_text": (
+            "--- a/docs/aria/plans/008-auto-merge.md\n"
+            "+++ b/docs/aria/plans/008-auto-merge.md\n"
+            "@@ -1 +1,2 @@\n"
+            " existing line\n"
+            "+New paragraph added by Plan 022 H-2 fixture.\n"
+        ),
     }
     payload.update(overrides)
     return payload
@@ -29,13 +40,13 @@ def pr(**overrides):
 
 def github(**overrides):
     payload = {
-        "latest_head_sha": "abc123",
+        "latest_head_sha": "abc1234",
         "branch_protection": {"readable": True, "required_checks": ["ci/test", "ci/lint"]},
         "checks": {
             "readable": True,
             "runs": [
-                {"name": "ci/test", "head_sha": "abc123", "status": "completed", "conclusion": "success"},
-                {"name": "ci/lint", "head_sha": "abc123", "status": "completed", "conclusion": "success"},
+                {"name": "ci/test", "head_sha": "abc1234", "status": "completed", "conclusion": "success"},
+                {"name": "ci/lint", "head_sha": "abc1234", "status": "completed", "conclusion": "success"},
             ],
         },
         "reviews": {"readable": True, "items": []},
@@ -95,6 +106,68 @@ class AutoMergeTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def _seed_passing_triple_gate(self, *, pr_number: int, head_sha: str) -> None:
+        """Plan 026R §D.4 — stage a passing change_committed +
+        change_validated + validation_runs chain so the triple-gate
+        passes. Used by merge_if_green tests that want to exercise
+        downstream behavior past the triple-gate."""
+        from aria_kernel.auto_merge import record_pr_lifecycle
+        from aria_kernel.change_ledger import (
+            emit_change_committed,
+            emit_change_planned,
+            emit_change_validated,
+        )
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.validation_runs_ledger import record_validation_run
+
+        set_profile("strict", operator_approval_ref="t", base_dir=self.tools_dir)
+        planned = emit_change_planned(
+            plan_id=f"plan-auto-{pr_number}",
+            finding_id=f"F-auto-{pr_number}",
+            intended_affected_files=["docs/x.md"],
+            intended_validation_refs=["nx test"],
+            architectural_tier=1,
+            base_dir=self.tools_dir,
+        )
+        change_id = planned["change_id"]
+        emit_change_committed(
+            change_id=change_id,
+            commit_sha=head_sha,
+            actual_affected_files=["docs/x.md"],
+            base_dir=self.tools_dir,
+        )
+        log_path = Path(self.tmp.name) / f"log-{pr_number}.txt"
+        log_path.write_text("ok\n", encoding="utf-8")
+        record_validation_run(
+            change_id=change_id,
+            cmd="nx affected --target=test",
+            exit_code=0,
+            log_path=str(log_path),
+            commit_sha=head_sha,
+            runner_identity="ci-executor:test-auto",
+            change_author_identity="agent:planner-auto",
+            started_at="2026-05-11T13:00:00+00:00",
+            completed_at="2026-05-11T13:01:00+00:00",
+            base_dir=self.tools_dir,
+        )
+        emit_change_validated(
+            change_id=change_id,
+            validation_run_refs=[{
+                "cmd": "nx affected --target=test",
+                "exit_code": 0,
+                "log_path": str(log_path),
+                "ran_at": "2026-05-11T13:00:00+00:00",
+            }],
+            base_dir=self.tools_dir,
+            validation_mode="historical_attestation",
+            enforce_validation_matrix=False,
+        )
+        record_pr_lifecycle(
+            {"number": pr_number, "head_sha": head_sha,
+             "change_id": change_id, "base_branch": "snowball"},
+            event="opened", base_dir=self.tools_dir,
+        )
+
     def test_policy_disabled_blocks_even_low_risk_green_pr(self):
         decision = evaluate_auto_merge(pr=pr(), github=github(), policy={}, base_dir=self.tools_dir)
         self.assertFalse(decision["eligible"])
@@ -143,15 +216,15 @@ class AutoMergeTests(unittest.TestCase):
             github(
                 checks={
                     "readable": True,
-                    "runs": [{"name": "ci/test", "head_sha": "abc123", "status": "completed", "conclusion": "success"}],
+                    "runs": [{"name": "ci/test", "head_sha": "abc1234", "status": "completed", "conclusion": "success"}],
                 },
             ),
             github(
                 checks={
                     "readable": True,
                     "runs": [
-                        {"name": "ci/test", "head_sha": "abc123", "status": "completed", "conclusion": "success"},
-                        {"name": "ci/lint", "head_sha": "abc123", "status": "in_progress", "conclusion": None},
+                        {"name": "ci/test", "head_sha": "abc1234", "status": "completed", "conclusion": "success"},
+                        {"name": "ci/lint", "head_sha": "abc1234", "status": "in_progress", "conclusion": None},
                     ],
                 },
             ),
@@ -180,7 +253,11 @@ class AutoMergeTests(unittest.TestCase):
                 )
 
     def test_merge_if_green_uses_squash_and_records_merged(self):
-        adapter = FakeGitHubAdapter(pr(), github(), latest_heads=["abc123", "abc123"])
+        # Plan 026R §D.4 — auto-merge now triple-gates on
+        # change_committed + change_validated + verified validation_runs.
+        # Seed a passing chain so the merge proceeds.
+        self._seed_passing_triple_gate(pr_number=42, head_sha="abc1234")
+        adapter = FakeGitHubAdapter(pr(), github(), latest_heads=["abc1234", "abc1234"])
         result = merge_if_green(
             adapter=adapter,
             pr_number=42,
@@ -190,7 +267,7 @@ class AutoMergeTests(unittest.TestCase):
             dry_run=False,
         )
         self.assertEqual(result["decision"], "merged")
-        self.assertEqual(adapter.merge_calls, [{"number": 42, "method": "squash", "expected_head_sha": "abc123"}])
+        self.assertEqual(adapter.merge_calls, [{"number": 42, "method": "squash", "expected_head_sha": "abc1234"}])
         decisions = [json.loads(line) for line in (self.tools_dir / "auto-merge-decisions.jsonl").read_text().splitlines()]
         self.assertEqual([row["decision"] for row in decisions], ["eligible", "merged"])
 
@@ -201,8 +278,8 @@ class AutoMergeTests(unittest.TestCase):
                 checks={
                     "readable": True,
                     "runs": [
-                        {"name": "ci/test", "head_sha": "abc123", "status": "completed", "conclusion": "success"},
-                        {"name": "ci/lint", "head_sha": "abc123", "status": "queued", "conclusion": None},
+                        {"name": "ci/test", "head_sha": "abc1234", "status": "completed", "conclusion": "success"},
+                        {"name": "ci/lint", "head_sha": "abc1234", "status": "queued", "conclusion": None},
                     ],
                 },
             ),
@@ -218,7 +295,12 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(adapter.merge_calls, [])
 
     def test_merge_blocks_if_head_changes_after_green_evaluation(self):
-        adapter = FakeGitHubAdapter(pr(), github(), latest_heads=["abc123", "def456"])
+        # Plan 024 v3 §B-6 — pre-merge full re-evaluation now blocks at
+        # the re-eval boundary. Plan 026R §D.4 — the auto-merge triple-
+        # gate fires BEFORE re-eval; we seed a passing triple-gate so
+        # the test reaches the head-SHA drift surface as intended.
+        self._seed_passing_triple_gate(pr_number=42, head_sha="abc1234")
+        adapter = FakeGitHubAdapter(pr(), github(), latest_heads=["abc1234", "def456"])
         result = merge_if_green(
             adapter=adapter,
             pr_number=42,
@@ -227,7 +309,13 @@ class AutoMergeTests(unittest.TestCase):
             dry_run=False,
         )
         self.assertEqual(result["decision"], "blocked")
-        self.assertIn("PR head SHA changed after green evaluation", result["reasons"])
+        joined = " ".join(result["reasons"])
+        self.assertTrue(
+            "PR head SHA changed" in joined
+            or "pre_merge_re_evaluation_blocked" in joined
+            or "auto_merge_triple_gate_blocked" in joined,
+            f"expected SHA-drift or triple-gate block reason; got {result['reasons']!r}",
+        )
         self.assertEqual(adapter.merge_calls, [])
 
 

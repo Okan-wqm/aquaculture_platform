@@ -11,7 +11,23 @@ from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, load_registry, utc_now
 
-SELF_OUTPUT_PREFIXES = ("aria-tools/", "agent-workspace/", ".aria-poc/")
+# Plan 026R §E.8 — extended self-output taxonomy. Pre-§E.8 the
+# memory belief evidence validator only blocked ``aria-tools/``,
+# ``agent-workspace/``, and ``.aria-poc/``. ARIA-output directories
+# created by §A/§C (aria-findings, aria-debts, aria-proposals,
+# aria-incidents) were NOT blocked, so a belief could cite an
+# ARIA-emitted finding as "evidence" — a self-referential loop that
+# defeats the evidence chain's external-anchor requirement.
+SELF_OUTPUT_PREFIXES = (
+    "aria-tools/",
+    "agent-workspace/",
+    ".aria-poc/",
+    # §E.8 additions:
+    "aria-findings/",
+    "aria-debts/",
+    "aria-proposals/",
+    "aria-incidents/",
+)
 MEMORY_KINDS = ("beliefs", "observations", "uncertainties", "contradictions", "calibration", "learning-events")
 BELIEF_STATUSES = ("supported", "contradicted", "needs_revalidation", "stale", "withdrawn")
 STALE_AFTER_REVALIDATION_CYCLES = 3
@@ -21,15 +37,39 @@ def update_memory(
     *,
     cycle_id: str,
     base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
     include_discovery_beliefs: bool = True,
     include_tool_candidates: bool = True,
 ) -> dict[str, Any]:
+    """Update memory ledgers (observations + beliefs + ...).
+
+    Plan 026R §A.4 — frozen-profile gate at function entry via the
+    ``observation`` surface_kind. The observation row at line 54 + every
+    downstream belief append are observation-class writes that the
+    Plan 020 SCOPED no-write invariant now covers under frozen.
+
+    Plan 026R §E.7 — ``workspace_root`` is the canonical anchor for
+    the FATES hash recompute check. When provided, every entry in
+    ``FATES.files`` has its on-disk content re-hashed via the
+    ``evidence_validator._canonical_evidence_path`` helper (E.5
+    canonical resolver) and compared to the persisted ``content_hash``;
+    mismatch raises ``memory_fates_content_hash_mismatch`` so a file
+    tampered between discovery and memory-update surfaces here
+    rather than silently propagating. Path traversal / symlink-out-
+    of-workspace raises ``memory_fates_path_traversal_rejected``.
+    Legacy callers (workspace_root=None) skip the recompute for
+    backward-compat; new code MUST pass workspace_root.
+    """
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("observation", base_dir=base_dir)
     root = ensure_tools_dir(base_dir)
     discovery_dir = root / "discovery" / cycle_id
     fingerprint = _read_json(discovery_dir / "REPO_FINGERPRINT.json")
     completion = _read_json(discovery_dir / "COMPLETION_PROOF.json")
     diff = _read_json(root / "cycle-diff" / f"{cycle_id}.json")
     fates = _read_json(discovery_dir / "FATES.json")
+    if workspace_root is not None:
+        _verify_fates_integrity(fates, workspace_root=workspace_root)
     observations_written = 0
     if include_discovery_beliefs:
         repo_state = _repo_state(root, cycle_id)
@@ -176,7 +216,24 @@ def latest_beliefs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(latest.values(), key=lambda row: str(row.get("belief_id")))
 
 
-def validate_repo_evidence(evidence_refs: list[str]) -> None:
+def validate_repo_evidence(
+    evidence_refs: list[str], *, workspace_root: str | Path | None = None,
+) -> None:
+    """Plan 026R §E.5 — canonical-path resolver via evidence_validator
+    helper. Pre-§E.5 the validator used a lexical-only normalisation
+    (replace backslash, strip ./ prefix, check startswith
+    SELF_OUTPUT_PREFIXES). Lexical-only let a traversal path like
+    ``src/../aria-findings/F-001.json`` escape detection because the
+    lexical form ``src/../aria-findings/F-001.json`` does not match
+    any SELF_OUTPUT prefix. §E.5 routes through
+    ``evidence_validator._canonical_evidence_path`` which resolves
+    the path FIRST (absolute, symlinks followed, traversal collapsed)
+    then matches the canonical posix-relative form.
+
+    When ``workspace_root`` is None the legacy lexical path is used
+    (call-site backward compatibility); callers that have a real
+    workspace MUST pass it to enable the canonical check.
+    """
     if not evidence_refs:
         raise GovernanceError("memory belief requires at least one repo evidence reference")
     for raw_ref in evidence_refs:
@@ -185,7 +242,23 @@ def validate_repo_evidence(evidence_refs: list[str]) -> None:
             ref = ref[2:]
         if not ref.strip():
             raise GovernanceError("memory belief evidence reference must not be empty")
-        if ref.startswith(SELF_OUTPUT_PREFIXES):
+        if workspace_root is not None:
+            # Plan 026R §E.5 — canonical-path resolution.
+            from .evidence_validator import _canonical_evidence_path
+            try:
+                canonical_rel, _absolute = _canonical_evidence_path(
+                    ref, Path(workspace_root),
+                )
+            except GovernanceError:
+                # path-unresolvable / outside-repo — preserve the
+                # underlying raise (already structured).
+                raise
+            if canonical_rel.startswith(SELF_OUTPUT_PREFIXES):
+                raise GovernanceError(
+                    f"memory belief cannot use ARIA self-output as evidence: "
+                    f"{ref!r} resolves to {canonical_rel!r}"
+                )
+        elif ref.startswith(SELF_OUTPUT_PREFIXES):
             raise GovernanceError("memory belief cannot use ARIA self-output as evidence")
 
 
@@ -628,6 +701,50 @@ def _repo_state(root: Path, cycle_id: str) -> dict[str, Any]:
         "repo_state_id": completion.get("repo_state_id") or f"cycle:{cycle_id}",
         "base_commit_sha": completion.get("base_commit_sha"),
     }
+
+
+def _verify_fates_integrity(
+    fates: dict[str, Any], *, workspace_root: str | Path,
+) -> None:
+    """Plan 026R §E.7 — re-hash every FATES.files entry via the
+    canonical-path resolver and assert equality with the persisted
+    content_hash. Raise on mismatch / path traversal / symlink-out-
+    of-workspace.
+    """
+    import hashlib
+    from .evidence_validator import _canonical_evidence_path
+    files = fates.get("files", []) if isinstance(fates, dict) else []
+    if not isinstance(files, list):
+        return
+    workspace_path = Path(workspace_root)
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        raw_path = entry.get("path")
+        stored_hash = entry.get("content_hash")
+        if not isinstance(raw_path, str) or not isinstance(stored_hash, str):
+            raise GovernanceError(
+                f"memory_fates_entry_malformed: {entry!r}"
+            )
+        try:
+            _rel, absolute = _canonical_evidence_path(raw_path, workspace_path)
+        except GovernanceError as exc:
+            raise GovernanceError(
+                f"memory_fates_path_traversal_rejected: "
+                f"path={raw_path!r} reason={exc}"
+            )
+        if not absolute.exists() or not absolute.is_file():
+            # File deleted between discovery + memory; legitimate
+            # signal but not a tamper — operator path follows the
+            # missing-evidence belief invalidation flow.
+            continue
+        actual_hash = "sha256:" + hashlib.sha256(absolute.read_bytes()).hexdigest()
+        if actual_hash != stored_hash:
+            raise GovernanceError(
+                f"memory_fates_content_hash_mismatch: "
+                f"path={raw_path!r} stored={stored_hash!r} "
+                f"actual={actual_hash!r}"
+            )
 
 
 def _evidence_hashes(root: Path, cycle_id: str, evidence_refs: list[str]) -> list[str]:

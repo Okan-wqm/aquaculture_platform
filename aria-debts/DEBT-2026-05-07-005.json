@@ -1,0 +1,49 @@
+{
+  "$schema": "aria/architectural-debt/v1",
+  "auto_close_forbidden": true,
+  "closes_in_commit": "378d6fd5",
+  "current_status": "RESOLVED",
+  "debt_id": "DEBT-2026-05-07-005",
+  "due_date": "2026-06-06T13:08:49Z",
+  "escalation_history": [],
+  "originating_finding_evidence_chain_id": "chain_ad7d2420e22e72a5",
+  "originating_finding_id": "F-003",
+  "permanent_fix_owner": "platform-data-team",
+  "permanent_fix_required": "Re-walk the Phase 4 path under Plan 018 Phase 7 with real Claude Code Agent invocations. For each pending judge request, invoke Agent(subagent_type=aria-evidence-judge) and Agent(subagent_type=aria-adversarial-judge) inside a Claude Code session, capture the model-generated envelope into the response file, and submit via aria-kernel agent submit-result. Run consensus arbiter; verify dashboard counters move identically; mark this debt RESOLVED with the closing commit SHA and a status_history entry citing the new ai_judge / ai_consensus rows in operator-feedback.jsonl.",
+  "relink_reason": "F-002 \u2192 F-003 supersession per architectural-arbiter ruling (Plan 019 Phase 2). The Plan 018 Phase 2 originating_finding re-link mechanism is reused verbatim.",
+  "root_cause_summary": "Plan 017 Phase 4 acceptance criterion required a live e2e walkthrough that exercised every bound-agent gate. The operator chose to walk the pipeline with synthesized envelope content so the consensus arbiter could be observed under controlled response shapes. The structural pipeline is proven; the model-in-the-loop substitution that the production path requires is tracked here so the lifecycle stays auditable.",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "short_term_action_taken": {
+    "kind": "code_marker",
+    "rationale": "Operator-supervised Python script wrote both evidence + adversarial judge envelope responses; the bound-agent pipeline (request -> claim -> submit -> consensus) was structurally walked end-to-end and every governance event fired with the correct shape, but the verdict text inside both response envelopes was authored by the operator script rather than by a real Claude Code Agent invocation.",
+    "ref": "aria-tools/agent-invocations/outputs/F-001-evidence.json + aria-tools/agent-invocations/outputs/F-001-adversarial.json"
+  },
+  "status_history": [
+    {
+      "at": "2026-05-07T13:08:49Z",
+      "by": "manual:operator",
+      "status": "OPEN"
+    },
+    {
+      "at": "2026-05-07T13:24:48Z",
+      "by": "operator:plan-018-phase-7",
+      "note": "Real Claude Code Agent(subagent_type=aria-evidence-judge) and Agent(subagent_type=aria-adversarial-judge) invocations replaced the Phase 4 synthesized envelopes. Both responses ACCEPTED at submit_claim_result; judgment_bridge.record_judge_verdict_from_response wrote two ai_judge rows to operator-feedback.jsonl (verdicts: true_positive 0.78, false_positive 0.82); generate_ai_consensus produced a judge_disagreement uncertainty row (consensus_count=0, uncertainty_count=1). The pipeline surfaced a real model-driven dispute the synthesized walkthrough could not produce by construction.",
+      "status": "RESOLVED"
+    },
+    {
+      "at": "2026-05-07T13:26:31Z",
+      "by": "operator:plan-018-phase-7b",
+      "note": "closes_in_commit field set to Phase 7a SHA 378d6fd5",
+      "status": "RESOLVED"
+    },
+    {
+      "at": "2026-05-07T14:02:04Z",
+      "by": "operator:plan-019-phase-2",
+      "note": "originating_finding re-linked from F-002 (chain chain_bd9aa02134d4a65c) to F-003 (chain chain_ad7d2420e22e72a5); reason: F-002 \u2192 F-003 supersession.",
+      "status": "RESOLVED"
+    }
+  ],
+  "verification_status": "VERIFIED",
+  "withdrawn_reason": null
+}

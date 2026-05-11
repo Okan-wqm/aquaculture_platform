@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from .capability_gap import latest_capability_gaps
@@ -63,15 +64,156 @@ def draft_agent_from_gap(
     return append_jsonl(root / "agent-genesis" / "drafts.jsonl", row)
 
 
+def _fixture_result_has_real_execution_provenance(result: dict[str, Any]) -> bool:
+    """Plan 022 §H-4 — shape check (preserved as a fast pre-filter).
+
+    Returns True when the result carries provenance.executed_at +
+    provenance.execution_run_id non-empty strings. Plan 023 v3 §A-1
+    adds a separate ledger-binding check at the call site (which runs
+    AFTER this shape filter). Both must pass for genesis to accept
+    the result.
+    """
+    prov = result.get("provenance")
+    if not isinstance(prov, dict):
+        return False
+    executed_at = prov.get("executed_at")
+    run_id = prov.get("execution_run_id")
+    return (
+        isinstance(executed_at, str) and bool(executed_at.strip())
+        and isinstance(run_id, str) and bool(run_id.strip())
+    )
+
+
+def _fixture_result_provenance_matches_ledger(
+    result: dict[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+) -> tuple[bool, str | None]:
+    """Plan 023 v3 §A-1 — verify a fixture_result's claimed provenance
+    against the actual fixture-runs.jsonl ledger.
+
+    Pre-Plan-023 _fixture_result_has_real_execution_provenance only
+    checked SHAPE; a caller could fabricate provenance values without
+    the fixture runner ever firing. Post-fix this function joins the
+    result's execution_run_id against the ledger and validates SUITE-
+    LEVEL identity:
+      * Row exists.
+      * Row's tool_id matches.
+      * Row's fixture_set_hash matches.
+      * Row's cycle_id matches.
+      * Row's case_count > 0 (defense-in-depth with §A-7).
+      * Row's actual_status matches the claimed actual_status.
+      * Row's evidence_hash matches the claimed evidence_hash.
+
+    Returns (True, None) on success, (False, reason) on mismatch.
+    """
+    from .fixture_runner import fixture_runs_path
+    from .ledger import load_jsonl as load_chained_jsonl
+
+    prov = result.get("provenance") or {}
+    run_id = prov.get("execution_run_id")
+    if not run_id:
+        return False, "missing execution_run_id"
+    rows = load_chained_jsonl(fixture_runs_path(base_dir))
+    matching = [
+        r for r in rows
+        if r.get("execution_run_id") == run_id
+        and r.get("row_type") in ("fixture_run_suite", None)
+    ]
+    if not matching:
+        return False, f"no ledger row with execution_run_id={run_id!r}"
+    row = matching[0]
+    # Cross-check identity fields. Each mismatch is operator-readable
+    # so triage knows which axis drifted.
+    for field in ("tool_id", "fixture_set_hash", "cycle_id"):
+        if result.get(field) is not None and row.get(field) != result.get(field):
+            return False, (
+                f"ledger {field}={row.get(field)!r} does not match "
+                f"claimed {field}={result.get(field)!r}"
+            )
+    case_count = row.get("case_count", 0)
+    if not isinstance(case_count, int) or case_count <= 0:
+        return False, "ledger case_count_zero (suite produced no cases)"
+    if result.get("actual_status") is not None:
+        if row.get("actual_status") != result.get("actual_status"):
+            return False, (
+                f"ledger actual_status={row.get('actual_status')!r} does not "
+                f"match claimed {result.get('actual_status')!r}"
+            )
+    if result.get("evidence_hash") is not None:
+        if row.get("evidence_hash") != result.get("evidence_hash"):
+            return False, "ledger evidence_hash does not match claimed"
+    return True, None
+
+
 def evaluate_genesis_sandbox(
     *,
     draft_id: str,
     fixture_results: list[dict[str, Any]],
     base_dir: str | Path | None = None,
+    synthetic_test_mode: bool = False,
 ) -> dict[str, Any]:
+    """Evaluate a genesis sandbox run.
+
+    Plan 022 §H-4 — pre-fix this function only counted fixture_results
+    and checked status filter. A caller could pass synthetic
+    [{status:'pass'}, {status:'pass'}, {status:'pass'}] and the sandbox
+    would record 'pass' even though no fixture had ever executed.
+    Result: fake-promoted agents could land via genesis without a real
+    adversarial run.
+
+    Post-fix: each fixture_result MUST carry execution provenance
+    (provenance.executed_at + provenance.execution_run_id) proving the
+    fixture actually ran. Missing provenance -> GovernanceError.
+
+    synthetic_test_mode (or env var ARIA_GENESIS_TEST_SYNTHETIC=1)
+    explicitly opts into synthetic input — operator test path only,
+    NOT for prod use. The field is captured in the sandbox row so
+    audit reviewers can distinguish real-execution sandboxes from
+    test-mode synthetic ones.
+    """
     draft = _find_draft(draft_id, base_dir)
     if len(fixture_results) < 3:
         raise GovernanceError("genesis sandbox requires at least 3 fixture results")
+
+    # Plan 022 §H-4 — gate synthetic input.
+    test_mode_env = os.environ.get("ARIA_GENESIS_TEST_SYNTHETIC", "").lower() in ("1", "true", "yes")
+    in_test_mode = bool(synthetic_test_mode or test_mode_env)
+    if not in_test_mode:
+        # Plan 022 §H-4 — shape pre-filter (cheap fail-fast on bare
+        # {status:'pass'} dicts).
+        missing_provenance = [
+            i for i, r in enumerate(fixture_results)
+            if not _fixture_result_has_real_execution_provenance(r)
+        ]
+        if missing_provenance:
+            raise GovernanceError(
+                f"genesis_synthetic_input_forbidden_outside_test_mode: "
+                f"fixture_results indices {missing_provenance} lack "
+                f"provenance.executed_at + provenance.execution_run_id. "
+                f"Either run the fixtures via fixture_runner so each result "
+                f"carries real provenance, or pass synthetic_test_mode=True "
+                f"(operator-test-only path)."
+            )
+        # Plan 023 v3 §A-1 — ledger-binding check. Pre-Plan-023 the
+        # shape filter above was the ONLY gate; a caller could fabricate
+        # provenance.execution_run_id="fake-anything" and pass. The
+        # ledger join validates suite-level identity (tool_id /
+        # fixture_set_hash / cycle_id / case_count > 0 / actual_status
+        # / evidence_hash) against the actual fixture-runs.jsonl row.
+        unverifiable: list[tuple[int, str]] = []
+        for i, r in enumerate(fixture_results):
+            ok, reason = _fixture_result_provenance_matches_ledger(
+                r, base_dir=base_dir,
+            )
+            if not ok:
+                unverifiable.append((i, reason or "unknown reason"))
+        if unverifiable:
+            details = "; ".join(f"[{i}] {reason}" for i, reason in unverifiable)
+            raise GovernanceError(
+                f"genesis_fixture_provenance_unverifiable: {details}"
+            )
+
     failed = [result for result in fixture_results if result.get("status") != "pass"]
     duplicate = bool(draft.get("draft", {}).get("related_existing_agents"))
     decision = "duplicate_existing_agent" if duplicate else ("fail" if failed else "pass")
@@ -81,6 +223,7 @@ def evaluate_genesis_sandbox(
         "draft_id": draft_id,
         "decision": decision,
         "fixture_results": fixture_results,
+        "synthetic_test_mode": in_test_mode,
         "blocked_by": _sandbox_blockers(decision),
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "genesis-sandbox" / "runs.jsonl", row)
@@ -91,13 +234,33 @@ def approve_agent_pr(
     draft_id: str,
     operator_approval_ref: str,
     base_dir: str | Path | None = None,
+    operator_synthetic_override: bool = False,
 ) -> dict[str, Any]:
+    """Approve a genesis draft for PR creation.
+
+    Plan 026R §E.2 — synthetic-sandbox reject. Pre-§E.2 the gate only
+    asserted ``sandbox.decision == 'pass'``; a sandbox run flagged
+    ``synthetic_test_mode: true`` would still satisfy the predicate
+    and the draft could ship through to the agent-PR lane. Synthetic
+    flows are fixture-bound; an agent built on a synthetic sandbox
+    decision has no real-evidence chain backing the approval. Post-
+    §E.2: synthetic_test_mode=true rejects unless the operator
+    explicitly passes ``operator_synthetic_override=True``.
+    """
     if not operator_approval_ref.strip():
         raise GovernanceError("operator approval ref is required")
     draft = _find_draft(draft_id, base_dir)
     sandbox = _latest_sandbox(draft_id, base_dir)
     if not sandbox or sandbox.get("decision") != "pass":
         raise GovernanceError("agent draft must pass genesis sandbox before PR approval")
+    if sandbox.get("synthetic_test_mode") is True and not operator_synthetic_override:
+        raise GovernanceError(
+            "synthetic_sandbox_cannot_approve_agent_pr: sandbox "
+            f"run for draft {draft_id!r} ran with synthetic_test_mode=True; "
+            "synthetic fixtures cannot back a real agent PR. Pass "
+            "operator_synthetic_override=True ONLY if you have an audit "
+            "trail proving the synthetic equivalence."
+        )
     row = dict(draft)
     row["recorded_at"] = utc_now()
     row["status"] = "approved_for_agent_pr"
@@ -154,10 +317,36 @@ def materialize_agent_draft(
     base_dir: str | Path | None = None,
     acknowledge: bool = False,
     run_invariants: bool = False,
+    operator_synthetic_override: bool = False,
 ) -> dict[str, Any]:
+    """Materialise an approved genesis draft onto the worktree.
+
+    Plan 026R §E.6 — sandbox + synthetic gate at the materialise
+    boundary. Pre-§E.6 ``materialize_agent_draft`` only required the
+    operator ``acknowledge`` flag; it did NOT check whether a
+    passing sandbox decision backed the draft, and it did NOT
+    block synthetic-sandbox materialisation. The result: a draft
+    whose sandbox FAILED (or never ran) could be materialised
+    silently, or a synthetic-mode sandbox could promote a fixture
+    into production. §E.6 mirrors §E.2's approve gate at the
+    materialise boundary.
+    """
     if not acknowledge:
         raise GovernanceError("materialize_agent_draft_requires_acknowledge")
     draft = _find_draft(draft_id, base_dir)
+    sandbox = _latest_sandbox(draft_id, base_dir)
+    if not sandbox or sandbox.get("decision") != "pass":
+        raise GovernanceError(
+            "materialize_requires_passing_sandbox: draft "
+            f"{draft_id!r} has no passing genesis sandbox row"
+        )
+    if sandbox.get("synthetic_test_mode") is True and not operator_synthetic_override:
+        raise GovernanceError(
+            "synthetic_sandbox_cannot_materialize: draft "
+            f"{draft_id!r} sandbox ran with synthetic_test_mode=True; "
+            "synthetic fixtures cannot back a real agent materialisation. "
+            "Pass operator_synthetic_override=True ONLY with audit trail."
+        )
     dispatch = _find_dispatch(assignment_id, base_dir)
     worktree = Path(str(dispatch.get("worktree_path") or ""))
     if not worktree.is_absolute():
@@ -205,7 +394,13 @@ def request_agent_genesis(
     Why: hook-driven autonomy needs a write surface that records *intent*
     without invoking the Agent tool from the kernel. Operators or the
     Claude Code session pick up `requested` rows and run agent-genesis draft.
+
+    Plan 026R §A.4 — frozen-profile gate at function entry. Agent-
+    genesis request creation is one of the 8 §A.4 legacy mutators
+    under the Plan 020 SCOPED no-write invariant.
     """
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("agent_genesis", base_dir=base_dir)
     gap_id = str(gap.get("gap_id") or "").strip()
     capability_gap_key = str(gap.get("capability_gap_key") or gap_id).strip()
     if not gap_id or not capability_gap_key:

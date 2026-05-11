@@ -650,16 +650,77 @@ def _gh_pr_snapshot(*, pr_number: int, workspace_root: str | Path) -> dict[str, 
     root = Path(workspace_root).resolve()
     pr = _gh_json(root, ["pr", "view", str(pr_number), "--json", "number,baseRefName,headRefOid,files"])
     checks = _gh_json(root, ["pr", "checks", str(pr_number), "--json", "name,state,link,workflow"])
+    # Map gh-cli state strings -> CompletedProcess-style (status,
+    # conclusion) tuples used by the auto-merge / verification gates.
     runs = [
         {
             "name": item.get("workflow") or item.get("name"),
-            "status": "completed" if item.get("state") in ("SUCCESS", "FAILURE") else "in_progress",
-            "conclusion": "success" if item.get("state") == "SUCCESS" else ("failure" if item.get("state") == "FAILURE" else None),
+            "status": "completed" if item.get("state") in ("SUCCESS", "FAILURE", "SKIPPED", "CANCELLED") else "in_progress",
+            "conclusion": (
+                "success" if item.get("state") == "SUCCESS"
+                else "failure" if item.get("state") == "FAILURE"
+                else "skipped" if item.get("state") == "SKIPPED"
+                else "cancelled" if item.get("state") == "CANCELLED"
+                else None
+            ),
             "url": item.get("link"),
         }
         for item in checks if isinstance(item, dict)
     ]
     required = [str(item.get("name")) for item in checks if isinstance(item, dict) and item.get("name")]
+
+    # Plan 022 §C-7 — required-check runs MUST reflect real gh state.
+    # Pre-fix this list was synthesized as `[{name, status:'completed',
+    # conclusion:'success'} for name in required]` regardless of the
+    # actual check outcome. Auto-merge gates that consumed
+    # github.checks.runs (rather than workflow_runs) saw pending /
+    # failing checks as success and could greenlight a merge over a
+    # broken CI baseline.
+    runs_by_name: dict[str, dict[str, Any]] = {}
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not name:
+            continue
+        state = item.get("state")
+        runs_by_name[str(name)] = {
+            "name": str(name),
+            "status": "completed" if state in ("SUCCESS", "FAILURE", "SKIPPED", "CANCELLED") else "in_progress",
+            "conclusion": (
+                "success" if state == "SUCCESS"
+                else "failure" if state == "FAILURE"
+                else "skipped" if state == "SKIPPED"
+                else "cancelled" if state == "CANCELLED"
+                else None
+            ),
+        }
+    # Plan 023 v3 §P-2 — fetch real branch protection required_checks
+    # instead of deriving from already-run gh-pr-checks list. The
+    # checks-list approach silently accepted PRs with 0 runs against a
+    # protected base.
+    base_branch = pr.get("baseRefName") or "snowball"
+    bp_contexts, bp_error = _fetch_branch_protection_contexts(
+        root=root, base_branch=str(base_branch),
+    )
+    # Authoritative required-check list: real protection contexts when
+    # available, fall back to checks-list only when the lookup itself
+    # failed (operator-readable lookup_error captures the reason).
+    required_authoritative = bp_contexts if bp_contexts is not None else required
+    required_runs = [
+        runs_by_name[name] if name in runs_by_name else {
+            "name": name, "status": "in_progress", "conclusion": None,
+        }
+        for name in required_authoritative
+    ]
+
+    branch_protection_block: dict[str, Any] = {
+        "readable": bp_error is None,
+        "required_checks": required_authoritative,
+    }
+    if bp_error is not None:
+        branch_protection_block["lookup_error"] = bp_error
+
     return {
         "pr": {
             "number": pr.get("number"),
@@ -669,8 +730,8 @@ def _gh_pr_snapshot(*, pr_number: int, workspace_root: str | Path) -> dict[str, 
         },
         "github": {
             "latest_head_sha": pr.get("headRefOid"),
-            "branch_protection": {"readable": True, "required_checks": required},
-            "checks": {"readable": True, "runs": [{"name": item, "status": "completed", "conclusion": "success"} for item in required]},
+            "branch_protection": branch_protection_block,
+            "checks": {"readable": True, "runs": required_runs},
             "workflow_runs": runs,
             "reviews": {"readable": True, "items": []},
             "conversations": {"readable": True, "unresolved_count": 0},
@@ -683,6 +744,56 @@ def _gh_json(root: Path, args: list[str]) -> Any:
     if completed.returncode != 0:
         raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh command failed")
     return json.loads(completed.stdout or "{}")
+
+
+def _fetch_branch_protection_contexts(
+    *, root: Path, base_branch: str,
+) -> tuple[list[str] | None, str | None]:
+    """Plan 023 v3 §P-2 — fetch real branch-protection required contexts.
+
+    Pre-Plan-023 _gh_pr_snapshot derived `required_checks` from
+    `gh pr checks` stdout, which lists the checks that ALREADY RAN on
+    the PR — not the checks branch protection requires. A PR with 0
+    runs against a base branch protected by `ci-affected` returned
+    required=[] and auto-merge then accepted "all required satisfied".
+
+    Post-fix: query the real protection contexts via gh api. Returns
+    a (contexts, error_code) tuple; the auto-merge consumer (P-4)
+    reads both. Failure paths discriminate explicitly:
+      * HTTP 200, populated → (contexts, None).
+      * HTTP 200, empty contexts → ([], 'branch_protection_no_required_checks_configured').
+      * HTTP 404 in stderr → (None, 'branch_protection_disabled_on_base').
+      * HTTP 401/403 in stderr → (None, 'branch_protection_lookup_permission_denied').
+      * Subprocess error / unrecognized failure → (None, 'branch_protection_lookup_failed').
+    """
+    try:
+        completed = subprocess.run(
+            [
+                "gh", "api",
+                f"repos/{{owner}}/{{repo}}/branches/{base_branch}/protection/required_status_checks",
+            ],
+            cwd=root, capture_output=True, text=True, check=False,
+        )
+    except (FileNotFoundError, OSError):
+        return None, "branch_protection_lookup_failed"
+    if completed.returncode != 0:
+        stderr = (completed.stderr or "").lower()
+        if "404" in stderr or "not protected" in stderr:
+            return None, "branch_protection_disabled_on_base"
+        if "401" in stderr or "403" in stderr or "forbidden" in stderr or "authentication required" in stderr:
+            return None, "branch_protection_lookup_permission_denied"
+        return None, "branch_protection_lookup_failed"
+    try:
+        body = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        return None, "branch_protection_lookup_failed"
+    contexts = body.get("contexts") if isinstance(body, dict) else None
+    if not isinstance(contexts, list):
+        return None, "branch_protection_lookup_failed"
+    contexts_str = [str(c) for c in contexts if isinstance(c, str) and c.strip()]
+    if not contexts_str:
+        return [], "branch_protection_no_required_checks_configured"
+    return contexts_str, None
 
 
 def _run_success(run: dict[str, Any]) -> bool:

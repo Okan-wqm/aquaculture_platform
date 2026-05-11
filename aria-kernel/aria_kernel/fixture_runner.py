@@ -45,10 +45,43 @@ def run_fixture_suite(
             raise GovernanceError(f"fixture case must be a JSON object: {case_path}")
         case_results.append(run_fixture_case(tool, case, case_path, fixture_dir, workspace_root))
 
-    passed = all(case["passed"] for case in case_results)
+    # Plan 023 v3 §A-7 — empty case_results is NOT a pass. Pre-fix
+    # `all([]) is True` so an empty fixture suite was reported as
+    # passed. Post-fix: explicit bool(case_results) gates the pass
+    # decision; empty suite produces actual_status='error_no_cases'.
+    has_cases = bool(case_results)
+    passed = has_cases and all(case["passed"] for case in case_results)
     lane_counts = _fixture_lane_counts(case_results)
-    summary = {
+
+    # Plan 023 v3 §A-1 — suite-level provenance fields. execution_run_id
+    # is a UUIDv7 issued at this exact run; downstream genesis-sandbox
+    # provenance check joins on this ID against fixture-runs.jsonl so
+    # a fabricated dict can no longer claim a fictional run.
+    import uuid as _uuid
+    execution_run_id = f"exec-{_uuid.uuid4().hex[:24]}"
+
+    # Plan 023 v3 §A-1 — actual_status enum derivation:
+    #   error_no_cases : empty suite (caught above).
+    #   pass           : has cases AND all passed.
+    #   fail           : has cases AND ≥1 case failed (no exception).
+    #   error          : runtime exception path (not reachable in this
+    #                    function — the parent caller traps subprocess
+    #                    errors and writes a separate envelope).
+    if not has_cases:
+        actual_status = "error_no_cases"
+        error_code: str | None = "no_cases_in_fixture_dir"
+    elif passed:
+        actual_status = "pass"
+        error_code = None
+    else:
+        actual_status = "fail"
+        error_code = None
+
+    base_summary: dict[str, Any] = {
         "schema_version": 1,
+        # Plan 023 v3 §A-1 — explicit row_type so reader helpers can
+        # discriminate suite rows from append-only legacy backfill rows.
+        "row_type": "fixture_run_suite",
         "at": utc_now(),
         "tool_id": tool_id,
         "tool_version": tool.get("version"),
@@ -63,9 +96,37 @@ def run_fixture_suite(
         "semantic_fixture_passed": _lane_passed(case_results, "semantic_regression"),
         "failed_cases": [case["name"] for case in case_results if not case["passed"]],
         "cases": case_results,
+        "execution_run_id": execution_run_id,
+        "actual_status": actual_status,
+        "error_code": error_code,
     }
+    # Plan 023 v3 §A-1 — evidence_hash binds the suite content. The
+    # hash payload EXCLUDES evidence_hash itself (avoids self-reference),
+    # at (write timestamp varies per attempt), execution_run_id (the
+    # volatile UUID — orthogonal identity), and row_type (file-shape
+    # concern, not content).
+    summary = dict(base_summary)
+    summary["evidence_hash"] = _compute_suite_evidence_hash(base_summary)
     append_jsonl(fixture_runs_path(base_dir), summary)
     return summary
+
+
+def _compute_suite_evidence_hash(summary: dict[str, Any]) -> str:
+    """Plan 023 v3 §A-1 — canonical evidence hash payload.
+
+    INCLUDED fields (deterministic order via sort_keys at serialization):
+      tool_id, tool_version, tool_manifest_hash, fixture_set,
+      fixture_set_hash, cycle_id, case_count, passed, actual_status,
+      error_code, fixture_lanes, fixture_baseline_passed,
+      semantic_fixture_passed, failed_cases, cases.
+    EXCLUDED:
+      evidence_hash (self-reference), at (volatile timestamp),
+      execution_run_id (orthogonal identity), row_type (file shape).
+    """
+    excluded = {"evidence_hash", "at", "execution_run_id", "row_type", "schema_version"}
+    payload = {k: v for k, v in summary.items() if k not in excluded}
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def latest_fixture_pass(
@@ -228,7 +289,13 @@ def run_fixture_case(
         if completed.returncode != 0:
             status = "crash"
         else:
-            output = _parse_tool_output(stdout, tool)
+            # Plan 023 v3 §C-2 — parser now returns (payload, error_code).
+            # The fixture runner only needs the payload to drive
+            # fixture-expectation evaluation; the discriminated error
+            # code is not surfaced here since fixture status already
+            # encodes "schema_error" at this layer. Drop the error code
+            # explicitly so fixture run-row shape stays unchanged.
+            output, _parse_error = _parse_tool_output(stdout, tool)
             if output is None:
                 status = "schema_error"
     except subprocess.TimeoutExpired as exc:
@@ -358,18 +425,59 @@ def evaluate_required_observation_value(
     return f"required observation values missing for {selector}: {expected_pairs}"
 
 
+def _enforce_path_inside_repo(candidate: Path, repo_root: Path) -> Path:
+    """Plan 023 v3 §A-2 — path traversal guard.
+
+    `candidate.resolve()` chases symlinks; `relative_to(repo_root.resolve())`
+    raises ValueError when the resolved path is outside the repo. We
+    catch that and re-raise as the operator-readable GovernanceError so
+    fixture_set='../../etc/passwd' or symlink targets outside the repo
+    cannot be loaded.
+    """
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(repo_root.resolve())
+    except ValueError as exc:
+        raise GovernanceError(
+            f"fixture_path_escape_outside_repo: {candidate!s} resolved to "
+            f"{resolved!s}, which is outside repo_root {repo_root!s}"
+        ) from exc
+    return resolved
+
+
+def _repo_root_for_path_guard(base_dir: str | os.PathLike[str] | None) -> Path:
+    """Plan 023 v3 §A-2 — repo_root anchor for the path-escape guard.
+
+    Honors ARIA_REPO_ROOT env var when set (test override), else
+    derives from the tools_dir parent (aria-tools/ lives inside the
+    repo by convention; tools_dir.parent IS the repo root).
+    """
+    override = os.environ.get("ARIA_REPO_ROOT")
+    if override:
+        return Path(override).resolve()
+    tools_root = ensure_tools_dir(base_dir).resolve()
+    return tools_root.parent
+
+
 def resolve_fixture_dir(tool: dict[str, Any], base_dir: str | os.PathLike[str] | None) -> Path:
     root = ensure_tools_dir(base_dir)
+    repo_root = _repo_root_for_path_guard(base_dir)
     fixture_set = Path(tool["fixture_set"])
     if fixture_set.exists():
-        return fixture_set
+        # Plan 023 v3 §A-2 — even when the literal path exists on disk,
+        # we still require it to live inside repo_root.
+        return _enforce_path_inside_repo(fixture_set, repo_root)
     candidate = root / fixture_set
     if candidate.exists():
-        return candidate
+        return _enforce_path_inside_repo(candidate, repo_root)
     fallback = root / "fixtures" / fixture_set.name
     if fallback.exists():
-        return fallback
-    return candidate
+        return _enforce_path_inside_repo(fallback, repo_root)
+    # Even when nothing exists yet, the candidate path itself must
+    # resolve inside repo_root so a `fixture_set: '../../etc/passwd'`
+    # cannot be silently quarantined as "candidate that doesn't exist
+    # yet" and processed downstream.
+    return _enforce_path_inside_repo(candidate, repo_root)
 
 
 def resolve_case_workspace(
@@ -377,13 +485,15 @@ def resolve_case_workspace(
     fixture_dir: Path,
     default_workspace_root: str | os.PathLike[str],
 ) -> Path:
+    repo_root = Path(os.environ.get("ARIA_REPO_ROOT") or default_workspace_root).resolve()
     raw = case.get("workspace_root")
     if raw is None:
         return Path(default_workspace_root).resolve()
     path = Path(str(raw))
     if not path.is_absolute():
         path = fixture_dir / path
-    return path.resolve()
+    # Plan 023 v3 §A-2 — case.workspace_root must stay inside repo_root.
+    return _enforce_path_inside_repo(path, repo_root)
 
 
 def read_json(path: Path) -> Any:

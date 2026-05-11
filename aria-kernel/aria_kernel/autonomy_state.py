@@ -1,0 +1,247 @@
+"""Plan 026R §F.3 — canonical AutonomyState dataclass + reducer.
+
+Pre-§F.3 the autonomous daemons each had their own counters
+(``planner_dispatch_daemon`` claims_dispatched,
+``worker_scheduler_daemon`` assignments_dispatched, etc.) but no
+single state surface that a CLI or external observer could
+query for "what is ARIA's current state?". §F.3 introduces a
+single canonical dataclass with a reducer that derives the
+current state from the ``autonomy_state.jsonl`` ledger written
+by §F.1 ``run_autonomy_orchestrator``.
+
+State derivation is reducer-only (latest-row-wins for scalar
+fields, sum-fold for counters). Each §F.1 transition appends a
+single row; the reducer reads the ledger and returns the
+canonical ``AutonomyState`` so manual operator CLI commands
+(``aria-kernel autonomy status``) route through the same SSoT
+as F.1.
+
+Verify-on-read discipline (§F.4): this module reads the
+autonomy state ledger via ``load_jsonl(..., verify=True)`` so
+chain-mismatch or canonical drift surfaces as
+``LedgerIntegrityError`` rather than a stale-state read.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from .ledger import append_jsonl, load_jsonl
+from .tool_registry import ensure_tools_dir, utc_now
+
+
+__all__ = [
+    "AutonomyState",
+    "AutonomyStateReducer",
+    "autonomy_state_path",
+]
+
+
+# Phase transitions emitted by §F.1.
+AUTONOMY_PHASES: tuple[str, ...] = (
+    "cycle_started",
+    "cycle_completed",
+    "planner_dispatch_drained",
+    "bridge_drained",
+    "convergent_plan_completed",
+    "worker_dispatch_drained",
+    "validation_completed",
+    "pr_lifecycle_completed",
+    "auto_merge_completed",
+    "next_cycle_queued",
+    "aria_stop",
+    "profile_frozen",
+    "max_cycles_reached",
+    "max_iterations_reached",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AutonomyState:
+    """Plan 026R §F.3 — canonical autonomy snapshot.
+
+    Reducer-derived, immutable. Fields:
+
+    * ``last_cycle_id`` — most recent cycle_id observed
+    * ``last_phase`` — name of the last transition phase
+    * ``last_phase_status`` — ``ok|failed|degraded|noop``
+    * ``last_recorded_at`` — ISO 8601 UTC of last transition
+    * ``cycles_completed`` — count of ``cycle_completed`` rows
+    * ``planner_claims_dispatched`` — sum of planner dispatch deltas
+    * ``worker_assignments_dispatched`` — sum of worker dispatch deltas
+    * ``auto_merges_completed`` — count of ``auto_merge_completed`` rows
+    * ``pending_bridge_count`` — last reported pending bridge count
+    * ``human_required_count`` — last reported human-required count
+    * ``aria_stop_active`` — True if ``aria_stop`` was the last phase
+      since the most recent ``cycle_started``
+    * ``profile`` — last observed runtime profile name
+    """
+
+    last_cycle_id: str | None = None
+    last_phase: str | None = None
+    last_phase_status: str | None = None
+    last_recorded_at: str | None = None
+    cycles_completed: int = 0
+    planner_claims_dispatched: int = 0
+    worker_assignments_dispatched: int = 0
+    auto_merges_completed: int = 0
+    pending_bridge_count: int = 0
+    human_required_count: int = 0
+    aria_stop_active: bool = False
+    profile: str | None = None
+    transition_count: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "last_cycle_id": self.last_cycle_id,
+            "last_phase": self.last_phase,
+            "last_phase_status": self.last_phase_status,
+            "last_recorded_at": self.last_recorded_at,
+            "cycles_completed": self.cycles_completed,
+            "planner_claims_dispatched": self.planner_claims_dispatched,
+            "worker_assignments_dispatched":
+                self.worker_assignments_dispatched,
+            "auto_merges_completed": self.auto_merges_completed,
+            "pending_bridge_count": self.pending_bridge_count,
+            "human_required_count": self.human_required_count,
+            "aria_stop_active": self.aria_stop_active,
+            "profile": self.profile,
+            "transition_count": self.transition_count,
+        }
+
+
+def autonomy_state_path(base_dir: str | Path | None) -> Path:
+    """Canonical autonomy state ledger path."""
+    root = ensure_tools_dir(base_dir)
+    return root / "autonomy_state.jsonl"
+
+
+class AutonomyStateReducer:
+    """Plan 026R §F.3 — append-only reducer over autonomy_state.jsonl.
+
+    ``transition(...)`` appends a single row; ``derive_current(...)``
+    reads the ledger via verify-on-read and folds rows into a
+    canonical ``AutonomyState``.
+    """
+
+    @staticmethod
+    def transition(
+        base_dir: str | Path | None,
+        *,
+        cycle_id: str | None,
+        phase: str,
+        status: str = "ok",
+        planner_claims_delta: int = 0,
+        worker_assignments_delta: int = 0,
+        auto_merges_delta: int = 0,
+        pending_bridge_count: int | None = None,
+        human_required_count: int | None = None,
+        profile: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Append a single transition row to autonomy_state.jsonl.
+
+        Schema version 1. ``phase`` SHOULD be a member of
+        ``AUTONOMY_PHASES`` but is not strictly enforced — a future
+        autonomy phase added by §F.1 must continue to flow through
+        this reducer even before AUTONOMY_PHASES is extended (the
+        constant is a discoverability hint for human readers, not
+        a closed enum).
+        """
+        path = autonomy_state_path(base_dir)
+        row: dict[str, Any] = {
+            "schema_version": 1,
+            "cycle_id": cycle_id,
+            "phase": phase,
+            "status": status,
+            "planner_claims_delta": int(planner_claims_delta),
+            "worker_assignments_delta": int(worker_assignments_delta),
+            "auto_merges_delta": int(auto_merges_delta),
+            "pending_bridge_count": pending_bridge_count,
+            "human_required_count": human_required_count,
+            "profile": profile,
+            "details": details or {},
+            "recorded_at": utc_now(),
+        }
+        return append_jsonl(path, row)
+
+    @staticmethod
+    def derive_current(
+        base_dir: str | Path | None,
+    ) -> AutonomyState:
+        """Plan 026R §F.3 + §F.4 verify-on-read.
+
+        Folds the autonomy_state ledger into a canonical
+        ``AutonomyState`` snapshot. ARIA_STOP detection: True iff
+        the most recent ``aria_stop`` row appears AFTER the most
+        recent ``cycle_started`` row (or no ``cycle_started`` exists).
+        """
+        path = autonomy_state_path(base_dir)
+        rows = load_jsonl(path, verify=True)
+        if not rows:
+            return AutonomyState()
+        cycles_completed = 0
+        planner_total = 0
+        worker_total = 0
+        auto_merges_total = 0
+        last_cycle_id: str | None = None
+        last_phase: str | None = None
+        last_status: str | None = None
+        last_recorded: str | None = None
+        last_pending_bridge = 0
+        last_human_required = 0
+        last_profile: str | None = None
+        last_cycle_started_idx: int | None = None
+        last_aria_stop_idx: int | None = None
+        for idx, row in enumerate(rows):
+            phase = str(row.get("phase") or "")
+            status = str(row.get("status") or "")
+            if phase == "cycle_completed":
+                cycles_completed += 1
+            if phase == "cycle_started":
+                last_cycle_started_idx = idx
+            if phase == "aria_stop":
+                last_aria_stop_idx = idx
+            planner_total += int(row.get("planner_claims_delta") or 0)
+            worker_total += int(row.get("worker_assignments_delta") or 0)
+            auto_merges_total += int(row.get("auto_merges_delta") or 0)
+            cycle_id = row.get("cycle_id")
+            if cycle_id:
+                last_cycle_id = str(cycle_id)
+            last_phase = phase
+            last_status = status
+            recorded = row.get("recorded_at")
+            if isinstance(recorded, str):
+                last_recorded = recorded
+            pending = row.get("pending_bridge_count")
+            if isinstance(pending, int):
+                last_pending_bridge = pending
+            human_req = row.get("human_required_count")
+            if isinstance(human_req, int):
+                last_human_required = human_req
+            profile = row.get("profile")
+            if isinstance(profile, str):
+                last_profile = profile
+        aria_stop_active = (
+            last_aria_stop_idx is not None
+            and (
+                last_cycle_started_idx is None
+                or last_aria_stop_idx > last_cycle_started_idx
+            )
+        )
+        return AutonomyState(
+            last_cycle_id=last_cycle_id,
+            last_phase=last_phase,
+            last_phase_status=last_status,
+            last_recorded_at=last_recorded,
+            cycles_completed=cycles_completed,
+            planner_claims_dispatched=planner_total,
+            worker_assignments_dispatched=worker_total,
+            auto_merges_completed=auto_merges_total,
+            pending_bridge_count=last_pending_bridge,
+            human_required_count=last_human_required,
+            aria_stop_active=aria_stop_active,
+            profile=last_profile,
+            transition_count=len(rows),
+        )

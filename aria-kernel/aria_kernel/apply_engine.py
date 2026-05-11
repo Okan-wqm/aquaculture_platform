@@ -53,7 +53,17 @@ def gate_apply_action(
     validation_comparison_ref: str,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    diff_text: str | None = None,
 ) -> dict[str, Any]:
+    """Promote an apply action to `ready_for_pr` after validation gate passes.
+
+    Plan 017 Phase 3 adds the optional `diff_text` kwarg. When provided,
+    the apply gate runs the suppression scanner over the unified diff and
+    rejects the action when any banned suppression pattern (test skip,
+    CI masking, TS escape, runtime swallow, ARIA suppression honor)
+    appears in changed lines. Backward compatible: `diff_text=None`
+    preserves the original validation-gate-only behavior.
+    """
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if action is None:
         raise GovernanceError("no apply action exists for proposal")
@@ -61,6 +71,56 @@ def gate_apply_action(
         comparison_ref=validation_comparison_ref,
         base_dir=base_dir,
         cycle_id=cycle_id,
+    )
+    # Plan 022 §H-1 — suppression scan fail-closed when diff_text=None.
+    # Pre-fix: caller could omit diff_text and the suppression scan
+    # silently skipped entirely. Post-fix: try to fetch diff via
+    # `git diff base_sha..branch` from the action; if unavailable
+    # (no branch/base in action, or git command fails), raise so the
+    # gate cannot pass without diff coverage.
+    if diff_text is None:
+        diff_text = _read_diff_from_action(action)
+        if diff_text is None:
+            raise GovernanceError(
+                "suppression_scan_requires_diff_content: gate_apply_action "
+                "diff_text=None and the action does not carry branch+base_sha "
+                "to recover diff via git. Suppression scanner cannot run on "
+                "an empty diff; pass diff_text explicitly or ensure the "
+                "action has branch + base_sha set."
+            )
+    # Plan 026R §D.6 — empty / whitespace-only diff reject. Pre-§D.6
+    # the None check above passed an empty string through (caller
+    # could pass diff_text="" or "\n" + whitespace and the suppression
+    # scan would walk an empty stream, returning zero matches and a
+    # falsely-clean ready_for_pr verdict). The gate is structurally
+    # impossible to pass on a no-content diff post-§D.6.
+    if not diff_text.strip():
+        raise GovernanceError(
+            "suppression_scan_requires_diff_content: gate_apply_action "
+            "received an empty or whitespace-only diff. An empty diff "
+            "is NOT a clean diff; pass the actual unified diff content "
+            "or recover it via the action's branch+base_sha."
+        )
+    suppression_matches: list[dict[str, Any]] = []
+    from .suppression_scanner import scan_unified_diff_text
+
+    for match in scan_unified_diff_text(diff_text):
+        suppression_matches.append(
+            {
+                "category": match.category,
+                "detector": match.detector,
+                "file": match.file,
+                "line": match.line,
+                "text": match.text,
+            }
+        )
+    blocked_by = list(gate["blocked_by"] or [])
+    if suppression_matches:
+        blocked_by.append("suppression_pattern")
+    final_status = (
+        "ready_for_pr"
+        if gate["status"] == "ready_for_pr" and not suppression_matches
+        else "blocked"
     )
     row = dict(action)
     row.update(
@@ -72,11 +132,102 @@ def gate_apply_action(
             "validation_gate_ref": gate["ledger_hash"],
             "validation_gate_status": gate["status"],
             "validation_gate_blocked_by": gate["blocked_by"],
-            "status": "ready_for_pr" if gate["status"] == "ready_for_pr" else "blocked",
-            "blocked_by": gate["blocked_by"],
+            "suppression_matches": suppression_matches,
+            "status": final_status,
+            "blocked_by": blocked_by,
         },
     )
     return append_jsonl(ensure_tools_dir(base_dir) / "apply" / "actions.jsonl", row)
+
+
+def _read_diff_from_action(action: dict[str, Any]) -> str | None:
+    """Plan 023 v3 §P-1 — worktree-aware 3-diff union.
+
+    Pre-Plan-023 the diff fetcher ran a single `git diff base..branch`
+    in the workspace_root cwd. Two layered bugs:
+      1. Branch-only diff missed worktree drift — a caller could write
+         a banned-phrase patch into the working tree (staged or
+         unstaged) and pass through gate_apply_action because the
+         committed branch diff didn't reflect it.
+      2. cwd = workspace_root, not the action's worktree_path. Plan
+         016's plan_apply_worktree creates a separate worktree at
+         action.worktree_path; the branch only resolves there.
+
+    Plan 023 v3 fix:
+      * Three diffs run and unioned:
+          git diff base_sha..branch     (committed branch history)
+          git diff branch..HEAD         (worktree drift vs. the branch)
+          git diff --staged             (staged uncommitted)
+        The union is concatenated as bytes-equivalent text so the
+        suppression scanner downstream sees every line that could
+        appear in the actual change.
+      * cwd = action.worktree_path or workspace_root (worktree-aware).
+      * Fail-closed dirty-worktree gate: if the worktree has dirty
+        paths AND action.allow_dirty_worktree is not True, raise
+        GovernanceError. Operators who want to scan the dirty content
+        opt in explicitly; the default refuses to scan a tree whose
+        commit graph and working state disagree.
+
+    Returns the unioned diff string or None when prerequisites
+    (workspace_root + branch + base_sha) are missing or every git
+    invocation fails.
+    """
+    workspace_root = action.get("workspace_root")
+    branch = action.get("branch")
+    base_sha = action.get("base_sha")
+    if not (workspace_root and branch and base_sha):
+        return None
+    # Plan 023 v3 §P-1 — worktree-aware cwd. action.worktree_path is
+    # populated by plan_apply_worktree when the worktree was created;
+    # fall back to workspace_root for legacy actions.
+    cwd_path = Path(action.get("worktree_path") or workspace_root).resolve()
+
+    # Plan 023 v3 §P-1 — fail-closed dirty-worktree gate.
+    if not action.get("allow_dirty_worktree"):
+        try:
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=cwd_path, capture_output=True, text=True, check=False,
+            )
+        except (FileNotFoundError, OSError):
+            status = None
+        if status is not None and status.returncode == 0 and status.stdout.strip():
+            raise GovernanceError(
+                "apply_engine_worktree_dirty_without_explicit_allow: "
+                f"worktree at {cwd_path} has uncommitted changes; pass "
+                "action.allow_dirty_worktree=True to scan dirty content "
+                "or commit / stash before invoking gate_apply_action"
+            )
+
+    diff_pieces: list[str] = []
+    # Plan 023 v3 §P-1 — three sources unioned:
+    #   git diff base..branch  : committed branch history.
+    #   git diff --staged      : staged uncommitted in the worktree.
+    #   git diff               : unstaged uncommitted (working tree vs index).
+    # The union covers every line that could appear in the actual
+    # change-set being applied, regardless of whether it sits in a
+    # commit, the staging area, or the working tree.
+    diff_invocations = (
+        ["git", "diff", f"{base_sha}..{branch}"],   # committed branch history
+        ["git", "diff", "--staged"],                # staged uncommitted
+        ["git", "diff"],                            # unstaged worktree
+    )
+    any_succeeded = False
+    for argv in diff_invocations:
+        try:
+            completed = subprocess.run(
+                argv, cwd=cwd_path, capture_output=True, text=True, check=False,
+            )
+        except (FileNotFoundError, OSError):
+            continue
+        if completed.returncode != 0:
+            continue
+        any_succeeded = True
+        if completed.stdout:
+            diff_pieces.append(completed.stdout)
+    if not any_succeeded:
+        return None
+    return "\n".join(diff_pieces) if diff_pieces else ""
 
 
 def list_apply_actions(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

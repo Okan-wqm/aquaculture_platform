@@ -180,6 +180,13 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^docs\/architecture\//,
   /^docs\/compliance\//,
   /^docs\/plans\//,
+  // ARIA review and plan documents legitimately quote the banned phrase
+  // list when they review the platform's compliance with CLAUDE.md or
+  // when they document the gate itself (Plan 016 + Plan 017 reviews).
+  // Same exemption rationale as docs/reviews/ and docs/plans/ above —
+  // the doc IS the meta-text describing the discipline.
+  /^docs\/aria\/reviews\//,
+  /^docs\/aria\/plans\//,
   /^CHANGELOG\.md$/,
   /^\.claude\/agents\.legacy\//,
   /^\.claude\/agents\//,
@@ -390,8 +397,13 @@ function scanContent(content: string, sourceLabel: string, allowIfWindow: number
   return violations;
 }
 
-function scanFile(relPath: string): Violation[] {
-  if (isExempt(relPath)) return [];
+function scanFile(relPath: string, ignoreExemptions = false): Violation[] {
+  // Plan 020 Phase 0.4 — operator gap: fixture-mode flag bypasses
+  // EXEMPT_PATHS. Default behaviour preserved (husky/CI gate paths
+  // continue to honour exemptions); --ignore-exemptions flag turns
+  // every path into a scan target so verification fixtures under
+  // tests/invariants/fixtures/ surface as violations as designed.
+  if (!ignoreExemptions && isExempt(relPath)) return [];
   const abs = resolve(REPO_ROOT, relPath);
   if (!existsSync(abs)) return [];
   const content = readFileSync(abs, 'utf8');
@@ -405,8 +417,12 @@ function scanFile(relPath: string): Violation[] {
  * so that a reference line one or two lines away (outside the hit set)
  * still exempts the hit.
  */
-function scanFileAddedLinesOnly(relPath: string, onlyLines: ReadonlySet<number>): Violation[] {
-  if (isExempt(relPath)) return [];
+function scanFileAddedLinesOnly(
+  relPath: string,
+  onlyLines: ReadonlySet<number>,
+  ignoreExemptions = false,
+): Violation[] {
+  if (!ignoreExemptions && isExempt(relPath)) return [];
   if (onlyLines.size === 0) return [];
   const abs = resolve(REPO_ROOT, relPath);
   if (!existsSync(abs)) return [];
@@ -474,6 +490,10 @@ const PRE_GATE_SHAS = new Set<string>([
   // follow-up commit SHA.
   'cfc714cb', // ADR-029 part 1 V016 outbox migration — "events keep flowing through the in-memory channel for now. The cut-over is a subsequent commit" (scope-boundary description — cut-over landed in 9cac59f0)
   '54228f19', // CI unblock commit — META: its body QUOTES the cfc714cb amnesty rationale, so the literal banned substring appears when the commit message describes why cfc714cb was amnesty'd. Meta-mention, not deferral.
+  '70efe9d7', // Snowball historical gate-hardening commit — meta text enumerates the banned phrase vocabulary
+  '22c60810', // Snowball historical ARIA handoff commit — pre-main-range enforcement language
+  '0f5ae29a', // Snowball historical ARIA verification commit — pre-main-range enforcement language
+  'b98ee050', // Snowball historical ARIA plan commit — pre-main-range enforcement language
 ]);
 
 function scanRangeCommitBodies(baseRef: string, headRef: string): Violation[] {
@@ -494,44 +514,79 @@ function scanRangeCommitBodies(baseRef: string, headRef: string): Violation[] {
   return violations;
 }
 
+/**
+ * Plan 020 Phase 0.4 — two-stage argv parser.
+ *
+ * Splits raw argv into mode/flags/positional groups so flags like
+ * --ignore-exemptions can appear before OR after the mode/positional
+ * tokens without the parser confusing them with file paths. Earlier
+ * positional-only parser would treat
+ *   --mode=file --ignore-exemptions <path>
+ * as positional[0]=--ignore-exemptions, positional[1]=<path>, which
+ * silently broke the verification command.
+ */
+function parseArgv(rawArgv: string[]): {
+  mode: string;
+  flags: Set<string>;
+  positional: string[];
+  modeExplicit: boolean;
+} {
+  const flags = new Set<string>();
+  const positional: string[] = [];
+  let modeArg: string | null = null;
+  for (const tok of rawArgv) {
+    if (tok.startsWith('--mode=')) {
+      modeArg = tok.replace(/^--mode=/, '');
+      continue;
+    }
+    if (tok.startsWith('--')) {
+      flags.add(tok.replace(/^--/, ''));
+      continue;
+    }
+    positional.push(tok);
+  }
+  return {
+    mode: modeArg ?? 'staged',
+    flags,
+    positional,
+    modeExplicit: modeArg !== null,
+  };
+}
+
 function main(): void {
-  const [, , rawModeFlag, ...args] = process.argv;
-  // Default mode when invoked via `npm run gates:all` or a bare shell:
-  // scan the git-staged files. CI always supplies --mode=range <base>
-  // <head> explicitly, so the default only fires for local developer
-  // ergonomics — not a silent fallback for the CI path.
-  const modeFlag = rawModeFlag ?? '--mode=staged';
-  if (!rawModeFlag) {
+  const rawArgv = process.argv.slice(2);
+  const { mode, flags, positional, modeExplicit } = parseArgv(rawArgv);
+  if (!modeExplicit) {
     console.error('[banned-phrase] no --mode supplied; defaulting to --mode=staged.');
   }
+  const ignoreExemptions = flags.has('ignore-exemptions');
 
-  const mode = modeFlag.replace(/^--mode=/, '');
   const violations: Violation[] = [];
 
   if (mode === 'staged') {
     for (const f of stagedFiles()) {
-      violations.push(...scanFile(f));
+      violations.push(...scanFile(f, ignoreExemptions));
     }
   } else if (mode === 'range') {
-    const [baseRef, headRef] = args;
+    const [baseRef, headRef] = positional;
     if (!baseRef || !headRef) {
       console.error('range mode requires two refs: --mode=range <base> <head>');
       process.exit(2);
     }
     for (const f of rangeFiles(baseRef, headRef)) {
       const added = addedLinesInRange(baseRef, headRef, f);
-      violations.push(...scanFileAddedLinesOnly(f, added));
+      violations.push(...scanFileAddedLinesOnly(f, added, ignoreExemptions));
     }
     violations.push(...scanRangeCommitBodies(baseRef, headRef));
   } else if (mode === 'commit') {
     violations.push(...scanCommitBody());
   } else if (mode === 'file') {
-    const [fp] = args;
+    const [fp] = positional;
     if (!fp) {
       console.error('file mode requires a path: --mode=file <path>');
       process.exit(2);
     }
-    violations.push(...scanFile(relative(REPO_ROOT, resolve(fp))));
+    violations.push(...scanFile(relative(REPO_ROOT, resolve(fp)), ignoreExemptions));
   } else {
     console.error(`Unknown mode: ${mode}`);
     process.exit(2);

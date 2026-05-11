@@ -31,6 +31,7 @@ from aria_kernel import (
 from aria_kernel.agent_genesis import approve_agent_pr, evaluate_genesis_sandbox
 from aria_kernel.ledger import append_jsonl
 from aria_kernel.fixture_runner import fixture_runs_path, tool_manifest_hash
+from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import get_tool
 from aria_kernel.tool_registry import GovernanceError
 
@@ -47,6 +48,18 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
         subprocess.run(["git", "add", "README.md"], cwd=self.root, check=True)
         subprocess.run(["git", "commit", "-m", "init"], cwd=self.root, check=True, capture_output=True)
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
+        # Plan 020 Phase 1.B — Enterprise 012D->015 exercises the full
+        # apply_action -> validation gate -> open_pr_for_action pipeline,
+        # including the assertion that PR open without a validation gate
+        # raises. The runtime profile gate would otherwise short-circuit
+        # the test by raising profile_violation FIRST. Setting strict
+        # preserves the original assertion target (missing validation gate).
+        set_profile(
+            "strict",
+            operator_approval_ref="test:plan-020-phase-1.B:enterprise-012d",
+            base_dir=self.tools_dir,
+            set_by="test-fixture",
+        )
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -65,10 +78,20 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             operator_approval_ref="approval:012d",
             base_dir=self.tools_dir,
         )
-        plan_apply_worktree(
+        action = plan_apply_worktree(
             proposal_id=proposal["proposal_id"],
             workspace_root=self.root,
             base_dir=self.tools_dir,
+        )
+        # Plan 023 v3 §P-3 — open_pr_for_action below now fails hard
+        # when `git rev-parse <branch>` fails. The dry_run plan didn't
+        # actually create the branch; create it manually pointing at
+        # HEAD so rev-parse resolves. The test's intent is to exercise
+        # the validation-gate prerequisite + open_pr lifecycle, not
+        # the branch-creation plumbing.
+        subprocess.run(
+            ["git", "branch", action["branch"]],
+            cwd=self.root, check=True, capture_output=True,
         )
         with self.assertRaises(GovernanceError):
             open_pr_for_action(
@@ -101,10 +124,13 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
         )
         self.assertEqual(validation_gate["status"], "ready_for_pr")
 
+        # Plan 022 §H-1 — pass empty diff so suppression scan runs
+        # without triggering the diff-required fail-closed branch.
         gated = gate_apply_action(
             proposal_id=proposal["proposal_id"],
             validation_comparison_ref=comparison["ledger_hash"],
             base_dir=self.tools_dir,
+            diff_text="--- a/x.md\n+++ b/x.md\n@@ -1 +1 @@\n-old\n+new\n",
         )
         self.assertEqual(gated["status"], "ready_for_pr")
         pr = open_pr_for_action(
@@ -168,7 +194,7 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
                 "version": "1.0.0",
                 "status": "SHADOW",
                 "declared_scope": "demo",
-                "output_schema": {"required": ["findings", "observations"]},
+                "output_schema": {"required": ["findings", "observations", "read_paths"]},
                 "fixture_set": "fixtures/demo",
                 "health_thresholds": {"precision_min": 0.85},
                 "allowed_read_globs": ["apps/api/**"],
@@ -240,22 +266,27 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
                 "scope_globs": ["apps/api/**"],
                 "forbidden_globs": ["secrets/**"],
                 "evidence_contract": "cite repo paths",
-                "output_schema": {"required": ["findings"]},
+                "output_schema": {"required": ["findings", "read_paths"]},
                 "validation_fixtures": [{"name": "a", "expected": "pass"}, {"name": "b", "expected": "pass"}, {"name": "c", "expected": "pass"}],
                 "related_existing_agents": [],
             },
             "target_path": ".claude/agents/aria-demo.md",
         }
         append_jsonl(drafts_dir / "drafts.jsonl", draft)
+        # Plan 022 §H-4 — synthetic fixture_results without execution
+        # provenance require synthetic_test_mode=True opt-in.
         evaluate_genesis_sandbox(
             draft_id="draft-aria-demo",
             fixture_results=[{"status": "pass"}, {"status": "pass"}, {"status": "pass"}],
             base_dir=self.tools_dir,
+            synthetic_test_mode=True,
         )
+        # Plan 026R §E.2 — synthetic-mode sandbox requires override.
         approve_agent_pr(
             draft_id="draft-aria-demo",
             operator_approval_ref="approval:genesis",
             base_dir=self.tools_dir,
+            operator_synthetic_override=True,
         )
         lane = prepare_agent_pr_lane(
             draft_id="draft-aria-demo",

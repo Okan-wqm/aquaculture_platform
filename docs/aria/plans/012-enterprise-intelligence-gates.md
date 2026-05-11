@@ -4,7 +4,7 @@
 
 Plan 012 turns the enterprise roadmap foundations into explicit decision gates. ARIA can compare baseline and worktree validation, require architecture evidence packs before ADR drafts, enforce research source policy, score fitness with trend evidence, and record code-change plans that cannot cross forbidden scopes.
 
-Phase 012D-015 extends those foundations into the first enterprise autonomy spine: validation comparison is now a mandatory apply/PR gate, adapter calibration can prove ACTIVE readiness, generated diffs are constrained to approved `CodeChangePlan` scope, agent genesis has a PR lane, and ARIA records its own cycle metrics plus PR lifecycle recommendations.
+Plan 012's later sub-phases — internally labeled **Phase 012-D through Phase 012-G** — extend those foundations into the first enterprise autonomy spine: validation comparison is now a mandatory apply/PR gate, adapter calibration can prove ACTIVE readiness, generated diffs are constrained to approved `CodeChangePlan` scope, agent genesis has a PR lane, and ARIA records its own cycle metrics plus PR lifecycle recommendations. (The earlier "Phase 012D-015" wording could be misread as separate plan numbers 013-015; those numbers are reserved unused, and the convergent-gate / bound-async-execution work lives canonically in Plan 016.)
 
 ## Key Changes
 

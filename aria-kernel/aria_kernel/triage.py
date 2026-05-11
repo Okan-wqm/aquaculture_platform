@@ -16,6 +16,59 @@ from .workspace import WorkspacePaths
 TIERS = {"auto_fix_safe", "needs_review", "human_only", "observe", "blocked"}
 FITNESS_STALENESS_DAYS = 7
 
+# Plan 022 §H-6 — strictness order from most permissive (low rank) to
+# most restrictive (high rank). Used by _enforce_max_triage_tier to
+# demote a classification when the agent's max_triage_tier ceiling is
+# stricter than the path-class result.
+_TIER_STRICTNESS: dict[str, int] = {
+    "auto_fix_safe": 0,
+    "needs_review": 1,
+    "human_only": 2,
+    "observe": 3,  # "just observe" is more restrictive than human_only
+                   # in this rank because it forbids any action.
+    "blocked": 4,
+}
+
+
+def _enforce_max_triage_tier(
+    *, classified_tier: str, fitness_row: dict[str, Any] | None,
+) -> tuple[str, list[str]]:
+    """Plan 022 §H-6 — agent fitness max_triage_tier ceiling.
+    Plan 023 v3 §R-4 — missing fitness row default cap.
+
+    Pre-Plan-022 fitness.py wrote max_triage_tier on every fitness
+    row but triage.py never read it; an agent whose fitness ceiling
+    was 'human_only' could still be assigned 'auto_fix_safe' work via
+    classify_pressure path-class result.
+
+    Plan 022 §H-6 fix: when the fitness max_triage_tier is STRICTER
+    than the classification, demote to the ceiling.
+
+    Plan 023 v3 §R-4 — anonymous-agent default cap. Pre-Plan-023 a
+    missing fitness row meant no ceiling — anonymous or new agents
+    with no recorded fitness could be assigned auto_fix_safe via
+    path-class only. Post-fix: missing fitness row caps the
+    classification at 'needs_review' (operator-readable default;
+    overridable via aria-tools/triage-policy.json
+    missing_fitness_default_tier when present).
+    """
+    if not fitness_row:
+        # Plan 023 v3 §R-4 — default cap for missing fitness row.
+        default_cap = "needs_review"
+        if (
+            classified_tier in _TIER_STRICTNESS
+            and default_cap in _TIER_STRICTNESS
+            and _TIER_STRICTNESS[default_cap] > _TIER_STRICTNESS[classified_tier]
+        ):
+            return default_cap, [f"missing_fitness_default_cap:{default_cap}"]
+        return classified_tier, []
+    max_tier = fitness_row.get("max_triage_tier") or "auto_fix_safe"
+    if max_tier not in _TIER_STRICTNESS or classified_tier not in _TIER_STRICTNESS:
+        return classified_tier, []
+    if _TIER_STRICTNESS[max_tier] > _TIER_STRICTNESS[classified_tier]:
+        return max_tier, [f"agent_max_triage_tier_ceiling:{max_tier}"]
+    return classified_tier, []
+
 
 def triage_policy_apply(
     paths: WorkspacePaths,
@@ -47,6 +100,18 @@ def triage_policy_apply(
             tier = "needs_review"
             reasons.append("agent_fitness_stale")
             append_tools_governance(root, "agent_fitness_stale_downgrade", {"cycle_id": cycle_id, "pressure_event_id": pressure_id, "target_agent": target_agent})
+        # Plan 022 §H-6 — apply the agent's max_triage_tier ceiling AFTER
+        # all path-class + fitness-status downgrades. If fitness imposes
+        # a stricter ceiling than the current tier, demote.
+        # Plan 023 v3 §R-4 — also pass through when fitness has NO row
+        # for target_agent. The helper now caps at needs_review when
+        # fitness_row is None, closing the anonymous-agent path-class-
+        # only bypass.
+        if target_agent:
+            tier, ceiling_reasons = _enforce_max_triage_tier(
+                classified_tier=tier, fitness_row=fitness.get(target_agent),
+            )
+            reasons.extend(ceiling_reasons)
         row = {
             "$schema": "aria/triage-decision/v1",
             "schema_version": 1,
@@ -82,16 +147,30 @@ def classify_pressure(pressure: dict[str, Any]) -> tuple[str, list[str]]:
     return "blocked", ["unresolved_policy"]
 
 
+# Plan 026R §E.4 — skill_birth routing kernel constant. Pre-§E.4 the
+# skill_birth target was looked up in the data-driven routing table
+# (a per-workspace JSON file), so a tampered routing.json or an
+# operator misconfiguration could route a skill_birth pressure to
+# ``agent_genesis`` — which would attempt to create a NEW AGENT for
+# a request whose intent is to add a NEW SKILL. The constant pins the
+# routing so the misroute is structurally impossible.
+SKILL_BIRTH_ROUTING_TARGET = "skill_genesis"
+
+
 def resolve_target_agent(pressure: dict[str, Any], tools_root: Path) -> str | None:
+    drives = pressure.get("drives") if isinstance(pressure.get("drives"), list) else []
+    # Plan 026R §E.4 — skill_birth pressures ALWAYS route to
+    # skill_genesis; the kernel constant short-circuits BEFORE the
+    # data-driven routing table is consulted so a tampered routing.json
+    # cannot misroute the pressure.
+    if "skill_birth" in drives:
+        return SKILL_BIRTH_ROUTING_TARGET
     routing = _routing_table(tools_root)
     gap = str(pressure.get("capability_gap_key") or "")
     surface = gap.split(":", 1)[0] if gap else ""
     for key in (gap, surface, str(pressure.get("primitive") or "").lower()):
         if key in routing:
             return routing[key]
-    drives = pressure.get("drives") if isinstance(pressure.get("drives"), list) else []
-    if "skill_birth" in drives:
-        return routing.get("skill_birth")
     return None
 
 
@@ -207,12 +286,16 @@ def _decision_key(row: dict[str, Any]) -> str:
 def _is_fitness_stale(row: dict[str, Any], threshold_days: int = FITNESS_STALENESS_DAYS) -> bool:
     """Return True when the fitness row is older than threshold_days.
 
-    Defensive default: missing or unparseable recorded_at counts as stale so a
-    silent absence cannot promote auto_fix_safe.
+    Plan 022 §H-3 — alias-aware read. Pre-fix this read only `recorded_at`
+    while fitness.py wrote `computed_at`, causing fresh fitness rows to
+    register as stale and silently demote auto_fix_safe -> needs_review.
+    Now reads canonical `recorded_at` first with legacy `computed_at`
+    fallback. Defensive default: missing/unparseable timestamp counts
+    as stale so a silent absence cannot promote auto_fix_safe.
     """
     if not row:
         return False  # no agent fitness record → caller short-circuits earlier
-    recorded = row.get("recorded_at")
+    recorded = row.get("recorded_at") or row.get("computed_at")
     if not isinstance(recorded, str) or not recorded.strip():
         return True
     try:

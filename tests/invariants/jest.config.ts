@@ -128,6 +128,8 @@ export default {
         '<rootDir>/boundary-allowlist-invariants.spec.ts',
         '<rootDir>/farm-service-tenant-isolation.spec.ts',
         '<rootDir>/spec-module-mode.spec.ts',
+        '<rootDir>/aria-workflow-sha-pin.spec.ts',
+        '<rootDir>/aria-workflow-input-injection.spec.ts',
         '<rootDir>/migration-spec-quarantine.spec.ts',
       ],
     },

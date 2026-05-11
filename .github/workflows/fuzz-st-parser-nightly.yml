@@ -93,13 +93,13 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install Rust toolchain (nightly — required by cargo-fuzz)
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Cache cargo-fuzz install + corpus
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/bin/cargo-fuzz
@@ -145,7 +145,7 @@ jobs:
 
       - name: Upload fuzz output log (always)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzz-st-parser-output-${{ github.run_id }}
           path: sens-api-gateway/fuzz-output.log
@@ -153,7 +153,7 @@ jobs:
 
       - name: Upload crash artifacts on failure
         if: steps.fuzz_run.outputs.crash_detected == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzz-st-parser-crashes-${{ github.run_id }}
           path: sens-api-gateway/fuzz/artifacts/st_parser/
@@ -161,7 +161,7 @@ jobs:
 
       - name: Open issue on crash detection
         if: steps.fuzz_run.outputs.crash_detected == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const title = `🚨 fuzz-st-parser crash detected (${context.runId})`;

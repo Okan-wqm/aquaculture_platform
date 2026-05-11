@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, file_hash, write_index
-from .workspace import governance_event, repo_hash
+from .workspace import canonical_repo_root, governance_event, repo_hash
 
 
 SCHEMA_VERSION = 2
@@ -22,6 +22,12 @@ TOOL_STATUSES = (
     "ARCHIVED",
 )
 TOOL_KINDS = ("adapter", "skill", "llm_amplified_skill")
+# Plan 023 v3 §C-3 — initial-lifecycle states permitted on first
+# register_tool call. ACTIVE / CALIBRATE / QUARANTINED / ARCHIVED on
+# first registration is rejected so the only path to those states is
+# transition_tool() (which enforces precision + evidence_chains_valid +
+# operator_approval). This closes the new-tool-direct-ACTIVE bypass.
+INITIAL_LIFECYCLE_STATES = ("DRAFT", "SANDBOX", "SHADOW")
 RUNNER_REQUIRED_STATUSES = ("SANDBOX", "SHADOW", "ACTIVE", "CALIBRATE")
 RUNNER_TYPES = ("subprocess",)
 REQUIRED_TOOL_FIELDS = (
@@ -90,6 +96,30 @@ def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
     return root
 
 
+def ensure_tools_dir_readonly(base_dir: str | os.PathLike[str] | None = None) -> Path | None:
+    """Plan 020 Phase 0 — frozen profile read path helper.
+
+    Returns the tools_dir Path if it already exists with a valid
+    repo_identity.json (bound state), else None. Does NOT create the
+    directory, write the identity file, or emit governance events.
+
+    Why: frozen runtime profile semantic is "no ledger/governance
+    write". Read commands (spine status, change show, dashboard render)
+    that call ensure_tools_dir() under frozen would silently break the
+    no-write invariant by emitting tools_root_bootstrapped events on a
+    fresh sandbox. This helper lets read paths fail-closed rather than
+    write-init under frozen — caller checks None and raises a profile-
+    aware error.
+    """
+    root = tools_dir(base_dir)
+    if not root.exists() or not root.is_dir():
+        return None
+    identity_file = root / "repo_identity.json"
+    if not identity_file.exists():
+        return None
+    return root
+
+
 def ensure_tools_binding(
     base_dir: str | os.PathLike[str] | None = None,
     *,
@@ -109,6 +139,50 @@ def ensure_tools_binding(
         identity["schema_version"] = 2
         _atomic_write_json(identity_file, identity)
         append_tools_governance(root, "tools_root_bound", {"bound_repo_hash": expected_hash, "bound_repo_root": str(repo_root)})
+    elif identity["bound_repo_hash"] != expected_hash:
+        # Plan 024 v3 followup (ORPHAN-HIGH-056) — worktree-aware
+        # binding. Pre-fix the cross-repo defense rejected ANY hash
+        # mismatch, including same-repo-different-worktree scenarios
+        # (e.g. operator running ARIA from .worktrees/snowball when
+        # aria-tools/ is bound to /var/aqua-saas canonical repo
+        # root). The hash differs because repo_hash() includes the
+        # filesystem path of the worktree. Post-fix: resolve the
+        # workspace_root through git --git-common-dir to find the
+        # canonical repo root + recompute the hash on that path. If
+        # the canonical hash matches the binding, accept (worktree of
+        # the same repo). If still mismatching, reject (genuine
+        # cross-repo reuse) — the original defense is preserved for
+        # the case it was designed to catch.
+        canonical = canonical_repo_root(repo_root)
+        canonical_hash = repo_hash(canonical) if canonical != repo_root else expected_hash
+        if identity["bound_repo_hash"] == canonical_hash:
+            # Worktree of the bound repo: same git common_dir,
+            # different filesystem path. Binding stays valid; emit
+            # an observability event so audit trails capture the
+            # worktree-vs-canonical resolution.
+            append_tools_governance(
+                root,
+                "tools_root_worktree_resolved",
+                {
+                    "bound_repo_hash": identity["bound_repo_hash"],
+                    "bound_repo_root": identity.get("bound_repo_root"),
+                    "worktree_root": str(repo_root),
+                    "canonical_repo_root": str(canonical),
+                },
+            )
+            return root
+        # Plan 022 §C-3 — fail-closed on cross-repo aria-tools reuse.
+        # Both the worktree path AND its canonical resolution differ
+        # from the bound hash; this is a genuine cross-repo reuse.
+        raise GovernanceError(
+            f"tools_root_repo_hash_mismatch: "
+            f"bound={identity['bound_repo_hash']!r} "
+            f"current={expected_hash!r} canonical={canonical_hash!r}; "
+            f"aria-tools cannot be reused across repos. "
+            f"bound_repo_root={identity.get('bound_repo_root')!r}, "
+            f"current workspace_root={str(repo_root)!r}, "
+            f"canonical_repo_root={str(canonical)!r}"
+        )
     return root
 
 
@@ -170,12 +244,43 @@ def append_tools_governance(
     base_dir: str | os.PathLike[str] | Path,
     kind: str,
     details: dict[str, Any],
+    *,
+    bypass_profile_gate: bool = False,
 ) -> dict[str, Any]:
+    """Plan 026R §A.2 — append a governance row and rely on A.1's grouped
+    index refresh to keep ``integrity_index.json`` current.
+
+    Plan 026R §A.4 — frozen-profile gate at function entry via the
+    ``tool_governance`` surface_kind. The control-plane exception
+    (``runtime_profile.set_profile`` MUST emit
+    ``runtime_profile_changed`` to record an operator THAW from a
+    frozen kernel) passes ``bypass_profile_gate=True``; every other
+    caller honours the gate. Documented bypass keeps the SSoT
+    explicit — every callsite is auditable for whether it intends to
+    bypass.
+
+    ``governance.jsonl`` is a member of the tools integrity-index group;
+    ``append_jsonl`` therefore acquires the index-group lock OUTER + the
+    per-file lock INNER and rewrites ``integrity_index.json`` under both
+    locks via ``_refresh_adjacent_index_grouped``. The pre-§A.2 extra
+    ``update_tools_index(root)`` call BELOW the lock was redundant (same
+    output) AND racy: under N concurrent ``append_tools_governance``
+    calls, two writers raced on the fixed ``.integrity_index.json.tmp``
+    side-car and one ``tmp.replace(path)`` failed with FileNotFoundError
+    (surfaced by ``test_concurrent_submit_race_5_subprocesses``).
+    Removing the duplicate eliminates both the race and the extra fcntl
+    pair per governance event.
+    """
+    if not bypass_profile_gate:
+        # Late import avoids a module-load cycle: runtime_profile imports
+        # tool_registry for ensure_tools_dir + append_tools_governance.
+        from .runtime_profile import enforce_profile_for_write
+        enforce_profile_for_write("tool_governance", base_dir=base_dir)
     root = Path(base_dir)
     root.mkdir(parents=True, exist_ok=True)
-    row = append_jsonl(root / "governance.jsonl", governance_event(kind=kind, details=details))
-    update_tools_index(root)
-    return row
+    return append_jsonl(
+        root / "governance.jsonl", governance_event(kind=kind, details=details)
+    )
 
 
 def _prepare_tools_dirs(root: Path) -> None:
@@ -281,6 +386,8 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError("fixture_set must not be empty")
     if not isinstance(candidate["health_thresholds"], dict):
         raise GovernanceError("health_thresholds must be an object")
+    # Plan 023 v3 §C-4 — range invariant on threshold values.
+    _validate_health_thresholds_ranges(candidate["health_thresholds"])
     if not isinstance(candidate["allowed_read_globs"], list) or not candidate["allowed_read_globs"]:
         raise GovernanceError("allowed_read_globs must be a non-empty array")
     if not isinstance(candidate["forbidden_read_globs"], list):
@@ -333,18 +440,130 @@ def register_tool(
     tool: dict[str, Any],
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
+    """Register a new tool or refresh an existing manifest.
+
+    Plan 022 §C-2 — re-registration is gated against the status transition
+    matrix so a manifest reload cannot bypass QUARANTINED -> ACTIVE
+    discipline:
+
+    - QUARANTINED on disk + any non-QUARANTINED in candidate -> reject.
+      Use unquarantine_tool() (which delegates through transition_tool)
+      to legitimately move a quarantined tool back into circulation.
+    - ACTIVE/CALIBRATE on disk + SHADOW/SANDBOX/DRAFT in candidate ->
+      reject. Use transition_tool(target_status='SHADOW', ...) for an
+      explicit demotion with reason audit trail.
+    - Same status (manifest hash drift) -> allow. Parser/runner update
+      path; transition matrix preserved.
+    - Forward progression (DRAFT -> SANDBOX/SHADOW) -> allow.
+    """
     candidate = validate_tool_definition(tool)
     registry = load_registry(base_dir)
-    existing = [t for t in registry["tools"] if t.get("tool_id") == candidate["tool_id"]]
-    if existing:
+    existing_rows = [t for t in registry["tools"] if t.get("tool_id") == candidate["tool_id"]]
+    if existing_rows:
+        existing = existing_rows[0]
+        existing_status = existing.get("status")
+        candidate_status = candidate.get("status")
+        # QUARANTINED is a terminal-ish state; anything but a quarantined
+        # re-register requires the operator-driven unquarantine path.
+        if existing_status == "QUARANTINED" and candidate_status != "QUARANTINED":
+            raise GovernanceError(
+                f"register_tool blocked: tool_id={candidate['tool_id']!r} is "
+                f"QUARANTINED on disk; cannot re-register as {candidate_status!r} via "
+                f"manifest reload. Use unquarantine_tool() for an audited "
+                f"QUARANTINED -> CALIBRATE transition."
+            )
+        # Promotions through SHADOW -> ACTIVE require precision/evidence
+        # validation that only transition_tool() performs. Block bare
+        # re-registration that tries to skip the matrix.
+        if existing_status in {"SHADOW", "CALIBRATE"} and candidate_status == "ACTIVE":
+            raise GovernanceError(
+                f"register_tool blocked: tool_id={candidate['tool_id']!r} promotion "
+                f"{existing_status!r} -> 'ACTIVE' must route through transition_tool() "
+                f"with precision + evidence_chains_valid + operator_approval."
+            )
+        # Demotions from ACTIVE/CALIBRATE down to early-lifecycle states
+        # similarly require an explicit reason audit trail.
+        if existing_status in {"ACTIVE", "CALIBRATE"} and candidate_status in {"SHADOW", "SANDBOX", "DRAFT"}:
+            raise GovernanceError(
+                f"register_tool blocked: tool_id={candidate['tool_id']!r} demotion "
+                f"{existing_status!r} -> {candidate_status!r} must route through "
+                f"transition_tool() with an explicit reason."
+            )
         registry["tools"] = [
             candidate if t.get("tool_id") == candidate["tool_id"] else t for t in registry["tools"]
         ]
     else:
+        # Plan 023 v3 §C-3 — first-time registration MUST land in an
+        # initial-lifecycle state (DRAFT / SANDBOX / SHADOW). Pre-fix
+        # this branch silently appended the candidate at any status,
+        # letting `register_tool({status: 'ACTIVE'})` skip the
+        # transition_tool() promotion matrix. The only path to ACTIVE /
+        # CALIBRATE / QUARANTINED / ARCHIVED is now an explicit
+        # transition after a prior initial registration.
+        candidate_status = candidate.get("status")
+        if candidate_status not in INITIAL_LIFECYCLE_STATES:
+            raise GovernanceError(
+                "first_register_status_must_be_initial_lifecycle_state: "
+                f"tool_id={candidate['tool_id']!r} cannot register at "
+                f"{candidate_status!r}; must be one of {INITIAL_LIFECYCLE_STATES}. "
+                f"Use register_tool with an initial state then transition_tool() "
+                f"to promote."
+            )
         registry["tools"].append(candidate)
+        # Audit-trail: emit governance event so operator can see initial
+        # registrations and their starting lifecycle state. The event
+        # payload captures tool_id + initial_status for downstream
+        # health and lifecycle review.
+        append_tools_governance(
+            ensure_tools_dir(base_dir),
+            "tool_registered_initial",
+            {
+                "tool_id": candidate["tool_id"],
+                "initial_status": candidate_status,
+                "version": candidate.get("version"),
+            },
+        )
     registry["schema_version"] = SCHEMA_VERSION
     save_registry(registry, base_dir)
     return candidate
+
+
+def unquarantine_tool(
+    tool_id: str,
+    *,
+    operator_approval_ref: str,
+    reason: str,
+    root_cause_note: str,
+    fixture_update_ref: str,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Plan 022 §C-2 — operator-driven QUARANTINED -> CALIBRATE transition.
+
+    Companion to the register_tool guard: when a tool is QUARANTINED, the
+    only legitimate path back into circulation is through this API, which
+    routes through transition_tool() so the lifecycle audit trail
+    (root_cause_note + fixture_update_ref + last_transition entry) is
+    preserved.
+    """
+    if not (operator_approval_ref or "").strip():
+        raise GovernanceError("unquarantine_tool requires operator_approval_ref")
+    if not (reason or "").strip():
+        raise GovernanceError("unquarantine_tool requires reason")
+    tool = get_tool(tool_id, base_dir)
+    if tool.get("status") != "QUARANTINED":
+        raise GovernanceError(
+            f"unquarantine_tool: tool_id={tool_id!r} is not QUARANTINED "
+            f"(current status={tool.get('status')!r})"
+        )
+    return transition_tool(
+        tool_id,
+        target_status="CALIBRATE",
+        reason=f"unquarantine: {reason} (operator_approval_ref={operator_approval_ref})",
+        root_cause_note=root_cause_note,
+        fixture_update_ref=fixture_update_ref,
+        operator_approval=True,
+        base_dir=base_dir,
+    )
 
 
 def get_tool(
@@ -369,11 +588,80 @@ def list_tools(
     return deepcopy(tools)
 
 
-def update_tool(
+# Plan 022 §C-2b — runner/scope fields whose changes require an
+# explicit operator_approval_ref via update_tool. (status is handled
+# separately — it must route through transition_tool.)
+# Plan 023 v3 §C-4 — health_thresholds added: rewriting the
+# demotion / quarantine / calibrate trigger thresholds is a
+# governance-level mutation of the tool's lifecycle gates and must be
+# operator-audited. tool_health_thresholds_updated governance event
+# fires on every accepted change.
+_OPERATOR_APPROVAL_GATED_FIELDS: tuple[str, ...] = (
+    "runner",
+    "allowed_read_globs",
+    "forbidden_read_globs",
+    "declared_scope",
+    "health_thresholds",
+)
+
+
+def _validate_health_thresholds_ranges(thresholds: Any) -> None:
+    """Plan 023 v3 §C-4 — per-field range invariant.
+
+    Out-of-range threshold values disable the lifecycle gates they're
+    supposed to enforce: precision_min=0 lets every adapter through,
+    critical_false_positives=999 disables critical-FP quarantine,
+    crash_rate_last_10=1.0 lets a runner crash on every call without
+    auto-calibrate. The invariant fires at validate_tool_definition
+    time AND in update_tool's revalidation path so neither register_
+    nor update_ can land bad ranges.
+    """
+    if not isinstance(thresholds, dict):
+        raise GovernanceError("health_thresholds must be an object")
+    precision = thresholds.get("precision_min")
+    if precision is not None:
+        if not isinstance(precision, (int, float)) or not (0.5 <= float(precision) <= 1.0):
+            raise GovernanceError(
+                f"health_thresholds_out_of_range: precision_min={precision!r} "
+                f"must be a float in [0.5, 1.0]"
+            )
+    cfp = thresholds.get("critical_false_positives")
+    if cfp is not None:
+        if not isinstance(cfp, int) or isinstance(cfp, bool) or cfp != 0:
+            raise GovernanceError(
+                f"health_thresholds_out_of_range: critical_false_positives={cfp!r} "
+                f"must be exactly 0 (any nonzero value disables critical-FP quarantine)"
+            )
+    crash = thresholds.get("crash_rate_last_10")
+    if crash is not None:
+        if not isinstance(crash, (int, float)) or not (0.0 <= float(crash) <= 0.5):
+            raise GovernanceError(
+                f"health_thresholds_out_of_range: crash_rate_last_10={crash!r} "
+                f"must be a float in [0.0, 0.5]"
+            )
+    nc_fp = thresholds.get("non_critical_false_positives_30d")
+    if nc_fp is not None:
+        if not isinstance(nc_fp, int) or isinstance(nc_fp, bool) or not (1 <= nc_fp <= 100):
+            raise GovernanceError(
+                f"health_thresholds_out_of_range: non_critical_false_positives_30d={nc_fp!r} "
+                f"must be an int in [1, 100]"
+            )
+
+
+def _update_tool_internal(
     tool_id: str,
     updates: dict[str, Any],
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
+    """Plan 022 §C-2b — unguarded merge primitive used by transition_tool.
+
+    Direct callers MUST go through public update_tool() which gates
+    status changes (must route through transition_tool) and runner/
+    scope changes (require operator_approval_ref). This private path
+    exists so transition_tool() — which is itself the audited state
+    machine — can write its own status + last_transition update without
+    self-blocking.
+    """
     registry = load_registry(base_dir)
     updated: dict[str, Any] | None = None
     next_tools = []
@@ -391,6 +679,125 @@ def update_tool(
     registry["tools"] = next_tools
     save_registry(registry, base_dir)
     return deepcopy(updated)
+
+
+def update_tool(
+    tool_id: str,
+    updates: dict[str, Any],
+    base_dir: str | os.PathLike[str] | None = None,
+    *,
+    operator_approval_ref: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Plan 022 §C-2b — guarded public update_tool.
+
+    Pre-Plan-022 update_tool() merged the updates dict directly without
+    revalidating, without enforcing the status transition matrix, and
+    without auditing runner/scope changes. A caller could promote a
+    tool to ACTIVE (skipping precision + evidence + approval checks) or
+    silently widen its scope just by passing the new fields here.
+
+    Guards:
+    1. Status changes are forbidden via update_tool — must route through
+       transition_tool() (which internally calls _update_tool_internal).
+       The error directs callers to the legitimate API.
+    2. Runner / allowed_read_globs / forbidden_read_globs / declared_scope
+       changes require operator_approval_ref + reason; emits
+       tool_runner_replaced governance event when runner.argv differs
+       so audit history captures the swap.
+    3. Merged candidate is re-validated via validate_tool_definition so
+       the post-update row is still well-formed.
+    """
+    if "status" in updates:
+        raise GovernanceError(
+            f"status_change_must_route_through_transition_tool: "
+            f"tool_id={tool_id!r} update_tool() does not accept status field; "
+            f"call transition_tool(tool_id, target_status, reason=...) instead"
+        )
+    gated_present = [f for f in _OPERATOR_APPROVAL_GATED_FIELDS if f in updates]
+    if gated_present:
+        if not (operator_approval_ref or "").strip():
+            raise GovernanceError(
+                f"runner_or_scope_change_requires_operator_approval: "
+                f"tool_id={tool_id!r} update_tool() touching {gated_present} "
+                f"requires operator_approval_ref kwarg"
+            )
+        if not (reason or "").strip():
+            raise GovernanceError(
+                f"runner_or_scope_change_requires_operator_approval: "
+                f"tool_id={tool_id!r} update_tool() touching {gated_present} "
+                f"requires reason kwarg"
+            )
+
+    # Capture pre-update runner argv so we can emit tool_runner_replaced
+    # only when it actually changes.
+    pre_runner_argv: list[str] | None = None
+    if "runner" in updates:
+        try:
+            pre_runner_argv = list((get_tool(tool_id, base_dir).get("runner") or {}).get("argv", []))
+        except GovernanceError:
+            pre_runner_argv = None
+
+    # Merge + re-validate.
+    pre = get_tool(tool_id, base_dir)
+    merged_for_validation = dict(pre)
+    merged_for_validation.update(updates)
+    validate_tool_definition(merged_for_validation)
+
+    result = _update_tool_internal(tool_id, updates, base_dir)
+
+    # Audit runner.argv swaps post-merge.
+    if "runner" in updates:
+        new_argv = list((result.get("runner") or {}).get("argv", []))
+        if pre_runner_argv != new_argv:
+            from .ledger import append_jsonl
+            tools_root = ensure_tools_dir(base_dir)
+            append_jsonl(
+                tools_root / "governance.jsonl",
+                governance_event(
+                    kind="tool_runner_replaced",
+                    details={
+                        "tool_id": tool_id,
+                        "previous_argv": pre_runner_argv,
+                        "new_argv": new_argv,
+                        "reason": reason,
+                        "operator_approval_ref": operator_approval_ref,
+                    },
+                ),
+            )
+
+    # Plan 023 v3 §C-4 — emit tool_health_thresholds_updated when the
+    # field actually changed. Captures pre + post for operator audit
+    # so demotion / quarantine / calibrate trigger rewrites are
+    # readable from governance.jsonl alone.
+    if "health_thresholds" in updates:
+        from .ledger import append_jsonl
+        tools_root = ensure_tools_dir(base_dir)
+        append_jsonl(
+            tools_root / "governance.jsonl",
+            governance_event(
+                kind="tool_health_thresholds_updated",
+                details={
+                    "tool_id": tool_id,
+                    "previous_thresholds": pre.get("health_thresholds"),
+                    "new_thresholds": result.get("health_thresholds"),
+                    "reason": reason,
+                    "operator_approval_ref": operator_approval_ref,
+                },
+            ),
+        )
+
+    return result
+
+
+# Plan 026R §E.10 — forbidden direct-to-ACTIVE source states.
+# Lifecycle invariant: a tool can only reach ACTIVE via the documented
+# SHADOW -> ACTIVE promotion path (with precision threshold + operator
+# approval). Pre-§E.10 the kernel only checked CALIBRATE explicitly;
+# every other source state silently succeeded.
+_FORBIDDEN_ACTIVE_SOURCES: frozenset[str] = frozenset({
+    "DRAFT", "SANDBOX", "ARCHIVED", "QUARANTINED", "CALIBRATE",
+})
 
 
 def transition_tool(
@@ -424,9 +831,23 @@ def transition_tool(
     if current == "CALIBRATE" and target_status == "SHADOW" and not fixture_suite_passed:
         raise GovernanceError("CALIBRATE -> SHADOW requires fixture_suite_passed")
     if target_status == "ACTIVE":
+        # Plan 026R §E.10 — explicit lifecycle matrix. Pre-§E.10 only
+        # ``CALIBRATE → ACTIVE`` and ``SHADOW → ACTIVE`` were
+        # explicitly checked; ``DRAFT → ACTIVE`` /
+        # ``SANDBOX → ACTIVE`` / ``ARCHIVED → ACTIVE`` /
+        # ``QUARANTINED → ACTIVE`` silently succeeded because no
+        # branch handled them. The matrix below names every forbidden
+        # source explicitly so the kernel rejects the typo /
+        # malicious / accident.
+        if current in _FORBIDDEN_ACTIVE_SOURCES:
+            raise GovernanceError(
+                f"tool_lifecycle_forbidden_active_promotion: "
+                f"{current} -> ACTIVE is not permitted. "
+                f"Forbidden sources: {sorted(_FORBIDDEN_ACTIVE_SOURCES)}. "
+                f"Use the documented lifecycle path (e.g. SHADOW -> "
+                f"ACTIVE with precision threshold + operator approval)."
+            )
         threshold = float(tool["health_thresholds"].get("precision_min", 0.85))
-        if current == "CALIBRATE":
-            raise GovernanceError("CALIBRATE tools must pass through SHADOW before ACTIVE")
         if current == "SHADOW":
             if precision is None or precision < threshold:
                 raise GovernanceError("SHADOW -> ACTIVE requires precision above threshold")
@@ -437,7 +858,10 @@ def transition_tool(
                     "SHADOW -> ACTIVE requires valid evidence chains and operator approval",
                 )
 
-    return update_tool(
+    # Plan 022 §C-2b — transition_tool is the audited state machine;
+    # write its own status + last_transition update via the internal
+    # primitive so the public update_tool() guard does not self-block.
+    return _update_tool_internal(
         tool_id,
         {
             "status": target_status,
@@ -464,3 +888,15 @@ def _validate_output_schema(schema: dict[str, Any]) -> None:
         or not all(isinstance(field, str) and field.strip() for field in required)
     ):
         raise GovernanceError("output_schema.required must be an array of non-empty strings")
+    # Plan 023 v3 §C-2 — every ARIA tool, finding-emitting or not, MUST
+    # declare read_paths in its output_schema.required. read_paths is
+    # the load-bearing self-report for what the adapter inspected;
+    # downstream scope-out detection (C-1) and evidence subset
+    # enforcement (M-2 + C-2) cannot work without the field. Tools that
+    # genuinely read nothing declare read_paths: [] in their output —
+    # registration enforces presence, runtime treats empty list as
+    # "no reads" (subset rejects any evidence ref).
+    if not isinstance(required, list) or "read_paths" not in required:
+        raise GovernanceError(
+            "output_schema.required must include 'read_paths' (Plan 023 §C-2)"
+        )

@@ -1,0 +1,32 @@
+{
+  "$schema": "aria/agent-response/v1",
+  "request_id": "AIR-aria-evidence-judge-be97fce2",
+  "claim_id": "claim_3aa53a2226581dd2",
+  "agent_id": "claude-code-aria-evidence-judge-plan-018-phase-7",
+  "role": "evidence_judgment",
+  "status": "submitted",
+  "satisfaction_matrix": [],
+  "evidence_refs": [
+    "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:71",
+    "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:98",
+    "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:107",
+    "aria-kernel/aria_kernel/recursive_impact.py:294"
+  ],
+  "details": {
+    "verdict": {
+      "verdict": "true_positive",
+      "confidence": 0.78,
+      "judge_id": "aria-evidence-judge",
+      "model": "opus",
+      "rationale": "Three of four evidence refs land on substantive supporting passages in the cited review (Gap-4 at line 71, DEBT-candidate-2 at line 98, DEBT-candidate-3 at line 107). The fourth ref (recursive_impact.py:294) is mis-anchored \u2014 the _make_stub_source factory is actually at lines 268-291, while line 294 is a comment marking a Plan 017 Phase 5.2 partial closure of DEBT-2026-05-07-002 \u2014 but the cited file genuinely contains the stub factory described in the summary. The claim_type convention_inconsistency satisfies CONTRACTS \u00a76 (4 evidences \u2265 3, severity MEDIUM \u2265 LOW), and the core claim (review documents three architectural debts; DEBT records cite unrelated F-001) is supported by the on-disk text.",
+      "evidence_refs": [
+        "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:71",
+        "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:98",
+        "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:107",
+        "aria-kernel/aria_kernel/recursive_impact.py:294"
+      ],
+      "judgment_group_id": "F-002-multi-judge",
+      "severity": "medium"
+    }
+  }
+}

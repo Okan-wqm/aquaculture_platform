@@ -184,6 +184,29 @@ def review_executor_diff(
     cycle_id: str | None = None,
 ) -> dict[str, Any]:
     packet = get_executor_packet(packet_id=packet_id, base_dir=base_dir)
+    # Plan 022 §C-6 — separation-of-duties enforcement at the kernel
+    # boundary. Pre-Plan-022 the executor allowed the same agent that
+    # produced a packet to also review it.
+    # Plan 023 v3 §A-3 — normalize before compare. Pre-fix this used
+    # exact-string `==`, so a source_agent="Codex-Executor" reviewer=
+    # "codex-executor" (case-only diff) bypassed the self-review block;
+    # NBSP / unicode-confusable variants (Codex‑Executor with U+2011)
+    # also passed. Post-fix: NFC-normalize + casefold + strip both
+    # sides so case / whitespace / unicode-fold variants are caught.
+    import unicodedata as _ud
+    def _norm(s: str) -> str:
+        return _ud.normalize("NFC", s).strip().casefold()
+    source_agent_raw = str(packet.get("source_agent") or "")
+    reviewer_raw = str(reviewer or "")
+    source_agent_norm = _norm(source_agent_raw)
+    reviewer_norm = _norm(reviewer_raw)
+    if source_agent_norm and source_agent_norm == reviewer_norm:
+        raise GovernanceError(
+            f"self_review_violation: reviewer={reviewer!r} is the same agent "
+            f"that produced packet={packet_id!r} (source_agent={source_agent_raw!r}; "
+            f"normalized form matched). Plan 016 separation-of-duties contract "
+            f"requires a different reviewer."
+        )
     reviewer_row = _registered_executor(reviewer, base_dir)
     if reviewer_row.get("can_review") is not True:
         raise GovernanceError("reviewer_must_be_registered")
@@ -386,9 +409,43 @@ def executor_status(
     }
 
 
+def _canonical_packet_id(row: dict[str, Any]) -> str | None:
+    """Plan 023 v3 §A-9 — read-time packet-id canonicalization.
+
+    Pre-Plan-023 get_executor_packet() accepted EITHER packet_id OR
+    ledger_hash as the lookup key. The dual-key acceptance lets future
+    drift mask review-blocker misses: a row written under ledger_hash
+    might be looked up via packet_id and not found, or vice versa.
+
+    Plan 023 v3 §A-9 — append-only-safe canonicalization:
+      * Returns row["packet_id"] if present (canonical).
+      * Falls back to row["ledger_hash"] for legacy rows that pre-date
+        the canonical-only write contract.
+      * Returns None when neither is present.
+
+    Append-only discipline preserved: legacy rows on disk are read
+    through this helper without mutation. New writes carry packet_id
+    (enforced at write sites). The dual-key OR-equality at the lookup
+    site is replaced by a single-key match against the canonical id.
+    """
+    packet_id = row.get("packet_id")
+    if isinstance(packet_id, str) and packet_id.strip():
+        return packet_id
+    ledger_hash = row.get("ledger_hash")
+    if isinstance(ledger_hash, str) and ledger_hash.strip():
+        return ledger_hash
+    return None
+
+
 def get_executor_packet(*, packet_id: str, base_dir: str | Path | None = None) -> dict[str, Any]:
     for row in reversed(load_jsonl(ensure_tools_dir(base_dir) / "executor" / "packets.jsonl")):
-        if row.get("packet_id") == packet_id or row.get("ledger_hash") == packet_id:
+        # Plan 023 v3 §A-9 — single-key match through the read-time
+        # canonicalization helper. Pre-fix the inline `... or
+        # ledger_hash == packet_id` alias accommodation could mask
+        # future drift; the helper centralizes the legacy fallback so
+        # only one place needs to change when legacy rows are
+        # eventually all migrated.
+        if _canonical_packet_id(row) == packet_id:
             return row
     raise GovernanceError(f"executor packet not found: {packet_id}")
 

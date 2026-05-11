@@ -1,0 +1,10 @@
+diff --git a/apps/farm-service/src/example.ts b/apps/farm-service/src/example.ts
+index 0000000..1111111 100644
+--- a/apps/farm-service/src/example.ts
++++ b/apps/farm-service/src/example.ts
+@@ -1,3 +1,5 @@
+ export class Example {
++  // @ts-ignore — intentional fixture for Plan 020 Phase 0.4 verification
++  private readonly value: number = 'string-instead-of-number';
+   public render(): void {}
+ }

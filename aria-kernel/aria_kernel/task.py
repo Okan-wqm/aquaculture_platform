@@ -72,8 +72,25 @@ def latest_tasks(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
 
 
 def _candidate_from_pressure(cycle_id: str, pressure: dict[str, Any]) -> dict[str, Any]:
-    source_id = str(pressure.get("pressure_id") or "pressure")
+    # Plan 023 v3 §D-3 (M-E) — source_id chain reads event_id first
+    # (canonical pressure-event identity emitted by feedback.py
+    # derive_pressure), then falls back to pressure_id (legacy schema
+    # v1 historical row). Pre-Plan-023 the chain was reversed
+    # (pressure_id-first), so v2 pressures with event_id populated
+    # got the synthetic "pressure" string as source_id when legacy
+    # pressure_id was absent.
+    source_id = str(pressure.get("event_id") or pressure.get("pressure_id") or "pressure")
     score = float(pressure.get("score") or 0)
+    # Plan 023 v3 §D-3 (M-F) — evidence_refs key-presence check, not
+    # truthiness. Empty list `[]` is the canonical "no evidence"
+    # signal; the pre-fix `or pressure.get("evidence")` chain treated
+    # `[]` as falsy and fell through to legacy `evidence`. Post-fix:
+    # if `evidence_refs` is in the pressure dict, use it (even when
+    # empty); only fall through to legacy when key is absent.
+    if "evidence_refs" in pressure:
+        evidence_source = pressure["evidence_refs"]
+    else:
+        evidence_source = pressure.get("evidence")
     return {
         "schema_version": 1,
         "task_id": _task_id(cycle_id, "pressure", source_id),
@@ -83,7 +100,12 @@ def _candidate_from_pressure(cycle_id: str, pressure: dict[str, Any]) -> dict[st
         "source_authority": "deterministic_pressure",
         "title": str(pressure.get("recommended_action") or pressure.get("reason") or source_id),
         "problem": str(pressure.get("reason") or source_id),
-        "evidence_refs": _strings(pressure.get("evidence")),
+        # Plan 022 C-1b — pressure schema v2 carries `evidence_refs`
+        # (path-string list) populated by derive_pressure (Plan 022 C-1).
+        # Legacy schema v1 used `evidence` for the same data.
+        # Plan 023 v3 (M-F) — key-presence check (above) preserves
+        # empty-list semantics.
+        "evidence_refs": _strings(evidence_source),
         "candidate_tools": _strings(pressure.get("candidate_tools")),
         "risk_class": _risk_from_pressure(pressure),
         "validation_commands": ["PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify"],

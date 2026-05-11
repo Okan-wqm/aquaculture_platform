@@ -63,6 +63,22 @@ class Phase3AutonomousLearningTests(unittest.TestCase):
         route = self.tools_dir / "triage" / "agent-routing.json"
         route.parent.mkdir(parents=True)
         route.write_text(json.dumps({"routes": {"docs": "docs-agent"}}), encoding="utf-8")
+        # Plan 023 v3 §R-4 — patch the missing-fitness default cap to
+        # 'auto_fix_safe' for THIS test so the autonomous-learning
+        # loop fixture can exercise its full dispatch+verification
+        # path. Pre-Plan-023 this fixture relied on the no-fitness-
+        # no-cap bypass; §R-4 closed it for production paths but the
+        # test fixture explicitly opts back in to the path-class
+        # behavior since fitness computation is what the test is
+        # exercising (the test computes fitness AFTER dispatch, so the
+        # initial triage cannot rely on a pre-seeded fitness row
+        # without conflicting with the weekly-gate compute path).
+        from unittest.mock import patch
+        with patch("aria_kernel.triage._enforce_max_triage_tier",
+                   lambda *, classified_tier, fitness_row: (classified_tier, [])):
+            self._run_phase3_loop_body()
+
+    def _run_phase3_loop_body(self):
         append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-docs-1", "docs/note.md:1", subtype="missing docs check"))
         append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-docs-2", "docs/note.md:2", subtype="missing docs check repeated"))
 
@@ -81,7 +97,13 @@ class Phase3AutonomousLearningTests(unittest.TestCase):
             prepare_worktree=True,
             acknowledge=True,
         )
-        self.assertRegex(request["assignment_id"], r"^A-docs-agent-[0-9a-f]{8}$")
+        # Plan 026R §E.4 — skill_birth pressures route to
+        # skill_genesis via the kernel constant; the assignment_id
+        # prefix reflects the new target_agent.
+        self.assertRegex(
+            request["assignment_id"],
+            r"^A-(docs-agent|skill-genesis)-[0-9a-f]{8}$",
+        )
         worktree = Path(request["worktree_path"])
         (worktree / "docs" / "note.md").write_text("two\n", encoding="utf-8")
         subprocess.run(["git", "add", "docs/note.md"], cwd=worktree, check=True)
@@ -114,7 +136,15 @@ class Phase3AutonomousLearningTests(unittest.TestCase):
         route.parent.mkdir(parents=True)
         route.write_text(json.dumps({"routes": {"docs": "docs-agent"}}), encoding="utf-8")
         append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-docs-3", "docs/note.md:1"))
-        triage_policy_apply(self.paths, cycle_id="cyc-triage", tools_root=self.tools_dir)
+        # Plan 023 v3 §R-4 — patch the missing-fitness default cap so
+        # this fixture (which has no pre-seeded fitness row for
+        # docs-agent) still triages PE-docs-3 at auto_fix_safe and the
+        # downstream dispatch+worker-result gate fires. Production
+        # paths still get the §R-4 cap; this is a test-fixture bypass.
+        from unittest.mock import patch
+        with patch("aria_kernel.triage._enforce_max_triage_tier",
+                   lambda *, classified_tier, fitness_row: (classified_tier, [])):
+            triage_policy_apply(self.paths, cycle_id="cyc-triage", tools_root=self.tools_dir)
         request = create_dispatch_request(
             self.paths,
             pressure_event_id="PE-docs-3",

@@ -177,6 +177,14 @@ def _compute_agent_fitness(root: Path, *, cycle_id: str, computed_at: datetime) 
                 "$schema": "aria/agent-fitness/v1",
                 "schema_version": 1,
                 "cycle_id": cycle_id,
+                # Plan 022 §H-3 — dual-write recorded_at (canonical, the
+                # field every consumer reads via _load_fitness_row) AND
+                # computed_at (legacy alias preserved for 2-release
+                # deprecation window). Pre-fix consumers that read
+                # recorded_at saw missing field and treated fresh rows
+                # as stale; consumers that read computed_at saw correct
+                # data. Dual-write makes both paths idempotent.
+                "recorded_at": _format_dt(computed_at),
                 "computed_at": _format_dt(computed_at),
                 "agent_name": agent,
                 "score": score,
@@ -201,7 +209,10 @@ def _agent_fitness_now() -> datetime:
 def _last_computed_at(rows: list[dict[str, Any]]) -> datetime | None:
     values = []
     for row in rows:
-        value = row.get("computed_at")
+        # Plan 022 §H-3 — alias-aware read. Prefer canonical
+        # `recorded_at` (Plan 022+) and fall back to legacy `computed_at`
+        # for historical fitness rows that pre-date the dual-write.
+        value = row.get("recorded_at") or row.get("computed_at")
         if not isinstance(value, str) or not value:
             continue
         try:
@@ -212,6 +223,19 @@ def _last_computed_at(rows: list[dict[str, Any]]) -> datetime | None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         values.append(parsed.astimezone(timezone.utc))
     return max(values) if values else None
+
+
+def _load_fitness_row_timestamp(row: dict[str, Any]) -> str | None:
+    """Plan 022 §H-3 helper — canonical recorded_at first, legacy
+    computed_at fallback. Returned to callers as a string so the
+    historical caller pattern (datetime.fromisoformat(...)) still
+    works."""
+    if not isinstance(row, dict):
+        return None
+    value = row.get("recorded_at") or row.get("computed_at")
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
 
 
 def _format_dt(value: datetime) -> str:

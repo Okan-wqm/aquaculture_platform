@@ -23,6 +23,7 @@ from aria_kernel import (
 )
 from aria_kernel.ledger import append_jsonl
 from aria_kernel.proposal import proposal_packet_from_task, record_proposal_from_amplification
+from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError
 
@@ -33,6 +34,17 @@ class AutoPrFoundationTests(unittest.TestCase):
         self.root = Path(self.tmp.name) / "workspace"
         self.root.mkdir()
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
+        # Plan 020 Phase 1.B — pr_open is strict-only under the runtime
+        # profile gate. AutoPR foundation exercises the full pipeline
+        # including open_pr_for_action, so the test setUp opts into strict
+        # via an explicit operator_approval_ref. Strict permits a strict
+        # superset of standard's actions, so non-PR test methods stay green.
+        set_profile(
+            "strict",
+            operator_approval_ref="test:plan-020-phase-1.B:autopr-foundation",
+            base_dir=self.tools_dir,
+            set_by="test-fixture",
+        )
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -170,6 +182,18 @@ class AutoPrFoundationTests(unittest.TestCase):
             dry_run=True,
         )
         self.assertEqual(action["status"], "planned")
+        # Plan 023 v3 §P-3 — open_pr_for_action below now fails hard
+        # when `git rev-parse <branch>` fails. plan_apply_worktree(
+        # dry_run=True) plans without creating the actual branch+
+        # worktree. Manually create just the branch ref pointing at
+        # HEAD so rev-parse resolves; this preserves the test's
+        # original "dry-run pipeline" intent without the worktree
+        # creation polluting workspace_root with untracked content
+        # that would fail run_validation_commands' clean-tree check.
+        subprocess.run(
+            ["git", "branch", action["branch"]],
+            cwd=self.root, check=True, capture_output=True,
+        )
         baseline = run_validation_commands(
             commands=["python3 -m unittest --help"],
             workspace_root=self.root,
@@ -187,10 +211,16 @@ class AutoPrFoundationTests(unittest.TestCase):
             worktree_ref=candidate["ledger_hash"],
             base_dir=self.tools_dir,
         )
+        # Plan 022 §H-1 — gate_apply_action requires diff content; pass
+        # an empty diff string so the suppression scan runs (empty input
+        # yields zero matches) without triggering the new fail-closed
+        # branch that fires when diff_text is None and the action does
+        # not carry branch+base_sha.
         gate_apply_action(
             proposal_id=proposal["proposal_id"],
             validation_comparison_ref=comparison["ledger_hash"],
             base_dir=self.tools_dir,
+            diff_text="--- a/x.md\n+++ b/x.md\n@@ -1 +1 @@\n-old\n+new\n",
         )
         pr = open_pr_for_action(
             proposal_id=proposal["proposal_id"],

@@ -37,6 +37,53 @@ def runner(argv=None, **overrides):
     return config
 
 
+def register_active_for_test(tool, base_dir):
+    """Plan 023 v3 §C-3 — test fixture helper.
+
+    register_tool now rejects first-time registrations at ACTIVE / CALIBRATE
+    / QUARANTINED. Tests that need ACTIVE-tool behavior must route through
+    the lifecycle: SHADOW first-register, then transition_tool() with
+    synthetic gate values that satisfy the ACTIVE precondition checks.
+    Production callers cannot call this helper — it lives in the test
+    namespace only and uses operator_approval=True / precision=1.0 /
+    evidence_chains_valid=True purely for fixture wiring.
+
+    For initial-lifecycle states (DRAFT/SANDBOX/SHADOW) and intentional
+    rejection-path probes (BROKEN status, missing fields, etc.), the
+    helper falls through to register_tool unchanged so the test author's
+    intent is preserved.
+    """
+    target = tool.get("status", "ACTIVE")
+    if target in ("DRAFT", "SANDBOX", "SHADOW"):
+        # Initial-lifecycle states pass through register_tool unchanged.
+        return register_tool(tool, base_dir=base_dir)
+    if target not in ("ACTIVE", "CALIBRATE", "QUARANTINED"):
+        # Invalid status values (BROKEN, etc.) reach register_tool's
+        # validation and raise as before.
+        return register_tool(tool, base_dir=base_dir)
+    # Route ACTIVE / CALIBRATE / QUARANTINED through the legitimate
+    # lifecycle: SHADOW first-register, then the appropriate API.
+    initial = {**tool, "status": "SHADOW"}
+    register_tool(initial, base_dir=base_dir)
+    if target == "QUARANTINED":
+        from aria_kernel.quarantine import quarantine_tool
+        return quarantine_tool(
+            tool["tool_id"],
+            "test fixture quarantine",
+            base_dir=base_dir,
+        )
+    return transition_tool(
+        tool["tool_id"],
+        target_status=target,
+        reason="test fixture promotion",
+        precision=1.0,
+        critical_false_positives=0,
+        evidence_chains_valid=True,
+        operator_approval=True,
+        base_dir=base_dir,
+    )
+
+
 def valid_tool(**overrides):
     tool = {
         "tool_id": "ts-adapter",
@@ -131,12 +178,12 @@ class ToolGovernanceTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_registry_accepts_valid_adapter_definition(self):
-        registered = register_tool(valid_tool(), base_dir=self.tools_dir)
+        registered = register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         self.assertEqual(registered["tool_id"], "ts-adapter")
         self.assertEqual(list_tools("ACTIVE", base_dir=self.tools_dir)[0]["tool_id"], "ts-adapter")
 
     def test_registry_accepts_default_input_object(self):
-        registered = register_tool(
+        registered = register_active_for_test(
             valid_tool(default_input={"roots": ["apps/farm-service/src"]}),
             base_dir=self.tools_dir,
         )
@@ -144,10 +191,10 @@ class ToolGovernanceTests(unittest.TestCase):
 
     def test_registry_rejects_non_object_default_input(self):
         with self.assertRaisesRegex(GovernanceError, "default_input"):
-            register_tool(valid_tool(default_input=["bad"]), base_dir=self.tools_dir)
+            register_active_for_test(valid_tool(default_input=["bad"]), base_dir=self.tools_dir)
 
     def test_registry_accepts_valid_skill_definition(self):
-        registered = register_tool(
+        registered = register_active_for_test(
             valid_tool(tool_id="drift-skill", kind="skill", claim_types=["drift"]),
             base_dir=self.tools_dir,
         )
@@ -155,11 +202,11 @@ class ToolGovernanceTests(unittest.TestCase):
 
     def test_registry_rejects_missing_scope_output_schema_and_unknown_state(self):
         with self.assertRaisesRegex(GovernanceError, "declared_scope"):
-            register_tool(valid_tool(declared_scope=[]), base_dir=self.tools_dir)
+            register_active_for_test(valid_tool(declared_scope=[]), base_dir=self.tools_dir)
         with self.assertRaisesRegex(GovernanceError, "output_schema"):
-            register_tool(valid_tool(output_schema={}), base_dir=self.tools_dir)
+            register_active_for_test(valid_tool(output_schema={}), base_dir=self.tools_dir)
         with self.assertRaisesRegex(GovernanceError, "unknown lifecycle state"):
-            register_tool(valid_tool(status="BROKEN"), base_dir=self.tools_dir)
+            register_active_for_test(valid_tool(status="BROKEN"), base_dir=self.tools_dir)
 
     def test_registry_requires_runner_for_executable_lifecycle_states(self):
         tool = valid_tool(status="DRAFT")
@@ -174,16 +221,16 @@ class ToolGovernanceTests(unittest.TestCase):
 
     def test_registry_rejects_malformed_runner_configuration(self):
         with self.assertRaisesRegex(GovernanceError, "runner.argv"):
-            register_tool(valid_tool(runner=runner(argv=[])), base_dir=self.tools_dir)
+            register_active_for_test(valid_tool(runner=runner(argv=[])), base_dir=self.tools_dir)
         with self.assertRaisesRegex(GovernanceError, "runner.cwd"):
-            register_tool(valid_tool(runner=runner(cwd="/tmp")), base_dir=self.tools_dir)
+            register_active_for_test(valid_tool(runner=runner(cwd="/tmp")), base_dir=self.tools_dir)
         with self.assertRaisesRegex(GovernanceError, "runner.cwd"):
-            register_tool(valid_tool(runner=runner(cwd="../escape")), base_dir=self.tools_dir)
+            register_active_for_test(valid_tool(runner=runner(cwd="../escape")), base_dir=self.tools_dir)
         with self.assertRaisesRegex(GovernanceError, "runner.timeout_ms"):
-            register_tool(valid_tool(runner=runner(timeout_ms=-1)), base_dir=self.tools_dir)
+            register_active_for_test(valid_tool(runner=runner(timeout_ms=-1)), base_dir=self.tools_dir)
 
     def test_run_ledger_records_valid_run_envelopes(self):
-        register_tool(valid_tool(), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         decision = record_run(valid_run(), base_dir=self.tools_dir)
         self.assertEqual(decision["action"], "none")
         rows = (self.tools_dir / "runs.jsonl").read_text(encoding="utf-8").strip().splitlines()
@@ -191,7 +238,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(json.loads(rows[0])["run_id"], "run-1")
 
     def test_scope_violation_auto_quarantines_tool(self):
-        register_tool(valid_tool(), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         decision = record_run(
             valid_run(read_paths=["apps/auth-service/src/main.ts"]),
             base_dir=self.tools_dir,
@@ -201,7 +248,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(get_tool("ts-adapter", base_dir=self.tools_dir)["status"], "QUARANTINED")
 
     def test_generated_workspace_read_auto_quarantines_tool(self):
-        register_tool(valid_tool(), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         decision = record_run(
             valid_run(read_paths=["agent-workspace/l3-findings/backend/farm-service/security.md"]),
             base_dir=self.tools_dir,
@@ -210,7 +257,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(get_tool("ts-adapter", base_dir=self.tools_dir)["status"], "QUARANTINED")
 
     def test_self_output_evidence_auto_quarantines_tool(self):
-        register_tool(valid_tool(), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         decision = record_run(
             valid_run(
                 evidence_validation={
@@ -224,13 +271,13 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertIn("self-output evidence", decision["reason"])
 
     def test_invalid_output_schema_auto_quarantines_tool(self):
-        register_tool(valid_tool(), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         decision = record_run(valid_run(status="schema_error"), base_dir=self.tools_dir)
         self.assertEqual(decision["action"], "quarantine")
         self.assertIn("invalid output schema", decision["reason"])
 
     def test_tool_runner_records_valid_subprocess_output(self):
-        register_tool(valid_tool(), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         decision = run_tool(
             "ts-adapter",
             {"target": "farm"},
@@ -249,9 +296,19 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertTrue(run["output_hash"].startswith("sha256:"))
 
     def test_tool_runner_allowed_read_path_keeps_active_tool_healthy(self):
+        # Plan 022 §M-2 — evidence_refs MUST be a subset of read_paths.
+        # The fixture override sets read_paths to main.ts, so the
+        # finding's evidence + evidence_sources must also point at
+        # main.ts (not the default app.module.ts) for the run to stay
+        # clean. Pre-Plan-022 the mismatch silently passed.
         (self.root / "apps/farm-service/src/main.ts").write_text("export const main = true;\n", encoding="utf-8")
-        register_tool(
-            valid_tool(runner=runner(fake_tool_argv(valid_tool_output(read_paths=["apps/farm-service/src/main.ts"])))),
+        register_active_for_test(
+            valid_tool(runner=runner(fake_tool_argv(valid_tool_output(
+                read_paths=["apps/farm-service/src/main.ts"],
+                findings=[{"id": "finding-1",
+                           "evidence": [{"path": "apps/farm-service/src/main.ts", "line": 1}]}],
+                evidence_sources=["apps/farm-service/src/main.ts"],
+            )))),
             base_dir=self.tools_dir,
         )
         decision = run_tool(
@@ -265,7 +322,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(get_tool("ts-adapter", base_dir=self.tools_dir)["status"], "ACTIVE")
 
     def test_tool_runner_scope_violation_quarantines_tool(self):
-        register_tool(
+        register_active_for_test(
             valid_tool(
                 runner=runner(
                     fake_tool_argv(valid_tool_output(read_paths=["apps/auth-service/src/main.ts"])),
@@ -284,7 +341,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(self.latest_run()["status"], "scope_violation")
 
     def test_tool_runner_self_output_evidence_quarantines_tool(self):
-        register_tool(
+        register_active_for_test(
             valid_tool(
                 runner=runner(
                     fake_tool_argv(
@@ -313,7 +370,7 @@ class ToolGovernanceTests(unittest.TestCase):
                 },
             ],
         )
-        register_tool(valid_tool(runner=runner(fake_tool_argv(output))), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(runner=runner(fake_tool_argv(output))), base_dir=self.tools_dir)
         decision = run_tool(
             "ts-adapter",
             {},
@@ -325,7 +382,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(self.latest_run()["status"], "evidence_error")
 
     def test_tool_runner_invalid_json_or_missing_required_output_quarantines_tool(self):
-        register_tool(valid_tool(runner=runner(invalid_json_argv())), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(runner=runner(invalid_json_argv())), base_dir=self.tools_dir)
         decision = run_tool(
             "ts-adapter",
             {},
@@ -337,7 +394,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(self.latest_run()["status"], "schema_error")
 
         self.tools_dir = Path(self.tmp.name) / "aria-tools-missing"
-        register_tool(
+        register_active_for_test(
             valid_tool(runner=runner(fake_tool_argv({"observations": []}))),
             base_dir=self.tools_dir,
         )
@@ -352,7 +409,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(self.latest_run()["status"], "schema_error")
 
     def test_tool_runner_nonzero_exit_records_crash(self):
-        register_tool(
+        register_active_for_test(
             valid_tool(runner=runner(fake_tool_argv(valid_tool_output(), exit_code=3))),
             base_dir=self.tools_dir,
         )
@@ -367,7 +424,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(self.latest_run()["status"], "crash")
 
     def test_tool_runner_timeout_records_budget_exceeded(self):
-        register_tool(
+        register_active_for_test(
             valid_tool(runner=runner(fake_tool_argv(valid_tool_output(), sleep_seconds=1), timeout_ms=25)),
             base_dir=self.tools_dir,
         )
@@ -382,7 +439,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(self.latest_run()["status"], "budget_exceeded")
 
     def test_tool_runner_repository_mutation_quarantines_tool(self):
-        register_tool(
+        register_active_for_test(
             valid_tool(runner=runner(fake_tool_argv(valid_tool_output(), mutate=True))),
             base_dir=self.tools_dir,
         )
@@ -398,7 +455,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertTrue(run["evidence_validation"]["repository_mutation_attempt"])
 
     def test_tool_runner_shadow_and_calibrate_do_not_emit_operator_facing_output(self):
-        register_tool(valid_tool(status="SHADOW"), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(status="SHADOW"), base_dir=self.tools_dir)
         run_tool(
             "ts-adapter",
             {},
@@ -411,7 +468,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(run["emitted_findings"], [])
 
         self.tools_dir = Path(self.tmp.name) / "aria-tools-calibrate"
-        register_tool(valid_tool(status="CALIBRATE"), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(status="CALIBRATE"), base_dir=self.tools_dir)
         run_tool(
             "ts-adapter",
             {},
@@ -424,7 +481,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(run["emitted_findings"], [])
 
     def test_tool_runner_refuses_quarantined_tool(self):
-        register_tool(valid_tool(status="QUARANTINED"), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(status="QUARANTINED"), base_dir=self.tools_dir)
         with self.assertRaisesRegex(GovernanceError, "QUARANTINED"):
             run_tool(
                 "ts-adapter",
@@ -435,7 +492,7 @@ class ToolGovernanceTests(unittest.TestCase):
             )
 
     def test_three_noncritical_false_positives_move_tool_to_calibrate(self):
-        register_tool(valid_tool(), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         for idx in range(3):
             decision = record_run(
                 valid_run(
@@ -448,14 +505,14 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(get_tool("ts-adapter", base_dir=self.tools_dir)["status"], "CALIBRATE")
 
     def test_budget_cap_exceeded_twice_moves_tool_to_calibrate(self):
-        register_tool(valid_tool(), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         record_run(valid_run(run_id="budget-1", cost_units=51), base_dir=self.tools_dir)
         decision = record_run(valid_run(run_id="budget-2", cost_units=52), base_dir=self.tools_dir)
         self.assertEqual(decision["action"], "calibrate")
         self.assertEqual(decision["metrics"]["budget_exceeded_7d"], 2)
 
     def test_critical_false_positive_moves_tool_to_quarantined(self):
-        register_tool(valid_tool(), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         decision = record_run(
             valid_run(operator_feedback_refs=[{"kind": "false_positive", "severity": "critical"}]),
             base_dir=self.tools_dir,
@@ -464,13 +521,19 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(get_tool("ts-adapter", base_dir=self.tools_dir)["status"], "QUARANTINED")
 
     def test_quarantined_tool_cannot_emit_operator_facing_findings(self):
-        register_tool(valid_tool(status="QUARANTINED"), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(status="QUARANTINED"), base_dir=self.tools_dir)
         with self.assertRaisesRegex(GovernanceError, "cannot emit"):
             record_run(valid_run(emitted_findings=[{"id": "finding-1"}]), base_dir=self.tools_dir)
 
     def test_calibrated_tool_cannot_return_to_active_without_fixtures(self):
-        register_tool(valid_tool(status="CALIBRATE"), base_dir=self.tools_dir)
-        with self.assertRaisesRegex(GovernanceError, "pass through SHADOW"):
+        register_active_for_test(valid_tool(status="CALIBRATE"), base_dir=self.tools_dir)
+        # Plan 026R §E.10 — error message now
+        # ``tool_lifecycle_forbidden_active_promotion``; accept the
+        # legacy "pass through SHADOW" message too for forward-compat.
+        with self.assertRaisesRegex(
+            GovernanceError,
+            "pass through SHADOW|tool_lifecycle_forbidden_active_promotion",
+        ):
             transition_tool(
                 "ts-adapter",
                 "ACTIVE",
@@ -502,7 +565,7 @@ class ToolGovernanceTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        register_tool(
+        register_active_for_test(
             valid_tool(
                 status="CALIBRATE",
                 runner=runner(
@@ -546,7 +609,7 @@ class ToolGovernanceTests(unittest.TestCase):
             json.dumps({"input": {}, "expected": {"status": "ok", "max_findings": 0}}),
             encoding="utf-8",
         )
-        register_tool(
+        register_active_for_test(
             valid_tool(status="CALIBRATE", runner=runner(fake_tool_argv(valid_tool_output(findings=[])))),
             base_dir=self.tools_dir,
         )
@@ -564,7 +627,7 @@ class ToolGovernanceTests(unittest.TestCase):
             promote_tool("ts-adapter", "SHADOW", reason="stale fixture should not promote", base_dir=self.tools_dir)
 
     def test_feedback_judge_samples_shadow_raw_findings_by_rule_bucket(self):
-        register_tool(valid_tool(status="SHADOW"), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(status="SHADOW"), base_dir=self.tools_dir)
         output = valid_tool_output(
             findings=[
                 {"id": "f-1", "rule": "a", "severity": "medium", "path": "apps/farm-service/src/app.module.ts", "evidence": [{"path": "apps/farm-service/src/app.module.ts", "line": 1}]},
@@ -572,7 +635,7 @@ class ToolGovernanceTests(unittest.TestCase):
                 {"id": "f-3", "rule": "a", "severity": "medium", "path": "apps/farm-service/src/app.module.ts", "evidence": [{"path": "apps/farm-service/src/app.module.ts", "line": 1}]},
             ],
         )
-        register_tool(valid_tool(status="SHADOW", runner=runner(fake_tool_argv(output))), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(status="SHADOW", runner=runner(fake_tool_argv(output))), base_dir=self.tools_dir)
         run_tool("ts-adapter", {}, "cycle-judge", workspace_root=self.root, base_dir=self.tools_dir)
         sample = generate_judgment_sample(
             tool_id="ts-adapter",
@@ -585,7 +648,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual({item["rule"] for item in sample["items"]}, {"a", "b"})
 
     def test_operator_feedback_store_contributes_to_health_metrics(self):
-        register_tool(valid_tool(), base_dir=self.tools_dir)
+        register_active_for_test(valid_tool(), base_dir=self.tools_dir)
         record_run(valid_run(run_id="feedback-run"), base_dir=self.tools_dir)
         record_operator_feedback(
             tool_id="ts-adapter",
@@ -601,15 +664,20 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(decision["metrics"]["precision"], 0.0)
 
     def test_cli_register_list_and_quarantine(self):
+        # Plan 023 v3 §C-3 — first registration must land in an
+        # initial-lifecycle state. The CLI fixture writes status=SHADOW;
+        # the list assertion targets SHADOW (not ACTIVE) since the test
+        # only exercises the register/list/quarantine pipeline, not the
+        # SHADOW→ACTIVE promotion (covered separately by transition tests).
         fixture = self.tools_dir / "tool.json"
         fixture.parent.mkdir(parents=True, exist_ok=True)
-        fixture.write_text(json.dumps(valid_tool()), encoding="utf-8")
+        fixture.write_text(json.dumps(valid_tool(status="SHADOW")), encoding="utf-8")
         self.assertEqual(
             self.run_cli(["--tools-dir", str(self.tools_dir), "tool", "register", "--file", str(fixture)]),
             0,
         )
         self.assertEqual(
-            self.run_cli(["--tools-dir", str(self.tools_dir), "tool", "list", "--status", "ACTIVE"]),
+            self.run_cli(["--tools-dir", str(self.tools_dir), "tool", "list", "--status", "SHADOW"]),
             0,
         )
         self.assertEqual(
@@ -630,9 +698,13 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(get_tool("ts-adapter", base_dir=self.tools_dir)["status"], "QUARANTINED")
 
     def test_cli_tool_run_records_health_decision(self):
+        # Plan 023 v3 §C-3 — register at SHADOW via CLI, then run_tool
+        # against the SHADOW tool. SHADOW tools execute via the runner
+        # (they just don't emit operator-facing observations/findings),
+        # so the CLI run path is exercisable without ACTIVE promotion.
         fixture = self.tools_dir / "tool.json"
         fixture.parent.mkdir(parents=True, exist_ok=True)
-        fixture.write_text(json.dumps(valid_tool()), encoding="utf-8")
+        fixture.write_text(json.dumps(valid_tool(status="SHADOW")), encoding="utf-8")
         self.assertEqual(
             self.run_cli(["--tools-dir", str(self.tools_dir), "tool", "register", "--file", str(fixture)]),
             0,

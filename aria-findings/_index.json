@@ -1,0 +1,76 @@
+{
+  "findings": [
+    {
+      "claim_summary": "Adapter signal: TypeORM migration surfaces show repeated boilerplate across services \u2014 at least three migrations follow the same add-column-then-index pattern with no shared helper",
+      "claim_type": "duplication",
+      "created_at": "2026-05-07T07:37:04Z",
+      "evidence_chain_id": "chain_c05abc8bbe3674be",
+      "finding_id": "F-001",
+      "path": "F-001.json",
+      "severity": "LOW",
+      "status": "OPEN"
+    },
+    {
+      "claim_summary": "Plan 016 implementation arc shipped nine SHADOW adapter rows + four impact graph source stubs without operator-facing parser implementations and zero PR pipeline test coverage; the Plan 016 sign-off review recorded each of the three architectural debts but the DEBT records emitted in Plan 017 Phase 2 cite F-001 (TypeORM duplication) as their originating finding, which has no content link to any of the three debts.",
+      "claim_type": "convention_inconsistency",
+      "created_at": "2026-05-07T13:07:01Z",
+      "evidence_chain_id": "chain_bd9aa02134d4a65c",
+      "finding_id": "F-002",
+      "path": "F-002.json",
+      "severity": "MEDIUM",
+      "status": "WITHDRAWN"
+    },
+    {
+      "claim_summary": "Plan 016 implementation arc registered 9 adapters in aria-tools/registry.json and 4 impact graph sources in aria-kernel/aria_kernel/recursive_impact.py; as of HEAD 97fca751, 8 adapters still use the SHADOW shadow_runner.py and 3 sources still emit status: unknown stubs. Plan 019 Phase 4 + 5 + 9 close this finding by completing each parser implementation and each source mapping.",
+      "claim_type": "convention_inconsistency",
+      "created_at": "2026-05-07T14:01:39Z",
+      "evidence_chain_id": "chain_ad7d2420e22e72a5",
+      "finding_id": "F-003",
+      "path": "F-003.json",
+      "severity": "MEDIUM",
+      "status": "OPEN"
+    },
+    {
+      "claim_summary": "Plan 022 v6 sign-off (HEAD 6090b67b) declared kernel-correctness closure complete; post-push external audit identified 30 architectural bypass routes still reachable. Plan 023 v3 corrective-arc closed via 32 fix items across 7 tiers.",
+      "claim_type": "post_push_audit_bypass_chain",
+      "created_at": "2026-05-09T00:00:00Z",
+      "evidence_chain_id": "chain_plan_023_v3_post_push_audit",
+      "finding_id": "F-004",
+      "path": "F-004.json",
+      "severity": "HIGH",
+      "status": "RESOLVED"
+    },
+    {
+      "claim_summary": "Plan 023 v3.1 sign-off (HEAD e4f3218e) closed 32 bypass routes from F-004 but a follow-up audit identified 15 architectural-quality gaps still alive: legacy submit CLI, creation API gap, workflow injection, runtime profile fail-open, validation matrix projection strip, snapshot adapter fallback + partial pre-merge, tool run CLI exit-0 + run_tool API contract, mock CI executor, claim_request non-atomic, submit no idempotency, malformed lease expiry, validate_response role match, evidence canonical (string + dict paths), spine status whitelist, JSONL silent-skip + governance recursion. Plan 024 v3 corrective-arc closed via 16 fix items.",
+      "claim_type": "post_push_audit_residual_bypass_chain",
+      "created_at": "2026-05-09T13:00:00Z",
+      "evidence_chain_id": "chain_plan_024_v3_post_push_audit",
+      "finding_id": "F-005",
+      "path": "F-005.json",
+      "severity": "HIGH",
+      "status": "RESOLVED"
+    },
+    {
+      "claim_summary": "Plan 024 v3 + D + E + F sign-off closed 21/21 F-005 anchors; operator's post-D/E/F autonomy audit identified 5 architectural gaps blocking fully-autonomous closed-loop operation. Plan 025 corrective-arc shipped 5 phases (integrity hardening + CI executor live path + cycle closed-loop wiring + autonomous planner dispatcher + autonomous worker scheduler) closing all 5 audit data points. Final HEAD e412ebc5; test count 1127 -> 1214+ (87 new across 5 phases, zero regression).",
+      "claim_type": "post_d_e_f_autonomy_audit",
+      "created_at": "2026-05-10T11:30:00Z",
+      "evidence_chain_id": "chain_plan_025_autonomy_arc",
+      "finding_id": "F-006",
+      "path": "F-006.json",
+      "severity": "HIGH",
+      "status": "RESOLVED"
+    },
+    {
+      "claim_summary": "Plan 025 sign-off (HEAD faa92b4f; F-006 RESOLVED at e412ebc5) + external Enterprise-Grade Autonomy Closure 10-round audit identified 39 net-new architectural gaps blocking enterprise-grade autonomous-by-end-of-day operation. Plan 026R corrective-arc tracks closure across 8 phases (A-H): Global Integrity + Agent Executor Contract + Convergent Planning + Validation/PR/Merge Hard Gates + Tool/Spine/Genesis/Memory + Autonomy Orchestrator (LOAD-BEARING) + Worker Dispatch Contract + Test-Source-Marker Replacement. ~270 new tests target (1214 -> 1484).",
+      "claim_type": "post_plan_025_enterprise_autonomy_audit",
+      "created_at": "2026-05-11T00:00:00Z",
+      "evidence_chain_id": "chain_plan_026_enterprise_autonomy_arc",
+      "finding_id": "F-007",
+      "path": "F-007.json",
+      "severity": "HIGH",
+      "status": "OPEN"
+    }
+  ],
+  "generated_at": "2026-05-11T00:00:00Z",
+  "schema_version": 1
+}

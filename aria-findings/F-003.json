@@ -1,0 +1,60 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "Plan 016 implementation arc registered 9 adapters in aria-tools/registry.json and 4 impact graph sources in aria-kernel/aria_kernel/recursive_impact.py; as of HEAD 97fca751, 8 adapters still use the SHADOW shadow_runner.py and 3 sources still emit status: unknown stubs. Plan 019 Phase 4 + 5 + 9 close this finding by completing each parser implementation and each source mapping.",
+  "claim_type": "convention_inconsistency",
+  "closes_in_commit": null,
+  "created_at": "2026-05-07T14:01:39Z",
+  "evidence_chain_id": "chain_ad7d2420e22e72a5",
+  "evidences": [
+    {
+      "ref": "aria-tools/registry.json:1",
+      "summary": "Adapter portfolio: 9 registered tool_id rows; 8 still carry runner.argv pointing at tools/aria-poc/shadow_runner.py per registry.json. Only banned-phrase-adapter has been switched to a real Python parser (Plan 017 Phase 5 + Plan 018 Phase 5 live invoke)."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/recursive_impact.py:421",
+      "summary": "Impact graph sources: _graphql_api_source, _db_entity_source, _frontend_module_source remain stub-source factories returning status: unknown. Only _event_contract_source has a real producer/consumer mapping (Plan 017 Phase 5)."
+    },
+    {
+      "ref": "aria-tools/governance.jsonl:1",
+      "summary": "Live ledger evidence of partial closure: Plan 017 Phase 5 governance events show event_contract source + banned-phrase-adapter promotion; the remaining 3 sources + 8 adapters have not transitioned."
+    }
+  ],
+  "facts": [
+    "8 of 9 adapter rows in aria-tools/registry.json carry runner.argv = [\"python3\", \"shadow_runner.py\", \"<tool_id>\"]; only banned-phrase-adapter row carries runner.argv = [\"python3\", \"banned_phrase_adapter.py\"].",
+    "3 of 4 impact graph source registrations in aria_kernel/recursive_impact.py call _make_stub_source(); only _event_contract_source returns a real graph (Plan 017 Phase 5).",
+    "F-002 (the predecessor of this finding) was emitted in Plan 018 Phase 2 with a broader claim_summary that the aria-adversarial-judge subsequently demonstrated to contain four stale claims (Plan 018 Phase 7, confidence 0.82). The judge_disagreement uncertainty row is at aria-tools/feedback-consensus-uncertainties.jsonl line 1."
+  ],
+  "finding_id": "F-003",
+  "interpretations": [
+    {
+      "text": "F-003 supersedes F-002 with a tighter claim_summary scoped to the surviving architectural pattern only. The adversarial judge dispute is resolved through supersession (architect ruling, Plan 019 Phase 2). Plan 019 Phase 4 + 5 + 9 close this finding by completing the parser/source work.",
+      "verification_required": true
+    }
+  ],
+  "originating_pressure_event_id": null,
+  "originating_run_id": null,
+  "originating_skill": "manual:operator-plan-019-phase-2-supersedes-F-002",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "platform-kernel-expert"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "aria-tools/registry.json",
+      "aria-kernel/aria_kernel/recursive_impact.py"
+    ]
+  },
+  "severity": "MEDIUM",
+  "status": "OPEN",
+  "status_history": [
+    {
+      "at": "2026-05-07T14:01:39Z",
+      "by": "manual:operator-plan-019-phase-2",
+      "note": "Emitted as supersession of F-002 per architectural-arbiter ruling (Plan 019 Phase 2). F-002 narrative staleness was demonstrated by aria-adversarial-judge in Plan 018 Phase 7 (confidence 0.82, judge_disagreement uncertainty row).",
+      "status": "OPEN"
+    }
+  ],
+  "supersedes": "F-002"
+}

@@ -216,6 +216,23 @@ def _skill_or_agent_genesis(
                 "genesis_extension_recorded",
                 {"cycle_id": cycle_id, "gap_id": gap.get("gap_id"), "capability_gap_key": gap.get("capability_gap_key")},
             )
+        elif gap_type == "skill_gap":
+            # Plan 026R §E.9 — skill_gap routes to skill_genesis, NOT
+            # agent_genesis. Pre-§E.9 every non-extension gap fell to
+            # the request_agent_genesis branch; a skill_gap silently
+            # spawned an agent_genesis request (wrong target).
+            from .skill_genesis import request_skill_genesis
+            row = request_skill_genesis(
+                capability_gap_key=str(gap.get("capability_gap_key") or ""),
+                title=str(gap.get("title") or gap.get("summary") or "skill"),
+                base_dir=tools_root,
+            )
+            requests_emitted.append(row)
+            append_tools_governance(
+                tools_root,
+                "skill_genesis_request_emitted",
+                {"cycle_id": cycle_id, "gap_id": gap.get("gap_id"), "capability_gap_key": gap.get("capability_gap_key")},
+            )
         else:
             row = request_agent_genesis(gap, base_dir=tools_root, cycle_id=cycle_id)
             requests_emitted.append(row)

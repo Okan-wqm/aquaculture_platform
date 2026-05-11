@@ -262,7 +262,7 @@ def derive_pressure(paths: WorkspacePaths, index: dict[str, Any]) -> list[dict[s
                 "magnitude": len(refs),
                 "threshold": 3 if primitive != "CONTRADICTION" or subtype == "repeated_false_positive" else 1,
                 "exceeds_threshold": True,
-                "evidence_refs": [],
+                "evidence_refs": list(refs),
                 "feedback_event_ids": event_ids,
                 "legacy_feedback_event_ids": [
                     legacy_id

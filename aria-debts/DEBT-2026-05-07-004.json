@@ -1,0 +1,51 @@
+{
+  "$schema": "aria/architectural-debt/v1",
+  "auto_close_forbidden": true,
+  "closes_in_commit": "5e93c02a",
+  "current_status": "RESOLVED",
+  "debt_id": "DEBT-2026-05-07-004",
+  "due_date": "2026-07-06T11:41:19Z",
+  "escalation_history": [],
+  "historical_note": "F-003 supersedes F-002 (Plan 019 Phase 2 architectural-arbiter ruling). This DEBT was already RESOLVED at Plan 017 Phase 3 (closes_in_commit 5e93c02a); originating_finding_id is preserved as F-002 to keep the closed history immutable. F-003 is the canonical successor for any future operator query.",
+  "historical_supersedes_finding_id": "F-003",
+  "originating_finding_evidence_chain_id": "chain_bd9aa02134d4a65c",
+  "originating_finding_id": "F-002",
+  "permanent_fix_owner": "platform-data-team",
+  "permanent_fix_required": "Integration test in aria-kernel/tests/test_pr_manager_e2e.py that walks open_pr_for_action via mock gh API factory; assertions: PR body 7-section format, base hardcoded to snowball, force-push rejected, gh API error path graceful. apply_engine.gate_apply_action gains optional diff_text kwarg routed through suppression scanner. pr_manager rejects base != snowball at the kernel boundary.",
+  "resolved_at": "2026-05-07T11:51:58Z",
+  "root_cause_summary": "aria_kernel/pr_manager.py:101-107 calls subprocess.run gh api with no test coverage. Plan 016 promises ARIA opens PRs through aria-kernel pr create --base snowball, but no unit or integration test exercises the full open_pr_for_action lifecycle. Convention lives in code; enforcement does not.",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "short_term_action_taken": {
+    "kind": "test_added",
+    "rationale": "Operator review documents the gap as Gap-3 with HIGH severity; Plan 017 Phase 3 lands the closing test in the same session.",
+    "ref": "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md"
+  },
+  "status_history": [
+    {
+      "at": "2026-05-07T11:41:19Z",
+      "by": "manual:operator",
+      "status": "OPEN"
+    },
+    {
+      "at": "2026-05-07T11:51:58Z",
+      "by": "operator:plan-017-phase-3",
+      "note": "Phase 3 landed test_pr_manager_e2e.py with 10 tests covering open_pr_for_action, build_pr_body, push_prepared_branch, and gate_apply_action diff_text suppression scan. Mock gh API factory enforces --base snowball at the assertion level.",
+      "status": "RESOLVED"
+    },
+    {
+      "at": "2026-05-07T13:07:43Z",
+      "by": "operator:plan-018-phase-2",
+      "note": "originating_finding re-linked from F-001 (chain chain_c05abc8bbe3674be) to F-002 (chain chain_bd9aa02134d4a65c); F-002 derives from docs/aria/reviews/2026-05-07-plan-016-implementation-review.md and is the operator-review-derived parent for the four impact-source / nine-adapter / PR-pipeline architectural debts.",
+      "status": "RESOLVED"
+    },
+    {
+      "at": "2026-05-08T00:00:00Z",
+      "by": "operator:plan-022-phase-m5",
+      "note": "Plan 022 §M-5 — added historical_supersedes_finding_id='F-003' field so consumers can resolve the canonical successor without parsing the historical_note prose. originating_finding_id stays F-002 (immutable closed history per arbiter ruling); the new field is the explicit pointer to F-003 as the canonical operator-query target.",
+      "status": "RESOLVED"
+    }
+  ],
+  "verification_status": "VERIFIED",
+  "withdrawn_reason": null
+}

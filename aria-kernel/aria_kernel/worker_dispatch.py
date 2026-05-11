@@ -2,23 +2,38 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import secrets
 import shutil
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .file_lock import with_exclusive_lock
+from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl
 from .agent_network import latest_agent_network_hash
 from .pressure import effective_workspace_pressures
-from .tool_registry import append_tools_governance, ensure_tools_binding, update_tools_index
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    ensure_tools_binding,
+    ensure_tools_dir,
+    update_tools_index,
+    utc_now,
+)
 from .triage import derive_required_tests, resolve_target_agent
 from .workspace import WorkspacePaths
 
 
 DEFAULT_WORKTREE_TTL_DAYS = 7
 DEFAULT_AUTO_BATCH_LIMIT = 10
+# Plan 025 §E — assignment claim primitives (mirror of agent_invocations
+# claim primitives). worker_dispatch operates on dispatch/requests.jsonl
+# rows; the claim ledger lives at dispatch/claims.jsonl.
+DEFAULT_LEASE_SECONDS = 1800
+LEASE_TOKEN_BYTES = 24
 
 
 def create_dispatch_request(
@@ -363,6 +378,334 @@ def prune_worktrees(
     }
 
 
+# --------------------- Plan 025 §E — claim + retry + PR bridge ---------------------
+
+
+def _claims_path(root: Path) -> Path:
+    return root / "dispatch" / "claims.jsonl"
+
+
+def _hash_lease_token(token: str) -> str:
+    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _claim_id(assignment_id: str, agent_id: str, now: datetime) -> str:
+    digest = hashlib.sha256(
+        f"{assignment_id}|{agent_id}|{now.isoformat()}".encode("utf-8")
+    ).hexdigest()[:16]
+    return f"DC-{digest}"
+
+
+def _utc_now_dt() -> datetime:
+    return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def _iso(dt: datetime) -> str:
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+def _find_assignment(root: Path, assignment_id: str) -> dict[str, Any] | None:
+    """Return the most recent dispatch request row for ``assignment_id``."""
+    found: dict[str, Any] | None = None
+    for row in load_jsonl(root / "dispatch" / "requests.jsonl"):
+        if row.get("assignment_id") == assignment_id:
+            found = row
+    return found
+
+
+def _derive_assignment_state(root: Path, assignment_id: str) -> str:
+    """Derive an assignment's current state by following its lifecycle.
+
+    Sources (in precedence order):
+      1. Latest ``dispatch_request_state_changed`` event for the
+         assignment's pressure_event_id in governance.jsonl.
+      2. The assignment row's own ``state`` field.
+
+    States: pending / prepared / picked_up / completed / cancelled /
+    expired. The reaper writes ``expired`` when a lease times out;
+    the worker daemon writes ``picked_up`` (via the new claim
+    primitive below); ``completed`` is set after verification.
+    """
+    assignment = _find_assignment(root, assignment_id)
+    if assignment is None:
+        return "missing"
+    pe = assignment.get("pressure_event_id")
+    if not pe:
+        return str(assignment.get("state", "pending"))
+    states = _latest_request_states(root)
+    return states.get(str(pe), str(assignment.get("state", "pending")))
+
+
+def next_pending_assignment(
+    *,
+    target_agent: str | None = None,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any] | None:
+    """Return the oldest dispatch assignment in pending or prepared state.
+
+    Plan 025 §E — discovery primitive consumed by the autonomous
+    worker scheduler daemon. Mirrors agent_invocations.next_pending_
+    request semantics: pending and prepared are eligible (prepared
+    means the worktree is git-checked out but no worker has claimed
+    yet); picked_up / completed / cancelled / expired are skipped.
+    """
+    root = ensure_tools_dir(base_dir)
+    rows = load_jsonl(root / "dispatch" / "requests.jsonl")
+    states = _latest_request_states(root)
+    for row in rows:
+        if target_agent and row.get("target_agent") != target_agent:
+            continue
+        pe = row.get("pressure_event_id")
+        current_state = (
+            states.get(str(pe), row.get("state", "pending"))
+            if pe else row.get("state", "pending")
+        )
+        if current_state in {"pending", "prepared"}:
+            return row
+    return None
+
+
+def claim_assignment(
+    *,
+    assignment_id: str,
+    agent_id: str,
+    lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Atomic-locked CAS claim on a dispatch assignment.
+
+    Plan 025 §E — mirror of agent_invocations.claim_request. Writes
+    a ``claimed`` row to dispatch/claims.jsonl inside an exclusive
+    file lock so two daemons cannot both pass the state check and
+    both append (TOCTOU race that pre-fix mark_dispatch_picked_up
+    silently allowed because it was a state-transition only with
+    no lease-token mutex).
+
+    Returns ``{claim_id, lease_token, lease_expires_at, ...}`` —
+    the raw lease_token is returned exactly once; its sha256 hash
+    is what gets persisted to claims.jsonl. Caller MUST forward the
+    raw token via env var (ARIA_LEASE_TOKEN) per the lease-token
+    redaction discipline.
+    """
+    if lease_seconds <= 0:
+        raise GovernanceError("lease_seconds must be positive")
+    if not agent_id or not agent_id.strip():
+        raise GovernanceError("agent_id is required")
+    root = ensure_tools_dir(base_dir)
+    claims_path = _claims_path(root)
+    with with_exclusive_lock(claims_path):
+        state = _derive_assignment_state(root, assignment_id)
+        if state == "missing":
+            raise GovernanceError(
+                f"assignment_not_found: {assignment_id}"
+            )
+        if state not in {"pending", "prepared"}:
+            raise GovernanceError(
+                f"cannot claim assignment {assignment_id} in state "
+                f"{state} (must be pending or prepared)"
+            )
+        # CAS recheck after the lock fires — if another worker
+        # released or expired the assignment between our read and
+        # the lock acquisition, the claim raises a specific
+        # claim_assignment_state_changed_during_lock signal.
+        rechecked = _derive_assignment_state(root, assignment_id)
+        if rechecked != state:
+            raise GovernanceError(
+                f"claim_assignment_state_changed_during_lock: "
+                f"{state} -> {rechecked}"
+            )
+        now = _utc_now_dt()
+        expires = now + timedelta(seconds=lease_seconds)
+        lease_token = secrets.token_hex(LEASE_TOKEN_BYTES)
+        cid = _claim_id(assignment_id, agent_id, now)
+        assignment = _find_assignment(root, assignment_id)
+        row = {
+            "schema_version": 1,
+            "event": "claimed",
+            "claim_id": cid,
+            "assignment_id": assignment_id,
+            "pressure_event_id": (assignment or {}).get("pressure_event_id"),
+            "agent_id": agent_id,
+            "lease_token_hash": _hash_lease_token(lease_token),
+            "lease_seconds": lease_seconds,
+            "claimed_at": _iso(now),
+            "lease_expires_at": _iso(expires),
+        }
+        # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
+        # at the enclosing block; use the unlocked helper to avoid POSIX flock
+        # re-acquisition.
+        _append_jsonl_unlocked(claims_path, row)
+    # Mirror dispatch_request_state_changed event so the existing
+    # state-derivation reads pick the new picked_up state without
+    # adding a second derivation source.
+    pe_id = (assignment or {}).get("pressure_event_id")
+    if pe_id:
+        append_tools_governance(
+            root, "dispatch_request_state_changed",
+            {
+                "assignment_id": assignment_id,
+                "pressure_event_id": pe_id,
+                "from_state": state,
+                "to_state": "picked_up",
+                "claim_id": cid,
+                "agent_id": agent_id,
+            },
+        )
+    append_tools_governance(
+        root, "dispatch_claim_created",
+        {
+            "claim_id": cid, "assignment_id": assignment_id,
+            "agent_id": agent_id, "lease_expires_at": _iso(expires),
+        },
+    )
+    return {**row, "lease_token": lease_token}
+
+
+def release_claim_assignment(
+    *,
+    claim_id: str,
+    lease_token: str,
+    reason: str,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Release a claim back to the assignment queue.
+
+    Plan 025 §E — used by the worker hook when verification fails
+    and the retry budget is not yet exhausted; the assignment
+    returns to ``pending`` state so the next daemon tick can re-
+    claim. The lease_token is verified against the persisted hash
+    so a stale or stolen token cannot release another worker's
+    claim.
+    """
+    if not claim_id or not claim_id.strip():
+        raise GovernanceError("claim_id is required")
+    if not lease_token:
+        raise GovernanceError("lease_token is required")
+    if not reason or not reason.strip():
+        raise GovernanceError("release reason is required")
+    root = ensure_tools_dir(base_dir)
+    claims_path = _claims_path(root)
+    with with_exclusive_lock(claims_path):
+        claims = load_jsonl(claims_path)
+        claim_event = next(
+            (r for r in claims
+             if r.get("claim_id") == claim_id and r.get("event") == "claimed"),
+            None,
+        )
+        if claim_event is None:
+            raise GovernanceError(f"claim {claim_id} not found")
+        if claim_event.get("lease_token_hash") != _hash_lease_token(lease_token):
+            raise GovernanceError(
+                f"claim {claim_id} lease_token mismatch"
+            )
+        terminal = [
+            r for r in claims
+            if r.get("claim_id") == claim_id
+            and r.get("event") in {"released", "stale", "human_required"}
+        ]
+        if terminal:
+            raise GovernanceError(
+                f"claim {claim_id} already terminal "
+                f"({terminal[-1].get('event')})"
+            )
+        row = {
+            "schema_version": 1,
+            "event": "released",
+            "claim_id": claim_id,
+            "assignment_id": claim_event.get("assignment_id"),
+            "pressure_event_id": claim_event.get("pressure_event_id"),
+            "agent_id": claim_event.get("agent_id"),
+            "reason": reason,
+            "released_at": _iso(_utc_now_dt()),
+        }
+        # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
+        # at the enclosing block; use the unlocked helper to avoid POSIX flock
+        # re-acquisition.
+        _append_jsonl_unlocked(claims_path, row)
+    pe_id = claim_event.get("pressure_event_id")
+    if pe_id:
+        # State derivation rolls back to pending so the next
+        # daemon tick can re-claim. Operators reading governance
+        # see the explicit reason code.
+        append_tools_governance(
+            root, "dispatch_request_state_changed",
+            {
+                "assignment_id": claim_event.get("assignment_id"),
+                "pressure_event_id": pe_id,
+                "from_state": "picked_up",
+                "to_state": "pending",
+                "claim_id": claim_id,
+                "reason": reason,
+            },
+        )
+    append_tools_governance(
+        root, "dispatch_claim_released",
+        {
+            "claim_id": claim_id, "reason": reason,
+            "assignment_id": claim_event.get("assignment_id"),
+        },
+    )
+    return row
+
+
+def assignment_retry_count(
+    *,
+    assignment_id: str,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> int:
+    """Count prior verification failures for an assignment.
+
+    Plan 025 §E — read-only governance ledger scan. The dispatch
+    row is append-only; rewriting it for a retry counter would
+    re-open the same write-side defect Plan 024 §H-1 closed for
+    claims.jsonl. Counting verification_gate_failed events scoped
+    to the assignment is the SSoT.
+    """
+    root = ensure_tools_dir(base_dir)
+    count = 0
+    for row in load_jsonl(root / "governance.jsonl"):
+        if row.get("kind") != "verification_gate_failed":
+            continue
+        details = row.get("details") or {}
+        if details.get("assignment_id") == assignment_id:
+            count += 1
+    return count
+
+
+def pr_for_assignment(
+    *,
+    assignment_id: str,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> int | None:
+    """Lookup the PR number associated with a verified assignment.
+
+    Plan 025 §E — scans pr-lifecycle.jsonl for the most recent row
+    carrying ``assignment_id``. Pre-fix that ledger never recorded
+    the assignment_id link; the open_pr_for_action surface is
+    extended in this same batch to thread assignment_id into
+    record_pr_lifecycle so future PR rows match.
+
+    Legacy rows (lacking assignment_id) return None — the caller's
+    fail-closed path emits ``verified_pending_merge`` instead of
+    silently routing to merge_if_green with the wrong PR. This is
+    architecturally correct: a verified worker run with no PR
+    cannot be merged, so the only operator-visible state is
+    pending-merge.
+    """
+    root = ensure_tools_dir(base_dir)
+    pr_path = root / "pr-lifecycle.jsonl"
+    if not pr_path.exists():
+        return None
+    pr_number: int | None = None
+    for row in load_jsonl(pr_path):
+        if row.get("assignment_id") != assignment_id:
+            continue
+        num = row.get("pr_number")
+        if isinstance(num, int):
+            pr_number = num
+    return pr_number
+
+
 def _latest_request_states(root: Path) -> dict[str, str]:
     states: dict[str, str] = {}
     for row in load_jsonl(root / "dispatch" / "requests.jsonl"):
@@ -378,6 +721,136 @@ def _latest_request_states(root: Path) -> dict[str, str]:
         if pe and to_state:
             states[pe] = str(to_state)
     return states
+
+
+def _latest_assignment_states(root: Path) -> dict[str, str]:
+    """Plan 026R §G.1+§G.2 — assignment-id-keyed state derivation.
+
+    Pre-§G.1 ``_latest_request_states`` was pressure_event_id-keyed
+    so two assignments for the same pressure (e.g. a retry after a
+    rejected first attempt) clobbered each other in the state map.
+    Multi-assignment-per-pe is a real flow; the legacy keying made
+    list_dispatch_requests / mark_dispatch_picked_up ambiguous.
+
+    Reducer fold rules (Plan 026R §G.2):
+
+    1. Collect events from claims.jsonl ∪ worker-results.jsonl ∪
+       verification-results.jsonl. governance.jsonl is audit-trail
+       ONLY — the reducer does NOT read it for state.
+    2. Sort by ``(recorded_at, source_priority, sequence_number)``.
+       source_priority: verification-results > worker-results > claims.
+       Legacy rows lacking ``recorded_at`` fall back to a deterministic
+       (source_priority, sequence_number) ordering so the fold remains
+       deterministic across runs.
+    3. Fold: initial state ``pending``; each event applies a transition.
+    4. Terminal precedence: ``{stale, human_required, verified}`` are
+       terminal — later non-terminal events ignored.
+    5. Multiple-active-claim corruption: if at any moment >1 active
+       claim exists for an assignment_id, the assignment's state is
+       set to ``multiple_active_claims_corruption`` so operators see
+       the corruption signal rather than a derived state.
+    """
+    SOURCE_PRIORITY = {
+        "verification-results": 3,
+        "worker-results": 2,
+        "claims": 1,
+    }
+    TERMINAL_STATES = frozenset({"stale", "human_required", "verified"})
+
+    events: list[tuple[Any, int, int, str, dict[str, Any]]] = []
+    for seq, row in enumerate(load_jsonl(root / "dispatch" / "claims.jsonl")):
+        ts = row.get("claimed_at") or row.get("released_at") or row.get("at") or ""
+        events.append((ts, SOURCE_PRIORITY["claims"], seq, "claims", row))
+    for seq, row in enumerate(load_jsonl(root / "dispatch" / "worker-results.jsonl")):
+        events.append((
+            row.get("recorded_at") or "",
+            SOURCE_PRIORITY["worker-results"], seq, "worker-results", row,
+        ))
+    for seq, row in enumerate(load_jsonl(root / "dispatch" / "verification-results.jsonl")):
+        events.append((
+            row.get("recorded_at") or "",
+            SOURCE_PRIORITY["verification-results"], seq, "verification-results", row,
+        ))
+    events.sort(key=lambda e: (e[0], e[1], e[2]))
+
+    states: dict[str, str] = {}
+    active_claims: dict[str, set[str]] = {}
+    for _ts, _prio, _seq, source, row in events:
+        assignment_id = str(row.get("assignment_id") or "")
+        if not assignment_id:
+            continue
+        if states.get(assignment_id) in TERMINAL_STATES:
+            continue
+        if source == "claims":
+            event = row.get("event")
+            claim_id = str(row.get("claim_id") or "")
+            if event == "claimed" and claim_id:
+                active_claims.setdefault(assignment_id, set()).add(claim_id)
+                if len(active_claims[assignment_id]) > 1:
+                    states[assignment_id] = "multiple_active_claims_corruption"
+                else:
+                    states[assignment_id] = "picked_up"
+            elif event == "released" and claim_id:
+                active_claims.setdefault(assignment_id, set()).discard(claim_id)
+                states[assignment_id] = "pending"
+            elif event == "stale":
+                states[assignment_id] = "stale"
+            elif event == "human_required":
+                states[assignment_id] = "human_required"
+        elif source == "worker-results":
+            state_val = row.get("state")
+            if state_val == "accepted":
+                states[assignment_id] = "submitted"
+            elif state_val == "rejected":
+                states[assignment_id] = "submit_rejected"
+        elif source == "verification-results":
+            status_val = row.get("status")
+            if status_val == "passed":
+                states[assignment_id] = "verified"
+            elif status_val == "failed":
+                states[assignment_id] = "verification_failed"
+    return states
+
+
+def recover_orphan_governance(base_dir: str | Path | None = None) -> dict[str, Any]:
+    """Plan 026R §G.2 — boot-time scanner that emits recovery audit
+    events for claims rows without matching governance entries.
+
+    Idempotent. Not load-bearing for state correctness (the reducer
+    does not read governance.jsonl), but restores operator audit
+    trail when governance.jsonl loses a row.
+    """
+    root = ensure_tools_dir(base_dir)
+    claim_rows = load_jsonl(root / "dispatch" / "claims.jsonl")
+    gov_rows = load_jsonl(root / "governance.jsonl")
+    gov_claim_ids: set[str] = set()
+    for row in gov_rows:
+        kind = str(row.get("kind") or "")
+        if not (kind.startswith("worker_claim_") or kind.startswith("dispatch_")):
+            continue
+        details = row.get("details") or {}
+        cid = details.get("claim_id")
+        if cid:
+            gov_claim_ids.add(str(cid))
+    recovered = 0
+    for row in claim_rows:
+        cid = row.get("claim_id")
+        event = row.get("event")
+        if not cid or str(cid) in gov_claim_ids:
+            continue
+        if event in ("claimed", "released", "stale", "human_required"):
+            append_tools_governance(
+                root,
+                f"worker_claim_recovered_{event}",
+                {
+                    "claim_id": cid,
+                    "assignment_id": row.get("assignment_id"),
+                    "agent_id": row.get("agent_id"),
+                    "recovered_at": utc_now(),
+                },
+            )
+            recovered += 1
+    return {"recovered_count": recovered}
 
 
 def _parse_iso(value: Any) -> datetime | None:

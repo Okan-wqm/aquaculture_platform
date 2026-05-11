@@ -11,8 +11,25 @@ from .tool_registry import GovernanceError, utc_now
 
 
 SNAPSHOT_MODES = ("committed", "working_tree", "working-tree")
+# Plan 023 v3 §C-1 — `aria-tools/` removed from this filter.
+#
+# Why: pre-fix the kernel-managed ledger directory was excluded from
+# every dirty-path observation (build_repo_snapshot for spine/baseline
+# AND _workspace_snapshot_raw for tool_runner mutation diff). A buggy or
+# malicious adapter that wrote to aria-tools/registry.json,
+# aria-tools/governance.jsonl, or any other ledger inside aria-tools/
+# was therefore invisible to scope-out detection — _partition_mutations
+# never received the path to classify because the upstream filter
+# already dropped it. Removing the prefix makes those writes flow
+# through to scope-out detection without changing the partition or
+# quarantine logic that was already correct.
+#
+# Note on tool_runner audit-trail: record_run appends the runner's own
+# row to aria-tools/runs.jsonl AFTER the post-snapshot is taken
+# (tool_health.py:97 runs after _partition_mutations in tool_runner.py).
+# The runner's own ledger write therefore does not appear in the
+# before/after diff and no allowlist for it is needed.
 DIRTY_IGNORE_PREFIXES = (
-    "aria-tools/",
     "aria-kernel/aria_kernel/__pycache__/",
     "aria-kernel/tests/__pycache__/",
     "aria-kernel/aria_kernel.egg-info/",

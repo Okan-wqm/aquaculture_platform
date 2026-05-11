@@ -1,0 +1,29 @@
+{
+  "$schema": "aria/architectural-debt/v1",
+  "auto_close_forbidden": true,
+  "current_status": "OPEN",
+  "debt_id": "DEBT-2026-05-08-001",
+  "due_date": "2026-06-07T09:18:33Z",
+  "escalation_history": [],
+  "originating_finding_evidence_chain_id": "chain_ad7d2420e22e72a5",
+  "originating_finding_id": "F-003",
+  "permanent_fix_owner": "okan-platform-operator",
+  "permanent_fix_required": "Operator provisions CLAUDE_CODE_OAUTH_TOKEN repo secret, dispatches aria-agent-executor.yml workflow with mock=false against a synthetic or operator-validated pending request, captures the response envelope artefact, and validates the four hard criteria. Update tools/aria-poc/ci_executor_contract_spike.md What is verified section with the real-run evidence (ACCEPTED or kernel-level REJECTED claim outcome plus zero-hit lease-token audit). Switch aria-agent-executor.yml inputs.mock.default to false (or set repo variable ARIA_AGENT_EXECUTOR_MOCK_DEFAULT=false). Phase 6 agent-eval CI workflow then promotes real-mode runs as the primary path; aria_agent_eval_mock_only_total stays as the fallback metric.",
+  "root_cause_summary": "Plan 020 Phase 5 \u2014 CI Real OAuth Smoke contract closure requires operator-supervised provision of CLAUDE_CODE_OAUTH_TOKEN repo secret plus manual gh workflow run aria-agent-executor.yml -f mock=false invocation. Without the supervised end-to-end run, four hard acceptance criteria from Plan v3.3 Phase 5 cannot be validated: (1) response envelope schema validity against agent_contract .validate_response, (2) submit-result claim outcome producing real ACCEPTED or kernel-level REJECTED state transition, (3) metric segregation under live counter increments, (4) lease-token leak audit returning zero hits in workflow logs and uploaded artefacts. Until those four criteria are satisfied, Phase 6 Agent Eval Harness operates in mock mode only and the response envelope contract surface remains unverified against a real Claude Code OAuth invocation.",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "short_term_action_taken": {
+    "kind": "feature_flag",
+    "rationale": "aria-agent-executor.yml workflow_dispatch input mock default remains true; ci_executor mock-mode path produces a deterministic envelope shape so the kernel pipeline (claim, submit-result, governance event emission) gets full coverage. The forthcoming aria_agent_eval_mock_only_total counter introduced in Phase 6 keeps mock-mode evaluations segregated from real-mode evaluations so a future contract closure does not pollute historical eval data.",
+    "ref": ".github/workflows/aria-agent-executor.yml:36 + tools/aria-poc/ci_executor_contract_spike.md"
+  },
+  "status_history": [
+    {
+      "at": "2026-05-08T09:18:33Z",
+      "by": "manual:operator",
+      "status": "OPEN"
+    }
+  ],
+  "verification_status": "VERIFIED",
+  "withdrawn_reason": null
+}

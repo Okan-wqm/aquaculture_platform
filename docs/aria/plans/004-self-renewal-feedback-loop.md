@@ -68,7 +68,7 @@ One missed signal or one unknown capability creates only a feedback record. It d
 
 ### Gate 3 - Pressure thresholds
 
-The kernel derives pressure mechanically:
+The kernel derives pressure mechanically. The rules below describe the **eligibility predicate** — whether a pressure record can be emitted at all. Once a pressure record exists, its numeric ranking score is governed by Plan 007 §Pressure Scoring Formula (`min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))`); the daily report and the next-cycle plan use that score to order pressures across the cycle.
 
 - three independent refs with the same `capability_gap_key` and kind `unknown_capability` produce `UNKNOWN` pressure that drives `adapter_birth`;
 - three independent refs with the same `capability_gap_key` and kind `missed_signal` produce `REPETITION` pressure that drives `skill_birth`;

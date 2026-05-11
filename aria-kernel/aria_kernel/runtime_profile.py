@@ -1,0 +1,545 @@
+"""Plan 020 Phase 1 — runtime profile (4-mode safety boundary, scoped no-write).
+
+WHY this module exists
+----------------------
+ARIA's prior layout had no operator-controlled gate between "we observe the
+repo" and "we mutate the ledger / open PRs / claim agents". Plan 020 formalises
+the gate as a 4-mode runtime profile. The profile is the single SAFETY BOUNDARY
+that decides whether dispatch sites + ledger writers are allowed to fire.
+
+Profiles
+--------
+- observe (read-only + observation-class writes only):
+    finding/debt/observation emit, context_audits, handoffs, surface_validations,
+    instinct_candidates(PROPOSED). NO agent claim, NO change_committed/validated,
+    NO PR open, NO tool runs.
+- standard (default):
+    full Plan 020 surface writes + agent claim + change planned/committed +
+    change validated. PR open requires strict (operator gesture).
+- strict:
+    full implementation pipeline (claim → planned → committed → validated → PR).
+- frozen (Plan 020 SCOPED no-write — incident response):
+    every PLAN_020_WRITE_SURFACES write blocked, every action blocked.
+    Legacy mutators (finding emit, debt emit, change_planned, human_required,
+    review_record, agent_release/requeue/reap_stale, low-level
+    append_tools_governance) are NOT covered — Plan 021 hardening scope. The
+    plan-020 frozen invariant is intentionally narrow; making it global without
+    a coordinated legacy-writer refactor would break observation-class flows
+    that incident response itself depends on.
+
+Non-bypassable invariants — fire in EVERY profile (saf validator level,
+DECOUPLED from the profile gate; profile cannot disable them):
+- L1 banned-phrase scanner (tools/gates/banned-phrase.ts) — pure validator.
+- L2 Closes-trailer validator (tools/gates/commit-msg-validator.ts) — pure
+  validator (husky-side).
+- L3 suppression scanner (`apply scan-diff` for // @ts-ignore, as any, .skip,
+  empty catch) — pure validator.
+- auth/tenant adapter spine baseline READ — read-only; the underlying
+  tool_runner.run_tool that PRODUCES baselines is profile-gated, but reading
+  the latest run row is observation-class and not gated by the profile.
+
+Control-plane exception
+-----------------------
+set_profile() bypasses enforce_profile_for_write() so an operator can always
+THAW a frozen surface. Without this exception, frozen would be a one-way kill
+switch with no recovery path. set_profile DEMANDS operator_approval_ref on
+every transition (not just unfreezing) — every change is auditable through the
+runtime-profile-history.jsonl ledger + runtime_profile_changed governance event.
+
+Wiring (Phase 1.B dispatch site integration)
+--------------------------------------------
+`enforce_profile_for_action` is wired at the TOP of:
+- agent_invocations.claim_request (action_kind='agent_claim')
+- change_ledger.emit_change_committed (action_kind='change_committed')
+- change_ledger.emit_change_validated (action_kind='change_validated')
+- pr_manager.open_pr_for_action (action_kind='pr_open')
+
+`enforce_profile_for_write` is wired at the TOP of tool_runner.run_tool
+(surface_kind='tool_runs') as the single chokepoint for every adapter / spine
+orchestrator invocation. Plan 020 Phase 2-13 add their own enforce calls when
+they introduce new ledger surfaces.
+
+Read-path init/write protection
+-------------------------------
+get_profile + list_profile_history use ensure_tools_dir_readonly so frozen
+read commands cannot silently break the no-write invariant by triggering
+ensure_tools_dir's identity-file bootstrap. set_profile is the only writer in
+this module and the documented control-plane exception.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from .ledger import append_jsonl
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    ensure_tools_dir,
+    ensure_tools_dir_readonly,
+    tools_dir,
+    utc_now,
+)
+
+# Ordered tuple of valid profiles (used for membership + CLI choices).
+PROFILES: tuple[str, ...] = ("observe", "standard", "strict", "frozen")
+DEFAULT_PROFILE: str = "standard"
+
+PROFILE_STATE_FILENAME = "runtime-profile.json"
+PROFILE_HISTORY_FILENAME = "runtime-profile-history.jsonl"
+
+# ---------------------------------------------------------------------
+# Action permission table.
+#   action_kind → frozenset of profiles that PERMIT the action.
+# A profile NOT in the permitted set raises GovernanceError('profile_violation').
+#
+# Why standard permits change_validated:
+#   Plan v3.3 §Phase 1.A says "standard: validated explicit operator command
+#   gerektirir" — the binary gate is open under standard, the
+#   "explicit operator command" semantic is enforced at the orchestrator
+#   layer (auto-pipeline does not fire validated under standard, but a CLI
+#   `aria-kernel change validate-chain` invocation is permitted).
+#
+# Why pr_open is strict-only:
+#   PR open is the strict pipeline tail; operators that want to commit but
+#   not auto-PR should remain on standard (commit gate open, PR gate closed).
+ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
+    "agent_claim": frozenset({"standard", "strict"}),
+    "change_committed": frozenset({"standard", "strict"}),
+    "change_validated": frozenset({"standard", "strict"}),
+    "pr_open": frozenset({"strict"}),
+}
+
+# ---------------------------------------------------------------------
+# Plan 020 protected write surfaces.
+#   frozen blocks EVERY surface in this set; standard|strict permit all.
+#   observe permits only OBSERVE_PERMITTED_SURFACES (a strict subset of the
+#   union of legacy + Plan 020 surfaces).
+#
+# Surfaces NOT in this set (legacy mutators: finding/debt/observation emit,
+# human_required, review_record, change_planned, agent_release/requeue/
+# reap_stale_claims, append_tools_governance low-level) are PLAN 021 SCOPE —
+# Plan 020's frozen invariant intentionally does not cover them.
+PLAN_020_WRITE_SURFACES: frozenset[str] = frozenset({
+    "context_audits",          # Phase 2
+    "handoffs",                # Phase 3
+    "agent_evals",             # Phase 6
+    "agent_compliance",        # Phase 7
+    "validation_matrix",       # Phase 8 — writer surface, no dedicated file
+    "surface_validations",     # Phase 11
+    "instinct_candidates",     # Phase 12 (PROPOSED-only under observe)
+    "cost_telemetry",          # Phase 13
+    "change_ledger_committed", # Phase 1.B (defense-in-depth for change_ledger)
+    "change_ledger_validated", # Phase 1.B (defense-in-depth)
+    "tool_runs",               # Phase 4 + Phase 10 chokepoint via run_tool
+    "agent_claim",             # Phase 1.B (defense-in-depth for claim_request)
+    "pr_open",                 # Phase 1.B (defense-in-depth for open_pr)
+    "spine_orchestrator",      # Phase 4 dedicated invocation
+    # ----------------------------------------------------------------
+    # Plan 026R §A.4 — close the legacy-writer scope gap (Plan 020's
+    # original 14 surfaces left these 8 mutators ungated; frozen
+    # profile leaked silently into observation-class ledger writes,
+    # defeating incident-response no-write intent).
+    "finding",                 # §A.4 — finding.emit_finding
+    "debt",                    # §A.4 — debt.emit_debt
+    "governance",              # §A.4 — high-level governance event emit
+    "observation",             # §A.4 — memory.update_memory observation row
+    "agent_genesis",           # §A.4 — agent_genesis.request_agent_genesis
+    "tool_governance",         # §A.4 — tool_registry.append_tools_governance
+    "critical_observation",    # §A.4 — critical_observation.record_critical_observation
+    "human_required",          # §A.4 — human_required.record_human_required
+})
+
+
+# Plan 026R §A.4 — diagnostic-class write surfaces that bypass the
+# frozen no-write enforcement BY ARCHITECTURAL DESIGN.
+#
+# These surfaces exist to RECORD operational failures during incident
+# response: ``ledger_corruption_diagnostic`` (Plan 024 §H-7) writes to
+# ``aria-tools/diagnostics/ledger-corruption.jsonl`` whenever a ledger
+# read encounters a corrupt row; ``diagnostic_sink_fallback`` is the
+# stderr fallback path when the diagnostic sink itself cannot be
+# written. Blocking either under frozen profile would silently destroy
+# the observability frozen-mode is specifically designed to preserve.
+#
+# Membership is the SSoT — only surfaces declared here may bypass
+# frozen enforcement. New diagnostic writers MUST be added here AND
+# their owning module MUST emit through the recursion-safe sink path
+# (``diagnostics.emit_ledger_corruption_diagnostic`` is the canonical
+# example).
+DIAGNOSTIC_ALLOWLIST: frozenset[str] = frozenset({
+    "ledger_corruption_diagnostic",
+    "diagnostic_sink_fallback",
+})
+
+# Observe-mode allowlist (Plan v3.3 §Phase 1.B + §A.4 update).
+# A surface NOT in this set is BLOCKED under observe.
+#
+# §A.4 NOTE: ``tool_governance`` is added so observe-mode flows that
+# record observation-class governance events (handoff snapshot persist,
+# instinct candidate record, surface validator audit log) keep working.
+# Governance events are observation-class — they RECORD what happened,
+# they do NOT enact change — so they belong in the observe permission
+# set even though the underlying surface_kind is now gated for frozen.
+OBSERVE_PERMITTED_SURFACES: frozenset[str] = frozenset({
+    "finding",
+    "debt",
+    "observation",
+    "context_audits",
+    "handoffs",
+    "surface_validations",
+    "instinct_candidates",
+    "tool_governance",          # §A.4 — governance audit events
+})
+
+# Union of every surface_kind the validator recognises. A surface_kind that
+# is neither plan-020-protected nor observe-permitted nor on the
+# DIAGNOSTIC_ALLOWLIST is rejected as "unknown surface" — a typo in a
+# caller raises a loud error rather than silently passing.
+KNOWN_WRITE_SURFACES: frozenset[str] = (
+    PLAN_020_WRITE_SURFACES | OBSERVE_PERMITTED_SURFACES | DIAGNOSTIC_ALLOWLIST
+)
+
+
+def _profile_state_file(base_dir: str | Path | None = None) -> Path:
+    return tools_dir(base_dir) / PROFILE_STATE_FILENAME
+
+
+def _profile_history_file(base_dir: str | Path | None = None) -> Path:
+    return tools_dir(base_dir) / PROFILE_HISTORY_FILENAME
+
+
+FROZEN_PROFILE: str = "frozen"
+
+
+def get_profile_with_diagnostic(
+    *,
+    base_dir: str | Path | None = None,
+) -> tuple[str, dict[str, Any] | None]:
+    """Plan 024 §B-4 — fail-closed profile resolution with diagnostic.
+
+    Returns (profile_name, diagnostic) where diagnostic is non-None when
+    the resolution had to fall back to FROZEN_PROFILE. Pure read; never
+    emits governance events itself (the write-boundary callers consume
+    the diagnostic and emit at the boundary, preserving the read-only
+    invariant of the file at line 174-176 docstring).
+
+    Resolution semantics:
+    - tools dir absent / not bound → ('standard', None) — documented
+      bootstrap path; you cannot reach frozen without set_profile, so
+      "no state file" implies "never set" which means default standard.
+    - state file absent → ('standard', None) — same bootstrap path.
+    - OSError reading state file → ('frozen', read_failure diagnostic)
+      — fail-closed; an operator deploying with intent 'frozen' must
+      not silently flip to 'standard' just because the file is
+      unreadable.
+    - JSONDecodeError → ('frozen', parse_failure diagnostic) — same.
+    - active_profile not in PROFILES → ('frozen',
+      unknown_active_profile diagnostic) — typo or schema drift
+      should fail-loud, not silently degrade to standard.
+    - Valid profile → (profile_name, None).
+    """
+    root = ensure_tools_dir_readonly(base_dir)
+    if root is None:
+        return DEFAULT_PROFILE, None
+    state_file = root / PROFILE_STATE_FILENAME
+    if not state_file.exists():
+        return DEFAULT_PROFILE, None
+    try:
+        raw = state_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        return FROZEN_PROFILE, {
+            "kind": "runtime_profile_read_failure",
+            "path": str(state_file),
+            "error": str(exc),
+        }
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return FROZEN_PROFILE, {
+            "kind": "runtime_profile_parse_failure",
+            "path": str(state_file),
+            "error": str(exc),
+        }
+    active = payload.get("active_profile")
+    if not isinstance(active, str) or active not in PROFILES:
+        return FROZEN_PROFILE, {
+            "kind": "runtime_profile_unknown_active_profile",
+            "path": str(state_file),
+            "active_profile": active,
+        }
+    return active, None
+
+
+def get_profile(*, base_dir: str | Path | None = None) -> str:
+    """Read the current active profile.
+
+    Plan 024 §B-4 — fail-closed delegation. Pre-fix this function
+    silently returned DEFAULT_PROFILE ('standard') on read/parse/
+    unknown-name failures, which let an operator deploying intent
+    'frozen' silently flip to write-enabled. Now corruption /
+    unknown-name paths return FROZEN_PROFILE; the diagnostic is
+    discarded here (callers wanting governance emission use
+    get_profile_with_diagnostic + enforce_profile_for_action).
+
+    Frozen-aware: routes through ensure_tools_dir_readonly so a fresh
+    sandbox under frozen does not silently break the no-write
+    invariant by triggering tools_root_bootstrapped governance.
+
+    Returns DEFAULT_PROFILE ('standard') only when:
+    - tools dir does not exist or is not bound, OR
+    - state file is absent (bootstrap path).
+    Returns FROZEN_PROFILE ('frozen') when:
+    - state file is unreadable (OSError),
+    - state file is malformed (JSONDecodeError),
+    - persisted profile name is unknown.
+    """
+    profile, _diagnostic = get_profile_with_diagnostic(base_dir=base_dir)
+    return profile
+
+
+def set_profile(
+    profile: str,
+    *,
+    operator_approval_ref: str,
+    base_dir: str | Path | None = None,
+    set_by: str = "operator",
+) -> dict[str, Any]:
+    """Transition the active runtime profile (control-plane operation).
+
+    Bypasses enforce_profile_for_write so an operator can always THAW a
+    frozen surface — without this exception, `frozen` would be a one-way
+    kill switch with no recovery path.
+
+    operator_approval_ref is REQUIRED for EVERY transition (not just
+    unfreezing): observe → standard, standard → strict, strict → frozen,
+    frozen → standard, etc. Audit-friendly: each change is traceable
+    through runtime-profile-history.jsonl + the runtime_profile_changed
+    governance event.
+
+    Writes:
+    - aria-tools/runtime-profile.json (atomic write of state).
+    - aria-tools/runtime-profile-history.jsonl (append-only history row).
+    - aria-tools/governance.jsonl (runtime_profile_changed event).
+    """
+    if profile not in PROFILES:
+        raise GovernanceError(
+            f"unknown profile: {profile!r} (must be one of {PROFILES})"
+        )
+    if not (operator_approval_ref or "").strip():
+        raise GovernanceError("runtime_profile_change_requires_approval")
+    # Control-plane writer path: do NOT route through enforce_profile_for_write.
+    root = ensure_tools_dir(base_dir)
+    previous_profile = get_profile(base_dir=root)
+    state = {
+        "active_profile": profile,
+        "previous_profile": previous_profile,
+        "set_at": utc_now(),
+        "set_by": set_by,
+        "operator_approval_ref": operator_approval_ref,
+    }
+    state_file = root / PROFILE_STATE_FILENAME
+    tmp = state_file.with_name(f".{state_file.name}.tmp")
+    tmp.write_text(
+        json.dumps(state, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    tmp.replace(state_file)
+    history_row = {
+        "$schema": "aria/runtime-profile-history/v1",
+        "schema_version": 1,
+        **state,
+    }
+    append_jsonl(_profile_history_file(root), history_row)
+    # Plan 026R §A.4 — control-plane exception: set_profile is the ONE
+    # path that may emit a governance event under any profile (the
+    # operator MUST be able to THAW a frozen kernel, which itself
+    # records via runtime_profile_changed). bypass_profile_gate=True
+    # documents the exception explicitly per the §A.4 SSoT.
+    append_tools_governance(
+        root,
+        "runtime_profile_changed",
+        {
+            "previous_profile": previous_profile,
+            "active_profile": profile,
+            "operator_approval_ref": operator_approval_ref,
+            "set_by": set_by,
+        },
+        bypass_profile_gate=True,
+    )
+    return state
+
+
+def list_profile_history(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    """Return the append-only profile transition history (oldest → newest).
+
+    Frozen-aware read path (ensure_tools_dir_readonly). Returns [] when no
+    history file exists.
+
+    Plan 026R §A.3 forward-fix (caught by reviewer-A.3): this is the 11th
+    JSONL ledger reader in the kernel, missed by the original §A.3 sweep
+    because the file-level allowlist entry for ``runtime_profile.py`` was
+    written for the SINGLE-ROW state-file parser at lines 215-222. The
+    ledger here is a multi-row append-only audit trail of profile
+    transitions — silent-skip on a corrupt history row would understate
+    the audit count operator dashboards depend on. Strict-by-default via
+    ``read_strict_jsonl``.
+    """
+    root = ensure_tools_dir_readonly(base_dir)
+    if root is None:
+        return []
+    history_file = root / PROFILE_HISTORY_FILENAME
+    from .strict_jsonl_reader import read_strict_jsonl
+    return list(read_strict_jsonl(history_file, base_dir=root))
+
+
+def _emit_runtime_profile_diagnostic(
+    diagnostic: dict[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+) -> None:
+    """Plan 024 §B-4 — best-effort governance event emission from the
+    write boundary. The diagnostic surfaces from get_profile_with_-
+    diagnostic when the read-side has fallen back to FROZEN_PROFILE
+    due to read failure / parse failure / unknown active_profile.
+
+    Best-effort: if append_tools_governance itself raises (e.g. tools
+    dir cannot be bootstrapped under the frozen fallback we just
+    triggered), the failure is swallowed — the protective effect of
+    returning FROZEN_PROFILE is what matters; the audit event is the
+    secondary observability surface.
+    """
+    try:
+        root = ensure_tools_dir(base_dir)
+        # Plan 026R §A.4 — diagnostic emit IS the control-plane
+        # observability surface for corrupt-profile detection; the
+        # frozen/observe write gate would silently destroy the very
+        # event the operator audit trail needs. bypass_profile_gate
+        # documents this as an architectural exception (mirrors
+        # set_profile's own bypass).
+        append_tools_governance(
+            root, diagnostic["kind"], diagnostic,
+            bypass_profile_gate=True,
+        )
+    except Exception:
+        pass
+
+
+def enforce_profile_for_action(
+    action_kind: str,
+    *,
+    base_dir: str | Path | None = None,
+) -> str:
+    """Reject action_kind if active profile does not permit it.
+
+    Wired at the TOP of dispatch sites:
+    - agent_invocations.claim_request          → 'agent_claim'
+    - change_ledger.emit_change_committed      → 'change_committed'
+    - change_ledger.emit_change_validated      → 'change_validated'
+    - pr_manager.open_pr_for_action            → 'pr_open'
+
+    Plan 024 §B-4 — when get_profile falls back to FROZEN_PROFILE due
+    to corrupt / unknown state file, the diagnostic is best-effort
+    emitted as a governance event so the operator audit trail
+    captures why the gate is now refusing. The rejection itself is
+    deterministic; the event is observability.
+
+    Returns the active profile name on success.
+
+    Raises GovernanceError('profile_violation: ...') on rejection.
+    Raises GovernanceError on unknown action_kind (typo guard).
+    """
+    permitted = ACTION_PERMISSIONS.get(action_kind)
+    if permitted is None:
+        raise GovernanceError(f"unknown profile action_kind: {action_kind!r}")
+    profile, diagnostic = get_profile_with_diagnostic(base_dir=base_dir)
+    if diagnostic is not None:
+        _emit_runtime_profile_diagnostic(diagnostic, base_dir=base_dir)
+    if profile not in permitted:
+        raise GovernanceError(
+            f"profile_violation: action {action_kind!r} blocked under profile "
+            f"{profile!r} (permitted: {sorted(permitted)})"
+        )
+    return profile
+
+
+def enforce_profile_for_write(
+    surface_kind: str,
+    *,
+    base_dir: str | Path | None = None,
+) -> str:
+    """Reject ledger write to surface_kind if active profile does not permit it.
+
+    Plan 020 SCOPED:
+    - frozen blocks every surface in PLAN_020_WRITE_SURFACES (no-write
+      invariant for the 14-surface scope).
+    - observe blocks any surface NOT in OBSERVE_PERMITTED_SURFACES.
+    - standard|strict permit all known surfaces.
+
+    Surfaces NOT in either set raise GovernanceError as a typo guard. Legacy
+    writers that have not yet been routed through this gate (Plan 021 scope)
+    do not call enforce_profile_for_write at all — their frozen-guard
+    hardening is a separate plan.
+
+    Returns the active profile name on success.
+
+    Raises GovernanceError('profile_violation: ...') on rejection.
+    Raises GovernanceError on unknown surface_kind (typo guard).
+    """
+    if surface_kind not in KNOWN_WRITE_SURFACES:
+        raise GovernanceError(
+            f"unknown profile write surface_kind: {surface_kind!r}"
+        )
+    # Plan 026R §A.4 — DIAGNOSTIC_ALLOWLIST surfaces (corruption sink +
+    # stderr fallback) bypass every profile check by architectural
+    # design. They are the SSoT for "writes incident-response needs
+    # even under frozen". Returning early avoids any state-file read
+    # that could itself fail and lose the diagnostic.
+    if surface_kind in DIAGNOSTIC_ALLOWLIST:
+        return get_profile(base_dir=base_dir)
+    # Plan 024 §B-4 — emit best-effort diagnostic at this write
+    # boundary too, so corrupt-profile audit trail captures both
+    # action and write paths.
+    profile, diagnostic = get_profile_with_diagnostic(base_dir=base_dir)
+    if diagnostic is not None:
+        _emit_runtime_profile_diagnostic(diagnostic, base_dir=base_dir)
+    if profile == "frozen":
+        # Plan 020 frozen scope (extended by §A.4 to 22 surfaces, was 14):
+        # every PLAN_020_WRITE_SURFACES write blocked. Surfaces in
+        # OBSERVE_PERMITTED_SURFACES that are NOT also in
+        # PLAN_020_WRITE_SURFACES fall through — they are observation-
+        # class and not blocked by frozen.
+        if surface_kind in PLAN_020_WRITE_SURFACES:
+            raise GovernanceError(
+                f"profile_violation: surface {surface_kind!r} blocked under "
+                f"frozen profile (Plan 020/026R scope)"
+            )
+    elif profile == "observe":
+        if surface_kind not in OBSERVE_PERMITTED_SURFACES:
+            raise GovernanceError(
+                f"profile_violation: surface {surface_kind!r} blocked under "
+                f"observe profile (allowlist: {sorted(OBSERVE_PERMITTED_SURFACES)})"
+            )
+    # standard|strict: permit all known surfaces.
+    return profile
+
+
+__all__ = [
+    "PROFILES",
+    "DEFAULT_PROFILE",
+    "FROZEN_PROFILE",
+    "ACTION_PERMISSIONS",
+    "PLAN_020_WRITE_SURFACES",
+    "OBSERVE_PERMITTED_SURFACES",
+    "DIAGNOSTIC_ALLOWLIST",
+    "KNOWN_WRITE_SURFACES",
+    "PROFILE_STATE_FILENAME",
+    "PROFILE_HISTORY_FILENAME",
+    "get_profile",
+    "get_profile_with_diagnostic",
+    "set_profile",
+    "list_profile_history",
+    "enforce_profile_for_action",
+    "enforce_profile_for_write",
+]

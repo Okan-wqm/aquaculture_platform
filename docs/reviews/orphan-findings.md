@@ -957,6 +957,8 @@ mod opc_ua_type_debug; // diagnostic
 
 ## ORPHAN-MEDIUM-029 — `sens-api-gateway` clippy deny-list violations are widespread but the gate is not enforced in current dev workflow (2026-04-28)
 
+Registry anchor note: `ORPHAN-CRITICAL-029` is the Phase 0.1 mTLS TLSConfiguration finding recorded in `docs/reviews/_registry/findings.jsonl`; this review file carries the canonical anchor for the three-store invariant.
+
 **Discovered by:** Batch #331 v1 legacy-key kernel session. Running `cargo clippy --bin suderra-agent` surfaces dozens of `error: used 'expect()' on a 'Result' value`, `error: indexing may panic`, `error: used 'unwrap()' on a 'Result' value` errors across many files (e.g., `src/lifecycle_auth.rs:357`, multiple files with indexing). All these lints are in the crate's deny-list per the rustc invocation flags (`'--deny=clippy::unwrap_used' '--deny=clippy::expect_used' '--deny=clippy::indexing_slicing'`), yet `cargo check` passes cleanly because clippy lints are not registered in regular rustc — they only fire under `cargo clippy`.
 
 **Why this is an architectural problem (not just lint noise):**
@@ -1090,6 +1092,8 @@ The PRESENT state (untracked, no policy file) is the worst of both — engineers
 
 
 ## ORPHAN-MEDIUM-031 — `KeyPurpose` enum projects 4 SqlCipher consumers but defines only 2 variants; consumer-migration arc cannot start without ADR for missing variants (2026-04-28)
+
+Registry anchor note: `ORPHAN-HIGH-031` is the Phase 0.2 cipher-allowlist verifier finding recorded in `docs/reviews/_registry/findings.jsonl`; this review file carries the canonical anchor for the three-store invariant.
 
 **Discovered by:** Batch #332 D-3 v2 keystore-derived shim session. The shim's `is_sqlcipher_purpose` predicate centralizes the SSoT for "which purposes are valid for SQLCipher rekey" (today: `SqlCipherOfflineQueue` + `SqlCipherRetainPersistence`). Plan §5 Faz 2 D-3 docs project FOUR SqlCipher consumers requiring per-consumer migration: `offline_queue` + `license_cache` + `scripting/persistence` + `scripting/bytecode_retain`. The keystore enum is short by 2 variants; the per-consumer migration arc cannot start until the new variants land via ADR.
 
@@ -2555,6 +2559,304 @@ The TTL=1h fail-safe is the load-bearing release path until one of (1)/(2)/(3) l
 The split is clean: B-5 ships the primitive (architecturally complete + invariant-pinned); B-5.5 ships the operator surfaces (mechanical AppState rewrite + envelope-adapter integration). No yama, no deferral-without-tracking — the gap is documented here with the resolution path.
 
 
+## ORPHAN-HIGH-055 — Non-ARIA workflows interpolate `${{ github.event.inputs.* }}` directly inside `run:` shell blocks (Plan 024 v3 §B-3 scope-out, 2026-05-09)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future platform-CI hardening plan. Deadline: prior to next workflow_dispatch operator surface that accepts attacker-controlled input.
+
+**Scope:** Four production GitHub Actions workflow files outside the ARIA scope:
+
+* `.github/workflows/deploy-digitalocean.yml:316, :318, :330` — `${{ github.event.inputs.services }}` interpolated raw four times in the deploy-trigger conditional + IFS-read + branch-equality.
+* `.github/workflows/deploy-staging.yml:87, :88` — `${{ github.event.inputs.image_tag_override }}` interpolated raw twice in the image-tag resolver.
+* `.github/workflows/edge-agent-release.yml:164` — `${{ github.event.inputs.version }}` interpolated raw inside the workflow_dispatch tag-extract block.
+* `.github/workflows/sensor-ingestion-release.yml:74, :75` — `${{ github.event.inputs.tag }}` interpolated raw twice in the image-tag resolver.
+
+**Audited surface:** Plan 024 v3 §B-3 invariant `tests/invariants/aria-workflow-input-injection.spec.ts` reports each of these four files as containing raw `${{ github.event.inputs.<name> }}` interpolations inside a `run:` shell block. Plan 024 §B-3 scope is intentionally limited to ARIA-owned workflows (`aria-*.yml`); the non-ARIA findings are surfaced here for follow-up.
+
+**Why this is acceptable for Plan 024 v3:**
+
+* **Scope discipline.** Plan 024 v3 closes 15 ARIA audit anchors. Extending the workflow-injection fix to non-ARIA production deploy / release pipelines is a different blast-radius batch — operator approval is needed for changes to deploy-digitalocean.yml + deploy-staging.yml because they govern cloud-side rollout.
+* **No regression vs pre-Plan-024.** These workflows shipped the raw interpolations long before Plan 024 was scoped; the invariant test is opt-in to the ARIA prefix specifically so the gate doesn't immediately red on baseline state.
+* **Operator-protected trigger surface.** The four workflows are gated by branch protection (push to `main`) or operator-approved `workflow_dispatch`. The injection class requires a malicious operator to type `'; rm -rf /` or similar; an operator with workflow_dispatch authority can already do worse via direct repo mutation.
+
+**HOW to resolve (platform-CI follow-up):**
+
+1. **deploy-digitalocean.yml:** wrap the four `${{ github.event.inputs.services }}` interpolations in an `env: SERVICES_INPUT: ${{ github.event.inputs.services }}` block at the step level. Inside the script, validate format (`^[a-z0-9,_-]{1,256}$`) before `IFS=',' read -ra SPECIFIED <<< "$SERVICES_INPUT"`. Branch equality `[ "$SERVICES_INPUT" = "all" ]` is safe with the env var.
+2. **deploy-staging.yml:** same pattern with `IMAGE_TAG_INPUT`. Validate as `^[A-Za-z0-9._-]{1,128}$` (Docker tag character set).
+3. **edge-agent-release.yml:** `VERSION_INPUT` env var + semver regex `^v?[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$`.
+4. **sensor-ingestion-release.yml:** same pattern as deploy-staging — Docker-tag char-set regex.
+5. **Extend the invariant** to cover all `.github/workflows/*.yml` (drop the `aria-*` prefix filter) once each fix lands. The invariant guards against future regressions.
+
+The fix shape is mechanical (move interpolation to env: + add regex validate); the discipline is the same as Plan 024 §B-3. Expected effort: one batch per workflow, ≈ 30 min each. Plan-independent so does not block Plan 024 v3 sign-off.
+
+
+## ORPHAN-HIGH-056 — `aria-tools/` worktree-aware repo binding eksik; ARIA cycle/discovery/spine baseline çalıştırılamıyor worktree'den (Plan 024 v3 sign-off sonrası ARIA runtime smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future ARIA worktree-discipline plan. Deadline: prior to next operator-driven `cycle run` from a worktree (currently HARD-BLOCKED).
+
+**Scope:** `aria-kernel/aria_kernel/tool_registry.py` `ensure_tools_binding` (line ~150) + every entry point that calls `ensure_tools_binding` (cycle.run_enterprise_cycle:89, spine.take_baseline / take_postcheck, discovery.run, etc.).
+
+**Reproducer:**
+
+```bash
+# From the worktree at /var/aqua-saas/.worktrees/snowball:
+PYTHONPATH=aria-kernel python3 -m aria_kernel --tools-dir aria-tools \
+    cycle run --workspace-root . --cycle-id "cyc-smoke-test"
+
+# → GovernanceError: tools_root_repo_hash_mismatch: bound='e5d674a6dc22eb25'
+#   current='3b5f62ed337d4bf6'; aria-tools cannot be reused across repos.
+#   bound_repo_root='/var/aqua-saas',
+#   current workspace_root='/var/aqua-saas/.worktrees/snowball'
+```
+
+**Surface evidence:**
+
+* `aria-tools/integrity_index.json` carries `bound_repo_root='/var/aqua-saas'` + a `tools_root_repo_hash` derived from the canonical `/var/aqua-saas` filesystem path.
+* When the operator runs ARIA from a git worktree (`/var/aqua-saas/.worktrees/snowball`) the canonical workspace root is the worktree path; `ensure_tools_binding` re-hashes `/var/aqua-saas/.worktrees/snowball` → different hash → `tools_root_repo_hash_mismatch` raise.
+* Mathematically the worktree IS the same git repo (shared `.git/common_dir`); `aria-tools/` reuse from a sibling worktree is NOT a cross-repo reuse, but the binding logic does not consult `git rev-parse --git-common-dir` to resolve worktree pointers to the canonical repo root.
+
+**Why this is acceptable for Plan 024 v3:**
+
+* Plan 024 v3 scope is the F-005 audit-anchor closure (15 architectural-quality gaps from the post-push audit). Worktree-aware binding is a runtime-discipline fix that surfaced ONLY when an operator ran the ARIA kernel against the corrective-arc HEAD as a smoke test post-sign-off.
+* No regression vs pre-Plan-024: this binding behavior shipped long before Plan 024 was scoped; the binding hash check landed in Plan 014/015 era as the tools-root cross-repo defense.
+* Operator workaround: run from the canonical repo root (`/var/aqua-saas/`) instead of the worktree; the binding hash matches the original bound path. ARIA cycle / discovery / spine baseline all work from the canonical root.
+
+**HOW to resolve:**
+
+1. **`ensure_tools_binding` worktree-aware resolution:** before computing the current repo hash, resolve the workspace_root through `git rev-parse --git-common-dir` (or `git worktree list --porcelain` parsing). If the workspace_root is a worktree pointing at a common-dir whose canonical repo root matches `bound_repo_root`, treat the binding as valid.
+2. **Backward-compat:** the existing hash mismatch path stays as the genuine cross-repo defense (different git common_dir = real cross-repo reuse = reject). Only add a worktree-resolved alias path; do not loosen the cross-repo check.
+3. **Tests:** smoke fixture creates a repo + a worktree, runs `cycle run` from BOTH, asserts both succeed with the SAME `aria-tools/` and the same governance event chain. No new bind row written from the worktree (the canonical repo's bind row is the source of truth).
+4. **Invariant:** `tests/invariants/aria-tools-worktree-binding.spec.ts` (or `.py`) — exercises a fixture worktree.
+
+The scope is mechanical: one helper to resolve worktree → canonical repo root, one alias check in `ensure_tools_binding`. Estimated effort ≈ 1 batch (≤ 2h). Plan-independent so does not block Plan 024 v3 sign-off.
+
+
+## ORPHAN-LOW-057 — `cycles.jsonl` rows persist with `status=None`; cycle finalization status field is never set (Plan 024 v3 sign-off sonrası ARIA runtime smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future ARIA observability hardening plan. Deadline: best-effort.
+
+**Scope:** `aria-kernel/aria_kernel/cycle.py` `record_cycle_metrics` + cycles.jsonl writer. Every recent cycle row in `aria-tools/cycles.jsonl` carries `status=null` (or no `status` key).
+
+**Why this is acceptable for Plan 024 v3:**
+
+* Status field absence is observability degradation, not correctness loss. The cycle-lifecycle integrity check (`integrity verify` returns `cycle_lifecycle.incomplete_count: 0 / valid: true`) does not depend on the per-row status field; it walks the begin/end markers.
+* Operator scripts that grep `cycles.jsonl` for `status=ok|fail` see no signal because the field is never persisted.
+
+**HOW to resolve:**
+
+1. **`record_cycle_metrics` writer:** ensure the cycle-row dict carries `status` before append. The function signature already accepts `status='ok'`; the persistence path drops it somewhere in the row construction. Trace + fix in `record_cycle_metrics` + the cycles.jsonl row writer.
+2. **Tests:** cycle E2E asserts `status` field present on the persisted row.
+
+Estimated effort ≈ 1 batch (≤ 1h).
+
+
+## ORPHAN-MEDIUM-058 — `aria-kernel` CLI `--tools-dir` flag inconsistency: 3 distinct patterns across subcommands (Plan 024 v3 sign-off sonrası ARIA runtime smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future ARIA CLI UX hardening plan. Deadline: best-effort.
+
+**Scope:** `aria-kernel/aria_kernel/cli.py` argparse subparser definitions across ~50 subcommands. Three distinct patterns observed during smoke test:
+
+1. **Pattern A — global `--tools-dir` accepted** (operator passes BEFORE the subcommand):
+   * `tool list`, `profile get`, `change list` — `python3 -m aria_kernel --tools-dir aria-tools tool list` works.
+2. **Pattern B — subcommand-level `--tools-dir TOOLS_DIR` REQUIRED** (operator passes AFTER the subcommand):
+   * `spine status`, `metrics dashboard`, `human-required list`, `integrity verify` — `python3 -m aria_kernel spine status --tools-dir aria-tools` works; `python3 -m aria_kernel --tools-dir aria-tools spine status` fails with "unrecognized arguments: --tools-dir aria-tools".
+3. **Pattern C — `--tools-dir` NOT accepted at all; workspace_root drives resolution**:
+   * `pressure list` — only `--workspace-root` accepted; aria-tools is resolved internally via `workspace_paths`.
+
+**Reproducer matrix:**
+
+| Subcommand | `--tools-dir` BEFORE works | `--tools-dir` AFTER works |
+|---|---|---|
+| `tool list` | ✅ | ❌ |
+| `profile get` | ✅ | ❌ |
+| `spine status` | ❌ | ✅ |
+| `metrics dashboard` | ❌ | ✅ |
+| `human-required list` | ❌ | ✅ |
+| `integrity verify` | ✅ | ❌ |
+| `pressure list` | ❌ | ❌ (uses --workspace-root) |
+
+**Why this is acceptable for Plan 024 v3:**
+
+* Operator UX degradation, not architectural correctness loss. Each subcommand still works given the right flag placement.
+* Pre-Plan-024 baseline carried the same inconsistency; the spec discipline of v1→v2→v3 plan validation did not include CLI surface-uniformity audit.
+
+**HOW to resolve:**
+
+1. **Audit:** grep cli.py for every `add_tools_arg(parser, required=...)` + every subparser definition; map which pattern each subcommand uses.
+2. **Normalize:** pick one canonical pattern (recommended: subcommand-level `--tools-dir TOOLS_DIR` required, with a defaulting helper that reads `ARIA_TOOLS_DIR` env var). Every subcommand calls the same `add_tools_arg` helper.
+3. **Tests:** invariant test scans cli.py argparse tree, asserts every subcommand exposes `--tools-dir` in the same shape.
+
+Estimated effort ≈ 2-3 batches (≤ 4h, requires touching every subparser definition).
+
+
+## ORPHAN-MEDIUM-059 — `outbox-adapter` declared_scope captures ~200 hr-service paths outside the adapter's outbox surface (Plan 024 v3 post-sign-off ARIA runtime smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future ARIA adapter-portfolio hardening plan. Deadline: best-effort.
+
+**Scope:** `aria-tools/registry.json` outbox-adapter row + the adapter's manifest under `tools/aria-adapters/outbox-adapter.tool.json`. The declared_scope / allowed_read_globs include patterns that match the entire `apps/hr-service/**` source tree (200+ files: jest.config.ts, src/aquaculture/**, src/training/**, src/scheduling/**, src/leave/**, src/performance/**, src/attendance/**, src/hr/**, src/health/**, src/database/**), even though the adapter's stated purpose is the @platform/outbox transactional outbox surface.
+
+**Reproducer:**
+
+```bash
+PYTHONPATH=aria-kernel python3 -m aria_kernel --tools-dir aria-tools \
+    cycle run --workspace-root . --cycle-id "cyc-outbox-scope-test"
+# → outbox-adapter run row in runs.jsonl carries:
+#   status: "scope_violation"
+#   scope_violations: [
+#     "apps/hr-service/jest.config.ts",
+#     "apps/billing-service/jest.config.ts",
+#     ... 200+ entries from hr-service/aquaculture, training, scheduling, leave ...
+#   ]
+```
+
+**Surface evidence:** ARIA cycle dispatch in `cyc-aria-bug-hunt-worktree-20260510T084742Z` produced an outbox-adapter run with `status="scope_violation"` and a 200+ entry `scope_violations` list. The adapter's read_paths included paths that find_scope_violations rejected as outside the adapter's declared_scope. read_paths and scope_violations matched 1:1 for the hr-service sub-tree — every hr-service path the adapter walked is outside its scope.
+
+**Why this is acceptable for Plan 024 v3:**
+
+* Plan 024 v3 scope is the F-005 audit-anchor closure (15 architectural-quality gaps from the post-push audit). Adapter manifest correctness is a separate quality dimension that surfaced ONLY when an operator ran the kernel against the actual codebase post-sign-off.
+* The adapter is in SHADOW status; raw findings are not promoted to operator-facing emit. The scope_violation surface IS the architectural defense: tool_health.record_run flags the run, the operator audit chain captures the file list, and the adapter does not contaminate the operator queue.
+
+**HOW to resolve:**
+
+1. **Audit the manifest** at `tools/aria-adapters/outbox-adapter.tool.json` — determine whether the broad scope is intentional (adapter is meant to scan every consumer of the @platform/outbox surface) or accidental (the declared_scope glob is wrong).
+2. **If intentional:** narrow the scope to the actual outbox files (`platform/libs/outbox/**`, `apps/**/src/database/migrations/**` for outbox table emit, etc.) + add a comment explaining the broad-vs-narrow tradeoff.
+3. **If accidental:** correct the glob; the scope_violation list IS the test fixture (every entry should disappear after the fix).
+4. **Tests:** invariant test that walks the adapter portfolio + asserts each adapter's declared_scope matches its stated purpose (operator sign-off on the manifest content, mechanical match on glob patterns).
+
+Estimated effort ≈ 1 batch (≤ 2h).
+
+
+## ORPHAN-MEDIUM-060 — `agent-harness-security-adapter` declared_scope captures `.claude/agents/**` (every Claude Code agent definition) — non-production source tree (Plan 024 v3 post-sign-off ARIA runtime smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future ARIA adapter-portfolio hardening plan. Deadline: best-effort.
+
+**Scope:** `aria-tools/registry.json` agent-harness-security-adapter row + the adapter's manifest. The declared_scope captures `.claude/agents/**` (~85 agent definition .md files including subdirectories `_maintenance/`, `edge-docs/`, `product-audit/`).
+
+**Reproducer:** ARIA cycle dispatch in `cyc-aria-bug-hunt-worktree-20260510T084742Z` produced an agent-harness-security-adapter run with `status="scope_violation"` and the full `.claude/agents/**` listing in `scope_violations`.
+
+**Why this is acceptable for Plan 024 v3:**
+
+* `.claude/agents/**` is non-production source: it carries the Claude Code agent system prompts that power the agent dispatch lane. The agent-harness-security-adapter's stated purpose is harness security review (auth/authz, sandboxing, secrets handling) which lives in production code paths (auth-service, gateway-api, libs/backend-common/security/**). Including the agent .md files is non-production noise.
+* SHADOW status means no operator-facing emit; the scope_violation surface is the architectural defense.
+
+**HOW to resolve:**
+
+1. **Audit the manifest:** narrow the declared_scope to the actual agent-harness production surface (auth + dispatch + security surfaces) and EXCLUDE `.claude/agents/**`.
+2. **Pair with ORPHAN-MEDIUM-059** in a single adapter-portfolio audit batch: every adapter's manifest reviewed, declared_scope matches stated purpose.
+
+Estimated effort ≈ 1 batch shared with 059 (≤ 2-3h total for both).
+
+---
+
+## ORPHAN-HIGH-061 — `runs.jsonl` reader pair in `architecture_spine_gate.py` silently skips JSONDecodeError without diagnostic emit (Plan 025 §A.2 planner-validate finding, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Plan 026 (`read_runs_rows` shared helper, parallel to Plan 025 §A.2 `read_governance_rows`). Deadline: post-Plan-025-sign-off.
+
+**Scope:** `aria-kernel/aria_kernel/architecture_spine_gate.py:284, 339` — both readers iterate `aria-tools/runs.jsonl` and on `(OSError, json.JSONDecodeError)` fall back to `latest = None` silently. F-006 evidence pointer originally claimed these were governance.jsonl callsites; Plan 025 §A.2 Planner-B's code-grounded validation corrected the count: `runs.jsonl` is a **separate ledger** with its own integrity contract, NOT inside Plan 025 §A.2 governance-reader scope.
+
+**Reproducer:**
+```python
+# Direct Read at architecture_spine_gate.py:278-285 (_check_auth_security)
+for line in runs_path.read_text(encoding="utf-8").splitlines():
+    if not line.strip():
+        continue
+    row = json.loads(line)
+    if row.get("tool_id") == "security-boundary-adapter":
+        latest = row
+except (OSError, json.JSONDecodeError):
+    latest = None        # silent — no emit_ledger_corruption_diagnostic
+```
+
+Identical pattern at lines 333-340 (`_check_harness_security`) for `tool_id == "agent-harness-security-adapter"`.
+
+**Why architectural shape parallels §A.2 but ledger differs:**
+
+* `runs.jsonl` is the adapter execution ledger (one row per adapter run); `governance.jsonl` is the audit/integrity-event ledger. Both are append-only and hash-chained, but their criticality and recovery semantics differ — a corrupt `runs.jsonl` row affects invariant measurement (one stale invariant for one cycle), whereas a corrupt `governance.jsonl` row affects audit replayability.
+* Single shared `read_*_rows(path, *, on_corruption=...)` API is correct, but the helper module name and default mode SHOULD be ledger-specific (a generic `read_jsonl_rows` would hide which ledger the operator is failing). Hence: parallel `read_runs_rows` helper sibling to `read_governance_rows`, NOT a unified one.
+
+**HOW to resolve (post-Plan-025):**
+
+1. After Plan 025 §A.2 ships `governance_reader.py`, add `runs_reader.py` with `read_runs_rows(path, *, on_corruption='strict', tool_id_filter=None)` matching the governance helper API shape.
+2. Migrate the 2 callsites in `architecture_spine_gate.py:278-285` + `:333-340`.
+3. Default `on_corruption='strict'` per the same audit-bound integrity argument; tolerant is operator opt-in.
+4. AST-scan invariant test asserts no `except (OSError, json.JSONDecodeError)` block remains in any function whose body references `"runs.jsonl"`.
+
+Estimated effort ≈ ½ batch (single helper + 2 callsite + 4 test cases ≤ 2h).
+
+---
+
+
+## ORPHAN-MEDIUM-062 — `tool_registry._atomic_write_json` shares one tmp filename across processes; concurrent governance writers race on `tmp.replace(path)` (Plan 025 §A.1 implementer finding, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Discovered while implementing Plan 025 §A.1 (`submit_claim_result` envelope-hash drift gate). Out of Plan 025 §A.1 scope; the §A.1 lock is on `agent-invocations/results.jsonl` and the index race lives one ledger over (`integrity_index.json`).
+
+**Scope:** `aria-kernel/aria_kernel/tool_registry.py:268-272`
+
+```python
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")          # <-- shared filename
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+```
+
+`tmp` is a single deterministic path per target file (`.{name}.tmp`). Two processes calling `append_tools_governance` (or any caller of `update_tools_index` via `ensure_tools_dir`) at the same time both open the same `.integrity_index.json.tmp` for write. The earlier `tmp.replace(path)` succeeds; the later one races against the now-vanished tmp file and surfaces `FileNotFoundError: [Errno 2] No such file or directory: '<tmp>' -> '<path>'`.
+
+**Reproducer:** spawn ≥3 `multiprocessing.Process` children that each invoke `submit_claim_result` for the same claim with byte-identical envelopes. With Plan 025 §A.1's lock-bound dedup the §A.1 invariants hold (one accepted, exactly one results.jsonl row), but ~1 of 5 children surfaces the rename race from `update_tools_index` (called from `ensure_tools_dir` BEFORE the §A.1 lock acquires) or from `append_tools_governance` (called from outside any results.jsonl lock by other code paths).
+
+**Architectural fix:** make `_atomic_write_json` per-process by namespacing the tmp filename with `os.getpid() + secrets.token_hex(4)`:
+
+```python
+tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+```
+
+Each process writes its own tmp file; `tmp.replace(path)` is still atomic per-process, and the LAST renamer wins for the target file (which is the desired semantic — index is a snapshot, not append-only). No cross-process tmp filename collision.
+
+**Why a separate finding (not Plan 025 §A.1 work):** the §A.1 mandate is `submit_claim_result` envelope-hash drift gate on `results.jsonl`. The `integrity_index.json` race surfaces in any caller of `update_tools_index`, which is invoked from many code paths unrelated to §A.1. Folding the tmp-filename fix into §A.1 would expand scope into `tool_registry`, an SSoT change that needs its own architectural-arbiter review.
+
+**Test surface that exposed it:** `test_concurrent_submit_race_5_subprocesses` in `test_submit_claim_result_envelope_drift.py`. The Plan 025 §A.1 invariants assert exactly-one-accepted and exactly-one-results-row; the assertion explicitly tolerates the ORPHAN-062 race outcome (`FileNotFoundError` from one child) as out-of-scope for §A.1. Once ORPHAN-062 lands, the test assertion can tighten back to "all 5 children land in accepted+idempotent".
+
+Estimated effort ≈ ¼ batch (single function + 1 unit test ≤ 1h).
+
+---
+
+## ORPHAN-MEDIUM-063 — full-suite test interdependence: `test_tool_governance` + `test_event_contracts_adapter_integration` flake under shared ARIA_TEST_TMPDIR (Plan 025 sign-off smoke, 2026-05-10)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: future Plan 026 test-isolation hardening batch. Deadline: best-effort.
+
+**Scope:** `aria-kernel/tests/test_tool_governance.py` + `aria-kernel/tests/test_event_contracts_adapter_integration.py`. Both tests last touched at commits PRE-DATING Plan 025 (test_tool_governance at `af2af7f2` Plan 023 era; test_event_contracts older). Plan 025 changes do NOT touch either file.
+
+**Symptom:** `python3 -m unittest discover aria-kernel -p '*test*.py'` with shared ARIA_TEST_TMPDIR sometimes reports 1-4 failures across these two modules; running each module isolated returns 34/34 OK and 1/1 OK respectively.
+
+**Reproducer (intermittent):**
+```bash
+ARIA_TEST_TMPDIR=/tmp/aria-tests-x ARIA_WORKSPACE_BASE=/tmp/aria-workspaces-x \
+  PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'
+# Sometimes: FAILED (failures=4, errors=1)
+# Sometimes: FAILED (failures=1)
+# Sometimes: OK
+```
+
+Isolated runs (deterministic OK):
+```bash
+PYTHONPATH=aria-kernel python3 -m unittest aria-kernel.tests.test_tool_governance       # 34/34 OK
+PYTHONPATH=aria-kernel python3 -m unittest aria-kernel.tests.test_event_contracts_adapter_integration  # 1/1 OK in 87s
+```
+
+**Why this is plan-independent:**
+
+* Test fixture state interference between modules — one test's tmpdir or governance.jsonl leaks into the next module's setUp. Module load order under `discover` is non-deterministic, so the flake reproduces or not depending on which module ran before the affected pair.
+* Plan 025 confirmed clean by isolated re-run: §E commit `4144f315` reported 1214 OK at a fresh tmpdir; sign-off-time `1ae1cd25` re-run (same tmpdir reused across multiple Plan 025 phases) intermittently reports 1-4 fails. Affected modules contain no Plan 025 surface call.
+
+**HOW to resolve (post-Plan-025):**
+
+1. Audit setUp / tearDown of `test_tool_governance` + `test_event_contracts_adapter_integration` for shared ARIA_TEST_TMPDIR or shared `aria-tools/governance.jsonl` writes that are not cleaned up.
+2. Ensure each test class creates its own `tempfile.TemporaryDirectory` (mirror the §A.2 `test_governance_reader.py` pattern that already passes deterministically).
+3. If shared writeback is the root cause, gate behind a per-test counter or unique suffix.
+4. Add a CI invariant test that runs `discover` 3 times and asserts deterministic OK.
+
+Estimated effort ≈ ½ batch (audit + 2 module setUp rewrites + invariant test ≤ 2-3h).
+
+**Why this is NOT inside Plan 025 sign-off scope:** the affected tests do not exercise any Plan 025 code path; the flake reproduces on pre-Plan-025 HEADs. Closing Plan 025 §E sign-off at HEAD `1ae1cd25` is correct; Plan 026 (or a dedicated test-isolation plan) owns the harness fix.
 ## ORPHAN-HIGH-055 — auth-service migration history was squashed; baseline `CREATE TABLE auth.*` chain is missing, so fresh-volume bootstraps crash on later ALTER-COLUMN migrations (Phase: bootstrap-restoration, 2026-05-07)
 
 **Status:** OPEN — owner: Okan-Wqm. Owner agent: data-expert / auth-service maintainer. Deadline: gated on this orphan finding being closed by `apps/auth-service/src/migrations/1700000000000-CreateInitialSchema.ts` landing on `main` AND a fresh-volume bootstrap E2E proving the chain replays cleanly.
@@ -3101,8 +3403,6 @@ Root cause: entities relied on TypeORM synchronize=true in dev; production DATAB
 Fix: Tier-1 canonical migration matching entity column shapes 1:1 with idempotent CREATE patterns.
 
 Status: RESOLVED on chore/hr-payrolls-holidays-goals-migration.
-<<<<<<< Updated upstream
-
 ## ORPHAN-CRITICAL-067 — `StorageResolver.storageInventoryByCursor`'s `@Args('input')` slot lacks an explicit `type: () => CursorPaginationInput`; farm-service GraphQL schema build crash-loops at bootstrap with "Undefined type error … parameter at index [2]"
 
 **Severity:** CRITICAL — farm-service is dead in production. Every consumer of farm data (storage, batches, tanks, water quality, feed, harvest, fish health, growth) is offline because the entire farm-service `AppModule` fails to bootstrap before any resolver is registered. The regression is the args-decorator-side counterpart of ORPHAN-CRITICAL-064 (which fixed the ObjectType emission side); the input-side gap remained because no concrete subclass of `CursorPaginationInput` was declared and the only call site relied on TypeScript reflection.

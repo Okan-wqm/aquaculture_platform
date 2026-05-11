@@ -1,0 +1,29 @@
+{
+  "$schema": "aria/architectural-debt/v1",
+  "auto_close_forbidden": true,
+  "current_status": "OPEN",
+  "debt_id": "DEBT-2026-05-07-001",
+  "due_date": "2026-07-06T07:37:04Z",
+  "escalation_history": [],
+  "originating_finding_evidence_chain_id": "chain_c05abc8bbe3674be",
+  "originating_finding_id": "F-001",
+  "permanent_fix_owner": "platform-data-team",
+  "permanent_fix_required": "Extract a shared migration helper (e.g. addColumnWithIndex) and have each service-level migration call it instead of inlining the boilerplate. The helper enforces the contract; individual migrations stop drifting.",
+  "root_cause_summary": "TypeORM migration generator copies the add-column-then-index boilerplate verbatim into each new migration file. There is no shared helper, so the pattern multiplies across services and silently absorbs maintenance cost.",
+  "schema_version": 1,
+  "severity": "LOW",
+  "short_term_action_taken": {
+    "kind": "test_added",
+    "rationale": "The originating finding (F-001) acts as a tracked regression marker. Future migrations that add a fourth instance should surface against this finding so the duplication count stays auditable.",
+    "ref": "aria-findings/F-001.json"
+  },
+  "status_history": [
+    {
+      "at": "2026-05-07T07:37:04Z",
+      "by": "manual:operator",
+      "status": "OPEN"
+    }
+  ],
+  "verification_status": "VERIFIED",
+  "withdrawn_reason": null
+}

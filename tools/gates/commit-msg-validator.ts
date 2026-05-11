@@ -86,9 +86,92 @@ const REGISTRY_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findin
  */
 const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-|feat)/;
 
-/** Hard format for the trailer; stricter than a free-text "closes" mention. */
+/** Hard format for the trailer; stricter than a free-text "closes" mention.
+ *
+ * ID alternation (in order):
+ *   1. `<PREFIX>-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}` — registry / orphan IDs
+ *      (UH-HIGH-001, ORPHAN-MEDIUM-032, etc.).
+ *   2. `F-\d{3}` — ARIA finding IDs (e.g. F-001) under `aria-findings/`.
+ *   3. `DEBT-\d{4}-\d{2}-\d{2}-\d{3}` — ARIA debt IDs (e.g.
+ *      DEBT-2026-05-08-001) under `aria-debts/`.
+ *
+ * Routing based on path prefix happens in `validateCommit` so the gate
+ * never fakes-validates an ARIA ID against the registry or vice versa.
+ */
 const CLOSES_TRAILER_REGEX =
-  /^Closes:\s+(\S+?)#([A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3})\s*$/;
+  /^Closes:\s+(\S+?)#([A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}|F-\d{3}|DEBT-\d{4}-\d{2}-\d{2}-\d{3})\s*$/;
+
+/** True when the path points at an ARIA-owned artifact (finding or debt). */
+function isAriaArtifactPath(path: string): boolean {
+  return path.startsWith('aria-findings/') || path.startsWith('aria-debts/');
+}
+
+/** True when the finding ID is an ARIA-owned ID (F-NNN or DEBT-YYYY-MM-DD-NNN). */
+function isAriaFindingId(id: string): boolean {
+  return /^F-\d{3}$/.test(id) || /^DEBT-\d{4}-\d{2}-\d{2}-\d{3}$/.test(id);
+}
+
+/**
+ * Plan 018 Phase 4 (G5) — Closes-trailer ID-content cross-check.
+ *
+ * Reads the ARIA artifact JSON at `path` and returns the in-file ID field
+ * value (`finding_id` for aria-findings/, `debt_id` for aria-debts/). The
+ * caller compares the returned value against the trailer ID; a mismatch is
+ * a smuggled-trailer attempt the validator must fail-closed on.
+ *
+ * Why a separate read here: the existsSync gate before us proves the JSON
+ * file exists; the ARIA-shape pairing gate proves path-vs-ID kind agrees.
+ * Neither catches a trailer like
+ *   `Closes: aria-findings/F-001.json#F-002`
+ * — the file exists, the path is aria-findings/, the ID is F-NNN, all
+ * three structural gates pass, but the in-file `finding_id` is `F-001`
+ * while the trailer claims `F-002`. The audit (Plan 018 G5 [MEDIUM])
+ * caught this; the fix is to parse the JSON and compare the ID field.
+ *
+ * Returns `{ kind: 'ok', value }` on success, `{ kind: 'unreadable',
+ * reason }` if the file cannot be parsed (syntax error, EOF, missing
+ * field, wrong field type). The caller never silently falls through —
+ * every error path emits an explicit ARIA violation with a distinct
+ * message so operators can tell parse failure apart from mismatch.
+ */
+function readAriaArtifactId(
+  absPath: string,
+  path: string,
+): { kind: 'ok'; value: string } | { kind: 'unreadable'; reason: string } {
+  const expectedField = path.startsWith('aria-findings/') ? 'finding_id' : 'debt_id';
+  let raw: string;
+  try {
+    raw = readFileSync(absPath, 'utf8');
+  } catch (err) {
+    return {
+      kind: 'unreadable',
+      reason: `ARIA file unreadable (${(err as Error).message})`,
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return {
+      kind: 'unreadable',
+      reason: `ARIA file unreadable (JSON parse failed: ${(err as Error).message})`,
+    };
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return {
+      kind: 'unreadable',
+      reason: 'ARIA file unreadable (top-level value is not a JSON object)',
+    };
+  }
+  const value = (parsed as Record<string, unknown>)[expectedField];
+  if (typeof value !== 'string' || value.length === 0) {
+    return {
+      kind: 'unreadable',
+      reason: `ARIA file unreadable (missing or non-string ${expectedField} field)`,
+    };
+  }
+  return { kind: 'ok', value };
+}
 
 /**
  * Commits landed BEFORE the registry + this gate existed. Amending is
@@ -114,6 +197,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   'c0e7d492', // W3-D backup-manifest-invariant CI gate — pre-Phase-6 landing
   '955c8caa', // Phase 8.4 queryKey ESLint rule — old `#P0-1` short-form trailer
   '973394b3', // Phase 11 platform-services split — old `#P0-5` short-form trailer
+  'b403a4e5', // Snowball/main merge-reconciliation metadata fix — landed via PR #273; amending is forbidden
 ]);
 
 interface Commit {
@@ -304,16 +388,71 @@ function validateCommit(
         reason: `Closes: trailer references missing review file: ${path}`,
       });
     }
-    // Per-prefix routing (Batch #342 — closes
-    // ORPHAN-MEDIUM-032): ORPHAN-{SEV}-NNN IDs are
-    // validated against the orphan-findings.md heading
-    // index; all other prefixes (ULTRA-HIGH-*,
-    // AUDIT-*, DEPLOY-CRITICAL-*, etc.) continue to
-    // validate against the hash-chained registry. This
-    // unblocks commits that legitimately close BOTH a
-    // registry-tracked finding AND a referenced orphan
-    // finding in the same batch.
-    if (findingId.startsWith('ORPHAN-')) {
+    // Per-prefix routing. Three lanes:
+    //
+    //   1. ARIA findings + debts (Plan 017 — closes the
+    //      gap that forced the Plan 016 implementation
+    //      arc to use chore(...) bypass). Path must start
+    //      with aria-findings/ or aria-debts/ AND the ID
+    //      must be the matching ARIA shape. The JSON file
+    //      itself is the registry; the existsSync check
+    //      above already validated it.
+    //
+    //   2. ORPHAN-{SEV}-NNN IDs (Batch #342 — closes
+    //      ORPHAN-MEDIUM-032). Validate against the
+    //      orphan-findings.md heading index.
+    //
+    //   3. All other prefixes (UH-, AUDIT-,
+    //      DEPLOY-CRITICAL-, etc.). Validate against the
+    //      hash-chained registry.
+    //
+    // Mismatched lanes (ARIA path with non-ARIA ID, or
+    // non-ARIA path with ARIA ID) are rejected so a
+    // commit cannot smuggle in an ID through the wrong
+    // lane.
+    if (isAriaArtifactPath(path) || isAriaFindingId(findingId)) {
+      if (!isAriaArtifactPath(path) || !isAriaFindingId(findingId)) {
+        out.push({
+          sha: commit.shortSha,
+          subject: commit.subject,
+          reason: `Closes: ARIA trailer must pair an aria-findings/ or aria-debts/ path with a matching ARIA ID (F-NNN or DEBT-YYYY-MM-DD-NNN); got path=${path} id=${findingId}`,
+        });
+        continue;
+      }
+      // Path-and-ID pairing rule: aria-findings/ requires F-NNN,
+      // aria-debts/ requires DEBT-YYYY-MM-DD-NNN.
+      const wantsFinding = path.startsWith('aria-findings/');
+      const isFindingId = /^F-\d{3}$/.test(findingId);
+      if (wantsFinding !== isFindingId) {
+        out.push({
+          sha: commit.shortSha,
+          subject: commit.subject,
+          reason: `Closes: ARIA trailer path/ID mismatch — aria-findings/ requires F-NNN, aria-debts/ requires DEBT-YYYY-MM-DD-NNN; got path=${path} id=${findingId}`,
+        });
+      } else if (existsSync(reviewFile)) {
+        // Plan 018 Phase 4 (G5) — Closes-trailer ID-content cross-check.
+        // Three earlier gates have passed: trailer regex match, file
+        // exists, ARIA path/ID kind agrees. The smuggled-trailer
+        // class the audit caught is a path/file-content disagreement
+        // (e.g. aria-findings/F-001.json#F-002 — file content says
+        // finding_id=F-001 but trailer claims F-002). Parse + compare.
+        const result = readAriaArtifactId(reviewFile, path);
+        if (result.kind === 'unreadable') {
+          out.push({
+            sha: commit.shortSha,
+            subject: commit.subject,
+            reason: `Closes: ${result.reason} (path=${path})`,
+          });
+        } else if (result.value !== findingId) {
+          const expectedField = path.startsWith('aria-findings/') ? 'finding_id' : 'debt_id';
+          out.push({
+            sha: commit.shortSha,
+            subject: commit.subject,
+            reason: `Closes: ARIA file's ${expectedField} (${result.value}) does not match trailer ID (${findingId}); path=${path}`,
+          });
+        }
+      }
+    } else if (findingId.startsWith('ORPHAN-')) {
       if (!orphanIds.has(findingId)) {
         out.push({
           sha: commit.shortSha,
@@ -450,8 +589,11 @@ export {
   REQUIRE_CLOSES_TYPES,
   commitFromMsgFile,
   extractTrailers,
+  isAriaArtifactPath,
+  isAriaFindingId,
   loadOrphanIds,
   loadRegistryIds,
+  readAriaArtifactId,
   validateCommit,
   type Commit,
   type Trailer,

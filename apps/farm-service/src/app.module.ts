@@ -173,6 +173,7 @@ import { AddDailyTankWaterQualityMaterializedView1787500000000 } from './databas
 import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrations/1788100000000-WireSupplierSitesAndSiteContacts';
 import { DedupeEquipmentTypesByCode1788200000000 } from './database/migrations/1788200000000-DedupeEquipmentTypesByCode';
 import { AddBiomassReports1788300000000 } from './database/migrations/1788300000000-AddBiomassReports';
+import { AddMissingFarmTables1789200000000 } from './database/migrations/1789200000000-AddMissingFarmTables';
 
 @Module({
   imports: [
@@ -235,6 +236,7 @@ import { AddBiomassReports1788300000000 } from './database/migrations/1788300000
             WireSupplierSitesAndSiteContacts1788100000000,
             DedupeEquipmentTypesByCode1788200000000,
             AddBiomassReports1788300000000,
+            AddMissingFarmTables1789200000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

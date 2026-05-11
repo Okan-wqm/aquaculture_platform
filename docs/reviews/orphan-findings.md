@@ -3187,3 +3187,19 @@ Root cause: gateway-api and messaging-service compose blocks declare MINIO env v
 Fix: Tier-2 Make-Automatic. Mirror the MINIO env block from gateway/messaging — MINIO_ENDPOINT/PORT/USE_SSL/ACCESS_KEY/SECRET_KEY/BUCKET/REGION.
 
 Status: RESOLVED on chore/farm-minio-env-compose.
+
+
+## ORPHAN-CRITICAL-070 — farm-service entity-declared 42 tables have no migration; SourceSchemaBootstrap rejects cold-boot
+Severity: CRITICAL. farm-service crash-loops in production. Web login blocked.
+Discovered: 2026-05-10, on the live droplet after MINIO env wiring (ORPHAN-CRITICAL-065) unblocked the next layer of cold-boot validation.
+File: apps/farm-service/src entity tree vs. production farm schema.
+
+Evidence: Production farm schema contains 33 tables, but the farm-service entity tree declares 74 `@Entity('...')` classes. SourceSchemaBootstrapService surfaced the gap on cold-boot:
+
+"Bootstrap failed: Source schema 'farm' is missing 42 declared tables (auto_rules, chemicals, chemical_sites, chemical_types, daily_feeding_executions, equipment_systems, farm_audit_logs, farm_workers, feed_inventory, feed_sites, feed_type_species, feed_types, feeding_program_tanks, feeding_programs, feeding_protocols, feeding_records, feeding_tables, feeds, growth_measurements, harvest_plans, harvest_records, health_events, inventory_count_items, inventory_counts, maintenance_schedules, mortality_records, recurring_templates, sentinel_hub_settings, site_contacts, spare_parts, sub_equipment, sub_equipment_types, supplier_sites, supplier_types, suppliers, tank_operations, tasks, water_quality_measurements, water_quality_param_equipment, water_quality_parameter_configs, work_orders). Refusing to fall back to runtime synchronize() per INFRA-CRITICAL-009."
+
+Root cause: 74 entities declared in the farm-service domain tree (`apps/farm-service/src/{batch,equipment,farm,feed,feeding,fish-health,growth,harvest,maintenance,site,storage,supplier,task,water-quality,...}/entities/*.entity.ts`) but only 33 corresponding tables provisioned by prior migrations (CreateInitialSchema + the 30+ delta migrations through 1788300000000). Pre-existing TypeORM `synchronize: true` in some dev/staging environment masked the gap until cold-boot in production where `DATABASE_SYNC=false` is mandatory. The schema-bootstrap guard installed per INFRA-CRITICAL-009 fired correctly on first cold deploy, refusing to fall through to a runtime DDL fallback.
+
+Fix: Tier-1 Make-Impossible. ONE comprehensive `CREATE TABLE` migration at `apps/farm-service/src/database/migrations/1789200000000-AddMissingFarmTables.ts` matching the 42 entity-declared columns 1:1 — uuid PKs, decimal precisions, enum types, jsonb columns, timestamptz audit fields, all idempotent (`CREATE TABLE IF NOT EXISTS`, `DO $$ BEGIN CREATE TYPE … EXCEPTION WHEN duplicate_object`, `CREATE INDEX IF NOT EXISTS`). Migration is registered in both `apps/farm-service/src/app.module.ts` (class-ref list for runtime MigrationRunnerService) and discovered by `apps/db-migrate` via its glob pattern. Cross-table FK declarations are deferred to a follow-up migration to avoid intra-migration dependency cycles; the application-layer TypeORM relations remain intact.
+
+Status: RESOLVED on chore/farm-comprehensive-migration.

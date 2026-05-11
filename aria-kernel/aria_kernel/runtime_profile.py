@@ -328,23 +328,22 @@ def list_profile_history(*, base_dir: str | Path | None = None) -> list[dict[str
 
     Frozen-aware read path (ensure_tools_dir_readonly). Returns [] when no
     history file exists.
+
+    Plan 026R §A.3 forward-fix (caught by reviewer-A.3): this is the 11th
+    JSONL ledger reader in the kernel, missed by the original §A.3 sweep
+    because the file-level allowlist entry for ``runtime_profile.py`` was
+    written for the SINGLE-ROW state-file parser at lines 215-222. The
+    ledger here is a multi-row append-only audit trail of profile
+    transitions — silent-skip on a corrupt history row would understate
+    the audit count operator dashboards depend on. Strict-by-default via
+    ``read_strict_jsonl``.
     """
     root = ensure_tools_dir_readonly(base_dir)
     if root is None:
         return []
     history_file = root / PROFILE_HISTORY_FILENAME
-    if not history_file.exists():
-        return []
-    rows: list[dict[str, Any]] = []
-    for line in history_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return rows
+    from .strict_jsonl_reader import read_strict_jsonl
+    return list(read_strict_jsonl(history_file, base_dir=root))
 
 
 def _emit_runtime_profile_diagnostic(

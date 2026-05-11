@@ -72,18 +72,60 @@ class GenericJsonlMigrationTests(unittest.TestCase):
             "context_budget_gate.py",
             "agent_compliance.py",
             "agent_eval.py",
+            # §A.3 forward-fix (reviewer-A.3 finding): list_profile_history
+            # in runtime_profile.py was the 11th JSONL ledger reader,
+            # missed by the original §A.3 sweep because the wrong-shape
+            # file-level allowlist entry hid it.
+            "runtime_profile.py",
         ):
             src = _src(module_name)
             self.assertIn(
-                "from .strict_jsonl_reader import read_strict_jsonl",
+                "read_strict_jsonl",
                 src,
-                f"{module_name} missing strict_jsonl_reader import",
+                f"{module_name} missing strict_jsonl_reader migration",
             )
             self.assertIn(
                 "read_strict_jsonl(",
                 src,
                 f"{module_name} missing read_strict_jsonl callsite",
             )
+
+
+class RuntimeProfileHistoryStrictTests(unittest.TestCase):
+    """§A.3 forward-fix regression — list_profile_history raises on corrupt
+    history row instead of silently dropping it."""
+
+    def test_corrupt_history_row_raises_strict(self) -> None:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from aria_kernel.runtime_profile import (
+            PROFILE_HISTORY_FILENAME,
+            list_profile_history,
+            set_profile,
+        )
+        from aria_kernel.tool_registry import GovernanceError
+
+        tmp = Path(tempfile.mkdtemp(prefix="aria-rp-strict-"))
+        try:
+            base = tmp / "aria-tools"
+            # Establish a valid first transition (lays down the history file
+            # with the runtime-profile-changed governance event).
+            set_profile("observe", operator_approval_ref="ref-1", base_dir=base)
+            history_file = base / PROFILE_HISTORY_FILENAME
+            # Append a corrupt row.
+            with history_file.open("a", encoding="utf-8") as fh:
+                fh.write("{not valid json\n")
+            with self.assertRaises(GovernanceError) as ctx:
+                list_profile_history(base_dir=base)
+            self.assertIn(
+                "strict_jsonl_row_corrupt", str(ctx.exception),
+                str(ctx.exception),
+            )
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

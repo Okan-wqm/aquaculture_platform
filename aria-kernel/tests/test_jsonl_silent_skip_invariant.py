@@ -34,7 +34,13 @@ _SILENT_SKIP_ALLOWLIST: dict[str, str] = {
     "ci.py": "parses gh CLI subprocess output for branch-protection lookup",
     # Single-row JSON config readers (not JSONL ledgers).
     "workspace.py": "parses ARIA_ACTOR env var + feedback_index single-row JSON",
-    "runtime_profile.py": "parses single-row runtime profile JSON config",
+    # NOTE: runtime_profile.py REMOVED from allowlist after the §A.3
+    # forward-fix migrated list_profile_history (a multi-row JSONL ledger
+    # reader, missed in the original §A.3 sweep because the prior file-
+    # level allowlist rationale only matched the single-row state-file
+    # parser at lines 215-222). The single-row parser uses
+    # `as exc: return FROZEN_PROFILE` typed-fallback (not bare
+    # `continue`), so the AST predicate does not flag it.
     # Lower-level primitives that wrap json.loads for their own consumers.
     "ledger.py": "verify_jsonl owns the strict raise itself",
     "handoff_ledger.py": "uses read_governance_rows; remaining catch is reserved for handoff-specific parse",

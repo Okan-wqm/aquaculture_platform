@@ -218,7 +218,10 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
     await waitFor(() => {
       expect(mockAddToQueue).toHaveBeenCalledTimes(1);
     });
-    const [opName, payload] = mockAddToQueue.mock.calls[0];
+    const [opName, payload] = mockAddToQueue.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
     expect(opName).toBe('recordCull');
     expect(payload).toMatchObject({
       batchId: 'batch-1',
@@ -258,7 +261,10 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
     });
 
     await waitFor(() => expect(mockAddToQueue).toHaveBeenCalledTimes(1));
-    const [opName, payload] = mockAddToQueue.mock.calls[0];
+    const [opName, payload] = mockAddToQueue.mock.calls[0] as unknown as [
+      string,
+      { observedAt: string },
+    ];
     expect(opName).toBe('recordMortality');
     expect(payload).toMatchObject({
       batchId: 'batch-1',
@@ -308,7 +314,7 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
     });
 
     await waitFor(() => expect(mockAddToQueue).toHaveBeenCalledTimes(1));
-    const [opName, payload] = mockAddToQueue.mock.calls[0] as [
+    const [opName, payload] = mockAddToQueue.mock.calls[0] as unknown as [
       string,
       {
         quantityHarvested: number;

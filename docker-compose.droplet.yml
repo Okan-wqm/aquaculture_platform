@@ -762,6 +762,17 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      # ORPHAN-CRITICAL-065: farm-service uses MinIO for file uploads via
+      # FileUploadSecurityService (treatment photos, certificates). Without
+      # explicit MINIO_ACCESS_KEY / MINIO_SECRET_KEY the service refuses to
+      # start to prevent default-credential security drift.
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_USER:?MINIO_USER is required}
+      MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD is required}
+      MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
+      MINIO_REGION: us-east-1
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-farm-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
@@ -886,10 +897,26 @@ services:
   # Co-equal producer of `events.{tenantId}.SensorReading` alongside the
   # NestJS sensor-service. Per-tenant feature flag (`[ingest_backend]`
   # in config.toml) gates which tenants the sidecar processes.
+  #
+  # ORPHAN-CRITICAL-072: gated behind the `rust-sidecar` Compose profile
+  # because the multi-arch GHCR image for sensor-ingestion is not yet
+  # published by CI (the Rust build matrix lives outside the deploy
+  # pipeline today). Without the profile gate, every `docker compose
+  # up -d` on the droplet hits "no matching manifest for linux/amd64"
+  # for sensor-ingestion and the WHOLE `up -d` call exits non-zero —
+  # the deploy script's `|| true` masks the error but no containers
+  # actually start. The critical-service health check then times out
+  # at 300s and the deploy fails with rollback-required.
+  #
+  # Operator opt-in (after the CI Rust build matrix lands):
+  #   COMPOSE_PROFILES=rust-sidecar docker compose -f docker-compose.droplet.yml up -d
+  # Or set in droplet's .env: COMPOSE_PROFILES=rust-sidecar
   sensor-ingestion:
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:-latest}
     container_name: aqua-sensor-ingestion
     restart: unless-stopped
+    profiles:
+      - rust-sidecar
     user: "65532:65532"
     environment:
       # tracing-subscriber filter — overrides via env var without
@@ -1310,6 +1337,18 @@ services:
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
+    # ORPHAN-CRITICAL-061: NATS cert mounts were missing here while the
+    # *nats-observability-env merge above declared NATS_TLS_CA / NATS_TLS_CERT /
+    # NATS_TLS_KEY paths inside the container. nats-connection.factory hard-fails
+    # at bootstrap when NATS_TLS_CA is set but unreadable, crash-looping
+    # observability-service on the production droplet. Every other NATS-using
+    # service in this file mounts these four anchors; observability is now
+    # aligned with the same pattern so the env paths actually resolve.
+    volumes:
+      - *nats-ca-mount
+      - *nats-clients-mount
+      - *nats-client-cert-mount
+      - *nats-client-key-mount
     # Attached to aqua-internal only — no published ports, not reachable from external network
     networks:
       - aqua-internal
@@ -1340,12 +1379,19 @@ services:
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: "false"
       DATABASE_PORT: 5432
-      # SEC-015 (CRITICAL-001): Per-service DB role — config service uses its own schema
-      # NOTE: config-service does not have a dedicated schema in 00-init-schemas.sh yet.
-      # Until a config_service role is created, it uses the gateway_service role which
-      # has access to the gateway schema where config data is stored.
-      DATABASE_USER: ${GATEWAY_SERVICE_DB_USER:-gateway_service}
-      DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      # SEC-015 (CRITICAL-001): Per-service DB role per ADR-011 schema-ownership.
+      # config-service owns the `config` schema (provisioned by
+      # `infrastructure/docker/init-scripts/00-init-schemas.sh` lines 138-141 +
+      # 175 + 193 + 460-469). Connecting as `config_service` gives the runtime
+      # service and its OnApplicationBootstrap MigrationRunnerService CREATE
+      # privilege on `config` — required to maintain the migration ledger
+      # (`config.typeorm_migrations`) and apply any pending DDL. The
+      # `gateway_service` role has no grants on `config` (only on `gateway`)
+      # so the previous wiring crashed cold-boot with "permission denied
+      # for database aquaculture" once the first config-schema migration
+      # landed (ORPHAN-CRITICAL-069).
+      DATABASE_USER: ${CONFIG_SERVICE_DB_USER:-config_service}
+      DATABASE_PASSWORD: ${CONFIG_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379

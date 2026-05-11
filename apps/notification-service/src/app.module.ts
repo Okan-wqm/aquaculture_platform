@@ -8,23 +8,25 @@ import {
 } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
-  CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  UserContextMiddleware,
-  TenantContextMiddleware,
-  RedisModule,
-  ServiceIdentityGuard,
-  TenantGuard,
-  RolesGuard,
-  AuditLogModule,
-  AuditLogInterceptor,
-  RlsModule,
   AuditColumnsModule,
   createMigrationRunnerService,
+  createServiceTypeOrmConfig,
+  RlsModule,
   SchemaDriftModule,
-  PlatformJwtModule,
-} from '@aquaculture/backend-common';
+} from '@aquaculture/backend-common/database';
+import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import {
+  CorrelationIdMiddleware,
+  StripInternalHeadersMiddleware,
+  TenantContextMiddleware,
+  UserContextMiddleware,
+} from '@aquaculture/backend-common/middleware';
+import { RedisModule } from '@aquaculture/backend-common/redis';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 
 /**
  * NotificationMigrationRunnerService — runs pending TypeORM migrations

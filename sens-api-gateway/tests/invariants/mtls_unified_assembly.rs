@@ -125,9 +125,7 @@ fn d6_build_suderra_verifier_unified_entry_present() {
     // — the Option None is the Legacy+0pins arm; Err is the
     // Strict+0pins fail-closed arm.
     assert!(
-        src.contains(
-            "Result<Option<Arc<SuderraServerCertVerifier>>, SuderraVerifierBuildError>"
-        ),
+        src.contains("Result<Option<Arc<SuderraServerCertVerifier>>, SuderraVerifierBuildError>"),
         "D-6 WIRE INVARIANT VIOLATED: build_suderra_verifier \
          return type changed. The `Option<Arc<_>>` shape \
          encodes the Legacy+0pins=no-wire arm; the `Result` \
@@ -161,8 +159,7 @@ fn d6_strict_mode_requires_pins_fail_closed_gate_present() {
     );
     // The gate MUST fire when (Strict, empty pins).
     assert!(
-        src.contains("MtlsMode::Strict")
-            && src.contains("pins_hex.is_empty"),
+        src.contains("MtlsMode::Strict") && src.contains("pins_hex.is_empty"),
         "D-6 WIRE INVARIANT VIOLATED: build_suderra_verifier \
          no longer branches on `MtlsMode::Strict` + \
          `pins_hex.is_empty()` to fire the fail-closed gate. \

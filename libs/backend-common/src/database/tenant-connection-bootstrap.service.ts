@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { getRequestContext } from '../logging/request-context';
 import { validateTenantSchemaName } from './schema-manager.service';
 import { getPgPoolFromDataSource } from './pg-pool-from-data-source.util';
+import { getTenantSchemaName, isValidUUID } from './tenant-schema.utils';
 
 /**
  * Tenant schema regex — only matches tenant_<16 hex chars>.

@@ -44,7 +44,7 @@ import type {
   AlarmRuntimeStatus,
   AlarmActionCommand,
   NotificationConfig,
-} from '../../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+} from '../scada-types';
 
 import { ScadaRuntimeGateway } from '../scada-runtime.gateway';
 import { TagManagerService } from './tag-manager.service';

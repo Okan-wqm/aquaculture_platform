@@ -108,19 +108,15 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use rusqlite::Connection;
 
-use super::cli::{MigrationArgs, KNOWN_SQLCIPHER_CONSUMERS};
+use super::cli::{KNOWN_SQLCIPHER_CONSUMERS, MigrationArgs};
 use super::consumer_context::{ConsumerContext, ConsumerContextError};
-use super::consumer_key_resolver::{
-    resolve_consumer_pragma_key, ResolverError, V1Inputs,
-};
-use super::manifest::{manifest_path_for_db, DbKeySourceManifest};
-use super::rekey_swap::{rekey_with_manifest_swap, RekeyManifestError};
+use super::consumer_key_resolver::{ResolverError, V1Inputs, resolve_consumer_pragma_key};
+use super::manifest::{DbKeySourceManifest, manifest_path_for_db};
+use super::rekey_swap::{RekeyManifestError, rekey_with_manifest_swap};
 use super::schema_version::DbKeySchemaVersion;
-use super::v2_keystore_key::{
-    derive_v2_sqlcipher_pragma_key_hex, V2DerivationError,
-};
-use crate::keystore::purpose::KeyPurpose;
+use super::v2_keystore_key::{V2DerivationError, derive_v2_sqlcipher_pragma_key_hex};
 use crate::keystore::Keystore;
+use crate::keystore::purpose::KeyPurpose;
 
 /// Errors returned by `CeremonyRuntime` accessors when
 /// the underlying agent IO fails (machine-id missing,
@@ -185,9 +181,7 @@ pub trait CeremonyRuntime: Send + Sync {
     /// is currently loaded — the orchestrator skips
     /// program-bound consumers in that case rather
     /// than failing the whole ceremony.
-    async fn program_artifact_sha256(
-        &self,
-    ) -> Result<Option<Vec<u8>>, RuntimeError>;
+    async fn program_artifact_sha256(&self) -> Result<Option<Vec<u8>>, RuntimeError>;
 
     /// Hand the agent's keystore handle to the
     /// orchestrator for v2 key derivation.
@@ -289,7 +283,9 @@ impl MigrationOutcome {
     /// or was skipped for a benign reason. Operator's
     /// "should I exit 0 or 1" decision rule.
     pub fn is_clean(&self) -> bool {
-        self.per_consumer.iter().all(|o| !matches!(o, ConsumerOutcome::Failed { .. }))
+        self.per_consumer
+            .iter()
+            .all(|o| !matches!(o, ConsumerOutcome::Failed { .. }))
     }
 }
 
@@ -311,10 +307,7 @@ pub enum ExecutionError {
 impl std::fmt::Display for ExecutionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Bootstrap(e) => write!(
-                f,
-                "execute_migration_bootstrap_failed: {e}"
-            ),
+            Self::Bootstrap(e) => write!(f, "execute_migration_bootstrap_failed: {e}"),
         }
     }
 }
@@ -399,23 +392,16 @@ async fn migrate_one(
     }
 
     // Step 2: resolve the current key (manifest-aware).
-    let resolved = match resolve_consumer_pragma_key(
-        &db_path,
-        purpose,
-        ctx,
-        rt.keystore(),
-        v1_inputs,
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            return ConsumerOutcome::Failed {
-                purpose,
-                reason: FailReason::Resolver(e),
-            };
-        }
-    };
+    let resolved =
+        match resolve_consumer_pragma_key(&db_path, purpose, ctx, rt.keystore(), v1_inputs).await {
+            Ok(r) => r,
+            Err(e) => {
+                return ConsumerOutcome::Failed {
+                    purpose,
+                    reason: FailReason::Resolver(e),
+                };
+            }
+        };
 
     // Step 3: idempotent skip if already v2.
     if matches!(
@@ -429,9 +415,7 @@ async fn migrate_one(
     }
 
     // Step 4: derive the target v2 key.
-    let ctx_bytes = match super::consumer_context::context_bytes_for_purpose(
-        purpose, ctx,
-    ) {
+    let ctx_bytes = match super::consumer_context::context_bytes_for_purpose(purpose, ctx) {
         Ok(b) => b,
         Err(e) => {
             return ConsumerOutcome::Failed {
@@ -440,13 +424,7 @@ async fn migrate_one(
             };
         }
     };
-    let v2_hex = match derive_v2_sqlcipher_pragma_key_hex(
-        rt.keystore(),
-        purpose,
-        ctx_bytes,
-    )
-    .await
-    {
+    let v2_hex = match derive_v2_sqlcipher_pragma_key_hex(rt.keystore(), purpose, ctx_bytes).await {
         Ok(h) => h,
         Err(e) => {
             return ConsumerOutcome::Failed {
@@ -471,10 +449,7 @@ async fn migrate_one(
             };
         }
     };
-    let key_stmt = format!(
-        "PRAGMA key = \"x'{}'\";",
-        resolved.pragma_key_hex.as_str()
-    );
+    let key_stmt = format!("PRAGMA key = \"x'{}'\";", resolved.pragma_key_hex.as_str());
     if let Err(e) = conn.execute_batch(&key_stmt) {
         return ConsumerOutcome::Failed {
             purpose,
@@ -513,18 +488,14 @@ async fn migrate_one(
 mod tests {
     use super::*;
     use crate::db_migration::cli::{MigrationArgs, OutputFormat};
-    use crate::db_migration::manifest::{
-        write_manifest, DbKeySourceManifest,
-    };
-    use crate::keystore::error::{
-        KeyDerivationError, KeystoreError, KeystoreErrorKind,
-    };
-    use crate::keystore::purpose::DerivedKeyId;
-    use crate::keystore::secret::KeyMaterial;
-    use crate::keystore::{KeyBackend, RotationSource};
+    use crate::db_migration::manifest::{DbKeySourceManifest, write_manifest};
     use crate::db_migration::v1_legacy_key::{
         derive_v1_legacy_key, format_sqlcipher_pragma_key_hex,
     };
+    use crate::keystore::error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
+    use crate::keystore::purpose::DerivedKeyId;
+    use crate::keystore::secret::KeyMaterial;
+    use crate::keystore::{KeyBackend, RotationSource};
     use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -556,11 +527,7 @@ mod tests {
             Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
         }
 
-        fn derived_key_id(
-            &self,
-            _purpose: KeyPurpose,
-            _context: &[u8],
-        ) -> DerivedKeyId {
+        fn derived_key_id(&self, _purpose: KeyPurpose, _context: &[u8]) -> DerivedKeyId {
             DerivedKeyId([0u8; 16])
         }
 
@@ -635,9 +602,7 @@ mod tests {
             Ok(b"deployment-stub".to_vec())
         }
 
-        async fn program_artifact_sha256(
-            &self,
-        ) -> Result<Option<Vec<u8>>, RuntimeError> {
+        async fn program_artifact_sha256(&self) -> Result<Option<Vec<u8>>, RuntimeError> {
             Ok(self.program_sha.clone())
         }
 
@@ -670,10 +635,7 @@ mod tests {
     /// the same v1 inputs the StubRuntime returns.
     /// Mirrors the Batch #1 rekey test pattern.
     fn seed_v1_db(path: &std::path::Path) {
-        let v1_bytes = derive_v1_legacy_key(
-            b"machine-stub",
-            b"secret-stub-32-bytes-of-key-aa!",
-        );
+        let v1_bytes = derive_v1_legacy_key(b"machine-stub", b"secret-stub-32-bytes-of-key-aa!");
         let v1_hex = format_sqlcipher_pragma_key_hex(&v1_bytes);
         let conn = Connection::open(path).expect("open db");
         conn.execute_batch(&format!("PRAGMA key = \"x'{v1_hex}'\";"))
@@ -797,8 +759,7 @@ mod tests {
         // return Manifest error → orchestrator records
         // ConsumerOutcome::Failed for THIS consumer +
         // continues to the next 3 (which have no DB).
-        std::fs::write(manifest_path_for_db(&db), b"not valid json")
-            .expect("seed corrupt");
+        std::fs::write(manifest_path_for_db(&db), b"not valid json").expect("seed corrupt");
 
         let rt = StubRuntime::new(dir.path().to_path_buf());
         let args = canonical_args(dir.path().to_path_buf());
@@ -858,8 +819,7 @@ mod tests {
     #[tokio::test]
     async fn execute_migration_runtime_bootstrap_failure_aborts() {
         let dir = TempDir::new().expect("tempdir");
-        let rt = StubRuntime::new(dir.path().to_path_buf())
-            .with_bootstrap_failure();
+        let rt = StubRuntime::new(dir.path().to_path_buf()).with_bootstrap_failure();
         let args = canonical_args(dir.path().to_path_buf());
 
         let err = execute_migration(&args, &rt, 1_700_000_000)

@@ -157,11 +157,7 @@ pub trait NodeChangeNotifier: Send + Sync {
     /// warn-level by the bridge but does NOT abort the task — a
     /// transient notifier failure on one tag does not stop other
     /// tags from propagating.
-    fn notify(
-        &self,
-        browse_name: &str,
-        change: &TagChange,
-    ) -> Result<(), NodeChangeNotifyError>;
+    fn notify(&self, browse_name: &str, change: &TagChange) -> Result<(), NodeChangeNotifyError>;
 }
 
 /// Errors returned by [`NodeChangeNotifier::notify`]. The bridge does
@@ -208,11 +204,7 @@ impl std::error::Error for NodeChangeNotifyError {}
 pub struct LoggingNotifier;
 
 impl NodeChangeNotifier for LoggingNotifier {
-    fn notify(
-        &self,
-        browse_name: &str,
-        change: &TagChange,
-    ) -> Result<(), NodeChangeNotifyError> {
+    fn notify(&self, browse_name: &str, change: &TagChange) -> Result<(), NodeChangeNotifyError> {
         tracing::trace!(
             target: "opc_ua.subscription",
             browse_name = browse_name,
@@ -463,10 +455,7 @@ mod tests {
             low_low: None,
         };
         let _ = browse_name; // OpcUaTagRegistry derives browse_name from tag_name
-        Arc::new(
-            OpcUaTagRegistry::build([&cfg].into_iter())
-                .expect("registry build"),
-        )
+        Arc::new(OpcUaTagRegistry::build([&cfg].into_iter()).expect("registry build"))
     }
 
     fn synth_change(tag_name: &str, value: f64) -> TagChange {
@@ -511,8 +500,7 @@ mod tests {
         let registry = registry_with_tag("tank_a", "tank_a");
         let notifier = Arc::new(CapturingNotifier::default());
         // Queue an error for the next call.
-        *notifier.force_error.lock().unwrap() =
-            Some(NodeChangeNotifyError::NodeManagerNotReady);
+        *notifier.force_error.lock().unwrap() = Some(NodeChangeNotifyError::NodeManagerNotReady);
         let change1 = synth_change("tank_a", 1.0);
         SubscriptionBridge::dispatch_change(&registry, &*notifier, &change1);
         // Error consumed; second call should succeed.
@@ -528,7 +516,8 @@ mod tests {
     fn logging_notifier_accepts_changes() {
         let n = LoggingNotifier;
         let change = synth_change("tank_a", 42.0);
-        n.notify("tank_a", &change).expect("LoggingNotifier never fails");
+        n.notify("tank_a", &change)
+            .expect("LoggingNotifier never fails");
     }
 
     /// Spawn + cancel triggers a clean exit within bounded time.
@@ -536,15 +525,9 @@ mod tests {
     async fn spawn_then_cancel_exits_cleanly() {
         let (tx, rx) = broadcast::channel::<TagChange>(16);
         let registry = registry_with_tag("tank_a", "tank_a");
-        let notifier: Arc<dyn NodeChangeNotifier> =
-            Arc::new(LoggingNotifier);
+        let notifier: Arc<dyn NodeChangeNotifier> = Arc::new(LoggingNotifier);
         let cancel = BridgeCancelToken::new();
-        let mut bridge = SubscriptionBridge::spawn(
-            rx,
-            registry,
-            notifier,
-            cancel,
-        );
+        let mut bridge = SubscriptionBridge::spawn(rx, registry, notifier, cancel);
         // Send one change so the task has activity.
         let _ = tx.send(synth_change("tank_a", 1.0));
         // Trigger cancel + await shutdown.
@@ -559,15 +542,9 @@ mod tests {
     async fn spawn_exits_when_sender_drops() {
         let (tx, rx) = broadcast::channel::<TagChange>(16);
         let registry = registry_with_tag("tank_a", "tank_a");
-        let notifier: Arc<dyn NodeChangeNotifier> =
-            Arc::new(LoggingNotifier);
+        let notifier: Arc<dyn NodeChangeNotifier> = Arc::new(LoggingNotifier);
         let cancel = BridgeCancelToken::new();
-        let mut bridge = SubscriptionBridge::spawn(
-            rx,
-            registry,
-            notifier,
-            cancel,
-        );
+        let mut bridge = SubscriptionBridge::spawn(rx, registry, notifier, cancel);
         // Drop the sender — the task should exit on RecvError::Closed.
         drop(tx);
         // Give the task a moment to observe the closed channel.
@@ -584,12 +561,7 @@ mod tests {
         let registry = registry_with_tag("tank_a", "tank_a");
         let notifier = Arc::new(CapturingNotifier::default());
         let cancel = BridgeCancelToken::new();
-        let mut bridge = SubscriptionBridge::spawn(
-            rx,
-            registry,
-            notifier.clone(),
-            cancel,
-        );
+        let mut bridge = SubscriptionBridge::spawn(rx, registry, notifier.clone(), cancel);
         // Send 3 changes.
         for i in 1..=3 {
             let _ = tx.send(synth_change("tank_a", i as f64));
@@ -597,11 +569,7 @@ mod tests {
         // Wait briefly for the task to drain.
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let captured = notifier.captured.lock().unwrap().clone();
-        assert_eq!(
-            captured.len(),
-            3,
-            "3 sends should yield 3 notifier calls"
-        );
+        assert_eq!(captured.len(), 3, "3 sends should yield 3 notifier calls");
         drop(captured);
         bridge.shutdown().await;
     }

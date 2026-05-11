@@ -50,10 +50,7 @@ impl super::CommandHandler {
     /// the caller's `error!` log should surface; rejections (retained
     /// flag, parse failure, replay, dedup hit) return `Ok(())`
     /// because they're operational events, not panics.
-    pub(super) async fn handle_message(
-        &mut self,
-        message: IncomingMessage,
-    ) -> Result<()> {
+    pub(super) async fn handle_message(&mut self, message: IncomingMessage) -> Result<()> {
         let state = self.state.read().await;
         let topics = state.mqtt_client.as_ref().map(|m| m.topics().clone());
         drop(state);
@@ -115,9 +112,8 @@ impl super::CommandHandler {
             // backward compat.
             let (signature_mode, tenant_bytes, rbac_store) = {
                 let state = self.state.read().await;
-                let tenant_bytes = envelope_adapter::tenant_id_bytes_or_none(
-                    state.tenant_id.as_deref(),
-                );
+                let tenant_bytes =
+                    envelope_adapter::tenant_id_bytes_or_none(state.tenant_id.as_deref());
                 // Batch 68 Sprint 6.1 full wire: clone Arc so
                 // the adapter can run verify_signature via
                 // RbacManifestStore::lookup_operator_pubkey
@@ -141,7 +137,10 @@ impl super::CommandHandler {
                         match serde_json::from_slice(&message.payload) {
                             Ok(cmd) => cmd,
                             Err(e) => {
-                                warn!("Failed to parse command (neither envelope nor legacy): {}", e);
+                                warn!(
+                                    "Failed to parse command (neither envelope nor legacy): {}",
+                                    e
+                                );
                                 return Ok(());
                             }
                         }
@@ -164,10 +163,7 @@ impl super::CommandHandler {
                         }
                     }
                     envelope_adapter::AdapterOutcome::VerifyFailed(err) => {
-                        warn!(
-                            "Rejecting CommandEnvelope: verify_envelope Err={:?}",
-                            err
-                        );
+                        warn!("Rejecting CommandEnvelope: verify_envelope Err={:?}", err);
                         return Ok(());
                     }
                 }
@@ -216,8 +212,11 @@ impl super::CommandHandler {
                 if age.num_seconds() > max_age_secs || age.num_seconds() < -max_skew_secs {
                     warn!(
                         "Rejecting stale/future command: {} age={}s (id: {}, max_age={}s, max_skew={}s)",
-                        command.command, age.num_seconds(), command.command_id,
-                        max_age_secs, max_skew_secs
+                        command.command,
+                        age.num_seconds(),
+                        command.command_id,
+                        max_age_secs,
+                        max_skew_secs
                     );
                     return Ok(());
                 }
@@ -255,12 +254,10 @@ impl super::CommandHandler {
                 // table's own bounds, approximated via a
                 // generous 3600s ceiling (Moka's internal TTL
                 // evicts earlier).
-                match crate::command_envelope::Jti::try_new(
-                    command.command_id.clone(),
-                ) {
+                match crate::command_envelope::Jti::try_new(command.command_id.clone()) {
                     Ok(jti) => {
-                        let expires_at = std::time::SystemTime::now()
-                            + std::time::Duration::from_secs(3600);
+                        let expires_at =
+                            std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
                         match dedup.check_and_mark(&jti, expires_at).await {
                             Ok(crate::command_envelope::DedupResult::Fresh) => false,
                             Ok(crate::command_envelope::DedupResult::Duplicate) => true,
@@ -310,7 +307,8 @@ impl super::CommandHandler {
             if self.executed_command_ids.len() >= 1000 {
                 self.executed_command_ids.pop_front();
             }
-            self.executed_command_ids.push_back(command.command_id.clone());
+            self.executed_command_ids
+                .push_back(command.command_id.clone());
 
             // Publish response — Batch #255 ARC-002 migration:
             // command responses persist on broker outage + replay

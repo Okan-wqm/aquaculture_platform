@@ -7,18 +7,25 @@
  */
 
 import { create } from 'zustand';
+import type { StateCreator } from 'zustand';
 import { devtools, subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import { createOperatorSlice } from './operatorSlice';
 import type { OperatorSlice } from './operatorSlice';
 
 export type OperatorStore = OperatorSlice;
+const createStandaloneOperatorSlice = createOperatorSlice as unknown as StateCreator<
+  OperatorStore,
+  [['zustand/immer', never]],
+  [],
+  OperatorStore
+>;
 
 export const useOperatorStore = create<OperatorStore>()(
   devtools(
     subscribeWithSelector(
       immer((...args) => ({
-        ...createOperatorSlice(...args),
+        ...createStandaloneOperatorSlice(...args),
       })),
     ),
     { name: 'OperatorStore', enabled: process.env.NODE_ENV === 'development' },

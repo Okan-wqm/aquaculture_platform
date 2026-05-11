@@ -2,7 +2,7 @@
 name: aria-prompt-writer
 description: Maintenance-bound prompt renderer for ARIA convergent gate. Generates and updates ARIA-scoped agent prompts (judges + maintenance agents) so every prompt contains the laws, scope rules, evidence rules, satisfaction-matrix obligations, and refusal discipline ARIA requires. Not dispatchable from runtime domain reviewers.
 model: opus
-effort: high
+effort: xhigh
 tools: Read, Grep, Glob
 ---
 
@@ -27,7 +27,7 @@ When you generate or revise an ARIA agent prompt, the rendered text MUST include
 
 ## What You Produce
 
-A markdown file at `expected_output_path` in the `.claude/agents/_maintenance/` (maintenance) or `.claude/agents/` (judges) directory with frontmatter `name`, `description`, `model: opus`, `effort: high`, `tools: Read, Grep, Glob`. Body sections cover the ten clauses above plus any role-specific rules from the envelope's `must_satisfy[]`.
+A markdown file at `expected_output_path` in the `.claude/agents/_maintenance/` (maintenance) or `.claude/agents/` (judges) directory with frontmatter `name`, `description`, `model: opus`, `effort: xhigh`, `tools: Read, Grep, Glob`. Body sections cover the ten clauses above plus any role-specific rules from the envelope's `must_satisfy[]`.
 
 ## Refusal Discipline
 

@@ -28,27 +28,32 @@ import {
   getComplexity,
   simpleEstimator,
 } from 'graphql-query-complexity';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  UserContextMiddleware,
-  RolesGuard,
-  TenantGuard,
-  ThrottlerModule,
-  ThrottlerGuard,
-  SlidingWindowStrategy,
-  ServiceIdentityGuard,
-  SourceSchemaBootstrapService,
-  createTenantSchemaMiddleware,
-  createTenantConnectionBootstrap,
   createMigrationRunnerService,
-  TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
+  createServiceTypeOrmConfig,
+  createTenantConnectionBootstrap,
   RlsModule,
   SchemaDriftModule,
-  PlatformJwtModule,
-} from '@aquaculture/backend-common';
+  SourceSchemaBootstrapService,
+  SourceSchemaWriteGuardService,
+  TenantSchemaSyncService,
+} from '@aquaculture/backend-common/database';
+import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import {
+  CorrelationIdMiddleware,
+  createTenantSchemaMiddleware,
+  StripInternalHeadersMiddleware,
+  TenantContextMiddleware,
+  UserContextMiddleware,
+} from '@aquaculture/backend-common/middleware';
+import {
+  SlidingWindowStrategy,
+  ThrottlerGuard,
+  ThrottlerModule,
+} from '@aquaculture/backend-common/security';
 
 // Tenant infrastructure — 'messaging' source schema for template tables
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('messaging');
@@ -117,7 +122,7 @@ import { AddTenantIdToMessageChildren1782300000000 } from './migrations/17823000
 // via TenantRlsSyncService (wired by RlsModule.forPoolService syncTenantSchemas: true).
 import { EnableRowLevelSecurity1782400000000 } from './migrations/1782400000000-EnableRowLevelSecurity';
 import { AlignMessagingEntityDrift1782600000000 } from './migrations/1782600000000-AlignMessagingEntityDrift';
-import { AddLegalHoldDualApprover1782700000000 } from './migrations/1782700000000-AddLegalHoldDualApprover';
+import { AddLegalHoldDualApprover1782700000001 } from './migrations/1782700000001-AddLegalHoldDualApprover';
 import { AddMessageAttachmentIsDeletedIndex1782800000000 } from './migrations/1782800000000-AddMessageAttachmentIsDeletedIndex';
 
 // Feature modules
@@ -203,7 +208,7 @@ const complexityCache = new Map<string, number>();
             AddTenantIdToMessageChildren1782300000000,
             EnableRowLevelSecurity1782400000000,
             AlignMessagingEntityDrift1782600000000,
-            AddLegalHoldDualApprover1782700000000,
+            AddLegalHoldDualApprover1782700000001,
             AddMessageAttachmentIsDeletedIndex1782800000000,
           ],
         }),
@@ -368,16 +373,25 @@ const complexityCache = new Map<string, number>();
     { provide: APP_GUARD, useFactory: (r: Reflector): RolesGuard => new RolesGuard(r), inject: [Reflector] },
     { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard => new ThrottlerGuard(r, c, s), inject: [Reflector, ConfigService, SlidingWindowStrategy] },
 
+    // Migration runner — runs pending TypeORM migrations on the messaging
+    // source schema at OnApplicationBootstrap with search_path pinning.
+    // See docblock on MessagingMigrationRunnerService above.
+    //
+    // ORDER MATTERS: NestJS calls onApplicationBootstrap in provider
+    // registration order. The migration runner MUST appear BEFORE
+    // SourceSchemaBootstrapService so the source-schema invariant check
+    // (which hard-fails on empty tables, INFRA-CRITICAL-009) sees a
+    // populated schema. Production previously masked this ordering
+    // requirement because aqua-db-migrate populated the schema before
+    // service containers started; in E2E (DATABASE_MIGRATIONS_RUN=false
+    // converged path) the runner is the SSoT for migration execution.
+    MessagingMigrationRunnerService,
+
     // Tenant infrastructure providers (all 5 required — see ADR-012 section 6.1)
     SourceSchemaBootstrapService,
     TenantConnectionBootstrap,
     TenantSchemaSyncService,
     SourceSchemaWriteGuardService,
-
-    // Migration runner — runs pending TypeORM migrations on the messaging
-    // source schema at OnApplicationBootstrap with search_path pinning.
-    // See docblock on MessagingMigrationRunnerService above.
-    MessagingMigrationRunnerService,
   ],
 })
 export class AppModule implements NestModule {

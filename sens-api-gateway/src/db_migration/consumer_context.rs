@@ -148,33 +148,25 @@ pub fn context_bytes_for_purpose<'a>(
     ctx: &'a ConsumerContext,
 ) -> Result<&'a [u8], ConsumerContextError> {
     match purpose {
-        KeyPurpose::SqlCipherOfflineQueue
-        | KeyPurpose::SqlCipherLicenseCache => {
+        KeyPurpose::SqlCipherOfflineQueue | KeyPurpose::SqlCipherLicenseCache => {
             // Device-bound — deployment UUID required.
             if ctx.deployment_uuid.is_empty() {
-                return Err(ConsumerContextError::DeploymentUuidRequired {
-                    purpose,
-                });
+                return Err(ConsumerContextError::DeploymentUuidRequired { purpose });
             }
             Ok(&ctx.deployment_uuid)
         }
-        KeyPurpose::SqlCipherRetainPersistence
-        | KeyPurpose::SqlCipherBytecodeRetain => {
+        KeyPurpose::SqlCipherRetainPersistence | KeyPurpose::SqlCipherBytecodeRetain => {
             // Program-bound — program SHA-256 required.
             match &ctx.program_artifact_sha256 {
                 Some(sha) if !sha.is_empty() => Ok(sha.as_slice()),
-                _ => Err(ConsumerContextError::ProgramSha256Required {
-                    purpose,
-                }),
+                _ => Err(ConsumerContextError::ProgramSha256Required { purpose }),
             }
         }
         // All non-SqlCipher* variants → fail-closed.
         KeyPurpose::AuditHmacChain
         | KeyPurpose::ReplayCache
         | KeyPurpose::DekEscrow
-        | KeyPurpose::ConfigVerify => {
-            Err(ConsumerContextError::WrongPurpose { got: purpose })
-        }
+        | KeyPurpose::ConfigVerify => Err(ConsumerContextError::WrongPurpose { got: purpose }),
     }
 }
 
@@ -192,44 +184,30 @@ mod tests {
     #[test]
     fn offline_queue_resolves_to_deployment_uuid() {
         let ctx = ctx_with_both();
-        let bytes = context_bytes_for_purpose(
-            KeyPurpose::SqlCipherOfflineQueue,
-            &ctx,
-        )
-        .expect("ok");
+        let bytes = context_bytes_for_purpose(KeyPurpose::SqlCipherOfflineQueue, &ctx).expect("ok");
         assert_eq!(bytes, b"deployment-uuid-16b");
     }
 
     #[test]
     fn license_cache_resolves_to_deployment_uuid() {
         let ctx = ctx_with_both();
-        let bytes = context_bytes_for_purpose(
-            KeyPurpose::SqlCipherLicenseCache,
-            &ctx,
-        )
-        .expect("ok");
+        let bytes = context_bytes_for_purpose(KeyPurpose::SqlCipherLicenseCache, &ctx).expect("ok");
         assert_eq!(bytes, b"deployment-uuid-16b");
     }
 
     #[test]
     fn retain_persistence_resolves_to_program_sha256() {
         let ctx = ctx_with_both();
-        let bytes = context_bytes_for_purpose(
-            KeyPurpose::SqlCipherRetainPersistence,
-            &ctx,
-        )
-        .expect("ok");
+        let bytes =
+            context_bytes_for_purpose(KeyPurpose::SqlCipherRetainPersistence, &ctx).expect("ok");
         assert_eq!(bytes, &vec![0xAA; 32][..]);
     }
 
     #[test]
     fn bytecode_retain_resolves_to_program_sha256() {
         let ctx = ctx_with_both();
-        let bytes = context_bytes_for_purpose(
-            KeyPurpose::SqlCipherBytecodeRetain,
-            &ctx,
-        )
-        .expect("ok");
+        let bytes =
+            context_bytes_for_purpose(KeyPurpose::SqlCipherBytecodeRetain, &ctx).expect("ok");
         assert_eq!(bytes, &vec![0xAA; 32][..]);
     }
 
@@ -239,11 +217,8 @@ mod tests {
             deployment_uuid: Vec::new(),
             program_artifact_sha256: Some(vec![0xAA; 32]),
         };
-        let err = context_bytes_for_purpose(
-            KeyPurpose::SqlCipherOfflineQueue,
-            &ctx,
-        )
-        .expect_err("must error");
+        let err = context_bytes_for_purpose(KeyPurpose::SqlCipherOfflineQueue, &ctx)
+            .expect_err("must error");
         match err {
             ConsumerContextError::DeploymentUuidRequired { purpose } => {
                 assert_eq!(purpose, KeyPurpose::SqlCipherOfflineQueue);
@@ -258,17 +233,11 @@ mod tests {
             deployment_uuid: b"x".to_vec(),
             program_artifact_sha256: None,
         };
-        let err = context_bytes_for_purpose(
-            KeyPurpose::SqlCipherRetainPersistence,
-            &ctx,
-        )
-        .expect_err("must error");
+        let err = context_bytes_for_purpose(KeyPurpose::SqlCipherRetainPersistence, &ctx)
+            .expect_err("must error");
         match err {
             ConsumerContextError::ProgramSha256Required { purpose } => {
-                assert_eq!(
-                    purpose,
-                    KeyPurpose::SqlCipherRetainPersistence
-                );
+                assert_eq!(purpose, KeyPurpose::SqlCipherRetainPersistence);
             }
             other => panic!("expected ProgramSha256Required, got {other:?}"),
         }
@@ -281,11 +250,8 @@ mod tests {
             deployment_uuid: b"x".to_vec(),
             program_artifact_sha256: Some(Vec::new()),
         };
-        let err = context_bytes_for_purpose(
-            KeyPurpose::SqlCipherBytecodeRetain,
-            &ctx,
-        )
-        .expect_err("must error");
+        let err = context_bytes_for_purpose(KeyPurpose::SqlCipherBytecodeRetain, &ctx)
+            .expect_err("must error");
         assert!(matches!(
             err,
             ConsumerContextError::ProgramSha256Required { .. }
@@ -301,8 +267,8 @@ mod tests {
             KeyPurpose::DekEscrow,
             KeyPurpose::ConfigVerify,
         ] {
-            let err = context_bytes_for_purpose(purpose, &ctx)
-                .expect_err("non-sqlcipher must error");
+            let err =
+                context_bytes_for_purpose(purpose, &ctx).expect_err("non-sqlcipher must error");
             assert!(
                 matches!(err, ConsumerContextError::WrongPurpose { .. }),
                 "expected WrongPurpose for {purpose:?}, got {err:?}"
@@ -360,8 +326,7 @@ mod tests {
             KeyPurpose::SqlCipherOfflineQueue,
             KeyPurpose::SqlCipherLicenseCache,
         ] {
-            let result =
-                context_bytes_for_purpose(purpose, &ctx_only_uuid);
+            let result = context_bytes_for_purpose(purpose, &ctx_only_uuid);
             assert!(
                 result.is_ok(),
                 "device-bound consumer {purpose:?} must resolve with only deployment_uuid"
@@ -372,8 +337,7 @@ mod tests {
             KeyPurpose::SqlCipherRetainPersistence,
             KeyPurpose::SqlCipherBytecodeRetain,
         ] {
-            let result =
-                context_bytes_for_purpose(purpose, &ctx_only_uuid);
+            let result = context_bytes_for_purpose(purpose, &ctx_only_uuid);
             assert!(
                 matches!(
                     result,

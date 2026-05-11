@@ -44,15 +44,47 @@ owns a single PostgreSQL schema named after itself:
 | hydroponics-service  | `hydroponics`  | `hydroponics_service` |
 | admin-api-service    | `admin`        | `admin_service`       |
 | gateway-api          | `gateway`      | `gateway_service`     |
-| config-service       | (uses public — see open question below) |
+| config-service       | `config`       | `config_service`      |
+| event-store-service  | `event_store`  | `event_store_service` |
+| observability-service| `observability`| `observability_service`|
 
 Schemas + roles + ownership are created in
-`infrastructure/docker/init-scripts/00-init-schemas.sh`. Each entity
-owned by a service MUST declare `schema: '<owner>'` in its `@Entity()`
-decorator. The CI invariant test
-(`e2e/tests/integration/schema-invariants.spec.ts`) and the runtime
-schema-drift validator (`createSchemaDriftValidator` in backend-common)
-enforce this.
+`infrastructure/docker/init-scripts/00-init-schemas.sh`.
+
+**Entity decoration discipline (Wave 4-A.2 update, 2026-05-08):**
+
+Two distinct entity-decoration conventions, BOTH correct, depending on
+whether the service is tenant-scoped:
+
+1. **Platform-level services** (`auth`, `billing`, `admin`, `notification`,
+   `event_store`, `observability`, `config`, `gateway`) — every entity
+   declares `schema: '<owner>'` explicitly. The data lives in a single
+   schema; cross-service consumers read with schema-qualified queries.
+
+2. **Tenant-scoped services** (`farm`, `sensor`, `hr`, `messaging`,
+   `hydroponics`, `ai`, `alert`) — per-tenant entities OMIT the
+   `schema:` parameter. The runtime sets `search_path = "tenant_<uuid>",
+   public` per request, so unqualified table references resolve into
+   the tenant's clone schema (`tenant_<uuid_first_16_hex>`). The source
+   schema (`farm`, `sensor`, etc.) holds template tables that
+   `TenantSchemaSyncService` copies into each tenant clone via
+   `CREATE TABLE LIKE source.X INCLUDING ALL`. Pinning `schema: 'farm'`
+   on a per-tenant entity would BYPASS the routing and write data to
+   the source — the architecture spec at
+   `apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts`
+   forbids this on every PR.
+
+3. **Cross-tenant exceptions WITHIN tenant-scoped services** — outbox
+   tables (`farm_outbox`, `messaging_outbox`, `hr_outbox`), audit logs
+   (`farm_audit_logs`, `payroll_audit`, `alert_audit_log`,
+   `tool_execution_audit`, `sensor_audit_logs`), and operational
+   reference data (`code_sequences`, `tenant_erasure_audit`) keep
+   `schema: '<source>'` explicit. They live in the source schema only
+   (single cross-tenant copy) and are not cloned per tenant.
+
+The CI invariant test (`e2e/tests/integration/schema-invariants.spec.ts`)
+and the runtime schema-drift validator (`createSchemaDriftValidator` in
+backend-common) enforce both conventions.
 
 ### Tier 2: `shared` schema
 
@@ -63,7 +95,7 @@ members of this role via `GRANT shared_schema_owner TO <svc>_service`,
 which gives every member ALTER privileges (needed for RLS bootstrap and
 schema migrations) without exposing superuser credentials.
 
-Currently (2026-04-14) the shared schema contains exactly four tables:
+Currently (Wave 4-A.2, 2026-05-08) the shared schema contains exactly five tables:
 
   - `shared.audit_logs` — cross-service audit trail (backend-common's
     AuditLogEntity, written by billing/config/notification/alert/ai/
@@ -72,10 +104,14 @@ Currently (2026-04-14) the shared schema contains exactly four tables:
   - `shared.user_consents` — compliance: consent records.
   - `shared.user_permissions` — platform-wide RBAC, READ by every
     service for permission checks on every request.
+  - `shared.access_logs` — cross-service access trail (backend-common's
+    AccessLogEntity), distinct from audit_logs by retention policy and
+    cardinality (access_logs are write-many, audit_logs are write-once).
 
-Adding a new table to `shared` requires PR review explaining the
-cross-service contract and an update to the CI invariant
-(`SHARED_SCHEMA_TABLES` set in schema-invariants.spec.ts).
+Adding a 6th shared table requires an ADR + architectural-arbiter
+approval AND an update to the CI invariant (`SHARED_SCHEMA_TABLES` set
+in schema-invariants.spec.ts). The `add-shared-table` skill gate
+(BLOCKER-15) enforces this at PR time.
 
 ### Tier 3: `public` schema — application-empty
 
@@ -112,10 +148,11 @@ invariant catches the omission immediately.
 
 ### Negative / open questions
 
-- **config-service still uses public.** config-service's Configuration
-  entity is currently in `public` because there is only one tenant
-  table (per-tenant configuration overrides). Future work: create a
-  `config` schema and move it. Tracked as a follow-up to P9.
+- **config-service moved to `config` schema (Wave 4-A.2, 2026-05-08).**
+  Open question resolved: dedicated `config` schema + `config_service`
+  role created in 00-init-schemas.sh. Configuration entity declares
+  `schema: 'config'`. Backfill on legacy droplets handled by
+  `MovePublicTablesToConfig` migration if needed.
 - **Cross-tenant analytics queries become slightly harder to write.**
   Joining `shared.audit_logs` with `farm.batches_v2` requires
   schema-qualified joins instead of an unqualified-name lookup via

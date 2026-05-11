@@ -65,9 +65,7 @@ use serde::Deserialize;
 use tracing::info;
 
 use crate::authz::permission::Permission;
-use crate::command_envelope::{
-    EnvelopeHandler, HandlerError, HandlerInput, HandlerResponse,
-};
+use crate::command_envelope::{EnvelopeHandler, HandlerError, HandlerInput, HandlerResponse};
 
 /// Payload shape for ping. Empty on the wire (`params: {}`); serde
 /// deserializes any JSON object into a `PingPayload` as long as no
@@ -129,9 +127,9 @@ mod tests {
     use crate::authz::manifest_runtime::RbacManifestStore;
     use crate::authz::permission::{OperatorId, TenantId};
     use crate::authz::policy::PolicyEngine;
-    use crate::command_envelope::{canonical::CmdHash, CommandDispatcher, CommandEnvelope};
     use crate::command_envelope::dispatcher::DispatchError;
     use crate::command_envelope::jti::Jti;
+    use crate::command_envelope::{CommandDispatcher, CommandEnvelope, canonical::CmdHash};
     use std::sync::Arc;
     use std::time::{Duration, UNIX_EPOCH};
 
@@ -244,15 +242,14 @@ mod tests {
     async fn ping_payload_accepts_extra_fields() {
         // Defensive tolerance — server skew tolerance for clients
         // that speculatively add fields.
-        let v: PingPayload =
-            serde_json::from_value(serde_json::json!({"extra": 42})).unwrap();
+        let v: PingPayload = serde_json::from_value(serde_json::json!({"extra": 42})).unwrap();
         assert_eq!(v, PingPayload::default());
     }
 
     #[tokio::test]
     async fn dispatch_produces_pong_payload() {
         use crate::authz::context::AuthorizedContext;
-        use crate::command_envelope::{handler::EnvelopeMeta, HandlerInput};
+        use crate::command_envelope::{HandlerInput, handler::EnvelopeMeta};
         let ctx = AuthorizedContext::new_from_verified(
             ActorIdentity::Operator(canned_operator()),
             Permission::ReadTag,
@@ -276,8 +273,9 @@ mod tests {
 
     #[tokio::test]
     async fn end_to_end_dispatcher_allow_reaches_handler() {
-        let engine: Arc<dyn PolicyEngine> =
-            Arc::new(InMemoryPolicyEngine::new(store_with(manifest_with_readtag())));
+        let engine: Arc<dyn PolicyEngine> = Arc::new(InMemoryPolicyEngine::new(store_with(
+            manifest_with_readtag(),
+        )));
         let mut d = CommandDispatcher::new(engine, canned_tenant());
         d.register(PingHandler);
         let env = canned_envelope("ping", serde_json::json!({}));
@@ -299,9 +297,9 @@ mod tests {
     async fn end_to_end_dispatcher_deny_blocks_handler() {
         // Operator has role "watcher_only" — no ReadTag. Engine must
         // deny + handler must NOT run.
-        let engine: Arc<dyn PolicyEngine> = Arc::new(InMemoryPolicyEngine::new(
-            store_with(manifest_without_readtag()),
-        ));
+        let engine: Arc<dyn PolicyEngine> = Arc::new(InMemoryPolicyEngine::new(store_with(
+            manifest_without_readtag(),
+        )));
         let mut d = CommandDispatcher::new(engine, canned_tenant());
         d.register(PingHandler);
         let env = canned_envelope("ping", serde_json::json!({}));
@@ -325,8 +323,9 @@ mod tests {
     async fn end_to_end_dispatcher_unknown_operator_denies() {
         // Manifest has canned_operator; we ping as a different
         // operator → engine sees no binding → PermissionNotGranted.
-        let engine: Arc<dyn PolicyEngine> =
-            Arc::new(InMemoryPolicyEngine::new(store_with(manifest_with_readtag())));
+        let engine: Arc<dyn PolicyEngine> = Arc::new(InMemoryPolicyEngine::new(store_with(
+            manifest_with_readtag(),
+        )));
         let mut d = CommandDispatcher::new(engine, canned_tenant());
         d.register(PingHandler);
         let stranger = OperatorId::new_from_verified([0xDEu8; 16]);
@@ -357,8 +356,9 @@ mod tests {
         // guards against accidentally reading tenant from the
         // envelope at the dispatcher layer (which would be a
         // trust-boundary hole since the envelope is client input).
-        let engine: Arc<dyn PolicyEngine> =
-            Arc::new(InMemoryPolicyEngine::new(store_with(manifest_with_readtag())));
+        let engine: Arc<dyn PolicyEngine> = Arc::new(InMemoryPolicyEngine::new(store_with(
+            manifest_with_readtag(),
+        )));
         let wrong_tenant = TenantId::new_from_verified([0xFFu8; 16]);
         let mut d = CommandDispatcher::new(engine, wrong_tenant);
         d.register(PingHandler);

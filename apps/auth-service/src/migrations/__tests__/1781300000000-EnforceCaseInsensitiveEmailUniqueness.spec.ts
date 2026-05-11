@@ -1,5 +1,5 @@
 import type { QueryRunner } from 'typeorm';
-import { EnforceCaseInsensitiveEmailUniqueness1781300000000 } from './1781300000000-EnforceCaseInsensitiveEmailUniqueness';
+import { EnforceCaseInsensitiveEmailUniqueness1781300000000 } from '../1781300000000-EnforceCaseInsensitiveEmailUniqueness';
 
 /**
  * EnforceCaseInsensitiveEmailUniqueness.spec.ts

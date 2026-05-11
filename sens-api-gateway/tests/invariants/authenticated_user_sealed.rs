@@ -127,11 +127,7 @@ fn find_test_region_start(content: &str) -> usize {
 #[test]
 fn authenticated_user_seal_forbids_external_constructors() {
     let src = src_dir();
-    assert!(
-        src.is_dir(),
-        "src/ not found at {}",
-        src.display()
-    );
+    assert!(src.is_dir(), "src/ not found at {}", src.display());
 
     let files = collect_rs_files(&src);
     assert!(

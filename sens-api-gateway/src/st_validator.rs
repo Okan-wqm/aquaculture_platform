@@ -1819,9 +1819,8 @@ impl Parser {
                         }
                         _ => {
                             self.errors.push(StError {
-                                message:
-                                    "CASE range `..` requires integer literals on both sides"
-                                        .to_string(),
+                                message: "CASE range `..` requires integer literals on both sides"
+                                    .to_string(),
                                 span: Some(self.current_span()),
                                 code: "E205".to_string(),
                             });
@@ -1945,66 +1944,6 @@ impl Parser {
                 idx += 1;
                 match self.tokens.get(idx).map(|t| &t.kind) {
                     Some(TokenKind::IntLiteral(_)) | Some(TokenKind::Identifier(_)) => {
-                        idx += 1;
-                    }
-                    _ => return false,
-                }
-            }
-            // Terminator: `:` → label; `,` → next atom;
-            // `:=` or anything else → not a label.
-            match self.tokens.get(idx).map(|t| &t.kind) {
-                Some(TokenKind::Colon) => return true,
-                Some(TokenKind::Comma) => {
-                    idx += 1;
-                    continue;
-                }
-                _ => return false,
-            }
-        }
-    }
-
-    /// Batch 85 helper for CASE body parsing. Returns true iff
-    /// the current token is an integer literal or identifier
-    /// AND the NEXT token is a bare `Colon` (not `Assign`).
-    /// This is the "next case label" signature — body should
-    /// terminate so the outer loop can parse the label.
-    ///
-    /// WHY lookahead (not just stop-on-ident): an identifier
-    /// inside a case BODY is typically a variable on the LHS of
-    /// an assignment (`output := 0;`). The next token after
-    /// `output` is `Assign` (`:=`), NOT bare `Colon`. By
-    /// distinguishing these we allow ident-starting body
-    /// statements to parse correctly while still detecting
-    /// enum-identifier case labels (e.g. `MyEnum.Red:`).
-    fn is_case_label_lookahead(&self) -> bool {
-        // Batch 178 Faz 3: extended to recognize multi-
-        // value + range CASE labels in the form
-        // `<int|ident> [ .. <int|ident> ] (, <int|ident>
-        // [ .. <int|ident> ])* :`.
-        //
-        // Walks forward through the token stream,
-        // consuming a label sequence + stopping at a
-        // terminating `:` (label) or returning false on
-        // `:=` (statement) or anything unexpected.
-        let mut idx = self.pos;
-        // Must start with a label atom.
-        loop {
-            // Expect atom: IntLiteral or Identifier.
-            match self.tokens.get(idx).map(|t| &t.kind) {
-                Some(TokenKind::IntLiteral(_)) | Some(TokenKind::Identifier(_)) => {
-                    idx += 1;
-                }
-                _ => return false,
-            }
-            // Optional `.. <atom>` range tail.
-            if matches!(
-                self.tokens.get(idx).map(|t| &t.kind),
-                Some(TokenKind::DotDot)
-            ) {
-                idx += 1;
-                match self.tokens.get(idx).map(|t| &t.kind) {
-                    Some(TokenKind::IntLiteral(_))
-                    | Some(TokenKind::Identifier(_)) => {
                         idx += 1;
                     }
                     _ => return false,

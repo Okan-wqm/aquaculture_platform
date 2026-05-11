@@ -153,14 +153,17 @@ fn d4_d6_mqtt_client_holds_state_handle() {
     let src = read_source("src/mqtt.rs");
     assert!(
         src.contains("mtls_verifier_state: Option<Arc<crate::mtls::MtlsVerifierState>>")
-            || src.contains("mtls_verifier_state: Option<std::sync::Arc<crate::mtls::MtlsVerifierState>>"),
+            || src.contains(
+                "mtls_verifier_state: Option<std::sync::Arc<crate::mtls::MtlsVerifierState>>"
+            ),
         "ULTRA-HIGH-018 + ULTRA-HIGH-020 WIRE INVARIANT VIOLATED: \
          struct MqttClient does not declare `mtls_verifier_state: Option<Arc<...MtlsVerifierState>>`. \
          The field is the public bridge between MQTT transport state and the \
          command-dispatch path that drives rotations."
     );
     assert!(
-        src.contains("pub fn mtls_verifier_state(") && src.contains("Arc<crate::mtls::MtlsVerifierState>"),
+        src.contains("pub fn mtls_verifier_state(")
+            && src.contains("Arc<crate::mtls::MtlsVerifierState>"),
         "ULTRA-HIGH-018 + ULTRA-HIGH-020 WIRE INVARIANT VIOLATED: \
          MqttClient does not expose a `pub fn mtls_verifier_state(...) -> \
          Option<&Arc<MtlsVerifierState>>` accessor. cmd_update_cert_pinning \
@@ -298,8 +301,7 @@ fn d4_update_cert_pinning_dispatch_wire_present() {
 fn d4_update_cert_pinning_requires_manage_cert_pinning_permission() {
     let src = read_source("src/commands/required_permission.rs");
     assert!(
-        src.contains("\"update_cert_pinning\"")
-            && src.contains("Permission::ManageCertPinning"),
+        src.contains("\"update_cert_pinning\"") && src.contains("Permission::ManageCertPinning"),
         "ULTRA-HIGH-018 / D-4 RBAC GATE INVARIANT VIOLATED: \
          src/commands/required_permission.rs does not map \"update_cert_pinning\" \
          to Permission::ManageCertPinning. Mapping it to ManagePolicy collapses \

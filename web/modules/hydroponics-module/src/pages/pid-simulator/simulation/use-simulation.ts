@@ -44,6 +44,15 @@ function findReagent(name: string): HydroReagent {
   return HYDRO_REAGENTS.find(r => r.name === name) || HYDRO_REAGENTS[0];
 }
 
+function calcEquilibriumPH(
+  alk: number,
+  co2: number,
+  tempC: number,
+  salinity: number,
+): number {
+  return equilibrateCo2(alk, co2, tempC, salinity).pH;
+}
+
 function createInitialState(config: SimConfig): SimState {
   // Start at atmospheric CO₂ equilibrium for the given ALK
   const eq = equilibrateCo2(config.initialAlkMeq, CO2_EQ_MMOL, config.tempC, config.salinity);
@@ -70,7 +79,7 @@ function createInitialState(config: SimConfig): SimState {
     baseTotalGrams: 0,
     nutTotalML: 0,
     co2Eq: co2MmToMg(CO2_EQ_MMOL),
-    eqPH,
+    eqPH: eq.pH,
     gainSchedule: 1.0,
     bufferCapacity: 1.0,
   };
@@ -206,7 +215,7 @@ export function useSimulation() {
       if (state.EC < cfg.ecMin) {
         const mlNeeded = calcEcDose(state.EC, ecMid, cfg.volumeL);
         nutPump = mlToPumpPercent(mlNeeded, NUT_PUMP_MAX, dt);
-        newState = 'DOSING_EC';
+        newState = 'EC';
       } else {
         dilPump = 80;
         newState = 'DILUTE';
@@ -219,7 +228,7 @@ export function useSimulation() {
         const grams = calcDoseGrams(state, phMid, baseReagent, cfg);
         basePump = gramsToPumpPercent(grams, BASE_PUMP_MAX, cfg.baseConc, dt);
       }
-      newState = 'DOSING_PH';
+      newState = 'PH';
     } else {
       newState = 'IDLE';
     }
@@ -287,6 +296,7 @@ export function useSimulation() {
     historyRef.current.push({
       tick: s.tick, DIC: s.DIC, ALK: s.ALK, pH: s.pH, EC: s.EC, co2: s.co2,
       acidPump: s.acidPump, basePump: s.basePump, nutPump: s.nutPump, dilPump: s.dilPump,
+      eqPH: s.eqPH,
       state: s.state,
     });
     if (historyRef.current.length > HISTORY_MAX) historyRef.current.shift();

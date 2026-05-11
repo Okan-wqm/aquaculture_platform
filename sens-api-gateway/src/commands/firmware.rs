@@ -271,7 +271,9 @@ impl CommandHandler {
                 }
             };
 
-            let resolved_version = resolved_tag.strip_prefix("agent-v").unwrap_or(&resolved_tag);
+            let resolved_version = resolved_tag
+                .strip_prefix("agent-v")
+                .unwrap_or(&resolved_tag);
 
             if resolved_version == current_version {
                 send_progress(
@@ -327,21 +329,15 @@ impl CommandHandler {
             let tarball_path = update_dir.join(&tarball_name);
             let checksum_path = update_dir.join(&checksum_name);
 
-            if let Err(e) = download_file(
-                &format!("{}{}", base_url, tarball_name),
-                &tarball_path,
-            )
-            .await
+            if let Err(e) =
+                download_file(&format!("{}{}", base_url, tarball_name), &tarball_path).await
             {
                 send_failed(format!("Failed to download tarball: {}", e)).await;
                 return;
             }
 
-            if let Err(e) = download_file(
-                &format!("{}{}", base_url, checksum_name),
-                &checksum_path,
-            )
-            .await
+            if let Err(e) =
+                download_file(&format!("{}{}", base_url, checksum_name), &checksum_path).await
             {
                 send_failed(format!("Failed to download checksum file: {}", e)).await;
                 return;
@@ -550,10 +546,7 @@ pub(super) fn is_valid_version_string(version: &str) -> bool {
 ///   releases).
 /// - "agent-v1.5.3" → used as-is.
 /// - "1.5.2" → prefixed with "agent-v".
-pub(super) async fn resolve_firmware_version(
-    target: &str,
-    repo: &str,
-) -> anyhow::Result<String> {
+pub(super) async fn resolve_firmware_version(target: &str, repo: &str) -> anyhow::Result<String> {
     if target == "latest" {
         fetch_latest_agent_tag(repo).await
     } else if !is_valid_version_string(target) {

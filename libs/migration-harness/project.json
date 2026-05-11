@@ -18,6 +18,12 @@
       "options": {
         "jestConfig": "libs/migration-harness/jest.config.cts"
       }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["libs/migration-harness/src/**/*.ts"]
+      }
     }
   }
 }

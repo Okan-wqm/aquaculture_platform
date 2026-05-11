@@ -12,7 +12,8 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useState, useCallback } from 'react';
-import { getTenantActivity } from '../lib/api';
+import { graphqlRequest } from '../services/tenant-api.service';
+import { TENANT_ACTIVITY_QUERY } from '../graphql';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
@@ -47,7 +48,12 @@ export interface DailyActiveUsers {
   count: number;
 }
 
-// TenantActivityData imported from lib/api
+export interface TenantActivityData {
+  recentLogins: RecentLogin[];
+  activeSessions: number;
+  userActivitySummaries: UserActivitySummary[];
+  dailyActiveUsers: DailyActiveUsers[];
+}
 
 export type ActivityPeriod = '7d' | '30d';
 
@@ -56,9 +62,9 @@ export type ActivityPeriod = '7d' | '30d';
 // ============================================================================
 
 export const activityKeys = {
-  all: (tenantId: string | undefined) => ['tenant-activity', tenantId] as const,
-  summary: (tenantId: string | undefined, period: ActivityPeriod) =>
-    [...activityKeys.all(tenantId), 'summary', period] as const,
+  all: ['tenant-activity'] as const,
+  summary: (period: ActivityPeriod) =>
+    [...activityKeys.all, 'summary', period] as const,
 };
 
 // ============================================================================
@@ -66,15 +72,17 @@ export const activityKeys = {
 // ============================================================================
 
 export function useTenantActivity() {
-  const { user } = useAuthContext();
-  const tenantId = user?.tenantId ?? undefined;
   const [period, setPeriod] = useState<ActivityPeriod>('7d');
 
   const query = useQuery({
     queryKey: activityKeys.summary(period),
-    queryFn: async () => {
+    queryFn: async (): Promise<TenantActivityData> => {
       try {
-        return await getTenantActivity(period);
+        const data = await graphqlRequest<{ tenantActivity: TenantActivityData }>(
+          TENANT_ACTIVITY_QUERY,
+          { period },
+        );
+        return data.tenantActivity;
       } catch (err) {
         logError('useTenantActivity', err);
         throw err;

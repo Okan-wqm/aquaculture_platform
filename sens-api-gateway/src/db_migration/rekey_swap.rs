@@ -83,8 +83,8 @@
 use rusqlite::Connection;
 use std::path::PathBuf;
 
-use super::manifest::{write_manifest, DbKeySourceManifest};
-use super::rekey::{pragma_rekey, RekeyError};
+use super::manifest::{DbKeySourceManifest, write_manifest};
+use super::rekey::{RekeyError, pragma_rekey};
 
 /// Errors returned by `rekey_with_manifest_swap`.
 #[derive(Debug)]
@@ -175,13 +175,9 @@ pub fn rekey_with_manifest_swap(
     new_hex: &str,
     new_manifest: DbKeySourceManifest,
 ) -> Result<(), RekeyManifestError> {
-    rekey_with_manifest_swap_inner(
-        conn,
-        current_hex,
-        new_hex,
-        || write_manifest(&manifest_path, &new_manifest)
-            .map_err(|e| format!("{e}")),
-    )
+    rekey_with_manifest_swap_inner(conn, current_hex, new_hex, || {
+        write_manifest(&manifest_path, &new_manifest).map_err(|e| format!("{e}"))
+    })
 }
 
 /// Pure-orchestration kernel — takes a manifest-write
@@ -222,12 +218,12 @@ where
                 Ok(()) => Err(RekeyManifestError::ManifestWriteFailed {
                     reason: manifest_reason,
                 }),
-                Err(rollback_err) => Err(
-                    RekeyManifestError::ManifestWriteFailedAndRollbackFailed {
+                Err(rollback_err) => {
+                    Err(RekeyManifestError::ManifestWriteFailedAndRollbackFailed {
                         manifest_reason,
                         rollback_reason: format!("{rollback_err}"),
-                    },
-                ),
+                    })
+                }
             }
         }
     }
@@ -250,13 +246,9 @@ mod tests {
     ) {
         let dir = tempfile::tempdir().expect("tempdir");
         let db_path = dir.path().join("rekey_swap_test.db");
-        let v1_bytes =
-            derive_v1_legacy_key(b"swap-test", b"v1-secret-key-32-bytes!");
+        let v1_bytes = derive_v1_legacy_key(b"swap-test", b"v1-secret-key-32-bytes!");
         let v1_hex = format_sqlcipher_pragma_key_hex(&v1_bytes);
-        let v2_bytes = derive_v1_legacy_key(
-            b"swap-test-NEW",
-            b"v2-secret-key-32-bytes!",
-        );
+        let v2_bytes = derive_v1_legacy_key(b"swap-test-NEW", b"v2-secret-key-32-bytes!");
         let v2_hex = format_sqlcipher_pragma_key_hex(&v2_bytes);
 
         let conn = Connection::open(&db_path).expect("open");
@@ -275,14 +267,8 @@ mod tests {
     /// manifest write.
     #[test]
     fn swap_happy_path_returns_ok() {
-        let (_dir, _db, v1_hex, v2_hex, conn) =
-            open_keyed_db_with_seed_data();
-        let result = rekey_with_manifest_swap_inner(
-            &conn,
-            &v1_hex,
-            &v2_hex,
-            || Ok(()),
-        );
+        let (_dir, _db, v1_hex, v2_hex, conn) = open_keyed_db_with_seed_data();
+        let result = rekey_with_manifest_swap_inner(&conn, &v1_hex, &v2_hex, || Ok(()));
         assert!(result.is_ok(), "happy path failed: {:?}", result);
     }
 
@@ -291,15 +277,9 @@ mod tests {
     /// rekey atomicity at page-cache level).
     #[test]
     fn swap_rekey_failure_returns_rekey_failed_classification() {
-        let (_dir, _db, v1_hex, _v2_hex, conn) =
-            open_keyed_db_with_seed_data();
+        let (_dir, _db, v1_hex, _v2_hex, conn) = open_keyed_db_with_seed_data();
         let bad_hex = "bad-hex"; // length != 64 → HexFormat
-        let result = rekey_with_manifest_swap_inner(
-            &conn,
-            &v1_hex,
-            bad_hex,
-            || Ok(()),
-        );
+        let result = rekey_with_manifest_swap_inner(&conn, &v1_hex, bad_hex, || Ok(()));
         match result {
             Err(RekeyManifestError::RekeyFailed { reason }) => {
                 assert!(reason.contains("hex_format_invalid"));
@@ -319,16 +299,12 @@ mod tests {
     /// classification + DB rolled back to v1.
     #[test]
     fn swap_manifest_failure_rolls_back_to_old_key() {
-        let (dir, db_path, v1_hex, v2_hex, conn) =
-            open_keyed_db_with_seed_data();
+        let (dir, db_path, v1_hex, v2_hex, conn) = open_keyed_db_with_seed_data();
 
         // Closure simulates manifest write failure.
-        let result = rekey_with_manifest_swap_inner(
-            &conn,
-            &v1_hex,
-            &v2_hex,
-            || Err("simulated disk-full".to_string()),
-        );
+        let result = rekey_with_manifest_swap_inner(&conn, &v1_hex, &v2_hex, || {
+            Err("simulated disk-full".to_string())
+        });
         match &result {
             Err(RekeyManifestError::ManifestWriteFailed { reason }) => {
                 assert!(reason.contains("simulated disk-full"));
@@ -360,8 +336,8 @@ mod tests {
         conn_v2
             .execute_batch(&format!("PRAGMA key = \"x'{v2_hex}'\";"))
             .expect("parser allows; runtime fails on read");
-        let v2_read: rusqlite::Result<i64> = conn_v2
-            .query_row("SELECT count(*) FROM swap_test", [], |r| r.get(0));
+        let v2_read: rusqlite::Result<i64> =
+            conn_v2.query_row("SELECT count(*) FROM swap_test", [], |r| r.get(0));
         assert!(
             v2_read.is_err(),
             "v2 key should NOT open the DB after rollback"
@@ -377,15 +353,11 @@ mod tests {
     fn rekey_manifest_error_display_strings_pinned() {
         let cases: Vec<(RekeyManifestError, &str)> = vec![
             (
-                RekeyManifestError::RekeyFailed {
-                    reason: "x".into(),
-                },
+                RekeyManifestError::RekeyFailed { reason: "x".into() },
                 "rekey_swap_rekey_failed",
             ),
             (
-                RekeyManifestError::ManifestWriteFailed {
-                    reason: "y".into(),
-                },
+                RekeyManifestError::ManifestWriteFailed { reason: "y".into() },
                 "rekey_swap_manifest_write_failed_rollback_succeeded",
             ),
             (
@@ -421,30 +393,21 @@ mod tests {
     /// helper). Verified via tempdir manifest path.
     #[test]
     fn production_wrapper_writes_manifest_on_happy_path() {
-        let (_dir, _db, v1_hex, v2_hex, conn) =
-            open_keyed_db_with_seed_data();
+        let (_dir, _db, v1_hex, v2_hex, conn) = open_keyed_db_with_seed_data();
         let manifest_dir = tempfile::tempdir().expect("manifest dir");
-        let manifest_path =
-            manifest_dir.path().join("test.db.key-source.json");
+        let manifest_path = manifest_dir.path().join("test.db.key-source.json");
 
         let new_manifest = DbKeySourceManifest {
             schema_version: DbKeySchemaVersion::V2KeystoreDerived,
             last_updated_at_unix_secs: 1_700_000_777,
         };
 
-        rekey_with_manifest_swap(
-            &conn,
-            manifest_path.clone(),
-            &v1_hex,
-            &v2_hex,
-            new_manifest,
-        )
-        .expect("happy-path swap");
+        rekey_with_manifest_swap(&conn, manifest_path.clone(), &v1_hex, &v2_hex, new_manifest)
+            .expect("happy-path swap");
 
         // Verify manifest file exists + contains v2.
         assert!(manifest_path.exists());
-        let raw =
-            std::fs::read_to_string(&manifest_path).expect("read");
+        let raw = std::fs::read_to_string(&manifest_path).expect("read");
         assert!(
             raw.contains("\"v2-keystore-derived\""),
             "manifest missing v2 schema_version: {raw}"

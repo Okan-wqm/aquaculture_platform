@@ -71,14 +71,12 @@
 //!   own boot path; subsequent batches lift it into a
 //!   shared resolver the CLI can call.
 
-use crate::db_migration::boot_detector::{
-    detect_db_migration_backlog, DbMigrationBacklogReport,
-};
+use crate::db_migration::boot_detector::{DbMigrationBacklogReport, detect_db_migration_backlog};
 use crate::db_migration::cli_executor::{ConsumerOutcome, FailReason, SkipReason};
 use crate::db_migration::cli_runtime::execute_migration_ceremony;
 use crate::db_migration::schema_version::DbKeySchemaVersion;
-use crate::keystore::purpose::KeyPurpose;
 use crate::keystore::Keystore;
+use crate::keystore::purpose::KeyPurpose;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -150,8 +148,7 @@ impl std::error::Error for ArgError {}
 /// Tests pass synthetic `&[&str]` slices.
 pub fn parse_args(argv: &[&str]) -> Result<MigrationArgs, ArgError> {
     let mut data_dir: Option<PathBuf> = None;
-    let mut schema_target: DbKeySchemaVersion =
-        DbKeySchemaVersion::current_target();
+    let mut schema_target: DbKeySchemaVersion = DbKeySchemaVersion::current_target();
     let mut output_format = OutputFormat::Jsonl;
     let mut dry_run = false;
 
@@ -168,28 +165,19 @@ pub fn parse_args(argv: &[&str]) -> Result<MigrationArgs, ArgError> {
         };
         match arg {
             "--data-dir" => {
-                let value = argv.get(i + 1).ok_or_else(|| {
-                    ArgError::Missing {
-                        flag: "--data-dir <path>".to_string(),
-                    }
+                let value = argv.get(i + 1).ok_or_else(|| ArgError::Missing {
+                    flag: "--data-dir <path>".to_string(),
                 })?;
                 data_dir = Some(PathBuf::from(value));
                 i += 2;
             }
             "--schema-target" => {
-                let value = argv.get(i + 1).ok_or_else(|| {
-                    ArgError::Missing {
-                        flag: "--schema-target <kebab-case-version>"
-                            .to_string(),
-                    }
+                let value = argv.get(i + 1).ok_or_else(|| ArgError::Missing {
+                    flag: "--schema-target <kebab-case-version>".to_string(),
                 })?;
                 schema_target = match *value {
-                    "v1-machine-id-derived" => {
-                        DbKeySchemaVersion::V1MachineIdDerived
-                    }
-                    "v2-keystore-derived" => {
-                        DbKeySchemaVersion::V2KeystoreDerived
-                    }
+                    "v1-machine-id-derived" => DbKeySchemaVersion::V1MachineIdDerived,
+                    "v2-keystore-derived" => DbKeySchemaVersion::V2KeystoreDerived,
                     other => {
                         return Err(ArgError::Invalid {
                             flag: "--schema-target".to_string(),
@@ -202,19 +190,15 @@ pub fn parse_args(argv: &[&str]) -> Result<MigrationArgs, ArgError> {
                 i += 2;
             }
             "--output-format" => {
-                let value = argv.get(i + 1).ok_or_else(|| {
-                    ArgError::Missing {
-                        flag: "--output-format <jsonl>".to_string(),
-                    }
+                let value = argv.get(i + 1).ok_or_else(|| ArgError::Missing {
+                    flag: "--output-format <jsonl>".to_string(),
                 })?;
                 output_format = match *value {
                     "jsonl" => OutputFormat::Jsonl,
                     other => {
                         return Err(ArgError::Invalid {
                             flag: "--output-format".to_string(),
-                            reason: format!(
-                                "unknown format `{other}` (expected jsonl)"
-                            ),
+                            reason: format!("unknown format `{other}` (expected jsonl)"),
                         });
                     }
                 };
@@ -299,8 +283,7 @@ pub fn compute_dry_run_plan(args: &MigrationArgs) -> Vec<PlanStep> {
         .iter()
         .map(|(name, _)| args.data_dir.join(name))
         .collect();
-    let db_path_refs: Vec<&Path> =
-        db_paths.iter().map(|p| p.as_path()).collect();
+    let db_path_refs: Vec<&Path> = db_paths.iter().map(|p| p.as_path()).collect();
 
     let report = detect_db_migration_backlog(&db_path_refs);
 
@@ -317,23 +300,15 @@ pub fn classify_plan(
 ) -> Vec<PlanStep> {
     let mut steps = Vec::with_capacity(db_paths.len());
 
-    for (path, (filename, purpose)) in
-        db_paths.iter().zip(KNOWN_SQLCIPHER_CONSUMERS.iter())
-    {
-        let consumer = filename
-            .strip_suffix(".db")
-            .unwrap_or(filename)
-            .to_string();
+    for (path, (filename, purpose)) in db_paths.iter().zip(KNOWN_SQLCIPHER_CONSUMERS.iter()) {
+        let consumer = filename.strip_suffix(".db").unwrap_or(filename).to_string();
 
         // Find this path in the boot detector's report
         // and route to the corresponding PlanAction.
         let action_and_current = (|| {
             for entry in &report.backlog {
                 if &entry.db_path == path {
-                    return (
-                        PlanAction::WouldMigrate,
-                        Some(entry.current_version),
-                    );
+                    return (PlanAction::WouldMigrate, Some(entry.current_version));
                 }
             }
             for failure in &report.detection_failures {
@@ -398,11 +373,7 @@ pub fn plan_step_to_jsonl(step: &PlanStep) -> String {
         None => out.push_str("\"from\":null"),
     }
     out.push(',');
-    write_kv_str(
-        &mut out,
-        "to",
-        &format!("{}", step.target_version),
-    );
+    write_kv_str(&mut out, "to", &format!("{}", step.target_version));
     if let PlanAction::SidecarFailure { reason } = &step.action {
         out.push(',');
         write_kv_str(&mut out, "error_reason", reason);
@@ -444,9 +415,7 @@ fn push_json_string(out: &mut String, value: &str) {
 fn format_key_purpose(purpose: KeyPurpose) -> String {
     match purpose {
         KeyPurpose::SqlCipherOfflineQueue => "sqlcipher-offline-queue".into(),
-        KeyPurpose::SqlCipherRetainPersistence => {
-            "sqlcipher-retain-persistence".into()
-        }
+        KeyPurpose::SqlCipherRetainPersistence => "sqlcipher-retain-persistence".into(),
         KeyPurpose::SqlCipherLicenseCache => "sqlcipher-license-cache".into(),
         KeyPurpose::SqlCipherBytecodeRetain => "sqlcipher-bytecode-retain".into(),
         KeyPurpose::AuditHmacChain => "audit-hmac-chain".into(),
@@ -523,10 +492,7 @@ pub struct MigrationContext {
 /// routes. Consistent with the
 /// `parse_args → behavior` shape of the other
 /// subcommand entry points.
-pub fn run_migration_ceremony_with_context(
-    argv: &[&str],
-    context: MigrationContext,
-) -> ExitCode {
+pub fn run_migration_ceremony_with_context(argv: &[&str], context: MigrationContext) -> ExitCode {
     run_migration_ceremony_inner(argv, Some(context))
 }
 
@@ -537,10 +503,7 @@ pub fn run_migration_ceremony_with_context(
 /// the dry-run plan path (always available) and the
 /// execute path (only available when context is
 /// `Some`).
-fn run_migration_ceremony_inner(
-    argv: &[&str],
-    context: Option<MigrationContext>,
-) -> ExitCode {
+fn run_migration_ceremony_inner(argv: &[&str], context: Option<MigrationContext>) -> ExitCode {
     let args = match parse_args(argv) {
         Ok(a) => a,
         Err(e) => {
@@ -568,18 +531,10 @@ fn run_migration_ceremony_inner(
         None => {
             #[allow(clippy::print_stderr)]
             {
-                eprintln!(
-                    "db-migrate-cli: execution path requires MigrationContext."
-                );
-                eprintln!(
-                    "  This entry point (run_migration_ceremony) is dry-run only."
-                );
-                eprintln!(
-                    "  The agent must dispatch via run_migration_ceremony_with_context"
-                );
-                eprintln!(
-                    "  with a MigrationContext built from the loaded config + keystore."
-                );
+                eprintln!("db-migrate-cli: execution path requires MigrationContext.");
+                eprintln!("  This entry point (run_migration_ceremony) is dry-run only.");
+                eprintln!("  The agent must dispatch via run_migration_ceremony_with_context");
+                eprintln!("  with a MigrationContext built from the loaded config + keystore.");
             }
             return ExitCode::FAILURE;
         }
@@ -601,10 +556,7 @@ fn run_migration_ceremony_inner(
 /// current-thread runtime is the lightest-weight
 /// option that doesn't require a Tokio runtime
 /// already in scope.
-fn execute_ceremony_via_context(
-    args: &MigrationArgs,
-    ctx: MigrationContext,
-) -> ExitCode {
+fn execute_ceremony_via_context(args: &MigrationArgs, ctx: MigrationContext) -> ExitCode {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -613,9 +565,7 @@ fn execute_ceremony_via_context(
         Err(e) => {
             #[allow(clippy::print_stderr)]
             {
-                eprintln!(
-                    "db-migrate-cli: failed to build tokio runtime: {e}"
-                );
+                eprintln!("db-migrate-cli: failed to build tokio runtime: {e}");
             }
             return ExitCode::FAILURE;
         }
@@ -760,15 +710,9 @@ fn print_usage() {
         eprintln!(
             "  --data-dir <path>            Agent data directory (default: $SUDERRA_DATA_DIR)"
         );
-        eprintln!(
-            "  --schema-target <version>    Migration target (default: v2-keystore-derived)"
-        );
-        eprintln!(
-            "  --output-format <fmt>        Output format (default: jsonl)"
-        );
-        eprintln!(
-            "  --dry-run                    Compute plan without executing"
-        );
+        eprintln!("  --schema-target <version>    Migration target (default: v2-keystore-derived)");
+        eprintln!("  --output-format <fmt>        Output format (default: jsonl)");
+        eprintln!("  --dry-run                    Compute plan without executing");
         eprintln!();
         eprintln!("RUNBOOK:");
         eprintln!("  docs/runbooks/db-migration-rekey-ceremony.md");
@@ -781,10 +725,7 @@ mod tests {
 
     #[test]
     fn known_consumers_list_has_all_4_adr031_variants() {
-        let purposes: Vec<KeyPurpose> = KNOWN_SQLCIPHER_CONSUMERS
-            .iter()
-            .map(|(_, p)| *p)
-            .collect();
+        let purposes: Vec<KeyPurpose> = KNOWN_SQLCIPHER_CONSUMERS.iter().map(|(_, p)| *p).collect();
         assert!(purposes.contains(&KeyPurpose::SqlCipherOfflineQueue));
         assert!(purposes.contains(&KeyPurpose::SqlCipherRetainPersistence));
         assert!(purposes.contains(&KeyPurpose::SqlCipherLicenseCache));
@@ -799,13 +740,9 @@ mod tests {
 
     #[test]
     fn parse_args_minimum_valid() {
-        let args = parse_args(&["--data-dir", "/var/lib/suderra"])
-            .expect("parse ok");
+        let args = parse_args(&["--data-dir", "/var/lib/suderra"]).expect("parse ok");
         assert_eq!(args.data_dir, PathBuf::from("/var/lib/suderra"));
-        assert_eq!(
-            args.schema_target,
-            DbKeySchemaVersion::V2KeystoreDerived
-        );
+        assert_eq!(args.schema_target, DbKeySchemaVersion::V2KeystoreDerived);
         assert_eq!(args.output_format, OutputFormat::Jsonl);
         assert!(!args.dry_run);
     }
@@ -828,27 +765,20 @@ mod tests {
 
     #[test]
     fn parse_args_missing_data_dir() {
-        let err = parse_args(&["--dry-run"])
-            .expect_err("must error");
+        let err = parse_args(&["--dry-run"]).expect_err("must error");
         assert!(matches!(err, ArgError::Missing { .. }));
     }
 
     #[test]
     fn parse_args_unknown_flag() {
-        let err = parse_args(&["--data-dir", "/x", "--bogus"])
-            .expect_err("must error");
+        let err = parse_args(&["--data-dir", "/x", "--bogus"]).expect_err("must error");
         assert!(matches!(err, ArgError::Unknown { .. }));
     }
 
     #[test]
     fn parse_args_invalid_schema_target() {
-        let err = parse_args(&[
-            "--data-dir",
-            "/x",
-            "--schema-target",
-            "v99-fictitious",
-        ])
-        .expect_err("must error");
+        let err = parse_args(&["--data-dir", "/x", "--schema-target", "v99-fictitious"])
+            .expect_err("must error");
         match err {
             ArgError::Invalid { flag, reason } => {
                 assert_eq!(flag, "--schema-target");
@@ -862,15 +792,11 @@ mod tests {
     fn arg_error_display_strings_pinned() {
         for (err, prefix) in [
             (
-                ArgError::Missing {
-                    flag: "x".into(),
-                },
+                ArgError::Missing { flag: "x".into() },
                 "migrate_db_arg_missing",
             ),
             (
-                ArgError::Unknown {
-                    flag: "y".into(),
-                },
+                ArgError::Unknown { flag: "y".into() },
                 "migrate_db_arg_unknown",
             ),
             (
@@ -893,10 +819,7 @@ mod tests {
         assert_eq!(PlanAction::NoDbPresent.as_str(), "no_db_present");
         assert_eq!(PlanAction::OrphanSidecar.as_str(), "orphan_sidecar");
         assert_eq!(
-            PlanAction::SidecarFailure {
-                reason: "x".into()
-            }
-            .as_str(),
+            PlanAction::SidecarFailure { reason: "x".into() }.as_str(),
             "sidecar_failure"
         );
     }
@@ -915,10 +838,7 @@ mod tests {
         for step in &plan {
             assert_eq!(step.action, PlanAction::NoDbPresent);
             assert_eq!(step.current_version, None);
-            assert_eq!(
-                step.target_version,
-                DbKeySchemaVersion::V2KeystoreDerived
-            );
+            assert_eq!(step.target_version, DbKeySchemaVersion::V2KeystoreDerived);
         }
     }
 
@@ -927,8 +847,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         // Touch offline_queue.db (no sidecar = legacy v1
         // default per Batch #5 boot detector logic).
-        std::fs::write(dir.path().join("offline_queue.db"), b"")
-            .expect("touch");
+        std::fs::write(dir.path().join("offline_queue.db"), b"").expect("touch");
         let args = MigrationArgs {
             data_dir: dir.path().to_path_buf(),
             schema_target: DbKeySchemaVersion::V2KeystoreDerived,
@@ -973,10 +892,7 @@ mod tests {
             "\"from\":\"v1-machine-id-derived\"",
             "\"to\":\"v2-keystore-derived\"",
         ] {
-            assert!(
-                json.contains(expected),
-                "missing `{expected}` in: {json}"
-            );
+            assert!(json.contains(expected), "missing `{expected}` in: {json}");
         }
     }
 
@@ -1020,11 +936,7 @@ mod tests {
         // an empty data dir. Uses tempdir so no test
         // race with concurrent migrations.
         let dir = tempfile::tempdir().expect("tempdir");
-        let argv: Vec<&str> = vec![
-            "--data-dir",
-            dir.path().to_str().unwrap(),
-            "--dry-run",
-        ];
+        let argv: Vec<&str> = vec!["--data-dir", dir.path().to_str().unwrap(), "--dry-run"];
         let exit = run_migration_ceremony(&argv);
         // Can't easily capture stdout without
         // restructuring the entry point's writer
@@ -1055,9 +967,7 @@ mod tests {
     use crate::db_migration::v1_legacy_key::{
         derive_v1_legacy_key, format_sqlcipher_pragma_key_hex,
     };
-    use crate::keystore::error::{
-        KeyDerivationError, KeystoreError, KeystoreErrorKind,
-    };
+    use crate::keystore::error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
     use crate::keystore::purpose::DerivedKeyId;
     use crate::keystore::secret::KeyMaterial;
     use crate::keystore::{KeyBackend, RotationSource};
@@ -1098,11 +1008,7 @@ mod tests {
             Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
         }
 
-        fn derived_key_id(
-            &self,
-            _purpose: KeyPurpose,
-            _context: &[u8],
-        ) -> DerivedKeyId {
+        fn derived_key_id(&self, _purpose: KeyPurpose, _context: &[u8]) -> DerivedKeyId {
             DerivedKeyId([0u8; 16])
         }
 
@@ -1133,11 +1039,7 @@ mod tests {
         }
     }
 
-    fn seed_v1_db(
-        path: &std::path::Path,
-        machine_id: &[u8],
-        secret_key: &[u8],
-    ) {
+    fn seed_v1_db(path: &std::path::Path, machine_id: &[u8], secret_key: &[u8]) {
         let bytes = derive_v1_legacy_key(machine_id, secret_key);
         let hex = format_sqlcipher_pragma_key_hex(&bytes);
         let conn = Connection::open(path).expect("open db");
@@ -1156,11 +1058,7 @@ mod tests {
         // whether context is supplied (the dry-run
         // routing branch ignores context entirely).
         let dir = tempfile::tempdir().expect("tempdir");
-        let argv: Vec<&str> = vec![
-            "--data-dir",
-            dir.path().to_str().unwrap(),
-            "--dry-run",
-        ];
+        let argv: Vec<&str> = vec!["--data-dir", dir.path().to_str().unwrap(), "--dry-run"];
         let exit = run_migration_ceremony_with_context(&argv, ctx(1_700_000_000));
         assert_eq!(format!("{exit:?}"), "ExitCode(unix_exit_status(0))");
     }
@@ -1231,8 +1129,7 @@ mod tests {
         let sidecar = crate::db_migration::manifest::manifest_path_for_db(
             &dir.path().join("offline_queue.db"),
         );
-        let manifest_str = std::fs::read_to_string(&sidecar)
-            .expect("read sidecar");
+        let manifest_str = std::fs::read_to_string(&sidecar).expect("read sidecar");
         assert!(
             manifest_str.contains("v2-keystore-derived"),
             "expected v2 manifest, got: {manifest_str}"

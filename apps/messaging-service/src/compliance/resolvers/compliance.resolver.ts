@@ -19,6 +19,16 @@ import {
 import { Logger, UseInterceptors } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
+import {
+  IsBoolean,
+  IsDate,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 import { RetentionPolicy } from '../entities/retention-policy.entity';
 import { LegalHold } from '../entities/legal-hold.entity';
@@ -347,9 +357,19 @@ export class ComplianceResolver {
     return result;
   }
 
-  @Mutation(() => ExportJobType, { description: 'Export all tenant message history.' })
+  /**
+   * Renamed from exportTenantData to exportTenantMessages so the
+   * federation graph itself rejects future cross-domain name
+   * collisions. Pre-rename, both farm-service and messaging-service
+   * declared Mutation.exportTenantData with different return types
+   * (TenantExportBundleResponse vs ExportJobType), which Apollo
+   * Federation v2 disallows under the non-shareable default.
+   */
+  @Mutation(() => ExportJobType, {
+    description: 'Export all tenant message history (async, returns job handle).',
+  })
   @Roles(Role.TENANT_ADMIN)
-  async exportTenantData(
+  async exportTenantMessages(
     @Tenant() tenantId: string,
     @CurrentUser() user: CurrentUserPayload,
     @Args('format', { type: () => GqlExportFormat, defaultValue: GqlExportFormat.JSON })

@@ -198,16 +198,17 @@ pub enum ForceError {
 impl std::fmt::Display for ForceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::TtlTooLong { requested_secs, cap_secs } => write!(
+            Self::TtlTooLong {
+                requested_secs,
+                cap_secs,
+            } => write!(
                 f,
                 "force: ttl {} s exceeds cap {} s",
                 requested_secs, cap_secs
             ),
-            Self::TooManyConcurrentForces { current, cap } => write!(
-                f,
-                "force: {} active >= cap {}",
-                current, cap
-            ),
+            Self::TooManyConcurrentForces { current, cap } => {
+                write!(f, "force: {} active >= cap {}", current, cap)
+            }
             Self::RateLimited {
                 tag_name,
                 last_apply_unix_ms,
@@ -307,12 +308,9 @@ impl ForceRegistry {
         // trustworthy_wall_clock await, (b) lets the
         // ctor's NTS-stale gate fail-fast without
         // touching registry state.
-        let deadline = MonotonicDeadline::from_duration_now(
-            Duration::from_secs(ttl_secs),
-            clock,
-        )
-        .await
-        .map_err(ForceError::from)?;
+        let deadline = MonotonicDeadline::from_duration_now(Duration::from_secs(ttl_secs), clock)
+            .await
+            .map_err(ForceError::from)?;
 
         let mut inner = self.inner.write().await;
 
@@ -331,9 +329,7 @@ impl ForceRegistry {
         // Concurrent-count check — only when the
         // incoming entry would be a NEW key (replacing
         // an existing force doesn't grow the total).
-        if !inner.entries.contains_key(&tag_name)
-            && inner.entries.len() >= MAX_CONCURRENT_FORCES
-        {
+        if !inner.entries.contains_key(&tag_name) && inner.entries.len() >= MAX_CONCURRENT_FORCES {
             return Err(ForceError::TooManyConcurrentForces {
                 current: inner.entries.len(),
                 cap: MAX_CONCURRENT_FORCES,
@@ -403,14 +399,8 @@ impl ForceRegistry {
     /// Read-only list of every active force. Metrics +
     /// admin UI + `list_forces` command consume this.
     pub async fn list(&self) -> Vec<ForceEntry> {
-        let mut entries: Vec<ForceEntry> = self
-            .inner
-            .read()
-            .await
-            .entries
-            .values()
-            .cloned()
-            .collect();
+        let mut entries: Vec<ForceEntry> =
+            self.inner.read().await.entries.values().cloned().collect();
         entries.sort_by(|a, b| a.tag_name.cmp(&b.tag_name));
         entries
     }
@@ -464,10 +454,7 @@ impl ForceRegistry {
     ///   (next healthy tick re-checks).
     /// - Clock returns `MonotonicBackward`: same — leave in
     ///   place; operator log surfaces the kernel anomaly.
-    pub async fn sweep_expired_with_clock(
-        &self,
-        clock: &dyn ClockAuthority,
-    ) -> Vec<ForceEntry> {
+    pub async fn sweep_expired_with_clock(&self, clock: &dyn ClockAuthority) -> Vec<ForceEntry> {
         let mut inner = self.inner.write().await;
         let mut expired_keys: Vec<String> = Vec::new();
 
@@ -511,7 +498,8 @@ impl ForceRegistry {
                     // sweep anomaly.
                     tracing::warn!(
                         "force-registry sweep rehydrate skip: tag=`{}` err={}",
-                        key, e
+                        key,
+                        e
                     );
                 }
             }
@@ -536,7 +524,8 @@ impl ForceRegistry {
                 Err(e) => {
                     tracing::warn!(
                         "force-registry sweep is_past_now skip: tag=`{}` err={}",
-                        key, e
+                        key,
+                        e
                     );
                 }
             }
@@ -638,7 +627,9 @@ pub async fn run_sweep_task_with_clock(
             for entry in &expired {
                 tracing::info!(
                     "force-registry sweep (D-9 monotonic): expired tag=`{}` force_id={} actor=`{}`",
-                    entry.tag_name, entry.force_id, entry.actor,
+                    entry.tag_name,
+                    entry.force_id,
+                    entry.actor,
                 );
             }
         }
@@ -824,7 +815,9 @@ mod tests {
     async fn apply_succeeds_with_valid_params() {
         let reg = ForceRegistry::new();
         let clock = test_clock();
-        let id = canned_apply(&reg, "feeder_rate", 60, &clock).await.expect("ok");
+        let id = canned_apply(&reg, "feeder_rate", 60, &clock)
+            .await
+            .expect("ok");
         let entry = reg.get("feeder_rate").await.expect("present");
         assert_eq!(entry.force_id, id);
         assert_eq!(entry.value, 1.0);
@@ -887,7 +880,9 @@ mod tests {
         let reg = ForceRegistry::new();
         let clock = test_clock();
         canned_apply(&reg, "tag_a", 60, &clock).await.expect("ok");
-        let err = canned_apply(&reg, "tag_a", 60, &clock).await.expect_err("rate");
+        let err = canned_apply(&reg, "tag_a", 60, &clock)
+            .await
+            .expect_err("rate");
         assert!(matches!(err, ForceError::RateLimited { .. }));
     }
 
@@ -900,7 +895,9 @@ mod tests {
         let clock = test_clock();
         canned_apply(&reg, "tag_a", 60, &clock).await.expect("ok");
         canned_apply(&reg, "tag_b", 60, &clock).await.expect("ok");
-        let err = canned_apply(&reg, "tag_a", 60, &clock).await.expect_err("rate");
+        let err = canned_apply(&reg, "tag_a", 60, &clock)
+            .await
+            .expect_err("rate");
         assert!(matches!(err, ForceError::RateLimited { .. }));
     }
 
@@ -990,12 +987,7 @@ mod tests {
         let (tx, rx) = tokio::sync::watch::channel(false);
         let reg_clone = reg.clone();
         let handle = tokio::spawn(async move {
-            run_sweep_task(
-                reg_clone,
-                std::time::Duration::from_millis(10),
-                rx,
-            )
-            .await
+            run_sweep_task(reg_clone, std::time::Duration::from_millis(10), rx).await
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -1024,7 +1016,9 @@ mod tests {
     async fn sweep_expired_with_clock_keeps_active_entry() {
         let reg = ForceRegistry::new();
         let clock = test_clock();
-        canned_apply(&reg, "active_force", 60, &clock).await.expect("ok");
+        canned_apply(&reg, "active_force", 60, &clock)
+            .await
+            .expect("ok");
         let expired = reg.sweep_expired_with_clock(&clock).await;
         assert!(expired.is_empty(), "active entry must not be swept");
         assert_eq!(reg.active_count().await, 1);
@@ -1036,7 +1030,9 @@ mod tests {
     async fn sweep_expired_with_clock_removes_past_entry() {
         let reg = ForceRegistry::new();
         let clock = test_clock();
-        canned_apply(&reg, "expiring_force", 1, &clock).await.expect("ok");
+        canned_apply(&reg, "expiring_force", 1, &clock)
+            .await
+            .expect("ok");
         // Real-time wait (no mock clock here — using real
         // SystemClockAuthority's monotonic Instant). 1.1s > 1s
         // TTL guarantees the deadline is past.
@@ -1099,17 +1095,14 @@ mod tests {
         // directly via the test-internal apply +
         // then mutating via sweep_expired with a
         // distant-future clock).
-        canned_apply(&reg, "expiring_tag", 1, &clock).await.expect("ok");
+        canned_apply(&reg, "expiring_tag", 1, &clock)
+            .await
+            .expect("ok");
 
         let (tx, rx) = tokio::sync::watch::channel(false);
         let reg_clone = reg.clone();
         let handle = tokio::spawn(async move {
-            run_sweep_task(
-                reg_clone,
-                std::time::Duration::from_millis(10),
-                rx,
-            )
-            .await
+            run_sweep_task(reg_clone, std::time::Duration::from_millis(10), rx).await
         });
 
         // Wait longer than the 1-sec TTL so the sweep
@@ -1165,12 +1158,7 @@ mod tests {
         let (tx, rx) = tokio::sync::watch::channel(false);
         let reg_clone = reg.clone();
         let handle = tokio::spawn(async move {
-            run_sweep_task(
-                reg_clone,
-                std::time::Duration::from_millis(10),
-                rx,
-            )
-            .await
+            run_sweep_task(reg_clone, std::time::Duration::from_millis(10), rx).await
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
@@ -1192,7 +1180,9 @@ mod tests {
         let reg = ForceRegistry::new();
         let clock = test_clock();
         assert!(!reg.is_forced("feeder_rate").await);
-        canned_apply(&reg, "feeder_rate", 60, &clock).await.expect("ok");
+        canned_apply(&reg, "feeder_rate", 60, &clock)
+            .await
+            .expect("ok");
         assert!(reg.is_forced("feeder_rate").await);
         reg.remove("feeder_rate").await.expect("ok");
         assert!(!reg.is_forced("feeder_rate").await);
@@ -1221,12 +1211,7 @@ mod tests {
         let (tx, rx) = tokio::sync::watch::channel(false);
         let reg_clone = reg.clone();
         let handle = tokio::spawn(async move {
-            run_sweep_task(
-                reg_clone,
-                std::time::Duration::from_millis(10),
-                rx,
-            )
-            .await
+            run_sweep_task(reg_clone, std::time::Duration::from_millis(10), rx).await
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;

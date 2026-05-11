@@ -22,7 +22,7 @@ import {
  * Can be customized per-tenant via DB overrides.
  */
 @ObjectType({ description: 'VFD writable parameter definition' })
-@Entity('vfd_parameter_definitions', { schema: 'sensor' })
+@Entity('vfd_parameter_definitions')
 @Index(['brand'])
 @Index(['brand', 'group'])
 @Unique(['brand', 'modelSeries', 'parameterName'])

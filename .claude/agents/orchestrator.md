@@ -106,6 +106,9 @@ These tools live at `.claude/agents/_maintenance/` and are intentionally OUTSIDE
 | prompt-writer | Agent-prompt maintenance only. Use when creating/updating agent definitions, not during normal runtime review cycles. |
 | implementation-planner | Post-review planning only. Invoke in a separate, explicitly requested planning session after review is complete. Writes plans under `docs/plans/`; never touches source code. |
 | gdpr-erasure-executor | WRITER execution agent for GDPR Art 17 cascade. Implements per-service eraseTenantData(tenantId, {dryRun}) handlers + outbox-emitted TenantErased proof event. Dispatched only via `implement:` token from compliance-expert or implementation-planner — never in an automatic review cycle. |
+| aria-primary-planner | ARIA convergent-gate primary planner. Consumes kernel-issued envelopes only; never dispatched during runtime review cycles. |
+| aria-challenger-planner | ARIA convergent-gate independent challenger and cross-review planner. Consumes kernel-issued envelopes only; never dispatched during runtime review cycles. |
+| aria-prompt-writer | ARIA-scoped prompt renderer for judges and maintenance agents. Consumes kernel-issued envelopes only; never dispatched during runtime review cycles. |
 
 ## Invocation Examples
 

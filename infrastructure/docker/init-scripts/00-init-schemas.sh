@@ -12,6 +12,15 @@
 # ============================================================================
 set -euo pipefail
 
+# Bind POSTGRES_USER / POSTGRES_DB defaults BEFORE any heredoc expansion
+# so `set -u` mode does not abort when the docker-entrypoint context is
+# absent (e.g. testcontainer setups that bind-mount this script with a
+# different env-var convention). The postgres docker image entrypoint
+# always sets these when running under the official image; the defaults
+# matter only for ad-hoc CI runs that bypass the entrypoint.
+: "${POSTGRES_USER:=postgres}"
+: "${POSTGRES_DB:=postgres}"
+
 # ============================================================================
 # Generate secure passwords from env vars (fall back to random)
 # ============================================================================
@@ -38,13 +47,15 @@ AI_PASS="$(escape_sql "${AI_SERVICE_DB_PASS:-$(generate_pass)}")"
 MESSAGING_PASS="$(escape_sql "${MESSAGING_SERVICE_DB_PASS:-$(generate_pass)}")"
 OBSERVABILITY_PASS="$(escape_sql "${OBSERVABILITY_SERVICE_DB_PASS:-$(generate_pass)}")"
 EVENT_STORE_PASS="$(escape_sql "${EVENT_STORE_SERVICE_DB_PASS:-$(generate_pass)}")"
+CONFIG_PASS="$(escape_sql "${CONFIG_SERVICE_DB_PASS:-$(generate_pass)}")"
 
 # Log which passwords came from env vs generated (without revealing values)
 for var_name in AUTH_SERVICE_DB_PASS FARM_SERVICE_DB_PASS SENSOR_SERVICE_DB_PASS \
   BILLING_SERVICE_DB_PASS HR_SERVICE_DB_PASS ALERT_SERVICE_DB_PASS \
   ADMIN_SERVICE_DB_PASS GATEWAY_SERVICE_DB_PASS NOTIFICATION_SERVICE_DB_PASS \
   HYDROPONICS_SERVICE_DB_PASS AI_SERVICE_DB_PASS MESSAGING_SERVICE_DB_PASS \
-  OBSERVABILITY_SERVICE_DB_PASS EVENT_STORE_SERVICE_DB_PASS; do
+  OBSERVABILITY_SERVICE_DB_PASS EVENT_STORE_SERVICE_DB_PASS \
+  CONFIG_SERVICE_DB_PASS; do
   if [ -n "${!var_name:-}" ]; then
     echo "[init-schemas] $var_name: using provided value"
   else
@@ -55,7 +66,7 @@ done
 # ============================================================================
 # Execute SQL via psql
 # ============================================================================
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-postgres}" --dbname "${POSTGRES_DB:-postgres}" <<-EOSQL
 
   -- ========================================================================
   -- TimescaleDB Extension
@@ -125,6 +136,9 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'event_store_service') THEN
       CREATE ROLE event_store_service WITH LOGIN PASSWORD '${EVENT_STORE_PASS}';
     END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'config_service') THEN
+      CREATE ROLE config_service WITH LOGIN PASSWORD '${CONFIG_PASS}';
+    END IF;
   END
   \$\$;
 
@@ -158,6 +172,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   CREATE SCHEMA IF NOT EXISTS admin AUTHORIZATION admin_service;
   CREATE SCHEMA IF NOT EXISTS observability AUTHORIZATION observability_service;
   CREATE SCHEMA IF NOT EXISTS event_store AUTHORIZATION event_store_service;
+  CREATE SCHEMA IF NOT EXISTS config AUTHORIZATION config_service;
 
   -- Idempotent ownership fix: ALTER OWNER ensures correct owner even
   -- when the schema already existed before this init ran (IF NOT
@@ -175,6 +190,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER SCHEMA admin OWNER TO admin_service;
   ALTER SCHEMA observability OWNER TO observability_service;
   ALTER SCHEMA event_store OWNER TO event_store_service;
+  ALTER SCHEMA config OWNER TO config_service;
 
   -- Shared POSTGRES_USER access (backward compat — services still
   -- connect as POSTGRES_USER in some paths until full role cutover).
@@ -191,6 +207,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT USAGE ON SCHEMA admin TO ${POSTGRES_USER};
   GRANT USAGE ON SCHEMA observability TO ${POSTGRES_USER};
   GRANT USAGE ON SCHEMA event_store TO ${POSTGRES_USER};
+  GRANT USAGE ON SCHEMA config TO ${POSTGRES_USER};
 
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA auth TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA farm TO ${POSTGRES_USER};
@@ -205,6 +222,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA admin TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA observability TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA event_store TO ${POSTGRES_USER};
+  GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA config TO ${POSTGRES_USER};
 
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA auth TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA farm TO ${POSTGRES_USER};
@@ -219,6 +237,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA admin TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA observability TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA event_store TO ${POSTGRES_USER};
+  GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA config TO ${POSTGRES_USER};
 
   -- Default privileges for future objects in each schema
   ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO ${POSTGRES_USER};
@@ -234,6 +253,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA admin GRANT ALL ON TABLES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA observability GRANT ALL ON TABLES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA event_store GRANT ALL ON TABLES TO ${POSTGRES_USER};
+  ALTER DEFAULT PRIVILEGES IN SCHEMA config GRANT ALL ON TABLES TO ${POSTGRES_USER};
 
   ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA farm GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
@@ -248,6 +268,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA admin GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA observability GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA event_store GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
+  ALTER DEFAULT PRIVILEGES IN SCHEMA config GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
 
   -- Shared schema grants (cross-service write surface, ADR-011)
   -- Source-of-truth: SHARED_SCHEMA_TABLES in this codegen + spec
@@ -266,6 +287,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT USAGE ON SCHEMA shared TO admin_service;
   GRANT USAGE ON SCHEMA shared TO observability_service;
   GRANT USAGE ON SCHEMA shared TO event_store_service;
+  GRANT USAGE ON SCHEMA shared TO config_service;
 
   -- INIT-FIX: per-table GRANTs removed. The shared.audit_logs / gdpr_data_requests /
   -- user_consents / user_permissions tables are created by 10-shared-schema.sql,
@@ -289,6 +311,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO admin_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO observability_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO event_store_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO config_service;
 
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO auth_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO farm_service;
@@ -303,6 +326,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO admin_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO observability_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO event_store_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO config_service;
   -- END GENERATED — schema-registry
 
   -- gateway-api is stateless today but reserves a `gateway` schema for
@@ -433,6 +457,16 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA messaging GRANT ALL ON SEQUENCES TO messaging_service;
   -- messaging_service needs CREATE on database for tenant schema creation
   GRANT CREATE ON DATABASE ${POSTGRES_DB} TO messaging_service;
+
+  -- config_service
+  -- Owns the `config` schema (Wave 4-A.2 — replaces the legacy `public`
+  -- placement declared in apps/db-migrate/src/schema-registry.ts entry
+  -- when config-service entities pinned `schema: 'config'`).
+  GRANT USAGE ON SCHEMA config TO config_service;
+  GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA config TO config_service;
+  GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA config TO config_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA config GRANT ALL ON TABLES TO config_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA config GRANT ALL ON SEQUENCES TO config_service;
 
   -- ========================================================================
   -- Verification query

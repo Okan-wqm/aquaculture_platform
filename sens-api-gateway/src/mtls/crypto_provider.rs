@@ -59,10 +59,8 @@ pub fn build_suderra_crypto_provider() -> Arc<CryptoProvider> {
     let mut provider = rustls::crypto::ring::default_provider();
     let allowed: [u16; CIPHER_SUITE_ALLOWLIST.len()] = {
         let mut out = [0u16; CIPHER_SUITE_ALLOWLIST.len()];
-        let mut i = 0;
-        while i < CIPHER_SUITE_ALLOWLIST.len() {
-            out[i] = CIPHER_SUITE_ALLOWLIST[i].iana_codepoint();
-            i += 1;
+        for (slot, suite) in out.iter_mut().zip(CIPHER_SUITE_ALLOWLIST.iter()) {
+            *slot = suite.iana_codepoint();
         }
         out
     };

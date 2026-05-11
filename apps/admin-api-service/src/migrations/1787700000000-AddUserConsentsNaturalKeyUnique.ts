@@ -40,7 +40,7 @@ export class AddUserConsentsNaturalKeyUnique1787700000000
   name = 'AddUserConsentsNaturalKeyUnique1787700000000';
 
   // CONCURRENTLY cannot run inside a transaction.
-  transaction: 'none' = 'none';
+  transaction = false;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     const offenders: Array<{ count: string }> = await queryRunner.query(`

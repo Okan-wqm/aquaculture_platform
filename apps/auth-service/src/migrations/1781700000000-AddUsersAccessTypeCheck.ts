@@ -127,7 +127,7 @@ export class AddUsersAccessTypeCheck1781700000000
     const offendingRows: Array<{ id: string; accessType: string }> =
       await queryRunner.query(`
         SELECT id, "accessType"
-        FROM "users"
+        FROM "auth"."users"
         WHERE "accessType" IS NOT NULL
           AND "accessType" NOT IN ('PANEL_ONLY', 'MOBILE_ONLY', 'BOTH')
         ORDER BY "createdAt" DESC
@@ -165,7 +165,7 @@ export class AddUsersAccessTypeCheck1781700000000
         FROM pg_constraint c
         JOIN pg_class t ON t.oid = c.conrelid
         JOIN pg_namespace n ON n.oid = t.relnamespace
-        WHERE n.nspname = current_schema()
+        WHERE n.nspname = 'auth'
           AND t.relname = 'users'
           AND c.conname = $1
       ) AS exists
@@ -183,8 +183,12 @@ export class AddUsersAccessTypeCheck1781700000000
     // Add the constraint. NOT VALID would let us defer validation of
     // existing rows, but we just proved there are no offending rows
     // via the pre-check — there's no benefit to NOT VALID here.
+    // Schema-qualify the target. The migration runner's connection
+    // search_path defaults to `public` on a fresh DB; `auth.users` only
+    // exists in the auth schema, so an unqualified `ALTER TABLE "users"`
+    // fails with `relation "users" does not exist` during bootstrap.
     await queryRunner.query(`
-      ALTER TABLE "users"
+      ALTER TABLE "auth"."users"
       ADD CONSTRAINT "${this.constraintName}"
       CHECK ("accessType" IS NULL OR "accessType" IN ('PANEL_ONLY', 'MOBILE_ONLY', 'BOTH'))
     `);
@@ -202,7 +206,7 @@ export class AddUsersAccessTypeCheck1781700000000
     );
 
     await queryRunner.query(`
-      ALTER TABLE "users"
+      ALTER TABLE "auth"."users"
       DROP CONSTRAINT IF EXISTS "${this.constraintName}"
     `);
   }

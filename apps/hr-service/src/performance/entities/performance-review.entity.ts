@@ -55,7 +55,7 @@ export class CompetencyRating {
 }
 
 @ObjectType()
-@Entity('performance_reviews', { schema: 'hr' })
+@Entity('performance_reviews')
 @Index('idx_perf_review_tenant_employee', ['tenantId', 'employeeId'])
 @Index('idx_perf_review_tenant_reviewer', ['tenantId', 'reviewerId'])
 @Index('idx_perf_review_tenant_status', ['tenantId', 'status'])

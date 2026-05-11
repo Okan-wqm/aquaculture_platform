@@ -146,31 +146,26 @@ pub mod v2_keystore_key;
 // minimum-noise way to land the contract early.
 #[allow(unused_imports)]
 pub use boot_detector::{
-    detect_db_migration_backlog, DbMigrationBacklogEntry,
-    DbMigrationBacklogReport,
+    DbMigrationBacklogEntry, DbMigrationBacklogReport, detect_db_migration_backlog,
 };
 #[allow(unused_imports)]
 pub use manifest::{
-    manifest_path_for_db, read_manifest, write_manifest,
-    DbKeySourceManifest, DbMigrationError, DB_KEY_SOURCE_MANIFEST_SUFFIX,
+    DB_KEY_SOURCE_MANIFEST_SUFFIX, DbKeySourceManifest, DbMigrationError, manifest_path_for_db,
+    read_manifest, write_manifest,
+};
+#[allow(unused_imports)]
+pub use rekey::{RekeyError, pragma_rekey};
+#[allow(unused_imports)]
+pub use rekey_swap::{
+    RekeyManifestError, rekey_with_manifest_swap, rekey_with_manifest_swap_inner,
 };
 #[allow(unused_imports)]
 pub use schema_version::DbKeySchemaVersion;
 #[allow(unused_imports)]
-pub use v1_legacy_key::{
-    derive_v1_legacy_key, format_sqlcipher_pragma_key_hex,
-};
+pub use v1_legacy_key::{derive_v1_legacy_key, format_sqlcipher_pragma_key_hex};
 #[allow(unused_imports)]
 pub use v2_keystore_key::{
-    derive_v2_sqlcipher_key, derive_v2_sqlcipher_pragma_key_hex,
-    V2DerivationError,
-};
-#[allow(unused_imports)]
-pub use rekey::{pragma_rekey, RekeyError};
-#[allow(unused_imports)]
-pub use rekey_swap::{
-    rekey_with_manifest_swap, rekey_with_manifest_swap_inner,
-    RekeyManifestError,
+    V2DerivationError, derive_v2_sqlcipher_key, derive_v2_sqlcipher_pragma_key_hex,
 };
 
 /// Batch #340 — closes audit MEDIUM-003.
@@ -229,16 +224,9 @@ fn _api_surface_is_complete_compile_check() {
     // so a signature change (added/removed param,
     // changed return type) surfaces here at compile time.
     let _: fn(&Path) -> std::path::PathBuf = manifest_path_for_db;
-    let _: fn(
-        &Path,
-    ) -> Result<Option<DbKeySourceManifest>, DbMigrationError> =
-        read_manifest;
-    let _: fn(
-        &Path,
-        &DbKeySourceManifest,
-    ) -> Result<(), DbMigrationError> = write_manifest;
-    let _: fn(&[&Path]) -> DbMigrationBacklogReport =
-        detect_db_migration_backlog;
+    let _: fn(&Path) -> Result<Option<DbKeySourceManifest>, DbMigrationError> = read_manifest;
+    let _: fn(&Path, &DbKeySourceManifest) -> Result<(), DbMigrationError> = write_manifest;
+    let _: fn(&[&Path]) -> DbMigrationBacklogReport = detect_db_migration_backlog;
     let _: fn(&[u8], &[u8]) -> [u8; 32] = derive_v1_legacy_key;
     let _: fn(&[u8; 32]) -> String = format_sqlcipher_pragma_key_hex;
 

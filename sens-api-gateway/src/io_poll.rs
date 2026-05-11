@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{self, MissedTickBehavior};
-use serde::Serialize;
 use tracing::{debug, error, info, warn};
 
 use crate::AppState;
@@ -134,7 +133,6 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let process_image = s.process_image.clone();
     // Batch 199 Faz 6 wire: force-registry bypass.
     // Every update_tag call in this poll cycle passes
     // through `maybe_update_tag` which checks
@@ -143,8 +141,6 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     // value stays live (ProcessImage was set to the
     // force value when the `force_value` command
     // fired per Batch 197).
-    let force_registry = s.force_registry.clone();
-
     let configs = process_image.get_configs().await;
 
     if configs.is_empty() {
@@ -159,8 +155,20 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
             for cfg in &configs {
                 if let ProtocolConfig::Gpio { pin, .. } = &cfg.protocol_config {
                     if *pin == pin_value.pin {
-                        let value = if matches!(pin_value.state, PinState::High) { 1.0 } else { 0.0 };
-                        maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, value, TagQuality::Good, TagSource::Gpio).await;
+                        let value = if matches!(pin_value.state, PinState::High) {
+                            1.0
+                        } else {
+                            0.0
+                        };
+                        maybe_update_tag(
+                            &process_image,
+                            &force_registry,
+                            &cfg.tag_name,
+                            value,
+                            TagQuality::Good,
+                            TagSource::Gpio,
+                        )
+                        .await;
                     }
                 }
             }
@@ -179,7 +187,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         // is flaky"); register-level counting would explode
         // the cardinality.
         for device_result in &results {
-            if let Some(hs) = s.health_state.as_ref() {
+            if let Some(hs) = health_state.as_ref() {
                 // ModbusReadResult shape: success = no errors
                 // in the errors vector. Partial reads (some
                 // registers OK, some failed) count as error
@@ -197,7 +205,15 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                 for cfg in &configs {
                     if let ProtocolConfig::Modbus { .. } = &cfg.protocol_config {
                         if reg_value.name == cfg.tag_name {
-                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, reg_value.scaled_value, TagQuality::Good, TagSource::Modbus).await;
+                            maybe_update_tag(
+                                &process_image,
+                                &force_registry,
+                                &cfg.tag_name,
+                                reg_value.scaled_value,
+                                TagQuality::Good,
+                                TagSource::Modbus,
+                            )
+                            .await;
                         }
                     }
                 }
@@ -213,7 +229,9 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
             if let ProtocolConfig::I2c { driver_type, .. } = &cfg.protocol_config {
                 match driver_type {
                     I2cDriverType::AtlasEzo { sensor_type } => {
-                        let (value, quality) = ezo_driver.read_measurement(&cfg.tag_name, sensor_type).await;
+                        let (value, quality) = ezo_driver
+                            .read_measurement(&cfg.tag_name, &sensor_type)
+                            .await;
                         // Batch 104 observability: TagQuality
                         // already encodes Atlas EZO
                         // success/error semantically. Map to
@@ -227,7 +245,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                         // observations is closed at the
                         // interpretation site, not the
                         // source).
-                        if let Some(hs) = s.health_state.as_ref() {
+                        if let Some(hs) = health_state.as_ref() {
                             match quality {
                                 TagQuality::Good | TagQuality::Simulated => {
                                     hs.inc_modbus_reads();
@@ -237,10 +255,23 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                                 }
                             }
                         }
-                        maybe_update_tag_raw(&process_image, &force_registry, &cfg.tag_name, value, quality, TagSource::I2c).await;
+                        maybe_update_tag_raw(
+                            &process_image,
+                            &force_registry,
+                            &cfg.tag_name,
+                            value,
+                            quality,
+                            TagSource::I2c,
+                        )
+                        .await;
                     }
-                    I2cDriverType::GenericRegister { read_register, read_length } => {
-                        let result = i2c.read_register(&cfg.tag_name, *read_register, *read_length as usize).await;
+                    I2cDriverType::GenericRegister {
+                        read_register,
+                        read_length,
+                    } => {
+                        let result = i2c
+                            .read_register(&cfg.tag_name, *read_register, *read_length as usize)
+                            .await;
                         // Batch 103 observability: I2C reads
                         // map to the same modbus_reads/errors
                         // counter family since they're both
@@ -250,7 +281,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                         // Future batch could split into
                         // i2c_reads_total for dashboards that
                         // need per-protocol slicing.
-                        if let Some(hs) = s.health_state.as_ref() {
+                        if let Some(hs) = health_state.as_ref() {
                             if result.success {
                                 hs.inc_modbus_reads();
                             } else {
@@ -262,16 +293,40 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                             // ARC-006: sim reads surface as
                             // TagQuality::Simulated so SCADA
                             // cannot mistake sim for live data.
-                            let quality = if result.simulated { TagQuality::Simulated } else { TagQuality::Good };
-                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, value, quality, TagSource::I2c).await;
+                            let quality = if result.simulated {
+                                TagQuality::Simulated
+                            } else {
+                                TagQuality::Good
+                            };
+                            maybe_update_tag(
+                                &process_image,
+                                &force_registry,
+                                &cfg.tag_name,
+                                value,
+                                quality,
+                                TagSource::I2c,
+                            )
+                            .await;
                         } else {
-                            warn!("I2C register read failed for '{}': {}", cfg.tag_name, result.error.as_deref().unwrap_or("unknown"));
-                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
+                            warn!(
+                                "I2C register read failed for '{}': {}",
+                                cfg.tag_name,
+                                result.error.as_deref().unwrap_or("unknown")
+                            );
+                            maybe_update_tag(
+                                &process_image,
+                                &force_registry,
+                                &cfg.tag_name,
+                                0.0,
+                                TagQuality::CommFailure,
+                                TagSource::I2c,
+                            )
+                            .await;
                         }
                     }
                     I2cDriverType::GenericDirect { read_length } => {
                         let result = i2c.read_direct(&cfg.tag_name, *read_length as usize).await;
-                        if let Some(hs) = s.health_state.as_ref() {
+                        if let Some(hs) = health_state.as_ref() {
                             if result.success {
                                 hs.inc_modbus_reads();
                             } else {
@@ -281,11 +336,35 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                         if result.success {
                             let value = bytes_to_f64(&result.data);
                             // ARC-006: sim read quality routing.
-                            let quality = if result.simulated { TagQuality::Simulated } else { TagQuality::Good };
-                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, value, quality, TagSource::I2c).await;
+                            let quality = if result.simulated {
+                                TagQuality::Simulated
+                            } else {
+                                TagQuality::Good
+                            };
+                            maybe_update_tag(
+                                &process_image,
+                                &force_registry,
+                                &cfg.tag_name,
+                                value,
+                                quality,
+                                TagSource::I2c,
+                            )
+                            .await;
                         } else {
-                            warn!("I2C direct read failed for '{}': {}", cfg.tag_name, result.error.as_deref().unwrap_or("unknown"));
-                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
+                            warn!(
+                                "I2C direct read failed for '{}': {}",
+                                cfg.tag_name,
+                                result.error.as_deref().unwrap_or("unknown")
+                            );
+                            maybe_update_tag(
+                                &process_image,
+                                &force_registry,
+                                &cfg.tag_name,
+                                0.0,
+                                TagQuality::CommFailure,
+                                TagSource::I2c,
+                            )
+                            .await;
                         }
                     }
                 }
@@ -331,6 +410,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                 "timestamp": chrono::Utc::now().to_rfc3339(),
                 "alarms": alarm_events.iter().map(|e| serde_json::to_value(e).unwrap_or_default()).collect::<Vec<_>>(),
             });
+            let s = state.read().await;
             crate::publish_helpers::publish_alarms(&s, &payload).await;
         }
     }
@@ -345,13 +425,16 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
             _ => serde_json::json!(tag.value),
         };
 
-        io_tags.insert(name.clone(), IoTagData {
-            value,
-            quality: format!("{:?}", tag.quality).to_lowercase(),
-            // ARC-006: attach marker when the underlying read
-            // came from the simulation branch.
-            simulated: tag.quality.is_simulated(),
-        });
+        io_tags.insert(
+            name.clone(),
+            IoTagData {
+                value,
+                quality: format!("{:?}", tag.quality).to_lowercase(),
+                // ARC-006: attach marker when the underlying read
+                // came from the simulation branch.
+                simulated: tag.quality.is_simulated(),
+            },
+        );
     }
 
     if !io_tags.is_empty() {
@@ -360,6 +443,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
             tags: io_tags,
         };
         // Batch #255 migration to OutboundPublisher routing.
+        let s = state.read().await;
         crate::publish_helpers::publish_io_data(&s, &payload).await;
         debug!("Published io_data ({} tags)", all_tags.len());
     }
@@ -438,17 +522,15 @@ async fn maybe_update_tag_raw(
 
 fn bytes_to_f64(data: &[u8]) -> f64 {
     match data.len() {
-        2 => {
-            let value = u16::from_be_bytes([data[0], data[1]]);
-            value as f64
-        }
-        4 => {
-            let value = f32::from_be_bytes([data[0], data[1], data[2], data[3]]);
-            value as f64
-        }
-        8 => f64::from_be_bytes([
-            data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-        ]),
+        2 => data
+            .try_into()
+            .map(|bytes| u16::from_be_bytes(bytes) as f64)
+            .unwrap_or(0.0),
+        4 => data
+            .try_into()
+            .map(|bytes| f32::from_be_bytes(bytes) as f64)
+            .unwrap_or(0.0),
+        8 => data.try_into().map(f64::from_be_bytes).unwrap_or(0.0),
         _ => {
             warn!("Unexpected I2C data length: {}", data.len());
             0.0

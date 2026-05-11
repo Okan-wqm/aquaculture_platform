@@ -244,7 +244,7 @@ export const messagingApi = {
     filters?: MessagingAuditFilters,
   ): Promise<PaginatedResult<MessagingAuditEntry>> =>
     apiFetch<PaginatedResult<MessagingAuditEntry>>(
-      `/messaging/audit?${buildQueryString(filters || {})}`,
+      `/messaging/audit?${buildQueryString({ ...(filters || {}) })}`,
     ),
 
   // ── Data Export ──

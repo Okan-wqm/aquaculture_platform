@@ -2,9 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
-use chrono::{DateTime, Utc};
-use serde::{Serialize, Deserialize};
+use tokio::sync::{RwLock, broadcast};
 
 /// Batch 189 Faz 4 (plan R-3 item 6): one tag-change
 /// event fanned out to subscribers. The event-driven
@@ -256,8 +254,7 @@ pub struct ProcessImage {
 
 impl ProcessImage {
     pub fn new() -> Self {
-        let (change_tx, _initial_rx) =
-            broadcast::channel(TAG_CHANGE_CHANNEL_CAPACITY);
+        let (change_tx, _initial_rx) = broadcast::channel(TAG_CHANGE_CHANNEL_CAPACITY);
         Self {
             inner: Arc::new(RwLock::new(ProcessImageInner {
                 tags: HashMap::new(),
@@ -350,21 +347,30 @@ impl ProcessImage {
     }
 
     /// Update a tag with a pre-scaled value (no scaling applied)
-    pub async fn update_tag_raw(&self, name: &str, value: f64, quality: TagQuality, source: TagSource) {
+    pub async fn update_tag_raw(
+        &self,
+        name: &str,
+        value: f64,
+        quality: TagQuality,
+        source: TagSource,
+    ) {
         let ts = Utc::now();
         {
             let mut inner = self.inner.write().await;
-            inner.tags.insert(name.to_string(), TagValue {
-                value,
-                quality,
-                timestamp: ts,
-                raw_value: Some(value),
-                source,
-            });
+            inner.tags.insert(
+                name.to_string(),
+                TagValue {
+                    value,
+                    quality,
+                    timestamp: ts,
+                    raw_value: Some(value),
+                    source,
+                },
+            );
         } // drop write lock BEFORE broadcast so
-          // subscribers that call back into ProcessImage
-          // (e.g. get_tag inside a subscribe_changes
-          // handler) don't deadlock.
+        // subscribers that call back into ProcessImage
+        // (e.g. get_tag inside a subscribe_changes
+        // handler) don't deadlock.
 
         // Batch 189 Faz 4: fan-out tag-change event.
         // `send` on a broadcast with zero subscribers
@@ -490,13 +496,8 @@ mod tag_change_tests {
     async fn subscribe_delivers_tag_change_on_update_tag_raw() {
         let pi = ProcessImage::new();
         let mut rx = pi.subscribe_changes();
-        pi.update_tag_raw(
-            "water_temp",
-            22.5,
-            TagQuality::Good,
-            TagSource::I2c,
-        )
-        .await;
+        pi.update_tag_raw("water_temp", 22.5, TagQuality::Good, TagSource::I2c)
+            .await;
         let ev = rx.recv().await.expect("event");
         assert_eq!(ev.tag_name, "water_temp");
         assert_eq!(ev.new_value, 22.5);
@@ -522,13 +523,8 @@ mod tag_change_tests {
         // refactor accidentally unwrap()ing the send
         // result.
         let pi = ProcessImage::new();
-        pi.update_tag_raw(
-            "lonely_tag",
-            1.0,
-            TagQuality::Good,
-            TagSource::Modbus,
-        )
-        .await;
+        pi.update_tag_raw("lonely_tag", 1.0, TagQuality::Good, TagSource::Modbus)
+            .await;
         // No assertion — test passes if the call
         // returned without panicking.
     }
@@ -538,13 +534,8 @@ mod tag_change_tests {
         let pi = ProcessImage::new();
         let mut rx1 = pi.subscribe_changes();
         let mut rx2 = pi.subscribe_changes();
-        pi.update_tag_raw(
-            "tag_a",
-            1.0,
-            TagQuality::Good,
-            TagSource::Modbus,
-        )
-        .await;
+        pi.update_tag_raw("tag_a", 1.0, TagQuality::Good, TagSource::Modbus)
+            .await;
         let e1 = rx1.recv().await.expect("rx1");
         let e2 = rx2.recv().await.expect("rx2");
         assert_eq!(e1.tag_name, "tag_a");
@@ -559,23 +550,15 @@ mod tag_change_tests {
         // events don't replay (matches the standard
         // pub/sub semantic operators expect).
         let pi = ProcessImage::new();
-        pi.update_tag_raw(
-            "past_tag",
-            9.0,
-            TagQuality::Good,
-            TagSource::Modbus,
-        )
-        .await;
+        pi.update_tag_raw("past_tag", 9.0, TagQuality::Good, TagSource::Modbus)
+            .await;
         let mut rx = pi.subscribe_changes();
         // No message should be ready (past_tag update
         // happened before subscribe).
         assert!(
-            tokio::time::timeout(
-                std::time::Duration::from_millis(10),
-                rx.recv(),
-            )
-            .await
-            .is_err()
+            tokio::time::timeout(std::time::Duration::from_millis(10), rx.recv(),)
+                .await
+                .is_err()
         );
     }
 }

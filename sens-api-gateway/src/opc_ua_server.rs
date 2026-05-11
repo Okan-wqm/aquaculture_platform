@@ -187,7 +187,11 @@ impl std::fmt::Display for OpcUaTagRegistryError {
                 "opc_ua_server tag catalog has duplicate tag_name `{}` — OPC UA BrowseNames must be unique",
                 tag_name
             ),
-            Self::DuplicateBrowseName { browse_name, first_tag, duplicate_tag } => write!(
+            Self::DuplicateBrowseName {
+                browse_name,
+                first_tag,
+                duplicate_tag,
+            } => write!(
                 f,
                 "opc_ua_server tag catalog: tags `{}` and `{}` both sanitize to BrowseName `{}` — rename one to disambiguate",
                 first_tag, duplicate_tag, browse_name
@@ -491,7 +495,9 @@ pub async fn execute_opcua_write(
             let outcome = OpcUaWriteOutcome::RejectedUnknownTag {
                 tag_name: tag_name.to_string(),
             };
-            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            audit
+                .record_write_attempt(actor, tag_name, value, &outcome)
+                .await;
             return outcome;
         }
     };
@@ -501,7 +507,9 @@ pub async fn execute_opcua_write(
         let outcome = OpcUaWriteOutcome::RejectedNotWritable {
             tag_name: tag_name.to_string(),
         };
-        audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+        audit
+            .record_write_attempt(actor, tag_name, value, &outcome)
+            .await;
         return outcome;
     }
 
@@ -513,7 +521,9 @@ pub async fn execute_opcua_write(
         let outcome = OpcUaWriteOutcome::RejectedForced {
             tag_name: tag_name.to_string(),
         };
-        audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+        audit
+            .record_write_attempt(actor, tag_name, value, &outcome)
+            .await;
         return outcome;
     }
 
@@ -530,7 +540,9 @@ pub async fn execute_opcua_write(
                 eng_min: lo,
                 eng_max: hi,
             };
-            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            audit
+                .record_write_attempt(actor, tag_name, value, &outcome)
+                .await;
             return outcome;
         }
     }
@@ -542,7 +554,9 @@ pub async fn execute_opcua_write(
             tag_name: tag_name.to_string(),
             actor: actor.to_string(),
         };
-        audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+        audit
+            .record_write_attempt(actor, tag_name, value, &outcome)
+            .await;
         return outcome;
     }
 
@@ -552,7 +566,9 @@ pub async fn execute_opcua_write(
             let outcome = OpcUaWriteOutcome::Success {
                 tag_name: tag_name.to_string(),
             };
-            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            audit
+                .record_write_attempt(actor, tag_name, value, &outcome)
+                .await;
             outcome
         }
         Err(reason) => {
@@ -560,7 +576,9 @@ pub async fn execute_opcua_write(
                 tag_name: tag_name.to_string(),
                 reason,
             };
-            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            audit
+                .record_write_attempt(actor, tag_name, value, &outcome)
+                .await;
             outcome
         }
     }
@@ -768,16 +786,12 @@ pub async fn execute_opcua_write_post_typed_authz(
     let value = request.value;
 
     // Steps 1-4: shared pre-commit gates.
-    let _node = match evaluate_pre_commit_gates(
-        registry,
-        request,
-        force_registry,
-    )
-    .await
-    {
+    let _node = match evaluate_pre_commit_gates(registry, request, force_registry).await {
         Ok(node) => node,
         Err(outcome) => {
-            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            audit
+                .record_write_attempt(actor, tag_name, value, &outcome)
+                .await;
             return outcome;
         }
     };
@@ -792,7 +806,9 @@ pub async fn execute_opcua_write_post_typed_authz(
             let outcome = OpcUaWriteOutcome::Success {
                 tag_name: tag_name.to_string(),
             };
-            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            audit
+                .record_write_attempt(actor, tag_name, value, &outcome)
+                .await;
             outcome
         }
         Err(reason) => {
@@ -800,7 +816,9 @@ pub async fn execute_opcua_write_post_typed_authz(
                 tag_name: tag_name.to_string(),
                 reason,
             };
-            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            audit
+                .record_write_attempt(actor, tag_name, value, &outcome)
+                .await;
             outcome
         }
     }
@@ -844,12 +862,7 @@ impl ProcessImageOpcUaAdapter {
 
 #[async_trait::async_trait]
 impl OpcUaProcessImagePort for ProcessImageOpcUaAdapter {
-    async fn write_tag(
-        &self,
-        tag_name: &str,
-        value: f64,
-        _actor: &str,
-    ) -> Result<(), String> {
+    async fn write_tag(&self, tag_name: &str, value: f64, _actor: &str) -> Result<(), String> {
         // Actor is carried by the audit port (Batch 211+);
         // ProcessImage itself tracks source, not actor.
         // ProcessImage::update_tag_raw returns (); the port
@@ -921,11 +934,7 @@ pub struct AuditSinkOpcUaAdapter {
 }
 
 impl AuditSinkOpcUaAdapter {
-    pub fn new(
-        sink: Arc<AuditSink>,
-        tenant: TenantId,
-        policy_version_fn: PolicyVersionFn,
-    ) -> Self {
+    pub fn new(sink: Arc<AuditSink>, tenant: TenantId, policy_version_fn: PolicyVersionFn) -> Self {
         Self {
             sink,
             tenant,
@@ -942,9 +951,7 @@ impl AuditSinkOpcUaAdapter {
     fn classify_outcome(outcome: &OpcUaWriteOutcome) -> AuditOutcome {
         match outcome {
             OpcUaWriteOutcome::Success { .. } => AuditOutcome::Success,
-            OpcUaWriteOutcome::RejectedNoPermission { .. } => {
-                AuditOutcome::AuthorizationDenied
-            }
+            OpcUaWriteOutcome::RejectedNoPermission { .. } => AuditOutcome::AuthorizationDenied,
             OpcUaWriteOutcome::RejectedUnknownTag { .. }
             | OpcUaWriteOutcome::RejectedNotWritable { .. }
             | OpcUaWriteOutcome::RejectedForced { .. }
@@ -973,10 +980,7 @@ impl AuditSinkOpcUaAdapter {
     /// ProcessImage error string). Bounded to `MAX_DETAIL_BYTES`
     /// at canonical-bytes serialization time; the JSON
     /// constructed here stays well under that cap.
-    fn build_detail(
-        value: f64,
-        outcome: &OpcUaWriteOutcome,
-    ) -> String {
+    fn build_detail(value: f64, outcome: &OpcUaWriteOutcome) -> String {
         let reason = Self::outcome_reason_tag(outcome);
         let extra = match outcome {
             OpcUaWriteOutcome::RejectedOutOfRange {
@@ -1278,7 +1282,9 @@ mod tests {
         let err = OpcUaTagRegistry::build(cfgs.iter()).unwrap_err();
         assert_eq!(
             err,
-            OpcUaTagRegistryError::DuplicateTagName { tag_name: "dup".into() }
+            OpcUaTagRegistryError::DuplicateTagName {
+                tag_name: "dup".into()
+            }
         );
     }
 
@@ -1407,14 +1413,8 @@ mod tests {
 
     #[async_trait::async_trait]
     impl OpcUaProcessImagePort for CapturingPi {
-        async fn write_tag(
-            &self,
-            tag_name: &str,
-            value: f64,
-            actor: &str,
-        ) -> Result<(), String> {
-            *self.last.lock().await =
-                Some((tag_name.to_string(), value, actor.to_string()));
+        async fn write_tag(&self, tag_name: &str, value: f64, actor: &str) -> Result<(), String> {
+            *self.last.lock().await = Some((tag_name.to_string(), value, actor.to_string()));
             self.result.clone()
         }
     }
@@ -1860,10 +1860,7 @@ mod tests {
         let pi = Arc::new(ProcessImage::new());
         let adapter = ProcessImageOpcUaAdapter::new(pi.clone());
 
-        adapter
-            .write_tag("do_pump", 75.0, "hmi-op")
-            .await
-            .unwrap();
+        adapter.write_tag("do_pump", 75.0, "hmi-op").await.unwrap();
 
         let got = pi.get_tag("do_pump").await.expect("tag persisted");
         assert_eq!(got.value, 75.0);
@@ -1923,9 +1920,7 @@ mod tests {
     // Batch 212 Faz 5 — PolicyEngine adapter tests
     // ============================================================
 
-    use crate::authz::context::{
-        AuthorizationDenyReason, AuthorizedContext,
-    };
+    use crate::authz::context::{AuthorizationDenyReason, AuthorizedContext};
     use crate::authz::permission::OperatorId;
     use crate::authz::policy::PolicyEngineError;
     use async_trait::async_trait;
@@ -1937,9 +1932,7 @@ mod tests {
     /// Canned PolicyEngine — returns the configured decision
     /// unconditionally. Captures the last request for assertion.
     struct CannedPolicyEngine {
-        decision: std::sync::Mutex<
-            Result<AuthorizationDecision, PolicyEngineError>,
-        >,
+        decision: std::sync::Mutex<Result<AuthorizationDecision, PolicyEngineError>>,
         last_request: std::sync::Mutex<Option<AuthorizationRequest>>,
         policy_version: u64,
     }
@@ -2000,9 +1993,7 @@ mod tests {
 
     fn canned_err() -> Arc<CannedPolicyEngine> {
         Arc::new(CannedPolicyEngine {
-            decision: std::sync::Mutex::new(Err(
-                PolicyEngineError::ManifestUnavailable,
-            )),
+            decision: std::sync::Mutex::new(Err(PolicyEngineError::ManifestUnavailable)),
             last_request: std::sync::Mutex::new(None),
             policy_version: 42,
         })
@@ -2133,9 +2124,7 @@ mod tests {
         ))
     }
 
-    fn read_audit_ndjson(
-        path: &std::path::Path,
-    ) -> Vec<serde_json::Value> {
+    fn read_audit_ndjson(path: &std::path::Path) -> Vec<serde_json::Value> {
         let text = std::fs::read_to_string(path).unwrap_or_default();
         text.lines()
             .filter(|l| !l.trim().is_empty())
@@ -2148,11 +2137,7 @@ mod tests {
         let path = tmp_audit_path();
         let key = AuditHmacKey::from_bytes([0xAAu8; 32]);
         let sink = Arc::new(AuditSink::open(&path, key).expect("open"));
-        let adapter = AuditSinkOpcUaAdapter::new(
-            sink,
-            test_tenant(),
-            Arc::new(|| 42u64),
-        );
+        let adapter = AuditSinkOpcUaAdapter::new(sink, test_tenant(), Arc::new(|| 42u64));
 
         adapter
             .record_write_attempt(
@@ -2194,11 +2179,7 @@ mod tests {
         let path = tmp_audit_path();
         let key = AuditHmacKey::from_bytes([0xBBu8; 32]);
         let sink = Arc::new(AuditSink::open(&path, key).expect("open"));
-        let adapter = AuditSinkOpcUaAdapter::new(
-            sink,
-            test_tenant(),
-            Arc::new(|| 7u64),
-        );
+        let adapter = AuditSinkOpcUaAdapter::new(sink, test_tenant(), Arc::new(|| 7u64));
 
         adapter
             .record_write_attempt(
@@ -2228,11 +2209,7 @@ mod tests {
         let path = tmp_audit_path();
         let key = AuditHmacKey::from_bytes([0xCCu8; 32]);
         let sink = Arc::new(AuditSink::open(&path, key).expect("open"));
-        let adapter = AuditSinkOpcUaAdapter::new(
-            sink,
-            test_tenant(),
-            Arc::new(|| 99u64),
-        );
+        let adapter = AuditSinkOpcUaAdapter::new(sink, test_tenant(), Arc::new(|| 99u64));
 
         let rejects = [
             OpcUaWriteOutcome::RejectedUnknownTag {
@@ -2268,10 +2245,8 @@ mod tests {
         let reasons: Vec<String> = records
             .iter()
             .map(|r| {
-                let detail: serde_json::Value = serde_json::from_str(
-                    r["entry"]["detail"].as_str().unwrap(),
-                )
-                .unwrap();
+                let detail: serde_json::Value =
+                    serde_json::from_str(r["entry"]["detail"].as_str().unwrap()).unwrap();
                 detail["reason"].as_str().unwrap().to_string()
             })
             .collect();
@@ -2287,19 +2262,15 @@ mod tests {
         );
 
         // Out-of-range entry includes the bounds for forensics.
-        let detail: serde_json::Value = serde_json::from_str(
-            records[3]["entry"]["detail"].as_str().unwrap(),
-        )
-        .unwrap();
+        let detail: serde_json::Value =
+            serde_json::from_str(records[3]["entry"]["detail"].as_str().unwrap()).unwrap();
         assert_eq!(detail["extra"]["eng_min"], 0.0);
         assert_eq!(detail["extra"]["eng_max"], 100.0);
 
         // process_image_error entry carries the underlying
         // reason string for ops + forensics triage.
-        let detail: serde_json::Value = serde_json::from_str(
-            records[4]["entry"]["detail"].as_str().unwrap(),
-        )
-        .unwrap();
+        let detail: serde_json::Value =
+            serde_json::from_str(records[4]["entry"]["detail"].as_str().unwrap()).unwrap();
         assert_eq!(detail["extra"]["process_image_error"], "modbus timeout");
 
         let _ = std::fs::remove_file(&path);
@@ -2489,10 +2460,7 @@ mod tests {
         // ProcessImage write API. A future Batch refactors the
         // port traits to take typed AuthenticatedUser directly,
         // dropping the round-trip through string form.
-        assert_eq!(
-            last.2,
-            "sens:operator:00000000000000000000000000000042"
-        );
+        assert_eq!(last.2, "sens:operator:00000000000000000000000000000042");
         let outs = audit_outcomes(&audit).await;
         assert_eq!(outs.len(), 1);
         assert!(outs[0].is_success());
@@ -2734,10 +2702,7 @@ mod tests {
             // Tier-1 invariant: the no-permission variant is
             // unreachable in the post-typed-authz delegate.
             assert!(
-                !matches!(
-                    out,
-                    OpcUaWriteOutcome::RejectedNoPermission { .. }
-                ),
+                !matches!(out, OpcUaWriteOutcome::RejectedNoPermission { .. }),
                 "scenario={:?} produced unreachable RejectedNoPermission",
                 expected
             );
@@ -2763,8 +2728,7 @@ mod tests {
             outcomes: Mutex::new(Vec::new()),
         };
 
-        let actor_token =
-            "sens:operator:42424242424242424242424242424242";
+        let actor_token = "sens:operator:42424242424242424242424242424242";
         let _ = execute_opcua_write_post_typed_authz(
             &reg,
             &OpcUaWriteRequest {
@@ -2779,6 +2743,9 @@ mod tests {
         .await;
 
         let last = pi.last.lock().await.clone().expect("pi write");
-        assert_eq!(last.2, actor_token, "actor token must pass through unchanged");
+        assert_eq!(
+            last.2, actor_token,
+            "actor token must pass through unchanged"
+        );
     }
 }

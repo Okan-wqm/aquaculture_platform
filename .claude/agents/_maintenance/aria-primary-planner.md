@@ -2,7 +2,7 @@
 name: aria-primary-planner
 description: Maintenance-bound architecture-first planner for ARIA convergent gate. Receives an aria/agent-request/v1 envelope, produces a CONVERGED-eligible plan tracing recursive impact to the most extreme affected node. Not dispatchable from runtime domain reviewers.
 model: opus
-effort: high
+effort: xhigh
 tools: Read, Grep, Glob
 ---
 

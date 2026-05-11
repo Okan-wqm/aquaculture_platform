@@ -92,7 +92,10 @@ pub enum VmError {
     /// injection (e.g. in-proc unit tests that don't
     /// exercise tag reads/writes). Production code paths
     /// always plumb a backend via `run_with_io`.
-    TagIoNotWired { tag: String, direction: &'static str },
+    TagIoNotWired {
+        tag: String,
+        direction: &'static str,
+    },
     /// Batch 159: the injected `TagIo` backend returned a
     /// structured error. The VM trips safe state on the
     /// calling consumer's behalf — a tag-read or tag-write
@@ -140,7 +143,11 @@ impl std::fmt::Display for VmError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::GasExhausted { remaining, needed } => {
-                write!(f, "vm: gas exhausted (remaining={}, needed={})", remaining, needed)
+                write!(
+                    f,
+                    "vm: gas exhausted (remaining={}, needed={})",
+                    remaining, needed
+                )
             }
             Self::StackUnderflow { opcode } => {
                 write!(f, "vm: stack underflow on {}", opcode)
@@ -157,7 +164,10 @@ impl std::fmt::Display for VmError {
             Self::DivideByZero { opcode } => {
                 write!(f, "vm: divide-by-zero on {}", opcode)
             }
-            Self::BadJumpTarget { target, opcode_count } => {
+            Self::BadJumpTarget {
+                target,
+                opcode_count,
+            } => {
                 write!(
                     f,
                     "vm: bad jump target {} (program has {} opcodes)",
@@ -175,7 +185,11 @@ impl std::fmt::Display for VmError {
             Self::TagIoNotWired { tag, direction } => {
                 write!(f, "vm: tag IO not wired ({} on {})", direction, tag)
             }
-            Self::TagIoFailed { tag, direction, reason } => {
+            Self::TagIoFailed {
+                tag,
+                direction,
+                reason,
+            } => {
                 write!(
                     f,
                     "vm: tag IO failed ({} on `{}`): {}",
@@ -186,17 +200,23 @@ impl std::fmt::Display for VmError {
                 write!(f, "vm: stdlib fn not wired (wire_tag={})", fn_id_wire_tag)
             }
             Self::TagNotAllowed { tag } => {
-                write!(f, "vm: write to tag `{}` blocked — not in allowed_write_tags", tag)
+                write!(
+                    f,
+                    "vm: write to tag `{}` blocked — not in allowed_write_tags",
+                    tag
+                )
             }
             Self::SafeStatePinned { tag } => {
                 write!(f, "vm: write to safe-state-pinned tag `{}` blocked", tag)
             }
-            Self::FbIoNotWired { fb_id, direction } => write!(
-                f,
-                "vm: FB IO not wired ({} on fb `{}`)",
-                direction, fb_id
-            ),
-            Self::FbIoFailed { fb_id, direction, reason } => write!(
+            Self::FbIoNotWired { fb_id, direction } => {
+                write!(f, "vm: FB IO not wired ({} on fb `{}`)", direction, fb_id)
+            }
+            Self::FbIoFailed {
+                fb_id,
+                direction,
+                reason,
+            } => write!(
                 f,
                 "vm: FB IO failed ({} on fb `{}`): {}",
                 direction, fb_id, reason
@@ -338,18 +358,9 @@ impl std::error::Error for TagIoError {}
 /// All three return `FbIoError` on failure; the VM
 /// converts each to the appropriate `VmError` variant.
 pub trait FbIo {
-    fn set_input(
-        &self,
-        fb_id: &str,
-        input_name: &str,
-        value: StValue,
-    ) -> Result<(), FbIoError>;
+    fn set_input(&self, fb_id: &str, input_name: &str, value: StValue) -> Result<(), FbIoError>;
     fn execute_fb(&self, fb_id: &str) -> Result<(), FbIoError>;
-    fn get_output(
-        &self,
-        fb_id: &str,
-        output_name: &str,
-    ) -> Result<StValue, FbIoError>;
+    fn get_output(&self, fb_id: &str, output_name: &str) -> Result<StValue, FbIoError>;
 }
 
 /// FB-IO failure taxonomy. Each variant maps to a
@@ -388,7 +399,9 @@ impl FbIoError {
         let reason = match self {
             Self::NotFound { .. } => "FB instance not found".to_string(),
             Self::PinNotFound { pin, .. } => format!("pin `{}` not found", pin),
-            Self::TypeMismatch { pin, expected, got, .. } => format!(
+            Self::TypeMismatch {
+                pin, expected, got, ..
+            } => format!(
                 "pin `{}`: type mismatch (expected {:?}, got {:?})",
                 pin, expected, got
             ),
@@ -409,7 +422,12 @@ impl std::fmt::Display for FbIoError {
             Self::PinNotFound { fb_id, pin } => {
                 write!(f, "fb `{}`: pin `{}` not found", fb_id, pin)
             }
-            Self::TypeMismatch { fb_id, pin, expected, got } => write!(
+            Self::TypeMismatch {
+                fb_id,
+                pin,
+                expected,
+                got,
+            } => write!(
                 f,
                 "fb `{}`: pin `{}`: type mismatch (expected {:?}, got {:?})",
                 fb_id, pin, expected, got
@@ -454,8 +472,7 @@ impl ScriptVm {
         // slots. Non-RETAIN locals stay Bool(false); the
         // compiler-enforced write-before-read rule keeps
         // them from being read without prior StoreLocal.
-        let mut locals =
-            vec![StValue::Bool(false); bc.local_count as usize];
+        let mut locals = vec![StValue::Bool(false); bc.local_count as usize];
         for (_name, local_index, declared_type) in &bc.retain_vars {
             let idx = *local_index as usize;
             if idx < locals.len() {
@@ -726,14 +743,12 @@ impl ScriptVm {
             // Memory
             Opcode::LoadLocal { index } => {
                 let idx = *index;
-                let v = self
-                    .locals
-                    .get(idx as usize)
-                    .copied()
-                    .ok_or_else(|| VmError::BadLocalIndex {
+                let v = self.locals.get(idx as usize).copied().ok_or_else(|| {
+                    VmError::BadLocalIndex {
                         index: idx,
                         local_count: self.locals.len() as u32,
-                    })?;
+                    }
+                })?;
                 self.stack.push(v);
                 Ok(DispatchStep::Advance)
             }
@@ -780,19 +795,11 @@ impl ScriptVm {
                 // the pinned layer (matches plan R-1
                 // wording: "refuses WriteTag even when
                 // name IS in allowed_write_tags").
-                if bc
-                    .safe_state_pinned_tags
-                    .iter()
-                    .any(|t| t == name)
-                {
-                    return Err(VmError::SafeStatePinned {
-                        tag: name.clone(),
-                    });
+                if bc.safe_state_pinned_tags.iter().any(|t| t == name) {
+                    return Err(VmError::SafeStatePinned { tag: name.clone() });
                 }
                 if !bc.allowed_write_tags.iter().any(|t| t == name) {
-                    return Err(VmError::TagNotAllowed {
-                        tag: name.clone(),
-                    });
+                    return Err(VmError::TagNotAllowed { tag: name.clone() });
                 }
                 // Allowlist + pinned gates cleared.
                 // Without an IO backend, the VM retains
@@ -1005,11 +1012,7 @@ impl ScriptVm {
                 // Explicit clamp — NaN-safe: if mn > mx
                 // (operator-supplied nonsense) result is
                 // mn per Rust f64::clamp panic avoidance.
-                let clamped = if mn > mx {
-                    mn
-                } else {
-                    in_val.clamp(mn, mx)
-                };
+                let clamped = if mn > mx { mn } else { in_val.clamp(mn, mx) };
                 self.stack.push(StValue::Real(clamped));
             }
             F::MinReal => {
@@ -1035,11 +1038,8 @@ impl ScriptVm {
                 let if_true = self.pop_real("Stdlib::SelReal")?;
                 let if_false = self.pop_real("Stdlib::SelReal")?;
                 let cond = self.pop_bool("Stdlib::SelReal")?;
-                self.stack.push(StValue::Real(if cond {
-                    if_true
-                } else {
-                    if_false
-                }));
+                self.stack
+                    .push(StValue::Real(if cond { if_true } else { if_false }));
             }
             F::LnReal => {
                 let x = self.pop_real("Stdlib::LnReal")?;
@@ -1121,8 +1121,12 @@ mod tests {
     fn run_int_add_leaves_sum_on_stack() {
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Int(2) },
-                Opcode::PushConst { value: StValue::Int(3) },
+                Opcode::PushConst {
+                    value: StValue::Int(2),
+                },
+                Opcode::PushConst {
+                    value: StValue::Int(3),
+                },
                 Opcode::AddInt,
                 Opcode::Return,
             ],
@@ -1137,8 +1141,12 @@ mod tests {
     fn run_real_mul() {
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(2.0) },
-                Opcode::PushConst { value: StValue::Real(3.5) },
+                Opcode::PushConst {
+                    value: StValue::Real(2.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(3.5),
+                },
                 Opcode::MulReal,
                 Opcode::Return,
             ],
@@ -1153,8 +1161,12 @@ mod tests {
     fn run_int_divide_by_zero_trips_error() {
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Int(10) },
-                Opcode::PushConst { value: StValue::Int(0) },
+                Opcode::PushConst {
+                    value: StValue::Int(10),
+                },
+                Opcode::PushConst {
+                    value: StValue::Int(0),
+                },
                 Opcode::DivInt,
                 Opcode::Return,
             ],
@@ -1173,8 +1185,12 @@ mod tests {
     fn run_real_divide_by_zero_trips_error() {
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(1.0) },
-                Opcode::PushConst { value: StValue::Real(0.0) },
+                Opcode::PushConst {
+                    value: StValue::Real(1.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(0.0),
+                },
                 Opcode::DivReal,
                 Opcode::Return,
             ],
@@ -1196,7 +1212,9 @@ mod tests {
         // 42 → local[0]; LoadLocal[0] → stack
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Int(42) },
+                Opcode::PushConst {
+                    value: StValue::Int(42),
+                },
                 Opcode::StoreLocal { index: 0 },
                 Opcode::LoadLocal { index: 0 },
                 Opcode::Return,
@@ -1210,17 +1228,14 @@ mod tests {
 
     #[test]
     fn run_bad_local_index_trips_error() {
-        let b = bc(
-            vec![
-                Opcode::LoadLocal { index: 99 },
-                Opcode::Return,
-            ],
-            1,
-        );
+        let b = bc(vec![Opcode::LoadLocal { index: 99 }, Opcode::Return], 1);
         let mut vm = ScriptVm::new(&b);
         assert!(matches!(
             vm.run(&b),
-            VmOutcome::Error(VmError::BadLocalIndex { index: 99, local_count: 1 })
+            VmOutcome::Error(VmError::BadLocalIndex {
+                index: 99,
+                local_count: 1
+            })
         ));
     }
 
@@ -1233,9 +1248,13 @@ mod tests {
         // true; JumpIfFalse→3; PushConst(99); Return
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Bool(true) },
+                Opcode::PushConst {
+                    value: StValue::Bool(true),
+                },
                 Opcode::JumpIfFalse { target: 3 },
-                Opcode::PushConst { value: StValue::Int(99) },
+                Opcode::PushConst {
+                    value: StValue::Int(99),
+                },
                 Opcode::Return,
             ],
             0,
@@ -1251,9 +1270,13 @@ mod tests {
         // With false, should SKIP the PushConst.
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Bool(false) },
+                Opcode::PushConst {
+                    value: StValue::Bool(false),
+                },
                 Opcode::JumpIfFalse { target: 3 },
-                Opcode::PushConst { value: StValue::Int(99) },
+                Opcode::PushConst {
+                    value: StValue::Int(99),
+                },
                 Opcode::Return,
             ],
             0,
@@ -1265,10 +1288,7 @@ mod tests {
 
     #[test]
     fn run_jump_past_end_is_bad_target() {
-        let b = bc(
-            vec![Opcode::Jump { target: 99 }, Opcode::Return],
-            0,
-        );
+        let b = bc(vec![Opcode::Jump { target: 99 }, Opcode::Return], 0);
         let mut vm = ScriptVm::new(&b);
         assert!(matches!(
             vm.run(&b),
@@ -1284,8 +1304,12 @@ mod tests {
     fn run_gas_exhaustion_trips_error() {
         let mut b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Int(1) },
-                Opcode::PushConst { value: StValue::Int(2) },
+                Opcode::PushConst {
+                    value: StValue::Int(1),
+                },
+                Opcode::PushConst {
+                    value: StValue::Int(2),
+                },
                 Opcode::AddInt,
                 Opcode::Return,
             ],
@@ -1329,8 +1353,12 @@ mod tests {
         // then tries to pop another Int but finds Real.
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(1.0) },
-                Opcode::PushConst { value: StValue::Int(2) },
+                Opcode::PushConst {
+                    value: StValue::Real(1.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Int(2),
+                },
                 Opcode::AddInt,
                 Opcode::Return,
             ],
@@ -1351,7 +1379,9 @@ mod tests {
     fn run_cast_int_to_real_promotes_to_f64() {
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Int(7) },
+                Opcode::PushConst {
+                    value: StValue::Int(7),
+                },
                 Opcode::CastIntToReal,
                 Opcode::Return,
             ],
@@ -1366,7 +1396,9 @@ mod tests {
     fn run_cast_int_to_real_on_non_int_is_type_mismatch() {
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(1.5) },
+                Opcode::PushConst {
+                    value: StValue::Real(1.5),
+                },
                 Opcode::CastIntToReal,
                 Opcode::Return,
             ],
@@ -1415,8 +1447,7 @@ mod tests {
             }],
             span: None,
         };
-        let bc_compiled =
-            compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
+        let bc_compiled = compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         assert_eq!(vm.locals()[0], StValue::Real(3.0));
@@ -1459,8 +1490,7 @@ mod tests {
             }],
             span: None,
         };
-        let bc_compiled =
-            compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
+        let bc_compiled = compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         assert_eq!(vm.locals()[0], StValue::Real(5.0));
@@ -1499,8 +1529,7 @@ mod tests {
             }],
             span: None,
         };
-        let bc_compiled =
-            compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
+        let bc_compiled = compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         assert_eq!(vm.locals()[0], StValue::Real(5.5));
@@ -1513,10 +1542,7 @@ mod tests {
     #[test]
     fn run_load_tag_stub_returns_not_wired() {
         let b = bc(
-            vec![
-                Opcode::LoadTag { name: "t1".into() },
-                Opcode::Return,
-            ],
+            vec![Opcode::LoadTag { name: "t1".into() }, Opcode::Return],
             0,
         );
         let mut vm = ScriptVm::new(&b);
@@ -1554,8 +1580,12 @@ mod tests {
     fn run_write_tag_blocked_when_not_in_allowlist() {
         let b = bc_with_tag_rules(
             vec![
-                Opcode::PushConst { value: StValue::Real(1.0) },
-                Opcode::WriteTag { name: "rogue_tag".into() },
+                Opcode::PushConst {
+                    value: StValue::Real(1.0),
+                },
+                Opcode::WriteTag {
+                    name: "rogue_tag".into(),
+                },
                 Opcode::Return,
             ],
             0,
@@ -1578,8 +1608,12 @@ mod tests {
         // status must win.
         let b = bc_with_tag_rules(
             vec![
-                Opcode::PushConst { value: StValue::Real(1.0) },
-                Opcode::WriteTag { name: "aerator_on".into() },
+                Opcode::PushConst {
+                    value: StValue::Real(1.0),
+                },
+                Opcode::WriteTag {
+                    name: "aerator_on".into(),
+                },
                 Opcode::Return,
             ],
             0,
@@ -1603,8 +1637,12 @@ mod tests {
         // (future ProcessImage wiring replaces this).
         let b = bc_with_tag_rules(
             vec![
-                Opcode::PushConst { value: StValue::Real(2.5) },
-                Opcode::WriteTag { name: "feeder_rate".into() },
+                Opcode::PushConst {
+                    value: StValue::Real(2.5),
+                },
+                Opcode::WriteTag {
+                    name: "feeder_rate".into(),
+                },
                 Opcode::Return,
             ],
             0,
@@ -1614,9 +1652,7 @@ mod tests {
         let mut vm = ScriptVm::new(&b);
         let outcome = vm.run(&b);
         match outcome {
-            VmOutcome::Error(VmError::TagIoNotWired {
-                tag, direction,
-            }) => {
+            VmOutcome::Error(VmError::TagIoNotWired { tag, direction }) => {
                 assert_eq!(tag, "feeder_rate");
                 assert_eq!(direction, "write");
             }
@@ -1669,9 +1705,7 @@ mod tests {
         }
 
         fn write_tag(&self, tag_name: &str, value: StValue) -> Result<(), TagIoError> {
-            self.values
-                .borrow_mut()
-                .insert(tag_name.to_string(), value);
+            self.values.borrow_mut().insert(tag_name.to_string(), value);
             Ok(())
         }
     }
@@ -1701,7 +1735,9 @@ mod tests {
         let store = MockTagStore::with(&[("water_temp", StValue::Real(22.5))]);
         let b = bc(
             vec![
-                Opcode::LoadTag { name: "water_temp".into() },
+                Opcode::LoadTag {
+                    name: "water_temp".into(),
+                },
                 Opcode::Return,
             ],
             0,
@@ -1716,7 +1752,9 @@ mod tests {
         let store = MockTagStore::default();
         let b = bc(
             vec![
-                Opcode::LoadTag { name: "missing".into() },
+                Opcode::LoadTag {
+                    name: "missing".into(),
+                },
                 Opcode::Return,
             ],
             0,
@@ -1741,8 +1779,12 @@ mod tests {
         let store = MockTagStore::with(&[("feeder_rate", StValue::Real(0.0))]);
         let b = bc_with_tag_rules(
             vec![
-                Opcode::PushConst { value: StValue::Real(2.5) },
-                Opcode::WriteTag { name: "feeder_rate".into() },
+                Opcode::PushConst {
+                    value: StValue::Real(2.5),
+                },
+                Opcode::WriteTag {
+                    name: "feeder_rate".into(),
+                },
                 Opcode::Return,
             ],
             0,
@@ -1766,8 +1808,12 @@ mod tests {
         };
         let b = bc_with_tag_rules(
             vec![
-                Opcode::PushConst { value: StValue::Real(1.0) },
-                Opcode::WriteTag { name: "feeder_rate".into() },
+                Opcode::PushConst {
+                    value: StValue::Real(1.0),
+                },
+                Opcode::WriteTag {
+                    name: "feeder_rate".into(),
+                },
                 Opcode::Return,
             ],
             0,
@@ -1796,8 +1842,12 @@ mod tests {
         let store = MockTagStore::default();
         let b = bc_with_tag_rules(
             vec![
-                Opcode::PushConst { value: StValue::Real(1.0) },
-                Opcode::WriteTag { name: "e_stop".into() },
+                Opcode::PushConst {
+                    value: StValue::Real(1.0),
+                },
+                Opcode::WriteTag {
+                    name: "e_stop".into(),
+                },
                 Opcode::Return,
             ],
             0,
@@ -1825,10 +1875,16 @@ mod tests {
         ]);
         let b = bc_with_tag_rules(
             vec![
-                Opcode::LoadTag { name: "water_temp".into() },
-                Opcode::PushConst { value: StValue::Real(5.0) },
+                Opcode::LoadTag {
+                    name: "water_temp".into(),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(5.0),
+                },
                 Opcode::AddReal,
-                Opcode::WriteTag { name: "setpoint".into() },
+                Opcode::WriteTag {
+                    name: "setpoint".into(),
+                },
                 Opcode::Return,
             ],
             0,
@@ -1849,16 +1905,16 @@ mod tests {
         // TagIoNotWired behavior for in-proc unit tests
         // that never exercise tag IO.
         let b = bc(
-            vec![
-                Opcode::LoadTag { name: "x".into() },
-                Opcode::Return,
-            ],
+            vec![Opcode::LoadTag { name: "x".into() }, Opcode::Return],
             0,
         );
         let mut vm = ScriptVm::new(&b);
         assert!(matches!(
             vm.run(&b),
-            VmOutcome::Error(VmError::TagIoNotWired { direction: "load", .. })
+            VmOutcome::Error(VmError::TagIoNotWired {
+                direction: "load",
+                ..
+            })
         ));
     }
 
@@ -1914,11 +1970,7 @@ mod tests {
         fn read_tag(&self, _tag_name: &str) -> Result<StValue, TagIoError> {
             Err(TagIoError::NotFound { tag: String::new() })
         }
-        fn write_tag(
-            &self,
-            _tag_name: &str,
-            _value: StValue,
-        ) -> Result<(), TagIoError> {
+        fn write_tag(&self, _tag_name: &str, _value: StValue) -> Result<(), TagIoError> {
             Ok(())
         }
     }
@@ -1957,11 +2009,7 @@ mod tests {
             Ok(())
         }
 
-        fn get_output(
-            &self,
-            fb_id: &str,
-            output_name: &str,
-        ) -> Result<StValue, FbIoError> {
+        fn get_output(&self, fb_id: &str, output_name: &str) -> Result<StValue, FbIoError> {
             self.outputs
                 .borrow()
                 .get(fb_id)
@@ -1988,7 +2036,10 @@ mod tests {
         let mut vm = ScriptVm::new(&b);
         assert!(matches!(
             vm.run(&b),
-            VmOutcome::Error(VmError::FbIoNotWired { direction: "call", .. })
+            VmOutcome::Error(VmError::FbIoNotWired {
+                direction: "call",
+                ..
+            })
         ));
     }
 
@@ -2007,7 +2058,10 @@ mod tests {
         let mut vm = ScriptVm::new(&b);
         assert!(matches!(
             vm.run(&b),
-            VmOutcome::Error(VmError::FbIoNotWired { direction: "read", .. })
+            VmOutcome::Error(VmError::FbIoNotWired {
+                direction: "read",
+                ..
+            })
         ));
     }
 
@@ -2018,8 +2072,12 @@ mod tests {
         let fb = MockFbStore::with_fb("timer1");
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Bool(true) }, // IN
-                Opcode::PushConst { value: StValue::Int(5000) },  // PT (ms)
+                Opcode::PushConst {
+                    value: StValue::Bool(true),
+                }, // IN
+                Opcode::PushConst {
+                    value: StValue::Int(5000),
+                }, // PT (ms)
                 Opcode::FbCall {
                     fb_id: "timer1".into(),
                     input_names: vec!["IN".into(), "PT".into()],
@@ -2071,9 +2129,7 @@ mod tests {
         );
         let mut vm = ScriptVm::new(&b);
         match vm.run_with_io_and_fb(&b, &fb, &fb) {
-            VmOutcome::Error(VmError::FbIoFailed {
-                fb_id, reason, ..
-            }) => {
+            VmOutcome::Error(VmError::FbIoFailed { fb_id, reason, .. }) => {
                 assert_eq!(fb_id, "ghost_fb");
                 assert!(reason.contains("not found"));
             }
@@ -2110,7 +2166,9 @@ mod tests {
         fb.set_output("timer1", "Q", StValue::Bool(false));
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Bool(true) },
+                Opcode::PushConst {
+                    value: StValue::Bool(true),
+                },
                 Opcode::FbCall {
                     fb_id: "timer1".into(),
                     input_names: vec!["IN".into()],
@@ -2139,8 +2197,12 @@ mod tests {
         // error points at the pinned rule.
         let b = bc_with_tag_rules(
             vec![
-                Opcode::PushConst { value: StValue::Real(1.0) },
-                Opcode::WriteTag { name: "e_stop".into() },
+                Opcode::PushConst {
+                    value: StValue::Real(1.0),
+                },
+                Opcode::WriteTag {
+                    name: "e_stop".into(),
+                },
                 Opcode::Return,
             ],
             0,
@@ -2163,8 +2225,12 @@ mod tests {
         use super::super::bytecode::StdlibFunctionId;
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Int(-7) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::AbsInt },
+                Opcode::PushConst {
+                    value: StValue::Int(-7),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::AbsInt,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2179,8 +2245,12 @@ mod tests {
         use super::super::bytecode::StdlibFunctionId;
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(-3.25) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::AbsReal },
+                Opcode::PushConst {
+                    value: StValue::Real(-3.25),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::AbsReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2195,8 +2265,12 @@ mod tests {
         use super::super::bytecode::StdlibFunctionId;
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(9.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::SqrtReal },
+                Opcode::PushConst {
+                    value: StValue::Real(9.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::SqrtReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2211,17 +2285,18 @@ mod tests {
         use super::super::bytecode::StdlibFunctionId;
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(-1.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::SqrtReal },
+                Opcode::PushConst {
+                    value: StValue::Real(-1.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::SqrtReal,
+                },
                 Opcode::Return,
             ],
             0,
         );
         let mut vm = ScriptVm::new(&b);
-        assert_eq!(
-            vm.run(&b),
-            VmOutcome::Error(VmError::SafeStateTripped)
-        );
+        assert_eq!(vm.run(&b), VmOutcome::Error(VmError::SafeStateTripped));
     }
 
     #[test]
@@ -2230,10 +2305,18 @@ mod tests {
         // LIMIT(0, 10, 5) → 5 (clamped to max).
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(0.0) },
-                Opcode::PushConst { value: StValue::Real(10.0) },
-                Opcode::PushConst { value: StValue::Real(5.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::LimitReal },
+                Opcode::PushConst {
+                    value: StValue::Real(0.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(10.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(5.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::LimitReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2249,10 +2332,18 @@ mod tests {
         // LIMIT(2, -1, 5) → 2 (clamped to min).
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(2.0) },
-                Opcode::PushConst { value: StValue::Real(-1.0) },
-                Opcode::PushConst { value: StValue::Real(5.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::LimitReal },
+                Opcode::PushConst {
+                    value: StValue::Real(2.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(-1.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(5.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::LimitReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2267,10 +2358,18 @@ mod tests {
         use super::super::bytecode::StdlibFunctionId;
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(0.0) },
-                Opcode::PushConst { value: StValue::Real(3.5) },
-                Opcode::PushConst { value: StValue::Real(10.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::LimitReal },
+                Opcode::PushConst {
+                    value: StValue::Real(0.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(3.5),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(10.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::LimitReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2285,9 +2384,15 @@ mod tests {
         use super::super::bytecode::StdlibFunctionId;
         let b_min = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(5.0) },
-                Opcode::PushConst { value: StValue::Real(3.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::MinReal },
+                Opcode::PushConst {
+                    value: StValue::Real(5.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(3.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::MinReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2298,9 +2403,15 @@ mod tests {
 
         let b_max = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(5.0) },
-                Opcode::PushConst { value: StValue::Real(3.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::MaxReal },
+                Opcode::PushConst {
+                    value: StValue::Real(5.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(3.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::MaxReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2316,10 +2427,18 @@ mod tests {
         // SEL(cond=TRUE, if_false=1.0, if_true=9.0) → 9.0.
         let b_true = bc(
             vec![
-                Opcode::PushConst { value: StValue::Bool(true) },
-                Opcode::PushConst { value: StValue::Real(1.0) },
-                Opcode::PushConst { value: StValue::Real(9.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::SelReal },
+                Opcode::PushConst {
+                    value: StValue::Bool(true),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(1.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(9.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::SelReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2331,10 +2450,18 @@ mod tests {
         // SEL(cond=FALSE, if_false=1.0, if_true=9.0) → 1.0.
         let b_false = bc(
             vec![
-                Opcode::PushConst { value: StValue::Bool(false) },
-                Opcode::PushConst { value: StValue::Real(1.0) },
-                Opcode::PushConst { value: StValue::Real(9.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::SelReal },
+                Opcode::PushConst {
+                    value: StValue::Bool(false),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(1.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(9.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::SelReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2350,8 +2477,12 @@ mod tests {
         // LN(e) = 1.0
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(std::f64::consts::E) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::LnReal },
+                Opcode::PushConst {
+                    value: StValue::Real(std::f64::consts::E),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::LnReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2371,31 +2502,33 @@ mod tests {
         use super::super::bytecode::StdlibFunctionId;
         let b_zero = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(0.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::LnReal },
+                Opcode::PushConst {
+                    value: StValue::Real(0.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::LnReal,
+                },
                 Opcode::Return,
             ],
             0,
         );
         let mut vm = ScriptVm::new(&b_zero);
-        assert_eq!(
-            vm.run(&b_zero),
-            VmOutcome::Error(VmError::SafeStateTripped)
-        );
+        assert_eq!(vm.run(&b_zero), VmOutcome::Error(VmError::SafeStateTripped));
 
         let b_neg = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(-0.5) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::LnReal },
+                Opcode::PushConst {
+                    value: StValue::Real(-0.5),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::LnReal,
+                },
                 Opcode::Return,
             ],
             0,
         );
         let mut vm = ScriptVm::new(&b_neg);
-        assert_eq!(
-            vm.run(&b_neg),
-            VmOutcome::Error(VmError::SafeStateTripped)
-        );
+        assert_eq!(vm.run(&b_neg), VmOutcome::Error(VmError::SafeStateTripped));
     }
 
     #[test]
@@ -2403,8 +2536,12 @@ mod tests {
         use super::super::bytecode::StdlibFunctionId;
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(1.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::ExpReal },
+                Opcode::PushConst {
+                    value: StValue::Real(1.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::ExpReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2424,9 +2561,15 @@ mod tests {
         // 2 ^ 10 = 1024
         let b = bc(
             vec![
-                Opcode::PushConst { value: StValue::Real(2.0) },
-                Opcode::PushConst { value: StValue::Real(10.0) },
-                Opcode::StdlibCall { fn_id: StdlibFunctionId::PowReal },
+                Opcode::PushConst {
+                    value: StValue::Real(2.0),
+                },
+                Opcode::PushConst {
+                    value: StValue::Real(10.0),
+                },
+                Opcode::StdlibCall {
+                    fn_id: StdlibFunctionId::PowReal,
+                },
                 Opcode::Return,
             ],
             0,
@@ -2570,8 +2713,7 @@ mod tests {
             ],
             span: None,
         };
-        let bc_compiled =
-            compile_program(&prog, &[], "p".into(), 100_000).expect("compile");
+        let bc_compiled = compile_program(&prog, &[], "p".into(), 100_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         // slot 0 = state, slot 1 = out.
@@ -2646,8 +2788,7 @@ mod tests {
             ],
             span: None,
         };
-        let bc_compiled =
-            compile_program(&prog, &[], "p".into(), 100_000).expect("compile");
+        let bc_compiled = compile_program(&prog, &[], "p".into(), 100_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         assert_eq!(vm.locals()[1], StValue::Int(99));
@@ -2710,8 +2851,7 @@ mod tests {
             ],
             span: None,
         };
-        let bc_compiled =
-            compile_program(&prog, &[], "p".into(), 100_000).expect("compile");
+        let bc_compiled = compile_program(&prog, &[], "p".into(), 100_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         assert_eq!(vm.locals()[1], StValue::Int(100));
@@ -2770,15 +2910,9 @@ mod tests {
                     body: vec![Statement::Assignment {
                         target: Expression::Variable("sum".into(), None),
                         value: Expression::BinaryOp {
-                            left: Box::new(Expression::Variable(
-                                "sum".into(),
-                                None,
-                            )),
+                            left: Box::new(Expression::Variable("sum".into(), None)),
                             op: BinaryOp::Add,
-                            right: Box::new(Expression::Variable(
-                                "i".into(),
-                                None,
-                            )),
+                            right: Box::new(Expression::Variable("i".into(), None)),
                         },
                         span: None,
                     }],
@@ -2787,8 +2921,7 @@ mod tests {
             ],
             span: None,
         };
-        let bc_compiled =
-            compile_program(&prog, &[], "p".into(), 1_000_000).expect("compile");
+        let bc_compiled = compile_program(&prog, &[], "p".into(), 1_000_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         // i = 0 (slot 0), sum = 1 (slot 1) per declaration order.
@@ -2845,10 +2978,7 @@ mod tests {
                     body: vec![
                         Statement::If {
                             condition: Expression::BinaryOp {
-                                left: Box::new(Expression::Variable(
-                                    "i".into(),
-                                    None,
-                                )),
+                                left: Box::new(Expression::Variable("i".into(), None)),
                                 op: BinaryOp::Eq,
                                 right: Box::new(Expression::IntLiteral(4)),
                             },
@@ -2860,10 +2990,7 @@ mod tests {
                         Statement::Assignment {
                             target: Expression::Variable("sum".into(), None),
                             value: Expression::BinaryOp {
-                                left: Box::new(Expression::Variable(
-                                    "sum".into(),
-                                    None,
-                                )),
+                                left: Box::new(Expression::Variable("sum".into(), None)),
                                 op: BinaryOp::Add,
                                 right: Box::new(Expression::IntLiteral(1)),
                             },
@@ -2875,8 +3002,7 @@ mod tests {
             ],
             span: None,
         };
-        let bc_compiled =
-            compile_program(&prog, &[], "p".into(), 1_000_000).expect("compile");
+        let bc_compiled = compile_program(&prog, &[], "p".into(), 1_000_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         // i reached 4 (when EXIT fired), sum = 3.
@@ -2974,8 +3100,7 @@ mod tests {
             ],
             span: None,
         };
-        let bc_compiled =
-            compile_program(&prog, &[], "p".into(), 1_000_000).expect("compile");
+        let bc_compiled = compile_program(&prog, &[], "p".into(), 1_000_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         // After loop: i = 3, flag = false.
@@ -3018,8 +3143,7 @@ mod tests {
             }],
             span: None,
         };
-        let bc_compiled =
-            compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
+        let bc_compiled = compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         assert_eq!(vm.locals()[0], StValue::Int(42));
@@ -3058,8 +3182,7 @@ mod tests {
             }],
             span: None,
         };
-        let bc_compiled =
-            compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
+        let bc_compiled = compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         // local[0] = x = 8

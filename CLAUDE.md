@@ -3,7 +3,7 @@
 - Run `nx affected --target=test` and `nx affected --target=lint` after changes. Never commit with red tests.
 - Every fix must be an architectural root-cause fix. No workarounds, patches, defensive `?.`, `as any`, or compat shims. See **Architectural Approach** below for the 4-tier hierarchy and banned-phrase list — both are load-bearing, not decoration.
 - Keep domain entities separate from persistence entities. ORM decorators do not belong in the domain layer.
-- Every `@Entity()` MUST declare `schema:` (ADR-011). Never add tables to `public`.
+- Every `@Entity()` declares `schema:` UNLESS it belongs to a tenant-scoped service (`farm`, `sensor`, `hr`, `messaging`, `hydroponics`, `ai`, `alert`) AND the table is per-tenant (cloned by `TenantSchemaSyncService`). Per-tenant entities OMIT `schema:` so search_path tenant routing places them in `tenant_<uuid>` at runtime. Cross-tenant tables within those services (outbox, audit_logs) keep `schema:` explicit. Architecture spec at `apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts` enforces. Never add tables to `public`.
 - NATS identity is cert CN only (ADR-015). No user/pass in CONNECT frame.
 - Batch operations: run all file reads/writes and bash commands in parallel within a single message.
 - `git push` after every commit on the active branch. No force push.
@@ -149,7 +149,7 @@ Each bounded context (`apps/{service}/src/{domain}/`):
 ├── query-handlers/  # Query handlers
 ├── queries/         # Query definitions
 ├── dto/             # Input/Output DTOs
-├── entities/        # TypeORM entities — @Entity('table', { schema: '<svc>' }) REQUIRED
+├── entities/        # TypeORM entities — @Entity('table'[, { schema: '<svc>' }]). Per-tenant entities in tenant-scoped services OMIT schema; cross-tenant + platform-level entities REQUIRE schema.
 ├── services/        # Domain/application services
 ├── controllers/     # HTTP controllers or GraphQL resolvers
 ├── __tests__/       # Unit + integration tests
@@ -158,7 +158,7 @@ Each bounded context (`apps/{service}/src/{domain}/`):
 
 **Inviolable rules:**
 1. Controller → Service → Command/Query Bus → Handler → Repository. No layer skipping.
-2. Every `@Entity()` includes the `schema:` option (ADR-011).
+2. `@Entity()` schema discipline (ADR-011): platform-level + cross-tenant entities include `schema:` explicitly; per-tenant entities in tenant-scoped services (`farm`, `sensor`, `hr`, `messaging`, `hydroponics`, `ai`, `alert`) OMIT `schema:` so search_path tenant routing handles placement at runtime. Architecture spec at `apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts` enforces.
 3. Never add new tables to `public`. Use the owning service's schema.
 4. Use `createBaseEvent()` factory. Inline event construction is a compile-time error (branded `EventId`).
 5. Events are flat objects. No nested `payload` / `metadata` wrappers (ADR-006).
@@ -167,9 +167,9 @@ Each bounded context (`apps/{service}/src/{domain}/`):
 
 ## Schema Ownership (ADR-011) & Drift (ADR-012)
 
-- Every `@Entity()` declares `schema:` — e.g. `@Entity('channels', { schema: 'messaging' })`. Omitting `schema` drifts the entity↔table mapping and surfaces at boot via `SchemaDriftValidator`.
+- `@Entity()` schema discipline (Wave 4-A.2 update): tenant-scoped services (`farm`, `sensor`, `hr`, `messaging`, `hydroponics`, `ai`, `alert`) OMIT `schema:` on per-tenant entities so search_path routes them into `tenant_<uuid>` clones via `TenantSchemaSyncService`. Cross-tenant tables in those same services (e.g. `farm_outbox`, `messaging_outbox`, `hr_outbox`, `farm_audit_logs`, `payroll_audit`, `alert_audit_log`, `tool_execution_audit`) keep `schema:` explicit. Platform-level services (`auth`, `billing`, `admin`, `notification`, `event_store`, `observability`, `config`, `gateway`, `shared`) always declare `schema:` explicitly. SchemaDriftValidator enforces at boot; architecture spec `apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts` enforces at CI time.
 - Each service registers `SchemaDriftModule.forRoot({ serviceName: '<svc>' })` in `app.module.ts`. Runtime validator fires at cold start; CI invariant test (`e2e/tests/integration/schema-invariants.spec.ts`) runs every PR.
-- Cross-service shared tables live in the `shared` schema only (`audit_logs`, `gdpr_data_requests`, `user_consents`, `user_permissions`). Adding a new shared table requires updating `SHARED_SCHEMA_TABLES` in the invariant spec.
+- Cross-service shared tables live in the `shared` schema only (`audit_logs`, `gdpr_data_requests`, `user_consents`, `user_permissions`, `access_logs`). Adding a 6th shared table requires an ADR + architectural-arbiter approval AND updating `SHARED_SCHEMA_TABLES` in the invariant spec.
 
 ## Migration Runners (ADR-011, ADR-012)
 
@@ -310,7 +310,7 @@ records evidence, and lets skills emerge from recurring repo pressure.
 
 - `nx affected --target=test && nx affected --target=lint` green before every commit.
 - Architectural root-cause fix only. The banned phrases above are truly banned.
-- `@Entity()` always has `schema:`. `public` schema is off-limits for new tables.
+- `@Entity()` schema discipline: per-tenant entities in tenant-scoped services omit `schema:` (search_path routing); platform-level + cross-tenant entities declare `schema:`. `public` schema is off-limits for new tables.
 - `createBaseEvent()` for events. Flat object pattern. No nested payload wrappers.
 - NATS identity = cert CN only. No user/pass in the CONNECT frame.
 - Every fix commit carries `Closes: docs/reviews/…#finding-id`.

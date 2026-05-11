@@ -63,7 +63,7 @@
 //! (boot-time load + verify) + `cmd_refresh_license`
 //! (save + record_accepted on successful verify).
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -123,22 +123,12 @@ impl LicenseCacheStore {
     /// the 2-table schema on first run.
     pub fn open(path: &Path) -> Result<Self, LicenseCacheError> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                LicenseCacheError::Io(format!(
-                    "mkdir {}: {}",
-                    parent.display(),
-                    e
-                ))
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| LicenseCacheError::Io(format!("mkdir {}: {}", parent.display(), e)))?;
         }
 
-        let conn = Connection::open(path).map_err(|e| {
-            LicenseCacheError::SqlCipher(format!(
-                "open {}: {}",
-                path.display(),
-                e
-            ))
-        })?;
+        let conn = Connection::open(path)
+            .map_err(|e| LicenseCacheError::SqlCipher(format!("open {}: {}", path.display(), e)))?;
 
         let hex_key = crate::offline_queue::derive_db_encryption_key()
             .map_err(|e| LicenseCacheError::KeyDerivation(format!("{}", e)))?;
@@ -213,13 +203,8 @@ impl LicenseCacheStore {
         deployment_uuid: Vec<u8>,
     ) -> Result<Self, LicenseCacheError> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                LicenseCacheError::Io(format!(
-                    "mkdir {}: {}",
-                    parent.display(),
-                    e
-                ))
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| LicenseCacheError::Io(format!("mkdir {}: {}", parent.display(), e)))?;
         }
 
         // Pull v1 inputs unconditionally — the resolver
@@ -227,12 +212,8 @@ impl LicenseCacheStore {
         // path; v2 path ignores. Mirrors the v2 shim's
         // caller contract from Batch #332 + the
         // OfflineQueue adoption from Batch #13.
-        let machine_id = crate::machine_id::read().map_err(|e| {
-            LicenseCacheError::KeyDerivation(format!(
-                "machine_id read: {}",
-                e
-            ))
-        })?;
+        let machine_id = crate::machine_id::read()
+            .map_err(|e| LicenseCacheError::KeyDerivation(format!("machine_id read: {}", e)))?;
         // The v1 secret-key bytes come from the SSoT
         // module `crate::db_secret` (Batch #14
         // extraction). Single read path shared across
@@ -240,12 +221,7 @@ impl LicenseCacheStore {
         // duplication of the env-override + permissions
         // discipline.
         let secret_key = crate::db_secret::read_or_create_v1_secret()
-            .map_err(|e| {
-                LicenseCacheError::KeyDerivation(format!(
-                    "secret_key read: {}",
-                    e
-                ))
-            })?;
+            .map_err(|e| LicenseCacheError::KeyDerivation(format!("secret_key read: {}", e)))?;
         let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
             machine_id: machine_id.into_bytes(),
             secret_key,
@@ -256,29 +232,18 @@ impl LicenseCacheStore {
             program_artifact_sha256: None,
         };
 
-        let resolved =
-            crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
-                path,
-                crate::keystore::purpose::KeyPurpose::SqlCipherLicenseCache,
-                &ctx,
-                keystore.as_ref(),
-                &v1_inputs,
-            )
-            .await
-            .map_err(|e| {
-                LicenseCacheError::KeyDerivation(format!(
-                    "resolver: {}",
-                    e
-                ))
-            })?;
+        let resolved = crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+            path,
+            crate::keystore::purpose::KeyPurpose::SqlCipherLicenseCache,
+            &ctx,
+            keystore.as_ref(),
+            &v1_inputs,
+        )
+        .await
+        .map_err(|e| LicenseCacheError::KeyDerivation(format!("resolver: {}", e)))?;
 
-        let conn = Connection::open(path).map_err(|e| {
-            LicenseCacheError::SqlCipher(format!(
-                "open {}: {}",
-                path.display(),
-                e
-            ))
-        })?;
+        let conn = Connection::open(path)
+            .map_err(|e| LicenseCacheError::SqlCipher(format!("open {}: {}", path.display(), e)))?;
         conn.execute_batch(&format!(
             "PRAGMA key = \"x'{}'\";",
             resolved.pragma_key_hex.as_str()
@@ -317,7 +282,10 @@ impl LicenseCacheStore {
     /// manifest — SQLCipher encryption is defense-in-depth,
     /// not the sole trust anchor.
     pub fn load(&self) -> Result<Option<SignedLicenseManifest>, LicenseCacheError> {
-        let conn = self.conn.lock().map_err(|_| LicenseCacheError::LockPoisoned)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| LicenseCacheError::LockPoisoned)?;
 
         let row: Option<String> = conn
             .query_row(
@@ -356,7 +324,10 @@ impl LicenseCacheStore {
         let json = serde_json::to_string(signed)
             .map_err(|e| LicenseCacheError::Serialize(format!("{}", e)))?;
 
-        let conn = self.conn.lock().map_err(|_| LicenseCacheError::LockPoisoned)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| LicenseCacheError::LockPoisoned)?;
 
         conn.execute(
             "INSERT INTO license_cache (singleton_key, signed_manifest_json, cached_at_unix_secs)
@@ -374,7 +345,10 @@ impl LicenseCacheStore {
     /// Read the persisted `highest_seen_policy_version`
     /// floor. Returns 0 on first-boot.
     pub fn get_highest_seen(&self) -> Result<u64, LicenseCacheError> {
-        let conn = self.conn.lock().map_err(|_| LicenseCacheError::LockPoisoned)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| LicenseCacheError::LockPoisoned)?;
 
         let row: Option<i64> = conn
             .query_row(
@@ -410,7 +384,10 @@ impl LicenseCacheStore {
         // schema level too.
         let v_i64 = i64::try_from(version).unwrap_or(i64::MAX);
 
-        let conn = self.conn.lock().map_err(|_| LicenseCacheError::LockPoisoned)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| LicenseCacheError::LockPoisoned)?;
 
         // UPSERT + MAX semantic: SQL `MAX(existing, new)`
         // happens via the ON CONFLICT branch. First
@@ -492,8 +469,7 @@ mod tests {
             },
         };
         let sig = signing_key.sign(&manifest.canonical_bytes());
-        SignedLicenseManifest::from_body_and_signature_bytes(manifest, &sig.to_bytes())
-            .unwrap()
+        SignedLicenseManifest::from_body_and_signature_bytes(manifest, &sig.to_bytes()).unwrap()
     }
 
     #[test]
@@ -616,8 +592,7 @@ mod tests {
     // initializes the schema.
 
     use crate::db_migration::manifest::{
-        manifest_path_for_db, write_manifest as write_db_manifest,
-        DbKeySourceManifest,
+        DbKeySourceManifest, manifest_path_for_db, write_manifest as write_db_manifest,
     };
     use crate::db_migration::schema_version::DbKeySchemaVersion;
     use crate::keystore::error::{
@@ -656,17 +631,11 @@ mod tests {
             Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
         }
 
-        fn derived_key_id(
-            &self,
-            _purpose: KeyPurpose,
-            _context: &[u8],
-        ) -> DerivedKeyId {
+        fn derived_key_id(&self, _purpose: KeyPurpose, _context: &[u8]) -> DerivedKeyId {
             DerivedKeyId([0u8; 16])
         }
 
-        async fn rotate_master(
-            &self,
-        ) -> std::result::Result<(), KeystoreError> {
+        async fn rotate_master(&self) -> std::result::Result<(), KeystoreError> {
             Err(KeystoreError::new(
                 KeystoreErrorKind::NotImplemented,
                 String::from("stub"),
@@ -690,8 +659,7 @@ mod tests {
         // the env mutex.
         let secret = dir.join("db.key");
         if !secret.exists() {
-            std::fs::write(&secret, vec![0xCCu8; 32])
-                .expect("seed secret");
+            std::fs::write(&secret, vec![0xCCu8; 32]).expect("seed secret");
         }
     }
 
@@ -743,10 +711,7 @@ mod tests {
         // SqlCipherLicenseCache).
         let mut v2_bytes = [0u8; 32];
         v2_bytes[0] = 0xb3;
-        let v2_hex =
-            crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(
-                &v2_bytes,
-            );
+        let v2_hex = crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(&v2_bytes);
 
         // Pre-seed the DB encrypted under v2.
         {
@@ -799,8 +764,7 @@ mod tests {
         let secret = dir.path().join("db.key");
         let db_path = dir.path().join("license_cache.db");
 
-        std::fs::write(manifest_path_for_db(&db_path), b"not valid json")
-            .expect("seed corrupt");
+        std::fs::write(manifest_path_for_db(&db_path), b"not valid json").expect("seed corrupt");
 
         // SAFETY: env-mutation serialized.
         unsafe {

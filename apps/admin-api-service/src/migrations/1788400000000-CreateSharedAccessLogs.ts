@@ -55,7 +55,7 @@ export class CreateSharedAccessLogs1788400000000
   name = 'CreateSharedAccessLogs1788400000000';
 
   // CREATE INDEX CONCURRENTLY cannot run inside a transaction.
-  transaction: 'none' = 'none';
+  transaction = false;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Step 1: ensure schema exists. shared was created by an

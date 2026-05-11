@@ -65,8 +65,8 @@ use std::sync::Arc;
 
 use crate::config::{AgentConfig, KeystoreMode};
 use crate::keystore::{
-    AcceptanceToken, Argon2idParams, FileBackedAcceptance, FileBackedKeystore,
-    Keystore, ROTATION_MARKER_FILENAME,
+    AcceptanceToken, Argon2idParams, FileBackedAcceptance, FileBackedKeystore, Keystore,
+    ROTATION_MARKER_FILENAME,
 };
 use crate::runtime_safety::ClockAuthority;
 use tracing::{info, warn};
@@ -147,14 +147,13 @@ pub async fn build_production_keystore_from_config(
             e
         )
     })?;
-    let token: AcceptanceToken =
-        serde_json::from_slice(&acceptance_bytes).map_err(|e| {
-            format!(
-                "Keystore init: parse acceptance JSON {}: {}",
-                acceptance_path.display(),
-                e
-            )
-        })?;
+    let token: AcceptanceToken = serde_json::from_slice(&acceptance_bytes).map_err(|e| {
+        format!(
+            "Keystore init: parse acceptance JSON {}: {}",
+            acceptance_path.display(),
+            e
+        )
+    })?;
 
     // Device identity for binding. Device code is the
     // stable acceptance-token field; operator_id comes

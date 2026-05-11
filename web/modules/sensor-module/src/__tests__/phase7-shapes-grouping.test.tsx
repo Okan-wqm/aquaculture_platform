@@ -26,6 +26,8 @@ import { computePolygonPoints } from '../components/scada-builder/widget-rendere
 import { computeTrianglePoints } from '../components/scada-builder/widget-renderers/SvgTriangleRenderer';
 import { computeDiamondPoints } from '../components/scada-builder/widget-renderers/SvgDiamondRenderer';
 import { computeArrowPoints } from '../components/scada-builder/widget-renderers/SvgArrowRenderer';
+import { widgetConfigMap } from '../components/scada-builder/widget-configs';
+import { WIDGET_SIZES } from '../constants/scada-widget-sizes';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -394,14 +396,7 @@ describe('LayersPanel Group Awareness', () => {
 /* ------------------------------------------------------------------ */
 
 describe('WidgetRenderer Registration', () => {
-  it('has lazy entries for all new SVG shape types', async () => {
-    // Import the actual lazyMap by importing the module
-    // We cannot directly access the lazyMap (it's module-scoped),
-    // but we can verify the types are registered in the widget sizes
-    // and widget config maps which are exported.
-    const { WIDGET_SIZES } = await import('../constants/scada-widget-sizes');
-    const { widgetConfigMap } = await import('../components/scada-builder/widget-configs/index');
-
+  it('has lazy entries for all new SVG shape types', () => {
     const newTypes = ['svgPolygon', 'svgTriangle', 'svgDiamond', 'svgArrow'];
 
     for (const type of newTypes) {

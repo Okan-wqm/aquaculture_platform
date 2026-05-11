@@ -36,6 +36,8 @@ import type { OperatorSlice } from './operatorSlice';
 import type { AlarmRuntimeSlice } from './alarmRuntimeSlice';
 import type { NotificationSlice } from './notificationSlice';
 import type { ScriptSlice } from './scriptSlice';
+import type { ScadaScript } from '../../types/scada-runtime.types';
+import type { OverlayEntry } from '../../engine/views/types';
 
 /* ------------------------------------------------------------------ */
 /*  Re-exports (backward compatibility with old store imports)         */
@@ -49,7 +51,7 @@ export type {
 } from '../../types/scada-package.types';
 export type { ScadaWidgetType, WidgetPermissions } from '../../types/scada-widget.types';
 export type { ScadaEdge, ScadaEdgeData } from '../../types/scada-edge.types';
-export type { ScadaScript } from '../../engine/events/types';
+export type { ScadaScript } from '../../types/scada-runtime.types';
 
 // Runtime slice re-exports
 export type { OperatorSlice } from './operatorSlice';
@@ -474,6 +476,11 @@ export interface ProjectSlice {
 /*  Combined Store                                                     */
 /* ------------------------------------------------------------------ */
 
+type ScadaOperatorSlice = Omit<
+  OperatorSlice,
+  'openOverlay' | 'closeOverlay' | 'closeAllOverlays'
+>;
+
 export type ScadaStore =
   SceneSlice &
   WidgetSlice &
@@ -485,8 +492,9 @@ export type ScadaStore =
   TemplateSlice &
   ProjectSlice &
   SimulationSlice &
+  ViewManagerSlice &
   // Runtime slices (operator mode)
-  OperatorSlice &
+  ScadaOperatorSlice &
   AlarmRuntimeSlice &
   NotificationSlice &
   ScriptSlice;

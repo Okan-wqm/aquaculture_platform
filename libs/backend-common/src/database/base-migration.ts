@@ -249,28 +249,38 @@ export interface AlterColumnTypeTarget {
  * Parse `ALTER TABLE "schema"."table" ALTER COLUMN "col" TYPE …` statements
  * out of the upQueries list that `RdbmsSchemaBuilder.log()` emits.
  *
- * The regex anchors on the quoted identifier form TypeORM always uses when
- * entities declare `schema:`. Ignores any ALTER-COLUMN statement that is
- * NOT a TYPE change (SET NOT NULL, DROP DEFAULT, …) — those do not trigger
+ * The regex matches BOTH schema-qualified `"schema"."table"` and
+ * unqualified `"table"` forms. TypeORM emits unqualified table refs
+ * when the migration runner has pinned search_path (the SchemaBuilder
+ * trusts the session-level search_path resolution). The optional
+ * `defaultSchema` parameter supplies the schema to use when the
+ * statement is unqualified — without it, unqualified statements are
+ * skipped (preserves the original behaviour for callers that want
+ * strict-only matching).
+ *
+ * Ignores any ALTER-COLUMN statement that is NOT a TYPE change
+ * (SET NOT NULL, DROP DEFAULT, …) — those do not trigger
  * partial-index re-validation.
  *
- * The SQL parser is intentionally narrow: this helper does not attempt to
- * handle unquoted identifiers, cross-database dialects, or mixed-case
- * keywords beyond what TypeORM's PostgreSQL driver produces. Migrations
- * that construct DDL by hand must list their targets explicitly.
+ * The SQL parser is intentionally narrow: this helper does not attempt
+ * to handle unquoted identifiers, cross-database dialects, or
+ * mixed-case keywords beyond what TypeORM's PostgreSQL driver produces.
+ * Migrations that construct DDL by hand must list their targets
+ * explicitly.
  */
 export function parseAlterColumnTypeTargets(
   sqlStatements: readonly string[],
+  defaultSchema?: string,
 ): AlterColumnTypeTarget[] {
   const pattern =
-    /^ALTER\s+TABLE\s+"([^"]+)"\."([^"]+)"\s+ALTER\s+COLUMN\s+"([^"]+)"\s+(?:SET\s+DATA\s+)?TYPE\b/i;
+    /^ALTER\s+TABLE\s+(?:"([^"]+)"\.)?"([^"]+)"\s+ALTER\s+COLUMN\s+"([^"]+)"\s+(?:SET\s+DATA\s+)?TYPE\b/i;
   const seen = new Set<string>();
   const targets: AlterColumnTypeTarget[] = [];
   for (const sql of sqlStatements) {
     const trimmed = sql.trim();
     const m = pattern.exec(trimmed);
     if (!m) continue;
-    const schema = m[1];
+    const schema = m[1] ?? defaultSchema;
     const table = m[2];
     const column = m[3];
     if (!schema || !table || !column) continue;

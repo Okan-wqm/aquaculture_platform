@@ -654,10 +654,7 @@ impl SqlitePersistence {
         if let Some(parent) = db_path.as_ref().parent() {
             if !parent.exists() {
                 std::fs::create_dir_all(parent).map_err(|e| {
-                    PersistenceError::ConnectionFailed(format!(
-                        "Cannot create directory: {}",
-                        e
-                    ))
+                    PersistenceError::ConnectionFailed(format!("Cannot create directory: {}", e))
                 })?;
             }
         }
@@ -668,19 +665,10 @@ impl SqlitePersistence {
         // `crate::db_secret::read_or_create_v1_secret`
         // (Batch #14 extraction) is the single read
         // point.
-        let machine_id = crate::machine_id::read().map_err(|e| {
-            PersistenceError::ConnectionFailed(format!(
-                "machine_id read: {}",
-                e
-            ))
-        })?;
+        let machine_id = crate::machine_id::read()
+            .map_err(|e| PersistenceError::ConnectionFailed(format!("machine_id read: {}", e)))?;
         let secret_key = crate::db_secret::read_or_create_v1_secret()
-            .map_err(|e| {
-                PersistenceError::ConnectionFailed(format!(
-                    "secret_key read: {}",
-                    e
-                ))
-            })?;
+            .map_err(|e| PersistenceError::ConnectionFailed(format!("secret_key read: {}", e)))?;
         let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
             machine_id: machine_id.into_bytes(),
             secret_key,
@@ -694,27 +682,18 @@ impl SqlitePersistence {
             program_artifact_sha256: Some(program_artifact_sha256),
         };
 
-        let resolved =
-            crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
-                db_path.as_ref(),
-                crate::keystore::purpose::KeyPurpose::SqlCipherRetainPersistence,
-                &ctx,
-                keystore.as_ref(),
-                &v1_inputs,
-            )
-            .await
-            .map_err(|e| {
-                PersistenceError::ConnectionFailed(format!(
-                    "resolver: {}",
-                    e
-                ))
-            })?;
+        let resolved = crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+            db_path.as_ref(),
+            crate::keystore::purpose::KeyPurpose::SqlCipherRetainPersistence,
+            &ctx,
+            keystore.as_ref(),
+            &v1_inputs,
+        )
+        .await
+        .map_err(|e| PersistenceError::ConnectionFailed(format!("resolver: {}", e)))?;
 
         let conn = Connection::open(&db_path).map_err(|e| {
-            PersistenceError::ConnectionFailed(format!(
-                "Cannot open database: {}",
-                e
-            ))
+            PersistenceError::ConnectionFailed(format!("Cannot open database: {}", e))
         })?;
         conn.execute_batch(&format!(
             "PRAGMA key = \"x'{}'\";",
@@ -738,10 +717,7 @@ impl SqlitePersistence {
     /// `new_with_keystore_derivation` share the SAME
     /// post-key sequence (no drift in WAL mode or
     /// migration discipline between the two callers).
-    fn finalize_open(
-        conn: Connection,
-        path_str: String,
-    ) -> Result<Self, PersistenceError> {
+    fn finalize_open(conn: Connection, path_str: String) -> Result<Self, PersistenceError> {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
@@ -1395,8 +1371,7 @@ mod tests {
     // -------- Batch #15 — manifest-aware constructor tests --------
 
     use crate::db_migration::manifest::{
-        manifest_path_for_db, write_manifest as write_db_manifest,
-        DbKeySourceManifest,
+        DbKeySourceManifest, manifest_path_for_db, write_manifest as write_db_manifest,
     };
     use crate::db_migration::schema_version::DbKeySchemaVersion;
     use crate::keystore::error::{
@@ -1431,17 +1406,11 @@ mod tests {
             Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
         }
 
-        fn derived_key_id(
-            &self,
-            _purpose: KeyPurpose,
-            _context: &[u8],
-        ) -> DerivedKeyId {
+        fn derived_key_id(&self, _purpose: KeyPurpose, _context: &[u8]) -> DerivedKeyId {
             DerivedKeyId([0u8; 16])
         }
 
-        async fn rotate_master(
-            &self,
-        ) -> std::result::Result<(), KeystoreError> {
+        async fn rotate_master(&self) -> std::result::Result<(), KeystoreError> {
             Err(KeystoreError::new(
                 KeystoreErrorKind::NotImplemented,
                 String::from("stub"),
@@ -1507,10 +1476,7 @@ mod tests {
         // for SqlCipherRetainPersistence.
         let mut v2_bytes = [0u8; 32];
         v2_bytes[0] = 0xb2;
-        let v2_hex =
-            crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(
-                &v2_bytes,
-            );
+        let v2_hex = crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(&v2_bytes);
 
         // Pre-seed DB encrypted under v2.
         {
@@ -1560,8 +1526,7 @@ mod tests {
         let secret = dir.path().join("db.key");
         let db_path = dir.path().join("retain_persistence.db");
 
-        std::fs::write(manifest_path_for_db(&db_path), b"not valid json")
-            .expect("seed corrupt");
+        std::fs::write(manifest_path_for_db(&db_path), b"not valid json").expect("seed corrupt");
 
         // SAFETY: env-mutation serialized.
         unsafe {

@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * AddDailyBatchFeedingMaterializedView
@@ -72,7 +73,39 @@ export class AddDailyBatchFeedingMaterializedView1787400000000
    */
   public transaction = false;
 
+  private readonly logger = new MigrationLogger(
+    'AddDailyBatchFeedingMaterializedView1787400000000',
+  );
+
+  /**
+   * Wave 4-A.2 Dalga 3 bootstrap-restoration guard.
+   *
+   * `farm.feeding_records` is created by the source-schema baseline.
+   * The hardcoded `farm.` prefix bypasses the runner's search_path
+   * pinning so we check `information_schema.tables` with an explicit
+   * schema filter.
+   */
+  private async hasFarmFeedingRecords(
+    queryRunner: QueryRunner,
+  ): Promise<boolean> {
+    const rows: Array<{ exists: boolean }> = await queryRunner.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'farm'
+          AND table_name = 'feeding_records'
+      ) AS exists
+    `);
+    return rows[0]?.exists === true;
+  }
+
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (!(await this.hasFarmFeedingRecords(queryRunner))) {
+      this.logger.log(
+        'Skipping AddDailyBatchFeedingMaterializedView — farm.feeding_records not present on this DB (installed by sibling baseline migration)',
+      );
+      return;
+    }
+
     // CREATE MATERIALIZED VIEW — read-mostly view over
     // feeding_records. `WITH NO DATA` keeps the migration fast;
     // the first cron refresh populates the view.

@@ -24,10 +24,7 @@ use tracing::{error, info, warn};
 
 impl super::CommandHandler {
     /// Handle config update from cloud.
-    pub(super) async fn handle_config_update(
-        &self,
-        payload: &[u8],
-    ) -> Result<()> {
+    pub(super) async fn handle_config_update(&self, payload: &[u8]) -> Result<()> {
         let config_update: Value = serde_json::from_slice(payload)?;
         info!("Received config update: {:?}", config_update);
 

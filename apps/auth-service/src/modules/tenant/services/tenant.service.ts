@@ -507,6 +507,7 @@ export class TenantService {
    */
   private getDefaultMaxUsers(plan: TenantPlan): number {
     const defaults: Record<TenantPlan, number> = {
+      [TenantPlan.FREE]: 3,
       [TenantPlan.TRIAL]: 5,
       [TenantPlan.STARTER]: 10,
       [TenantPlan.PROFESSIONAL]: 50,

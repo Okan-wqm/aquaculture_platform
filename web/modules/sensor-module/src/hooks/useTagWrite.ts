@@ -98,8 +98,6 @@ export function useTagWrite(): TagWriteResult {
         const isFalsy =
           currentValue === '0' ||
           currentValue === 'false' ||
-          currentValue === 0 ||
-          currentValue === false ||
           currentValue === null ||
           currentValue === undefined;
         toggled = isFalsy ? 1 : 0;

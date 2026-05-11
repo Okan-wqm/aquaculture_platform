@@ -22,7 +22,7 @@ export type { BitDefinition, VfdRegisterMappingInput } from './vfd.types';
  * Stores brand-specific register addresses and configurations
  */
 @ObjectType({ description: 'VFD register mapping configuration' })
-@Entity('vfd_register_mappings', { schema: 'sensor' })
+@Entity('vfd_register_mappings')
 @Index(['brand'])
 @Index(['brand', 'modelSeries'])
 @Index(['brand', 'parameterName'])

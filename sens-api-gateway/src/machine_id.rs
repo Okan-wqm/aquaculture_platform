@@ -89,10 +89,7 @@ pub(crate) fn read() -> Result<String> {
     if let Some(override_path) = std::env::var_os(MACHINE_ID_OVERRIDE_ENV) {
         let path = std::path::PathBuf::from(override_path);
         let raw = std::fs::read_to_string(&path).with_context(|| {
-            format!(
-                "machine-id env-override path {} unreadable",
-                path.display()
-            )
+            format!("machine-id env-override path {} unreadable", path.display())
         })?;
         return Ok(raw.trim().to_string());
     }
@@ -125,8 +122,7 @@ mod tests {
         let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("machine-id");
-        std::fs::write(&path, "abcdef0123456789abcdef0123456789\n")
-            .expect("seed");
+        std::fs::write(&path, "abcdef0123456789abcdef0123456789\n").expect("seed");
         // SAFETY: env-mutation in tests is serialized
         // via ENV_MUTEX above.
         unsafe {
@@ -147,8 +143,7 @@ mod tests {
         let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("machine-id");
-        std::fs::write(&path, "  trimmed-id-with-spaces  \n\n")
-            .expect("seed");
+        std::fs::write(&path, "  trimmed-id-with-spaces  \n\n").expect("seed");
         unsafe {
             std::env::set_var(MACHINE_ID_OVERRIDE_ENV, &path);
         }
@@ -166,10 +161,7 @@ mod tests {
     fn read_errors_when_override_path_missing() {
         let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
-            std::env::set_var(
-                MACHINE_ID_OVERRIDE_ENV,
-                "/nonexistent-path-batch-344",
-            );
+            std::env::set_var(MACHINE_ID_OVERRIDE_ENV, "/nonexistent-path-batch-344");
         }
         let result = read();
         unsafe {

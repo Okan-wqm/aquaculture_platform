@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   Table,
   HardDrive,
@@ -19,11 +19,16 @@ import {
   Cpu,
   Database,
 } from 'lucide-react';
-import { getTenantDatabase, getTableSchema, getTableData } from '../lib/api';
-import type { TenantDatabaseInfo, ColumnInfo, IndexInfo, TableDataResult } from '../lib/types';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  useTenantDatabase,
+  useTableSchema,
+  useTableData,
+  tenantKeys,
+} from '../hooks/useTenantData';
+import type { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
-
 
 /**
  * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts
@@ -476,7 +481,7 @@ const TenantDatabase: React.FC = () => {
         <StatCard
           icon={<Clock className="w-6 h-6" />}
           label="Last Backup"
-          value={databaseInfo.lastBackup ? formatDate(databaseInfo.lastBackup) : 'No backup'}
+          value={databaseInfo.lastBackup ? formatDate(databaseInfo.lastBackup) : 'N/A'}
           color="yellow"
         />
       </div>

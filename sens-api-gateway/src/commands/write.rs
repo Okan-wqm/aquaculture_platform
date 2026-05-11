@@ -43,10 +43,7 @@ impl CommandHandler {
     /// command — returning a specific bounds-error surface
     /// (address vs value) gives the operator an actionable
     /// diagnostic.
-    pub(super) async fn cmd_write_modbus(
-        &self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_write_modbus(&self, params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing write_modbus command");
 
         let device_name = match params.get("device").and_then(|v| v.as_str()) {
@@ -144,10 +141,7 @@ impl CommandHandler {
     /// three surfaces matches the domain vocabulary without
     /// forcing operators to remember which form the agent happens
     /// to prefer.
-    pub(super) async fn cmd_write_gpio(
-        &self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_write_gpio(&self, params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing write_gpio command");
 
         let pin = match params.get("pin").and_then(|v| v.as_u64()) {
@@ -224,10 +218,7 @@ impl CommandHandler {
     /// STUB: Sprint 6.x target. Plan §5 Faz 5 lands the OPC UA
     /// server + client. Until then returns an honest
     /// `implemented: false` response rather than silently succeeding.
-    pub(super) async fn cmd_write_opcua(
-        &self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_write_opcua(&self, params: &Value) -> (bool, Value, Option<String>) {
         warn!("cmd_write_opcua called but OPC-UA write is not yet implemented");
 
         let address = params
@@ -252,10 +243,7 @@ impl CommandHandler {
     ///
     /// STUB: Sprint 6.x target. Same honest unimplemented-response
     /// pattern as `cmd_write_opcua`.
-    pub(super) async fn cmd_write_s7(
-        &self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_write_s7(&self, params: &Value) -> (bool, Value, Option<String>) {
         warn!("cmd_write_s7 called but S7 write is not yet implemented");
 
         let address = params

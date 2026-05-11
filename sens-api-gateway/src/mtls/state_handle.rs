@@ -395,11 +395,7 @@ impl MtlsVerifierState {
     /// currently installed (i.e., not the HC-1 fallthrough path). Used by
     /// the Phase 1.1.5 invariant detector.
     pub fn has_verifier(&self) -> bool {
-        self.inner
-            .read()
-            .ok()
-            .map(|g| g.is_some())
-            .unwrap_or(false)
+        self.inner.read().ok().map(|g| g.is_some()).unwrap_or(false)
     }
 
     /// Test / observability helper. Returns the current snapshot's mode
@@ -498,12 +494,20 @@ impl ServerCertVerifier for MtlsDelegatingVerifier {
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
         match self.state.current() {
-            Some(suderra) => {
-                suderra.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
-            }
-            None => self
-                .fallback
-                .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now),
+            Some(suderra) => suderra.verify_server_cert(
+                end_entity,
+                intermediates,
+                server_name,
+                ocsp_response,
+                now,
+            ),
+            None => self.fallback.verify_server_cert(
+                end_entity,
+                intermediates,
+                server_name,
+                ocsp_response,
+                now,
+            ),
         }
     }
 
@@ -672,9 +676,8 @@ mod tests {
         let before = state.current().unwrap();
         // Malformed hex (one fewer char than 64) — not a downgrade,
         // falls through to build_suderra_verifier which rejects it.
-        let bad_pins = vec![
-            "0000000000000000000000000000000000000000000000000000000000000".to_string(),
-        ];
+        let bad_pins =
+            vec!["0000000000000000000000000000000000000000000000000000000000000".to_string()];
         let result = state.rebuild(MtlsMode::Strict, &bad_pins);
         let after = state.current().unwrap();
         assert!(matches!(
@@ -696,11 +699,13 @@ mod tests {
     fn rebuild_legacy_to_warn_with_same_pin_rebuilds() {
         let (sig_algs, root_store) = empty_anchors();
         let pins = vec![PIN_A.to_string()];
-        let state =
-            MtlsVerifierState::new(MtlsMode::Legacy, &pins, sig_algs, root_store).unwrap();
+        let state = MtlsVerifierState::new(MtlsMode::Legacy, &pins, sig_algs, root_store).unwrap();
         let outcome = state.rebuild(MtlsMode::Warn, &pins).unwrap();
         assert_eq!(outcome, RebuildOutcome::Rebuilt);
-        assert_eq!(state.current_mode_and_pin_count(), Some((MtlsMode::Warn, 1)));
+        assert_eq!(
+            state.current_mode_and_pin_count(),
+            Some((MtlsMode::Warn, 1))
+        );
     }
 
     /// Mode downgrade Strict → Warn MUST be rejected. Tier-1 floor against
@@ -786,8 +791,7 @@ mod tests {
     fn rebuild_legacy_to_strict_promotion_succeeds() {
         let (sig_algs, root_store) = empty_anchors();
         let pins = vec![PIN_A.to_string()];
-        let state =
-            MtlsVerifierState::new(MtlsMode::Legacy, &pins, sig_algs, root_store).unwrap();
+        let state = MtlsVerifierState::new(MtlsMode::Legacy, &pins, sig_algs, root_store).unwrap();
         let outcome = state.rebuild(MtlsMode::Strict, &pins).unwrap();
         assert_eq!(outcome, RebuildOutcome::Rebuilt);
         assert_eq!(

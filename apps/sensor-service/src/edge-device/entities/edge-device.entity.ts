@@ -93,7 +93,7 @@ export interface DeviceHealthMetrics {
  */
 @Auditable()
 @ObjectType()
-@Entity('edge_devices', { schema: 'sensor' })
+@Entity('edge_devices')
 @Index(['tenantId', 'lifecycleState'])
 @Index(['tenantId', 'siteId'])
 @Index(['deviceCode'], { unique: true })

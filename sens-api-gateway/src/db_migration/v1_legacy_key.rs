@@ -137,10 +137,7 @@ type HmacSha256 = Hmac<Sha256>;
 // (infallible) by design so the migration tool's caller
 // chain doesn't propagate a phantom Result.
 #[allow(clippy::expect_used)]
-pub fn derive_v1_legacy_key(
-    machine_id: &[u8],
-    secret_key: &[u8],
-) -> [u8; 32] {
+pub fn derive_v1_legacy_key(machine_id: &[u8], secret_key: &[u8]) -> [u8; 32] {
     // **Empty-input guard (Batch #340 — closes audit
     // SEC-MEDIUM-003):** the kernel itself MUST accept
     // empty inputs per RFC 2104 (HMAC is well-defined
@@ -269,10 +266,8 @@ mod tests {
     #[test]
     fn v1_legacy_key_differs_when_machine_id_changes() {
         let secret_key = b"same-secret";
-        let k1 =
-            derive_v1_legacy_key(b"machine-aaa", secret_key);
-        let k2 =
-            derive_v1_legacy_key(b"machine-bbb", secret_key);
+        let k1 = derive_v1_legacy_key(b"machine-aaa", secret_key);
+        let k2 = derive_v1_legacy_key(b"machine-bbb", secret_key);
         assert_ne!(k1, k2);
     }
 
@@ -356,7 +351,9 @@ mod tests {
         let mixed = [0xab; 32];
         let hex_mixed = format_sqlcipher_pragma_key_hex(&mixed);
         assert!(
-            hex_mixed.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')),
+            hex_mixed
+                .chars()
+                .all(|c| matches!(c, '0'..='9' | 'a'..='f')),
             "expected lower-hex only, got: {}",
             hex_mixed
         );

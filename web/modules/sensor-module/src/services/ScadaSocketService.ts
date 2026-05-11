@@ -27,8 +27,8 @@ import {
 const SCADA_WS_NAMESPACE: string =
   (() => {
     const base =
-      (typeof import.meta !== 'undefined' && (import.meta as Record<string, unknown>).env != null
-        ? (import.meta as { env: Record<string, string> }).env.VITE_WS_URL
+      (typeof import.meta !== 'undefined' && (import.meta as unknown as Record<string, unknown>).env != null
+        ? (import.meta as unknown as { env: Record<string, string> }).env.VITE_WS_URL
         : undefined) ??
       (typeof window !== 'undefined'
         ? (window as Window & { __RUNTIME_CONFIG__?: { WS_URL?: string } }).__RUNTIME_CONFIG__?.WS_URL

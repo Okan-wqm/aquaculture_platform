@@ -34,6 +34,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import type { Algorithm } from 'jsonwebtoken';
 
 // TODO: Replace with '@aquaculture/scada-types' path alias when monorepo build supports it.
 import type { AlarmStatusSummary, HmiRole, TagValueChange } from './scada-types';
@@ -396,7 +397,7 @@ export class ScadaRuntimeGateway
       );
 
       // TODO: Inject DaqService and forward the query when available.
-      // For now, return an empty result so the client knows the query was received.
+      // Return an empty result so the client knows the query was received.
       client.emit(ScadaSocketEvent.DAQ_RESULT, {
         queryId: payload.queryId,
         data: {},
@@ -660,7 +661,7 @@ export class ScadaRuntimeGateway
       // future migration from HS256 to RS256 without code changes.
       const jwtAlgorithm = this.configService.get<string>('JWT_ALGORITHM', 'HS256');
       const result: unknown = this.jwtService.verify(token, {
-        algorithms: [jwtAlgorithm],
+        algorithms: [jwtAlgorithm as Algorithm],
       });
       return result as TokenPayload;
     } catch (error) {

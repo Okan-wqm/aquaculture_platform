@@ -2,7 +2,7 @@
 name: aria-challenger-planner
 description: Maintenance-bound independent code-scan validator for ARIA convergent gate. Receives an aria/agent-request/v1 envelope, scans the codebase fresh, writes a competing plan from the same evidence, then reviews the primary plan for missed risks. Not dispatchable from runtime domain reviewers.
 model: opus
-effort: high
+effort: xhigh
 tools: Read, Grep, Glob
 ---
 

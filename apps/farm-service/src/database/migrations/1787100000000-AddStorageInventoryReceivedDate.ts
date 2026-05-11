@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * AddStorageInventoryReceivedDate
@@ -48,7 +49,41 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class AddStorageInventoryReceivedDate1787100000000
   implements MigrationInterface
 {
+  private readonly logger = new MigrationLogger(
+    'AddStorageInventoryReceivedDate1787100000000',
+  );
+
+  /**
+   * Wave 4-A.2 Dalga 3 bootstrap-restoration guard.
+   *
+   * `farm.storage_inventory` is created by sibling migration
+   * AddStorageManagement1771000000000. On a fresh-volume bootstrap that
+   * lands the source baseline before the storage migration, the table
+   * is absent at this point — the ALTER would crash with `relation
+   * "farm.storage_inventory" does not exist`. The hardcoded `farm.`
+   * prefix bypasses the runner's search_path pinning, so we look up
+   * the table in `information_schema.tables` with an explicit schema
+   * filter rather than relying on the `current_schema()` helper.
+   */
+  private async hasFarmStorageInventory(queryRunner: QueryRunner): Promise<boolean> {
+    const rows: Array<{ exists: boolean }> = await queryRunner.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'farm'
+          AND table_name = 'storage_inventory'
+      ) AS exists
+    `);
+    return rows[0]?.exists === true;
+  }
+
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (!(await this.hasFarmStorageInventory(queryRunner))) {
+      this.logger.log(
+        'Skipping AddStorageInventoryReceivedDate — farm.storage_inventory not present on this DB (installed by sibling AddStorageManagement1771000000000 migration)',
+      );
+      return;
+    }
+
     await queryRunner.query(`
       ALTER TABLE farm.storage_inventory
       ADD COLUMN IF NOT EXISTS "received_date" TIMESTAMPTZ DEFAULT NOW()
@@ -62,6 +97,9 @@ export class AddStorageInventoryReceivedDate1787100000000
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    if (!(await this.hasFarmStorageInventory(queryRunner))) {
+      return;
+    }
     await queryRunner.query(`
       ALTER TABLE farm.storage_inventory
       DROP COLUMN IF EXISTS "received_date"

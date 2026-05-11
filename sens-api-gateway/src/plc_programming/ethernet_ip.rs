@@ -716,8 +716,11 @@ impl PlcProgrammer for EtherNetIpClient {
                         }
 
                         if data.len() >= 15 {
-                            let serial =
-                                u32::from_le_bytes([data[10], data[11], data[12], data[13]]);
+                            let serial = data
+                                .get(10..14)
+                                .and_then(|bytes| bytes.try_into().ok())
+                                .map(u32::from_le_bytes)
+                                .unwrap_or(0);
                             let name_len = data[14] as usize;
                             if data.len() >= 15 + name_len {
                                 if let Ok(product_name) =
@@ -732,8 +735,7 @@ impl PlcProgrammer for EtherNetIpClient {
 
                                 // State byte follows product name
                                 let state_offset = 15 + name_len;
-                                if data.len() > state_offset {
-                                    let state = data[state_offset];
+                                if let Some(state) = data.get(state_offset).copied() {
                                     run_mode = match state {
                                         0 => PlcRunMode::Unknown, // Non-existent
                                         1 => PlcRunMode::Test,    // Self-testing

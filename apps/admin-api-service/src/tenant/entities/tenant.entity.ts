@@ -7,6 +7,7 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
+import { TenantPlan } from '@platform/event-contracts';
 
 export enum TenantStatus {
   PENDING = 'PENDING',

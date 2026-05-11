@@ -26,7 +26,8 @@ const MUTATION_ACTION_MAP: Record<string, ComplianceAction> = {
   addMember: ComplianceAction.MEMBER_ADD,
   removeMember: ComplianceAction.MEMBER_REMOVE,
   exportChannelData: ComplianceAction.MESSAGE_EXPORT,
-  exportTenantData: ComplianceAction.MESSAGE_EXPORT,
+  // Renamed (federation namespace disambiguation per resolver docblock).
+  exportTenantMessages: ComplianceAction.MESSAGE_EXPORT,
   anonymizeMyData: ComplianceAction.DATA_ANONYMIZE,
   setRetentionPolicy: ComplianceAction.RETENTION_SET,
   toggleLegalHold: ComplianceAction.LEGAL_HOLD_TOGGLE,
@@ -44,7 +45,7 @@ const MUTATION_RESOURCE_MAP: Record<string, string> = {
   addMember: 'channel_member',
   removeMember: 'channel_member',
   exportChannelData: 'channel',
-  exportTenantData: 'tenant',
+  exportTenantMessages: 'tenant',
   anonymizeMyData: 'user',
   setRetentionPolicy: 'retention_policy',
   toggleLegalHold: 'legal_hold',

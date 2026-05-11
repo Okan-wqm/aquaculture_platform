@@ -107,40 +107,39 @@ pub use secret::{KeyMaterial, MasterKeyMaterial};
 // `TpmDevice` is the FFI abstraction boundary; consumers
 // outside `keystore::tpm_backed` import these names.
 pub use tpm_backed::{
-    MockTpmDevice, NvCounterValue, PcrHashBank, PcrSelection, TpmDevice,
-    TpmDeviceError, TpmKeystore, TpmKeystoreConfig, TpmSealedBlob, UnsealedMaster,
+    MockTpmDevice, NvCounterValue, PcrHashBank, PcrSelection, TpmDevice, TpmDeviceError,
+    TpmKeystore, TpmKeystoreConfig, TpmSealedBlob, UnsealedMaster,
 };
 
 // Batch #312 re-exports — boot-time selector + fall-back
 // policy. Consumers (main.rs cold-boot path + integration
 // tests) import these names.
 pub use selector::{
-    FallbackPolicy, KeystoreSelector, KeystoreSelectorConfig,
-    NullTpmDeviceFactory, TpmDeviceFactory,
+    FallbackPolicy, KeystoreSelector, KeystoreSelectorConfig, NullTpmDeviceFactory,
+    TpmDeviceFactory,
 };
 
 // Batch #315 re-exports — rotation deadline primitive.
 // The alarm runner + future FileBackedKeystore consumer
 // import these names directly.
 pub use rotation_deadline::{
-    KeystoreRotationDeadline, RotationDeadlineError, RotationStatus,
-    DEFAULT_ALARM_LEAD_TIME_DAYS, DEFAULT_ROTATION_PERIOD_DAYS,
+    DEFAULT_ALARM_LEAD_TIME_DAYS, DEFAULT_ROTATION_PERIOD_DAYS, KeystoreRotationDeadline,
+    RotationDeadlineError, RotationStatus,
 };
 
 // Batch #316 re-exports — rotation marker persistence.
 // FileBackedKeystore consumer wiring (next arc batch)
 // imports these.
 pub use rotation_marker_store::{
-    read_marker, read_or_init, record_rotation_now, write_marker,
-    MarkerStoreError, ROTATION_MARKER_FILENAME,
+    MarkerStoreError, ROTATION_MARKER_FILENAME, read_marker, read_or_init, record_rotation_now,
+    write_marker,
 };
 
 // Batch #317 re-exports — alarm runner. main.rs cold-
 // boot path spawns this task alongside the keystore
 // instantiation.
 pub use rotation_alarm_runner::{
-    run_keystore_rotation_alarm_task, AlarmRunSummary,
-    DEFAULT_ALARM_INTERVAL_SECS,
+    AlarmRunSummary, DEFAULT_ALARM_INTERVAL_SECS, run_keystore_rotation_alarm_task,
 };
 // RotationSource is defined in this module above + already
 // pub, so consumers can `use crate::keystore::RotationSource`

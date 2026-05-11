@@ -66,9 +66,7 @@ use std::sync::Arc;
 // OpcUaTagNode/OpcUaWriteOutcome/PolicyEngineOpcUaAdapter
 // imports retired. SensNodeManager is the sole production
 // NodeManager; legacy fallback path deleted.
-use opcua::server::{
-    ServerBuilder, ServerEndpoint, ServerHandle, ANONYMOUS_USER_TOKEN_ID,
-};
+use opcua::server::{ANONYMOUS_USER_TOKEN_ID, ServerBuilder, ServerEndpoint, ServerHandle};
 use opcua::types::{DataTypeId, Variant};
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
@@ -78,10 +76,10 @@ use crate::authz::in_memory_engine::InMemoryPolicyEngine;
 use crate::authz::manifest_runtime::RbacManifestStore;
 use crate::authz::permission::TenantId;
 use crate::config::OpcUaServerConfig;
-use crate::license::{check_opc_ua_server_gate, EdgeLicenseLimits, OpcUaServerGate};
+use crate::license::{EdgeLicenseLimits, OpcUaServerGate, check_opc_ua_server_gate};
 use crate::opc_ua_server::{
-    AuditSinkOpcUaAdapter, ForceRegistryOpcUaAdapter, OpcUaAuditPort,
-    OpcUaTagRegistry, PolicyVersionFn, ProcessImageOpcUaAdapter,
+    AuditSinkOpcUaAdapter, ForceRegistryOpcUaAdapter, OpcUaAuditPort, OpcUaTagRegistry,
+    PolicyVersionFn, ProcessImageOpcUaAdapter,
 };
 use crate::process_image::ProcessImage;
 use crate::scripting::force_registry::ForceRegistry;
@@ -161,8 +159,7 @@ pub struct SuderraOpcUaHandle {
     /// is cancelled cooperatively — production code MUST call
     /// `cancel()` then `join()` to await both the server run
     /// loop AND the bridge task.
-    subscription_bridge:
-        Option<crate::opc_ua_server::subscription_bridge::SubscriptionBridge>,
+    subscription_bridge: Option<crate::opc_ua_server::subscription_bridge::SubscriptionBridge>,
 }
 
 impl SuderraOpcUaHandle {
@@ -411,9 +408,7 @@ pub fn build_server(
 /// numeric telemetry (Suderra's dominant shape); the boot
 /// log should still audit the fallback so operators see
 /// drift between PLC config + license manifest expectations.
-pub(crate) fn map_suderra_data_type(
-    suderra_data_type: &str,
-) -> (DataTypeId, Variant) {
+pub(crate) fn map_suderra_data_type(suderra_data_type: &str) -> (DataTypeId, Variant) {
     let lower = suderra_data_type.trim().to_ascii_lowercase();
     match lower.as_str() {
         "bool" | "boolean" => (DataTypeId::Boolean, Variant::Boolean(false)),
@@ -698,9 +693,7 @@ pub async fn init_opc_ua_server(
     // shape remains.
     let pi_arc = Arc::new(process_image.clone());
     let force_port: Arc<dyn crate::opc_ua_server::OpcUaForceRegistryPort> =
-        Arc::new(ForceRegistryOpcUaAdapter::new(
-            force_registry,
-        ));
+        Arc::new(ForceRegistryOpcUaAdapter::new(force_registry));
     let pi_port: Arc<dyn crate::opc_ua_server::OpcUaProcessImagePort> =
         Arc::new(ProcessImageOpcUaAdapter::new(pi_arc.clone()));
 
@@ -709,54 +702,51 @@ pub async fn init_opc_ua_server(
     // so the audit record tags every write with the exact
     // policy version the decision used.
     let pv_fn: PolicyVersionFn = Arc::new(|| 0u64);
-    let audit_port: Arc<dyn OpcUaAuditPort> =
-        Arc::new(AuditSinkOpcUaAdapter::new(
-            audit_arc,
-            tenant_id.clone(),
-            pv_fn.clone(),
-        ));
+    let audit_port: Arc<dyn OpcUaAuditPort> = Arc::new(AuditSinkOpcUaAdapter::new(
+        audit_arc,
+        tenant_id.clone(),
+        pv_fn.clone(),
+    ));
 
     // Typed authz: ManifestBackedTypedAuthz composes the
     // resolver + InMemoryPolicyEngine + tenant +
     // policy-version closure (Batch #240/#241 primitives).
-    let resolver = crate::opc_ua_server_session
-        ::OpcUaActorResolver::new(rbac_manifest_store.clone());
+    let resolver =
+        crate::opc_ua_server_session::OpcUaActorResolver::new(rbac_manifest_store.clone());
     let engine: Arc<dyn crate::authz::policy::PolicyEngine> =
-        Arc::new(InMemoryPolicyEngine::new(
-            rbac_manifest_store,
-        ));
-    let typed_authz: Arc<dyn crate::opc_ua_server_typed_authz::TypedAuthzPort> =
-        Arc::new(crate::opc_ua_server_typed_authz
-            ::ManifestBackedTypedAuthz::new(
-                resolver,
-                engine,
-                tenant_id.clone(),
-                pv_fn,
-            ));
+        Arc::new(InMemoryPolicyEngine::new(rbac_manifest_store));
+    let typed_authz: Arc<dyn crate::opc_ua_server_typed_authz::TypedAuthzPort> = Arc::new(
+        crate::opc_ua_server_typed_authz::ManifestBackedTypedAuthz::new(
+            resolver,
+            engine,
+            tenant_id.clone(),
+            pv_fn,
+        ),
+    );
 
     // UserTokenValidator — shared between SensNodeManager
     // (defense-in-depth re-validation) + SensAuthManager
     // (session-establish path).
     let validator = Arc::new(
-        crate::opc_ua_server_user_token_validator
-            ::UserTokenValidator::new(user_token_manifest_store),
+        crate::opc_ua_server_user_token_validator::UserTokenValidator::new(
+            user_token_manifest_store,
+        ),
     );
 
-    let node_manager_builder =
-        crate::opc_ua_sens_node_manager::SensNodeManagerBuilder::new(
-            tenant_id,
-            typed_authz,
-            validator.clone(),
-            pi_arc,
-            registry_arc.clone(),
-            force_port,
-            pi_port,
-            audit_port,
-            // Batch #325 D-9 migration: forward the
-            // AppState clock_authority so SensNodeManager
-            // writes use the trustworthy_wall_clock gate.
-            clock_authority.clone(),
-        );
+    let node_manager_builder = crate::opc_ua_sens_node_manager::SensNodeManagerBuilder::new(
+        tenant_id,
+        typed_authz,
+        validator.clone(),
+        pi_arc,
+        registry_arc.clone(),
+        force_port,
+        pi_port,
+        audit_port,
+        // Batch #325 D-9 migration: forward the
+        // AppState clock_authority so SensNodeManager
+        // writes use the trustworthy_wall_clock gate.
+        clock_authority.clone(),
+    );
 
     // Phase B-2 (Batch #270) — construct the FailedAuthWindow from
     // the operator-configured cap. The throttle is the architectural
@@ -765,9 +755,8 @@ pub async fn init_opc_ua_server(
     // value, type-level enforcing every auth path goes through the
     // throttle (the `opc_ua_auth_throttle_enforced` invariant pins
     // the wire shape).
-    let throttle = crate::opc_ua_server::auth_throttle::FailedAuthWindow::new(
-        config.max_failed_auth_per_60s,
-    );
+    let throttle =
+        crate::opc_ua_server::auth_throttle::FailedAuthWindow::new(config.max_failed_auth_per_60s);
 
     // Phase B-3 (Batch #272) — construct the SessionQuota for the
     // agent's single tenant from the operator-configured caps. The
@@ -784,7 +773,10 @@ pub async fn init_opc_ua_server(
             // quota key; tenant identity stability across reboots is
             // what matters, not human-readable text.
             let bytes = t.as_bytes();
-            format!("{:02x}{:02x}{:02x}{:02x}", bytes[0], bytes[1], bytes[2], bytes[3])
+            format!(
+                "{:02x}{:02x}{:02x}{:02x}",
+                bytes[0], bytes[1], bytes[2], bytes[3]
+            )
         })
         .unwrap_or_else(|| "unprovisioned-edge".to_string());
     let session_quota = crate::opc_ua_server::session_quota::SessionQuota::new(
@@ -792,27 +784,18 @@ pub async fn init_opc_ua_server(
         config.max_sessions_per_tenant,
         config.max_sessions_per_user,
     );
-    let auth_manager = Arc::new(
-        crate::opc_ua_sens_auth_manager::SensAuthManager::new(
-            validator,
-            throttle,
-            session_quota,
-        ),
-    );
+    let auth_manager = Arc::new(crate::opc_ua_sens_auth_manager::SensAuthManager::new(
+        validator,
+        throttle,
+        session_quota,
+    ));
 
-    let bundle = crate::opc_ua_sens_node_manager
-        ::SensRuntimeBundle::new(
-            node_manager_builder,
-            auth_manager,
-        );
+    let bundle =
+        crate::opc_ua_sens_node_manager::SensRuntimeBundle::new(node_manager_builder, auth_manager);
 
-    let handle_opt = start_opcua_server(
-        config,
-        &*registry_arc,
-        bundle,
-    )
-    .await
-    .map_err(|e| format!("opc_ua_server start failed: {}", e))?;
+    let handle_opt = start_opcua_server(config, &*registry_arc, bundle)
+        .await
+        .map_err(|e| format!("opc_ua_server start failed: {}", e))?;
 
     Ok(handle_opt)
 }
@@ -832,7 +815,6 @@ pub async fn init_opc_ua_server(
 // execute_opcua_write_post_typed_authz (Batch #290) which
 // does the same orchestration the legacy bridge did,
 // without losing RequestContext.
-
 
 /// Start the OPC UA server. Returns `Ok(None)` when
 /// `config.enabled == false` (operator config off-switch
@@ -862,8 +844,7 @@ pub async fn start_opcua_server(
     // one shape is now possible — future runtime shape
     // changes (e.g., per-tenant manager partitioning) would
     // surface here.
-    let manager_kind =
-        "SensNodeManager+SensAuthManager (typed-authz, virtual nodes)";
+    let manager_kind = "SensNodeManager+SensAuthManager (typed-authz, virtual nodes)";
 
     // Phase B-1 (ADR-031) — construct PkiStore + CertRotation + pass into
     // build_server via PkiRuntimeRef.
@@ -892,10 +873,10 @@ pub async fn start_opcua_server(
         .map_err(|e| OpcUaServerStartError::ConfigInvalid(format!("PkiStore init failed: {e}")))?,
     );
     let cert_rotation = std::sync::Arc::new(
-        crate::opc_ua_server::cert_rotation::CertRotation::load_from_pki_store(
-            pki_store.clone(),
-        )
-        .map_err(|e| OpcUaServerStartError::ConfigInvalid(format!("CertRotation load failed: {e}")))?,
+        crate::opc_ua_server::cert_rotation::CertRotation::load_from_pki_store(pki_store.clone())
+            .map_err(|e| {
+            OpcUaServerStartError::ConfigInvalid(format!("CertRotation load failed: {e}"))
+        })?,
     );
     let pki_runtime = PkiRuntimeRef {
         root: pki_store.root(),
@@ -916,8 +897,8 @@ pub async fn start_opcua_server(
     // shape is uniform so downstream consumers
     // (SuderraOpcUaHandle.population) see the same Option
     // type.
-    let population_summary = populate_tag_nodes(&handle, registry)
-        .map_err(OpcUaServerStartError::BuilderFailed)?;
+    let population_summary =
+        populate_tag_nodes(&handle, registry).map_err(OpcUaServerStartError::BuilderFailed)?;
 
     // Phase B-4 (Batch #275 closure) — spawn the SubscriptionBridge.
     // The bridge consumes ProcessImage::subscribe_changes broadcast +
@@ -933,20 +914,16 @@ pub async fn start_opcua_server(
     // Cancel token + JoinHandle are stored on `SuderraOpcUaHandle`
     // (population_summary stays unchanged); ShutdownCoordinator
     // bridge calls bridge.shutdown() on SIGTERM/SIGINT.
-    let bridge_cancel =
-        crate::opc_ua_server::subscription_bridge::BridgeCancelToken::new();
+    let bridge_cancel = crate::opc_ua_server::subscription_bridge::BridgeCancelToken::new();
     let bridge_notifier: std::sync::Arc<
         dyn crate::opc_ua_server::subscription_bridge::NodeChangeNotifier,
-    > = std::sync::Arc::new(
-        crate::opc_ua_server::subscription_bridge::LoggingNotifier,
+    > = std::sync::Arc::new(crate::opc_ua_server::subscription_bridge::LoggingNotifier);
+    let subscription_bridge = crate::opc_ua_server::subscription_bridge::SubscriptionBridge::spawn(
+        process_image.subscribe_changes(),
+        registry_arc.clone(),
+        bridge_notifier,
+        bridge_cancel.clone(),
     );
-    let subscription_bridge =
-        crate::opc_ua_server::subscription_bridge::SubscriptionBridge::spawn(
-            process_image.subscribe_changes(),
-            registry_arc.clone(),
-            bridge_notifier,
-            bridge_cancel.clone(),
-        );
     info!(
         "opc_ua: SubscriptionBridge spawned (Phase B-4 — LoggingNotifier; \
          Phase B-4.5 swaps in SensNodeManager-backed notifier)"
@@ -1047,7 +1024,8 @@ mod tests {
     async fn start_returns_none_when_disabled() {
         let mut cfg = minimal_enabled_config();
         cfg.enabled = false;
-        let result = start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle()).await;
+        let result =
+            start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle()).await;
         match result {
             Ok(None) => {}
             Ok(Some(_)) => panic!("disabled config MUST NOT start a server"),
@@ -1059,7 +1037,8 @@ mod tests {
     async fn start_errors_on_invalid_config() {
         let mut cfg = minimal_enabled_config();
         cfg.bind = "not an ip".to_string();
-        let result = start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle()).await;
+        let result =
+            start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle()).await;
         match result {
             Err(OpcUaServerStartError::ConfigInvalid(_)) => {}
             Err(other) => panic!("expected ConfigInvalid, got {:?}", other),
@@ -1100,30 +1079,19 @@ mod tests {
     /// chain. All trait-port mocks are deny-all/no-op; tests
     /// that need a specific behavior should construct their
     /// own bundle.
-    fn deny_all_test_bundle()
-        -> crate::opc_ua_sens_node_manager::SensRuntimeBundle
-    {
-        use crate::opc_ua_sens_node_manager::{
-            SensNodeManagerBuilder, SensRuntimeBundle,
-        };
+    fn deny_all_test_bundle() -> crate::opc_ua_sens_node_manager::SensRuntimeBundle {
+        use crate::authz::context::{AuthorizationDenyReason, AuthorizedContext};
+        use crate::authz::permission::TenantId;
+        use crate::authz::user_token_manifest_runtime::UserTokenManifestStore;
         use crate::opc_ua_sens_auth_manager::SensAuthManager;
+        use crate::opc_ua_sens_node_manager::{SensNodeManagerBuilder, SensRuntimeBundle};
         use crate::opc_ua_server::{
-            OpcUaAuditPort, OpcUaForceRegistryPort,
-            OpcUaProcessImagePort, OpcUaTagRegistry,
+            OpcUaAuditPort, OpcUaForceRegistryPort, OpcUaProcessImagePort, OpcUaTagRegistry,
             OpcUaWriteOutcome,
         };
-        use crate::opc_ua_server_typed_authz::{
-            TypedAuthzError, TypedAuthzPort,
-        };
         use crate::opc_ua_server_session::AuthenticatedUser;
-        use crate::authz::context::{
-            AuthorizationDenyReason, AuthorizedContext,
-        };
-        use crate::authz::user_token_manifest_runtime
-            ::UserTokenManifestStore;
-        use crate::authz::permission::TenantId;
-        use crate::opc_ua_server_user_token_validator
-            ::UserTokenValidator;
+        use crate::opc_ua_server_typed_authz::{TypedAuthzError, TypedAuthzPort};
+        use crate::opc_ua_server_user_token_validator::UserTokenValidator;
         use crate::process_image::ProcessImage;
         use async_trait::async_trait;
 
@@ -1191,13 +1159,8 @@ mod tests {
         // exercise the gates; production caps come from config.
         let throttle = crate::opc_ua_server::auth_throttle::FailedAuthWindow::new(20);
         let session_quota =
-            crate::opc_ua_server::session_quota::SessionQuota::new(
-                "test-tenant".to_string(),
-                5,
-                2,
-            );
-        let auth_manager =
-            Arc::new(SensAuthManager::new(validator, throttle, session_quota));
+            crate::opc_ua_server::session_quota::SessionQuota::new("test-tenant".to_string(), 5, 2);
+        let auth_manager = Arc::new(SensAuthManager::new(validator, throttle, session_quota));
         SensRuntimeBundle::new(builder, auth_manager)
     }
 
@@ -1211,9 +1174,7 @@ mod tests {
     fn build_server_accepts_sens_builder_path() {
         let cfg = minimal_enabled_config();
         if build_server(&cfg, deny_all_test_bundle(), None).is_err() {
-            panic!(
-                "build_server rejected a valid config + SensRuntimeBundle"
-            );
+            panic!("build_server rejected a valid config + SensRuntimeBundle");
         }
     }
 
@@ -1226,16 +1187,22 @@ mod tests {
         // every run to a unique path.
         let cfg = minimal_enabled_config();
         let pki_dir = cfg.own_pki_dir.clone();
-        let handle = match start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle()).await {
-            Ok(Some(h)) => h,
-            Ok(None) => panic!("enabled config returned None"),
-            Err(e) => panic!("start failed: {}", e),
-        };
+        let handle =
+            match start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle())
+                .await
+            {
+                Ok(Some(h)) => h,
+                Ok(None) => panic!("enabled config returned None"),
+                Err(e) => panic!("start failed: {}", e),
+            };
         // Give the run-loop a moment to bind (actual
         // liveness is not required for this test — we only
         // verify the cancel → join roundtrip).
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        assert!(handle.node_manager_count() >= 1, "core node manager present");
+        assert!(
+            handle.node_manager_count() >= 1,
+            "core node manager present"
+        );
         // Batch 217: empty registry + population runs OK
         // so the handle surfaces a 0-count summary.
         let summary = handle.population().expect("population summary present");
@@ -1394,7 +1361,10 @@ mod tests {
         assert_eq!(summary.variable_nodes_added, 0);
         assert_eq!(summary.writable_nodes, 0);
         assert!(summary.insertion_failures.is_empty());
-        assert!(summary.namespace_index > 0, "Suderra NS gets an index > core 0");
+        assert!(
+            summary.namespace_index > 0,
+            "Suderra NS gets an index > core 0"
+        );
         assert_eq!(handle.namespace_index(), Some(summary.namespace_index));
 
         handle.cancel();
@@ -1402,11 +1372,7 @@ mod tests {
             Ok(i) => i,
             Err(_) => panic!("handle still Arc-shared"),
         };
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            inner.join(),
-        )
-        .await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), inner.join()).await;
         let _ = std::fs::remove_dir_all(&pki_dir);
     }
 
@@ -1425,9 +1391,7 @@ mod tests {
         }
     }
 
-    async fn pi_with_tags_async(
-        configs: Vec<crate::process_image::TagConfig>,
-    ) -> ProcessImage {
+    async fn pi_with_tags_async(configs: Vec<crate::process_image::TagConfig>) -> ProcessImage {
         let pi = ProcessImage::new();
         pi.set_configs(configs).await;
         pi
@@ -1459,9 +1423,7 @@ mod tests {
         Arc::new(
             AuditSink::open(
                 &path,
-                crate::audit::sink::AuditHmacKey::from_bytes(
-                    [0u8; 32],
-                ),
+                crate::audit::sink::AuditHmacKey::from_bytes([0u8; 32]),
             )
             .expect("test audit sink"),
         )
@@ -1494,8 +1456,7 @@ mod tests {
             // separate tests in the typed-authz chain cover
             // the loaded-store paths.
             user_token_manifest_store: Arc::new(
-                crate::authz::user_token_manifest_runtime
-                    ::UserTokenManifestStore::new(),
+                crate::authz::user_token_manifest_runtime::UserTokenManifestStore::new(),
             ),
             license,
             // Phase B-1.5 — `device_code` is the stable hardware/deployment
@@ -1550,11 +1511,7 @@ mod tests {
         assert_eq!(summary.variable_nodes_added, 0);
         handle.cancel();
         let inner = Arc::try_unwrap(handle).map_err(|_| "Arc").unwrap();
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            inner.join(),
-        )
-        .await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), inner.join()).await;
         let _ = std::fs::remove_dir_all(&pki_dir);
     }
 
@@ -1632,11 +1589,7 @@ mod tests {
         assert_eq!(summary.writable_nodes, 0);
         handle.cancel();
         let inner = Arc::try_unwrap(handle).map_err(|_| "Arc").unwrap();
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            inner.join(),
-        )
-        .await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), inner.join()).await;
         let _ = std::fs::remove_dir_all(&pki_dir);
     }
 

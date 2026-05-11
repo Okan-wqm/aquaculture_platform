@@ -97,6 +97,8 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
     [scripts, onChange],
   );
 
+  const getTrigger = (script: ScadaScript): ScriptTrigger => script.trigger ?? 'event';
+
   return (
     <div className="space-y-3" data-testid="scripts-panel">
       {/* Header */}
@@ -148,10 +150,10 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
               </span>
               <span
                 className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                  TRIGGER_BADGE_CLASS[script.trigger]
+                  TRIGGER_BADGE_CLASS[getTrigger(script)]
                 }`}
               >
-                {TRIGGER_LABELS[script.trigger]}
+                {TRIGGER_LABELS[getTrigger(script)]}
               </span>
               <span
                 className={`w-2 h-2 rounded-full flex-shrink-0 ${
@@ -165,7 +167,7 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
             {isExpanded && (
               <div className="px-3 pb-3 space-y-3 border-t border-gray-200 pt-3">
                 <ScriptTriggerConfig
-                  trigger={script.trigger}
+                  trigger={getTrigger(script)}
                   triggerTag={script.triggerTag}
                   triggerInterval={script.triggerInterval}
                   deviceId={deviceId}

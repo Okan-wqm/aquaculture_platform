@@ -131,10 +131,7 @@ fn e4_no_legacy_anonymous_actor_literal_in_src_tree() {
 
 /// Walk every `.rs` file under `dir` recursively + scan
 /// each line for the banned literal.
-fn walk_rs_files(
-    dir: &Path,
-    out: &mut Vec<(PathBuf, usize, String)>,
-) {
+fn walk_rs_files(dir: &Path, out: &mut Vec<(PathBuf, usize, String)>) {
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => panic!(

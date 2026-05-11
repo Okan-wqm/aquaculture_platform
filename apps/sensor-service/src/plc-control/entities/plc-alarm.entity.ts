@@ -47,7 +47,7 @@ export class ApprovalChainEntry {
 }
 
 @ObjectType()
-@Entity('plc_alarms', { schema: 'sensor' })
+@Entity('plc_alarms')
 @Index(['tenantId', 'plcConnectionId', 'timestamp'])
 @Index(['tenantId', 'acknowledged'])
 export class PlcAlarm {

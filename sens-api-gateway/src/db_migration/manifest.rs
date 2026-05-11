@@ -59,9 +59,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use super::schema_version::DbKeySchemaVersion;
-use crate::shared_io::atomic_json_sidecar::{
-    write_atomic_json, AtomicJsonWriteError,
-};
+use crate::shared_io::atomic_json_sidecar::{AtomicJsonWriteError, write_atomic_json};
 
 /// Suffix appended to the SQLCipher DB filename to form
 /// the manifest sidecar path. Every consumer derives the
@@ -196,13 +194,9 @@ impl From<AtomicJsonWriteError> for DbMigrationError {
         let path = match &e {
             AtomicJsonWriteError::ParentCreate { path, .. } => path.clone(),
             AtomicJsonWriteError::Serialize { path, .. } => path.clone(),
-            AtomicJsonWriteError::TempIo { temp_path, .. } => {
-                temp_path.clone()
-            }
+            AtomicJsonWriteError::TempIo { temp_path, .. } => temp_path.clone(),
             AtomicJsonWriteError::Rename { path, .. } => path.clone(),
-            AtomicJsonWriteError::ParentFsync { parent, .. } => {
-                parent.clone()
-            }
+            AtomicJsonWriteError::ParentFsync { parent, .. } => parent.clone(),
         };
         Self::WriteFailed {
             path,
@@ -274,9 +268,7 @@ pub fn manifest_path_for_db(db_path: &Path) -> PathBuf {
 /// freshly-installed agent with no DB yet). Other I/O
 /// errors propagate as `Err(ReadFailed)` so the boot path
 /// can fail-closed.
-pub fn read_manifest(
-    path: &Path,
-) -> Result<Option<DbKeySourceManifest>, DbMigrationError> {
+pub fn read_manifest(path: &Path) -> Result<Option<DbKeySourceManifest>, DbMigrationError> {
     let bytes = match fs::read(path) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -290,8 +282,8 @@ pub fn read_manifest(
         }
     };
 
-    let parsed: ManifestFileSchemaV1 = serde_json::from_slice(&bytes)
-        .map_err(|e| DbMigrationError::Corrupt {
+    let parsed: ManifestFileSchemaV1 =
+        serde_json::from_slice(&bytes).map_err(|e| DbMigrationError::Corrupt {
             path: path.to_path_buf(),
             reason: format!("json parse: {}", e),
         })?;
@@ -308,15 +300,13 @@ pub fn read_manifest(
     // timestamps earlier than the sanity floor as
     // Corrupt. See `TIMESTAMP_SANITY_FLOOR_UNIX_SECS`
     // doc for the rationale + the chosen floor value.
-    if parsed.last_updated_at_unix_secs < TIMESTAMP_SANITY_FLOOR_UNIX_SECS
-    {
+    if parsed.last_updated_at_unix_secs < TIMESTAMP_SANITY_FLOOR_UNIX_SECS {
         return Err(DbMigrationError::Corrupt {
             path: path.to_path_buf(),
             reason: format!(
                 "last_updated_at_unix_secs={} predates sanity floor \
                  {} (mid-2017) — corrupt or hand-edited manifest",
-                parsed.last_updated_at_unix_secs,
-                TIMESTAMP_SANITY_FLOOR_UNIX_SECS,
+                parsed.last_updated_at_unix_secs, TIMESTAMP_SANITY_FLOOR_UNIX_SECS,
             ),
         });
     }
@@ -349,10 +339,7 @@ pub fn read_manifest(
 /// into our `DbMigrationError::WriteFailed` via the
 /// `From` impl above so consumer-side log prefixes stay
 /// canonical.
-pub fn write_manifest(
-    path: &Path,
-    manifest: &DbKeySourceManifest,
-) -> Result<(), DbMigrationError> {
+pub fn write_manifest(path: &Path, manifest: &DbKeySourceManifest) -> Result<(), DbMigrationError> {
     let payload = ManifestFileSchemaV1 {
         manifest_envelope_version: MANIFEST_ENVELOPE_VERSION,
         schema_version: manifest.schema_version,
@@ -393,9 +380,7 @@ mod tests {
         let manifest = manifest_path_for_db(&db);
         assert_eq!(
             manifest,
-            PathBuf::from(
-                "/var/lib/suderra/offline_queue.db.key-source.json"
-            )
+            PathBuf::from("/var/lib/suderra/offline_queue.db.key-source.json")
         );
     }
 
@@ -406,10 +391,7 @@ mod tests {
     fn manifest_path_handles_extensionless_db_name() {
         let db = PathBuf::from("/tmp/some-db");
         let manifest = manifest_path_for_db(&db);
-        assert_eq!(
-            manifest,
-            PathBuf::from("/tmp/some-db.key-source.json")
-        );
+        assert_eq!(manifest, PathBuf::from("/tmp/some-db.key-source.json"));
     }
 
     /// Round-trip: write a known manifest, read it back,
@@ -423,9 +405,7 @@ mod tests {
         };
         write_manifest(&manifest_path, &original).expect("write");
 
-        let loaded = read_manifest(&manifest_path)
-            .expect("read")
-            .expect("Some");
+        let loaded = read_manifest(&manifest_path).expect("read").expect("Some");
         assert_eq!(loaded, original);
     }
 
@@ -451,8 +431,7 @@ mod tests {
         let (_dir, _db, manifest_path) = manifest_paths();
         fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
         fs::write(&manifest_path, b"not valid JSON {").expect("seed");
-        let err =
-            read_manifest(&manifest_path).expect_err("must error");
+        let err = read_manifest(&manifest_path).expect_err("must error");
         match err {
             DbMigrationError::Corrupt { path, reason } => {
                 assert_eq!(path, manifest_path);
@@ -476,21 +455,15 @@ mod tests {
         fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
         let bogus = r#"{"manifest_envelope_version": 999, "schema_version": "v2-keystore-derived", "last_updated_at_unix_secs": 1700000000}"#;
         fs::write(&manifest_path, bogus).expect("seed");
-        let err =
-            read_manifest(&manifest_path).expect_err("must error");
+        let err = read_manifest(&manifest_path).expect_err("must error");
         match err {
             DbMigrationError::EnvelopeVersionMismatch {
-                expected,
-                actual,
-                ..
+                expected, actual, ..
             } => {
                 assert_eq!(expected, MANIFEST_ENVELOPE_VERSION);
                 assert_eq!(actual, 999);
             }
-            other => panic!(
-                "expected EnvelopeVersionMismatch, got {:?}",
-                other
-            ),
+            other => panic!("expected EnvelopeVersionMismatch, got {:?}", other),
         }
     }
 
@@ -505,8 +478,7 @@ mod tests {
         fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
         let bogus = r#"{"manifest_envelope_version": 1, "schema_version": "v99-future-format", "last_updated_at_unix_secs": 1700000000}"#;
         fs::write(&manifest_path, bogus).expect("seed");
-        let err =
-            read_manifest(&manifest_path).expect_err("must error");
+        let err = read_manifest(&manifest_path).expect_err("must error");
         match err {
             DbMigrationError::Corrupt { .. } => {}
             other => panic!(
@@ -529,8 +501,7 @@ mod tests {
         write_manifest(&manifest_path, &manifest).expect("write");
 
         let bytes = fs::read(&manifest_path).expect("read");
-        let parsed: ManifestFileSchemaV1 =
-            serde_json::from_slice(&bytes).expect("parse");
+        let parsed: ManifestFileSchemaV1 = serde_json::from_slice(&bytes).expect("parse");
         assert_eq!(parsed.manifest_envelope_version, 1);
         assert_eq!(
             parsed.schema_version,
@@ -574,11 +545,7 @@ mod tests {
         let leftover_tmps: Vec<_> = fs::read_dir(parent)
             .expect("readdir")
             .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .contains(".tmp-")
-            })
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp-"))
             .collect();
         assert!(
             leftover_tmps.is_empty(),
@@ -619,13 +586,8 @@ mod tests {
         )
         .expect("write v2");
 
-        let loaded = read_manifest(&manifest_path)
-            .expect("read")
-            .expect("Some");
-        assert_eq!(
-            loaded.schema_version,
-            DbKeySchemaVersion::V2KeystoreDerived
-        );
+        let loaded = read_manifest(&manifest_path).expect("read").expect("Some");
+        assert_eq!(loaded.schema_version, DbKeySchemaVersion::V2KeystoreDerived);
         assert_eq!(loaded.last_updated_at_unix_secs, 1_700_000_000);
     }
 
@@ -635,39 +597,47 @@ mod tests {
     #[test]
     fn db_migration_error_display_strings_pinned() {
         let path = PathBuf::from("/x/y");
-        assert!(format!(
-            "{}",
-            DbMigrationError::ReadFailed {
-                path: path.clone(),
-                reason: "perm".into()
-            }
-        )
-        .contains("db_migration_manifest_read_failed"));
-        assert!(format!(
-            "{}",
-            DbMigrationError::WriteFailed {
-                path: path.clone(),
-                reason: "disk".into()
-            }
-        )
-        .contains("db_migration_manifest_write_failed"));
-        assert!(format!(
-            "{}",
-            DbMigrationError::Corrupt {
-                path: path.clone(),
-                reason: "json".into()
-            }
-        )
-        .contains("db_migration_manifest_corrupt"));
-        assert!(format!(
-            "{}",
-            DbMigrationError::EnvelopeVersionMismatch {
-                path,
-                expected: 1,
-                actual: 999
-            }
-        )
-        .contains("envelope_version_mismatch"));
+        assert!(
+            format!(
+                "{}",
+                DbMigrationError::ReadFailed {
+                    path: path.clone(),
+                    reason: "perm".into()
+                }
+            )
+            .contains("db_migration_manifest_read_failed")
+        );
+        assert!(
+            format!(
+                "{}",
+                DbMigrationError::WriteFailed {
+                    path: path.clone(),
+                    reason: "disk".into()
+                }
+            )
+            .contains("db_migration_manifest_write_failed")
+        );
+        assert!(
+            format!(
+                "{}",
+                DbMigrationError::Corrupt {
+                    path: path.clone(),
+                    reason: "json".into()
+                }
+            )
+            .contains("db_migration_manifest_corrupt")
+        );
+        assert!(
+            format!(
+                "{}",
+                DbMigrationError::EnvelopeVersionMismatch {
+                    path,
+                    expected: 1,
+                    actual: 999
+                }
+            )
+            .contains("envelope_version_mismatch")
+        );
     }
 
     /// `DbMigrationError` implements `std::error::Error`
@@ -693,8 +663,7 @@ mod tests {
         fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
         let bogus = r#"{"manifest_envelope_version": 1, "schema_version": "v2-keystore-derived", "last_updated_at_unix_secs": -1}"#;
         fs::write(&manifest_path, bogus).expect("seed");
-        let err =
-            read_manifest(&manifest_path).expect_err("must error");
+        let err = read_manifest(&manifest_path).expect_err("must error");
         match err {
             DbMigrationError::Corrupt { reason, .. } => {
                 assert!(
@@ -702,10 +671,7 @@ mod tests {
                     "expected sanity-floor reason, got: {reason}"
                 );
             }
-            other => panic!(
-                "expected Corrupt for negative timestamp, got {:?}",
-                other
-            ),
+            other => panic!("expected Corrupt for negative timestamp, got {:?}", other),
         }
     }
 
@@ -722,8 +688,7 @@ mod tests {
         // 1_499_999_999 = floor minus 1 second.
         let bogus = r#"{"manifest_envelope_version": 1, "schema_version": "v2-keystore-derived", "last_updated_at_unix_secs": 1499999999}"#;
         fs::write(&manifest_path, bogus).expect("seed");
-        let err =
-            read_manifest(&manifest_path).expect_err("must error");
+        let err = read_manifest(&manifest_path).expect_err("must error");
         assert!(matches!(err, DbMigrationError::Corrupt { .. }));
     }
 
@@ -737,14 +702,11 @@ mod tests {
             &manifest_path,
             &DbKeySourceManifest {
                 schema_version: DbKeySchemaVersion::V2KeystoreDerived,
-                last_updated_at_unix_secs:
-                    TIMESTAMP_SANITY_FLOOR_UNIX_SECS,
+                last_updated_at_unix_secs: TIMESTAMP_SANITY_FLOOR_UNIX_SECS,
             },
         )
         .expect("seed");
-        let loaded = read_manifest(&manifest_path)
-            .expect("read")
-            .expect("Some");
+        let loaded = read_manifest(&manifest_path).expect("read").expect("Some");
         assert_eq!(
             loaded.last_updated_at_unix_secs,
             TIMESTAMP_SANITY_FLOOR_UNIX_SECS

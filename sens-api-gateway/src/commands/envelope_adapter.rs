@@ -190,9 +190,7 @@ pub(super) fn try_parse_and_verify(
             // present; returns Err on shape inconsistency
             // (one field set, the other not), self-signature
             // attempt, or signature failure.
-            if let Err(co_err) =
-                verify_co_approver_if_present(&env, rbac_store)
-            {
+            if let Err(co_err) = verify_co_approver_if_present(&env, rbac_store) {
                 warn!(
                     "CommandEnvelope co-approver verify failed: cmd='{}' err={}",
                     env.cmd, co_err
@@ -214,8 +212,8 @@ pub(super) fn try_parse_and_verify(
             // verified the second signature against the same
             // canonical bytes the primary signed. The handler-
             // side gate (cmd_force_value etc.) reads this flag.
-            let verified_co_approver = env.co_approver_actor.is_some()
-                && env.co_approver_signature.is_some();
+            let verified_co_approver =
+                env.co_approver_actor.is_some() && env.co_approver_signature.is_some();
             AdapterOutcome::Verified(AdaptedCommand {
                 command_id: jti.as_str().to_string(),
                 command: env.cmd.clone(),
@@ -223,12 +221,9 @@ pub(super) fn try_parse_and_verify(
                 // Use envelope's iat as RFC3339-equivalent
                 // timestamp. Age-check in handle_message will
                 // apply.
-                timestamp: chrono::DateTime::<chrono::Utc>::from_timestamp(
-                    env.iat_unix_secs,
-                    0,
-                )
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+                timestamp: chrono::DateTime::<chrono::Utc>::from_timestamp(env.iat_unix_secs, 0)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
                 verified_co_approver,
             })
         }
@@ -289,51 +284,37 @@ fn verify_co_approver_if_present(
             // signature; we need our own copy to feed the
             // co-approver verify. The recomputation is cheap
             // (deterministic encoding of bounded fields).
-            let canonical = match crate::command_envelope
-                ::envelope_canonical_bytes(env)
-            {
+            let canonical = match crate::command_envelope::envelope_canonical_bytes(env) {
                 Ok(b) => b,
                 Err(e) => return Err(e),
             };
 
             // Look up co-approver pubkey in RBAC manifest.
-            let co_operator =
-                OperatorId::new_from_verified(co_actor);
-            let pk_bytes = match rbac_store
-                .lookup_operator_pubkey(&co_operator)
-            {
+            let co_operator = OperatorId::new_from_verified(co_actor);
+            let pk_bytes = match rbac_store.lookup_operator_pubkey(&co_operator) {
                 Some(pk) => pk,
                 None => {
                     warn!(
                         "Envelope co-approver verify: operator pubkey not in RBAC manifest (co_actor={:?}) — rejecting",
                         co_actor
                     );
-                    return Err(
-                        EnvelopeVerifyError::CoApproverSignatureInvalid,
-                    );
+                    return Err(EnvelopeVerifyError::CoApproverSignatureInvalid);
                 }
             };
 
-            let pk = match ed25519_dalek::VerifyingKey::from_bytes(
-                &pk_bytes,
-            ) {
+            let pk = match ed25519_dalek::VerifyingKey::from_bytes(&pk_bytes) {
                 Ok(k) => k,
                 Err(e) => {
                     warn!(
                         "Envelope co-approver verify: manifest pubkey bytes invalid: {} — rejecting",
                         e
                     );
-                    return Err(
-                        EnvelopeVerifyError::CoApproverSignatureInvalid,
-                    );
+                    return Err(EnvelopeVerifyError::CoApproverSignatureInvalid);
                 }
             };
-            let sig =
-                ed25519_dalek::Signature::from_bytes(co_sig.as_bytes());
+            let sig = ed25519_dalek::Signature::from_bytes(co_sig.as_bytes());
             if pk.verify_strict(&canonical, &sig).is_err() {
-                return Err(
-                    EnvelopeVerifyError::CoApproverSignatureInvalid,
-                );
+                return Err(EnvelopeVerifyError::CoApproverSignatureInvalid);
             }
             Ok(())
         }
@@ -357,8 +338,7 @@ mod tests {
     fn not_envelope_format_on_legacy_payload() {
         let legacy = br#"{"command_id":"c1","command":"ping","timestamp":"2026-04-21T00:00:00Z","params":{}}"#;
         let store = RbacManifestStore::new();
-        let outcome =
-            try_parse_and_verify(legacy, [0u8; 16], SignatureMode::Disabled, &store);
+        let outcome = try_parse_and_verify(legacy, [0u8; 16], SignatureMode::Disabled, &store);
         assert!(matches!(outcome, AdapterOutcome::NotEnvelopeFormat));
     }
 
@@ -366,8 +346,7 @@ mod tests {
     fn malformed_json_returns_not_envelope_format() {
         let junk = b"not json at all";
         let store = RbacManifestStore::new();
-        let outcome =
-            try_parse_and_verify(junk, [0u8; 16], SignatureMode::Disabled, &store);
+        let outcome = try_parse_and_verify(junk, [0u8; 16], SignatureMode::Disabled, &store);
         assert!(matches!(outcome, AdapterOutcome::NotEnvelopeFormat));
     }
 
@@ -438,7 +417,11 @@ mod tests {
         let env = make_test_env(None, None);
         let store = RbacManifestStore::new();
         let result = verify_co_approver_if_present(&env, &store);
-        assert!(result.is_ok(), "absent co-approver MUST pass gate (got {:?})", result);
+        assert!(
+            result.is_ok(),
+            "absent co-approver MUST pass gate (got {:?})",
+            result
+        );
     }
 
     /// One co-approver field set, the other not → gate rejects
@@ -458,10 +441,7 @@ mod tests {
 
     #[test]
     fn co_approver_signature_only_rejects_with_missing() {
-        let env = make_test_env(
-            None,
-            Some(Ed25519SignatureBytes::from_array([0u8; 64])),
-        );
+        let env = make_test_env(None, Some(Ed25519SignatureBytes::from_array([0u8; 64])));
         let store = RbacManifestStore::new();
         let err = verify_co_approver_if_present(&env, &store).unwrap_err();
         assert!(

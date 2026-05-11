@@ -47,13 +47,19 @@ use tracing::info;
 use crate::plc_programming::{CodesysClient, PlcProgrammer, S7Client};
 
 impl super::super::CommandHandler {
-    pub(in crate::commands) async fn cmd_plc_start(&self, params: &Value) -> (bool, Value, Option<String>) {
+    pub(in crate::commands) async fn cmd_plc_start(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing plc_start command");
         self.plc_run_stop_helper(params, true).await
     }
 
     /// Stop PLC (STOP mode)
-    pub(in crate::commands) async fn cmd_plc_stop(&self, params: &Value) -> (bool, Value, Option<String>) {
+    pub(in crate::commands) async fn cmd_plc_stop(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing plc_stop command");
         self.plc_run_stop_helper(params, false).await
     }
@@ -176,5 +182,4 @@ impl super::super::CommandHandler {
         let _ = client.disconnect().await;
         result
     }
-
 }

@@ -1,5 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 
 /**
  * Token blacklist store interface (gateway-local).
@@ -170,6 +170,7 @@ export class RedisTokenBlacklistStore implements TokenBlacklistStore {
 export class InMemoryTokenBlacklistStore implements TokenBlacklistStore {
   private readonly logger = new Logger(InMemoryTokenBlacklistStore.name);
   private readonly blacklist = new Map<string, number>();
+  private readonly userInvalidations = new Map<string, number>();
   private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor() {
@@ -196,6 +197,19 @@ export class InMemoryTokenBlacklistStore implements TokenBlacklistStore {
     return true;
   }
 
+  async isValidToken(jti: string, _userId: string, _issuedAt: number): Promise<boolean> {
+    if (await this.isBlacklisted(jti)) {
+      return false;
+    }
+    const invalidatedAt = this.userInvalidations.get(_userId);
+    return invalidatedAt === undefined || _issuedAt >= invalidatedAt;
+  }
+
+  async blacklistUserTokens(userId: string, invalidatedAt: number): Promise<void> {
+    this.userInvalidations.set(userId, invalidatedAt);
+    this.logger.log(`User tokens blacklisted in memory: userId=${userId}, invalidatedAt=${invalidatedAt}`);
+  }
+
   cleanup(): void {
     const now = Math.floor(Date.now() / 1000);
     let cleaned = 0;
@@ -203,6 +217,12 @@ export class InMemoryTokenBlacklistStore implements TokenBlacklistStore {
     for (const [jti, exp] of this.blacklist.entries()) {
       if (exp < now) {
         this.blacklist.delete(jti);
+        cleaned++;
+      }
+    }
+    for (const [userId, invalidatedAt] of this.userInvalidations.entries()) {
+      if (invalidatedAt + 24 * 60 * 60 < now) {
+        this.userInvalidations.delete(userId);
         cleaned++;
       }
     }

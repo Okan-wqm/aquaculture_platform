@@ -20,7 +20,7 @@ import {
   TENANT_DATABASE_QUERY,
   TABLE_SCHEMA_QUERY,
   TABLE_DATA_QUERY,
-  UPDATE_TENANT_SETTINGS_MUTATION,
+  UPDATE_TENANT_MUTATION,
   CREATE_TENANT_USER_MUTATION,
   UPDATE_USER_MUTATION,
   DELETE_USER_MUTATION,
@@ -57,6 +57,21 @@ import {
   UPDATE_NOTIFICATION_PREFERENCES_MUTATION,
   GET_MOBILE_USERS_SETTINGS_QUERY,
   UPDATE_MOBILE_USER_SETTINGS_MUTATION,
+  // Communication
+  MY_THREADS_QUERY,
+  THREAD_MESSAGES_QUERY,
+  SEND_MESSAGE_MUTATION,
+  CREATE_THREAD_MUTATION,
+  CLOSE_THREAD_MUTATION,
+  REOPEN_THREAD_MUTATION,
+  MY_TICKETS_QUERY,
+  TICKET_COMMENTS_QUERY,
+  CREATE_TICKET_MUTATION,
+  ADD_TICKET_COMMENT_MUTATION,
+  RATE_TICKET_MUTATION,
+  MY_ANNOUNCEMENTS_QUERY,
+  VIEW_ANNOUNCEMENT_MUTATION,
+  ACKNOWLEDGE_ANNOUNCEMENT_MUTATION,
 } from '../graphql';
 
 // Types
@@ -83,6 +98,12 @@ import type {
   MobileUserSettingsData,
   TenantKeyResponse,
   TenantProvisioningKey,
+  MessageThread,
+  Message,
+  Announcement,
+  ApiSupportTicket,
+  ApiTicketComment,
+  ApiTicketCategory,
 } from './types';
 
 // ============================================================================
@@ -101,7 +122,8 @@ export async function getTenantStats(): Promise<TenantStats> {
   return data.tenantStats;
 }
 
-export async function updateTenantSettings(
+export async function updateTenant(
+  id: string,
   input: Partial<
     Pick<
       Tenant,
@@ -115,12 +137,15 @@ export async function updateTenantSettings(
     >
   >,
 ): Promise<Tenant> {
-  const data = await apiClient.graphql<{ updateTenantSettings: Tenant }>(
-    UPDATE_TENANT_SETTINGS_MUTATION,
-    { input },
+  const data = await apiClient.graphql<{ updateTenant: Tenant }>(
+    UPDATE_TENANT_MUTATION,
+    { id, input },
   );
-  return data.updateTenantSettings;
+  return data.updateTenant;
 }
+
+/** @deprecated Use updateTenant instead */
+export const updateTenantSettings = updateTenant;
 
 // ============================================================================
 // Users
@@ -702,4 +727,167 @@ export async function revokeProvisioningKey(keyId: string): Promise<boolean> {
     revokeTenantProvisioningKey: boolean;
   }>(REVOKE_PROVISIONING_KEY_MUTATION, { keyId });
   return data.revokeTenantProvisioningKey;
+}
+
+// ============================================================================
+// Messaging
+// ============================================================================
+
+export async function getMyThreads(variables?: {
+  status?: string;
+  search?: string;
+}): Promise<MessageThread[]> {
+  const data = await apiClient.graphql<{ myThreads: MessageThread[] }>(
+    MY_THREADS_QUERY,
+    variables,
+  );
+  return (data.myThreads || []).map((t) => ({
+    ...t,
+    isClosed: t.status === 'closed',
+  }));
+}
+
+export async function getThreadMessages(
+  threadId: string,
+): Promise<Message[]> {
+  const data = await apiClient.graphql<{ threadMessages: Message[] }>(
+    THREAD_MESSAGES_QUERY,
+    { threadId },
+  );
+  return data.threadMessages || [];
+}
+
+export async function sendMessage(input: {
+  threadId: string;
+  content: string;
+  senderName?: string;
+}): Promise<Message> {
+  const data = await apiClient.graphql<{ sendMessage: Message }>(
+    SEND_MESSAGE_MUTATION,
+    { input },
+  );
+  return data.sendMessage;
+}
+
+export async function createThread(input: {
+  subject: string;
+  content: string;
+  senderName?: string;
+}): Promise<MessageThread> {
+  const data = await apiClient.graphql<{ createThread: MessageThread }>(
+    CREATE_THREAD_MUTATION,
+    { input },
+  );
+  return data.createThread;
+}
+
+export async function closeThread(
+  threadId: string,
+): Promise<{ id: string; status: string }> {
+  const data = await apiClient.graphql<{
+    closeThread: { id: string; status: string; updatedAt: string };
+  }>(CLOSE_THREAD_MUTATION, { threadId });
+  return data.closeThread;
+}
+
+export async function reopenThread(
+  threadId: string,
+): Promise<{ id: string; status: string }> {
+  const data = await apiClient.graphql<{
+    reopenThread: { id: string; status: string; updatedAt: string };
+  }>(REOPEN_THREAD_MUTATION, { threadId });
+  return data.reopenThread;
+}
+
+// ============================================================================
+// Support Tickets
+// ============================================================================
+
+export async function getMyTickets(variables?: {
+  status?: string;
+  priority?: string;
+  search?: string;
+}): Promise<ApiSupportTicket[]> {
+  const data = await apiClient.graphql<{ myTickets: ApiSupportTicket[] }>(
+    MY_TICKETS_QUERY,
+    variables,
+  );
+  return data.myTickets || [];
+}
+
+export async function getTicketComments(
+  ticketId: string,
+): Promise<ApiTicketComment[]> {
+  const data = await apiClient.graphql<{
+    ticketComments: ApiTicketComment[];
+  }>(TICKET_COMMENTS_QUERY, { ticketId });
+  return data.ticketComments || [];
+}
+
+export async function createTicket(input: {
+  subject: string;
+  description: string;
+  category?: ApiTicketCategory;
+  priority?: string;
+  createdByName?: string;
+  createdByEmail?: string;
+}): Promise<ApiSupportTicket> {
+  const data = await apiClient.graphql<{
+    createTicket: ApiSupportTicket;
+  }>(CREATE_TICKET_MUTATION, { input });
+  return data.createTicket;
+}
+
+export async function addTicketComment(input: {
+  ticketId: string;
+  content: string;
+  authorName?: string;
+}): Promise<ApiTicketComment> {
+  const data = await apiClient.graphql<{
+    addTicketComment: ApiTicketComment;
+  }>(ADD_TICKET_COMMENT_MUTATION, { input });
+  return data.addTicketComment;
+}
+
+export async function rateTicket(input: {
+  ticketId: string;
+  rating: number;
+  comment?: string;
+}): Promise<{ id: string; satisfactionRating: number }> {
+  const data = await apiClient.graphql<{
+    rateTicket: { id: string; satisfactionRating: number; satisfactionComment: string; updatedAt: string };
+  }>(RATE_TICKET_MUTATION, { input });
+  return data.rateTicket;
+}
+
+// ============================================================================
+// Announcements
+// ============================================================================
+
+export async function getMyAnnouncements(variables?: {
+  status?: string;
+  type?: string;
+}): Promise<Announcement[]> {
+  const data = await apiClient.graphql<{
+    myAnnouncements: Announcement[];
+  }>(MY_ANNOUNCEMENTS_QUERY, variables);
+  return data.myAnnouncements || [];
+}
+
+export async function viewAnnouncement(
+  id: string,
+): Promise<{ id: string; announcementId: string; viewedAt: string }> {
+  const data = await apiClient.graphql<{
+    viewAnnouncement: { id: string; announcementId: string; userId: string; viewedAt: string; acknowledgedAt: string };
+  }>(VIEW_ANNOUNCEMENT_MUTATION, { id });
+  return data.viewAnnouncement;
+}
+
+export async function acknowledgeAnnouncement(
+  id: string,
+): Promise<{ id: string; announcementId: string; acknowledgedAt: string }> {
+  const data = await apiClient.graphql<{
+    acknowledgeAnnouncement: { id: string; announcementId: string; userId: string; viewedAt: string; acknowledgedAt: string };
+  }>(ACKNOWLEDGE_ANNOUNCEMENT_MUTATION, { id });
+  return data.acknowledgeAnnouncement;
 }

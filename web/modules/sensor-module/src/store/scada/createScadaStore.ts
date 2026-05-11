@@ -17,6 +17,7 @@ import { createOperatorSlice } from './operatorSlice';
 import { createAlarmRuntimeSlice } from './alarmRuntimeSlice';
 import { createNotificationSlice } from './notificationSlice';
 import { createScriptSlice } from './scriptSlice';
+import { createViewManagerSlice } from './viewManagerSlice';
 
 export function createScadaStore() {
   return create<ScadaStore>()(
@@ -38,6 +39,7 @@ export function createScadaStore() {
           ...createAlarmRuntimeSlice(...args),
           ...createNotificationSlice(...args),
           ...createScriptSlice(...args),
+          ...createViewManagerSlice(...args),
         }))
       ),
       { name: 'ScadaStore', enabled: process.env.NODE_ENV === 'development' }

@@ -2,6 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+} from '@aquaculture/backend-common/resilience';
 
 export interface SystemMetrics {
   timestamp: string;
@@ -275,6 +279,9 @@ export class SystemMetricsService {
                 headers: buildSignedInternalHeaders({
                   serviceName: 'admin-api',
                   tenantId: '',
+                  method: 'GET',
+                  path: new URL(endpoint.url).pathname,
+                  body: '',
                 }),
               });
             } catch {

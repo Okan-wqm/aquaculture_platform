@@ -82,7 +82,7 @@ use sha2::Sha256;
 use tracing::{info, warn};
 use zeroize::Zeroize;
 
-use super::chain::{append_entry, CurrentHmac, HmacChainEntry, PrevHmac};
+use super::chain::{CurrentHmac, HmacChainEntry, PrevHmac, append_entry};
 use super::entry::AuditEntry;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -208,17 +208,12 @@ impl AuditSink {
     pub fn open(path: &Path, hmac_key: AuditHmacKey) -> Result<Self, AuditSinkError> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                AuditSinkError::OpenFailed(format!(
-                    "mkdir {}: {}",
-                    parent.display(),
-                    e
-                ))
+                AuditSinkError::OpenFailed(format!("mkdir {}: {}", parent.display(), e))
             })?;
         }
 
         // Batch 75: scan existing file for chain recovery.
-        let (recovered_hmac, recovered_seq, recovery_note) =
-            recover_chain_state(path)?;
+        let (recovered_hmac, recovered_seq, recovery_note) = recover_chain_state(path)?;
 
         #[cfg(unix)]
         let file = {
@@ -232,13 +227,8 @@ impl AuditSink {
         #[cfg(not(unix))]
         let file = OpenOptions::new().append(true).create(true).open(path);
 
-        let file = file.map_err(|e| {
-            AuditSinkError::OpenFailed(format!(
-                "open {}: {}",
-                path.display(),
-                e
-            ))
-        })?;
+        let file = file
+            .map_err(|e| AuditSinkError::OpenFailed(format!("open {}: {}", path.display(), e)))?;
 
         let writer = BufWriter::new(file);
 
@@ -269,7 +259,10 @@ impl AuditSink {
     /// strict ordering — concurrent appends would race on
     /// `last_hmac`).
     pub fn append(&self, entry: AuditEntry) -> Result<u64, AuditSinkError> {
-        let mut guard = self.state.lock().map_err(|_| AuditSinkError::LockPoisoned)?;
+        let mut guard = self
+            .state
+            .lock()
+            .map_err(|_| AuditSinkError::LockPoisoned)?;
 
         let hmac_key_bytes = *guard.hmac_key.as_bytes();
 
@@ -358,7 +351,10 @@ impl AuditSink {
     /// `KeyRotated` BEFORE calling reload_hmac_key. That
     /// entry is the explicit boundary marker in the log.
     pub fn reload_hmac_key(&self, new_key: AuditHmacKey) -> Result<(), AuditSinkError> {
-        let mut guard = self.state.lock().map_err(|_| AuditSinkError::LockPoisoned)?;
+        let mut guard = self
+            .state
+            .lock()
+            .map_err(|_| AuditSinkError::LockPoisoned)?;
 
         // Flush buffered content + fsync under the OLD key
         // before the swap. If we flipped the key first, any
@@ -435,7 +431,10 @@ impl AuditSink {
     ///   at the same OpenFailed. Fail-loudly is better than
     ///   silent write-to-dangling-fd.
     pub fn reopen(&self) -> Result<(), AuditSinkError> {
-        let mut guard = self.state.lock().map_err(|_| AuditSinkError::LockPoisoned)?;
+        let mut guard = self
+            .state
+            .lock()
+            .map_err(|_| AuditSinkError::LockPoisoned)?;
 
         // Flush any buffered content to the old fd BEFORE
         // closing it. The old fd is still valid even after
@@ -455,11 +454,7 @@ impl AuditSink {
         // perms + same O_APPEND | O_CREATE as `open()`.
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                AuditSinkError::OpenFailed(format!(
-                    "reopen mkdir {}: {}",
-                    parent.display(),
-                    e
-                ))
+                AuditSinkError::OpenFailed(format!("reopen mkdir {}: {}", parent.display(), e))
             })?;
         }
 
@@ -479,11 +474,7 @@ impl AuditSink {
             .open(&self.path);
 
         let new_file = new_file.map_err(|e| {
-            AuditSinkError::OpenFailed(format!(
-                "reopen {}: {}",
-                self.path.display(),
-                e
-            ))
+            AuditSinkError::OpenFailed(format!("reopen {}: {}", self.path.display(), e))
         })?;
 
         // Replace the writer. Dropping the old BufWriter
@@ -554,9 +545,7 @@ impl AuditSink {
 ///   windows) is the Phase 2 metrics-gated upgrade path per
 ///   plan §5 Faz 2 item 8 — Phase 9 test matrix surfaces
 ///   the signal before the upgrade fires.
-fn recover_chain_state(
-    path: &Path,
-) -> Result<(PrevHmac, u64, String), AuditSinkError> {
+fn recover_chain_state(path: &Path) -> Result<(PrevHmac, u64, String), AuditSinkError> {
     use std::io::Read;
 
     if !path.exists() {
@@ -580,11 +569,7 @@ fn recover_chain_state(
 
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).map_err(|e| {
-        AuditSinkError::OpenFailed(format!(
-            "recovery-scan read {}: {}",
-            path.display(),
-            e
-        ))
+        AuditSinkError::OpenFailed(format!("recovery-scan read {}: {}", path.display(), e))
     })?;
 
     if buf.is_empty() {
@@ -670,7 +655,10 @@ fn recover_chain_state(
     })?;
 
     if parsed.current_hmac_hex.len() != 64
-        || !parsed.current_hmac_hex.chars().all(|c| c.is_ascii_hexdigit())
+        || !parsed
+            .current_hmac_hex
+            .chars()
+            .all(|c| c.is_ascii_hexdigit())
     {
         return Err(AuditSinkError::OpenFailed(format!(
             "recovery-scan: current_hmac_hex must be 64 lowercase hex chars, got {:?} in file {}",
@@ -774,7 +762,9 @@ mod tests {
             policy_version: 1,
             two_person_integrity_verified: false,
             action: AuditAction::TagRead,
-            resource: AuditResource::Tag { name: "pond3_temp".to_string() },
+            resource: AuditResource::Tag {
+                name: "pond3_temp".to_string(),
+            },
             outcome: AuditOutcome::Success,
             detail: "".to_string(),
         }
@@ -835,7 +825,11 @@ mod tests {
         let contents = std::fs::read_to_string(&path).expect("read back");
         assert!(contents.contains("\"sequence\":1"), "got: {}", contents);
         assert!(contents.contains("\"prev_hmac_hex\""), "got: {}", contents);
-        assert!(contents.contains("\"current_hmac_hex\""), "got: {}", contents);
+        assert!(
+            contents.contains("\"current_hmac_hex\""),
+            "got: {}",
+            contents
+        );
         assert!(contents.ends_with('\n'), "NDJSON must end with newline");
         let _ = std::fs::remove_file(&path);
     }
@@ -878,8 +872,7 @@ mod tests {
     fn recovery_genesis_on_missing_file() {
         let path = tmp_path();
         let _ = std::fs::remove_file(&path);
-        let (hmac, seq, note) =
-            recover_chain_state(&path).expect("recovery OK on missing file");
+        let (hmac, seq, note) = recover_chain_state(&path).expect("recovery OK on missing file");
         assert_eq!(hmac.as_bytes(), &[0u8; 32]);
         assert_eq!(seq, 0);
         assert!(note.starts_with("genesis"), "unexpected note: {}", note);
@@ -913,7 +906,9 @@ mod tests {
         assert_eq!(seq, 3, "recovered sequence should be 3 after 3 appends");
 
         // Next append chains from sequence=3 → 4.
-        let seq4 = sink2.append(canned_entry()).expect("append 4 post-recovery");
+        let seq4 = sink2
+            .append(canned_entry())
+            .expect("append 4 post-recovery");
         assert_eq!(seq4, 4);
         let _ = std::fs::remove_file(&path);
     }
@@ -971,7 +966,10 @@ mod tests {
         std::fs::write(&path, buf.as_bytes()).expect("write");
 
         let outcome = recover_chain_state(&path);
-        assert!(outcome.is_err(), "must fail-closed on wrong-length hmac hex");
+        assert!(
+            outcome.is_err(),
+            "must fail-closed on wrong-length hmac hex"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1036,8 +1034,7 @@ mod tests {
         );
 
         // Rotated file should have 3 entries (seq=1,2,3).
-        let rotated_contents =
-            std::fs::read_to_string(&rotated_path).expect("read rotated");
+        let rotated_contents = std::fs::read_to_string(&rotated_path).expect("read rotated");
         assert_eq!(
             rotated_contents.lines().count(),
             3,
@@ -1109,8 +1106,7 @@ mod tests {
         // append which drives entry-to-entry difference
         // anyway; the proof here is that the NEW key is
         // actually consumed).
-        let sink = AuditSink::open(&path, AuditHmacKey::from_bytes(key1_bytes))
-            .expect("open");
+        let sink = AuditSink::open(&path, AuditHmacKey::from_bytes(key1_bytes)).expect("open");
         sink.append(canned_entry()).expect("1");
         let (_, hmac_after_1) = sink.snapshot();
 

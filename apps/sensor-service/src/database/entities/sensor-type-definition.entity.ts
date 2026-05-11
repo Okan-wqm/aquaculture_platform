@@ -18,7 +18,7 @@ import {
  * Allows each tenant to define custom sensor types beyond the built-in enum.
  */
 @ObjectType()
-@Entity('sensor_type_definitions', { schema: 'sensor' })
+@Entity('sensor_type_definitions')
 @Index(['tenantId', 'typeKey'], { unique: true })
 export class SensorTypeDefinition {
   @Field(() => ID)

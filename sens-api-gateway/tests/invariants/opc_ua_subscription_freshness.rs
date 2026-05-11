@@ -150,8 +150,7 @@ fn b4_boot_path_spawns_bridge() {
 fn b4_shutdown_drains_bridge() {
     let src = read_source("src/opc_ua_server_runtime.rs");
     assert!(
-        src.contains("pub async fn shutdown_full(")
-            && src.contains("bridge.shutdown().await"),
+        src.contains("pub async fn shutdown_full(") && src.contains("bridge.shutdown().await"),
         "B-4 SHUTDOWN INVARIANT VIOLATED: \
          src/opc_ua_server_runtime.rs SuderraOpcUaHandle does not \
          provide `shutdown_full` that awaits `bridge.shutdown().await`. \

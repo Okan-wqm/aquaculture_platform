@@ -363,6 +363,18 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'hydroponics',
     sourceSchema: 'hydroponics',
+    // ── Strict ownership ──────────────────────────────────────────────
+    // Wave 4-A.2 baseline migration introduces the first DDL in the
+    // hydroponics source schema. Enabling strictOwnership from the
+    // start keeps the schema clean: SourceSchemaBootstrapService DROPs
+    // any table in `hydroponics.*` that is not declared in `tables`
+    // below on every startup, preventing the "orphan table" failure
+    // mode that hit `farm` historically (cross-module entity transitive
+    // imports synchronizing rogue tables into the source schema).
+    strictOwnership: true,
+    // No infrastructure tables yet (no outbox, no migration ledger
+    // outside the standard `migrations` table managed by TypeORM).
+    infrastructureTables: ['migrations'],
     referenceDataTables: [],
     tables: [
       'hydroponics_config',
@@ -383,11 +395,45 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'ai',
     sourceSchema: 'ai',
+    // ── Phase 14: strict ownership ────────────────────────────────────
+    // Wave 4-A.2 of the 2026-05-07 bootstrap-restoration plan brought
+    // ai-service under the strict-module-ownership umbrella alongside
+    // farm. With `strictOwnership: true`, SourceSchemaBootstrapService
+    // DROPs any table in the `ai` schema that is not declared as owned
+    // by this module on every startup. This blocks the cross-module
+    // contamination failure mode (e.g. a stray AuditLogEntity import
+    // synchronising into `ai.audit_logs`) deterministically, identical
+    // to the architectural fix applied to farm in Phase 14.
+    strictOwnership: true,
+    // Infrastructure tables live in the source `ai` schema but are NOT
+    // per-tenant copied. The `tables` array drives tenant provisioning
+    // via CREATE TABLE LIKE INCLUDING ALL; the entries below MUST be
+    // excluded from that path:
+    //   - `migrations`              — TypeORM migration ledger.
+    //                                 AiMigrationRunnerService owns this.
+    //   - `ai_outbox`               — Transactional outbox. Single shared
+    //                                 queue with internal tenantId column;
+    //                                 never replicated per-tenant. Excluded
+    //                                 from RLS in app.module.ts:234.
+    //   - `tool_execution_audit`    — CROSS-TENANT audit table (entity
+    //                                 declares `schema: 'ai'`). The audit
+    //                                 row stream spans tenants by design
+    //                                 for operator analytics. Lives in
+    //                                 `ai.tool_execution_audit` only — NOT
+    //                                 cloned into tenant_<uuid> schemas.
+    infrastructureTables: [
+      'migrations',
+      'ai_outbox',
+      'tool_execution_audit',
+    ],
     referenceDataTables: [],
     tables: [
+      // Per-tenant template tables. Each is created as an unqualified
+      // table in the `ai` source schema by
+      // `1700000000000-CreateInitialSchema` and cloned into every
+      // tenant_<uuid> schema by TenantSchemaSyncService.
       'agent_conversations',
       'tenant_agent_configs',
-      'tool_execution_audit',
     ],
   },
   {

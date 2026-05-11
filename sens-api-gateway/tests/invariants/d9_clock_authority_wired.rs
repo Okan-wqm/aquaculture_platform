@@ -86,8 +86,9 @@ fn d9_init_clock_authority_called_before_init_keystore() {
     let init_clock_call_idx = main_rs
         .find("init_clock_authority();")
         .or_else(|| main_rs.find("init_clock_authority()"))
-        .unwrap_or_else(|| panic!(
-            "D-9 WIRE INVARIANT VIOLATED: main.rs has no \
+        .unwrap_or_else(|| {
+            panic!(
+                "D-9 WIRE INVARIANT VIOLATED: main.rs has no \
              `init_clock_authority()` CALL site. The clock authority \
              is the trust anchor for every TTL-bearing subsystem; \
              without the call the field stays at the default \
@@ -95,7 +96,8 @@ fn d9_init_clock_authority_called_before_init_keystore() {
              the operator-config selection (chrony query enable) \
              is dead code. Restore the call or document the rename \
              + update this invariant."
-        ));
+            )
+        });
     let init_keystore_call_idx = main_rs
         .find("init_keystore().await")
         .or_else(|| {
@@ -117,12 +119,14 @@ fn d9_init_clock_authority_called_before_init_keystore() {
                 None
             }
         })
-        .unwrap_or_else(|| panic!(
-            "D-9 wire invariant locator: `init_keystore().await` (or \
+        .unwrap_or_else(|| {
+            panic!(
+                "D-9 wire invariant locator: `init_keystore().await` (or \
              `.init_keystore()` call site) not found in main.rs — the \
              locator-anchor was renamed; this test needs an updated \
              anchor."
-        ));
+            )
+        });
     assert!(
         init_clock_call_idx < init_keystore_call_idx,
         "D-9 WIRE INVARIANT VIOLATED: the `init_clock_authority()` \

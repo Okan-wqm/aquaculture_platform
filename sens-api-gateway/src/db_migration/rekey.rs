@@ -160,10 +160,7 @@ impl std::error::Error for RekeyError {}
 fn validate_pragma_hex(hex: &str) -> Result<(), RekeyError> {
     if hex.len() != PRAGMA_KEY_HEX_LEN {
         return Err(RekeyError::HexFormat {
-            reason: format!(
-                "expected {PRAGMA_KEY_HEX_LEN} chars, got {}",
-                hex.len()
-            ),
+            reason: format!("expected {PRAGMA_KEY_HEX_LEN} chars, got {}", hex.len()),
         });
     }
     if !hex.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) {
@@ -209,10 +206,7 @@ fn validate_pragma_hex(hex: &str) -> Result<(), RekeyError> {
 /// post-rekey verify succeeded. Any failure = the
 /// caller MUST treat the DB as in-doubt (do not retry;
 /// escalate to operator backup-restore).
-pub fn pragma_rekey(
-    conn: &Connection,
-    new_hex_key: &str,
-) -> Result<(), RekeyError> {
+pub fn pragma_rekey(conn: &Connection, new_hex_key: &str) -> Result<(), RekeyError> {
     validate_pragma_hex(new_hex_key)?;
 
     // The hex is pre-validated; SQL injection is
@@ -221,11 +215,10 @@ pub fn pragma_rekey(
     // `PRAGMA rekey = "x'<hex>'"` form is SQLCipher's
     // documented re-key syntax.
     let stmt = format!("PRAGMA rekey = \"x'{new_hex_key}'\";");
-    conn.execute_batch(&stmt).map_err(|e| {
-        RekeyError::RekeyExecute {
+    conn.execute_batch(&stmt)
+        .map_err(|e| RekeyError::RekeyExecute {
             reason: format!("PRAGMA rekey failed: {e}"),
-        }
-    })?;
+        })?;
 
     // Post-rekey verify: round-trip a small SELECT
     // against the encrypted page cache to force SQLCipher
@@ -253,22 +246,17 @@ mod tests {
     /// initial key. Returns the (TempDir, Connection,
     /// initial_hex_key) so the test can rekey then
     /// verify post-rekey openability.
-    fn open_keyed_db(machine_id: &[u8], secret_key: &[u8]) -> (
-        tempfile::TempDir,
-        std::path::PathBuf,
-        String,
-        Connection,
-    ) {
+    fn open_keyed_db(
+        machine_id: &[u8],
+        secret_key: &[u8],
+    ) -> (tempfile::TempDir, std::path::PathBuf, String, Connection) {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("rekey_test.db");
         let initial_bytes = derive_v1_legacy_key(machine_id, secret_key);
-        let initial_hex =
-            format_sqlcipher_pragma_key_hex(&initial_bytes);
+        let initial_hex = format_sqlcipher_pragma_key_hex(&initial_bytes);
         let conn = Connection::open(&path).expect("open db");
-        conn.execute_batch(&format!(
-            "PRAGMA key = \"x'{initial_hex}'\";"
-        ))
-        .expect("apply initial key");
+        conn.execute_batch(&format!("PRAGMA key = \"x'{initial_hex}'\";"))
+            .expect("apply initial key");
         // Seed a small table so post-rekey verification
         // has rows to count + the test asserts data
         // survives the rekey.
@@ -282,12 +270,9 @@ mod tests {
 
     #[test]
     fn pragma_rekey_with_malformed_hex_returns_hex_format_error() {
-        let (_dir, _path, _initial, conn) = open_keyed_db(
-            b"machine-test",
-            b"secret-test-32-bytes-of-key-aa!",
-        );
-        let err = pragma_rekey(&conn, "too-short")
-            .expect_err("must reject malformed hex");
+        let (_dir, _path, _initial, conn) =
+            open_keyed_db(b"machine-test", b"secret-test-32-bytes-of-key-aa!");
+        let err = pragma_rekey(&conn, "too-short").expect_err("must reject malformed hex");
         match err {
             RekeyError::HexFormat { reason } => {
                 assert!(
@@ -301,31 +286,24 @@ mod tests {
 
     #[test]
     fn pragma_rekey_with_uppercase_hex_returns_hex_format_error() {
-        let (_dir, _path, _initial, conn) = open_keyed_db(
-            b"machine-test",
-            b"secret-test-32-bytes-of-key-bb!",
-        );
+        let (_dir, _path, _initial, conn) =
+            open_keyed_db(b"machine-test", b"secret-test-32-bytes-of-key-bb!");
         // 64 chars but contains uppercase — fails the
         // lower-hex contract.
         let bad = "AB".repeat(32);
-        let err = pragma_rekey(&conn, &bad)
-            .expect_err("uppercase hex must error");
+        let err = pragma_rekey(&conn, &bad).expect_err("uppercase hex must error");
         assert!(matches!(err, RekeyError::HexFormat { .. }));
     }
 
     #[test]
     fn pragma_rekey_round_trips_db_under_new_key() {
-        let (dir, path, _initial_hex, conn) = open_keyed_db(
-            b"machine-rekey",
-            b"secret-rekey-32-bytes-of-key-c!",
-        );
+        let (dir, path, _initial_hex, conn) =
+            open_keyed_db(b"machine-rekey", b"secret-rekey-32-bytes-of-key-c!");
 
         // Compute a NEW key (different inputs = different
         // bytes).
-        let new_bytes = derive_v1_legacy_key(
-            b"machine-rekey-NEW",
-            b"secret-rekey-NEW-32-bytes-of-k!",
-        );
+        let new_bytes =
+            derive_v1_legacy_key(b"machine-rekey-NEW", b"secret-rekey-NEW-32-bytes-of-k!");
         let new_hex = format_sqlcipher_pragma_key_hex(&new_bytes);
 
         pragma_rekey(&conn, &new_hex).expect("rekey ok");
@@ -340,9 +318,7 @@ mod tests {
             .execute_batch(&format!("PRAGMA key = \"x'{new_hex}'\";"))
             .expect("apply new key");
         let count: i64 = conn2
-            .query_row("SELECT count(*) FROM rekey_test", [], |r| {
-                r.get(0)
-            })
+            .query_row("SELECT count(*) FROM rekey_test", [], |r| r.get(0))
             .expect("read after reopen");
         assert_eq!(count, 1, "seeded row must survive rekey");
 
@@ -351,10 +327,8 @@ mod tests {
 
     #[test]
     fn pragma_rekey_old_key_no_longer_opens_after_rekey() {
-        let (dir, path, initial_hex, conn) = open_keyed_db(
-            b"machine-oldkey-fail",
-            b"secret-oldkey-fail-32-bytes-of!",
-        );
+        let (dir, path, initial_hex, conn) =
+            open_keyed_db(b"machine-oldkey-fail", b"secret-oldkey-fail-32-bytes-of!");
 
         let new_bytes = derive_v1_legacy_key(
             b"machine-oldkey-fail-NEW",
@@ -371,14 +345,11 @@ mod tests {
         // inconsistent with the OLD key.
         let conn_old = Connection::open(&path).expect("file open");
         conn_old
-            .execute_batch(&format!(
-                "PRAGMA key = \"x'{initial_hex}'\";"
-            ))
+            .execute_batch(&format!("PRAGMA key = \"x'{initial_hex}'\";"))
             .expect("apply old key (parser allows; runtime fails on read)");
-        let result = conn_old
-            .query_row("SELECT count(*) FROM rekey_test", [], |r| {
-                r.get::<_, i64>(0)
-            });
+        let result = conn_old.query_row("SELECT count(*) FROM rekey_test", [], |r| {
+            r.get::<_, i64>(0)
+        });
         assert!(
             result.is_err(),
             "old key must NOT successfully read post-rekey"
@@ -392,21 +363,15 @@ mod tests {
     fn rekey_error_display_strings_pinned() {
         for (err, expected_prefix) in [
             (
-                RekeyError::HexFormat {
-                    reason: "x".into(),
-                },
+                RekeyError::HexFormat { reason: "x".into() },
                 "rekey_hex_format_invalid",
             ),
             (
-                RekeyError::RekeyExecute {
-                    reason: "y".into(),
-                },
+                RekeyError::RekeyExecute { reason: "y".into() },
                 "rekey_execute_failed",
             ),
             (
-                RekeyError::PostRekeyVerify {
-                    reason: "z".into(),
-                },
+                RekeyError::PostRekeyVerify { reason: "z".into() },
                 "rekey_post_verify_failed",
             ),
         ] {

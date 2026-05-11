@@ -135,3 +135,104 @@ incidents — high-signal, zero false-positive in observed cases.
     stable.
   - +1 month: Land Layer 1 (ESLint rule) once tools/eslint-rules/
     scaffold exists and the rule is unit-tested.
+
+## Wave 4-A.2 update (2026-05-08)
+
+The bootstrap-restoration work (`chore/bootstrap-restoration-2026-05-07`)
+extended the three-layer model with two additional gates and brought the
+runtime validator under operator-runnable verification.
+
+### Runtime gate now enforced for all 14 services
+
+Post-Wave-5, every service registers `SchemaDriftModule.forRoot({ serviceName })`
+in its `app.module.ts`. The factory-reset CLI's `verify-seed` phase now
+asserts the canonical schema set is present (auth, farm, sensor, hr,
+messaging, hydroponics, alert, billing, notification, ai, admin,
+observability, event_store, config, gateway, shared, public — 17 total),
+and the `e2e/tests/integration/bootstrap-from-scratch.spec.ts` runtime
+drift exercise re-runs `SchemaDriftValidator` against a freshly
+bootstrapped DB on every PR build.
+
+The recommendation in the original "Enforcement timeline" stands:
+**`SCHEMA_DRIFT_FATAL=true` flips to default once one full observation
+cycle (7-day burn-in on staging) confirms zero false positives.** Wave
+4-A.2 keeps the default at `false` to absorb the risk of any baseline
+shape that drifted during the W4-A.1 → W4-A.2 transition; the default
+flip is tracked as a separate finding closed by the staging observation.
+
+### New static gates introduced in Wave 4-A.2
+
+The original ADR scoped Layer 1 to a single ESLint rule
+(`require-entity-schema`). Wave 4-A.2 adds two AST-time gates that sit
+alongside it under `tools/gates/`:
+
+  - **`tools/gates/schema-drift-registration.ts`** — AST gate that
+    asserts every service `app.module.ts` registers
+    `SchemaDriftModule.forRoot({ serviceName: '<svc>' })`. Catches the
+    "developer added a new service but forgot to wire the validator"
+    regression at PR time, before Layer 3 has any opportunity to run.
+
+  - **`tools/gates/migration-deletion-witness.ts`** — deletion guard
+    that fails CI if any committed migration file is removed without
+    an accompanying `WITNESS:` line in the commit message documenting
+    why (e.g. squash-into-baseline, replaced by upcaster). Migration
+    deletion is otherwise an architectural smell — once a migration
+    has been applied to a real DB it is permanently part of the
+    ledger, and removing the file from disk can desync greenfield
+    bootstraps.
+
+### Idempotency invariant catalog extended (R6–R12)
+
+`tools/gates/migration-sql-lint.ts` originally enforced R1–R5
+(destructive-without-marker, single-step-add-not-null,
+create-index-not-concurrent, session-scoped-set-search-path,
+overbroad-exception-catch). Wave 4-A.2 adds R6–R12, all of which
+target idempotency contracts that the bootstrap-restoration work
+validated against the legacy droplet shape:
+
+  - **R6** `create-without-if-not-exists` (HIGH) — `CREATE TABLE`,
+    `CREATE INDEX`, `CREATE SEQUENCE`, `CREATE TYPE` without
+    `IF NOT EXISTS` cannot run twice; on a partial-rollback retry the
+    second run aborts mid-migration.
+  - **R7** `drop-without-if-exists` (MEDIUM) — `DROP …` without
+    `IF EXISTS` likewise breaks retry semantics.
+  - **R8** `insert-without-on-conflict` (MEDIUM) — seed inserts
+    without `ON CONFLICT DO NOTHING/UPDATE` re-run badly when the
+    migration is re-applied against a partially-seeded table.
+  - **R9** `alter-add-column-without-if-not-exists` (HIGH) — same
+    class as R6 for ADD COLUMN.
+  - **R10** `add-fk-without-not-valid-then-validate` (HIGH) — single-
+    statement FK adds on a populated table take an `ACCESS EXCLUSIVE`
+    lock for the validation scan; the two-step `NOT VALID` then
+    `VALIDATE CONSTRAINT` pattern degrades to `SHARE UPDATE EXCLUSIVE`.
+  - **R11** `update-without-where` (CRITICAL) — bare `UPDATE …`
+    without a `WHERE` clause is almost always a bug; the gate forces
+    the migration author to either narrow the scope or annotate with
+    `-- migration-sql-lint: full-table-update intentional`.
+  - **R12** `function-without-create-or-replace` (LOW) — `CREATE
+    FUNCTION` without `OR REPLACE` cannot be re-applied; downgrade to
+    LOW because functions can be safely DROPped in the same migration
+    without data loss.
+
+The full R1–R12 set is now the canonical idempotency invariant catalog
+for migration SQL across all services. Each service's
+`tools/gates/migration-sql-lint.ts` invocation runs the same set; the
+catalog is owned by the platform-architecture team and amended via
+ADR.
+
+### Cross-reference
+
+The Wave 4-A.2 verifications referenced above are exercised by:
+
+  - `tools/factory-reset/lib/verify-seed.ts` (post-reset DB shape)
+  - `tools/factory-reset/lib/verify-tenant-clone.ts` (tenant-clone
+    smoke test, optional)
+  - `tools/bootstrap-restore/insert-baseline-as-applied.sql` (legacy-
+    droplet baseline ledger pre-seed)
+  - `e2e/tests/integration/bootstrap-from-scratch.spec.ts` (CI
+    runtime drift exercise)
+  - `tools/gates/schema-drift-registration.ts` (PR-time AST gate)
+  - `tools/gates/migration-deletion-witness.ts` (PR-time deletion
+    guard)
+  - `tools/gates/migration-sql-lint.ts` (PR-time idempotency catalog
+    R1–R12)

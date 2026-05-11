@@ -89,10 +89,7 @@ pub enum VerifyOutcome {
     /// Verification failed. `entry_number` = 1-based line
     /// index that failed. `reason` explains what mismatched.
     /// Any entries BEFORE entry_number are valid.
-    Failed {
-        entry_number: u64,
-        reason: String,
-    },
+    Failed { entry_number: u64, reason: String },
 }
 
 /// Verify a single NDJSON audit log file.
@@ -132,12 +129,7 @@ pub fn verify_audit_log(input: VerifyInput<'_>) -> Result<VerifyOutcome, String>
             Err(e) => {
                 return Ok(VerifyOutcome::Failed {
                     entry_number: one_based,
-                    reason: format!(
-                        "line {} parse error: {} | raw: {}",
-                        one_based,
-                        e,
-                        line
-                    ),
+                    reason: format!("line {} parse error: {} | raw: {}", one_based, e, line),
                 });
             }
         };
@@ -196,21 +188,17 @@ pub fn verify_audit_log(input: VerifyInput<'_>) -> Result<VerifyOutcome, String>
         // helper the sink uses — SSoT discipline (diverging
         // would create a path where tamper looks valid).
         let prev_hmac_typed = super::chain::PrevHmac::from_bytes(prev_hmac_bytes);
-        let reconstructed =
-            compose_hmac_input(prev_hmac_typed, &parsed.entry).map_err(|e| {
-                format!(
-                    "verify_audit_log: compose_hmac_input failed at line {}: {:?}",
-                    one_based, e
-                )
-            })?;
+        let reconstructed = compose_hmac_input(prev_hmac_typed, &parsed.entry).map_err(|e| {
+            format!(
+                "verify_audit_log: compose_hmac_input failed at line {}: {:?}",
+                one_based, e
+            )
+        })?;
 
         let mut mac = match HmacSha256::new_from_slice(input.hmac_key) {
             Ok(m) => m,
             Err(e) => {
-                return Err(format!(
-                    "verify_audit_log: HMAC init failed: {}",
-                    e
-                ));
+                return Err(format!("verify_audit_log: HMAC init failed: {}", e));
             }
         };
         mac.update(&reconstructed);
@@ -294,7 +282,9 @@ mod tests {
             policy_version: 1,
             two_person_integrity_verified: false,
             action: AuditAction::TagRead,
-            resource: AuditResource::Tag { name: "pond3_temp".to_string() },
+            resource: AuditResource::Tag {
+                name: "pond3_temp".to_string(),
+            },
             outcome: AuditOutcome::Success,
             detail: "".to_string(),
         }
@@ -327,11 +317,18 @@ mod tests {
         .expect("verify call OK");
 
         match outcome {
-            VerifyOutcome::Verified { verified_count, last_sequence, .. } => {
+            VerifyOutcome::Verified {
+                verified_count,
+                last_sequence,
+                ..
+            } => {
                 assert_eq!(verified_count, 3);
                 assert_eq!(last_sequence, 3);
             }
-            VerifyOutcome::Failed { entry_number, reason } => {
+            VerifyOutcome::Failed {
+                entry_number,
+                reason,
+            } => {
                 panic!("unexpected failure at entry {}: {}", entry_number, reason);
             }
         }
@@ -367,7 +364,10 @@ mod tests {
         .expect("verify call OK");
 
         match outcome {
-            VerifyOutcome::Failed { entry_number, reason } => {
+            VerifyOutcome::Failed {
+                entry_number,
+                reason,
+            } => {
                 assert_eq!(entry_number, 2);
                 assert!(
                     reason.contains("HMAC mismatch"),
@@ -407,11 +407,13 @@ mod tests {
         .expect("verify call OK");
 
         match outcome {
-            VerifyOutcome::Failed { entry_number, reason } => {
+            VerifyOutcome::Failed {
+                entry_number,
+                reason,
+            } => {
                 assert_eq!(entry_number, 2);
                 assert!(
-                    reason.contains("sequence mismatch")
-                        || reason.contains("prev_hmac"),
+                    reason.contains("sequence mismatch") || reason.contains("prev_hmac"),
                     "expected sequence or linkage failure, got: {}",
                     reason
                 );
@@ -429,8 +431,7 @@ mod tests {
         let path_a = tmp_path();
         let path_b = tmp_path();
         let key_bytes = [0xddu8; 32];
-        let sink =
-            AuditSink::open(&path_a, AuditHmacKey::from_bytes(key_bytes)).expect("open a");
+        let sink = AuditSink::open(&path_a, AuditHmacKey::from_bytes(key_bytes)).expect("open a");
         sink.append(canned_entry()).expect("1");
         sink.append(canned_entry()).expect("2");
         let (a_seq, _) = sink.snapshot();
@@ -459,12 +460,19 @@ mod tests {
         })
         .expect("verify call OK");
         match outcome {
-            VerifyOutcome::Verified { verified_count, last_sequence, .. } => {
+            VerifyOutcome::Verified {
+                verified_count,
+                last_sequence,
+                ..
+            } => {
                 assert_eq!(verified_count, 2);
                 assert_eq!(last_sequence, 2);
                 assert_eq!(a_seq, 2);
             }
-            VerifyOutcome::Failed { entry_number, reason } => {
+            VerifyOutcome::Failed {
+                entry_number,
+                reason,
+            } => {
                 panic!("unexpected failure at {}: {}", entry_number, reason);
             }
         }
@@ -489,7 +497,10 @@ mod tests {
         .expect("verify call OK");
 
         match outcome {
-            VerifyOutcome::Failed { entry_number, reason } => {
+            VerifyOutcome::Failed {
+                entry_number,
+                reason,
+            } => {
                 assert_eq!(entry_number, 1);
                 assert!(
                     reason.contains("HMAC mismatch"),
@@ -504,4 +515,3 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 }
-

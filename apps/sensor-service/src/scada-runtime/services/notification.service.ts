@@ -26,7 +26,7 @@ import type {
   AlarmInstance,
   NotificationConfig,
   AlarmSeverity,
-} from '../../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+} from '../scada-types';
 
 /* ------------------------------------------------------------------ */
 /*  Nodemailer / http — loaded lazily to keep startup fast              */

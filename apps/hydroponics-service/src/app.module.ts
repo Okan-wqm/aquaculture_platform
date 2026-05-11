@@ -12,28 +12,31 @@ import {
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  UserContextMiddleware,
-  RolesGuard,
-  TenantGuard,
-  ThrottlerModule,
-  ThrottlerGuard,
-  SlidingWindowStrategy,
-  ServiceIdentityGuard,
-  SourceSchemaBootstrapService,
-  createTenantSchemaMiddleware,
+  createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
-  TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
-  AuditLogModule,
-  AuditLogInterceptor,
   RlsModule,
   SchemaDriftModule,
-  PlatformJwtModule,
-} from '@aquaculture/backend-common';
+  SourceSchemaBootstrapService,
+  SourceSchemaWriteGuardService,
+  TenantSchemaSyncService,
+} from '@aquaculture/backend-common/database';
+import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import {
+  CorrelationIdMiddleware,
+  createTenantSchemaMiddleware,
+  StripInternalHeadersMiddleware,
+  TenantContextMiddleware,
+  UserContextMiddleware,
+} from '@aquaculture/backend-common/middleware';
+import {
+  SlidingWindowStrategy,
+  ThrottlerGuard,
+  ThrottlerModule,
+} from '@aquaculture/backend-common/security';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
 import { HydroponicsSetupModule } from './setup/setup.module';
@@ -41,6 +44,13 @@ import { HealthModule } from './health/health.module';
 
 // Entities
 import { HydroponicsConfig } from './setup/entities/hydroponics-config.entity';
+
+// Migrations — explicit class imports so the TypeORM DataSource emits
+// the migration class array (no glob). Keeping the import list aligned
+// with apps/db-migrate/src/schema-registry.ts ensures both the
+// container-driven runner and the in-process fallback runner observe
+// the same migration set.
+import { CreateInitialSchema1700000000000 } from './database/migrations/1700000000000-CreateInitialSchema';
 
 // Per-process cache for GraphQL complexity results keyed by document hash.
 // This avoids recomputing complexity for identical operations on every request.
@@ -63,7 +73,7 @@ const complexityCache = new Map<string, number>();
           serviceName: 'hydroponics',
           schema: 'hydroponics',
           entities: [HydroponicsConfig],
-          migrations: [],
+          migrations: [CreateInitialSchema1700000000000],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
           //   aqua-db-migrate container runs migrations BEFORE service

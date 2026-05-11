@@ -210,16 +210,24 @@ export interface LeaveRequest {
   endDate: string;
   totalDays: number;
   isHalfDay: boolean;
+  isHalfDayStart?: boolean;
+  isHalfDayEnd?: boolean;
+  halfDayPeriod?: string | null;
   reason?: string;
   status: LeaveRequestStatus;
   createdAt: string;
 }
 
 export interface CreateLeaveRequestInput {
+  employeeId?: string;
   leaveTypeId: string;
   startDate: string;
   endDate: string;
+  totalDays?: number;
   isHalfDay?: boolean;
+  isHalfDayStart?: boolean;
+  isHalfDayEnd?: boolean;
+  halfDayPeriod?: string | null;
   reason?: string;
 }
 
@@ -229,7 +237,7 @@ export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRec
 /** Messaging offline payloads — sendMessage uses SendMessageInput, editMessage uses { id, content },
  * deleteMessage uses { id }, markMessagesRead uses { channelId, messageId }. */
 export type MessagingOfflinePayload =
-  | { channelId: string; content: string | null; contentType: string; idempotencyKey: string; parentId?: string; attachmentKeys?: string[] }
+  | { channelId: string; content: string | null; contentType: string; idempotencyKey: string; parentId?: string; attachmentKeys?: string[]; metadata?: Record<string, unknown> }
   | { id: string; content: string }
   | { id: string }
   | { channelId: string; messageId: string };

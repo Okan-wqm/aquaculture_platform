@@ -17,8 +17,11 @@ import React, { memo, useState, useCallback, useRef, useEffect, useMemo } from '
 import type { NodeProps } from 'reactflow';
 import { Handle, Position } from 'reactflow';
 import { WidgetRenderer } from '../../scada-builder/WidgetRenderer';
-import type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
-import type { EquipmentConnectionPoint } from '../../../types/scada-widget.types';
+import type {
+  ConnectionPointKey,
+  EquipmentConnectionPoint,
+  ScadaWidgetNodeData,
+} from '../../../types/scada-widget.types';
 import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from '../../scada-builder/equipment-symbols/types';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
@@ -198,7 +201,10 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
   const connectionHandles = useMemo(() => {
     if (data.widgetType !== 'equipment') return null;
     const subType = (data.config.equipmentSubType as string) || '';
-    const points = CONNECTION_POINTS[subType];
+    const points =
+      subType in CONNECTION_POINTS
+        ? CONNECTION_POINTS[subType as ConnectionPointKey]
+        : undefined;
     if (!points || points.length === 0) return null;
     return points;
   }, [data.widgetType, data.config.equipmentSubType]);

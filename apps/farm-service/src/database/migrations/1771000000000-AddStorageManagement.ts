@@ -1,5 +1,9 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger, pinSearchPath } from '@aquaculture/backend-common/database';
+import {
+  MigrationLogger,
+  pinSearchPath,
+  tableExists as backendTableExists,
+} from '@aquaculture/backend-common/database';
 
 /**
  * Migration: Add Storage Management System
@@ -190,48 +194,68 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
     // =========================================================================
     // 5. ALTER feeds - add storage condition columns
     // =========================================================================
-    const feedCols = [
-      { name: 'storage_temp_min', type: 'DECIMAL(5,1)' },
-      { name: 'storage_temp_max', type: 'DECIMAL(5,1)' },
-      { name: 'storage_humidity_min', type: 'DECIMAL(5,1)' },
-      { name: 'storage_humidity_max', type: 'DECIMAL(5,1)' },
-    ];
-    for (const col of feedCols) {
-      const exists = await this.columnExists(queryRunner, 'feeds', col.name);
-      if (!exists) {
-        await queryRunner.query(`ALTER TABLE "feeds" ADD COLUMN "${col.name}" ${col.type} DEFAULT NULL`);
-        this.logger.log(`Added ${col.name} column to feeds`);
+    // Bootstrap-restoration guard (Wave 4-A.2 Dalga 3): the original
+    // migration that created `feeds` was squashed; on a fresh DB the
+    // table only exists once the baseline runs. Skip the ALTER block
+    // cleanly when the table is not present, instead of crashing on
+    // `relation "feeds" does not exist`.
+    if (await backendTableExists(queryRunner, 'feeds')) {
+      const feedCols = [
+        { name: 'storage_temp_min', type: 'DECIMAL(5,1)' },
+        { name: 'storage_temp_max', type: 'DECIMAL(5,1)' },
+        { name: 'storage_humidity_min', type: 'DECIMAL(5,1)' },
+        { name: 'storage_humidity_max', type: 'DECIMAL(5,1)' },
+      ];
+      for (const col of feedCols) {
+        const exists = await this.columnExists(queryRunner, 'feeds', col.name);
+        if (!exists) {
+          await queryRunner.query(`ALTER TABLE "feeds" ADD COLUMN "${col.name}" ${col.type} DEFAULT NULL`);
+          this.logger.log(`Added ${col.name} column to feeds`);
+        }
       }
-    }
-    // storageRequirements already exists on feeds, but let's ensure it allows TEXT length
-    // (currently VARCHAR(100), let's alter to TEXT for consistency)
-    const hasFeedSR = await this.columnExists(queryRunner, 'feeds', 'storageRequirements');
-    if (hasFeedSR) {
-      await queryRunner.query(`ALTER TABLE "feeds" ALTER COLUMN "storageRequirements" TYPE TEXT`);
-      this.logger.log('Altered feeds.storageRequirements to TEXT');
+      // storageRequirements already exists on feeds, but let's ensure it allows TEXT length
+      // (currently VARCHAR(100), let's alter to TEXT for consistency)
+      const hasFeedSR = await this.columnExists(queryRunner, 'feeds', 'storageRequirements');
+      if (hasFeedSR) {
+        await queryRunner.query(`ALTER TABLE "feeds" ALTER COLUMN "storageRequirements" TYPE TEXT`);
+        this.logger.log('Altered feeds.storageRequirements to TEXT');
+      }
+    } else {
+      this.logger.log(
+        'Skipping feeds storage-column ALTER — feeds table not present on this DB (installed by sibling baseline migration)',
+      );
     }
 
     // =========================================================================
     // 6. ALTER chemicals - add storage condition columns
     // =========================================================================
-    const chemCols = [
-      { name: 'storage_temp_min', type: 'DECIMAL(5,1)' },
-      { name: 'storage_temp_max', type: 'DECIMAL(5,1)' },
-      { name: 'storage_humidity_min', type: 'DECIMAL(5,1)' },
-      { name: 'storage_humidity_max', type: 'DECIMAL(5,1)' },
-    ];
-    for (const col of chemCols) {
-      const exists = await this.columnExists(queryRunner, 'chemicals', col.name);
-      if (!exists) {
-        await queryRunner.query(`ALTER TABLE "chemicals" ADD COLUMN "${col.name}" ${col.type} DEFAULT NULL`);
-        this.logger.log(`Added ${col.name} column to chemicals`);
+    // Bootstrap-restoration guard (Wave 4-A.2 Dalga 3): same rationale
+    // as the feeds block above — `chemicals` is created by the squashed
+    // baseline; skip cleanly on DBs where the table has not landed yet.
+    if (await backendTableExists(queryRunner, 'chemicals')) {
+      const chemCols = [
+        { name: 'storage_temp_min', type: 'DECIMAL(5,1)' },
+        { name: 'storage_temp_max', type: 'DECIMAL(5,1)' },
+        { name: 'storage_humidity_min', type: 'DECIMAL(5,1)' },
+        { name: 'storage_humidity_max', type: 'DECIMAL(5,1)' },
+      ];
+      for (const col of chemCols) {
+        const exists = await this.columnExists(queryRunner, 'chemicals', col.name);
+        if (!exists) {
+          await queryRunner.query(`ALTER TABLE "chemicals" ADD COLUMN "${col.name}" ${col.type} DEFAULT NULL`);
+          this.logger.log(`Added ${col.name} column to chemicals`);
+        }
       }
-    }
-    // storageRequirements already exists on chemicals as VARCHAR(100), alter to TEXT
-    const hasChemSR = await this.columnExists(queryRunner, 'chemicals', 'storageRequirements');
-    if (hasChemSR) {
-      await queryRunner.query(`ALTER TABLE "chemicals" ALTER COLUMN "storageRequirements" TYPE TEXT`);
-      this.logger.log('Altered chemicals.storageRequirements to TEXT');
+      // storageRequirements already exists on chemicals as VARCHAR(100), alter to TEXT
+      const hasChemSR = await this.columnExists(queryRunner, 'chemicals', 'storageRequirements');
+      if (hasChemSR) {
+        await queryRunner.query(`ALTER TABLE "chemicals" ALTER COLUMN "storageRequirements" TYPE TEXT`);
+        this.logger.log('Altered chemicals.storageRequirements to TEXT');
+      }
+    } else {
+      this.logger.log(
+        'Skipping chemicals storage-column ALTER — chemicals table not present on this DB (installed by sibling baseline migration)',
+      );
     }
 
     this.logger.log('AddStorageManagement migration completed successfully');

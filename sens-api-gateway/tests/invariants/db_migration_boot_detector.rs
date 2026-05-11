@@ -32,12 +32,9 @@ mod shared_io;
 mod db_migration;
 
 use db_migration::boot_detector::{
-    detect_db_migration_backlog, DbMigrationBacklogEntry,
-    DbMigrationBacklogReport,
+    DbMigrationBacklogEntry, DbMigrationBacklogReport, detect_db_migration_backlog,
 };
-use db_migration::manifest::{
-    manifest_path_for_db, write_manifest, DbKeySourceManifest,
-};
+use db_migration::manifest::{DbKeySourceManifest, manifest_path_for_db, write_manifest};
 use db_migration::schema_version::DbKeySchemaVersion;
 use std::fs;
 use std::path::PathBuf;
@@ -95,14 +92,8 @@ fn d3_boot_v1_manifest_classified_as_backlog_with_timestamp() {
         entry.current_version,
         DbKeySchemaVersion::V1MachineIdDerived
     );
-    assert_eq!(
-        entry.target_version,
-        DbKeySchemaVersion::V2KeystoreDerived
-    );
-    assert_eq!(
-        entry.last_updated_at_unix_secs,
-        Some(1_700_000_000)
-    );
+    assert_eq!(entry.target_version, DbKeySchemaVersion::V2KeystoreDerived);
+    assert_eq!(entry.last_updated_at_unix_secs, Some(1_700_000_000));
 }
 
 /// **D-3 boot-detector invariant 3:** a v2 manifest is
@@ -168,9 +159,11 @@ fn d3_boot_corrupt_manifest_routed_to_detection_failures() {
     let report = detect_db_migration_backlog(&[db.as_path()]);
     assert!(!report.has_backlog());
     assert_eq!(report.detection_failure_count(), 1);
-    assert!(report.detection_failures[0]
-        .reason
-        .contains("corrupt_manifest"));
+    assert!(
+        report.detection_failures[0]
+            .reason
+            .contains("corrupt_manifest")
+    );
 }
 
 /// **D-3 boot-detector invariant 6:** envelope-version
@@ -187,9 +180,11 @@ fn d3_boot_envelope_version_mismatch_routed_to_detection_failures() {
 
     let report = detect_db_migration_backlog(&[db.as_path()]);
     assert_eq!(report.detection_failure_count(), 1);
-    assert!(report.detection_failures[0]
-        .reason
-        .contains("envelope_version_mismatch"));
+    assert!(
+        report.detection_failures[0]
+            .reason
+            .contains("envelope_version_mismatch")
+    );
 }
 
 /// **D-3 boot-detector invariant 7:** mixed input
@@ -231,8 +226,7 @@ fn d3_boot_mixed_input_distributes_to_correct_buckets() {
     // Corrupt manifest.
     let corrupt_db = dir.path().join("corrupt.db");
     touch_db(&corrupt_db);
-    fs::write(manifest_path_for_db(&corrupt_db), b"not valid JSON")
-        .expect("seed corrupt");
+    fs::write(manifest_path_for_db(&corrupt_db), b"not valid JSON").expect("seed corrupt");
 
     let report = detect_db_migration_backlog(&[
         v1_db.as_path(),
@@ -263,8 +257,7 @@ fn d3_boot_one_corrupt_does_not_halt_classification() {
 
     let corrupt_db = dir.path().join("corrupt.db");
     touch_db(&corrupt_db);
-    fs::write(manifest_path_for_db(&corrupt_db), b"junk")
-        .expect("seed");
+    fs::write(manifest_path_for_db(&corrupt_db), b"junk").expect("seed");
 
     let v1_db = dir.path().join("v1.db");
     touch_db(&v1_db);
@@ -277,10 +270,7 @@ fn d3_boot_one_corrupt_does_not_halt_classification() {
     )
     .expect("seed v1");
 
-    let report = detect_db_migration_backlog(&[
-        corrupt_db.as_path(),
-        v1_db.as_path(),
-    ]);
+    let report = detect_db_migration_backlog(&[corrupt_db.as_path(), v1_db.as_path()]);
     // Both populations are populated — the corrupt DB
     // didn't short-circuit the v1 classification.
     assert_eq!(report.backlog_count(), 1);
@@ -331,8 +321,5 @@ fn d3_boot_target_version_is_snapshotted_per_entry() {
 
     let report = detect_db_migration_backlog(&[db.as_path()]);
     let entry = &report.backlog[0];
-    assert_eq!(
-        entry.target_version,
-        DbKeySchemaVersion::current_target()
-    );
+    assert_eq!(entry.target_version, DbKeySchemaVersion::current_target());
 }

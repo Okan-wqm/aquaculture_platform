@@ -78,6 +78,27 @@ def run_reflection(
     }
     append_jsonl(root / "reflections.jsonl", reflection)
     _write_daily_report(root, reflection)
+    # Plan 026R §F.2 — also enqueue next_cycle_plan items into the
+    # bounded scheduler queue so the §F.1 autonomy orchestrator can
+    # drain them at the start of the following cycle. Pre-§F.2 the
+    # items existed only in the reflection JSONL row + text report —
+    # no machine-readable queue for the orchestrator to consume.
+    # The queue caps depth via ARIA_NEXT_CYCLE_QUEUE_DEPTH (default 32);
+    # items beyond the cap return None and are silently dropped at the
+    # writer side (queue-bloat protection — orchestrator drain is the
+    # only sink). Pressure_id is the queue's idempotency key surface.
+    from .next_cycle_queue import append_pending as _enqueue_next_cycle
+    for item in reflection.get("next_cycle_plan", []):
+        pressure_id = item.get("pressure_id")
+        if not isinstance(pressure_id, str) or not pressure_id:
+            continue
+        _enqueue_next_cycle(
+            base_dir=root,
+            source_cycle_id=cycle_id,
+            pressure_id=pressure_id,
+            recommended_action=item.get("recommended_action"),
+            candidate_tools=list(item.get("candidate_tools") or []),
+        )
     return reflection
 
 

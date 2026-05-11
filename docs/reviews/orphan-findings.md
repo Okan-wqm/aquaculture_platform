@@ -957,6 +957,8 @@ mod opc_ua_type_debug; // diagnostic
 
 ## ORPHAN-MEDIUM-029 — `sens-api-gateway` clippy deny-list violations are widespread but the gate is not enforced in current dev workflow (2026-04-28)
 
+Registry anchor note: `ORPHAN-CRITICAL-029` is the Phase 0.1 mTLS TLSConfiguration finding recorded in `docs/reviews/_registry/findings.jsonl`; this review file carries the canonical anchor for the three-store invariant.
+
 **Discovered by:** Batch #331 v1 legacy-key kernel session. Running `cargo clippy --bin suderra-agent` surfaces dozens of `error: used 'expect()' on a 'Result' value`, `error: indexing may panic`, `error: used 'unwrap()' on a 'Result' value` errors across many files (e.g., `src/lifecycle_auth.rs:357`, multiple files with indexing). All these lints are in the crate's deny-list per the rustc invocation flags (`'--deny=clippy::unwrap_used' '--deny=clippy::expect_used' '--deny=clippy::indexing_slicing'`), yet `cargo check` passes cleanly because clippy lints are not registered in regular rustc — they only fire under `cargo clippy`.
 
 **Why this is an architectural problem (not just lint noise):**
@@ -1090,6 +1092,8 @@ The PRESENT state (untracked, no policy file) is the worst of both — engineers
 
 
 ## ORPHAN-MEDIUM-031 — `KeyPurpose` enum projects 4 SqlCipher consumers but defines only 2 variants; consumer-migration arc cannot start without ADR for missing variants (2026-04-28)
+
+Registry anchor note: `ORPHAN-HIGH-031` is the Phase 0.2 cipher-allowlist verifier finding recorded in `docs/reviews/_registry/findings.jsonl`; this review file carries the canonical anchor for the three-store invariant.
 
 **Discovered by:** Batch #332 D-3 v2 keystore-derived shim session. The shim's `is_sqlcipher_purpose` predicate centralizes the SSoT for "which purposes are valid for SQLCipher rekey" (today: `SqlCipherOfflineQueue` + `SqlCipherRetainPersistence`). Plan §5 Faz 2 D-3 docs project FOUR SqlCipher consumers requiring per-consumer migration: `offline_queue` + `license_cache` + `scripting/persistence` + `scripting/bytecode_retain`. The keystore enum is short by 2 variants; the per-consumer migration arc cannot start until the new variants land via ADR.
 

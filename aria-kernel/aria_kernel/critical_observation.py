@@ -126,7 +126,14 @@ def record_critical_observation(
     Single concrete evidence_ref is sufficient (CONTRACTS §7 — critical
     observations bypass the >=2-evidence requirement). Returns the
     persisted record with computed SLA deadlines.
+
+    Plan 026R §A.4 — frozen-profile gate at function entry. Critical-
+    observation emission is one of the 8 §A.4 legacy mutators; under
+    frozen the operator's incident-response intent (no writes) is now
+    honoured by this surface too.
     """
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("critical_observation", base_dir=base_dir)
     if severity not in CRITICAL_SEVERITIES:
         raise GovernanceError(
             f"critical observation severity must be one of {CRITICAL_SEVERITIES}, got {severity!r}"

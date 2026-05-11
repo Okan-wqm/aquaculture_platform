@@ -73,9 +73,13 @@ def record_human_required(
     (reap_stale_claims / release_claim escalations) calls this when a
     request crosses the requeue threshold; operators can also call it
     via CLI to escalate manually before the threshold.
+
+    Plan 026R §A.4 — frozen-profile gate at function entry.
     """
     if not isinstance(reason, str) or not reason.strip():
         raise GovernanceError("reason is required")
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("human_required", base_dir=base_dir)
     root = ensure_tools_dir(base_dir)
     out_path = _human_required_path(root, request_id)
     if out_path.exists():

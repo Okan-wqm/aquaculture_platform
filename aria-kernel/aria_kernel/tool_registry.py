@@ -244,9 +244,20 @@ def append_tools_governance(
     base_dir: str | os.PathLike[str] | Path,
     kind: str,
     details: dict[str, Any],
+    *,
+    bypass_profile_gate: bool = False,
 ) -> dict[str, Any]:
     """Plan 026R §A.2 — append a governance row and rely on A.1's grouped
     index refresh to keep ``integrity_index.json`` current.
+
+    Plan 026R §A.4 — frozen-profile gate at function entry via the
+    ``tool_governance`` surface_kind. The control-plane exception
+    (``runtime_profile.set_profile`` MUST emit
+    ``runtime_profile_changed`` to record an operator THAW from a
+    frozen kernel) passes ``bypass_profile_gate=True``; every other
+    caller honours the gate. Documented bypass keeps the SSoT
+    explicit — every callsite is auditable for whether it intends to
+    bypass.
 
     ``governance.jsonl`` is a member of the tools integrity-index group;
     ``append_jsonl`` therefore acquires the index-group lock OUTER + the
@@ -260,6 +271,11 @@ def append_tools_governance(
     Removing the duplicate eliminates both the race and the extra fcntl
     pair per governance event.
     """
+    if not bypass_profile_gate:
+        # Late import avoids a module-load cycle: runtime_profile imports
+        # tool_registry for ensure_tools_dir + append_tools_governance.
+        from .runtime_profile import enforce_profile_for_write
+        enforce_profile_for_write("tool_governance", base_dir=base_dir)
     root = Path(base_dir)
     root.mkdir(parents=True, exist_ok=True)
     return append_jsonl(

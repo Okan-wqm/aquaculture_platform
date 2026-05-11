@@ -348,7 +348,13 @@ def request_agent_genesis(
     Why: hook-driven autonomy needs a write surface that records *intent*
     without invoking the Agent tool from the kernel. Operators or the
     Claude Code session pick up `requested` rows and run agent-genesis draft.
+
+    Plan 026R §A.4 — frozen-profile gate at function entry. Agent-
+    genesis request creation is one of the 8 §A.4 legacy mutators
+    under the Plan 020 SCOPED no-write invariant.
     """
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("agent_genesis", base_dir=base_dir)
     gap_id = str(gap.get("gap_id") or "").strip()
     capability_gap_key = str(gap.get("capability_gap_key") or gap_id).strip()
     if not gap_id or not capability_gap_key:

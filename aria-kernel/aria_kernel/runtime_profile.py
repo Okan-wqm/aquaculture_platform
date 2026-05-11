@@ -136,13 +136,52 @@ PLAN_020_WRITE_SURFACES: frozenset[str] = frozenset({
     "agent_claim",             # Phase 1.B (defense-in-depth for claim_request)
     "pr_open",                 # Phase 1.B (defense-in-depth for open_pr)
     "spine_orchestrator",      # Phase 4 dedicated invocation
+    # ----------------------------------------------------------------
+    # Plan 026R §A.4 — close the legacy-writer scope gap (Plan 020's
+    # original 14 surfaces left these 8 mutators ungated; frozen
+    # profile leaked silently into observation-class ledger writes,
+    # defeating incident-response no-write intent).
+    "finding",                 # §A.4 — finding.emit_finding
+    "debt",                    # §A.4 — debt.emit_debt
+    "governance",              # §A.4 — high-level governance event emit
+    "observation",             # §A.4 — memory.update_memory observation row
+    "agent_genesis",           # §A.4 — agent_genesis.request_agent_genesis
+    "tool_governance",         # §A.4 — tool_registry.append_tools_governance
+    "critical_observation",    # §A.4 — critical_observation.record_critical_observation
+    "human_required",          # §A.4 — human_required.record_human_required
 })
 
-# Observe-mode allowlist (Plan v3.3 §Phase 1.B observe table).
+
+# Plan 026R §A.4 — diagnostic-class write surfaces that bypass the
+# frozen no-write enforcement BY ARCHITECTURAL DESIGN.
+#
+# These surfaces exist to RECORD operational failures during incident
+# response: ``ledger_corruption_diagnostic`` (Plan 024 §H-7) writes to
+# ``aria-tools/diagnostics/ledger-corruption.jsonl`` whenever a ledger
+# read encounters a corrupt row; ``diagnostic_sink_fallback`` is the
+# stderr fallback path when the diagnostic sink itself cannot be
+# written. Blocking either under frozen profile would silently destroy
+# the observability frozen-mode is specifically designed to preserve.
+#
+# Membership is the SSoT — only surfaces declared here may bypass
+# frozen enforcement. New diagnostic writers MUST be added here AND
+# their owning module MUST emit through the recursion-safe sink path
+# (``diagnostics.emit_ledger_corruption_diagnostic`` is the canonical
+# example).
+DIAGNOSTIC_ALLOWLIST: frozenset[str] = frozenset({
+    "ledger_corruption_diagnostic",
+    "diagnostic_sink_fallback",
+})
+
+# Observe-mode allowlist (Plan v3.3 §Phase 1.B + §A.4 update).
 # A surface NOT in this set is BLOCKED under observe.
-# 'finding'/'debt'/'observation' are listed for documentation/forward
-# compatibility (Plan 021 will route legacy emit through this gate too); for
-# Plan 020 those surfaces never reach enforce_profile_for_write.
+#
+# §A.4 NOTE: ``tool_governance`` is added so observe-mode flows that
+# record observation-class governance events (handoff snapshot persist,
+# instinct candidate record, surface validator audit log) keep working.
+# Governance events are observation-class — they RECORD what happened,
+# they do NOT enact change — so they belong in the observe permission
+# set even though the underlying surface_kind is now gated for frozen.
 OBSERVE_PERMITTED_SURFACES: frozenset[str] = frozenset({
     "finding",
     "debt",
@@ -151,13 +190,16 @@ OBSERVE_PERMITTED_SURFACES: frozenset[str] = frozenset({
     "handoffs",
     "surface_validations",
     "instinct_candidates",
+    "tool_governance",          # §A.4 — governance audit events
 })
 
 # Union of every surface_kind the validator recognises. A surface_kind that
-# is neither plan-020-protected nor observe-permitted is rejected as
-# "unknown surface" — a typo in a caller raises a loud error rather than
-# silently passing.
-KNOWN_WRITE_SURFACES: frozenset[str] = PLAN_020_WRITE_SURFACES | OBSERVE_PERMITTED_SURFACES
+# is neither plan-020-protected nor observe-permitted nor on the
+# DIAGNOSTIC_ALLOWLIST is rejected as "unknown surface" — a typo in a
+# caller raises a loud error rather than silently passing.
+KNOWN_WRITE_SURFACES: frozenset[str] = (
+    PLAN_020_WRITE_SURFACES | OBSERVE_PERMITTED_SURFACES | DIAGNOSTIC_ALLOWLIST
+)
 
 
 def _profile_state_file(base_dir: str | Path | None = None) -> Path:
@@ -310,6 +352,11 @@ def set_profile(
         **state,
     }
     append_jsonl(_profile_history_file(root), history_row)
+    # Plan 026R §A.4 — control-plane exception: set_profile is the ONE
+    # path that may emit a governance event under any profile (the
+    # operator MUST be able to THAW a frozen kernel, which itself
+    # records via runtime_profile_changed). bypass_profile_gate=True
+    # documents the exception explicitly per the §A.4 SSoT.
     append_tools_governance(
         root,
         "runtime_profile_changed",
@@ -319,6 +366,7 @@ def set_profile(
             "operator_approval_ref": operator_approval_ref,
             "set_by": set_by,
         },
+        bypass_profile_gate=True,
     )
     return state
 
@@ -364,7 +412,16 @@ def _emit_runtime_profile_diagnostic(
     """
     try:
         root = ensure_tools_dir(base_dir)
-        append_tools_governance(root, diagnostic["kind"], diagnostic)
+        # Plan 026R §A.4 — diagnostic emit IS the control-plane
+        # observability surface for corrupt-profile detection; the
+        # frozen/observe write gate would silently destroy the very
+        # event the operator audit trail needs. bypass_profile_gate
+        # documents this as an architectural exception (mirrors
+        # set_profile's own bypass).
+        append_tools_governance(
+            root, diagnostic["kind"], diagnostic,
+            bypass_profile_gate=True,
+        )
     except Exception:
         pass
 
@@ -434,6 +491,13 @@ def enforce_profile_for_write(
         raise GovernanceError(
             f"unknown profile write surface_kind: {surface_kind!r}"
         )
+    # Plan 026R §A.4 — DIAGNOSTIC_ALLOWLIST surfaces (corruption sink +
+    # stderr fallback) bypass every profile check by architectural
+    # design. They are the SSoT for "writes incident-response needs
+    # even under frozen". Returning early avoids any state-file read
+    # that could itself fail and lose the diagnostic.
+    if surface_kind in DIAGNOSTIC_ALLOWLIST:
+        return get_profile(base_dir=base_dir)
     # Plan 024 §B-4 — emit best-effort diagnostic at this write
     # boundary too, so corrupt-profile audit trail captures both
     # action and write paths.
@@ -441,14 +505,15 @@ def enforce_profile_for_write(
     if diagnostic is not None:
         _emit_runtime_profile_diagnostic(diagnostic, base_dir=base_dir)
     if profile == "frozen":
-        # Plan 020 frozen scope: every PLAN_020_WRITE_SURFACES write blocked.
-        # Surfaces in OBSERVE_PERMITTED_SURFACES that are NOT also in
-        # PLAN_020_WRITE_SURFACES (finding/debt/observation) fall through —
-        # they are Plan 021 scope, not enforced here.
+        # Plan 020 frozen scope (extended by §A.4 to 22 surfaces, was 14):
+        # every PLAN_020_WRITE_SURFACES write blocked. Surfaces in
+        # OBSERVE_PERMITTED_SURFACES that are NOT also in
+        # PLAN_020_WRITE_SURFACES fall through — they are observation-
+        # class and not blocked by frozen.
         if surface_kind in PLAN_020_WRITE_SURFACES:
             raise GovernanceError(
                 f"profile_violation: surface {surface_kind!r} blocked under "
-                f"frozen profile (Plan 020 scope)"
+                f"frozen profile (Plan 020/026R scope)"
             )
     elif profile == "observe":
         if surface_kind not in OBSERVE_PERMITTED_SURFACES:
@@ -467,6 +532,7 @@ __all__ = [
     "ACTION_PERMISSIONS",
     "PLAN_020_WRITE_SURFACES",
     "OBSERVE_PERMITTED_SURFACES",
+    "DIAGNOSTIC_ALLOWLIST",
     "KNOWN_WRITE_SURFACES",
     "PROFILE_STATE_FILENAME",
     "PROFILE_HISTORY_FILENAME",

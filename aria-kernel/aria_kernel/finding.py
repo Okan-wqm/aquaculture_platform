@@ -260,7 +260,16 @@ def emit_finding(
     never sees. This primitive enforces every CONTRACTS §6 invariant
     (claim_type allowlist, severity floor, evidence count, banned-phrase
     gate) at emission time so daily reports can trust the record.
+
+    Plan 026R §A.4 — frozen-profile gate at function entry. Pre-§A.4
+    finding emission was a Plan 020 legacy mutator that frozen profile
+    did NOT cover; an incident-response operator who froze the kernel
+    could still have findings written into the audit trail. Now blocked
+    under frozen via the ``finding`` surface_kind in
+    PLAN_020_WRITE_SURFACES.
     """
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("finding", base_dir=base_dir)
     repo_path = Path(repo_root).resolve()
     tools_root = ensure_tools_binding(base_dir, workspace_root=repo_path)
 

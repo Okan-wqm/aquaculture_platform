@@ -178,7 +178,14 @@ def emit_debt(
     due_date: str,
     severity: str,
 ) -> dict[str, Any]:
-    """Emit a hash-chained operator-facing architectural debt record."""
+    """Emit a hash-chained operator-facing architectural debt record.
+
+    Plan 026R §A.4 — frozen-profile gate at function entry. Debt
+    emission is one of the 8 legacy mutators §A.4 brings under the
+    Plan 020 SCOPED no-write invariant.
+    """
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("debt", base_dir=base_dir)
     repo_path = Path(repo_root).resolve()
     tools_root = ensure_tools_binding(base_dir, workspace_root=repo_path)
 

@@ -24,6 +24,15 @@ def update_memory(
     include_discovery_beliefs: bool = True,
     include_tool_candidates: bool = True,
 ) -> dict[str, Any]:
+    """Update memory ledgers (observations + beliefs + ...).
+
+    Plan 026R §A.4 — frozen-profile gate at function entry via the
+    ``observation`` surface_kind. The observation row at line 54 + every
+    downstream belief append are observation-class writes that the
+    Plan 020 SCOPED no-write invariant now covers under frozen.
+    """
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("observation", base_dir=base_dir)
     root = ensure_tools_dir(base_dir)
     discovery_dir = root / "discovery" / cycle_id
     fingerprint = _read_json(discovery_dir / "REPO_FINGERPRINT.json")

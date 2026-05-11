@@ -69,26 +69,46 @@ class ProfileTaxonomyTests(unittest.TestCase):
         self.assertEqual(ACTION_PERMISSIONS["change_validated"], frozenset({"standard", "strict"}))
         self.assertEqual(ACTION_PERMISSIONS["pr_open"], frozenset({"strict"}))
 
-    def test_plan_020_write_surfaces_includes_14_locked_entries(self) -> None:
-        # Plan 020 v3.3 Phase 1.B PLAN_020_WRITE_SURFACES taxonomy.
+    def test_plan_020_write_surfaces_includes_22_locked_entries(self) -> None:
+        # Plan 020 v3.3 Phase 1.B + Plan 026R §A.4 PLAN_020_WRITE_SURFACES
+        # taxonomy. The original 14 surfaces (Phase 1.B → Phase 13) plus
+        # the 8 §A.4 legacy-mutator surfaces.
         expected = {
+            # Plan 020 original 14
             "context_audits", "handoffs", "agent_evals", "agent_compliance",
             "validation_matrix", "surface_validations", "instinct_candidates",
             "cost_telemetry", "change_ledger_committed", "change_ledger_validated",
             "tool_runs", "agent_claim", "pr_open", "spine_orchestrator",
+            # Plan 026R §A.4 +8 legacy mutators now under no-write scope
+            "finding", "debt", "governance", "observation",
+            "agent_genesis", "tool_governance",
+            "critical_observation", "human_required",
         }
         self.assertEqual(PLAN_020_WRITE_SURFACES, frozenset(expected))
 
     def test_observe_allowlist_is_observation_class_only(self) -> None:
-        # Observe-mode permission table per Plan 020 v3.3 Phase 1.B.
+        # Observe-mode permission table per Plan 020 v3.3 Phase 1.B +
+        # Plan 026R §A.4 (added ``tool_governance`` so observation-class
+        # governance event emitters keep working under observe).
         self.assertEqual(OBSERVE_PERMITTED_SURFACES, frozenset({
             "finding", "debt", "observation",
             "context_audits", "handoffs", "surface_validations",
             "instinct_candidates",
+            "tool_governance",
         }))
 
     def test_known_write_surfaces_is_union(self) -> None:
-        self.assertEqual(KNOWN_WRITE_SURFACES, PLAN_020_WRITE_SURFACES | OBSERVE_PERMITTED_SURFACES)
+        # Plan 026R §A.4 — KNOWN_WRITE_SURFACES now also includes
+        # DIAGNOSTIC_ALLOWLIST so the typo-guard accepts the bypass
+        # surfaces (otherwise diagnostic emit would fail at the typo
+        # check before reaching the bypass branch).
+        from aria_kernel.runtime_profile import DIAGNOSTIC_ALLOWLIST
+        self.assertEqual(
+            KNOWN_WRITE_SURFACES,
+            PLAN_020_WRITE_SURFACES
+            | OBSERVE_PERMITTED_SURFACES
+            | DIAGNOSTIC_ALLOWLIST,
+        )
 
 
 class GetProfileTests(unittest.TestCase):
@@ -287,19 +307,22 @@ class FrozenScopedNoWriteTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tools.parent, ignore_errors=True)
 
-    def test_frozen_no_write_invariant_does_not_cover_legacy_observation_surfaces(self) -> None:
-        # finding/debt/observation are in OBSERVE_PERMITTED_SURFACES but not
-        # in PLAN_020_WRITE_SURFACES — under frozen they fall through (Plan
-        # 021 scope). The validator returns the active profile rather than
-        # raising for those entries.
+    def test_frozen_no_write_invariant_now_covers_legacy_observation_surfaces(self) -> None:
+        # Plan 026R §A.4 reversal: the pre-§A.4 invariant said "finding/
+        # debt/observation are observe-mode allowlist surfaces but
+        # NOT in PLAN_020_WRITE_SURFACES; under frozen they fall
+        # through (Plan 021 scope)". §A.4 explicitly closes that gap
+        # by adding all 8 legacy mutators (finding, debt, observation,
+        # governance, agent_genesis, tool_governance,
+        # critical_observation, human_required) to
+        # PLAN_020_WRITE_SURFACES. Under frozen the validator now
+        # raises GovernanceError on every legacy surface.
         set_profile("frozen", operator_approval_ref="op:1", base_dir=self.tools)
         for legacy_surface in ("finding", "debt", "observation"):
-            self.assertEqual(
-                enforce_profile_for_write(legacy_surface, base_dir=self.tools),
-                "frozen",
-                f"frozen invariant must NOT cover legacy surface {legacy_surface!r} "
-                "(Plan 021 hardening scope, not Plan 020)",
-            )
+            with self.assertRaises(GovernanceError) as ctx:
+                enforce_profile_for_write(legacy_surface, base_dir=self.tools)
+            self.assertIn("profile_violation", str(ctx.exception))
+            self.assertIn(repr(legacy_surface), str(ctx.exception))
 
 
 class WiringSmokeTests(unittest.TestCase):

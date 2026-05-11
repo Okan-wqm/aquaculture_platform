@@ -41,7 +41,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/sensor-ingestion
+  IMAGE_NAME: okan-wqm/aquaculture_platform/sensor-ingestion
   # Pinned to the same toolchain rust-ci.yml uses — no MSRV drift
   # between the CI validation surface and the release artifact.
   RUST_TOOLCHAIN: "1.88.0"

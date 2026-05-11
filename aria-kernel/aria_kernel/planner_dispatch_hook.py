@@ -31,6 +31,7 @@ would duplicate the rule and split the SSoT.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -47,6 +48,83 @@ __all__ = [
 DEFAULT_PLANNER_ROLES: tuple[str, ...] = ("primary_plan", "challenger_plan")
 DEFAULT_LEASE_SECONDS: int = 1800
 LEASE_TOKEN_ENV_VAR: str = "ARIA_LEASE_TOKEN"
+# Plan 026R §B.5 — single-claim env separation. ARIA_LEASE_TOKEN carries
+# the raw token (sensitive, NEVER in metadata / argv / logs).
+# ARIA_CLAIM_METADATA carries the fused claim envelope (claim_id,
+# request_id, agent_id, envelope fields, lease_expires_at, ledger-hash
+# anchors). The two-env-var split makes "metadata leaks the secret" a
+# structurally-impossible bug — the serialiser rejects any
+# ``lease_token`` / ``lease_token_hash`` key on output; the executor
+# deserialiser rejects them on input.
+CLAIM_METADATA_ENV_VAR: str = "ARIA_CLAIM_METADATA"
+
+
+# Plan 026R §B.5 — fields prohibited from ARIA_CLAIM_METADATA. Any
+# attempt to write or read either key in metadata raises
+# ``GovernanceError``. The single source of truth — both serialiser
+# (sender) and deserialiser (executor) read from this constant.
+CLAIM_METADATA_FORBIDDEN_KEYS: frozenset[str] = frozenset({
+    "lease_token",
+    "lease_token_hash",
+})
+
+
+def _serialise_claim_metadata_for_env(
+    claim: dict[str, Any], agent_id: str,
+) -> str:
+    """Plan 026R §B.5 — serialise a claim response into the
+    ARIA_CLAIM_METADATA env-var payload.
+
+    Schema:
+    * claim_id, request_id, agent_id (control-plane identifiers)
+    * expected_output_path, role, must_satisfy, allowed_scope,
+      evidence_refs (envelope — fused into claim by §B.3)
+    * lease_expires_at (lease lifecycle anchor)
+    * claim_ledger_hash, request_ledger_hash (§B.5 tamper-detection
+      anchors — verified by the deserialiser against on-disk rows)
+
+    Forbidden: ``lease_token`` and ``lease_token_hash``. Inclusion of
+    either key in the input claim dict raises ``GovernanceError`` so
+    a serialisation bug surfaces at the sender boundary rather than
+    leaking the secret into env+logs. Caller MUST strip these keys
+    before invoking (the dispatch hook does so via a documented
+    dict-comprehension).
+    """
+    # Lazy import — mirrors dispatch_planner_tick (line 183) keeping
+    # kernel cold-start light.
+    from .tool_registry import GovernanceError
+    # Plan 026R §B.5 — forbidden-key check on the INPUT claim dict.
+    # The serialiser does NOT copy lease_token into payload by
+    # construction, but a tampered claim dict could carry the key
+    # from upstream (e.g. a buggy in-process patch on the claim
+    # response); surfacing the leak at the sender boundary catches
+    # the upstream bug before the secret enters env+logs.
+    leaked = CLAIM_METADATA_FORBIDDEN_KEYS & set(claim.keys())
+    if leaked:
+        raise GovernanceError(
+            f"claim_metadata_forbidden_key_in_input: {sorted(leaked)} "
+            f"— lease_token MUST transit via {LEASE_TOKEN_ENV_VAR} only"
+        )
+    payload = {
+        "claim_id": claim.get("claim_id"),
+        "request_id": claim.get("request_id"),
+        "agent_id": agent_id,
+        "expected_output_path": claim.get("expected_output_path"),
+        "role": claim.get("role"),
+        "must_satisfy": claim.get("must_satisfy") or [],
+        "allowed_scope": claim.get("allowed_scope") or [],
+        "evidence_refs": claim.get("evidence_refs") or [],
+        "lease_expires_at": claim.get("lease_expires_at"),
+        "claim_ledger_hash": claim.get("claim_ledger_hash"),
+        "request_ledger_hash": claim.get("request_ledger_hash"),
+    }
+    # Defense-in-depth: assert no forbidden key crept into the output.
+    payload_leaked = CLAIM_METADATA_FORBIDDEN_KEYS & set(payload.keys())
+    if payload_leaked:  # pragma: no cover — structural impossibility
+        raise GovernanceError(
+            f"claim_metadata_forbidden_key_in_payload: {sorted(payload_leaked)}"
+        )
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
@@ -185,7 +263,11 @@ def dispatch_one_pending_planner_request(
     lease_token: str = claim["lease_token"]
 
     # Step 3 — invoke ci_executor.py as a subprocess. Lease token via
-    # env var; argv carries only public identifiers.
+    # env var; argv carries only public identifiers. Plan 026R §B.5 —
+    # ARIA_CLAIM_METADATA env var carries the fused envelope + ledger-
+    # hash anchors so the subprocess SKIPS its own ``agent claim`` step
+    # (single-claim mode). Pre-§B.5 the subprocess re-claimed and the
+    # defensive double-claim reject in agent_invocations was noisy.
     if ci_executor_path is None:
         ci_executor_path = _default_ci_executor_path(root)
     repo_root = root.parent
@@ -195,10 +277,22 @@ def dispatch_one_pending_planner_request(
         request_id,
         target_agent,
     ]
+    # Plan 026R §B.5 — strip the secret BEFORE handing the dict to the
+    # serialiser. The serialiser raises GovernanceError if any forbidden
+    # key (lease_token / lease_token_hash) is present in the input, so
+    # the planner explicitly scrubs them here. This makes the boundary
+    # auditable: a single explicit dict-comprehension is the only path
+    # by which the planner ever drops secrets from the claim shape.
+    sanitised_claim = {
+        k: v for k, v in claim.items()
+        if k not in CLAIM_METADATA_FORBIDDEN_KEYS
+    }
+    metadata_env = _serialise_claim_metadata_for_env(sanitised_claim, agent_id)
     env: dict[str, str] = {
         **os.environ,
         "PYTHONPATH": str(repo_root / "aria-kernel"),
         LEASE_TOKEN_ENV_VAR: lease_token,
+        CLAIM_METADATA_ENV_VAR: metadata_env,
     }
     timeout_seconds = lease_seconds + 60
     try:

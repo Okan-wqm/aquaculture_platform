@@ -47,6 +47,20 @@ LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
 OAUTH_TOKEN_ENV_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
 MOCK_MODE_ENV_VAR = "CLAUDE_CODE_MOCK"
 
+# Plan 026R §B.5 — single-claim env-var contract (mirror of
+# planner_dispatch_hook.CLAIM_METADATA_ENV_VAR). When set by the
+# planner, ci_executor SKIPS its own ``agent claim`` step and uses
+# the fused envelope + ledger-hash anchors from this var. The raw
+# lease_token continues to transit ONLY via ARIA_LEASE_TOKEN — the
+# metadata payload schema rejects it on both serialise + deserialise.
+CLAIM_METADATA_ENV_VAR = "ARIA_CLAIM_METADATA"
+
+# Forbidden keys in ARIA_CLAIM_METADATA — mirrors
+# planner_dispatch_hook.CLAIM_METADATA_FORBIDDEN_KEYS. Source of truth
+# for "what MUST NOT be serialised into the metadata env-var" lives at
+# both boundaries so a tamper at one boundary is caught at the other.
+CLAIM_METADATA_FORBIDDEN_KEYS = frozenset({"lease_token", "lease_token_hash"})
+
 # Plan 025 §B → 026R §B.3 — the envelope-list subprocess fetch is GONE.
 # §B.3 made ``agent claim`` return the full request envelope inside the
 # same exclusive-lock window that performed the claim CAS, so the
@@ -322,6 +336,134 @@ def _release_claim(
     )
 
 
+def _deserialise_inherited_claim_metadata(
+    raw_payload: str,
+    *,
+    agent_id: str,
+    request_id: str,
+    tools_dir: Path,
+) -> tuple[dict[str, Any], str | None]:
+    """Plan 026R §B.5 — deserialise ARIA_CLAIM_METADATA + verify integrity.
+
+    Returns ``(claim_dict, error_message)`` where ``error_message`` is
+    None on success. The error_message is printed verbatim by main() so
+    the operator audit trail captures the exact tamper / mismatch
+    reason.
+
+    Three invariants enforced:
+
+    1. **Schema reject of forbidden keys** — the metadata payload MUST
+       NOT contain ``lease_token`` or ``lease_token_hash``. Mirrors the
+       sender-side reject in planner_dispatch_hook so a tamper at
+       either boundary surfaces immediately.
+    2. **agent_id binding** — metadata's agent_id MUST equal the
+       executor's computed agent_id. A mismatch means the metadata was
+       captured for a different worker.
+    3. **Ledger-hash integrity** — ``claim_ledger_hash`` and
+       ``request_ledger_hash`` are re-derived from on-disk
+       claims.jsonl + requests.jsonl rows by claim_id / request_id and
+       compared against the metadata anchors. A mismatch means the
+       envelope was tampered between planner-claim time and executor-
+       consume time (or the disk state diverged from what the planner
+       observed under its lock window — the §B.3 lock-bound fusion
+       prevents this in correct operation, so a mismatch is a real
+       integrity signal).
+    """
+    try:
+        metadata = json.loads(raw_payload)
+    except json.JSONDecodeError as exc:
+        return {}, f"single_claim_metadata_invalid_json: {exc}"
+    if not isinstance(metadata, dict):
+        return {}, "single_claim_metadata_not_object"
+
+    leaked = CLAIM_METADATA_FORBIDDEN_KEYS & set(metadata.keys())
+    if leaked:
+        return (
+            {},
+            f"single_claim_metadata_forbidden_key: {sorted(leaked)} "
+            f"— lease_token MUST transit only via {LEASE_TOKEN_ENV_VAR}",
+        )
+
+    if metadata.get("agent_id") != agent_id:
+        return (
+            {},
+            f"single_claim_metadata_agent_id_mismatch: "
+            f"metadata={metadata.get('agent_id')!r} executor={agent_id!r}",
+        )
+    if metadata.get("request_id") != request_id:
+        return (
+            {},
+            f"single_claim_metadata_request_id_mismatch: "
+            f"metadata={metadata.get('request_id')!r} "
+            f"argv={request_id!r}",
+        )
+
+    claim_id = metadata.get("claim_id")
+    expected_claim_hash = metadata.get("claim_ledger_hash")
+    expected_request_hash = metadata.get("request_ledger_hash")
+    if not (claim_id and expected_claim_hash and expected_request_hash):
+        return (
+            {},
+            f"single_claim_metadata_missing_anchors: claim_id={claim_id!r} "
+            f"claim_ledger_hash={expected_claim_hash!r} "
+            f"request_ledger_hash={expected_request_hash!r}",
+        )
+
+    actual_claim_hash, actual_request_hash = _on_disk_anchors(
+        tools_dir=tools_dir, claim_id=str(claim_id), request_id=request_id,
+    )
+    if actual_claim_hash != expected_claim_hash:
+        return (
+            {},
+            f"single_claim_metadata_tampered_claim_ledger_hash: "
+            f"expected={expected_claim_hash!r} actual={actual_claim_hash!r}",
+        )
+    if actual_request_hash != expected_request_hash:
+        return (
+            {},
+            f"single_claim_metadata_tampered_request_ledger_hash: "
+            f"expected={expected_request_hash!r} "
+            f"actual={actual_request_hash!r}",
+        )
+    return metadata, None
+
+
+def _on_disk_anchors(
+    *, tools_dir: Path, claim_id: str, request_id: str,
+) -> tuple[str | None, str | None]:
+    """Read the on-disk ledger_hash for the named claim + request rows."""
+    claims_path = tools_dir / "agent-invocations" / "claims.jsonl"
+    requests_path = tools_dir / "agent-invocations" / "requests.jsonl"
+    claim_hash: str | None = None
+    request_hash: str | None = None
+    if claims_path.exists():
+        for raw in claims_path.read_text(encoding="utf-8").splitlines():
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if (
+                row.get("claim_id") == claim_id
+                and row.get("event") == "claimed"
+            ):
+                claim_hash = row.get("ledger_hash")
+    if requests_path.exists():
+        for raw in requests_path.read_text(encoding="utf-8").splitlines():
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if row.get("request_id") == request_id:
+                request_hash = row.get("ledger_hash")
+    return claim_hash, request_hash
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point — runs one cycle. Designed to be called by GHA step."""
     args = argv if argv is not None else sys.argv[1:]
@@ -342,33 +484,58 @@ def main(argv: list[str] | None = None) -> int:
     # agent_id that claimed the request (kernel enforces).
     agent_id = f"ci-executor:gha-{os.environ.get('GITHUB_RUN_ID', 'local')}"
 
-    # Step 1 — claim the request through the kernel CLI.
-    claim_proc = subprocess.run(
-        [
-            "python3", "-m", "aria_kernel", "agent", "claim",
-            "--request-id", request_id,
-            "--agent-id", agent_id,
-            "--tools-dir", str(tools_dir),
-        ],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONPATH": str(repo / "aria-kernel")},
-    )
-    if claim_proc.returncode != 0:
-        sys.stderr.write(_redact_lease_in_message(claim_proc.stderr, None) + "\n")
-        return 1
-    try:
-        claim = json.loads(claim_proc.stdout)
-    except json.JSONDecodeError:
-        sys.stderr.write(f"claim output not JSON: {claim_proc.stdout[:200]}\n")
-        return 1
+    # Plan 026R §B.5 — single-claim mode. When the planner has already
+    # claimed the request and exported ARIA_CLAIM_METADATA + ARIA_LEASE_
+    # TOKEN, this executor SKIPS its own ``agent claim`` step and uses
+    # the inherited envelope + ledger-hash anchors directly. Pre-§B.5
+    # the subprocess re-claimed (double-claim) and the defensive reject
+    # was noisy + tagged every planner-driven cycle as a failure.
+    metadata_env = os.environ.get(CLAIM_METADATA_ENV_VAR)
+    if metadata_env:
+        claim, single_claim_error = _deserialise_inherited_claim_metadata(
+            metadata_env,
+            agent_id=agent_id,
+            request_id=request_id,
+            tools_dir=tools_dir,
+        )
+        if single_claim_error is not None:
+            sys.stderr.write(single_claim_error + "\n")
+            return 1
+        lease_token = os.environ.get(LEASE_TOKEN_ENV_VAR)
+        if not lease_token:
+            sys.stderr.write(
+                f"single_claim_mode missing {LEASE_TOKEN_ENV_VAR} env var\n"
+            )
+            return 1
+        claim_id = claim["claim_id"]
+    else:
+        # Step 1 — claim the request through the kernel CLI.
+        claim_proc = subprocess.run(
+            [
+                "python3", "-m", "aria_kernel", "agent", "claim",
+                "--request-id", request_id,
+                "--agent-id", agent_id,
+                "--tools-dir", str(tools_dir),
+            ],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(repo / "aria-kernel")},
+        )
+        if claim_proc.returncode != 0:
+            sys.stderr.write(_redact_lease_in_message(claim_proc.stderr, None) + "\n")
+            return 1
+        try:
+            claim = json.loads(claim_proc.stdout)
+        except json.JSONDecodeError:
+            sys.stderr.write(f"claim output not JSON: {claim_proc.stdout[:200]}\n")
+            return 1
 
-    lease_token = claim.get("lease_token")
-    claim_id = claim.get("claim_id")
+        lease_token = claim.get("lease_token")
+        claim_id = claim.get("claim_id")
 
-    if not lease_token or not claim_id:
-        sys.stderr.write("claim missing lease_token or claim_id\n")
-        return 1
+        if not lease_token or not claim_id:
+            sys.stderr.write("claim missing lease_token or claim_id\n")
+            return 1
 
     # Step 2 — read the fused request envelope from the claim response.
     # Plan 026R §B.3 — ``agent claim`` now returns the request envelope

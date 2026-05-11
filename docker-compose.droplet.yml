@@ -897,10 +897,26 @@ services:
   # Co-equal producer of `events.{tenantId}.SensorReading` alongside the
   # NestJS sensor-service. Per-tenant feature flag (`[ingest_backend]`
   # in config.toml) gates which tenants the sidecar processes.
+  #
+  # ORPHAN-CRITICAL-072: gated behind the `rust-sidecar` Compose profile
+  # because the multi-arch GHCR image for sensor-ingestion is not yet
+  # published by CI (the Rust build matrix lives outside the deploy
+  # pipeline today). Without the profile gate, every `docker compose
+  # up -d` on the droplet hits "no matching manifest for linux/amd64"
+  # for sensor-ingestion and the WHOLE `up -d` call exits non-zero —
+  # the deploy script's `|| true` masks the error but no containers
+  # actually start. The critical-service health check then times out
+  # at 300s and the deploy fails with rollback-required.
+  #
+  # Operator opt-in (after the CI Rust build matrix lands):
+  #   COMPOSE_PROFILES=rust-sidecar docker compose -f docker-compose.droplet.yml up -d
+  # Or set in droplet's .env: COMPOSE_PROFILES=rust-sidecar
   sensor-ingestion:
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:-latest}
     container_name: aqua-sensor-ingestion
     restart: unless-stopped
+    profiles:
+      - rust-sidecar
     user: "65532:65532"
     environment:
       # tracing-subscriber filter — overrides via env var without

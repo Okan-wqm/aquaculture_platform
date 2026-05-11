@@ -77,9 +77,21 @@ services:
     level: critical
     reason: ingests live telemetry; missing a window loses production data
 
+  # ORPHAN-CRITICAL-072: sensor-ingestion is gated behind the `rust-sidecar`
+  # Compose profile (see docker-compose.droplet.yml line ~900). Default
+  # deploys do not pull or start the container, so its absence from
+  # `docker ps` is the EXPECTED steady state on droplets that have NOT
+  # opted into the Rust ingestion strangler-fig rollout. Marking it
+  # `critical` here would block every default deploy at the 300s
+  # health-check SLA (sensor-ingestion container not found → critical
+  # service missing → rollback). Demoting to `optional` reflects the
+  # current production reality: NestJS sensor-service is the sole
+  # tested ingestion path. When the operator enables COMPOSE_PROFILES=
+  # rust-sidecar AND the CI Rust build matrix publishes a multi-arch
+  # GHCR image, promote this entry back to `critical`.
   - name: sensor-ingestion
-    level: critical
-    reason: Rust sidecar that decodes sensor payloads and publishes to NATS — without it sensor-service has no source of telemetry to consume. Same data-loss profile as sensor-service.
+    level: optional
+    reason: Rust sidecar gated behind `rust-sidecar` Compose profile — disabled by default until CI Rust build matrix publishes the multi-arch image. When enabled, decodes sensor payloads in parallel with NestJS sensor-service per ADR-025 strangler-fig rollout.
 
   - name: hr-service
     level: warning

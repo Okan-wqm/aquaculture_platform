@@ -93,14 +93,18 @@ class CounterIncrementTests(unittest.TestCase):
             allowed_scope=["aria-kernel/**"],
             base_dir=self.tools,
         )
-        claim_request(request_id=req["request_id"], agent_id="worker-1", base_dir=self.tools)
+        claim = claim_request(request_id=req["request_id"], agent_id="worker-1", base_dir=self.tools)
         metrics = compute_plan_016_metrics(base_dir=self.tools)
         self.assertEqual(metrics["aria_agent_claim_active"], 1)
         # Releasing the claim returns request to REQUEUED, no longer active.
-        from aria_kernel.ledger import load_jsonl
-        claims = load_jsonl(self.tools / "agent-invocations" / "claims.jsonl")
-        cid = claims[0]["claim_id"]
-        release_claim(claim_id=cid, agent_id="worker-1", reason="testing", base_dir=self.tools)
+        # Plan 026R §B.1 — release_claim now requires lease_token.
+        release_claim(
+            claim_id=claim["claim_id"],
+            agent_id="worker-1",
+            lease_token=claim["lease_token"],
+            reason="testing",
+            base_dir=self.tools,
+        )
         metrics_after = compute_plan_016_metrics(base_dir=self.tools)
         self.assertEqual(metrics_after["aria_agent_claim_active"], 0)
 

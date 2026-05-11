@@ -181,6 +181,7 @@ class SweepLeaseLifecycleTests(unittest.TestCase):
             release_claim(
                 claim_id=claim["claim_id"],
                 agent_id=f"worker-{i}",
+                lease_token=claim["lease_token"],
                 reason=f"abort {i}",
                 base_dir=self.tools,
             )

@@ -134,9 +134,12 @@ class LeaseLifecycleTests(unittest.TestCase):
         req = _seed_request(self.tools)
         rid = req["request_id"]
         claim = claim_request(request_id=rid, agent_id="worker-1", base_dir=self.tools)
+        # Plan 026R §B.1 — release_claim now requires lease_token; mirrors
+        # heartbeat / submit contract. The token is the claim response.
         release_claim(
             claim_id=claim["claim_id"],
             agent_id="worker-1",
+            lease_token=claim["lease_token"],
             reason="worker shutting down",
             base_dir=self.tools,
         )
@@ -155,6 +158,7 @@ class LeaseLifecycleTests(unittest.TestCase):
             release_claim(
                 claim_id=claim["claim_id"],
                 agent_id=f"worker-{i}",
+                lease_token=claim["lease_token"],
                 reason=f"attempt {i} aborted",
                 base_dir=self.tools,
             )

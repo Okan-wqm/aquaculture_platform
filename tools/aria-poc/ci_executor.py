@@ -92,8 +92,43 @@ def _max_timeout_seconds() -> int:
     return int(os.environ.get("MAX_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
 
 
+_TRUTHY_BOOL_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
+_FALSY_BOOL_VALUES: frozenset[str] = frozenset({"0", "false", "no", "off", ""})
+
+
+def _parse_bool_env(name: str, default: str = "0") -> bool:
+    """Plan 026R §B.2 — case-insensitive multi-token bool env var parser.
+
+    Pre-§B.2 ``_is_mock_mode`` did ``os.environ.get(...) == "1"`` only,
+    so a workflow that exported ``CLAUDE_CODE_MOCK=true`` (the common
+    shell convention) silently fell to mock=OFF → ``ClaudeCodeUnavailable``
+    raise → CI exit code 1. The bug is REAL in today's CI.
+
+    Accepts the canonical truthy/falsy set:
+
+    * Truthy: ``1``, ``true``, ``yes``, ``on`` (any case).
+    * Falsy:  ``0``, ``false``, ``no``, ``off``, empty string.
+
+    Any other value raises ``ValueError`` (no silent fallback to either
+    side — typo in a workflow should fail loud).
+    """
+    raw = os.environ.get(name, default).strip().lower()
+    if raw in _TRUTHY_BOOL_VALUES:
+        return True
+    if raw in _FALSY_BOOL_VALUES:
+        return False
+    raise ValueError(
+        f"{name}={raw!r} is not a recognised boolean "
+        f"(truthy={sorted(_TRUTHY_BOOL_VALUES)}, "
+        f"falsy={sorted(_FALSY_BOOL_VALUES)})"
+    )
+
+
 def _is_mock_mode() -> bool:
-    return os.environ.get(MOCK_MODE_ENV_VAR, "0") == "1"
+    # Plan 026R §B.2 — case-insensitive multi-token bool. Today's CI
+    # workflow exports CLAUDE_CODE_MOCK=true; pre-§B.2 that string
+    # silently coerced to mock=OFF.
+    return _parse_bool_env(MOCK_MODE_ENV_VAR, default="0")
 
 
 def _validate_cost_cap(*, request: dict[str, Any]) -> None:
@@ -250,6 +285,7 @@ def _release_claim(
     tools_dir: Path,
     repo: Path,
     claim_id: str,
+    agent_id: str,
     lease_token: str,
     reason: str,
 ) -> None:
@@ -262,11 +298,20 @@ def _release_claim(
     kernel reaper for the configured lease window. The reason code is
     surfaced verbatim to ``aria-kernel agent release --reason`` so
     operators reading governance.jsonl see the precise fail-mode.
+
+    Plan 026R §B.1 — REAL CI BUG fix. Pre-§B.1 the argv was missing
+    ``--agent-id`` (the kernel CLI requires it) AND the CLI did not
+    accept ``--lease-token-from-env`` (the parser had no such flag).
+    Today's CI fail-fast branches that call this helper FAILED at
+    argparse and silently leaked the claim until reaper sweep. The
+    fix adds ``--agent-id`` to the argv + the matching CLI flag
+    registration in §B.1's cli.py change.
     """
     subprocess.run(
         [
             "python3", "-m", "aria_kernel", "agent", "release",
             "--claim-id", claim_id,
+            "--agent-id", agent_id,
             "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
             "--reason", reason,
             "--tools-dir", str(tools_dir),
@@ -292,12 +337,19 @@ def main(argv: list[str] | None = None) -> int:
     repo = Path.cwd().resolve()
     tools_dir = repo / "aria-tools"
 
+    # Plan 026R §B.1 — agent_id is computed once + reused for every
+    # subsequent kernel CLI call (claim + release fail-fast branches +
+    # submit-result). Pre-§B.1 release_claim did not need agent_id;
+    # post-§B.1 it does, and lease-bound release requires the SAME
+    # agent_id that claimed the request (kernel enforces).
+    agent_id = f"ci-executor:gha-{os.environ.get('GITHUB_RUN_ID', 'local')}"
+
     # Step 1 — claim the request through the kernel CLI.
     claim_proc = subprocess.run(
         [
             "python3", "-m", "aria_kernel", "agent", "claim",
             "--request-id", request_id,
-            "--agent-id", f"ci-executor:gha-{os.environ.get('GITHUB_RUN_ID', 'local')}",
+            "--agent-id", agent_id,
             "--tools-dir", str(tools_dir),
         ],
         capture_output=True,
@@ -356,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            lease_token=lease_token,
+            agent_id=agent_id, lease_token=lease_token,
             reason="request_envelope_load_failed",
         )
         return 1
@@ -369,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            lease_token=lease_token,
+            agent_id=agent_id, lease_token=lease_token,
             reason="request_envelope_load_failed",
         )
         return 1
@@ -379,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            lease_token=lease_token,
+            agent_id=agent_id, lease_token=lease_token,
             reason="request_envelope_not_found",
         )
         return 1
@@ -391,7 +443,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            lease_token=lease_token,
+            agent_id=agent_id, lease_token=lease_token,
             reason="request_envelope_missing_expected_output_path",
         )
         return 1
@@ -401,7 +453,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            lease_token=lease_token,
+            agent_id=agent_id, lease_token=lease_token,
             reason="request_envelope_missing_role",
         )
         return 1
@@ -416,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
         # (no claim row leaked in CLAIMED state until lease expiry).
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            lease_token=lease_token, reason="cost_cap_exceeded",
+            agent_id=agent_id, lease_token=lease_token, reason="cost_cap_exceeded",
         )
         return 0  # cost-cap exceedance is a budget signal, NOT a build failure
 

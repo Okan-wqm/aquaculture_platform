@@ -799,13 +799,36 @@ def _main(argv: list[str] | None = None) -> int:
     a_heartbeat.add_argument("--lease-token", required=True)
     a_heartbeat.add_argument("--extend-seconds", type=int, default=None)
 
-    a_release = add_subparser(agent_sub, 
+    a_release = add_subparser(agent_sub,
         "release",
         help="Release a claim before submission. Triggers requeue or HUMAN_REQUIRED.",
     )
     a_release.add_argument("--claim-id", required=True)
     a_release.add_argument("--agent-id", required=True)
     a_release.add_argument("--reason", required=True)
+    # Plan 026R §B.1 — lease-bound release. The raw lease_token must
+    # arrive via an environment variable (NEVER argv — argv is logged in
+    # most CI/journald setups and would leak the token). Mirrors the
+    # heartbeat / submit-result lease handling.
+    a_release.add_argument(
+        "--lease-token",
+        required=False,
+        default=None,
+        help=(
+            "Raw lease_token (DISCOURAGED — argv may be logged). "
+            "Prefer --lease-token-from-env."
+        ),
+    )
+    a_release.add_argument(
+        "--lease-token-from-env",
+        required=False,
+        default=None,
+        metavar="ENV_VAR_NAME",
+        help=(
+            "Name of an environment variable that holds the lease_token. "
+            "Required unless --lease-token is provided."
+        ),
+    )
 
     a_submit = add_subparser(agent_sub, 
         "submit-result",
@@ -1911,9 +1934,37 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0
         if args.agent_command == "release":
+            # Plan 026R §B.1 — resolve lease_token from --lease-token or
+            # from --lease-token-from-env. Exactly one MUST be set.
+            lease_token = args.lease_token
+            if args.lease_token_from_env:
+                env_value = os.environ.get(args.lease_token_from_env)
+                if not env_value:
+                    print(
+                        f"lease-token-from-env: env var "
+                        f"{args.lease_token_from_env!r} is empty or unset",
+                        file=sys.stderr,
+                    )
+                    return 2
+                if lease_token is not None:
+                    print(
+                        "--lease-token and --lease-token-from-env are "
+                        "mutually exclusive",
+                        file=sys.stderr,
+                    )
+                    return 2
+                lease_token = env_value
+            if not lease_token:
+                print(
+                    "release requires --lease-token or "
+                    "--lease-token-from-env",
+                    file=sys.stderr,
+                )
+                return 2
             row = release_claim(
                 claim_id=args.claim_id,
                 agent_id=args.agent_id,
+                lease_token=lease_token,
                 reason=args.reason,
                 base_dir=args.tools_dir,
             )

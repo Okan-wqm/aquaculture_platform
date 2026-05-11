@@ -771,12 +771,34 @@ def release_claim(
     *,
     claim_id: str,
     agent_id: str,
+    lease_token: str,
     reason: str,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Operator- or worker-initiated release; the request becomes REQUEUED if not yet at the cap."""
+    """Operator- or worker-initiated release; the request becomes REQUEUED if
+    not yet at the cap.
+
+    Plan 026R §B.1 — REAL CI BUG fix. Pre-§B.1 ``release_claim`` accepted
+    only ``(claim_id, agent_id, reason)`` so anyone who knew the
+    claim_id + agent_id pair could release the claim — a real
+    authorisation gap because the lease_token is the proof-of-claim
+    issued by ``claim_request``. ``submit_claim_result`` and
+    ``heartbeat_claim`` ALREADY require + hash-verify the lease_token
+    (lines 681, 868); ``release_claim`` was the lone outlier. The
+    ``ci_executor._release_claim`` subprocess argv already passes
+    ``--lease-token-from-env`` but the CLI parser did not register
+    the flag, so today's CI release path FAILS at argparse before
+    even reaching this function — the asymmetry has been latent.
+
+    The lease_token is hashed via ``_hash_lease_token`` and compared
+    against the claim row's ``lease_token_hash`` field (same pattern
+    as ``heartbeat_claim:681`` and ``submit_claim_result:868``).
+    Mismatch raises ``GovernanceError``.
+    """
     if not reason or not reason.strip():
         raise GovernanceError("release reason is required")
+    if not lease_token or not lease_token.strip():
+        raise GovernanceError("lease_token is required for release_claim")
     root = ensure_tools_dir(base_dir)
     claims = load_jsonl(_claims_path(root))
     claim_event = next(
@@ -788,6 +810,12 @@ def release_claim(
     if claim_event.get("agent_id") != agent_id:
         raise GovernanceError(
             f"claim {claim_id} owned by {claim_event.get('agent_id')!r}, not {agent_id!r}"
+        )
+    if claim_event.get("lease_token_hash") != _hash_lease_token(lease_token):
+        raise GovernanceError(
+            f"release_claim_lease_token_mismatch: claim {claim_id} "
+            f"lease_token does not match (mirrors heartbeat / submit "
+            f"contract)"
         )
     now = _utc_now_dt()
     request_id = claim_event["request_id"]

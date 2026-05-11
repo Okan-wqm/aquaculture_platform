@@ -207,7 +207,7 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
         metadata = _serialise_claim_metadata_for_env(sanitised, self.agent_id)
         env_patch = {
             ci_executor.MOCK_MODE_ENV_VAR: "1",
-            "GITHUB_RUN_ID": "local",
+            "GITHUB_RUN_ID": os.environ.get("GITHUB_RUN_ID", "local"),
             LEASE_TOKEN_ENV_VAR: self.claim["lease_token"],
             CLAIM_METADATA_ENV_VAR: metadata,
         }

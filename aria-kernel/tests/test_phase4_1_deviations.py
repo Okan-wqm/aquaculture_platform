@@ -105,7 +105,14 @@ class RecordCrossReviewFileSubmissionTests(unittest.TestCase):
 
     def _run_cli(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [sys.executable, "-m", "aria_kernel.cli", *args],
+            [
+                sys.executable,
+                "-m",
+                "aria_kernel.cli",
+                *args,
+                "--workspace-base",
+                str(Path(self.tmp.name) / "workspaces"),
+            ],
             cwd=Path(__file__).resolve().parents[1],
             text=True,
             capture_output=True,

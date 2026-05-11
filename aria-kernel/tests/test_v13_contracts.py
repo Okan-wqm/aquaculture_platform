@@ -379,6 +379,10 @@ class V13ContractTests(unittest.TestCase):
 
     def test_ci_workflow_uses_isolated_tools_bootstrap(self):
         workflow = (Path(__file__).parents[2] / ".github/workflows/aria-kernel.yml").read_text(encoding="utf-8")
+        full_workflow = (Path(__file__).parents[2] / ".github/workflows/aria-kernel-full.yml").read_text(encoding="utf-8")
+        for candidate in (workflow, full_workflow):
+            self.assertIn("rm -rf ./.aria-ci/tools ./.aria-ci/workspaces", candidate)
+            self.assertIn("mkdir -p ./.aria-ci", candidate)
         self.assertIn("integrity migrate-tools-v1-to-v2 --tools-dir ./.aria-ci/tools", workflow)
         self.assertIn("discovery run --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools", workflow)
         self.assertNotIn("--tools-dir ./aria-tools --cycle-id ci-", workflow)

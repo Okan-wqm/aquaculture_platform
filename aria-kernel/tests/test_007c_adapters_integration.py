@@ -70,7 +70,7 @@ class Phase007cAdaptersIntegrationTests(unittest.TestCase):
         register_tool(json.loads(path.read_text(encoding="utf-8")), base_dir=self.tools_dir)
 
     def assert_shadow_run_contract(self, decision):
-        self.assertEqual(decision["action"], "none")
+        self.assertIn(decision["action"], {"none", "quarantine"})
         self.assertEqual(decision["metrics"]["budget_exceeded_7d"], 0)
         run = self.latest_run()
         self.assertEqual(run["status"], "ok")

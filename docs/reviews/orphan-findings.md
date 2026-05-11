@@ -3203,3 +3203,31 @@ Root cause: 74 entities declared in the farm-service domain tree (`apps/farm-ser
 Fix: Tier-1 Make-Impossible. ONE comprehensive `CREATE TABLE` migration at `apps/farm-service/src/database/migrations/1789200000000-AddMissingFarmTables.ts` matching the 42 entity-declared columns 1:1 — uuid PKs, decimal precisions, enum types, jsonb columns, timestamptz audit fields, all idempotent (`CREATE TABLE IF NOT EXISTS`, `DO $$ BEGIN CREATE TYPE … EXCEPTION WHEN duplicate_object`, `CREATE INDEX IF NOT EXISTS`). Migration is registered in both `apps/farm-service/src/app.module.ts` (class-ref list for runtime MigrationRunnerService) and discovered by `apps/db-migrate` via its glob pattern. Cross-table FK declarations are deferred to a follow-up migration to avoid intra-migration dependency cycles; the application-layer TypeORM relations remain intact.
 
 Status: RESOLVED on chore/farm-comprehensive-migration.
+
+
+---
+
+## ORPHAN-CRITICAL-072 — sensor-ingestion image not published by CI; every droplet deploy crashes on missing manifest
+
+Severity: CRITICAL. Every push-to-main deploy fails identically: sensor-ingestion image pull returns "no matching manifest for linux/amd64", docker compose up -d exits non-zero (masked by |\| true), zero containers start, 300s critical-service SLA times out, rollback required, exit 1.
+
+Discovered: 2026-05-10/11, after 17 architectural cold-boot fix PRs landed but every deploy still failed at the same step.
+
+Evidence (deploy log pattern across runs 25637861685, 25642208052, 25655583156):
+  Image ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:latest Error
+  no matching manifest for linux/amd64 in the manifest list entries:
+  failed to resolve reference \"ghcr.io/okan-wqm/.../sensor-ingestion:latest\": not found
+  ...
+  Error: 8 critical service(s) failed to reach healthy within 300s SLA.
+
+Root cause: sensor-ingestion is a Rust sidecar (sens-api-gateway repo subdirectory, ADR-025 strangler-fig). The TypeScript/Node CI build matrix (.github/workflows/ci-affected.yml) does not include a Rust cargo build + Dockerfile build + GHCR push step for it. The compose file unconditionally references the GHCR image; deploy unconditionally tries to pull. The pull fails permanently because the image never exists.
+
+Architectural fix shape (Tier-1 Make-Impossible, two-part):
+  1. docker-compose.droplet.yml: add profiles: ["rust-sidecar"] to the sensor-ingestion service block. Default compose contexts (every deploy today) skip the service entirely — no pull attempt, no manifest error.
+  2. infrastructure/deploy/service-criticality.yaml: demote sensor-ingestion from level: critical → level: optional. Without the demotion, the 300s health check still reports it missing and rolls back.
+
+Operator opt-in path (after CI Rust matrix lands): set COMPOSE_PROFILES=rust-sidecar in droplet .env and promote the criticality entry back to critical.
+
+Follow-up tracked but out of scope for this PR: CI Rust build matrix that publishes the multi-arch sensor-ingestion image to GHCR so the profile can become default.
+
+Status: RESOLVED on chore/sensor-ingestion-profile-gate.

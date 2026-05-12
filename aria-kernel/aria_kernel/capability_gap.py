@@ -14,6 +14,32 @@ from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
 
 
+# Plan 026R §E.9 — closed-enum of capability_gap types emitted by
+# this module. The learning router (`learning._skill_or_agent_genesis`)
+# branches on these values; the AST invariant at
+# tests/test_capability_gap_router_parity.py enforces that the
+# union of types emitted by capability_gap.py equals the union of
+# gap_type branches handled by learning.py. Adding a new gap_type
+# requires updating BOTH sides + the router test.
+#
+# * agent_gap — capability needs a NEW specialist agent (default)
+# * existing_agent_extension — capability fits an existing agent
+# * skill_gap — capability fits a NEW skill under an existing agent
+#   (narrow single-purpose pattern, routes to skill_genesis NOT
+#   agent_genesis). Emitted when the source pressure carries a
+#   `skill_candidate=True` marker (operator-visible signal that
+#   the gap fits a skill-shaped intervention).
+# * policy_gap — dependency-policy gap (dependency_currency dim)
+# * adapter_gap — fitness/adapter gap (default low-fitness signal)
+CAPABILITY_GAP_TYPES: frozenset[str] = frozenset({
+    "agent_gap",
+    "existing_agent_extension",
+    "skill_gap",
+    "policy_gap",
+    "adapter_gap",
+})
+
+
 def detect_capability_gaps(
     *,
     cycle_id: str,
@@ -70,10 +96,23 @@ def _gaps_from_unowned_pressures(cycle_id: str, paths: Any, root: Path, index_ha
         refs = [str(ref) for ref in pressure.get("evidence_refs", []) if isinstance(ref, str)]
         related = related_agents_for_paths(paths=refs, base_dir=root)
         gap_key = str(pressure.get("capability_gap_key") or f"pressure:{pressure_id}")
+        # Plan 026R §E.9 — `skill_candidate` pressure marker routes
+        # the gap to skill_gap (skill-shaped intervention) rather
+        # than agent_gap (new specialist). The existing_agent_extension
+        # branch wins precedence when a related agent is present;
+        # without a related agent, a skill_candidate signal yields
+        # skill_gap and downstream learning.py routes to
+        # request_skill_genesis instead of request_agent_genesis.
+        if related:
+            gap_type = "existing_agent_extension"
+        elif pressure.get("skill_candidate") is True:
+            gap_type = "skill_gap"
+        else:
+            gap_type = "agent_gap"
         gaps.append(
             _gap(
                 cycle_id=cycle_id,
-                gap_type="existing_agent_extension" if related else "agent_gap",
+                gap_type=gap_type,
                 source_id=pressure_id,
                 title=f"Unowned pressure needs agent routing: {gap_key}",
                 evidence_refs=refs[:20],

@@ -197,41 +197,14 @@ def _parse_agent_ref(ref: str) -> tuple[str, int | None] | None:
     return match.group("path"), int(line) if line is not None else None
 
 
-def _canonical_evidence_path(raw_path: str, root: Path) -> tuple[str, Path]:
-    """Plan 024 v3 §H-5 — canonical-resolve helper shared by both
-    _check_agent_ref (string agent refs) and validate_evidence_path
-    (dict ref form).
-
-    Pre-fix both code paths applied normalize_path (lexical) THEN
-    `startswith(SELF_OUTPUT_MARKERS)` prefix match BEFORE .resolve().
-    A path like ``src/../aria-tools/output.json`` could lexically
-    normalise to ``aria-tools/output.json`` (depending on
-    normalize_path's implementation) but the SELF_OUTPUT prefix
-    match operated on the lexical form, which a future
-    normalize_path tweak could un-stick. Post-fix the resolution
-    runs first, then the SELF_OUTPUT check uses the canonical
-    posix-relative form derived from the absolute resolved path —
-    one helper, two callers.
-
-    Returns (rel_str, absolute) where:
-      * ``rel_str`` is the posix-relative path inside the workspace
-        derived from absolute.relative_to(root.resolve()).
-      * ``absolute`` is the resolved absolute Path.
-
-    Raises GovernanceError on:
-      * unresolvable path (OSError / ValueError),
-      * resolved-path-outside-repo (relative_to fails).
-    """
-    from .tool_registry import GovernanceError as _GE  # local to avoid cycle on cold start
-    try:
-        absolute = (root / raw_path).resolve()
-    except (OSError, ValueError) as exc:
-        raise _GE(f"evidence_path_unresolvable: {raw_path!r}: {exc}")
-    try:
-        rel = absolute.relative_to(root.resolve())
-    except ValueError:
-        raise _GE(f"evidence_path_outside_repo: {raw_path!r} resolved to {absolute}")
-    return rel.as_posix(), absolute
+# Plan 026R §E.5 — canonical-resolve helper promoted to the
+# shared `canonical_path` module so memory.update_memory FATES
+# recompute (E.7) + this evidence-validator path share ONE
+# resolver identity. Re-export here keeps the existing import
+# surface (`evidence_validator._canonical_evidence_path`) stable
+# for the validate_evidence_path + _check_agent_ref callsites
+# below; new code MUST import from `.canonical_path` directly.
+from .canonical_path import _canonical_evidence_path  # noqa: F401
 
 
 def _check_agent_ref(

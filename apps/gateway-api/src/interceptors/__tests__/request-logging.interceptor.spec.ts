@@ -40,16 +40,22 @@ describe('RequestLoggingInterceptor', () => {
     options: {
       method?: string;
       url?: string;
+      // `ip` defaults to '127.0.0.1' when the key is OMITTED from
+      // options, but stays `undefined` when the caller passes
+      // `ip: undefined` explicitly — that lets the spoofing test
+      // model a request where express has NOT populated req.ip.
       ip?: string;
+      remoteAddress?: string;
       headers?: Record<string, string>;
       user?: { sub?: string };
       tenantId?: string;
     } = {},
   ): ExecutionContext => {
+    const hasExplicitIp = 'ip' in options;
     const mockRequest = {
       method: options.method || 'GET',
       url: options.url || '/api/v1/test',
-      ip: options.ip || '127.0.0.1',
+      ip: hasExplicitIp ? options.ip : '127.0.0.1',
       headers: {
         'user-agent': 'Test Agent/1.0',
         ...options.headers,
@@ -57,7 +63,7 @@ describe('RequestLoggingInterceptor', () => {
       user: options.user,
       tenantId: options.tenantId,
       connection: {
-        remoteAddress: options.ip || '127.0.0.1',
+        remoteAddress: options.remoteAddress ?? '127.0.0.1',
       },
     };
 
@@ -354,7 +360,44 @@ describe('RequestLoggingInterceptor', () => {
   });
 
   describe('Response Size Tracking', () => {
-    it('should include response size in log context', (done) => {
+    // Per commit 734fd574 (L3 perf hardening) the interceptor stopped
+    // running JSON.stringify on every response — that produced an
+    // O(n) heap copy per request just to compute a log size. The
+    // current contract: `responseSize` is set only when the response
+    // is a `string` or `Buffer` (where `.length` is O(1)). Object
+    // responses intentionally do not get a size to keep the logging
+    // hot path cheap. Tests aligned to that contract.
+    it('should include response size for string responses (O(1) length)', (done) => {
+      const logSpy = jest.spyOn(interceptor['logger'], 'log');
+      const context = createMockHttpContext();
+      const response = 'x'.repeat(1000);
+      const handler = createMockCallHandler(response);
+
+      interceptor.intercept(context, handler).subscribe({
+        complete: () => {
+          const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
+          expect(logContext['responseSize']).toBe(1000);
+          done();
+        },
+      });
+    });
+
+    it('should include response size for Buffer responses (O(1) length)', (done) => {
+      const logSpy = jest.spyOn(interceptor['logger'], 'log');
+      const context = createMockHttpContext();
+      const response = Buffer.alloc(512);
+      const handler = createMockCallHandler(response);
+
+      interceptor.intercept(context, handler).subscribe({
+        complete: () => {
+          const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
+          expect(logContext['responseSize']).toBe(512);
+          done();
+        },
+      });
+    });
+
+    it('should skip response size for object responses (avoid O(n) serialization)', (done) => {
       const logSpy = jest.spyOn(interceptor['logger'], 'log');
       const context = createMockHttpContext();
       const response = { data: 'x'.repeat(1000) };
@@ -363,18 +406,22 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext['responseSize']).toBeDefined();
-          expect(logContext['responseSize']).toBeGreaterThan(0);
+          // Object size is deliberately not computed — see comment in
+          // request-logging.interceptor.ts:248–257.
+          expect(logContext['responseSize']).toBeUndefined();
           done();
         },
       });
     });
 
-    it('should handle non-serializable responses', (done) => {
+    it('should handle non-serializable responses without throwing', (done) => {
       const logSpy = jest.spyOn(interceptor['logger'], 'log');
       const context = createMockHttpContext();
 
-      // Create circular reference
+      // Circular reference — JSON.stringify would have thrown, but
+      // the new size code skips objects entirely so this is a no-op
+      // on the size path. The test still pins the "doesn't crash"
+      // contract.
       const circular: Record<string, unknown> = {};
       circular['self'] = circular;
 
@@ -382,8 +429,9 @@ describe('RequestLoggingInterceptor', () => {
 
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
-          // Should not throw, just skip response size
           expect(logSpy).toHaveBeenCalled();
+          const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
+          expect(logContext['responseSize']).toBeUndefined();
           done();
         },
       });
@@ -486,9 +534,19 @@ describe('RequestLoggingInterceptor', () => {
   });
 
   describe('IP Extraction', () => {
-    it('should extract IP from x-forwarded-for', (done) => {
+    // Per commit 734fd574 (L3 security audit) the interceptor no longer
+    // parses `x-forwarded-for` directly — express's `req.ip` already
+    // does that when `trust proxy` is configured, and reading the raw
+    // header allows spoofing when the gateway is NOT behind a trusted
+    // proxy. The interceptor's IP source is therefore exactly
+    // `request.ip || request.connection.remoteAddress`. Tests aligned
+    // to that hardened contract.
+    it('should log req.ip as the IP source (trust-proxy-aware)', (done) => {
       const logSpy = jest.spyOn(interceptor['logger'], 'log');
+      // Simulate express with `trust proxy` enabled — express parses
+      // `x-forwarded-for` and writes the resolved client IP onto `req.ip`.
       const context = createMockHttpContext({
+        ip: '10.0.0.1',
         headers: { 'x-forwarded-for': '10.0.0.1, 10.0.0.2' },
       });
       const handler = createMockCallHandler();
@@ -497,6 +555,29 @@ describe('RequestLoggingInterceptor', () => {
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
           expect(logContext['ip']).toBe('10.0.0.1');
+          done();
+        },
+      });
+    });
+
+    it('should not parse x-forwarded-for when req.ip is unset (no spoofing)', (done) => {
+      const logSpy = jest.spyOn(interceptor['logger'], 'log');
+      // Simulate untrusted client sending x-forwarded-for without
+      // express having parsed it (no trust proxy). The interceptor
+      // MUST NOT use the raw header — it falls back to the socket
+      // remote address instead.
+      const context = createMockHttpContext({
+        ip: undefined,
+        headers: { 'x-forwarded-for': '10.0.0.99' }, // spoof attempt
+      });
+      const handler = createMockCallHandler();
+
+      interceptor.intercept(context, handler).subscribe({
+        complete: () => {
+          const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
+          // 127.0.0.1 is the connection.remoteAddress default in the
+          // mock builder — confirms the spoof header was ignored.
+          expect(logContext['ip']).toBe('127.0.0.1');
           done();
         },
       });

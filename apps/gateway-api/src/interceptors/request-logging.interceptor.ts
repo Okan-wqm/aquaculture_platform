@@ -150,7 +150,12 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     const logMessage = this.formatLogMessage(metrics);
     const logContext = this.buildLogContext(metrics, response);
 
-    if (duration > this.slowRequestThreshold) {
+    // Semantic: SLOW_REQUEST_THRESHOLD_MS=0 means "flag every request as slow"
+    // (debug/audit mode). Date.now() has millisecond resolution, so duration
+    // is frequently 0 for fast in-process handlers; with strict `>` the
+    // threshold=0 contract was unreachable and the [SLOW] tag never fired.
+    // Inclusive comparison restores the threshold=0 operator intent.
+    if (duration >= this.slowRequestThreshold) {
       this.logger.warn(`[SLOW] ${logMessage}`, logContext);
     } else {
       this.logger.log(logMessage, logContext);

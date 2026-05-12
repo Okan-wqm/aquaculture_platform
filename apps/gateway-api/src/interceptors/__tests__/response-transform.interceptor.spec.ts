@@ -33,22 +33,38 @@ describe('ResponseTransformInterceptor', () => {
 
   /**
    * Create mock execution context
+   *
+   * Mirrors the express Request shape that the production interceptor
+   * relies on (express.Request always carries `headers` and `query`).
+   * Omitting `headers` here would diverge from the runtime contract and
+   * make the mock structurally invalid — the production code reads
+   * `request.headers['x-request-id']`, `request.headers['x-forwarded-proto']`,
+   * `request.headers['x-forwarded-host']` and `request.headers['host']`
+   * unconditionally because the type system guarantees they exist on a
+   * real Request. So the mock must guarantee them too.
    */
   const createMockExecutionContext = (
     options: {
       method?: string;
       path?: string;
       statusCode?: number;
+      headers?: Record<string, string>;
     } = {},
   ): ExecutionContext => {
+    const path = options.path || '/api/v1/test';
     const mockRequest = {
       method: options.method || 'GET',
-      path: options.path || '/api/v1/test',
-      url: options.path || '/api/v1/test',
+      path,
+      url: path,
+      originalUrl: path,
+      protocol: 'http',
+      headers: options.headers ?? {},
+      query: {},
     };
 
     const mockResponse = {
       statusCode: options.statusCode || 200,
+      getHeader: (_name: string): string | string[] | number | undefined => undefined,
     };
 
     return {

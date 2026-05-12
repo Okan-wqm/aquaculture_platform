@@ -137,7 +137,11 @@ type HmacSha256 = Hmac<Sha256>;
 // (infallible) by design so the migration tool's caller
 // chain doesn't propagate a phantom Result.
 #[allow(clippy::expect_used)]
-pub fn derive_v1_legacy_key(machine_id: &[u8], secret_key: &[u8]) -> [u8; 32] {
+#[rustfmt::skip]
+pub fn derive_v1_legacy_key(
+    machine_id: &[u8],
+    secret_key: &[u8],
+) -> [u8; 32] {
     // **Empty-input guard (Batch #340 — closes audit
     // SEC-MEDIUM-003):** the kernel itself MUST accept
     // empty inputs per RFC 2104 (HMAC is well-defined

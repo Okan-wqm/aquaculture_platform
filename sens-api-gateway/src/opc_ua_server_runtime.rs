@@ -54,7 +54,6 @@
 //! Linked: ORPHAN-CRITICAL-021 (this module's `simple_node_
 //! manager` wire is the legacy path that Batch #267 replaces).
 
-#![cfg(feature = "opc-ua-server")]
 #![allow(dead_code)]
 
 use std::sync::Arc;
@@ -863,7 +862,8 @@ pub async fn start_opcua_server(
     // false-positive "moved device" alarm; only filesystem-image cloning
     // between physical devices does.
     //
-    // CertRotation::load_from_pki_store walks the ledger to recover the
+    // Earlier boot code used CertRotation::new with a hardcoded
+    // first-boot mode. CertRotation::load_from_pki_store now walks the ledger to recover the
     // last applied PhaseTransition entry — boot-time mode reflects the
     // operator's most recent promotion rather than the pre-Phase-B-1.5
     // hardcoded `LegacyAccept` placeholder. First-boot deployments with

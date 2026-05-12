@@ -151,10 +151,7 @@ impl CommandHandler {
                 return (
                     false,
                     json!({"reason": "invalid_param_type"}),
-                    Some(
-                        "'pinned_leaf_fingerprints_hex' must be an array of strings"
-                            .to_string(),
-                    ),
+                    Some("'pinned_leaf_fingerprints_hex' must be an array of strings".to_string()),
                 );
             }
             None => {
@@ -248,9 +245,7 @@ impl CommandHandler {
                     "update_cert_pinning REJECTED by MtlsVerifierState::rebuild"
                 );
                 let reason_tag = match &e {
-                    crate::mtls::MtlsRebuildError::DowngradeRejected { .. } => {
-                        "downgrade_rejected"
-                    }
+                    crate::mtls::MtlsRebuildError::DowngradeRejected { .. } => "downgrade_rejected",
                     crate::mtls::MtlsRebuildError::BuildFailed(_) => "build_failed",
                     crate::mtls::MtlsRebuildError::LockPoisoned => "lock_poisoned",
                 };
@@ -302,7 +297,8 @@ mod tests {
         // `cmd_update_cert_pinning` symbol via the impl block above is
         // the contract anchor. A runtime invocation requires the full
         // CommandHandler fixture (out of unit-test scope).
-        let _contract = "cmd_update_cert_pinning compiles and is reachable via CommandHandler dispatch";
+        let _contract =
+            "cmd_update_cert_pinning compiles and is reachable via CommandHandler dispatch";
         assert!(!_contract.is_empty());
     }
 }

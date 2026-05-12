@@ -28,6 +28,7 @@
 // `impl CommandHandler { ... cmd_X ... }` block):
 mod apply_signed_manifest;
 mod audit_emit;
+mod cert_pinning;
 mod confirm_slot;
 mod deploy_bytecode_program;
 mod diagnostic;

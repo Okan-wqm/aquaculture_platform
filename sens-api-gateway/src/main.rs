@@ -3366,6 +3366,15 @@ async fn async_main() -> Result<()> {
         }
     };
 
+    // Initialize clock authority (Batch 90 Sprint 6.7 wire).
+    //
+    // Runs before keystore init because the keystore rotation marker
+    // reads trustworthy wallclock state at boot.
+    {
+        let mut state_guard = state.write().await;
+        state_guard.init_clock_authority();
+    }
+
     // Initialize keystore (Batch 83 Sprint 6.3, relocated PR-195 Batch #17).
     //
     // WHY: Plan §5 Faz 2 item 1 + ADR-018 §4 mandate a
@@ -3662,28 +3671,6 @@ async fn async_main() -> Result<()> {
                 );
             }
         }
-    }
-
-    // Initialize clock authority (Batch 90 Sprint 6.7 wire).
-    //
-    // WHY: Plan §5 Faz 2 item 10 + D-7. Selects between
-    // SystemClockAuthority (HC-1 trusting baseline) and
-    // ChronyNtsClockAuthority (real chronyc-tracking query)
-    // based on config.clock.enable_chrony_query.
-    //
-    // Runs EARLY in boot — before keystore + audit — because
-    // future batches migrating envelope freshness + audit
-    // timestamp paths to the trait will query clock at those
-    // init sites (currently they use SystemTime::now()
-    // directly). Positioning the init first avoids any
-    // ordering constraint if Sprint 6.7 consumer migration
-    // batches need the clock during their own init.
-    //
-    // NEVER fails — chrony subprocess errors surface as
-    // sentinel u64::MAX age at read time.
-    {
-        let mut state_guard = state.write().await;
-        state_guard.init_clock_authority();
     }
 
     // PR-195 Batch #17: keystore init relocated to

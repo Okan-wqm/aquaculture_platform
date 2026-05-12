@@ -567,8 +567,11 @@ pub(super) async fn resolve_firmware_version(target: &str, repo: &str) -> anyhow
 pub(super) async fn fetch_latest_agent_tag(repo: &str) -> anyhow::Result<String> {
     let url = format!("https://api.github.com/repos/{}/releases", repo);
 
+    let suderra_tls = crate::mtls::build_suderra_https_client_config()
+        .map_err(|e| anyhow::anyhow!("Failed to build Suderra HTTPS ClientConfig: {e}"))?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        .use_preconfigured_tls((*suderra_tls).clone())
         .build()?;
 
     let response = client
@@ -603,7 +606,7 @@ pub(super) async fn fetch_latest_agent_tag(repo: &str) -> anyhow::Result<String>
 /// timeout.
 ///
 /// WHY pre-Phase-1.1.5 this callsite was an ORPHAN-HIGH-035 surface:
-/// the bare `reqwest::Client::builder()` inherited the process-global
+/// the bare reqwest client builder inherited the process-global
 /// default rustls CryptoProvider — pre-Phase-1.1.5 that was the
 /// **unrestricted** ring provider installed by `mqtt.rs::install_default()`.
 /// Firmware OTA downloads (tarball + checksum) flow through this helper;

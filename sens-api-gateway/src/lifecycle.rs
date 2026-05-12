@@ -62,8 +62,6 @@
 //! (also an out-of-dispatch-path producer of firmware
 //! lifecycle events).
 
-#![cfg(feature = "health")]
-
 use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 

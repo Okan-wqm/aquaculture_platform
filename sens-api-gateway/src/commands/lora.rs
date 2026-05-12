@@ -28,8 +28,6 @@
 //! the entire fleet. The error list is always surfaced in the
 //! response body.
 
-#![cfg(feature = "lorawan")]
-
 use serde_json::{Value, json};
 use tracing::{info, warn};
 

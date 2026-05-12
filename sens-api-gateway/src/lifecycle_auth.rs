@@ -61,8 +61,6 @@
 //!   idempotent per Batch 122) cover the relevant replay
 //!   surface for this specific endpoint.
 
-#![cfg(feature = "health")]
-
 use std::time::UNIX_EPOCH;
 
 use hmac::{Hmac, Mac};

@@ -261,6 +261,13 @@ impl SubscriptionBridge {
                 target: "opc_ua.subscription",
                 "SubscriptionBridge task spawned (Phase B-4)"
             );
+            if *cancel_rx.borrow_and_update() {
+                tracing::info!(
+                    target: "opc_ua.subscription",
+                    "SubscriptionBridge: cancel signal already set, exiting task"
+                );
+                return;
+            }
             loop {
                 tokio::select! {
                     biased;

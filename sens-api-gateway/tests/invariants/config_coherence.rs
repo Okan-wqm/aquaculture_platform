@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Invariant tests for Faz 2 config-coherence validation
 //! (Batch 40, closes Batch 39 contracts at integration-test
 //! level).

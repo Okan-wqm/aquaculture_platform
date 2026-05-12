@@ -23,7 +23,7 @@
 //!   source, stage at `root/.staging/<path>`, fsync,
 //!   rename into `root/<path>`, run per-file verifier.
 //! - TOCTOU discipline: the rename happens INSIDE
-//!   root/.staging then moves to root/<path>; the verify
+//!   `root/.staging` then moves to `root/<path>`; the verify
 //!   runs on the FINAL path after rename so any swap-
 //!   between-rename-and-verify is caught.
 //! - Mode bits: after rename, chmod to

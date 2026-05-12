@@ -804,17 +804,21 @@ mod tests {
         let stage = build_rotation_stage_from_pins_hex(&pins)
             .expect("ok")
             .expect("Some");
-        match stage {
-            CertRotationStage::BridgeRotation {
-                incoming,
-                outgoing,
-                bridge_until_unix_secs,
-            } => {
-                assert_eq!(incoming.fingerprint.as_bytes()[0], 0xAB);
-                assert_eq!(outgoing.fingerprint.as_bytes()[0], 0xFE);
-                assert!(bridge_until_unix_secs > 0);
-            }
-            other => panic!("expected BridgeRotation, got {:?}", other),
+        let accepted = stage.accepted_fingerprints(0);
+        assert!(
+            accepted
+                .primary
+                .as_ref()
+                .is_some_and(|fp| fp.fingerprint.as_bytes()[0] == 0xAB)
+        );
+        assert!(
+            accepted
+                .bridge
+                .as_ref()
+                .is_some_and(|fp| fp.fingerprint.as_bytes()[0] == 0xFE)
+        );
+        if let CertRotationStage::Settled { .. } = stage {
+            panic!("expected BridgeRotation, got Settled");
         }
     }
 

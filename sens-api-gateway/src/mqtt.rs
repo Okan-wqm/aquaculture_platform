@@ -279,7 +279,7 @@ impl MqttClient {
         let mut mtls_verifier_state = None;
         if config.mqtt.tls.enabled {
             let (tls_config, verifier_state) = Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
-            mtls_verifier_state = verifier_state;
+            mtls_verifier_state = Some(verifier_state);
             options.set_transport(tls_config);
             info!("MQTT TLS enabled");
         }
@@ -947,7 +947,7 @@ impl MqttClient {
     fn configure_tls(
         tls_config: &crate::config::MqttTlsConfig,
         mtls_config: &crate::config::MtlsConfig,
-    ) -> Result<(Transport, Option<Arc<crate::mtls::MtlsVerifierState>>)> {
+    ) -> Result<(Transport, Arc<crate::mtls::MtlsVerifierState>)> {
         use rumqttc::TlsConfiguration;
 
         // LOW/H-01: validate verify_hostname config is not set to false.
@@ -1154,6 +1154,8 @@ impl MqttClient {
         // rebuild takes effect on the NEXT TLS connect with no
         // ClientConfig reconstruction. Legacy + no-pins still flows
         // through the inner fallback WebPkiServerVerifier (HC-1).
+        // MtlsVerifierState::new is the stateful wrapper around
+        // crate::mtls::build_suderra_verifier.
         let root_store_arc = Arc::new(root_store);
         let mtls_verifier_state = Arc::new(
             crate::mtls::MtlsVerifierState::new(
@@ -1171,7 +1173,7 @@ impl MqttClient {
         );
         let fallback = crate::mtls::build_fallback_webpki(root_store_arc, suderra_provider.clone())
             .map_err(|e| anyhow::anyhow!(e))?;
-        let verifier = Arc::new(crate::mtls::MtlsDelegatingVerifier::new(
+        let delegating_verifier = Arc::new(crate::mtls::MtlsDelegatingVerifier::new(
             mtls_verifier_state.clone(),
             fallback,
         ));
@@ -1191,7 +1193,7 @@ impl MqttClient {
                     )
                 })?
                 .dangerous()
-                .with_custom_certificate_verifier(verifier);
+                .with_custom_certificate_verifier(delegating_verifier);
 
         let mut client_config = if let Some((cert_bytes, key_bytes)) = client_auth {
             use rustls::pki_types::pem::PemObject;
@@ -1216,6 +1218,6 @@ impl MqttClient {
         client_config.alpn_protocols = vec![b"mqtt".to_vec()];
 
         let tls = TlsConfiguration::Rustls(Arc::new(client_config));
-        Ok((Transport::Tls(tls), Some(mtls_verifier_state)))
+        Ok((Transport::Tls(tls), mtls_verifier_state))
     }
 }

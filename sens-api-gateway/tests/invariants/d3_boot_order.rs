@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::indexing_slicing, clippy::print_stdout, clippy::unwrap_used)]
+
 //! PR-195 Batch #17 D-3 wire-status invariant — pins
 //! the architectural prerequisite that
 //! `init_keystore` runs BEFORE every SQLCipher consumer

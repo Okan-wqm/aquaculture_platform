@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Invariants for Batch 63 CommandEnvelope parse-and-verify
 //! adapter. Pins the architectural contracts at integration-
 //! test layer so Sprint 6.1 actor-pubkey lookup + Sprint 6.4

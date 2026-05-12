@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Invariant test for mTLS rollout-mode config (Batch 27, plan §5
 //! Faz 2 item 7).
 //!

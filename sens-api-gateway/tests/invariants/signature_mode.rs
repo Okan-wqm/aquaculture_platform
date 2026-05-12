@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    clippy::unwrap_used
+)]
+#![allow(clippy::const_is_empty)]
 //! Invariant tests for Batch 45 SignatureMode config rollout
 //! (closes Batch 45 contracts at integration-test level).
 //!

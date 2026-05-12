@@ -45,7 +45,7 @@
 //! installed here. Pinning per-endpoint requires per-endpoint cert
 //! knowledge (the cloud API's cert SHA-256 is distinct from the MQTT
 //! broker's cert). Phase 1.1.3b will introduce
-//! [`build_suderra_pinned_https_client_config`] (placeholder name) for
+//! `build_suderra_pinned_https_client_config` (placeholder name) for
 //! Suderra-cloud-API endpoints once the cloud-side cert-rotation
 //! manifest infrastructure lands.
 //!

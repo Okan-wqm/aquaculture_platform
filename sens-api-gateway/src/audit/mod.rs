@@ -192,8 +192,8 @@ pub fn current_agent_tenant() -> Option<TenantId> {
 /// that needs to emit an audit-chain entry without an AppState reference:
 /// - Strict-mode handshake reject in [`crate::mtls::SuderraServerCertVerifier`].
 /// - Custom CA bundle partial parse in [`crate::mqtt::MqttClient::configure_tls`].
-/// - OPC UA PkiStore mutations (cert trusted, cert revoked, phase
-///   transition) in [`crate::opc_ua_server::pki_store::PkiStore`].
+/// - OPC UA `PkiStore` mutations (cert trusted, cert revoked, phase
+///   transition).
 ///
 /// All these sites have NO command-correlation-id (the events are not
 /// tied to an inbound MQTT command); the helper synthesizes a UUIDv4 so

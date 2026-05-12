@@ -125,7 +125,7 @@ impl BridgeCancelToken {
 
     /// Trigger cancel. Idempotent — re-cancelling is a no-op.
     pub fn cancel(&self) {
-        let _ = self.tx.send(true);
+        self.tx.send_replace(true);
     }
 
     /// Read the current cancel state without awaiting.
@@ -256,10 +256,18 @@ impl SubscriptionBridge {
     ) -> Self {
         let task_cancel = cancel.clone();
         let handle = tokio::spawn(async move {
+            let mut cancel_rx = task_cancel.subscribe();
             tracing::info!(
                 target: "opc_ua.subscription",
                 "SubscriptionBridge task spawned (Phase B-4)"
             );
+            if *cancel_rx.borrow_and_update() {
+                tracing::info!(
+                    target: "opc_ua.subscription",
+                    "SubscriptionBridge: cancel signal already set, exiting task"
+                );
+                return;
+            }
             loop {
                 tokio::select! {
                     biased;
@@ -442,17 +450,26 @@ mod tests {
         // exists in opc_ua_server.rs::tests if available, else
         // build via the public API.
         let cfg = crate::process_image::TagConfig {
-            name: tag_name.to_string(),
-            io_type: crate::process_image::IoType::AnalogInput,
+            tag_name: tag_name.to_string(),
+            io_type: crate::process_image::IoType::AI,
             data_type: "real".to_string(),
-            address: format!("test:{tag_name}"),
-            scaling: None,
-            engineering_unit: None,
-            description: None,
-            high_high: None,
-            high: None,
-            low: None,
-            low_low: None,
+            source: TagSource::Gpio,
+            poll_interval_ms: None,
+            raw_min: None,
+            raw_max: None,
+            eng_min: None,
+            eng_max: None,
+            eng_unit: None,
+            invert: false,
+            alarm_hh: None,
+            alarm_h: None,
+            alarm_l: None,
+            alarm_ll: None,
+            deadband: None,
+            protocol_config: crate::process_image::ProtocolConfig::Gpio {
+                pin: 0,
+                direction: "input".to_string(),
+            },
         };
         let _ = browse_name; // OpcUaTagRegistry derives browse_name from tag_name
         Arc::new(OpcUaTagRegistry::build([&cfg].into_iter()).expect("registry build"))
@@ -463,7 +480,7 @@ mod tests {
             tag_name: tag_name.to_string(),
             new_value: value,
             quality: TagQuality::Good,
-            source: TagSource::Live,
+            source: TagSource::Gpio,
             timestamp: Utc::now(),
         }
     }
@@ -531,7 +548,9 @@ mod tests {
         // Send one change so the task has activity.
         let _ = tx.send(synth_change("tank_a", 1.0));
         // Trigger cancel + await shutdown.
-        bridge.shutdown().await;
+        tokio::time::timeout(std::time::Duration::from_secs(2), bridge.shutdown())
+            .await
+            .expect("bridge shutdown must not hang after cancel");
         // Subsequent shutdown is idempotent.
         bridge.shutdown().await;
     }

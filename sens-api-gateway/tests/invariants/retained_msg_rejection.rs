@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Invariant test for MQTT retained-message rejection (Batch 25,
 //! plan D-14).
 //!

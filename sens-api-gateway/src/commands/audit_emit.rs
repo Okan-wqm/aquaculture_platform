@@ -53,6 +53,12 @@ pub(super) fn action_for_command(cmd: &str, outcome: AuditOutcome) -> AuditActio
                 AuditAction::PolicyUpdateRejected
             }
         },
+        "update_cert_pinning" => match outcome {
+            AuditOutcome::Success => AuditAction::MqttCertRotated,
+            AuditOutcome::Failure | AuditOutcome::AuthorizationDenied => {
+                AuditAction::MqttCertRotationRolledBack
+            }
+        },
 
         // Firmware lifecycle — legacy tarball OTA path.
         // Batch 119 gates this at mode=Enforcing; failure

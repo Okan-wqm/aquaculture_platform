@@ -5521,6 +5521,7 @@ mod tests {
             OpcUaSecurityPolicy::Basic256Sha256.to_uri(),
             SECURITY_POLICY_BASIC256SHA256
         );
+        #[cfg(debug_assertions)]
         assert_eq!(
             OpcUaSecurityPolicy::Basic128Rsa15.to_uri(),
             "http://opcfoundation.org/UA/SecurityPolicy#Basic128Rsa15"

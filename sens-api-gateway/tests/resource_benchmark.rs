@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    clippy::unwrap_used
+)]
+
 //! Resource Usage Benchmark
 //!
 //! Measures actual memory and CPU usage of core components.

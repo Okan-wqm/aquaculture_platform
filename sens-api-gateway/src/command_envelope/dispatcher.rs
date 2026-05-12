@@ -6,7 +6,7 @@
 //! Owns the per-command registry of [`EnvelopeHandler`] implementations
 //! + coordinates the full verify→authorize→dispatch chain such that a
 //! handler body cannot run without the authz gate having minted an
-//! [`AuthorizedContext`]. Combined with the Batch #236 `HandlerInput<P>`
+//! `AuthorizedContext`. Combined with the Batch #236 `HandlerInput<P>`
 //! sealed constructor, this closes the ultra-plan A-1 dependency-
 //! inversion gap at Tier-1: "forgot to authorize" is a build-time type
 //! error + a dispatcher-layer routing invariant, never a runtime review

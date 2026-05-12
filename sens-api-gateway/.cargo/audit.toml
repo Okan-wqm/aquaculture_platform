@@ -48,6 +48,7 @@ ignore = [
     "RUSTSEC-2026-0098", # Name constraints for URI names incorrectly accepted
     "RUSTSEC-2026-0099", # Name constraints accepted for wildcard cert asserts
     "RUSTSEC-2026-0049", # CRLs not considered authoritative by Distribution Point
+    "RUSTSEC-2026-0104", # Reachable panic in CRL parsing; rumqttc upstream-blocked
 
     # -----------------------------------------------------------------
     # rsa 0.9.10 Marvin Attack (RUSTSEC-2023-0071) — NO UPSTREAM FIX

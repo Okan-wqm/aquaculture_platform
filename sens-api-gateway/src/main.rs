@@ -15,7 +15,19 @@
 // Test code is exempt — panicking on assertion failure is idiomatic in tests.
 #![cfg_attr(
     test,
-    allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+    allow(
+        clippy::approx_constant,
+        clippy::duplicated_attributes,
+        clippy::empty_line_after_doc_comments,
+        clippy::empty_line_after_outer_attr,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::large_stack_arrays,
+        clippy::print_stderr,
+        clippy::print_stdout,
+        clippy::unwrap_used,
+        clippy::useless_vec
+    )
 )]
 
 // Batch 24 plan §5 Faz 2 Step 2 partial: boot-time process
@@ -180,8 +192,6 @@ mod opc_ua_server_user_token_validator; // Batch #245 Faz 5 A-3b: hot-reload val
 mod opc_ua_server_user_tokens; // Batch #242 Faz 5 A-3a: UserTokenEnrollment primitive (UserName/Password + X.509)
 mod outbound_publisher; // Batch #251 ARC-002: broker-aware MQTT publish dispatcher (direct + queue-on-disk)
 mod publish_helpers; // Batch #255 ARC-002: centralized publish-routing helpers (Outbound vs. legacy direct)
-#[cfg(feature = "scada-display")]
-mod scada_db;
 #[cfg(feature = "scada-display")]
 mod scada_db;
 #[cfg(feature = "scada-display")]
@@ -673,7 +683,7 @@ pub struct AppState {
     /// AppState construction. Downstream consumers
     /// (Phase 2 / Batch 84 audit-hmac-from-keystore,
     /// Phase 2 / Batch 85 SQLCipher-key-from-keystore)
-    /// clone the Arc<dyn Keystore> for per-purpose
+    /// clone the `Arc<dyn Keystore>` for per-purpose
     /// derivation via KeyPurpose::*.
     ///
     /// WHAT: `Option<Arc<dyn Keystore>>` — trait-object
@@ -3356,6 +3366,15 @@ async fn async_main() -> Result<()> {
         }
     };
 
+    // Initialize clock authority (Batch 90 Sprint 6.7 wire).
+    //
+    // Runs before keystore init because the keystore rotation marker
+    // reads trustworthy wallclock state at boot.
+    {
+        let mut state_guard = state.write().await;
+        state_guard.init_clock_authority();
+    }
+
     // Initialize keystore (Batch 83 Sprint 6.3, relocated PR-195 Batch #17).
     //
     // WHY: Plan §5 Faz 2 item 1 + ADR-018 §4 mandate a
@@ -3652,28 +3671,6 @@ async fn async_main() -> Result<()> {
                 );
             }
         }
-    }
-
-    // Initialize clock authority (Batch 90 Sprint 6.7 wire).
-    //
-    // WHY: Plan §5 Faz 2 item 10 + D-7. Selects between
-    // SystemClockAuthority (HC-1 trusting baseline) and
-    // ChronyNtsClockAuthority (real chronyc-tracking query)
-    // based on config.clock.enable_chrony_query.
-    //
-    // Runs EARLY in boot — before keystore + audit — because
-    // future batches migrating envelope freshness + audit
-    // timestamp paths to the trait will query clock at those
-    // init sites (currently they use SystemTime::now()
-    // directly). Positioning the init first avoids any
-    // ordering constraint if Sprint 6.7 consumer migration
-    // batches need the clock during their own init.
-    //
-    // NEVER fails — chrony subprocess errors surface as
-    // sentinel u64::MAX age at read time.
-    {
-        let mut state_guard = state.write().await;
-        state_guard.init_clock_authority();
     }
 
     // PR-195 Batch #17: keystore init relocated to
@@ -5333,6 +5330,7 @@ async fn run_agent(
             user_token_manifest_store: user_token_store_for_opcua,
             license: &license_for_opcua,
             device_code: &device_code_string,
+            clock_authority: clock_authority_for_opcua,
         })
         .await
         {

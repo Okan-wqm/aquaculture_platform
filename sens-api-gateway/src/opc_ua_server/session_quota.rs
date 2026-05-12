@@ -306,13 +306,20 @@ impl SessionQuota {
             user: user.to_string(),
         };
         if let Ok(mut guard) = self.inner.lock() {
-            if let Some(entries) = guard.counts.get_mut(&key) {
+            let should_decrement = if let Some(entries) = guard.counts.get_mut(&key) {
                 if let Some(pos) = entries.iter().position(|e| e.acquired_at == acquired_at) {
                     entries.remove(pos);
-                    guard.tenant_total = guard.tenant_total.saturating_sub(1);
-                    if entries.is_empty() {
-                        guard.counts.remove(&key);
-                    }
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if should_decrement {
+                guard.tenant_total = guard.tenant_total.saturating_sub(1);
+                if guard.counts.get(&key).is_some_and(Vec::is_empty) {
+                    guard.counts.remove(&key);
                 }
             }
         }

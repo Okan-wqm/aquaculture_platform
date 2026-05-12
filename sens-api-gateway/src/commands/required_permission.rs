@@ -193,6 +193,7 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         // themselves arbitrary future permissions. Plan §3 R-5
         // + ADR-018 §3 specify ManagePolicy as the gate.
         "update_policy" => Some(Permission::ManagePolicy),
+        "update_cert_pinning" => Some(Permission::ManageCertPinning),
 
         // -----------------------------------------------------------------
         // Master-key rotation (Batch 100 Sprint 6.3).

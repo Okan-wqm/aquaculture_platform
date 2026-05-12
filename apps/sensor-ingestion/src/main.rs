@@ -45,15 +45,10 @@ use std::sync::Arc;
 
 use anyhow::Context;
 
-use crate::cache::{DEFAULT_TOTAL_CAPACITY, TopicCache};
-use crate::config::Config;
-use crate::runtime::build_runtime;
-
-mod cache;
-mod config;
-mod error;
-mod mqtt;
-mod runtime;
+use sensor_ingestion::cache::{self, DEFAULT_TOTAL_CAPACITY, TopicCache};
+use sensor_ingestion::config::Config;
+use sensor_ingestion::mqtt::{self, MqttMessageStream};
+use sensor_ingestion::runtime::build_runtime;
 
 // Bootstrap exists in a window where `tracing` is not yet installed
 // and there is no other reporting channel. Allow `eprintln!` for the
@@ -204,7 +199,7 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
 /// lands on this PR, the parameter signature is already in place and
 /// callers do not need to be re-routed.
 async fn drain_mqtt_stream(
-    stream: std::sync::Arc<tokio::sync::Mutex<Option<mqtt::MqttMessageStream>>>,
+    stream: std::sync::Arc<tokio::sync::Mutex<Option<MqttMessageStream>>>,
     cache: Arc<TopicCache>,
 ) {
     let mut guard = stream.lock().await;
@@ -215,11 +210,7 @@ async fn drain_mqtt_stream(
         std::future::pending::<()>().await;
         return;
     };
-    // Per-message bookkeeping is hoisted into [`DrainCounters`] so
-    // [`process_one_message`] can mutate them through a single `&mut`
-    // borrow — keeps the loop body tight and the function inside the
-    // workspace `clippy::too_many_lines = 100` budget.
-    let mut counters = DrainCounters::default();
+    let mut count = 0u64;
     while let Some(msg) = s.recv().await {
         count = count.saturating_add(1);
         let age_micros = msg.received_at.elapsed().as_micros();

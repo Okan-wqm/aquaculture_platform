@@ -103,6 +103,12 @@ impl LedgerHash {
     }
 }
 
+impl Default for LedgerHash {
+    fn default() -> Self {
+        Self::genesis()
+    }
+}
+
 /// Cert fingerprint — SHA-256 of DER bytes, lowercase 64-char hex.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -744,7 +750,7 @@ impl PkiStore {
         let cert = rcgen::generate_simple_self_signed(vec!["suderra-edge.local".to_string()])
             .map_err(|e| PkiStoreError::OpenFailed(format!("rcgen self-signed: {e}")))?;
         let der_bytes = cert.cert.der().to_vec();
-        let key_pem = cert.signing_key.serialize_pem();
+        let key_pem = cert.key_pair.serialize_pem();
         write_atomically(&cert_path, &der_bytes)?;
         write_atomically(&key_path, key_pem.as_bytes())?;
         Ok(CertFingerprint::from_der(&der_bytes))
@@ -929,8 +935,10 @@ mod tests {
         );
         fs::write(&ledger_path, tampered).expect("write");
 
-        let err = PkiStore::open_or_initialize(tmp.path(), "test-device-001".to_string())
-            .expect_err("must fail");
+        let Err(err) = PkiStore::open_or_initialize(tmp.path(), "test-device-001".to_string())
+        else {
+            panic!("must fail");
+        };
         assert!(matches!(err, PkiStoreError::LedgerCorrupted(_)));
     }
 
@@ -939,8 +947,10 @@ mod tests {
     #[test]
     fn moved_device_detected_on_reload() {
         let (tmp, _store) = fresh_store();
-        let err = PkiStore::open_or_initialize(tmp.path(), "different-device".to_string())
-            .expect_err("must fail");
+        let Err(err) = PkiStore::open_or_initialize(tmp.path(), "different-device".to_string())
+        else {
+            panic!("must fail");
+        };
         assert!(matches!(err, PkiStoreError::LedgerCorrupted(s) if s.contains("device_code")));
     }
 

@@ -17,7 +17,7 @@
 //!   even one with valid signatures + co-approver.
 //!
 //! This handler is the **operator-facing surface** that drives
-//! [`MtlsVerifierState::rebuild`] from an inbound MQTT command. The
+//! [`crate::mtls::MtlsVerifierState::rebuild`] from an inbound MQTT command. The
 //! security boundary is layered:
 //!
 //! 1. **Envelope authentication** (existing — `command_envelope::envelope`
@@ -28,7 +28,7 @@
 //!
 //! 2. **RBAC permission gate** (existing — `commands::required_permission`
 //!    table): `cmd_update_cert_pinning` requires
-//!    [`Permission::ManageCertPinning`]; only operators bound to a role
+//!    [`crate::authz::Permission::ManageCertPinning`]; only operators bound to a role
 //!    that grants this permission can invoke the handler.
 //!
 //! 3. **Tier-1 downgrade gate** (Phase 1.1.4B): the
@@ -151,10 +151,7 @@ impl CommandHandler {
                 return (
                     false,
                     json!({"reason": "invalid_param_type"}),
-                    Some(
-                        "'pinned_leaf_fingerprints_hex' must be an array of strings"
-                            .to_string(),
-                    ),
+                    Some("'pinned_leaf_fingerprints_hex' must be an array of strings".to_string()),
                 );
             }
             None => {
@@ -248,9 +245,7 @@ impl CommandHandler {
                     "update_cert_pinning REJECTED by MtlsVerifierState::rebuild"
                 );
                 let reason_tag = match &e {
-                    crate::mtls::MtlsRebuildError::DowngradeRejected { .. } => {
-                        "downgrade_rejected"
-                    }
+                    crate::mtls::MtlsRebuildError::DowngradeRejected { .. } => "downgrade_rejected",
                     crate::mtls::MtlsRebuildError::BuildFailed(_) => "build_failed",
                     crate::mtls::MtlsRebuildError::LockPoisoned => "lock_poisoned",
                 };
@@ -268,6 +263,7 @@ impl CommandHandler {
 }
 
 #[cfg(test)]
+#[allow(clippy::const_is_empty)]
 mod tests {
     //! Unit tests for `cmd_update_cert_pinning` are gated by the larger
     //! `CommandHandler` test fixture which is built around an
@@ -301,7 +297,8 @@ mod tests {
         // `cmd_update_cert_pinning` symbol via the impl block above is
         // the contract anchor. A runtime invocation requires the full
         // CommandHandler fixture (out of unit-test scope).
-        let _contract = "cmd_update_cert_pinning compiles and is reachable via CommandHandler dispatch";
+        let _contract =
+            "cmd_update_cert_pinning compiles and is reachable via CommandHandler dispatch";
         assert!(!_contract.is_empty());
     }
 }

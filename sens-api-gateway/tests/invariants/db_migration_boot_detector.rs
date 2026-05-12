@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::indexing_slicing, clippy::unwrap_used)]
+
 //! D-3 SQLCipher boot-time v1 detector wire-status
 //! invariants (Batch #330).
 //!

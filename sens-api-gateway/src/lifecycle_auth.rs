@@ -61,8 +61,6 @@
 //!   idempotent per Batch 122) cover the relevant replay
 //!   surface for this specific endpoint.
 
-#![cfg(feature = "health")]
-
 use std::time::UNIX_EPOCH;
 
 use hmac::{Hmac, Mac};
@@ -657,6 +655,7 @@ mod tests {
     };
     use async_trait::async_trait;
     use std::sync::Mutex as StdMutex;
+    use std::time::SystemTime;
 
     struct MockClock {
         force_nts_stale: StdMutex<bool>,

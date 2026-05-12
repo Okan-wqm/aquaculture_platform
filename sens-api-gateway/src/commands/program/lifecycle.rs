@@ -76,7 +76,6 @@ impl CommandHandler {
     /// "previous previous"). This is deliberate: a multi-step
     /// rollback surface would require an audit trail beyond the
     /// current program.json format.
-
     pub(in crate::commands) async fn cmd_rollback_program(
         &mut self,
     ) -> (bool, Value, Option<String>) {
@@ -150,7 +149,6 @@ impl CommandHandler {
     /// - Timeout bounds parser CPU regardless of source complexity.
     /// - AST strip prevents MQTT payload blow-up (AST can be MB
     ///   for large programs; would exceed broker limits).
-
     pub(in crate::commands) async fn cmd_validate_st(
         &mut self,
         params: &Value,

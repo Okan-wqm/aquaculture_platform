@@ -1,3 +1,11 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::unwrap_used
+)]
+
 //! E-4 AuditActorLabel invariant seal — Tier-3 grep
 //! gate banning the legacy `"opc-ua-anonymous"` literal
 //! (Batch #354 — closes ULTRA-MEDIUM-001 / Plan §5

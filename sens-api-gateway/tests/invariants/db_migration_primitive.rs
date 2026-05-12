@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    clippy::unwrap_used
+)]
+
 //! D-3 SQLCipher key-source manifest primitive smoke tests
 //! (Batch #329 — standalone so the test binary is not the
 //! full suderra-agent bin).

@@ -51,7 +51,7 @@
 //! is [`HandlerInput::authorize`] which takes an `AuthorizedContext` by
 //! value. External crates cannot construct a `HandlerInput`. Tests inside
 //! this crate that need a handler-input for isolated unit tests use
-//! [`HandlerInput::for_test`] (test-only, `#[cfg(test)]`-gated) so the seal
+//! `HandlerInput::for_test` (test-only, `#[cfg(test)]`-gated) so the seal
 //! is never weakened in production code.
 //!
 //! ## Cross-references

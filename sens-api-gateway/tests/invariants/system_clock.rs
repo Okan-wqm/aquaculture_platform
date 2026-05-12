@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Invariant tests for Batch 55 SystemClockAuthority
 //! (Sprint 6.7 partial: baseline production ClockAuthority
 //! impl).

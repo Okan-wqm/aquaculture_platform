@@ -134,17 +134,34 @@ pub fn read_or_create_v1_secret() -> Result<Vec<u8>> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        let mut file = std::fs::OpenOptions::new()
+        let mut file = match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o400)
             .open(secret_path)
-            .with_context(|| {
-                format!(
-                    "Failed to create database secret key file at {}",
-                    secret_path.display()
-                )
-            })?;
+        {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                let key = std::fs::read(secret_path)
+                    .context("Failed to read database secret key after create race")?;
+                if key.len() < MIN_SECRET_KEY_LEN {
+                    anyhow::bail!(
+                        "Database secret key is too short ({} bytes), expected >= {}",
+                        key.len(),
+                        MIN_SECRET_KEY_LEN,
+                    );
+                }
+                return Ok(key);
+            }
+            Err(err) => {
+                return Err(err).with_context(|| {
+                    format!(
+                        "Failed to create database secret key file at {}",
+                        secret_path.display()
+                    )
+                });
+            }
+        };
         std::io::Write::write_all(&mut file, &key)
             .context("Failed to write database secret key")?;
     }

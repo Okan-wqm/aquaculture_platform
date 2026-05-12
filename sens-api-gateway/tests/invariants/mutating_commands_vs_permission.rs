@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Invariant test: MUTATING_COMMANDS list agrees with the
 //! Permission::is_mutating() classifier (Batch 41).
 //!

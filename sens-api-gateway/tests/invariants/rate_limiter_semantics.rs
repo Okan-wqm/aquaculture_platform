@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! RateLimiter semantic contracts (Batch 51).
 //!
 //! The `commands::helpers::RateLimiter` (Batch 20b extracted to

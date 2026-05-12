@@ -115,6 +115,11 @@ describe('CircuitBreakerService', () => {
     });
 
     it('should throw when circuit is open and no fallback', async () => {
+      // CircuitBreakerService.forceOpen (circuit-breaker.service.ts:438) is a
+      // no-op when the circuit hasn't been registered yet — `this.circuits.get`
+      // returns undefined and the early-return swallows the request. Register
+      // the circuit explicitly so forceOpen lands on a live instance.
+      service.registerCircuit('open-service');
       service.forceOpen('open-service');
 
       const fn = jest.fn().mockResolvedValue('success');
@@ -142,11 +147,19 @@ describe('CircuitBreakerService', () => {
         () => new Promise((resolve) => setTimeout(() => resolve('late'), 10000)),
       );
 
+      // executeWithTimeout (circuit-breaker.service.ts:531) rejects via
+      // setTimeout. Attach a no-op rejection handler BEFORE advancing fake
+      // timers so the rejection isn't classified as "unhandled" by Node's
+      // PromiseRejectionHandledWarning machinery (which surfaces as a Jest
+      // failure even when the rejection is the expected behaviour). The
+      // assertion below then re-awaits the same promise to read the value.
       const promise = service.execute('timeout-service', fn, { timeout: 100 });
+      const settled = promise.catch((e: unknown) => e);
 
       await jest.advanceTimersByTimeAsync(200);
 
-      await expect(promise).rejects.toThrow('timed out');
+      const error = (await settled) as Error;
+      expect(error.message).toContain('timed out');
     });
   });
 

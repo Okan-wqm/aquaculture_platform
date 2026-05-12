@@ -42,6 +42,7 @@ describe('ServiceProxyService', () => {
   let service: ServiceProxyService;
   let circuitBreaker: jest.Mocked<CircuitBreakerService>;
   let loadBalancer: jest.Mocked<LoadBalancerService>;
+  let originalInternalServiceSecret: string | undefined;
 
   const createMockInstance = (id: string): ServiceInstanceStats => ({
     id,
@@ -55,9 +56,31 @@ describe('ServiceProxyService', () => {
     consecutiveFailures: 0,
   });
 
+  /**
+   * SECURITY (service-proxy.service.ts:210) — `proxy()` rejects any
+   * unregistered serviceName with BadRequestException. Tests must
+   * pre-register every name they exercise. This helper centralises the
+   * registration to keep each spec body small and reduce drift.
+   */
+  const registerTestService = (name: string): void => {
+    service.registerService({
+      name,
+      timeout: 5000,
+      retries: 1,
+      retryDelay: 100,
+      retryableStatuses: [502, 503, 504],
+    });
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
+
+    // HIGH-003 hardening: makeRequest invokes buildSignedInternalHeaders
+    // which hard-fails when INTERNAL_SERVICE_SECRET is unset. Provide a
+    // fixed test secret so the HMAC codepath runs for every test.
+    originalInternalServiceSecret = process.env['INTERNAL_SERVICE_SECRET'];
+    process.env['INTERNAL_SERVICE_SECRET'] = 'test-secret-for-proxy-spec';
 
     mockFetch.mockResolvedValue({
       ok: true,
@@ -106,10 +129,16 @@ describe('ServiceProxyService', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+    if (originalInternalServiceSecret === undefined) {
+      delete process.env['INTERNAL_SERVICE_SECRET'];
+    } else {
+      process.env['INTERNAL_SERVICE_SECRET'] = originalInternalServiceSecret;
+    }
   });
 
   describe('proxy', () => {
     it('should proxy request to upstream service', async () => {
+      registerTestService('test-service');
       const mockResponse = {
         ok: true,
         status: 200,
@@ -133,6 +162,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should use circuit breaker for requests', async () => {
+      registerTestService('circuit-test-service');
       const config: ProxyRequestConfig = {
         // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
         tenantId: '',
@@ -150,6 +180,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should get instance from load balancer', async () => {
+      registerTestService('lb-test-service');
       const config: ProxyRequestConfig = {
         // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
         tenantId: '',
@@ -163,6 +194,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should throw BadGatewayException when no instances available', async () => {
+      registerTestService('no-instance-service');
       loadBalancer.getNextInstance.mockReturnValueOnce(null);
 
       const config: ProxyRequestConfig = {
@@ -176,6 +208,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should include query parameters in request', async () => {
+      registerTestService('query-service');
       const mockResponse = {
         ok: true,
         status: 200,
@@ -201,6 +234,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should send body for POST requests', async () => {
+      registerTestService('post-service');
       const mockResponse = {
         ok: true,
         status: 201,
@@ -230,6 +264,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should pass through headers', async () => {
+      registerTestService('header-service');
       const mockResponse = {
         ok: true,
         status: 200,
@@ -263,6 +298,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should record response time', async () => {
+      registerTestService('timing-service');
       const mockResponse = {
         ok: true,
         status: 200,
@@ -353,6 +389,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should handle request-level prefix override', async () => {
+      registerTestService('override-prefix-service');
       const mockResponse = {
         ok: true,
         status: 200,
@@ -381,6 +418,7 @@ describe('ServiceProxyService', () => {
 
   describe('Retry Logic', () => {
     it('should retry on retryable status codes', async () => {
+      registerTestService('retry-service');
       const error503 = {
         ok: false,
         status: 503,
@@ -416,6 +454,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should not retry on non-retryable status codes', async () => {
+      registerTestService('no-retry-service');
       const error400 = {
         ok: false,
         status: 400,
@@ -439,6 +478,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should record success/failure with load balancer', async () => {
+      registerTestService('lb-record-service');
       const mockResponse = {
         ok: true,
         status: 200,
@@ -468,6 +508,7 @@ describe('ServiceProxyService', () => {
 
   describe('Timeout Handling', () => {
     it('should handle timeout configuration', async () => {
+      registerTestService('timeout-service');
       // Test that timeout config is passed correctly
       const config: ProxyRequestConfig = {
         // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
@@ -500,6 +541,7 @@ describe('ServiceProxyService', () => {
 
   describe('Response Transformation', () => {
     it('should apply response transformer', async () => {
+      registerTestService('transform-response-service');
       const mockResponse = {
         ok: true,
         status: 200,
@@ -525,6 +567,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should apply request transformer', async () => {
+      registerTestService('transform-request-service');
       const mockResponse = {
         ok: true,
         status: 200,
@@ -585,6 +628,7 @@ describe('ServiceProxyService', () => {
 
   describe('proxyRequest', () => {
     it('should proxy Express request directly', async () => {
+      registerTestService('test-service');
       const mockResponse = {
         ok: true,
         status: 200,
@@ -622,6 +666,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should handle proxy errors in proxyRequest', async () => {
+      registerTestService('error-service');
       circuitBreaker.execute.mockRejectedValueOnce(new BadGatewayException('Service unavailable'));
 
       const mockReq = {
@@ -649,6 +694,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should handle timeout errors in proxyRequest', async () => {
+      registerTestService('timeout-error-service');
       circuitBreaker.execute.mockRejectedValueOnce(
         new GatewayTimeoutException('Request timed out'),
       );
@@ -675,6 +721,7 @@ describe('ServiceProxyService', () => {
 
   describe('Content Type Handling', () => {
     it('should parse JSON response', async () => {
+      registerTestService('json-service');
       const mockResponse = {
         ok: true,
         status: 200,
@@ -696,6 +743,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should parse text response', async () => {
+      registerTestService('text-service');
       const mockResponse = {
         ok: true,
         status: 200,
@@ -715,6 +763,7 @@ describe('ServiceProxyService', () => {
     });
 
     it('should handle binary response', async () => {
+      registerTestService('binary-service');
       const mockBuffer = new ArrayBuffer(8);
       const mockResponse = {
         ok: true,
@@ -806,6 +855,7 @@ describe('ServiceProxyService', () => {
 
   describe('Hop-by-Hop Headers', () => {
     it('should remove hop-by-hop headers from response', async () => {
+      registerTestService('hop-header-service');
       const mockResponse = {
         ok: true,
         status: 200,

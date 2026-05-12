@@ -24,6 +24,7 @@ import { HealthService, ServiceHealth, HealthStatus } from '../health.service';
 describe('HealthService', () => {
   let service: HealthService;
   let originalFetch: typeof global.fetch;
+  let originalInternalServiceSecret: string | undefined;
 
   /**
    * ARCH-GW-003: Must match the number of services in health.service.ts serviceUrls map.
@@ -71,6 +72,14 @@ describe('HealthService', () => {
     originalFetch = global.fetch;
     global.fetch = jest.fn();
 
+    // HIGH-003 hardening: health checks call buildSignedInternalHeaders which
+    // hard-fails when INTERNAL_SERVICE_SECRET is unset (libs/backend-common
+    // signed-http-client.ts:197). Provide a fixed test secret so the HMAC
+    // codepath runs; without this every fetch call short-circuits to
+    // "INTERNAL_SERVICE_SECRET is not configured".
+    originalInternalServiceSecret = process.env['INTERNAL_SERVICE_SECRET'];
+    process.env['INTERNAL_SERVICE_SECRET'] = 'test-secret-for-health-spec';
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         HealthService,
@@ -86,6 +95,11 @@ describe('HealthService', () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    if (originalInternalServiceSecret === undefined) {
+      delete process.env['INTERNAL_SERVICE_SECRET'];
+    } else {
+      process.env['INTERNAL_SERVICE_SECRET'] = originalInternalServiceSecret;
+    }
     jest.clearAllMocks();
   });
 
@@ -148,11 +162,15 @@ describe('HealthService', () => {
 
       await service.getReadiness();
 
+      // HIGH-003 hardening (health.service.ts:285): the health probe now
+      // includes the 7 HMAC X-Service-* headers alongside Accept. Assert on
+      // the subset that survived the hardening (Accept) plus method, rather
+      // than the exact header bag.
       expect(global.fetch).toHaveBeenCalledWith(
         'http://auth:3001/health',
         expect.objectContaining({
           method: 'GET',
-          headers: { Accept: 'application/json' },
+          headers: expect.objectContaining({ Accept: 'application/json' }),
         }),
       );
     });

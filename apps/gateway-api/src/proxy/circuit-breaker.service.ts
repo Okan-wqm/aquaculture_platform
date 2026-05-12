@@ -229,6 +229,13 @@ class CircuitBreaker {
 
     if (duration > this.config.slowCallThreshold) {
       this.window.recordSlow();
+      // ARCH FIX: Without this check, slowCallRateThreshold is dead config —
+      // tripping is only evaluated in recordFailure(), so a stream of slow
+      // successes never opens the circuit. Re-run the trip evaluation on the
+      // slow path so the slow-call protection actually fires. Caught by the
+      // spec at circuit-breaker.service.spec.ts "should open circuit when
+      // slow call rate threshold exceeded".
+      this.checkForTrip();
     }
 
     if (this.state === CircuitState.HALF_OPEN) {

@@ -123,7 +123,7 @@ describe('CacheControlInterceptor', () => {
 
       interceptor.intercept(context, handler).subscribe({
         next: () => {
-          expect(response.setHeader).toHaveBeenCalledWith('ETag', expect.stringMatching(/^"[a-f0-9]{32}"$/));
+          expect(response.setHeader).toHaveBeenCalledWith('ETag', expect.stringMatching(/^"[a-f0-9]{64}"$/));
           done();
         },
       });

@@ -22,6 +22,15 @@ import { AuthenticatedRequest, GqlContext } from '../types';
 export const RATE_LIMIT_KEY = 'rateLimit';
 
 /**
+ * Metadata key for skipping rate limits on a route. When this metadata
+ * is present (truthy) on a handler or class, RateLimitGuard short-circuits
+ * canActivate() and the request bypasses bucket accounting entirely. This
+ * is the supported replacement for the historical isWhitelisted IP-allowlist
+ * — handler-scoped skip is more auditable than IP-scoped whitelist.
+ */
+export const SKIP_RATE_LIMIT_KEY = 'skipRateLimit';
+
+/**
  * Rate limit configuration
  */
 export interface RateLimitConfig {
@@ -34,6 +43,12 @@ export interface RateLimitConfig {
  */
 export const RateLimit = (config: RateLimitConfig): ReturnType<typeof SetMetadata> =>
   SetMetadata(RATE_LIMIT_KEY, config);
+
+/**
+ * Decorator to mark a handler or class as exempt from rate limiting.
+ */
+export const SkipRateLimit = (): ReturnType<typeof SetMetadata> =>
+  SetMetadata(SKIP_RATE_LIMIT_KEY, true);
 
 /**
  * Rate limit entry
@@ -286,6 +301,19 @@ export class RateLimitGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = this.getRequest(context);
+
+    // Handler-level skip — @SkipRateLimit() exempts the route entirely. The
+    // reflector returns truthy iff the decorator is present on the handler
+    // or its enclosing class. Short-circuit before key generation so the
+    // bucket never observes the request.
+    const shouldSkip = this.reflector.getAllAndOverride<boolean>(SKIP_RATE_LIMIT_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (shouldSkip) {
+      return true;
+    }
+
     const config = this.getRateLimitConfig(context, request);
 
     // Generate rate limit key
@@ -327,6 +355,18 @@ export class RateLimitGuard implements CanActivate {
 
       const now = Date.now();
       const retryAfter = Math.ceil((entry.resetTime - now) / 1000);
+
+      // RFC 7231 §7.1.3: Retry-After is the canonical wire mechanism for
+      // 429 responses. Set it on the response BEFORE throwing so the
+      // exception filter and HTTP framework propagate it back to the
+      // client. Without this header, well-behaved HTTP clients have no
+      // structured signal for when to retry and either back off blindly
+      // or hammer the gateway. Spec at rate-limit.guard.spec.ts
+      // "should set Retry-After header when limit exceeded".
+      const response = request.res;
+      if (response?.setHeader) {
+        response.setHeader('Retry-After', retryAfter.toString());
+      }
 
       throw new HttpException(
         {

@@ -1638,7 +1638,19 @@ mod tests {
         });
 
     fn ensure_key_sandbox() {
-        let _ = &*TEST_KEY_PATH_INIT;
+        let path = &*TEST_KEY_PATH_INIT;
+        match std::fs::read(path) {
+            Ok(bytes) if bytes.len() >= crate::db_secret::MIN_SECRET_KEY_LEN => {}
+            _ => {
+                std::fs::write(path, vec![0xA5u8; 32]).expect("seed test db key");
+            }
+        }
+        // SAFETY: tests in this binary mutate process-wide env. Re-setting the
+        // canonical sandbox path on every caller keeps v1 fallback tests from
+        // inheriting a transient path left by another env-mutating test.
+        unsafe {
+            std::env::set_var("SUDERRA_DB_KEY_PATH", path);
+        }
     }
 
     #[test]

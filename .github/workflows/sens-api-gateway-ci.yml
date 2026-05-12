@@ -202,7 +202,7 @@ jobs:
       # memory, and logs for the full enterprise validation pass.
       - name: Run gateway tests
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
-        run: cargo test --locked --all-targets --no-fail-fast
+        run: cargo test --locked --all-targets --no-fail-fast -- --test-threads=1
 
   test-ci-features:
     name: cargo test --all-targets --features curated
@@ -232,7 +232,7 @@ jobs:
       # requiring SX1302 vendor C sources. Hardware HAL builds remain explicit.
       - name: Run gateway CI feature tests
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
-        run: cargo test --locked --all-targets --features "$SENS_API_GATEWAY_CI_FEATURES" --no-fail-fast
+        run: cargo test --locked --all-targets --features "$SENS_API_GATEWAY_CI_FEATURES" --no-fail-fast -- --test-threads=1
 
   sx1302-vendor-hal-contract:
     name: sx1302-vendor-hal contract

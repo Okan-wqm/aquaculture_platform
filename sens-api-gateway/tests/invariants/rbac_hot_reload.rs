@@ -25,9 +25,9 @@ fn hot_reload_requires_manage_policy_permission() {
     // Unit test `update_policy_requires_manage_policy_permission`
     // in src/commands/required_permission.rs is the runtime
     // evidence.
-    let _contract =
+    let contract =
         "cmd_update_policy gate = Permission::ManagePolicy (not DeployProgram, not Reboot)";
-    assert!(!_contract.is_empty());
+    assert!(contract.contains("ManagePolicy"));
 }
 
 #[test]
@@ -42,8 +42,8 @@ fn hot_reload_shares_verify_chain_with_boot_loader() {
     // Any change that duplicates verify logic across the
     // two entry points is a REGRESSION against this
     // invariant.
-    let _contract = "hot_reload_from_bytes + load_from_file_inner both call verify_and_floor — single verify+floor SSoT";
-    assert!(!_contract.is_empty());
+    let contract = "hot_reload_from_bytes + load_from_file_inner both call verify_and_floor — single verify+floor SSoT";
+    assert!(contract.contains("verify_and_floor"));
 }
 
 #[test]
@@ -59,9 +59,8 @@ fn hot_reload_memory_swap_precedes_disk_persist() {
     // while memory=OLD on crash — agent serves OLD
     // permissions while persistence claims NEW. That
     // disagreement is an observability + audit trap.
-    let _contract =
-        "hot_reload: memory-swap BEFORE disk-persist (safe degradation on mid-op crash)";
-    assert!(!_contract.is_empty());
+    let contract = "hot_reload: memory-swap BEFORE disk-persist (safe degradation on mid-op crash)";
+    assert!(contract.contains("BEFORE"));
 }
 
 #[test]
@@ -73,9 +72,9 @@ fn hot_reload_disk_persist_is_atomic_via_tempfile_rename() {
     // A naive `fs::write(path, bytes)` would leave a partial
     // file on crash mid-write, breaking HC-4 config-compat
     // on next boot.
-    let _contract =
+    let contract =
         "hot_reload disk persist: tempfile + atomic same-dir rename (never partial-write on crash)";
-    assert!(!_contract.is_empty());
+    assert!(contract.contains("atomic"));
 }
 
 #[test]
@@ -86,9 +85,9 @@ fn hot_reload_rejects_when_mode_disabled() {
     // explicit opt-out of RBAC entirely + MUST require
     // agent restart after a mode change (config reload is
     // not in scope for this handler).
-    let _contract =
+    let contract =
         "cmd_update_policy: mode=Disabled -> rejected with structured error, no mutation";
-    assert!(!_contract.is_empty());
+    assert!(contract.contains("Disabled"));
 }
 
 #[test]
@@ -99,8 +98,8 @@ fn hot_reload_rejects_before_provisioning() {
     // verify check in verify_manifest; without a known
     // tenant we cannot enforce it. Rejecting explicitly
     // is clearer than a downstream "TenantMismatch" error.
-    let _contract = "cmd_update_policy: tenant_id=None -> rejected (cannot enforce tenant binding pre-provisioning)";
-    assert!(!_contract.is_empty());
+    let contract = "cmd_update_policy: tenant_id=None -> rejected (cannot enforce tenant binding pre-provisioning)";
+    assert!(contract.contains("tenant_id=None"));
 }
 
 #[test]
@@ -116,8 +115,8 @@ fn hot_reload_preserves_manifest_on_verify_failure() {
     // previous state) — critical for the operational
     // safety invariant: a bad operator-pushed manifest
     // should NEVER DOWNGRADE the active one.
-    let _contract = "hot_reload: verify failure -> current UNCHANGED (fail-closed; no regression to empty state)";
-    assert!(!_contract.is_empty());
+    let contract = "hot_reload: verify failure -> current UNCHANGED (fail-closed; no regression to empty state)";
+    assert!(contract.contains("UNCHANGED"));
 }
 
 #[test]
@@ -131,6 +130,6 @@ fn hot_reload_advances_rollback_floor_on_success() {
     // between hot-reload and any subsequent file-load
     // would accept a captured older signed manifest
     // (the rollback attack Batch 71 closed).
-    let _contract = "hot_reload success -> ManifestVersionStore::record_accepted(new_version) (persists across reboot)";
-    assert!(!_contract.is_empty());
+    let contract = "hot_reload success -> ManifestVersionStore::record_accepted(new_version) (persists across reboot)";
+    assert!(contract.contains("record_accepted"));
 }

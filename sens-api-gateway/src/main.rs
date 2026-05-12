@@ -15,7 +15,19 @@
 // Test code is exempt — panicking on assertion failure is idiomatic in tests.
 #![cfg_attr(
     test,
-    allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+    allow(
+        clippy::approx_constant,
+        clippy::duplicated_attributes,
+        clippy::empty_line_after_doc_comments,
+        clippy::empty_line_after_outer_attr,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::large_stack_arrays,
+        clippy::print_stderr,
+        clippy::print_stdout,
+        clippy::unwrap_used,
+        clippy::useless_vec
+    )
 )]
 
 // Batch 24 plan §5 Faz 2 Step 2 partial: boot-time process
@@ -180,8 +192,6 @@ mod opc_ua_server_user_token_validator; // Batch #245 Faz 5 A-3b: hot-reload val
 mod opc_ua_server_user_tokens; // Batch #242 Faz 5 A-3a: UserTokenEnrollment primitive (UserName/Password + X.509)
 mod outbound_publisher; // Batch #251 ARC-002: broker-aware MQTT publish dispatcher (direct + queue-on-disk)
 mod publish_helpers; // Batch #255 ARC-002: centralized publish-routing helpers (Outbound vs. legacy direct)
-#[cfg(feature = "scada-display")]
-mod scada_db;
 #[cfg(feature = "scada-display")]
 mod scada_db;
 #[cfg(feature = "scada-display")]
@@ -673,7 +683,7 @@ pub struct AppState {
     /// AppState construction. Downstream consumers
     /// (Phase 2 / Batch 84 audit-hmac-from-keystore,
     /// Phase 2 / Batch 85 SQLCipher-key-from-keystore)
-    /// clone the Arc<dyn Keystore> for per-purpose
+    /// clone the `Arc<dyn Keystore>` for per-purpose
     /// derivation via KeyPurpose::*.
     ///
     /// WHAT: `Option<Arc<dyn Keystore>>` — trait-object
@@ -5333,6 +5343,7 @@ async fn run_agent(
             user_token_manifest_store: user_token_store_for_opcua,
             license: &license_for_opcua,
             device_code: &device_code_string,
+            clock_authority: clock_authority_for_opcua,
         })
         .await
         {

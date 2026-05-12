@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Integration invariant for Faz 6 two-person integrity gate
 //! (Batch #305-#307 closure arc).
 //!

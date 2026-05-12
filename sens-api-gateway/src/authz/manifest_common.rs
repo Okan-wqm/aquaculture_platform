@@ -44,8 +44,8 @@
 //!
 //! Every gate returns an error variant tagged by gate name. Callers map
 //! the common error into their local error enum via `From` impls — see
-//! [`super::verify::ManifestVerifyError::From`] and
-//! [`super::user_token_manifest::UserTokenManifestVerifyError::From`].
+//! `super::verify::ManifestVerifyError` and
+//! `super::user_token_manifest::UserTokenManifestVerifyError`.
 
 use std::time::SystemTime;
 

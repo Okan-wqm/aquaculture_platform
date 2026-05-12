@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Invariants for Batch 60 two-layer command-id dedup
 //! architecture (Moka-when-active + VecDeque-fallback).
 //!

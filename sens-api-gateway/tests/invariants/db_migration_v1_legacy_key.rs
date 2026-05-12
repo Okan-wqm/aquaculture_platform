@@ -212,9 +212,19 @@ fn d3_pragma_key_hex_round_trips_via_hex_decode() {
     // Manual hex-decode (no hex crate dep needed for
     // the test).
     let mut decoded = [0u8; 32];
-    for (i, chunk) in hex_str.as_bytes().chunks(2).enumerate() {
-        let s = std::str::from_utf8(chunk).expect("ascii");
-        decoded[i] = u8::from_str_radix(s, 16).expect("hex digit");
+    for (i, chunk) in hex_str.as_bytes().chunks_exact(2).enumerate() {
+        let s = match std::str::from_utf8(chunk) {
+            Ok(s) => s,
+            Err(err) => panic!("formatter must produce ascii lower-hex: {err}"),
+        };
+        let byte = match u8::from_str_radix(s, 16) {
+            Ok(byte) => byte,
+            Err(err) => panic!("formatter must produce valid hex pairs: {err}"),
+        };
+        match decoded.get_mut(i) {
+            Some(slot) => *slot = byte,
+            None => panic!("formatter produced more than 32 bytes"),
+        }
     }
     assert_eq!(decoded, key);
 }

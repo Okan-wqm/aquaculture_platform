@@ -24,8 +24,8 @@ fn disabled_mode_skips_verify_entirely() {
     // behavior; operators who have not yet provisioned a
     // sidecar file get the same de-facto boot behavior as
     // pre-Batch-54.
-    let _contract = "ConfigIntegrityMode::Disabled => verify_at_boot returns Ok(()) without I/O";
-    assert!(!_contract.is_empty());
+    let contract = "ConfigIntegrityMode::Disabled => verify_at_boot returns Ok(()) without I/O";
+    assert!(contract.contains("Disabled"));
 }
 
 #[test]
@@ -36,8 +36,8 @@ fn permissive_mode_warn_logs_on_failure() {
     // Rationale: early-detection posture for operator-
     // managed migration. Operators see the attempted-but-
     // failed verify in the log before flipping to Enforcing.
-    let _contract = "Permissive mode: verify failure -> warn! + Ok(()) (boot continues)";
-    assert!(!_contract.is_empty());
+    let contract = "Permissive mode: verify failure -> warn! + Ok(()) (boot continues)";
+    assert!(contract.contains("Permissive"));
 }
 
 #[test]
@@ -48,9 +48,8 @@ fn enforcing_mode_fails_closed_on_failure() {
     // any network listener binds — attackers observing the
     // boot path cannot distinguish "device refused to boot
     // because config tampered" from "device offline".
-    let _contract =
-        "Enforcing mode: verify failure -> Err(reason) -> exit(1) before network listen";
-    assert!(!_contract.is_empty());
+    let contract = "Enforcing mode: verify failure -> Err(reason) -> exit(1) before network listen";
+    assert!(contract.contains("Enforcing"));
 }
 
 #[test]
@@ -64,8 +63,8 @@ fn factory_pubkey_hex_rejects_wrong_length() {
     // Enforced by Batch 42 Rule 5 at config load (prevents
     // getting this far) PLUS the verify_runtime's
     // parse_factory_pubkey safety net.
-    let _contract = "parse_factory_pubkey rejects hex strings != 64 chars";
-    assert!(!_contract.is_empty());
+    let contract = "parse_factory_pubkey rejects hex strings != 64 chars";
+    assert!(contract.contains("64 chars"));
 }
 
 #[test]
@@ -86,8 +85,8 @@ fn highest_seen_version_first_boot_returns_zero() {
     // Verified by the in-crate test `load_highest_seen_
     // version_missing_file_returns_zero` in
     // config_integrity/verify_runtime.rs.
-    let _contract = "load_highest_seen_version on missing file returns 0 (first boot floor)";
-    assert!(!_contract.is_empty());
+    let contract = "load_highest_seen_version on missing file returns 0 (first boot floor)";
+    assert!(contract.contains("returns 0"));
 }
 
 #[test]
@@ -109,8 +108,8 @@ fn save_highest_seen_version_is_best_effort() {
     //
     // Sprint 6.3 keystore upgrades persistence to SQLCipher
     // for post-compromise integrity.
-    let _contract = "save_highest_seen_version best-effort; failure does not abort boot";
-    assert!(!_contract.is_empty());
+    let contract = "save_highest_seen_version best-effort; failure does not abort boot";
+    assert!(contract.contains("best-effort"));
 }
 
 #[test]
@@ -128,8 +127,8 @@ fn ed25519_verify_uses_verify_strict() {
     // attacker craft an equivalent-signature variant of a
     // valid config, bypassing the jti-style uniqueness
     // invariant.
-    let _contract = "ed25519 verify uses VerifyingKey::verify_strict for malleability defense";
-    assert!(!_contract.is_empty());
+    let contract = "ed25519 verify uses VerifyingKey::verify_strict for malleability defense";
+    assert!(contract.contains("verify_strict"));
 }
 
 // =====================================================================
@@ -210,7 +209,7 @@ fn d5_verify_at_boot_called_from_main_before_otel_init() {
         cold_boot_phase.contains(verify_at_boot_call),
         "D-5 WIRE INVARIANT VIOLATED: main.rs's cold-boot phase \
          (between `fn main()` and `init_opentelemetry(`) MUST contain \
-         a call to `{}`. The verify_at_boot wire is the architectural \
+         a call to `{verify_at_boot_call}`. The verify_at_boot wire is the architectural \
          enforcement of ULTRA-HIGH-019 D-5 — without it the agent \
          would boot with NO config-integrity check, making operator \
          /etc/suderra/config.yaml tampering undetectable. If you \
@@ -218,7 +217,6 @@ fn d5_verify_at_boot_called_from_main_before_otel_init() {
          phase), update this test's `otel_idx` anchor and document \
          the architectural reason in the move commit. If you \
          accidentally deleted the call, restore it.",
-        verify_at_boot_call,
     );
 }
 
@@ -295,10 +293,9 @@ fn d5_factory_pubkey_hex_sourced_from_config_field() {
     assert!(
         main_rs.contains(needle),
         "D-5 WIRE INVARIANT VIOLATED: main.rs does not source \
-         factory_pubkey_hex from `{}`. The operator-signed config \
+         factory_pubkey_hex from `{needle}`. The operator-signed config \
          field is the architectural trust anchor for the integrity \
          pubkey; sourcing from elsewhere (env var, constant) would \
          break the ADR-020 §2 chain.",
-        needle
     );
 }

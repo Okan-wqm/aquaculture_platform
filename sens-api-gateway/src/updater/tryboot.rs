@@ -236,7 +236,7 @@ impl TrybootBootloaderHandle {
     }
 
     /// Build the autoboot.txt content that sets BOTH the
-    /// stable [all] block AND the [tryboot] block. Called
+    /// stable `[all]` block AND the `[tryboot]` block. Called
     /// on `set_next_boot_slot` — the agent is asking the
     /// bootloader to tryboot the target on next reboot.
     ///
@@ -265,7 +265,7 @@ impl TrybootBootloaderHandle {
     }
 
     /// Build the autoboot.txt content with ONLY the
-    /// stable [all] block (no tryboot). Called on
+    /// stable `[all]` block (no tryboot). Called on
     /// `clear_pending_boot` (promote trial to stable) +
     /// `rollback_next_boot` (revert to previous stable).
     fn build_stable_contents(&self, stable_slot: AbPartition) -> String {
@@ -282,7 +282,7 @@ impl TrybootBootloaderHandle {
         )
     }
 
-    /// Parse the CURRENT [all].boot_partition from an
+    /// Parse the CURRENT `[all].boot_partition` from an
     /// existing autoboot.txt content, if present.
     /// Used to determine the "stable" slot that we keep
     /// on set_next_boot_slot (so tryboot fallback

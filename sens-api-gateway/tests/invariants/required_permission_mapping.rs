@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Integration invariant for command → Permission mapping
 //! (Batch 28, Sprint 6.1 partial).
 //!

@@ -268,6 +268,7 @@ impl CommandHandler {
 }
 
 #[cfg(test)]
+#[allow(clippy::const_is_empty)]
 mod tests {
     //! Unit tests for `cmd_update_cert_pinning` are gated by the larger
     //! `CommandHandler` test fixture which is built around an

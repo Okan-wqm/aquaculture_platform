@@ -310,6 +310,7 @@ jsonwebtoken = { version = "9", optional = true }
 #            `tests/invariants/feature_off_no_symbols.sh` runs `nm` over release
 #            binary and fails on any `opcua` symbol match when feature disabled.
 async-opcua = { version = "0.18", optional = true, features = ["server"] }
+rcgen = "0.13"
 
 # =============================================================================
 # TPM 2.0 via tss-esapi — ADR-019 §7 Tier 1 master key sealing (optional)
@@ -508,17 +509,6 @@ tempfile = "3.10"
 #       precursor to cargo-fuzz targets (bytecode, envelope, policy, modbus parsers).
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.5"
-
-# rcgen — pure-Rust X.509 cert generation for unit tests that need a valid
-# WebPki trust anchor. Phase 1.1.1 MtlsVerifierState tests need a non-empty
-# RootCertStore (WebPkiServerVerifier rejects empty stores at construction
-# with `NoRootAnchors`). Embedding hand-rolled DER would create a stale
-# fixture; rcgen generates a fresh self-signed CA cert at test start and
-# discards it after the run. Pure-Rust, no openssl shell-out, deterministic
-# enough for the boot-time invariants we exercise (we don't drive a real
-# handshake through this cert; the verifier builder just needs ANY valid
-# X.509 anchor to succeed).
-rcgen = "0.13"
 
 [profile.release]
 opt-level = "z"     # Optimize for size

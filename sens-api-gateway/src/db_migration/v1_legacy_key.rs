@@ -252,7 +252,10 @@ mod tests {
         // first one) — this catches the role-swap
         // regression (HMAC inputs reversed) without
         // hard-coding the full output.
-        let mut spot_mac = HmacSha256::new_from_slice(secret_key).unwrap();
+        let mut spot_mac = match HmacSha256::new_from_slice(secret_key) {
+            Ok(mac) => mac,
+            Err(err) => panic!("HMAC-SHA256 accepts any key length per RFC 2104: {err}"),
+        };
         spot_mac.update(machine_id);
         let spot = spot_mac.finalize().into_bytes();
         assert_eq!(key[..], spot[..]);
@@ -343,8 +346,7 @@ mod tests {
         let hex_sentinel = format_sqlcipher_pragma_key_hex(&sentinel);
         assert!(
             hex_sentinel.starts_with("0a"),
-            "expected leading 0a (zero-padded lower-hex), got: {}",
-            hex_sentinel
+            "expected leading 0a (zero-padded lower-hex), got: {hex_sentinel}"
         );
 
         // All chars must be lower-hex (no uppercase).
@@ -354,8 +356,7 @@ mod tests {
             hex_mixed
                 .chars()
                 .all(|c| matches!(c, '0'..='9' | 'a'..='f')),
-            "expected lower-hex only, got: {}",
-            hex_mixed
+            "expected lower-hex only, got: {hex_mixed}"
         );
         assert_eq!(hex_mixed, "ab".repeat(32));
     }

@@ -12,7 +12,7 @@
 //! WHAT: `impl CommandHandler` block with 2 handlers + 2 private
 //! helpers:
 //! - `cmd_update_io_config` — deploy a new IO config.
-//!   Parses params → Vec<TagConfig> → updates ProcessImage →
+//!   Parses params → `Vec<TagConfig>` → updates ProcessImage →
 //!   registers HH/H/L/LL alarms per configured tag → persists to
 //!   /etc/suderra/io_config.yaml (best-effort; warn on failure).
 //! - `cmd_set_output` — write a single value to any configured
@@ -21,7 +21,7 @@
 //!   (GPIO / Modbus / I2C); unsupported protocols return a
 //!   specific error.
 //! - `parse_io_config_to_tags` helper — converts the
-//!   AgentIoConfig JSON schema to Vec<TagConfig>. Accepts both
+//!   AgentIoConfig JSON schema to `Vec<TagConfig>`. Accepts both
 //!   camelCase (tagName, ioType) and snake_case (tag_name,
 //!   io_type) to support legacy + modern cloud payloads.
 //! - `persist_io_config` helper — writes the raw params JSON to

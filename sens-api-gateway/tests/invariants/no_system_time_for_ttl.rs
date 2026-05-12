@@ -1,3 +1,11 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::unwrap_used
+)]
+
 //! Faz 2 D-9 final invariant — Tier-3 baseline-drift
 //! detector for `SystemTime::now()` in TTL-critical files
 //! (Batch #326 — closes UH-021 D-9 parent finding).

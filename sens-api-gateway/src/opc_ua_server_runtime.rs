@@ -549,6 +549,7 @@ pub struct OpcUaInitDeps<'a> {
     /// field uses `device_code` (machine UID minted at provisioning,
     /// stable across re-bindings) — proper architectural shape.
     pub device_code: &'a str,
+    pub clock_authority: Arc<dyn crate::runtime_safety::ClockAuthority>,
 }
 
 /// Gate-chained startup: operator config switch → Faz 7
@@ -602,6 +603,7 @@ pub async fn init_opc_ua_server(
         user_token_manifest_store,
         license,
         device_code,
+        clock_authority,
     } = deps;
     // Gate 1: operator off-switch.
     if !config.enabled {
@@ -793,7 +795,7 @@ pub async fn init_opc_ua_server(
     let bundle =
         crate::opc_ua_sens_node_manager::SensRuntimeBundle::new(node_manager_builder, auth_manager);
 
-    let handle_opt = start_opcua_server(config, &*registry_arc, bundle)
+    let handle_opt = start_opcua_server(config, &*registry_arc, bundle, process_image, device_code)
         .await
         .map_err(|e| format!("opc_ua_server start failed: {}", e))?;
 
@@ -831,6 +833,8 @@ pub async fn start_opcua_server(
     config: &OpcUaServerConfig,
     registry: &OpcUaTagRegistry,
     sens_bundle: crate::opc_ua_sens_node_manager::SensRuntimeBundle,
+    process_image: &ProcessImage,
+    device_code: &str,
 ) -> Result<Option<Arc<SuderraOpcUaHandle>>, OpcUaServerStartError> {
     if !config.enabled {
         info!("opc_ua_server.enabled=false — server NOT started (operator off-switch)");
@@ -845,6 +849,7 @@ pub async fn start_opcua_server(
     // changes (e.g., per-tenant manager partitioning) would
     // surface here.
     let manager_kind = "SensNodeManager+SensAuthManager (typed-authz, virtual nodes)";
+    let registry_arc = Arc::new(registry.clone());
 
     // Phase B-1 (ADR-031) — construct PkiStore + CertRotation + pass into
     // build_server via PkiRuntimeRef.
@@ -1024,8 +1029,15 @@ mod tests {
     async fn start_returns_none_when_disabled() {
         let mut cfg = minimal_enabled_config();
         cfg.enabled = false;
-        let result =
-            start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle()).await;
+        let pi = ProcessImage::new();
+        let result = start_opcua_server(
+            &cfg,
+            &OpcUaTagRegistry::default(),
+            deny_all_test_bundle(),
+            &pi,
+            "test-device-fixture",
+        )
+        .await;
         match result {
             Ok(None) => {}
             Ok(Some(_)) => panic!("disabled config MUST NOT start a server"),
@@ -1037,8 +1049,15 @@ mod tests {
     async fn start_errors_on_invalid_config() {
         let mut cfg = minimal_enabled_config();
         cfg.bind = "not an ip".to_string();
-        let result =
-            start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle()).await;
+        let pi = ProcessImage::new();
+        let result = start_opcua_server(
+            &cfg,
+            &OpcUaTagRegistry::default(),
+            deny_all_test_bundle(),
+            &pi,
+            "test-device-fixture",
+        )
+        .await;
         match result {
             Err(OpcUaServerStartError::ConfigInvalid(_)) => {}
             Err(other) => panic!("expected ConfigInvalid, got {:?}", other),
@@ -1187,14 +1206,20 @@ mod tests {
         // every run to a unique path.
         let cfg = minimal_enabled_config();
         let pki_dir = cfg.own_pki_dir.clone();
-        let handle =
-            match start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle())
-                .await
-            {
-                Ok(Some(h)) => h,
-                Ok(None) => panic!("enabled config returned None"),
-                Err(e) => panic!("start failed: {}", e),
-            };
+        let pi = ProcessImage::new();
+        let handle = match start_opcua_server(
+            &cfg,
+            &OpcUaTagRegistry::default(),
+            deny_all_test_bundle(),
+            &pi,
+            "test-device-fixture",
+        )
+        .await
+        {
+            Ok(Some(h)) => h,
+            Ok(None) => panic!("enabled config returned None"),
+            Err(e) => panic!("start failed: {}", e),
+        };
         // Give the run-loop a moment to bind (actual
         // liveness is not required for this test — we only
         // verify the cancel → join roundtrip).
@@ -1349,7 +1374,16 @@ mod tests {
             mk_node("di_limit", IoType::DI, "Bool"),
         ]);
 
-        let handle = match start_opcua_server(&cfg, &registry, deny_all_test_bundle()).await {
+        let pi = ProcessImage::new();
+        let handle = match start_opcua_server(
+            &cfg,
+            &registry,
+            deny_all_test_bundle(),
+            &pi,
+            "test-device-fixture",
+        )
+        .await
+        {
             Ok(Some(h)) => h,
             Ok(None) => panic!("enabled config returned None"),
             Err(e) => panic!("start failed: {}", e),
@@ -1464,6 +1498,7 @@ mod tests {
             // Tests use a fixed code so a re-run against the same temp dir
             // does not trip the moved-device detection.
             device_code: "test-device-fixture",
+            clock_authority: Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         }
     }
 

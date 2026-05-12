@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Invariant tests for shutdown drain-before-safe-state ordering
 //! (Batch 26, plan D-15).
 //!

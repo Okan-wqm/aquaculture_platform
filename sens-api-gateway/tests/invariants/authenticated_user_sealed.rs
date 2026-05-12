@@ -106,8 +106,7 @@ fn find_test_region_start(content: &str) -> usize {
             // Look ahead to the next non-blank non-comment line;
             // if it introduces a module, this is the test-region
             // start.
-            for j in (i + 1)..lines.len() {
-                let peek = lines[j].trim();
+            for peek in lines.iter().skip(i + 1).map(|line| line.trim()) {
                 if peek.is_empty() || peek.starts_with("//") {
                     continue;
                 }

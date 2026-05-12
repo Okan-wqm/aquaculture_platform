@@ -42,7 +42,7 @@ use crate::AppState;
 use crate::scripting::watch_sessions::WatchPublishSink;
 
 /// MqttClient-backed sink. Cheap to clone (just an
-/// Arc<RwLock<AppState>> clone).
+/// `Arc<RwLock<AppState>>` clone).
 pub struct MqttWatchPublishSink {
     state: Arc<RwLock<AppState>>,
 }

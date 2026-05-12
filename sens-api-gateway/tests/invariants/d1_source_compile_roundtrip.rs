@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Integration invariant for D-1 ST source compile production
 //! wire (Batch #297-#300, ORPHAN-HIGH-020 closure).
 //!

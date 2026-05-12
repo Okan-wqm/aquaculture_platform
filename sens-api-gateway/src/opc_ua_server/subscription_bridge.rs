@@ -256,6 +256,7 @@ impl SubscriptionBridge {
     ) -> Self {
         let task_cancel = cancel.clone();
         let handle = tokio::spawn(async move {
+            let mut cancel_rx = task_cancel.subscribe();
             tracing::info!(
                 target: "opc_ua.subscription",
                 "SubscriptionBridge task spawned (Phase B-4)"

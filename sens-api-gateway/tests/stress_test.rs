@@ -1,3 +1,5 @@
+#![allow(clippy::print_stdout, clippy::unwrap_used)]
+
 //! Stress Test for Suderra Edge Agent
 //!
 //! Tests system behavior under high load (1000 simulated devices)

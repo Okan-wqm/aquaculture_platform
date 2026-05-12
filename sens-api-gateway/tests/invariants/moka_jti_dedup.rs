@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Invariants for Batch 57 MokaJtiDedupTable (Sprint 6.4
 //! partial: jti dedup hot-window tier).
 //!

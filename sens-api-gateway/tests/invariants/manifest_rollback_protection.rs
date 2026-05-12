@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Invariants for Batch 71 ManifestVersionStore (Sprint 6.1
 //! rollback-protection persistence).
 //!

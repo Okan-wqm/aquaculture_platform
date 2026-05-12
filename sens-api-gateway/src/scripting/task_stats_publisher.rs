@@ -26,7 +26,7 @@
 //! 2. Serializes the snapshot as a JSON array.
 //! 3. Publishes via `publish_helpers::publish_task_stats` (a
 //!    new helper added alongside this module) at
-//!    [`MessagePriority::Normal`] — same class as io_data
+//!    `MessagePriority::Normal` — same class as io_data
 //!    telemetry. Drains in normal priority order on broker
 //!    reconnect.
 //! 4. Runs on a configurable interval (default 30s per plan).

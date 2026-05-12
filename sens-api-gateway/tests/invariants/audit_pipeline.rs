@@ -1,3 +1,4 @@
+#![allow(clippy::const_is_empty)]
 //! Invariants for Batches 74-80 Sprint 6.2 Phase 2 audit
 //! sink pipeline (sink foundation → chain recovery → SIGHUP
 //! rotation → offline verify CLI → AppState wiring →

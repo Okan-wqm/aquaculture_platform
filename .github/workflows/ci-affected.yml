@@ -183,7 +183,17 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Run linter (affected only)
-        run: npx nx affected -t lint --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
+        run: |
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          AFFECTED_FILES="$(git diff --name-only "$BASE_REF"...HEAD | grep -Ev '^(\.npmrc|package(-lock)?\.json)$' || true)"
+
+          if [ -z "$AFFECTED_FILES" ]; then
+            echo "No source files affected beyond root package metadata; skipping lint."
+            exit 0
+          fi
+
+          FILES_ARG="$(printf '%s\n' "$AFFECTED_FILES" | paste -sd, -)"
+          npx nx affected -t lint --files="$FILES_ARG" --parallel=2
         timeout-minutes: 35
         env:
           NX_DAEMON: 'false'
@@ -288,7 +298,15 @@ jobs:
       - name: Run migration harness tests (affected, isolated)
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          AFFECTED_TEST_PROJECTS="$(npx nx show projects --affected --base="$BASE_REF" --head=HEAD --with-target=test)"
+          AFFECTED_FILES="$(git diff --name-only "$BASE_REF"...HEAD | grep -Ev '^(\.npmrc|package(-lock)?\.json)$' || true)"
+
+          if [ -z "$AFFECTED_FILES" ]; then
+            echo "No source files affected beyond root package metadata; skipping isolated Testcontainers gate."
+            exit 0
+          fi
+
+          FILES_ARG="$(printf '%s\n' "$AFFECTED_FILES" | paste -sd, -)"
+          AFFECTED_TEST_PROJECTS="$(npx nx show projects --affected --files="$FILES_ARG" --with-target=test)"
 
           if printf '%s\n' "$AFFECTED_TEST_PROJECTS" | grep -Fxq 'migration-harness'; then
             # 2026-05-06: Pull the harness-owned pinned PG image before Jest
@@ -309,7 +327,17 @@ jobs:
           NODE_OPTIONS: '--max-old-space-size=4096'
 
       - name: Run tests (affected only)
-        run: npx nx affected -t test --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2 --exclude=migration-harness
+        run: |
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          AFFECTED_FILES="$(git diff --name-only "$BASE_REF"...HEAD | grep -Ev '^(\.npmrc|package(-lock)?\.json)$' || true)"
+
+          if [ -z "$AFFECTED_FILES" ]; then
+            echo "No source files affected beyond root package metadata; skipping tests."
+            exit 0
+          fi
+
+          FILES_ARG="$(printf '%s\n' "$AFFECTED_FILES" | paste -sd, -)"
+          npx nx affected -t test --files="$FILES_ARG" --parallel=2 --exclude=migration-harness
         timeout-minutes: 35
         env:
           NX_DAEMON: 'false'

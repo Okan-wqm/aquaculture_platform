@@ -17,7 +17,7 @@
 //!   even one with valid signatures + co-approver.
 //!
 //! This handler is the **operator-facing surface** that drives
-//! [`MtlsVerifierState::rebuild`] from an inbound MQTT command. The
+//! [`crate::mtls::MtlsVerifierState::rebuild`] from an inbound MQTT command. The
 //! security boundary is layered:
 //!
 //! 1. **Envelope authentication** (existing — `command_envelope::envelope`
@@ -28,7 +28,7 @@
 //!
 //! 2. **RBAC permission gate** (existing — `commands::required_permission`
 //!    table): `cmd_update_cert_pinning` requires
-//!    [`Permission::ManageCertPinning`]; only operators bound to a role
+//!    [`crate::authz::Permission::ManageCertPinning`]; only operators bound to a role
 //!    that grants this permission can invoke the handler.
 //!
 //! 3. **Tier-1 downgrade gate** (Phase 1.1.4B): the

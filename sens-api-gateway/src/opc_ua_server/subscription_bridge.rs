@@ -125,7 +125,7 @@ impl BridgeCancelToken {
 
     /// Trigger cancel. Idempotent — re-cancelling is a no-op.
     pub fn cancel(&self) {
-        let _ = self.tx.send(true);
+        self.tx.send_replace(true);
     }
 
     /// Read the current cancel state without awaiting.
@@ -541,7 +541,9 @@ mod tests {
         // Send one change so the task has activity.
         let _ = tx.send(synth_change("tank_a", 1.0));
         // Trigger cancel + await shutdown.
-        bridge.shutdown().await;
+        tokio::time::timeout(std::time::Duration::from_secs(2), bridge.shutdown())
+            .await
+            .expect("bridge shutdown must not hang after cancel");
         // Subsequent shutdown is idempotent.
         bridge.shutdown().await;
     }

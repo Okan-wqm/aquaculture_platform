@@ -132,6 +132,44 @@ export class ProvisioningController {
   }
 
   /**
+   * GET /install/:deviceCode/suderra-os?token=<provisioningToken>
+   *
+   * Returns a Suderra OS JSON manifest. This is consumed by the forced-command
+   * provision user, not by curl|bash.
+   */
+  @Get('install/:deviceCode/suderra-os')
+  @RateLimit({ limit: 5, windowMs: 60000 })
+  async getSuderraOsInstallManifest(
+    @Param('deviceCode') deviceCode: string,
+    @Query('token') token: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
+      res.status(HttpStatus.BAD_REQUEST).contentType('application/json').send({ error: 'Invalid device code format' });
+      return;
+    }
+
+    if (!token) {
+      res.status(HttpStatus.UNAUTHORIZED).contentType('application/json').send({ error: 'Provisioning token required' });
+      return;
+    }
+
+    try {
+      const manifest = await this.provisioningService.generateSuderraOsInstallManifest(deviceCode, token);
+      res
+        .status(HttpStatus.OK)
+        .contentType('application/json')
+        .set('Content-Disposition', `attachment; filename="install-${deviceCode}-suderra-os.json"`)
+        .send(manifest);
+    } catch (error) {
+      this.logger.error(`Failed to generate Suderra OS manifest for ${deviceCode}:`, error);
+      res.status(HttpStatus.BAD_REQUEST).contentType('application/json').send({
+        error: error instanceof Error ? error.message : 'Internal server error',
+      });
+    }
+  }
+
+  /**
    * GET /install/:deviceCode/uninstall
    *
    * Returns the uninstall script for a device.

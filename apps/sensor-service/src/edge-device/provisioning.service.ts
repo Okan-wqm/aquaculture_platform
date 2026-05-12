@@ -248,6 +248,48 @@ export class ProvisioningService {
   }
 
   /**
+   * Generate Suderra OS install manifest for a device.
+   *
+   * This is the OS-appliance path: the tenant panel gives the target a JSON
+   * manifest URL, and the target downloads/verifies the signed Edge artifact.
+   */
+  async generateSuderraOsInstallManifest(deviceCode: string, provisioningToken: string): Promise<unknown> {
+    const device = await this.findDeviceAcrossSchemas('device_code', deviceCode);
+
+    if (!device) {
+      throw new NotFoundException(`Device ${deviceCode} not found`);
+    }
+
+    if (!device.provisioningToken) {
+      throw new BadRequestException('Device has no provisioning token');
+    }
+
+    if (!this.validateProvisioningToken(device.provisioningToken, provisioningToken)) {
+      throw new UnauthorizedException('Invalid provisioning token');
+    }
+
+    if (device.tokenUsedAt) {
+      throw new ConflictException('Device has already been activated');
+    }
+
+    if (device.tokenExpiresAt && device.tokenExpiresAt < new Date()) {
+      throw new UnauthorizedException('Provisioning token has expired');
+    }
+
+    const config = await this.installerScriptService.getProvisioningConfig();
+    return this.installerScriptService.renderSuderraOsInstallManifest({
+      deviceId: device.id,
+      deviceCode: device.deviceCode,
+      provisioningToken: device.provisioningToken,
+      apiUrl: config.apiBaseUrl,
+      agentVersion: config.agentVersion,
+      mqttBroker: config.mqttBroker,
+      mqttPort: config.mqttPort,
+      mqttTlsEnabled: config.mqttTlsEnabled ?? (config.mqttPort === 8883),
+    });
+  }
+
+  /**
    * Activate a device (called by agent)
    */
   async activateDevice(

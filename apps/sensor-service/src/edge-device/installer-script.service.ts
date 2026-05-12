@@ -16,6 +16,16 @@ export interface ProvisioningConfig {
   mqttTlsEnabled: boolean;
 }
 
+export interface SuderraOsInstallManifest {
+  version: string;
+  artifact_url: string;
+  sha256: string;
+  signature_url: string;
+  binary_name: string;
+  artifact_format: string;
+  activation_token: string;
+}
+
 /**
  * Installer Script Service
  * Handles shell script generation for edge device provisioning.
@@ -146,6 +156,55 @@ export class InstallerScriptService {
   async buildInstallerCommand(deviceCode: string, token?: string): Promise<string> {
     const url = await this.buildInstallerUrl(deviceCode, token);
     return `curl -sSL "${url}" | sudo bash`;
+  }
+
+  /**
+   * Build Suderra OS manifest URL for a specific device.
+   * This is consumed by the forced-command provision user on Suderra OS.
+   */
+  async buildSuderraOsInstallerUrl(deviceCode: string, token: string): Promise<string> {
+    const config = await this.getProvisioningConfig();
+    return `${config.apiBaseUrl}/install/${deviceCode}/suderra-os?token=${encodeURIComponent(token)}`;
+  }
+
+  /**
+   * Build the command the tenant panel can run against a freshly booted
+   * Suderra OS target.
+   */
+  async buildSuderraOsInstallerCommand(deviceIp: string, deviceCode: string, token: string): Promise<string> {
+    const url = await this.buildSuderraOsInstallerUrl(deviceCode, token);
+    const safeDeviceIp = this.sanitizeForShell(deviceIp);
+    return `ssh provision@${safeDeviceIp} install-manifest-url ${url}`;
+  }
+
+  /**
+   * Render a Suderra OS JSON install manifest. Unlike the generic Linux path,
+   * this does not emit a shell script and requires pre-signed Edge artifacts.
+   */
+  renderSuderraOsInstallManifest(variables: InstallerScriptVariables): SuderraOsInstallManifest {
+    const artifactUrl = this.configService.get<string>('SUDERRA_OS_EDGE_ARTIFACT_URL', '');
+    const sha256 = this.configService.get<string>('SUDERRA_OS_EDGE_ARTIFACT_SHA256', '');
+    const signatureUrl = this.configService.get<string>(
+      'SUDERRA_OS_EDGE_SIGNATURE_URL',
+      artifactUrl ? `${artifactUrl}.sig` : '',
+    );
+
+    if (!artifactUrl || !sha256 || !signatureUrl) {
+      throw new Error(
+        'Suderra OS installer manifest requires SUDERRA_OS_EDGE_ARTIFACT_URL, ' +
+          'SUDERRA_OS_EDGE_ARTIFACT_SHA256 and SUDERRA_OS_EDGE_SIGNATURE_URL',
+      );
+    }
+
+    return {
+      version: variables.agentVersion,
+      artifact_url: artifactUrl,
+      sha256,
+      signature_url: signatureUrl,
+      binary_name: this.configService.get<string>('SUDERRA_OS_EDGE_BINARY_NAME', 'suderra-agent'),
+      artifact_format: this.configService.get<string>('SUDERRA_OS_EDGE_ARTIFACT_FORMAT', 'tar.gz'),
+      activation_token: variables.provisioningToken,
+    };
   }
 
   /**

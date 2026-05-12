@@ -133,6 +133,7 @@ pub const DEFAULT_TOTAL_CAPACITY: usize = 100_000;
 /// `assert_eq!(meta.tenant_id, expected_tenant)` rather than a key/
 /// value pairwise check at every consumer.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SensorMeta {
     /// Unique sensor identifier (the second half of the cache key).
     pub sensor_id: Uuid,

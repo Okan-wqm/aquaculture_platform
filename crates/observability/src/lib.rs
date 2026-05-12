@@ -10,7 +10,7 @@
 //!   PII safety is a first-class concern. The TS `StructuredLoggerService`
 //!   (in `libs/backend-common/src/telemetry/`) auto-applies a `maskPii()`
 //!   transform; this crate provides a structurally equivalent path:
-//!     - Wrap secrets in [`secrecy::Secret<T>`] so accidental Display
+//!     - Wrap secrets in `secrecy::SecretBox<T>` so accidental Display
 //!       / Debug uses cannot reveal the inner value.
 //!     - [`Masked<T>`] is a thinner wrapper for non-secret PII (email,
 //!       phone, tenant id when logged at INFO) that still must not
@@ -155,7 +155,7 @@ impl TracingOpts {
 ///   - `timestamp` RFC 3339 UTC
 ///   - any structured fields added by the call site
 ///
-/// PII fields MUST be wrapped in [`Masked`] or [`secrecy::Secret`]
+/// PII fields MUST be wrapped in [`Masked`] or `secrecy::SecretBox`
 /// before being passed to a tracing macro. The masking happens at
 /// `Display` / `Debug` time, not at serialisation time, so even an
 /// accidental `format!("{x}")` does the right thing.

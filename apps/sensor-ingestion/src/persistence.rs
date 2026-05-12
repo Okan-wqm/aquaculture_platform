@@ -20,7 +20,7 @@
 //!
 //! WHY tenant-scoped schema name:
 //!   ADR-011: every tenant gets its own schema `tenant_<32-hex>`. The
-//!   schema name is derived from the [`TenantId`] via
+//!   schema name is derived from the `TenantId` via
 //!   [`SchemaName::from_tenant_id`] — the schema string never enters
 //!   this module from operator input, so SQL identifier injection is
 //!   structurally impossible.
@@ -130,12 +130,14 @@ impl LoggingSink {
     /// production code observes batch flow through tracing spans
     /// instead of polling a counter.
     #[cfg(test)]
+    #[must_use]
     pub fn batches(&self) -> u64 {
         self.batches.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Size of the most recently received batch. Test-only accessor.
     #[cfg(test)]
+    #[must_use]
     pub fn last_batch_size(&self) -> usize {
         self.last_size.load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -438,7 +440,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::{BatchSink, LoggingSink, SinkError, run_sink_loop};
-    use crate::payload::SensorReading;
+    use crate::payload::{PayloadSource, SensorReading};
     use std::sync::Arc;
     use tenant_context::{SchemaName, TenantId};
     use tokio::sync::mpsc;
@@ -455,8 +457,10 @@ mod tests {
             sensor_id: fixed_uuid(0xBB),
             channel_id: fixed_uuid(0xCC),
             value: 24.5,
+            raw_value: 24.5,
             quality: 1,
             producer_ts: Utc::now().timestamp_millis(),
+            source: PayloadSource::UpcastedFromV1,
         }
     }
 
@@ -541,8 +545,10 @@ mod tests {
             sensor_id: fixed_uuid(0x10),
             channel_id: fixed_uuid(0x20),
             value: 1.0,
+            raw_value: 1.0,
             quality: 1,
             producer_ts: Utc::now().timestamp_millis(),
+            source: PayloadSource::UpcastedFromV1,
         };
         let batch = vec![mk(tenant_a), mk(tenant_b), mk(tenant_a), mk(tenant_a)];
         let groups = super::group_by_tenant(batch);

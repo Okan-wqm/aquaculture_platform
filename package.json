@@ -118,6 +118,8 @@
     "gates:deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/main-deletion-witness.ts",
     "gates:migration-deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-deletion-witness.ts",
     "gates:schema-drift-registration": "ts-node --project tools/gates/tsconfig.json tools/gates/schema-drift-registration.ts",
+    "gates:sens-enterprise-validation": "ts-node --project tools/gates/tsconfig.json tools/gates/sens-enterprise-validation.ts",
+    "gates:sens-enterprise-validation:self-test": "npm run gates:sens-enterprise-validation -- --self-test",
     "gates:all": "npm run gates:banned-phrase && npm run gates:migration-sql && npm run gates:tier-claim",
     "ripple": "npx ts-node --project tools/ripple-tracer/tsconfig.json tools/ripple-tracer/cli.ts",
     "aria": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools cycle run --workspace-root .. --cycle-id aria-$(date -u +%Y%m%dT%H%M%SZ)",

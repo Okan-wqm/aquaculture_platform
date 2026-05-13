@@ -20,6 +20,7 @@ permissions:
 
 env:
   NODE_VERSION: '22'
+  SENS_API_GATEWAY_CI_FEATURES: health,telemetry,metrics,strict-security,scada-display,lorawan,signed-deploy,tpm,st-bytecode,multi-task-scheduler,opc-ua-server,live-debug,license-enforce
 
 jobs:
   detect-changes:
@@ -52,6 +53,11 @@ jobs:
             # chicken-egg: the fix lands but nothing triggers the chain
             # that would exercise it).
             deploy-config:
+              - 'sens-api-gateway/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - 'tools/executors/cargo/**'
               - 'scripts/deploy/**'
               - '.github/workflows/deploy-digitalocean.yml'
               - '.github/workflows/deploy-staging.yml'
@@ -90,7 +96,8 @@ jobs:
         run: |
           if [ "${{ steps.changes.outputs.apps }}" = "true" ] || \
              [ "${{ steps.changes.outputs.libs }}" = "true" ] || \
-             [ "${{ steps.changes.outputs.web }}" = "true" ]; then
+             [ "${{ steps.changes.outputs.web }}" = "true" ] || \
+             [ "${{ steps.changes.outputs.deploy-config }}" = "true" ]; then
             echo "has_changes=true" >> $GITHUB_OUTPUT
           else
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -720,4 +727,123 @@ jobs:
         run: npm install -g markdownlint-cli
 
       - name: Check markdown files
-        run: markdownlint 'docs/**/*.md' --ignore node_modules || true
+        run: markdownlint 'docs/**/*.md' --ignore node_modules
+
+  sensor-service-gates:
+    needs: [install, detect-changes]
+    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Restore node_modules
+        id: cache-nm
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+      - name: Fallback install if cache missed
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --ignore-scripts --no-audit
+      - name: Run sensor enterprise gate fixtures
+        run: >
+          npx jest --config apps/sensor-service/jest.config.ts --runInBand
+          apps/sensor-service/src/edge-device/__tests__/agent-io-config-v2.spec.ts
+          apps/sensor-service/src/edge-device/__tests__/edge-device.resolver.permissions.spec.ts
+          apps/sensor-service/src/ingestion/__tests__/mqtt-listener.service.spec.ts
+
+  sens-api-gateway-rust:
+    needs: [install, detect-changes]
+    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+      - name: Install TPM build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libtss2-dev
+      - name: Cargo check locked curated CI features
+        working-directory: sens-api-gateway
+        run: cargo check --locked --release --all-targets --features "$SENS_API_GATEWAY_CI_FEATURES"
+
+  sens-enterprise-validation:
+    needs: [install, detect-changes]
+    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Restore node_modules
+        id: cache-nm
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+      - name: Fallback install if cache missed
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --ignore-scripts --no-audit
+      - name: Run Sens enterprise validation
+        run: npm run gates:sens-enterprise-validation
+      - name: Upload Sens enterprise validation artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sens-enterprise-validation-${{ github.run_number }}
+          path: artifacts/sens-enterprise-validation/**
+          if-no-files-found: error
+          retention-days: 14
+
+  sens-enterprise-summary:
+    needs:
+      - detect-changes
+      - install
+      - lint
+      - type-check
+      - test
+      - sensor-service-gates
+      - sens-api-gateway-rust
+      - sens-enterprise-validation
+      - build
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail on skipped, cancelled or failed Sens dependencies
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            exit 0
+          fi
+          if [ "${{ needs.detect-changes.outputs.has_changes }}" != "true" ]; then
+            exit 0
+          fi
+          for result in \
+            "${{ needs.install.result }}" \
+            "${{ needs.lint.result }}" \
+            "${{ needs.type-check.result }}" \
+            "${{ needs.test.result }}" \
+            "${{ needs.sensor-service-gates.result }}" \
+            "${{ needs.sens-api-gateway-rust.result }}" \
+            "${{ needs.sens-enterprise-validation.result }}" \
+            "${{ needs.build.result }}"; do
+            if [ "$result" != "success" ]; then
+              echo "Sens enterprise dependency did not succeed: $result"
+              exit 1
+            fi
+          done

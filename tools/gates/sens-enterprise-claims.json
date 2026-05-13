@@ -1,0 +1,268 @@
+{
+  "$schema": "./sens-enterprise-claims.schema.json",
+  "version": 1,
+  "metadata": {
+    "plan_id": "enterprise-sens-closure-architecture",
+    "plan_path": "docs/plans/2026-05-12-sens-api-gateway-edge-platform-v2-revision.md",
+    "reviewed_at": "2026-05-13",
+    "release_gate": true,
+    "claim_schema": "tools/gates/sens-enterprise-claims.schema.json"
+  },
+  "claims": [
+    {
+      "id": "sens-ci-bypass-closed",
+      "title": "Sens/Cargo/tooling changes trigger repo CI and enterprise validation",
+      "status": "closed",
+      "owner": "platform-release",
+      "risk_tier": "P1",
+      "release_blocker": true,
+      "evidence_type": "static",
+      "evidence_class": "workflow_static",
+      "command": "npm run gates:sens-enterprise-validation -- --no-artifacts",
+      "expected_exit": 0,
+      "checks": [
+        "ci_path_filters_cover_sens_surface",
+        "ci_enterprise_validation_job_present",
+        "ci_enterprise_summary_fails_bad_dependencies",
+        "ci_affected_sens_rust_uses_curated_features"
+      ],
+      "plan_refs": [
+        "Enterprise gate v2: CI self-tests and path-filter trigger fixtures"
+      ],
+      "evidence_refs": [
+        ".github/workflows/ci-affected.yml",
+        "tools/gates/sens-enterprise-validation.ts",
+        "tools/gates/sens-enterprise-claims.schema.json"
+      ],
+      "linked_finding_id": "SENS-CI-BYPASS"
+    },
+    {
+      "id": "edge-release-enterprise-gated",
+      "title": "Edge release cannot publish artifacts before enterprise validation",
+      "status": "closed",
+      "owner": "platform-release",
+      "risk_tier": "P0",
+      "release_blocker": true,
+      "evidence_type": "static",
+      "evidence_class": "workflow_static",
+      "command": "npm run gates:sens-enterprise-validation -- --release --no-artifacts",
+      "expected_exit": 1,
+      "checks": [
+        "edge_release_has_enterprise_validation_job",
+        "edge_release_build_needs_enterprise_validation",
+        "edge_release_rust_toolchain_pinned",
+        "edge_release_tiered_binary_feature_contract"
+      ],
+      "plan_refs": [
+        "Enterprise gate v2: release workflow pinned toolchain and explicit binary tier"
+      ],
+      "evidence_refs": [
+        ".github/workflows/edge-agent-release.yml",
+        ".github/workflows/sens-api-gateway-ci.yml",
+        "rust-toolchain.toml"
+      ],
+      "linked_finding_id": "EDGE-RELEASE-GATE"
+    },
+    {
+      "id": "cargo-supply-chain-hard-gates",
+      "title": "Cargo audit and cargo deny are hard release gates",
+      "status": "closed",
+      "owner": "platform-release",
+      "risk_tier": "P1",
+      "release_blocker": true,
+      "evidence_type": "static",
+      "evidence_class": "workflow_static",
+      "command": "npm run gates:sens-enterprise-validation -- --no-artifacts",
+      "expected_exit": 0,
+      "checks": [
+        "edge_release_cargo_deny_not_warning_only",
+        "edge_release_cargo_audit_denies_warnings",
+        "sens_ci_curated_matrix_present"
+      ],
+      "plan_refs": [
+        "Enterprise gate v2: release feature set and supply-chain hard gates"
+      ],
+      "evidence_refs": [
+        ".github/workflows/edge-agent-release.yml",
+        ".github/workflows/sens-api-gateway-ci.yml"
+      ],
+      "linked_finding_id": "CARGO-SUPPLY-CHAIN"
+    },
+    {
+      "id": "suppression-patterns-rejected",
+      "title": "Validation rejects docs-only/suppression/baseline closure patterns",
+      "status": "closed",
+      "owner": "platform-release",
+      "risk_tier": "P1",
+      "release_blocker": true,
+      "evidence_type": "static",
+      "evidence_class": "static_analysis",
+      "command": "npm run gates:sens-enterprise-validation:self-test",
+      "expected_exit": 0,
+      "checks": [
+        "workflows_do_not_suppress_docs_check",
+        "workflows_do_not_continue_on_error",
+        "workflows_do_not_update_baselines"
+      ],
+      "plan_refs": [
+        "Enterprise gate v2: docs-only, baseline update and warning gate closure are rejected"
+      ],
+      "evidence_refs": [
+        ".github/workflows",
+        "tools/gates/sens-enterprise-validation.ts"
+      ],
+      "linked_finding_id": "SUPPRESSION-PATTERNS"
+    },
+    {
+      "id": "command-permission-burn-down",
+      "title": "Command permissions use least-privilege command-specific authorities",
+      "status": "closed",
+      "owner": "edge-security",
+      "risk_tier": "P0",
+      "release_blocker": true,
+      "evidence_type": "behavioral",
+      "evidence_class": "code_and_unit",
+      "command": "npm run gates:sens-enterprise-validation -- --no-artifacts",
+      "expected_exit": 0,
+      "checks": [
+        "write_modbus_uses_modbus_write_permission",
+        "update_io_config_uses_manage_io_config",
+        "refresh_license_uses_manage_license",
+        "modbus_output_routing_is_slave_bound",
+        "anonymous_only_unsigned_enforcing"
+      ],
+      "plan_refs": [
+        "Command security: catalog lookup, RBAC and typed dispatch",
+        "Runtime I/O: set_output rejects unsafe routing"
+      ],
+      "evidence_refs": [
+        "sens-api-gateway/src/commands/catalog.rs",
+        "sens-api-gateway/src/authz/permission.rs",
+        "sens-api-gateway/src/commands/io_config.rs",
+        "sens-api-gateway/src/command_envelope/envelope.rs"
+      ],
+      "linked_finding_id": "COMMAND-PERMISSION-BURN-DOWN"
+    },
+    {
+      "id": "coapproval-rbac-enterprise-closure",
+      "title": "Co-approval is backed by role, expiry, permission relevance, distinct actor and negative tests",
+      "status": "blocked",
+      "owner": "edge-security",
+      "risk_tier": "P0",
+      "release_blocker": true,
+      "evidence_type": "behavioral",
+      "evidence_class": "runtime_behavioral",
+      "command": "/root/.cargo/bin/cargo test --locked coapproval",
+      "expected_exit": 0,
+      "checks": [
+        "coapproval_role_expiry_permission_relevance_negative_tests"
+      ],
+      "plan_refs": [
+        "Command security: co-approval RBAC capability with expiry and command-hash binding"
+      ],
+      "evidence_refs": [
+        "sens-api-gateway/src/commands/envelope_adapter.rs",
+        "sens-api-gateway/src/authz/in_memory_engine.rs",
+        "sens-api-gateway/src/authz/permission.rs"
+      ],
+      "blocker": "Current gateway co-approver verification proves distinct signature shape, self-signature rejection and signature validity, but does not yet prove co-approver role, approval expiry or permission relevance under RBAC.",
+      "linked_finding_id": "COAPPROVAL-RBAC"
+    },
+    {
+      "id": "runtime-io-safe-state-closure",
+      "title": "Runtime I/O and safe-state closure has behavioral evidence",
+      "status": "blocked",
+      "owner": "edge-runtime",
+      "risk_tier": "P0",
+      "release_blocker": true,
+      "evidence_type": "behavioral",
+      "evidence_class": "runtime_behavioral",
+      "command": "/root/.cargo/bin/cargo test --locked agent_io_config_v2 && /root/.cargo/bin/cargo test --locked test_apply_partial_failure_reports_failed_ids",
+      "expected_exit": 0,
+      "checks": [
+        "runtime_io_safe_state_behavioral_tests"
+      ],
+      "plan_refs": [
+        "Runtime I/O: SafeStateResult all-output success, strict AgentIoConfigV2 and shutdown ordering"
+      ],
+      "evidence_refs": [
+        "sens-api-gateway/src/safe_state.rs",
+        "sens-api-gateway/src/main.rs",
+        "sens-api-gateway/src/commands/io_config.rs",
+        "sens-api-gateway/src/io_poll.rs"
+      ],
+      "blocker": "Current gateway runtime does not yet expose executable SafeStateResult all-output success semantics, AgentIoConfigV2 strict persistence/readback evidence, or shutdown coordinator/io_poll ordering evidence. The claim must remain blocked until those behavioral tests and runtime paths exist.",
+      "linked_finding_id": "RUNTIME-IO-SAFE-STATE"
+    },
+    {
+      "id": "cloud-edge-command-lifecycle-closure",
+      "title": "Cloud to edge config push uses durable command lifecycle evidence",
+      "status": "blocked",
+      "owner": "edge-cloud",
+      "risk_tier": "P0",
+      "release_blocker": true,
+      "evidence_type": "behavioral",
+      "evidence_class": "runtime_behavioral",
+      "command": "npx jest --config apps/sensor-service/jest.config.ts --runInBand apps/sensor-service/src/edge-device/__tests__/edge-command-lifecycle.spec.ts",
+      "expected_exit": 0,
+      "checks": [
+        "cloud_edge_durable_command_lifecycle_behavioral_tests"
+      ],
+      "plan_refs": [
+        "Cloud/edge boundary: durable EdgeCommand row/outbox, signed envelope publish and applied/failed/rejected/timed_out response states"
+      ],
+      "evidence_refs": [
+        "apps/sensor-service/src/edge-device/edge-device.service.ts"
+      ],
+      "blocker": "pushIoConfigToDevice still publishes directly over MQTT after validation; durable EdgeCommand/outbox persistence, signed-envelope response correlation and terminal lifecycle state tests are not implemented.",
+      "linked_finding_id": "CLOUD-EDGE-COMMAND-LIFECYCLE"
+    },
+    {
+      "id": "opcua-s7-physical-write-closure",
+      "title": "OPC-UA and S7 physical write claims are separated from registered metadata/stub claims",
+      "status": "blocked",
+      "owner": "industrial-integrations",
+      "risk_tier": "P0",
+      "release_blocker": true,
+      "evidence_type": "behavioral",
+      "evidence_class": "runtime_behavioral",
+      "command": "/root/.cargo/bin/cargo test --locked opcua_s7_physical_write_policy",
+      "expected_exit": 0,
+      "checks": [
+        "opcua_s7_physical_write_policy_audit_behavioral_tests"
+      ],
+      "plan_refs": [
+        "OPC-UA/S7/write policy: shared write-policy boundary with durable audit and readback"
+      ],
+      "evidence_refs": [
+        "sens-api-gateway/src/commands/write.rs"
+      ],
+      "blocker": "Gateway write_opcua/write_s7 handlers remain honest disabled stubs; physical protocol-write closure remains blocked until pre-write audit/policy and post-commit audit-pending behavior are executable.",
+      "linked_finding_id": "OPCUA-S7-PHYSICAL-WRITE"
+    },
+    {
+      "id": "sx1302-vendor-hal-hil-closure",
+      "title": "SX1302 vendor HAL closure requires explicit vendor HAL and HIL evidence",
+      "status": "blocked",
+      "owner": "edge-hardware",
+      "risk_tier": "P0",
+      "release_blocker": true,
+      "evidence_type": "hil",
+      "evidence_class": "hil",
+      "command": "SUDERRA_REQUIRE_SX1302_VENDOR_HAL=1 /root/.cargo/bin/cargo build --locked --release --features sx1302-vendor-hal",
+      "expected_exit": 0,
+      "checks": [
+        "sx1302_vendor_hal_hil_evidence"
+      ],
+      "plan_refs": [
+        "SX1302/HIL: pinned vendor HAL sources plus committed HIL evidence"
+      ],
+      "evidence_refs": [
+        ".github/workflows/sens-api-gateway-ci.yml",
+        "tools/gates/sx1302-hil-evidence.schema.json"
+      ],
+      "blocker": "Raw all-features compile is not accepted as SX1302 closure. Release closure requires SUDERRA_REQUIRE_SX1302_VENDOR_HAL=1 plus HIL evidence.",
+      "linked_finding_id": "SX1302-HIL"
+    }
+  ]
+}

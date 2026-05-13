@@ -327,3 +327,37 @@ jobs:
       - name: Build gateway docs
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
         run: cargo doc --locked --no-deps --document-private-items
+
+  sens-api-gateway-summary:
+    name: Sens API Gateway summary
+    needs:
+      - format
+      - check-default
+      - check-ci-features
+      - clippy
+      - test
+      - test-ci-features
+      - deny
+      - audit
+      - doc
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail on skipped, cancelled or failed gateway dependencies
+        run: |
+          for result in \
+            "${{ needs.format.result }}" \
+            "${{ needs.check-default.result }}" \
+            "${{ needs.check-ci-features.result }}" \
+            "${{ needs.clippy.result }}" \
+            "${{ needs.test.result }}" \
+            "${{ needs.test-ci-features.result }}" \
+            "${{ needs.deny.result }}" \
+            "${{ needs.audit.result }}" \
+            "${{ needs.doc.result }}"; do
+            if [ "$result" != "success" ]; then
+              echo "Sens API Gateway dependency did not succeed: $result"
+              exit 1
+            fi
+          done

@@ -525,6 +525,8 @@ pub enum Permission {
     FailoverControl,
     /// Push a new RBAC manifest (ADR-018 §8 hot-reload).
     ManagePolicy,
+    /// Push runtime I/O tag configuration.
+    ManageIoConfig,
     /// Rotate MQTT mTLS leaf-certificate pinning state.
     ManageCertPinning,
     /// Refresh edge-license (ADR-018 §2 license tier).

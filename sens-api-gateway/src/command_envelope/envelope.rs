@@ -46,8 +46,8 @@ use serde::{Deserialize, Serialize};
 
 use super::canonical::{CanonicalParamsError, CmdHash, canonical_params};
 use super::jti::{InvalidJti, Jti};
-use super::mutating::is_mutating;
 use crate::authz::policy::Ed25519SignatureBytes;
+use crate::commands::required_permission::permission_for_command;
 
 /// Tier-1 parse-level bound on command name length (BATCH-007-FU-03 closure).
 /// `MUTATING_COMMANDS` entries are ≤ 22 chars; 128 gives ample headroom for
@@ -426,15 +426,16 @@ pub fn verify_envelope(
         return Err(EnvelopeVerifyError::CmdHashMismatch);
     }
 
-    // Gate 7 — signature presence per mode + is_mutating.
-    match (mode, env.signature.as_ref(), is_mutating(&env.cmd)) {
+    // Gate 7 — signature presence per mode + catalog permission.
+    let requires_signature = permission_for_command(&env.cmd, &env.params).is_some();
+    match (mode, env.signature.as_ref(), requires_signature) {
         // Disabled — any envelope passes; no signature verify.
         (SignatureMode::Disabled, _, _) => {}
-        // Enforcing + mutating + no signature → reject.
+        // Enforcing + permissioned command + no signature → reject.
         (SignatureMode::Enforcing, None, true) => {
             return Err(EnvelopeVerifyError::SignatureRequiredInEnforcingMode);
         }
-        // Enforcing + read-only + no signature → accept (read-only path).
+        // Enforcing + anonymous command + no signature → accept.
         (SignatureMode::Enforcing, None, false) => {}
         // Permissive + no signature → accept (audit at sink-side).
         (SignatureMode::Permissive, None, _) => {}
@@ -672,10 +673,25 @@ mod tests {
         assert_eq!(err, EnvelopeVerifyError::SignatureRequiredInEnforcingMode);
     }
 
-    /// WHY: Enforcing mode + read-only command + no signature → accept.
-    ///      Read-only commands (ping, health_check) have no authority.
+    /// WHY: Enforcing mode + permissioned read command + no signature → reject.
     #[test]
-    fn enforcing_mode_accepts_unsigned_read_only_command() {
+    fn enforcing_mode_rejects_unsigned_read_permission_command() {
+        let env = make_env("get_config", 1_000, 9_000);
+        let err = verify_envelope(
+            &env,
+            &[0x42u8; 16],
+            5_000,
+            SignatureMode::Enforcing,
+            mock_hash,
+            |_, _| true,
+        )
+        .expect_err("unsigned permissioned read");
+        assert_eq!(err, EnvelopeVerifyError::SignatureRequiredInEnforcingMode);
+    }
+
+    /// WHY: Enforcing mode + anonymous command + no signature → accept.
+    #[test]
+    fn enforcing_mode_accepts_unsigned_anonymous_command() {
         let env = make_env("ping", 1_000, 9_000);
         verify_envelope(
             &env,

@@ -182,20 +182,28 @@ impl CommandHandler {
                 }
             }
             ProtocolConfig::Modbus {
-                slave_id: _,
+                slave_id,
                 register,
                 function: _,
                 register_type: _,
             } => {
                 if let Some(ref handle) = state.modbus_handle {
                     let bool_value = value != 0.0;
-                    if let Some(device) = state.config.modbus.first() {
+                    if let Some(device) = state
+                        .config
+                        .modbus
+                        .iter()
+                        .find(|device| device.slave_id == *slave_id)
+                    {
                         match handle.write_coil(&device.name, *register, bool_value).await {
                             Ok(()) => Ok(()),
                             Err(e) => Err(format!("Modbus write failed: {}", e)),
                         }
                     } else {
-                        Err("No Modbus devices configured".to_string())
+                        Err(format!(
+                            "No Modbus device configured for slave_id {}",
+                            slave_id
+                        ))
                     }
                 } else {
                     Err("Modbus handle not available".to_string())

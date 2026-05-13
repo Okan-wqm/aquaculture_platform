@@ -21,13 +21,48 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN: stable
+  RUST_TOOLCHAIN: '1.88.0'
+  EDGE_RELEASE_FEATURES: scada-display
   BINARY_NAME: suderra-agent
   ARCHIVE_BINARY_NAME: edge-agent
 
 jobs:
+  sens-enterprise-validation:
+    name: Sens enterprise validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      SENS_ENTERPRISE_RELEASE: '1'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit
+
+      - name: Run Sens enterprise validation
+        run: npm run gates:sens-enterprise-validation -- --release
+
+      - name: Upload Sens enterprise validation artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sens-enterprise-release-validation-${{ github.run_number }}
+          path: artifacts/sens-enterprise-validation/**
+          if-no-files-found: error
+          retention-days: 30
+
   build:
     name: Build (${{ matrix.target }})
+    needs: sens-enterprise-validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -90,10 +125,9 @@ jobs:
           cargo install cargo-audit --locked 2>/dev/null || true
           cargo install cargo-deny --locked 2>/dev/null || true
           echo "=== cargo audit (RUSTSEC advisories) ==="
-          cargo audit
+          cargo audit --deny warnings
           echo "=== cargo deny (license + advisory + ban policy) ==="
-          cargo deny check advisories 2>&1 || echo "::warning::cargo deny advisory check failed"
-          cargo deny check licenses 2>&1 || echo "::warning::cargo deny license check failed"
+          cargo deny check advisories bans licenses sources
 
       - name: Build release binary
         working-directory: sens-api-gateway
@@ -104,7 +138,7 @@ jobs:
         # in Cross.toml — the documented cross integration pattern.
         env:
           LIBCLANG_PATH: /usr/lib/llvm-12/lib
-        run: cross build --release --target ${{ matrix.target }} --features scada-display
+        run: cross build --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"
 
       - name: Strip binary (x86_64 only)
         if: matrix.strip

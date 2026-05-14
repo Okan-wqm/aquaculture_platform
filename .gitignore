@@ -148,3 +148,24 @@ sens-repo/
 
 vite.config.*.timestamp*NUL
 .worktrees
+
+# Plan ARIA-V2 §Phase 1 minimal entries (full sweep arrives in Phase 5).
+# Per-clone runtime binding state — committed schema-stamp form of
+# repo_identity.json stays tracked; runtime ledgers + lock files are
+# operator-private.
+aria-tools/*.lock
+aria-tools/integrity_index.json
+aria-tools/runs.jsonl
+aria-tools/cycles.jsonl
+aria-tools/governance.jsonl
+aria-tools/health.jsonl
+aria-tools/cycle-diffs.jsonl
+aria-tools/raw-findings.jsonl
+aria-tools/reflections.jsonl
+aria-tools/findings.jsonl
+aria-tools/reviews.jsonl
+aria-tools/operator-feedback.jsonl
+aria-tools/feedback-consensus-uncertainties.jsonl
+aria-tools/quarantine.jsonl
+aria-tools/migration_state.json
+aria-tools/diagnostics/

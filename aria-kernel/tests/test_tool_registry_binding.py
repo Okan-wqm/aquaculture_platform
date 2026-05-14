@@ -59,10 +59,15 @@ class EnsureToolsBindingTests(unittest.TestCase):
         tools = self.tmp / "aria-tools"
         ensure_tools_dir(tools)
         ensure_tools_binding(tools, workspace_root=repo_a)
-        # Plan 022 C-3: binding to a different repo MUST raise.
+        # Plan ARIA-V2 §3.2 (formerly Plan 022 C-3): binding to a
+        # different repo MUST raise. v3 renamed the error code from
+        # ``tools_root_repo_hash_mismatch`` to ``tools_root_canonical_identity_mismatch``
+        # because the underlying identity is now canonical (path-
+        # independent) rather than env-bound. Plan ARIA-V2 §3.2 locks
+        # this rename via the v3 schema bump.
         with self.assertRaises(GovernanceError) as cm:
             ensure_tools_binding(tools, workspace_root=repo_b)
-        self.assertIn("tools_root_repo_hash_mismatch", str(cm.exception))
+        self.assertIn("tools_root_canonical_identity_mismatch", str(cm.exception))
         # Error includes both bound and current hashes for operator triage.
         self.assertIn(repo_hash(repo_a), str(cm.exception))
         self.assertIn(repo_hash(repo_b), str(cm.exception))

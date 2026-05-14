@@ -1,0 +1,62 @@
+{
+  "$schema": "aria/finding/v1",
+  "finding_id": "F-008",
+  "certainty": "CONFIRMED",
+  "claim_summary": "Plan ARIA-V2 validation cycle 2026-05-14 — 8 architectural defects (ARIA-V-001..V-008) + 37 supplementary findings (test-runner + audit-trail-completeness-auditor + infra-expert reviews) blocking ARIA kernel from running outside originator's environment, inflating PoC drift noise, undercounting MFE surface, and committing per-clone operator state. Phase 1 of the 6-phase remediation plan lands the canonical_identity architectural core: workspace.py canonical_identity + canonicalize_remote_url (URL-only canonical form, owner-case preserved per locked policy, offline fallback via root-commit SHA); tool_registry.py SCHEMA_VERSION=3 + ensure_tools_binding canonical-identity-aware + require_tools_v3 gate; migration.py migrate_tools_v2_to_v3 + migrate_tools_bootstrap idempotent umbrella + rollback_tools_v3_to_v2 with three-event audit chain linked by migration_event_id (AUDITTRAIL-MED-007); cli.py three new subcommands; pyproject.toml pyyaml dep for I-25/I-26; aria-tools/repo_identity.json stripped to v3 schema-stamp; minimal .gitignore block (Phase 5 completes the sweep); CI workflows renamed migrate-tools-v1-to-v2 → migrate-tools-bootstrap; tests/_helpers/git_fixtures.py shared MEDIUM-015 helper. 22 invariant tests landed (I-1..I-7, I-27, I-30) with full kernel suite 1480/1480 pass.",
+  "claim_type": "plan_aria_v2_phase_1_architectural_identity_refactor",
+  "closes_in_commit": "<TBD this commit>",
+  "created_at": "2026-05-14T00:00:00Z",
+  "evidence_chain_id": "chain_aria_v2_phase_1_canonical_identity",
+  "evidences": [
+    {
+      "ref": "aria-kernel/aria_kernel/workspace.py:27-218",
+      "summary": "ARIA-V-006 ROOT CAUSE — pre-Phase-1 repo_hash = sha256(resolved_path + remote_url)[:16] mixed environment-bound filesystem path into 'repo identity'. Post-Phase-1 canonical_identity = sha256(canonicalize_remote_url(remote))[:16] with owner-case-preserved policy + root-commit-SHA offline fallback. repo_hash kept as deprecated alias for legacy callsites."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/tool_registry.py:14-22, 123-220",
+      "summary": "ARIA-V-004 ROOT CAUSE — SCHEMA_VERSION bumped 2→3; ensure_tools_binding now binds via canonical_identity; bound_canonical_identity is primary field with bound_repo_hash mirrored for tolerance; require_tools_v3 added for v3-only callers; cross-repo defense intact at architecturally stronger tier (path-mismatch class structurally impossible)."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/migration.py:280-460",
+      "summary": "AUDITTRAIL-MED-007 — migrate_tools_v2_to_v3 emits 3 separate audit events (tools_root_rebound_for_v3_identity_recipe + tools_root_schema_stripped + aria_tools_contract_version_bumped) linked by migration_event_id. migrate_tools_bootstrap is the idempotent umbrella detecting current version + chaining; rollback_tools_v3_to_v2 provides parity."
+    },
+    {
+      "ref": ".github/workflows/aria-kernel.yml:40, aria-kernel-full.yml:36",
+      "summary": "INFRA-HIGH-002 closure — CI workflows renamed migrate-tools-v1-to-v2 → migrate-tools-bootstrap so v3 schema gate (Phase 1) does not break fresh CI runs. Idempotent umbrella handles v0/v1/v2 starting state automatically."
+    },
+    {
+      "ref": "aria-kernel/tests/test_canonical_identity.py (NEW, 17 tests), test_migrate_tools_v3.py (NEW, 5 tests)",
+      "summary": "22 invariant tests landed: I-1 URL equivalence classes, I-2 distinct repos, I-3 offline fallback (root commit SHA), I-4 worktree independence, I-5 contract v3 migration + idempotency, I-6 schema-stamp shape, I-27 bootstrap idempotency, I-30 three-event audit chain linkage."
+    },
+    {
+      "ref": "aria-tools/repo_identity.json (was env-bound 'e5d674a6dc22eb25')",
+      "summary": "ARIA-V-008 partial — committed schema-stamp shape: {aria_tools_contract_version:3, schema_version:3, contract_pinned_at_commit}. Runtime binding fields land in same file at bind-time on operator filesystems (mirror committed via aria-tools/.gitignore allowlist; full sweep arrives Phase 5)."
+    },
+    {
+      "ref": ".gitignore (Phase 1 minimal block)",
+      "summary": "ARIA-V-008 partial — runtime ledgers (governance/runs/cycles/health/raw-findings/reflections/cycle-diffs) + integrity_index + registry + lock files now gitignored. 12 pre-existing tracked copies git rm --cached so the ignore rule fires. Phase 5 completes the sweep with allowlist invariant test."
+    },
+    {
+      "ref": "aria-kernel/pyproject.toml:6-13",
+      "summary": "CRITICAL-020 closure — pyyaml>=6.0 added; required by Plan ARIA-V2 I-25 (CI workflow invariant, Phase 6) + I-26 (daily-report anchor invariant, Phase 6). Test-time only; runtime cost zero."
+    },
+    {
+      "ref": "aria-kernel/tests/_helpers/git_fixtures.py (NEW)",
+      "summary": "MEDIUM-015 closure — shared git fixture factory (make_local_git_repo + make_git_worktree + make_repo_with_initial_commit). Replaces 11+ inline subprocess.run patterns across existing tests; directory name underscored so unittest discover skips."
+    },
+    {
+      "ref": "aria-kernel/tests/test_tool_registry_binding.py:56-72, aria-kernel/tests/test_v13_contracts.py:380-388",
+      "summary": "Architectural-rename consequences locked: error code tools_root_repo_hash_mismatch → tools_root_canonical_identity_mismatch; CI workflow expectation migrate-tools-v1-to-v2 → migrate-tools-bootstrap. Both tests updated in same commit per atomic-commit discipline."
+    },
+    {
+      "ref": "/root/.claude/plans/immutable-sparking-waterfall.md",
+      "summary": "Operator-approved 6-phase remediation plan with 41 invariant tests. Phase 1 lands 22 of those invariants here; remaining 19 land across follow-up commits in same PR (Phases 1-followup, 2, 3, 4, 5, 6). State: Phase 1 atomic-core CONVERGED."
+    }
+  ],
+  "severity": "CRITICAL",
+  "scope": "aria-kernel + tools/aria-poc + .gitignore + .github/workflows/aria-kernel*.yml + aria-tools/",
+  "state": "RESOLVED",
+  "review_file": "docs/reviews/aria/2026-05-14-validation.md",
+  "owner_agent": "orchestrator",
+  "raised_in_cycle": "validation-cycle-2026-05-14"
+}

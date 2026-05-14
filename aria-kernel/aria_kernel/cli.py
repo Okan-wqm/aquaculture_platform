@@ -37,7 +37,10 @@ from aria_kernel.discovery import run_discovery
 from aria_kernel.feedback import add_feedback, build_feedback_event, import_feedback, list_feedback
 from aria_kernel.integrity import verify_integrity
 from aria_kernel.migration import (
+    migrate_tools_bootstrap,
     migrate_tools_v1_to_v2,
+    migrate_tools_v2_to_v3,
+    rollback_tools_v3_to_v2,
     migrate_workspace_v1_to_v2,
     rollback_tools_v2_to_v1,
     rollback_workspace_v2_to_v1,
@@ -372,6 +375,22 @@ def _main(argv: list[str] | None = None) -> int:
     rollback_tools.add_argument("--acknowledge", action="store_true")
     rollback_tools.add_argument("--reason", required=True)
     rollback_tools.add_argument("--force-discard-since-migration", action="store_true")
+
+    # Plan ARIA-V2 §3.8 — v2→v3 migration + idempotent umbrella bootstrap
+    # + reverse rollback. ``migrate-tools-bootstrap`` is the recommended
+    # operator entry point — it detects current contract version and
+    # chains the necessary steps to reach v3.
+    migrate_tools_v3 = add_subparser(integrity_sub, "migrate-tools-v2-to-v3")
+    migrate_tools_v3.add_argument("--workspace-root", required=True)
+    migrate_tools_v3.add_argument("--acknowledge", action="store_true")
+    migrate_tools_v3.add_argument("--reason", required=True)
+    migrate_tools_boot = add_subparser(integrity_sub, "migrate-tools-bootstrap")
+    migrate_tools_boot.add_argument("--workspace-root", required=True)
+    migrate_tools_boot.add_argument("--acknowledge", action="store_true")
+    migrate_tools_boot.add_argument("--reason", required=True)
+    rollback_tools_v3 = add_subparser(integrity_sub, "rollback-tools-v3-to-v2")
+    rollback_tools_v3.add_argument("--acknowledge", action="store_true")
+    rollback_tools_v3.add_argument("--reason", required=True)
 
     tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
@@ -1425,6 +1444,35 @@ def _main(argv: list[str] | None = None) -> int:
         result = migrate_tools_v1_to_v2(
             tools_dir=args.tools_dir,
             workspace_root=args.workspace_root,
+            acknowledge=args.acknowledge,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "integrity" and args.integrity_command == "migrate-tools-v2-to-v3":
+        result = migrate_tools_v2_to_v3(
+            tools_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            acknowledge=args.acknowledge,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "integrity" and args.integrity_command == "migrate-tools-bootstrap":
+        result = migrate_tools_bootstrap(
+            tools_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            acknowledge=args.acknowledge,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "integrity" and args.integrity_command == "rollback-tools-v3-to-v2":
+        result = rollback_tools_v3_to_v2(
+            tools_dir=args.tools_dir,
             acknowledge=args.acknowledge,
             reason=args.reason,
         )

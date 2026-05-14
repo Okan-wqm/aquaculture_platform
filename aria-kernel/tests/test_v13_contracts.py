@@ -383,7 +383,12 @@ class V13ContractTests(unittest.TestCase):
         for candidate in (workflow, full_workflow):
             self.assertIn("rm -rf ./.aria-ci/tools ./.aria-ci/workspaces", candidate)
             self.assertIn("mkdir -p ./.aria-ci", candidate)
-        self.assertIn("integrity migrate-tools-v1-to-v2 --tools-dir ./.aria-ci/tools", workflow)
+        # Plan ARIA-V2 §3.8 renamed the CI migration call from
+        # ``migrate-tools-v1-to-v2`` to the idempotent umbrella
+        # ``migrate-tools-bootstrap`` so the workflow handles any
+        # starting contract version (v0/v1/v2) and chains forward
+        # to v3 without operator intervention.
+        self.assertIn("integrity migrate-tools-bootstrap --tools-dir ./.aria-ci/tools", workflow)
         self.assertIn("discovery run --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools", workflow)
         self.assertNotIn("--tools-dir ./aria-tools --cycle-id ci-", workflow)
 

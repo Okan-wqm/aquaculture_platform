@@ -24,20 +24,157 @@ class WorkspacePaths:
     ledgers: dict[str, Path]
 
 
-def repo_hash(repo_root: Path) -> str:
-    resolved = repo_root.resolve()
-    remote = ""
+def canonicalize_remote_url(raw: str) -> str:
+    """Plan ARIA-V2 §3.1 — normalize a git remote URL to a canonical
+    ``host/owner/repo`` form so that environment-specific variants
+    (SSH vs HTTPS, with-or-without credentials, trailing .git, host
+    casing) all hash identically.
+
+    Steps:
+      a. strip "https://" / "http://" / "git@" / "ssh://" prefix
+      b. replace ":" after host with "/"  (SSH ``user@host:owner/repo``)
+      c. lowercase host segment ONLY  (owner+repo casing preserved
+         because GitHub treats ``Owner/Repo`` and ``owner/repo`` as
+         the same repo at HTTP layer but distinct at URL layer;
+         locking this rule with an invariant test prevents silent
+         regression)
+      d. strip trailing ".git"
+      e. strip credentials "user(:pass)?@" prefix
+    """
+    s = raw.strip()
+    if not s:
+        return ""
+    for proto in ("https://", "http://", "ssh://"):
+        if s.startswith(proto):
+            s = s[len(proto):]
+            break
+    if s.startswith("git@"):
+        s = s[len("git@"):]
+    if "@" in s and "/" not in s.split("@", 1)[0]:
+        s = s.split("@", 1)[1]
+    if ":" in s and "/" not in s.split(":", 1)[0]:
+        host, rest = s.split(":", 1)
+        s = f"{host}/{rest}"
+    if "/" in s:
+        host, _, rest = s.partition("/")
+        s = f"{host.lower()}/{rest}"
+    else:
+        s = s.lower()
+    if s.endswith(".git"):
+        s = s[:-4]
+    return s
+
+
+def _git_root_commit_sha(repo_root: Path) -> str:
+    """First root commit SHA, or empty string if unavailable.
+
+    Used as the offline fallback for ``canonical_identity`` so two
+    clones of the same repo at different paths still hash identically
+    even without a configured remote.
+    """
     try:
-        remote = subprocess.run(
+        result = subprocess.run(
+            ["git", "rev-list", "--max-parents=0", "HEAD"],
+            cwd=repo_root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return ""
+    if result.returncode != 0:
+        return ""
+    line = result.stdout.strip().splitlines()
+    return line[0].strip() if line else ""
+
+
+def canonical_identity(repo_root: Path) -> str:
+    """Plan ARIA-V2 §3.1 — environment-independent repo identity.
+
+    ``canonical_identity = sha256(canonicalize_remote_url(remote))[:16]``
+
+    Property: same repo → same hash, regardless of clone path,
+    protocol, credentials, .git suffix, host casing, or worktree
+    location. The legacy ``repo_hash`` mixed the resolved filesystem
+    path AND remote URL into the hash, which made the binding
+    environment-bound and broke fresh clones / cross-environment
+    operation (ARIA-V-006).
+
+    Offline fallback: if no ``remote.origin.url`` is configured, the
+    identity is anchored to ``git rev-list --max-parents=0 HEAD``
+    (the repository's first root commit SHA), which is also clone-
+    path-independent. If neither is available, falls back to the
+    canonical repo root's basename — by definition clone-specific;
+    this path emits a governance event so the audit trail names the
+    degraded mode (see ``canonical_identity_source``).
+    """
+    canonical_root = canonical_repo_root(repo_root)
+    raw_remote = ""
+    try:
+        raw_remote = subprocess.run(
             ["git", "config", "--get", "remote.origin.url"],
-            cwd=resolved,
+            cwd=canonical_root,
             text=True,
             capture_output=True,
             check=False,
         ).stdout.strip()
     except OSError:
-        remote = ""
-    return hashlib.sha256(f"{resolved}\n{remote}".encode("utf-8")).hexdigest()[:16]
+        raw_remote = ""
+    normalized = canonicalize_remote_url(raw_remote)
+    if normalized:
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+    root_sha = _git_root_commit_sha(canonical_root)
+    if root_sha:
+        return hashlib.sha256(f"local-root:{root_sha}".encode("utf-8")).hexdigest()[:16]
+    fallback = canonical_root.name or "unknown"
+    return hashlib.sha256(f"local-basename:{fallback}".encode("utf-8")).hexdigest()[:16]
+
+
+def canonical_identity_source(repo_root: Path) -> dict[str, str]:
+    """Diagnostic info about which identity source was used.
+
+    Used by ``ensure_workspace`` / ``ensure_tools_binding`` to emit a
+    ``canonical_identity_offline_fallback`` governance event when the
+    identity is computed from the root commit SHA or basename rather
+    than the remote URL.
+    """
+    canonical_root = canonical_repo_root(repo_root)
+    raw_remote = ""
+    try:
+        raw_remote = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=canonical_root,
+            text=True,
+            capture_output=True,
+            check=False,
+        ).stdout.strip()
+    except OSError:
+        raw_remote = ""
+    normalized = canonicalize_remote_url(raw_remote)
+    if normalized:
+        return {"source": "remote_url", "normalized": normalized}
+    root_sha = _git_root_commit_sha(canonical_root)
+    if root_sha:
+        return {"source": "root_commit_sha", "normalized": f"local-root:{root_sha}"}
+    return {"source": "basename", "normalized": f"local-basename:{canonical_root.name or 'unknown'}"}
+
+
+def repo_hash(repo_root: Path) -> str:
+    """DEPRECATED alias for ``canonical_identity`` (Plan ARIA-V2 §3.1).
+
+    Pre-Plan-ARIA-V2 implementation mixed absolute path + remote URL
+    into the hash, which made the binding environment-specific
+    (ARIA-V-006). This alias preserves the legacy callsite signature
+    while delegating to the new path-independent implementation. New
+    code SHOULD call ``canonical_identity`` directly.
+
+    WHY KEEP: ``workspace_paths`` uses this to compute the workspace
+    directory name; switching to ``canonical_identity`` directly would
+    change every existing workspace path and orphan in-flight state.
+    The alias ensures the workspace path is always canonical (path-
+    independent) post-v3 while legacy callsites continue to compile.
+    """
+    return canonical_identity(repo_root)
 
 
 def canonical_repo_root(repo_root: Path) -> Path:

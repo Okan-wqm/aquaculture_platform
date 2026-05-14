@@ -8,10 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, file_hash, write_index
-from .workspace import canonical_repo_root, governance_event, repo_hash
+from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
 
 
-SCHEMA_VERSION = 2
+# Plan ARIA-V2 §3.2 — contract v3 introduces canonical-identity-bound
+# tools root. v3 is backward-compatible at the IDENTITY FILE level:
+# legacy ``bound_repo_hash`` is migrated to ``bound_canonical_identity``
+# in place on first bind under v3. Operators on v2 trees must run
+# ``aria-kernel integrity migrate-tools-bootstrap`` once after pull.
+SCHEMA_VERSION = 3
 TOOL_STATUSES = (
     "DRAFT",
     "SANDBOX",
@@ -125,65 +130,114 @@ def ensure_tools_binding(
     *,
     workspace_root: str | os.PathLike[str] | None = None,
 ) -> Path:
+    """Plan ARIA-V2 §3.2 — bind aria-tools to a canonical repo identity.
+
+    v3 semantics (backward-compatible upgrade from v2):
+      * Binding identity is ``canonical_identity(workspace_root)`` —
+        environment-independent (ARIA-V-006 fix). Cross-clone /
+        cross-protocol invocation of the same repo binds identically;
+        legitimate cross-repo reuse still fails closed.
+      * ``aria-tools/repo_identity.json`` stores the binding as
+        ``bound_canonical_identity`` (preferred) while keeping legacy
+        ``bound_repo_hash`` populated for callsites still reading it.
+        Both fields are kept in sync on every bind under v3.
+      * Worktree paths of the SAME repo bind identically because
+        ``canonical_identity`` resolves through ``--git-common-dir``
+        before hashing. The legacy worktree-aware fallback is no
+        longer needed — the canonical resolution is built into the
+        identity function itself (Tier-1: structural).
+    """
     root = ensure_tools_dir(base_dir)
     if workspace_root is None:
         return root
     repo_root = Path(workspace_root).resolve()
     identity_file = root / "repo_identity.json"
     identity = json.loads(identity_file.read_text(encoding="utf-8"))
-    expected_hash = repo_hash(repo_root)
-    if identity.get("bound_repo_hash") in (None, ""):
-        identity["bound_repo_hash"] = expected_hash
+    expected = canonical_identity(repo_root)
+    legacy_bound = identity.get("bound_repo_hash")
+    bound_canonical = identity.get("bound_canonical_identity")
+    bound_value = bound_canonical or legacy_bound  # tolerate either field during migration
+    if bound_value in (None, ""):
+        # Fresh bind — populate both legacy and canonical fields so
+        # any reader on either schema sees a consistent value.
+        identity_source = canonical_identity_source(repo_root)
+        identity["bound_canonical_identity"] = expected
+        identity["bound_repo_hash"] = expected  # legacy mirror
         identity["bound_repo_root"] = str(repo_root)
-        identity["aria_tools_contract_version"] = 2
-        identity["schema_version"] = 2
+        identity["aria_tools_contract_version"] = SCHEMA_VERSION
+        identity["schema_version"] = SCHEMA_VERSION
         _atomic_write_json(identity_file, identity)
-        append_tools_governance(root, "tools_root_bound", {"bound_repo_hash": expected_hash, "bound_repo_root": str(repo_root)})
-    elif identity["bound_repo_hash"] != expected_hash:
-        # Plan 024 v3 followup (ORPHAN-HIGH-056) — worktree-aware
-        # binding. Pre-fix the cross-repo defense rejected ANY hash
-        # mismatch, including same-repo-different-worktree scenarios
-        # (e.g. operator running ARIA from .worktrees/snowball when
-        # aria-tools/ is bound to /var/aqua-saas canonical repo
-        # root). The hash differs because repo_hash() includes the
-        # filesystem path of the worktree. Post-fix: resolve the
-        # workspace_root through git --git-common-dir to find the
-        # canonical repo root + recompute the hash on that path. If
-        # the canonical hash matches the binding, accept (worktree of
-        # the same repo). If still mismatching, reject (genuine
-        # cross-repo reuse) — the original defense is preserved for
-        # the case it was designed to catch.
-        canonical = canonical_repo_root(repo_root)
-        canonical_hash = repo_hash(canonical) if canonical != repo_root else expected_hash
-        if identity["bound_repo_hash"] == canonical_hash:
-            # Worktree of the bound repo: same git common_dir,
-            # different filesystem path. Binding stays valid; emit
-            # an observability event so audit trails capture the
-            # worktree-vs-canonical resolution.
+        append_tools_governance(
+            root,
+            "tools_root_bound",
+            {
+                "bound_canonical_identity": expected,
+                "bound_repo_root": str(repo_root),
+                "identity_source": identity_source["source"],
+            },
+        )
+        if identity_source["source"] != "remote_url":
             append_tools_governance(
                 root,
-                "tools_root_worktree_resolved",
+                "canonical_identity_offline_fallback",
                 {
-                    "bound_repo_hash": identity["bound_repo_hash"],
-                    "bound_repo_root": identity.get("bound_repo_root"),
-                    "worktree_root": str(repo_root),
-                    "canonical_repo_root": str(canonical),
+                    "identity_source": identity_source["source"],
+                    "seed_summary": identity_source["normalized"][:64],
+                    "canonical_identity": expected,
                 },
             )
-            return root
-        # Plan 022 §C-3 — fail-closed on cross-repo aria-tools reuse.
-        # Both the worktree path AND its canonical resolution differ
-        # from the bound hash; this is a genuine cross-repo reuse.
-        raise GovernanceError(
-            f"tools_root_repo_hash_mismatch: "
-            f"bound={identity['bound_repo_hash']!r} "
-            f"current={expected_hash!r} canonical={canonical_hash!r}; "
-            f"aria-tools cannot be reused across repos. "
-            f"bound_repo_root={identity.get('bound_repo_root')!r}, "
-            f"current workspace_root={str(repo_root)!r}, "
-            f"canonical_repo_root={str(canonical)!r}"
+        return root
+    if bound_value == expected:
+        # Already bound and identity matches. If this is a legacy v2
+        # tree (only ``bound_repo_hash`` set, no ``bound_canonical_identity``)
+        # transparently upgrade to v3 by populating the canonical
+        # field in place. This makes ``migrate-tools-bootstrap`` a
+        # no-op for trees that happen to have already had their
+        # binding computed via the new canonical recipe.
+        if bound_canonical in (None, "") and legacy_bound:
+            identity["bound_canonical_identity"] = legacy_bound
+            identity["aria_tools_contract_version"] = SCHEMA_VERSION
+            identity["schema_version"] = SCHEMA_VERSION
+            _atomic_write_json(identity_file, identity)
+            append_tools_governance(
+                root,
+                "tools_root_canonical_identity_backfilled",
+                {"bound_canonical_identity": legacy_bound},
+            )
+        return root
+    # Mismatch. Try the legacy worktree-aware fallback (which now
+    # delegates to canonical_repo_root → canonical_identity, so a
+    # different working tree of the same repo binds identically).
+    canonical = canonical_repo_root(repo_root)
+    canonical_hash = canonical_identity(canonical) if canonical != repo_root else expected
+    if bound_value == canonical_hash:
+        append_tools_governance(
+            root,
+            "tools_root_worktree_resolved",
+            {
+                "bound_canonical_identity": bound_value,
+                "bound_repo_root": identity.get("bound_repo_root"),
+                "worktree_root": str(repo_root),
+                "canonical_repo_root": str(canonical),
+            },
         )
-    return root
+        return root
+    # Plan ARIA-V2 §3.2 — fail-closed on cross-repo aria-tools reuse.
+    # Under v3 this should fire ONLY for genuine cross-repo reuse
+    # because the canonical_identity recipe is path-independent.
+    # Operators on legacy v2 trees with a stale env-bound hash see
+    # this error and run ``integrity migrate-tools-bootstrap`` to
+    # rebind under v3.
+    raise GovernanceError(
+        f"tools_root_canonical_identity_mismatch: "
+        f"bound={bound_value!r} current={expected!r} canonical={canonical_hash!r}; "
+        f"aria-tools cannot be reused across repos. "
+        f"bound_repo_root={identity.get('bound_repo_root')!r}, "
+        f"current workspace_root={str(repo_root)!r}, "
+        f"canonical_repo_root={str(canonical)!r}. "
+        f"If this is a stale legacy v2 binding from another environment, "
+        f"run `aria-kernel integrity migrate-tools-bootstrap --acknowledge --reason \"<text>\"`."
+    )
 
 
 def tools_contract_version(base_dir: str | os.PathLike[str] | None = None) -> int:

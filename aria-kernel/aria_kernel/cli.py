@@ -61,6 +61,7 @@ from aria_kernel.report_ingestion import (
     list_ingested_findings,
     report_ingestion_scan,
 )
+from aria_kernel.registry_compiler import compile_registry
 from aria_kernel.skill_genesis import (
     draft_skill,
     list_skill_genesis,
@@ -386,6 +387,13 @@ def _main(argv: list[str] | None = None) -> int:
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+
+    registry_parser = add_subparser(sub, "registry")
+    registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
+    registry_compile = add_subparser(registry_sub, "compile")
+    registry_compile.add_argument("--adapters-dir", default="tools/aria-adapters")
+    registry_compile.add_argument("--output", default="aria-tools/registry.json")
+    registry_compile.add_argument("--check", action="store_true")
 
     # Plan 020 Phase 8.C — validation matrix CLI.
     matrix_parser = add_subparser(sub, "validation-matrix")
@@ -837,7 +845,14 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(a_submit)
     a_submit.add_argument("--claim-id", required=True)
     a_submit.add_argument("--agent-id", required=True)
-    a_submit.add_argument("--lease-token", required=True)
+    a_submit.add_argument("--lease-token", required=False, default=None)
+    a_submit.add_argument(
+        "--lease-token-from-env",
+        required=False,
+        default=None,
+        metavar="ENV_VAR_NAME",
+        help="Name of an environment variable that holds the lease_token.",
+    )
     a_submit.add_argument("--output-path", required=True)
 
     a_reap = add_subparser(agent_sub, 
@@ -1257,6 +1272,12 @@ def _main(argv: list[str] | None = None) -> int:
     worker_result_submit.add_argument("--assignment-id", default=None)
     worker_result_submit.add_argument("--from-worktree", required=True)
     worker_result_submit.add_argument("--validation-command", action="append", default=[])
+    worker_result_submit.add_argument(
+        "--lease-token-from-env",
+        required=True,
+        metavar="ENV_VAR_NAME",
+        help="Name of an environment variable that holds the worker lease_token.",
+    )
 
     verification_parser = add_subparser(sub, "verification")
     verification_sub = verification_parser.add_subparsers(dest="verification_command", required=True)
@@ -1436,6 +1457,24 @@ def _main(argv: list[str] | None = None) -> int:
         # can pattern-match exit code for failure detection.
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
+
+    if args.command == "registry" and args.registry_command == "compile":
+        try:
+            result = compile_registry(
+                adapters_dir=args.adapters_dir,
+                output=args.output,
+                check=args.check,
+            )
+        except GovernanceError as exc:
+            print(json.dumps({"status": "failed", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps({
+            "status": "ok",
+            "tool_count": len(result.get("tools", [])),
+            "output": args.output,
+            "check": bool(args.check),
+        }, indent=2, sort_keys=True))
+        return 0
 
     # Plan 020 Phase 8.C — validation matrix CLI dispatch.
     if args.command == "validation-matrix" and args.validation_matrix_command == "check":
@@ -2045,10 +2084,32 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
         if args.agent_command == "submit-result":
             workspace = paths.repo_root if paths is not None else Path(args.workspace_root).resolve()
+            lease_token = args.lease_token
+            if args.lease_token_from_env:
+                env_value = os.environ.get(args.lease_token_from_env)
+                if not env_value:
+                    print(
+                        f"lease-token-from-env: env var {args.lease_token_from_env!r} is not set",
+                        file=sys.stderr,
+                    )
+                    return 2
+                if lease_token is not None:
+                    print(
+                        "--lease-token and --lease-token-from-env are mutually exclusive",
+                        file=sys.stderr,
+                    )
+                    return 2
+                lease_token = env_value
+            if not lease_token:
+                print(
+                    "submit-result requires --lease-token or --lease-token-from-env",
+                    file=sys.stderr,
+                )
+                return 2
             result = submit_claim_result(
                 claim_id=args.claim_id,
                 agent_id=args.agent_id,
-                lease_token=args.lease_token,
+                lease_token=lease_token,
                 output_path=args.output_path,
                 workspace_root=workspace,
                 base_dir=args.tools_dir,
@@ -2647,11 +2708,19 @@ def _main(argv: list[str] | None = None) -> int:
         return 0 if not isinstance(result, dict) or result.get("status") != "rejected" else 1
 
     if args.command == "worker-result" and args.worker_result_command == "submit":
+        lease_token = os.environ.get(args.lease_token_from_env)
+        if not lease_token:
+            print(
+                f"lease-token-from-env: env var {args.lease_token_from_env!r} is not set",
+                file=sys.stderr,
+            )
+            return 2
         result = submit_worker_result(
             from_worktree=args.from_worktree,
             assignment_id=args.assignment_id,
             validation_commands=args.validation_command,
             tools_root=args.tools_dir,
+            lease_token=lease_token,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

@@ -339,7 +339,7 @@ def _release_claim(
 def _deserialise_inherited_claim_metadata(
     raw_payload: str,
     *,
-    agent_id: str,
+    agent_id: str | None,
     request_id: str,
     tools_dir: Path,
 ) -> tuple[dict[str, Any], str | None]:
@@ -356,9 +356,10 @@ def _deserialise_inherited_claim_metadata(
        NOT contain ``lease_token`` or ``lease_token_hash``. Mirrors the
        sender-side reject in planner_dispatch_hook so a tamper at
        either boundary surfaces immediately.
-    2. **agent_id binding** — metadata's agent_id MUST equal the
-       executor's computed agent_id. A mismatch means the metadata was
-       captured for a different worker.
+    2. **agent_id binding** — if an expected agent_id is supplied,
+       metadata's agent_id MUST equal it. Single-claim mode supplies
+       None and adopts the planner hook's claim owner from metadata
+       because that hook already performed the kernel claim.
     3. **Ledger-hash integrity** — ``claim_ledger_hash`` and
        ``request_ledger_hash`` are re-derived from on-disk
        claims.jsonl + requests.jsonl rows by claim_id / request_id and
@@ -384,7 +385,7 @@ def _deserialise_inherited_claim_metadata(
             f"— lease_token MUST transit only via {LEASE_TOKEN_ENV_VAR}",
         )
 
-    if metadata.get("agent_id") != agent_id:
+    if agent_id is not None and metadata.get("agent_id") != agent_id:
         return (
             {},
             f"single_claim_metadata_agent_id_mismatch: "
@@ -494,7 +495,7 @@ def main(argv: list[str] | None = None) -> int:
     if metadata_env:
         claim, single_claim_error = _deserialise_inherited_claim_metadata(
             metadata_env,
-            agent_id=agent_id,
+            agent_id=None,
             request_id=request_id,
             tools_dir=tools_dir,
         )
@@ -508,6 +509,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         claim_id = claim["claim_id"]
+        agent_id = str(claim["agent_id"])
     else:
         # Step 1 — claim the request through the kernel CLI.
         claim_proc = subprocess.run(
@@ -607,7 +609,6 @@ def main(argv: list[str] | None = None) -> int:
         # agent_id come from the kernel CLI's claim output (line 209-
         # 211); role + must_satisfy come from the request_envelope
         # we already loaded for cost-cap evaluation.
-        agent_identity = f"ci-executor:gha-{os.environ.get('GITHUB_RUN_ID', 'local')}"
         cli_exit = invoke_claude_code(
             request_id=request_id,
             subagent_type=subagent_type,
@@ -615,7 +616,7 @@ def main(argv: list[str] | None = None) -> int:
             output_path=expected_output_path,
             timeout_seconds=timeout,
             claim_id=claim_id,
-            agent_id=agent_identity,
+            agent_id=agent_id,
             # Plan 025 §B — request_envelope["role"] is now guaranteed
             # populated (validated above); direct subscript surfaces a
             # KeyError if a future regression skips the validation.
@@ -635,7 +636,7 @@ def main(argv: list[str] | None = None) -> int:
         [
             "python3", "-m", "aria_kernel", "agent", "submit-result",
             "--claim-id", claim_id,
-            "--agent-id", f"ci-executor:gha-{os.environ.get('GITHUB_RUN_ID', 'local')}",
+            "--agent-id", agent_id,
             "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
             "--output-path", str(expected_output_path),
             "--workspace-root", str(repo),

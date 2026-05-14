@@ -119,7 +119,7 @@ def valid_run(**overrides):
         "read_paths": ["apps/farm-service/src/app.module.ts"],
         "emitted_observations": [],
         "emitted_findings": [],
-        "evidence_validation": {"evidence_sources": ["apps/farm-service/src/app.module.ts"]},
+        "evidence_validation": {"valid": True, "evidence_sources": ["apps/farm-service/src/app.module.ts"]},
         "operator_feedback_refs": [],
         "duration_ms": 25,
         "cost_units": 1,

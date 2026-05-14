@@ -15,7 +15,7 @@ from aria_kernel.semantic_dedup import semantic_dedup_compute
 from aria_kernel.telemetry import export_telemetry
 from aria_kernel.triage import triage_policy_apply
 from aria_kernel.verification_gate import submit_worker_result, verify_worker_result
-from aria_kernel.worker_dispatch import create_dispatch_request
+from aria_kernel.worker_dispatch import claim_assignment, create_dispatch_request
 from aria_kernel.workspace import ensure_workspace, workspace_paths
 from aria_kernel.tool_registry import ensure_tools_binding
 
@@ -109,7 +109,17 @@ class Phase3AutonomousLearningTests(unittest.TestCase):
         subprocess.run(["git", "add", "docs/note.md"], cwd=worktree, check=True)
         subprocess.run(["git", "commit", "-m", "fix docs", "-m", "Closes-Pressure: PE-docs-1"], cwd=worktree, text=True, capture_output=True, check=True)
 
-        accepted = submit_worker_result(from_worktree=worktree, assignment_id=request["assignment_id"], tools_root=self.tools_dir)
+        claim = claim_assignment(
+            assignment_id=request["assignment_id"],
+            agent_id="phase3-test-worker",
+            base_dir=self.tools_dir,
+        )
+        accepted = submit_worker_result(
+            from_worktree=worktree,
+            assignment_id=request["assignment_id"],
+            tools_root=self.tools_dir,
+            lease_token=claim["lease_token"],
+        )
         self.assertEqual(accepted["state"], "accepted")
         verified = verify_worker_result(assignment_id=request["assignment_id"], tools_root=self.tools_dir)
         self.assertEqual(verified["status"], "passed")
@@ -154,14 +164,29 @@ class Phase3AutonomousLearningTests(unittest.TestCase):
         )
         wrong = self.repo / "not-the-worktree"
         wrong.mkdir()
-        rejected = submit_worker_result(from_worktree=wrong, assignment_id=request["assignment_id"], tools_root=self.tools_dir)
+        claim = claim_assignment(
+            assignment_id=request["assignment_id"],
+            agent_id="phase3-test-worker",
+            base_dir=self.tools_dir,
+        )
+        rejected = submit_worker_result(
+            from_worktree=wrong,
+            assignment_id=request["assignment_id"],
+            tools_root=self.tools_dir,
+            lease_token=claim["lease_token"],
+        )
         self.assertEqual(rejected["reason"], "worktree_path_mismatch")
 
         worktree = Path(request["worktree_path"])
         (worktree / "docs" / "note.md").write_text("three\n", encoding="utf-8")
         subprocess.run(["git", "add", "docs/note.md"], cwd=worktree, check=True)
         subprocess.run(["git", "commit", "-m", "fix docs", "-m", "Addresses-Pressure: PE-docs-3"], cwd=worktree, text=True, capture_output=True, check=True)
-        submit_worker_result(from_worktree=worktree, assignment_id=request["assignment_id"], tools_root=self.tools_dir)
+        submit_worker_result(
+            from_worktree=worktree,
+            assignment_id=request["assignment_id"],
+            tools_root=self.tools_dir,
+            lease_token=claim["lease_token"],
+        )
         verified = verify_worker_result(assignment_id=request["assignment_id"], tools_root=self.tools_dir)
         self.assertEqual(verified["status"], "failed")
         self.assertIn("trailer_mismatch", verified["failures"])

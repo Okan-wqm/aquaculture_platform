@@ -306,6 +306,68 @@ def _rewrite_jsonl_unlocked(path: Path, rows: list[dict[str, Any]]) -> None:
     _refresh_adjacent_index_grouped(path, held_file_lock_path=path)
 
 
+def _verify_jsonl_from_text(path: Path, content: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    rows: list[dict[str, Any]] = []
+    previous_hash: str | None = None
+    try:
+        for line_no, line in enumerate(content.splitlines(), start=1):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                return (
+                    {"path": path.as_posix(), "valid": False, "line": line_no, "reason": "row_not_object"},
+                    rows,
+                )
+            rows.append(row)
+            expected = row.get("ledger_hash")
+            if not expected:
+                return (
+                    {
+                        "path": path.as_posix(),
+                        "valid": False,
+                        "line": line_no,
+                        "reason": "ledger_hash_missing",
+                    },
+                    rows,
+                )
+            actual = _record_hash(row, previous_hash)
+            if expected != actual:
+                return (
+                    {
+                        "path": path.as_posix(),
+                        "valid": False,
+                        "line": line_no,
+                        "reason": "ledger_hash_mismatch",
+                        "expected": expected,
+                        "actual": actual,
+                    },
+                    rows,
+                )
+            if row.get("previous_ledger_hash") != previous_hash:
+                return (
+                    {
+                        "path": path.as_posix(),
+                        "valid": False,
+                        "line": line_no,
+                        "reason": "previous_hash_mismatch",
+                    },
+                    rows,
+                )
+            previous_hash = str(expected)
+    except json.JSONDecodeError as exc:
+        return (
+            {"path": path.as_posix(), "valid": False, "line": exc.lineno, "reason": str(exc)},
+            rows,
+        )
+    except OSError as exc:
+        return ({"path": path.as_posix(), "valid": False, "reason": str(exc)}, rows)
+    return (
+        {"path": path.as_posix(), "valid": True, "row_count": len(rows), "last_hash": previous_hash},
+        rows,
+    )
+
+
 def verify_jsonl(path: Path) -> dict[str, Any]:
     """Plan 026R §A.2 — unconditional strict hash-chain verifier.
 
@@ -327,47 +389,11 @@ def verify_jsonl(path: Path) -> dict[str, Any]:
     """
     if not path.exists():
         return {"path": path.as_posix(), "valid": True, "row_count": 0, "missing": True}
-    rows: list[dict[str, Any]] = []
-    previous_hash: str | None = None
     try:
-        for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            if not isinstance(row, dict):
-                return {"path": path.as_posix(), "valid": False, "line": line_no, "reason": "row_not_object"}
-            rows.append(row)
-            expected = row.get("ledger_hash")
-            if not expected:
-                return {
-                    "path": path.as_posix(),
-                    "valid": False,
-                    "line": line_no,
-                    "reason": "ledger_hash_missing",
-                }
-            actual = _record_hash(row, previous_hash)
-            if expected != actual:
-                return {
-                    "path": path.as_posix(),
-                    "valid": False,
-                    "line": line_no,
-                    "reason": "ledger_hash_mismatch",
-                    "expected": expected,
-                    "actual": actual,
-                }
-            if row.get("previous_ledger_hash") != previous_hash:
-                return {
-                    "path": path.as_posix(),
-                    "valid": False,
-                    "line": line_no,
-                    "reason": "previous_hash_mismatch",
-                }
-            previous_hash = str(expected)
-    except json.JSONDecodeError as exc:
-        return {"path": path.as_posix(), "valid": False, "line": exc.lineno, "reason": str(exc)}
+        result, _rows = _verify_jsonl_from_text(path, path.read_text(encoding="utf-8"))
     except OSError as exc:
         return {"path": path.as_posix(), "valid": False, "reason": str(exc)}
-    return {"path": path.as_posix(), "valid": True, "row_count": len(rows), "last_hash": previous_hash}
+    return result
 
 
 def load_jsonl_verified(path: Path) -> list[dict[str, Any]]:
@@ -385,13 +411,18 @@ def load_jsonl_verified(path: Path) -> list[dict[str, Any]]:
     """
     if not path.exists():
         return []
-    result = verify_jsonl(path)
+    try:
+        result, rows = _verify_jsonl_from_text(path, path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise LedgerIntegrityError(
+            f"strict verification failed for {path.as_posix()}: reason={exc}"
+        ) from exc
     if not result.get("valid", False):
         raise LedgerIntegrityError(
             f"strict verification failed for {path.as_posix()}: "
             f"reason={result.get('reason')} line={result.get('line')}"
         )
-    return read_jsonl(path)
+    return rows
 
 
 def load_index(path: Path) -> dict[str, Any]:
@@ -405,17 +436,30 @@ def load_index(path: Path) -> dict[str, Any]:
 
 
 def verify_index_hashes(index_path: Path, ledgers: dict[str, Path]) -> dict[str, Any]:
-    index = load_index(index_path)
-    for name, expected_hash in index.get("ledger_hashes", {}).items():
-        ledger = ledgers.get(name)
-        if ledger is None:
-            continue
-        actual_hash = file_hash(ledger)
-        if actual_hash != expected_hash:
+    with with_exclusive_lock(index_path):
+        index = load_index(index_path)
+        indexed_hashes = index.get("ledger_hashes", {})
+        if not isinstance(indexed_hashes, dict):
             raise LedgerIntegrityError(
-                f"Ledger integrity check failed for {name}: expected {expected_hash}, got {actual_hash}"
+                f"Ledger integrity index is malformed at {index_path.as_posix()}: ledger_hashes must be an object"
             )
-    return index
+        for name in sorted(ledgers):
+            if name not in indexed_hashes:
+                raise LedgerIntegrityError(
+                    f"Ledger integrity index missing required ledger entry: {name}"
+                )
+        for name in sorted(indexed_hashes):
+            if name not in ledgers:
+                raise LedgerIntegrityError(
+                    f"Ledger integrity index contains unknown ledger entry: {name}"
+                )
+            expected_hash = indexed_hashes[name]
+            actual_hash = file_hash(ledgers[name])
+            if actual_hash != expected_hash:
+                raise LedgerIntegrityError(
+                    f"Ledger integrity check failed for {name}: expected {expected_hash}, got {actual_hash}"
+                )
+        return index
 
 
 def write_index(index_path: Path, index: dict[str, Any], ledgers: dict[str, Path]) -> None:

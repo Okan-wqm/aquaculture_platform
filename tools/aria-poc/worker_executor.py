@@ -5,7 +5,7 @@ Per-assignment counterpart to tools/aria-poc/ci_executor.py
 lease token via ``ARIA_LEASE_TOKEN`` env var (NEVER argv). Mock
 mode (CLAUDE_CODE_MOCK=1) makes a deterministic no-op modification
 + commit in the worktree + submits the worker result via the kernel
-``verification submit`` CLI. Live mode shells out to the Claude
+``worker-result submit`` CLI. Live mode shells out to the Claude
 Code CLI with the worker prompt.
 
 Pre-fix the kernel had verification_gate primitives but no
@@ -143,13 +143,17 @@ def _submit_worker_result(
     required_tests: list[str],
     lease_token: str | None,
 ) -> int:
-    """Submit the worker result via the kernel ``verification submit``
+    """Submit the worker result via the kernel ``worker-result submit``
     subcommand. Lease token redaction applied to stderr."""
+    if not lease_token:
+        sys.stderr.write("missing_lease_token_env: ARIA_LEASE_TOKEN\n")
+        return 1
     cmd = [
-        "python3", "-m", "aria_kernel", "verification", "submit",
+        "python3", "-m", "aria_kernel", "worker-result", "submit",
         "--from-worktree", str(worktree_path),
         "--assignment-id", assignment_id,
         "--tools-dir", str(tools_dir),
+        "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
     ]
     for vc in required_tests:
         cmd.extend(["--validation-command", vc])

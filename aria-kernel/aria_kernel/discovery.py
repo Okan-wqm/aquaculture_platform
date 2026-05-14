@@ -74,8 +74,20 @@ def run_discovery(
 def _repo_fingerprint(root: Path, fates: list[dict[str, Any]], file_counts: dict[str, int]) -> dict[str, Any]:
     language_histogram = Counter(str(fate.get("suffix") or "<none>") for fate in fates)
     legacy_tracked_file_count = len(fates)
+    migration_ts_count = sum(
+        1
+        for fate in fates
+        if _is_migration_ts_path(str(fate.get("path", "")))
+    )
+    migration_sql_count = sum(
+        1
+        for fate in fates
+        if str(fate.get("path", "")).startswith("apps/")
+        and "/src/database/migrations/" in str(fate.get("path", ""))
+        and str(fate.get("path", "")).endswith(".sql")
+    )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": utc_now(),
         "file_counts": file_counts,
         "tracked_file_count": legacy_tracked_file_count,
@@ -83,14 +95,27 @@ def _repo_fingerprint(root: Path, fates: list[dict[str, Any]], file_counts: dict
         "fated_file_count": file_counts["fated"],
         "language_histogram": dict(sorted(language_histogram.items())),
         "service_count": len(_children(root / "apps")),
-        "web_module_count": len(_children(root / "web")),
+        "web_dir_child_count": len(_children(root / "web")),
+        "web_module_count": len(_children(root / "web" / "modules")),
+        "web_app_count": len(_children(root / "web" / "apps")),
         "platform_lib_count": len(_children(root / "platform/libs")),
         "shared_lib_count": len(_children(root / "libs")),
         "adr_count": len(list((root / "docs/adr").glob("*.md"))) if (root / "docs/adr").exists() else 0,
-        "migration_count": sum(1 for fate in fates if str(fate.get("path", "")).startswith("apps/") and "/src/database/migrations/" in str(fate.get("path", ""))),
+        "migration_ts_count": migration_ts_count,
+        "migration_sql_count": migration_sql_count,
+        "migration_count": migration_ts_count + migration_sql_count,
         "has_nx": (root / "nx.json").exists(),
         "has_package_json": (root / "package.json").exists(),
     }
+
+
+def _is_migration_ts_path(path: str) -> bool:
+    return (
+        path.startswith("apps/")
+        and "/src/database/migrations/" in path
+        and path.endswith(".ts")
+        and not path.endswith(".spec.ts")
+    )
 
 
 def _service_map(root: Path) -> dict[str, Any]:

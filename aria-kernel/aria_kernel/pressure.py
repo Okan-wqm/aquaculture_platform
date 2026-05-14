@@ -9,7 +9,7 @@ from typing import Any
 
 from .ledger import append_jsonl, load_jsonl, read_jsonl
 from .tool_health import runs_path
-from .tool_registry import ensure_tools_dir, utc_now
+from .tool_registry import ensure_tools_dir, list_tools, utc_now
 from .workspace import WorkspacePaths, default_actor
 
 SOURCE_WEIGHTS = {
@@ -58,7 +58,7 @@ def run_pressure(
                 recommended_action="rerun discovery and inspect missing fates",
             ),
         )
-    migration_count = int(fingerprint.get("migration_count") or 0)
+    migration_count = int(fingerprint.get("migration_ts_count") or fingerprint.get("migration_count") or 0)
     if migration_count >= 5:
         pressures.append(
             _pressure(
@@ -164,6 +164,7 @@ def run_pressure(
                 ),
             )
 
+    _filter_candidate_tools(root, pressures)
     pressures.sort(key=lambda item: (-float(item["score"]), str(item["pressure_id"])))
     payload = {
         "schema_version": 1,
@@ -183,6 +184,32 @@ def run_pressure(
         handle.write("\n")
     append_jsonl(root / "pressure" / "pressure-log.jsonl", payload)
     return payload
+
+
+def _filter_candidate_tools(root: Path, pressures: list[dict[str, Any]]) -> None:
+    known_tool_ids = {str(tool.get("tool_id")) for tool in list_tools(base_dir=root)}
+    for pressure in pressures:
+        original = [
+            str(tool_id)
+            for tool_id in pressure.get("candidate_tools", [])
+            if isinstance(tool_id, str)
+        ]
+        if not original:
+            continue
+        filtered = [tool_id for tool_id in original if tool_id in known_tool_ids]
+        pressure["candidate_tools"] = filtered
+        missing = sorted(set(original) - set(filtered))
+        if missing and not filtered:
+            append_jsonl(
+                root / "memory" / "uncertainties.jsonl",
+                {
+                    "schema_version": 1,
+                    "kind": "pressure_candidate_tools_unreachable",
+                    "pressure_id": pressure.get("pressure_id"),
+                    "missing_candidate_tools": missing,
+                    "recorded_at": utc_now(),
+                },
+            )
 
 
 def explain_pressure(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ def detect_capability_gaps(
     gaps = []
     if paths is not None:
         gaps.extend(_gaps_from_unowned_pressures(cycle_id, paths, root, index_hash))
+    gaps.extend(_gaps_from_adapter_registry(cycle_id, paths, root, index_hash))
     gaps.extend(_gaps_from_shadow_runs(cycle_id, root, base_dir))
     gaps.extend(_gaps_from_unknowns(cycle_id, base_dir))
     gaps.extend(_gaps_from_fitness(cycle_id, base_dir))
@@ -83,6 +85,143 @@ def latest_capability_gaps(*, base_dir: str | Path | None = None) -> list[dict[s
         return []
     gaps = rows[-1].get("gaps", [])
     return gaps if isinstance(gaps, list) else []
+
+
+def _gaps_from_adapter_registry(
+    cycle_id: str,
+    paths: Any | None,
+    root: Path,
+    index_hash: str | None,
+) -> list[dict[str, Any]]:
+    registry_path = root / "registry.json"
+    if not registry_path.exists():
+        return []
+    try:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return [
+            _gap(
+                cycle_id=cycle_id,
+                gap_type="adapter_gap",
+                source_id="registry-unreadable",
+                title="ARIA registry is unreadable",
+                evidence_refs=[registry_path.as_posix()],
+                related_agents=[],
+                score=85,
+                blocked_by=["registry_repair_required"],
+                capability_gap_key="registry:unreadable",
+                primary_source="registry",
+                source_types=["registry"],
+                index_hash_at_decision=index_hash,
+            ),
+        ]
+    tools = [tool for tool in registry.get("tools", []) if isinstance(tool, dict)]
+    registry_ids = {str(tool.get("tool_id")) for tool in tools if tool.get("tool_id")}
+    repo_root = Path(getattr(paths, "repo_root", Path.cwd())).resolve()
+    manifest_dir = repo_root / "tools" / "aria-adapters"
+    manifests = {}
+    if manifest_dir.exists():
+        for manifest in manifest_dir.glob("*.tool.json"):
+            try:
+                payload = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            tool_id = str(payload.get("tool_id") or "")
+            if tool_id:
+                manifests[tool_id] = manifest
+    manifest_ids = set(manifests)
+    gaps: list[dict[str, Any]] = []
+    for tool in tools:
+        tool_id = str(tool.get("tool_id") or "")
+        argv = ((tool.get("runner") or {}).get("argv") or [])
+        if any(isinstance(part, str) and any(token in part for token in ("shadow_runner.py", "noop.py", "echo")) for part in argv):
+            gaps.append(
+                _gap(
+                    cycle_id=cycle_id,
+                    gap_type="adapter_gap",
+                    source_id=f"stub:{tool_id}",
+                    title=f"Registry tool uses a stub runner: {tool_id}",
+                    evidence_refs=[registry_path.as_posix()],
+                    related_agents=[],
+                    score=95,
+                    blocked_by=["real_adapter_required"],
+                    capability_gap_key=f"registry:stub_runner:{tool_id}",
+                    primary_source="registry",
+                    source_types=["registry"],
+                    index_hash_at_decision=index_hash,
+                ),
+            )
+        if tool_id and tool_id not in manifest_ids:
+            gaps.append(
+                _gap(
+                    cycle_id=cycle_id,
+                    gap_type="adapter_gap",
+                    source_id=f"ghost:{tool_id}",
+                    title=f"Registry tool has no manifest: {tool_id}",
+                    evidence_refs=[registry_path.as_posix()],
+                    related_agents=[],
+                    score=85,
+                    blocked_by=["manifest_required"],
+                    capability_gap_key=f"registry:ghost:{tool_id}",
+                    primary_source="registry",
+                    source_types=["registry"],
+                    index_hash_at_decision=index_hash,
+                ),
+            )
+    for tool_id in sorted(manifest_ids - registry_ids):
+        gaps.append(
+            _gap(
+                cycle_id=cycle_id,
+                gap_type="adapter_gap",
+                source_id=f"orphan:{tool_id}",
+                title=f"Adapter manifest is absent from registry: {tool_id}",
+                evidence_refs=[manifests[tool_id].as_posix()],
+                related_agents=[],
+                score=70,
+                blocked_by=["registry_compile_required"],
+                capability_gap_key=f"registry:orphan:{tool_id}",
+                primary_source="registry",
+                source_types=["registry"],
+                index_hash_at_decision=index_hash,
+            ),
+        )
+    for pressure in _pressure_rows(root):
+        pressure_id = str(pressure.get("pressure_id") or pressure.get("event_id") or "unknown")
+        for candidate in pressure.get("candidate_tools", []) or []:
+            if isinstance(candidate, str) and candidate and candidate not in registry_ids:
+                gaps.append(
+                    _gap(
+                        cycle_id=cycle_id,
+                        gap_type="adapter_gap",
+                        source_id=f"candidate:{pressure_id}:{candidate}",
+                        title=f"Pressure references unreachable tool: {candidate}",
+                        evidence_refs=[root.as_posix()],
+                        related_agents=[],
+                        score=75,
+                        blocked_by=["pressure_candidate_repair_required"],
+                        capability_gap_key=f"registry:unreachable_candidate:{candidate}",
+                        primary_source="registry",
+                        source_types=["registry"],
+                        index_hash_at_decision=index_hash,
+                    ),
+                )
+    return gaps
+
+
+def _pressure_rows(root: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    pressure_dir = root / "pressure"
+    if not pressure_dir.exists():
+        return rows
+    for path in pressure_dir.glob("*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for pressure in payload.get("pressures", []) if isinstance(payload, dict) else []:
+            if isinstance(pressure, dict):
+                rows.append(pressure)
+    return rows
 
 
 def _gaps_from_unowned_pressures(cycle_id: str, paths: Any, root: Path, index_hash: str | None) -> list[dict[str, Any]]:
@@ -261,5 +400,5 @@ def _gap(
 
 
 def _source_rank(source: str) -> int:
-    order = {"pressure": 0, "shadow-run": 1, "unknown": 2, "low-fitness": 3}
+    order = {"registry": 0, "pressure": 1, "shadow-run": 2, "unknown": 3, "low-fitness": 4}
     return order.get(source, 99)

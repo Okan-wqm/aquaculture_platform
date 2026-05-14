@@ -475,7 +475,7 @@ def register_tool(
         # Promotions through SHADOW -> ACTIVE require precision/evidence
         # validation that only transition_tool() performs. Block bare
         # re-registration that tries to skip the matrix.
-        if existing_status in {"SHADOW", "CALIBRATE"} and candidate_status == "ACTIVE":
+        if existing_status in {"DRAFT", "SANDBOX", "SHADOW", "CALIBRATE"} and candidate_status == "ACTIVE":
             raise GovernanceError(
                 f"register_tool blocked: tool_id={candidate['tool_id']!r} promotion "
                 f"{existing_status!r} -> 'ACTIVE' must route through transition_tool() "

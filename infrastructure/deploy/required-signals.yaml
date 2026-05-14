@@ -17,10 +17,10 @@
 # Deploy success now requires both HEALTH and SIGNAL contracts.
 #
 # Signal-matching semantics:
-#   patterns are plain substring matches (not regex) so a developer
-#   adding a new signal only has to emit a canonical string, not
-#   escape regex metachars. The actual log strings are pinned to
-#   code paths — see `signalSource` in each signal block below.
+#   patterns are exact `message` matches inside structured JSON boot-signal
+#   records. A valid record must also carry `bootSignal: <key>` and
+#   `status: ok`. Literal strings are pinned to
+#   libs/backend-common/src/constants/boot-invariant-signals.ts.
 #
 # Window:
 #   Each signal has a `window_seconds` — how long after container
@@ -54,28 +54,31 @@
 # (the libs/backend-common runner code is unchanged), but the
 # deploy gate no longer ASSERTS it.
 
-schema_version: 1
+schema_version: 2
 
 defaults:
   window_seconds: 120   # 2 minutes — covers typical migration +
                         # schema-drift scan window on cold start.
 
 # ---------------------------------------------------------------------------
-# Signal library — the canonical substrings to grep for.
-# signalSource points to the code path that emits the string, so a
-# future rename gets caught by the same breaking-change discipline
-# that applies to event contracts.
+# Signal library — patterns must match BOOT_INVARIANT_SIGNALS exactly.
+# canonicalSource is the SSoT; emitterSources are the runtime code paths
+# allowed to emit the structured record for the signal.
 # ---------------------------------------------------------------------------
 signal_library:
   nats_auth_mode_mtls:
     pattern: "NATS auth mode: mtls-cert"
     description: "NATS client connected with mtls-cert auth (ADR-014/015)"
-    signalSource: "platform/libs/event-bus/src/nats/nats-event-bus.ts"
+    canonicalSource: "libs/backend-common/src/constants/boot-invariant-signals.ts"
+    emitterSources:
+      - "platform/libs/event-bus/src/nats/nats-event-bus.ts"
 
   schema_drift_clean:
     pattern: "Schema drift scan clean"
-    description: "SchemaDriftValidator found zero violations (ADR-012)"
-    signalSource: "libs/backend-common/src/database/schema-drift-validator.service.ts"
+    description: "SchemaDriftValidator found zero error-severity violations (ADR-012)"
+    canonicalSource: "libs/backend-common/src/constants/boot-invariant-signals.ts"
+    emitterSources:
+      - "libs/backend-common/src/database/schema-drift-validator.service.ts"
 
   db_migrate_complete:
     # INFRA-CRITICAL-015: canonical end-of-run signal emitted by the
@@ -88,7 +91,9 @@ signal_library:
     # the centralized SSoT (ADR-016 Phase E intent).
     pattern: "aqua-db-migrate complete"
     description: "Centralized db-migrate runner reached success exit (covers ALL service schemas)"
-    signalSource: "apps/db-migrate/src/main.ts"
+    canonicalSource: "libs/backend-common/src/constants/boot-invariant-signals.ts"
+    emitterSources:
+      - "apps/db-migrate/src/main.ts"
 
 # ---------------------------------------------------------------------------
 # Per-service signal requirements. A service listed here MUST emit
@@ -174,6 +179,7 @@ services:
 
   - name: observability-service
     signals:
+      - nats_auth_mode_mtls
       - schema_drift_clean
 
   # gateway-api deliberately omitted: no DataSource, no migrations,

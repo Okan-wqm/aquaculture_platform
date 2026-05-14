@@ -61,10 +61,17 @@ import { createSchemaDriftValidator } from '../schema-drift-validator.service';
 
 export interface SchemaDriftModuleOptions {
   /**
-   * Lowercase service tag used in log prefixes.
-   * Example: `'billing'`, `'auth'`, `'notification'`.
+   * Runtime service tag used in log prefixes and emergency override lookup.
+   * Example: `'billing'`, `'auth'`, `'alert-engine'`.
    */
   serviceName: string;
+
+  /**
+   * Physical source schema to validate. Defaults to `serviceName`.
+   * Use when a runtime service name differs from its database schema
+   * (for example alert-engine owns the `alert` source schema).
+   */
+  schemaName?: string;
 }
 
 @Module({})
@@ -85,8 +92,20 @@ export class SchemaDriftModule {
           `Must match /^[a-z][a-z0-9_-]*$/ (lowercase, digits, underscore, hyphen).`,
       );
     }
+    if (
+      options.schemaName !== undefined &&
+      !/^[a-z][a-z0-9_-]*$/.test(options.schemaName)
+    ) {
+      throw new Error(
+        `[SchemaDriftModule.forRoot] Invalid schemaName: "${options.schemaName}". ` +
+          `Must match /^[a-z][a-z0-9_-]*$/ (lowercase, digits, underscore, hyphen).`,
+      );
+    }
 
-    const ValidatorClass = createSchemaDriftValidator(options.serviceName);
+    const ValidatorClass = createSchemaDriftValidator(
+      options.serviceName,
+      options.schemaName,
+    );
     const provider: Provider = ValidatorClass;
 
     return {

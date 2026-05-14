@@ -158,7 +158,10 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       excludeTables: ['alert_outbox'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
-    SchemaDriftModule.forRoot({ serviceName: 'alert-engine' }),
+    SchemaDriftModule.forRoot({
+      serviceName: 'alert-engine',
+      schemaName: 'alert',
+    }),
   ],
   providers: [
     // Migration runner — see const declaration near top of file.

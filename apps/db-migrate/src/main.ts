@@ -57,6 +57,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
+import { bootInvariantSignalRecord } from '@aquaculture/backend-common/constants';
 
 import { SCHEMA_REGISTRY } from './schema-registry';
 import {
@@ -237,15 +238,16 @@ async function main(): Promise<number> {
 
   log({
     level: 'info',
-    message: 'aqua-db-migrate complete',
-    schemaCount: SCHEMA_REGISTRY.length,
-    totalAppliedMigrations: totalApplied,
-    totalDurationMs: totalDuration,
-    perSchema: results.map((r) => ({
-      schema: r.schema,
-      applied: r.applied.length,
-      durationMs: r.durationMs,
-    })),
+    ...bootInvariantSignalRecord('db_migrate_complete', {
+      schemaCount: SCHEMA_REGISTRY.length,
+      totalAppliedMigrations: totalApplied,
+      totalDurationMs: totalDuration,
+      perSchema: results.map((r) => ({
+        schema: r.schema,
+        applied: r.applied.length,
+        durationMs: r.durationMs,
+      })),
+    }),
   });
 
   return 0;

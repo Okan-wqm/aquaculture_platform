@@ -9,8 +9,8 @@
  *
  * Used by SchemaDriftValidator when a fatal drift is detected —
  * if an active `drift_fatal_bypass` row covers the service, the
- * validator logs + continues instead of throwing. The boot signal
- * still emits; the deploy does not roll back.
+ * validator logs + continues instead of throwing. It does not emit
+ * schema_drift_clean; deploy guards still treat the boot as unclean.
  *
  * # Fail-safe semantics
  *

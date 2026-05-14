@@ -198,7 +198,11 @@ export class StructuredLoggerService implements LoggerService {
       }
     }
 
+    const hoistedBootSignal =
+      extra && typeof extra['bootSignal'] === 'string' ? extra : undefined;
+
     const entry: Record<string, unknown> = {
+      ...(hoistedBootSignal ?? {}),
       timestamp: new Date().toISOString(),
       level: toSeverity(level),
       service: this.serviceName,

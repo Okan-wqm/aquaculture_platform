@@ -24,6 +24,7 @@ import {
 } from 'nats';
 import * as os from 'os';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
 import {
   IEventBus,
   IEvent,
@@ -262,7 +263,11 @@ export class NatsEventBus
         'none': 'unauthenticated (dev/local only; production throws)',
       };
       this.logger.log(
-        `NATS auth mode: ${factoryOptions.authMode} (${authModeDescription[factoryOptions.authMode]})`,
+        `NATS auth mode selected: ${factoryOptions.authMode}`,
+        {
+          authMode: factoryOptions.authMode,
+          description: authModeDescription[factoryOptions.authMode],
+        },
       );
 
       this.connection = await connect(connectionOptions);
@@ -273,6 +278,14 @@ export class NatsEventBus
       this.connectionState = 'connected';
       this.lastConnectedAt = new Date();
       this.logger.log('Successfully connected to NATS JetStream');
+      if (factoryOptions.authMode === 'mtls-cert') {
+        emitBootInvariantSignal(this.logger, 'nats_auth_mode_mtls', {
+          authMode: factoryOptions.authMode,
+          description: authModeDescription[factoryOptions.authMode],
+          clientId: this.clientId,
+          natsUrl: this.natsUrl,
+        });
+      }
 
       // Handle connection events
       this.setupConnectionHandlers();

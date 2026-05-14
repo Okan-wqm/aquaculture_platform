@@ -163,6 +163,13 @@ echo "=== Capturing current image digests for rollback ==="
 PREV_GATEWAY=$(docker inspect --format='{{.Image}}' aqua-saas-gateway-api-1 2>/dev/null || echo "")
 echo "Previous gateway digest: ${PREV_GATEWAY:-none}"
 
+# Scope boot-signal assertions to this deploy attempt. The asserter falls
+# back to per-container StartedAt if this is absent, but an explicit since
+# marker makes full and selective deploy log windows obvious in output.
+export BOOT_SIGNAL_SINCE
+BOOT_SIGNAL_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "Boot signal log window starts at: ${BOOT_SIGNAL_SINCE}"
+
 if [ "$FULL_DEPLOY" = "true" ]; then
   # ── Full deploy mode (workflow_dispatch "all" or first deploy) ──
   echo "=== FULL DEPLOY: Pulling images sequentially (avoids disk I/O contention) ==="
@@ -568,4 +575,3 @@ docker image prune -f --filter "until=24h" --filter "label!=deployed=current"
 
 echo "=== Container status ==="
 docker compose -f docker-compose.droplet.yml ps
-

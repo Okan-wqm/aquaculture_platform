@@ -126,9 +126,9 @@ export interface ServiceBootstrapOptions {
   customValidationPipe?: ValidationPipe;
 
   /**
-   * Callback invoked after the app is created and all default middleware is
-   * applied, but before `app.listen()`. Use this for service-specific
-   * middleware, guards, interceptors, microservice transports, Swagger, etc.
+   * Callback invoked after the app is created and default middleware/config is
+   * applied, but before app.init() runs boot hooks and before app.listen().
+   * Use this for service-specific adapters or final route/middleware tweaks.
    */
   onBeforeListen?: (app: INestApplication) => Promise<void> | void;
 
@@ -765,7 +765,17 @@ export async function createServiceApp(
   }
 
   // -----------------------------------------------------------------------
-  // 10a. Start NATS microservices (if connected)
+  // 10a. Finish Nest application bootstrap before transports/listeners start.
+  //
+  // app.init() runs OnModuleInit / OnApplicationBootstrap hooks, including
+  // SchemaDriftValidator. Only after those invariants pass do we start NATS
+  // message consumers or bind the HTTP listener.
+  // -----------------------------------------------------------------------
+  await app.init();
+  logger.log('Nest application bootstrap hooks completed');
+
+  // -----------------------------------------------------------------------
+  // 10b. Start NATS microservices (if connected)
   // -----------------------------------------------------------------------
   if (natsTransport) {
     await app.startAllMicroservices();
@@ -773,7 +783,7 @@ export async function createServiceApp(
   }
 
   // -----------------------------------------------------------------------
-  // 10b. Swagger (auto-disabled in production — SEC-L14)
+  // 10c. Swagger (auto-disabled in production — SEC-L14)
   // -----------------------------------------------------------------------
   if (swagger && !isProduction) {
     try {
@@ -804,7 +814,7 @@ export async function createServiceApp(
   }
 
   // -----------------------------------------------------------------------
-  // 10c. Resolve port and start listening
+  // 10d. Resolve port and start listening
   // -----------------------------------------------------------------------
   const port = resolvePort(configService, portEnvVar);
   await app.listen(port);

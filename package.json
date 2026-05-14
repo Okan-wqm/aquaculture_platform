@@ -117,6 +117,7 @@
     "gates:tier-claim": "ts-node --project tools/gates/tsconfig.json tools/gates/tier-claim-lint.ts",
     "gates:deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/main-deletion-witness.ts",
     "gates:migration-deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-deletion-witness.ts",
+    "gates:signals-manifest": "node scripts/ci/validate-signals-manifest.ts",
     "gates:schema-drift-registration": "ts-node --project tools/gates/tsconfig.json tools/gates/schema-drift-registration.ts",
     "gates:sens-enterprise-validation": "ts-node --project tools/gates/tsconfig.json tools/gates/sens-enterprise-validation.ts",
     "gates:sens-enterprise-validation:self-test": "npm run gates:sens-enterprise-validation -- --self-test",

@@ -83,12 +83,10 @@ import { InternalApiGuard } from './guards/internal-api.guard';
      * Observability-service has no @Entity() declarations (it consumes
      * aggregated metrics via raw SQL across tenant schemas, not via
      * TypeORM entities), so the validator runs against an empty
-     * entityMetadatas list. Even at zero entities the validator emits
-     *   `Schema drift scan clean: checked 0 entities`
-     * — substring `Schema drift scan clean` matches the deploy-gate's
-     * `schema_drift_clean` signal_library entry. Without this
-     * registration, observability cannot satisfy the manifest contract
-     * declared in infrastructure/deploy/required-signals.yaml.
+     * entityMetadatas list. Even at zero entities the validator emits the
+     * structured `schema_drift_clean` boot signal. Without this registration,
+     * observability cannot satisfy the manifest contract declared in
+     * infrastructure/deploy/required-signals.yaml.
      */
     SchemaDriftModule.forRoot({ serviceName: 'observability' }),
   ],

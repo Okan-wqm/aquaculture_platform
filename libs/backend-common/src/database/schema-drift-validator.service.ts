@@ -13,6 +13,13 @@ import {
 } from './tenant-aware-schemas';
 import { lookupEmergencyOverride } from './emergency-override-check';
 import { isTenantDeltaAllowed } from './tenant-fanout.decorator';
+import {
+  BOOT_INVARIANT_SIGNALS,
+  emitBootInvariantSignal,
+} from '../constants/boot-invariant-signals';
+
+export const SCHEMA_DRIFT_CLEAN_SIGNAL =
+  BOOT_INVARIANT_SIGNALS.schema_drift_clean.pattern;
 
 /**
  * createSchemaDriftValidator
@@ -41,18 +48,17 @@ import { isTenantDeltaAllowed } from './tenant-fanout.decorator';
  * # Configuration
  *
  *   SCHEMA_DRIFT_FATAL=true   → fail service boot on any drift
- *                               (recommended for staging and production
- *                               once the validator is rolled out;
- *                               catches regressions fast)
  *   SCHEMA_DRIFT_FATAL=false  → log CRITICAL but continue
- *                               (recommended for initial rollout + dev
- *                               environments where occasional drift is
- *                               expected during development)
+ *                               (development only; production ignores it)
  *   SCHEMA_DRIFT_ENABLED=false → skip the validator entirely
- *                               (emergency kill switch)
+ *                               (development only; production throws)
  *
- * Defaults: enabled=true, fatal=false. Flip fatal to true via env var
- * after one deploy cycle of observation.
+ * Defaults: enabled=true. Fatal is always true in production-like
+ * environments (NODE_ENV=production or AQUA_ENV=production|staging) and
+ * defaults to false elsewhere. Production-like boot cannot silently run with
+ * known schema drift:
+ * either the validator emits SCHEMA_DRIFT_CLEAN_SIGNAL, or bootstrap fails
+ * before the service can look healthy.
  *
  * # What it does NOT check
  *
@@ -66,12 +72,19 @@ import { isTenantDeltaAllowed } from './tenant-fanout.decorator';
  * produce a false positive. The three checks above were the ones that
  * caused actual production incidents in 2026-04.
  *
- * @param serviceName Lowercase label for log prefix (e.g. 'billing').
+ * @param serviceName Lowercase label for log prefix / override lookup
+ *   (e.g. 'billing', 'alert-engine').
+ * @param schemaName Physical source schema to validate when schema-less
+ *   tenant-aware entities need source-schema resolution. Defaults to
+ *   serviceName for backward compatibility.
  * @returns An OnApplicationBootstrap provider class.
  */
 export function createSchemaDriftValidator(
   serviceName: string,
+  schemaName = serviceName,
 ): Type<OnApplicationBootstrap> {
+  const sourceSchemaName = schemaName;
+
   @Injectable()
   class SchemaDriftValidator implements OnApplicationBootstrap {
     private readonly logger = new Logger(
@@ -84,17 +97,23 @@ export function createSchemaDriftValidator(
     ) {}
 
     async onApplicationBootstrap(): Promise<void> {
+      const isProductionLike = this.isProductionLike();
       const enabled =
         this.configService.get('SCHEMA_DRIFT_ENABLED', 'true') === 'true';
       if (!enabled) {
-        this.logger.warn(
-          'Schema drift validator disabled via SCHEMA_DRIFT_ENABLED=false',
-        );
+        const message =
+          'Schema drift validator disabled via SCHEMA_DRIFT_ENABLED=false';
+        if (isProductionLike) {
+          throw new Error(
+            `${message}; refusing production-like startup because ` +
+              `${SCHEMA_DRIFT_CLEAN_SIGNAL} cannot be emitted.`,
+          );
+        }
+        this.logger.warn(message);
         return;
       }
 
-      const fatal =
-        this.configService.get('SCHEMA_DRIFT_FATAL', 'false') === 'true';
+      const fatal = this.resolveFatalDefault(isProductionLike);
 
       const tenantScanEnabled =
         this.configService.get('SCHEMA_DRIFT_TENANT_SCAN_ENABLED', 'false') ===
@@ -104,10 +123,9 @@ export function createSchemaDriftValidator(
         `Scanning entity metadata for schema drift${tenantScanEnabled ? ' (+ per-tenant shape divergence)' : ''}...`,
       );
       // Severity-aware violations (plan v3 Phase 2 + Phase 8 Stage 1).
-      // ERRORS block the "Schema drift scan clean" boot signal; the
+      // ERRORS block the schema_drift_clean boot signal; the
       // deploy asserter (scripts/deploy/assert-service-signals.ts)
-      // times out at round 30/30 if the signal never emits, rolling
-      // back the deploy.
+      // fails the per-service signal window if the signal never emits.
       // WARNINGS surface operationally (logged as warn, visible in
       // Grafana drift dashboard) but do NOT block the signal. Phase 8
       // Stage 1+ may elevate specific warn classes to error after
@@ -178,15 +196,17 @@ export function createSchemaDriftValidator(
 
       if (errorViolations.length === 0) {
         // Boot signal emits cleanly even when warnings exist. The deploy
-        // asserter's substring match is `Schema drift scan clean`;
+        // asserter requires structured fields from the canonical signal
+        // helper, not just the literal text.
         // operational signal for warn-level drift is separate.
-        this.logger.log(
-          `Schema drift scan clean: checked ${this.dataSource.entityMetadatas.length - skippedNotOwned} owned entities, ` +
-            `skipped ${skippedNotOwned} cross-schema read views (synchronize=false)` +
-            (warningViolations.length > 0
-              ? `, with ${warningViolations.length} warn-severity drift(s) logged separately`
-              : ''),
-        );
+        emitBootInvariantSignal(this.logger, 'schema_drift_clean', {
+          serviceName,
+          schemaName: sourceSchemaName,
+          checkedOwnedEntities:
+            this.dataSource.entityMetadatas.length - skippedNotOwned,
+          skippedCrossSchemaReadViews: skippedNotOwned,
+          warningViolations: warningViolations.length,
+        });
         return;
       }
 
@@ -225,12 +245,37 @@ export function createSchemaDriftValidator(
         }
         throw new Error(
           `Schema drift detected in ${errorViolations.length} place(s). ` +
-            `Set SCHEMA_DRIFT_FATAL=false to start the service anyway, but ` +
+            `In non-production, set SCHEMA_DRIFT_FATAL=false to start the service anyway, but ` +
             `the drift must be fixed — either via a migration that aligns the ` +
             `DB to the entity, or by reverting the entity change if it was ` +
             `premature. First violation: ${errorViolations[0]}`,
         );
       }
+    }
+
+    private isProductionLike(): boolean {
+      const nodeEnv =
+        this.configService.get<string>('NODE_ENV') ??
+        process.env['NODE_ENV'] ??
+        'development';
+      const aquaEnv =
+        this.configService.get<string>('AQUA_ENV') ??
+        process.env['AQUA_ENV'] ??
+        '';
+      return (
+        nodeEnv === 'production' ||
+        aquaEnv === 'production' ||
+        aquaEnv === 'staging'
+      );
+    }
+
+    private resolveFatalDefault(isProductionLike: boolean): boolean {
+      if (isProductionLike) return true;
+      const configured = this.configService.get<string>('SCHEMA_DRIFT_FATAL');
+      if (configured !== undefined && configured !== null && configured !== '') {
+        return configured === 'true';
+      }
+      return false;
     }
 
     /**
@@ -269,10 +314,16 @@ export function createSchemaDriftValidator(
         );
       const [firstRow] = tableRows;
       if (!firstRow) {
-        // Table doesn't exist in any non-tenant schema — NOT a drift from
-        // this validator's perspective (could be a synchronize-yet-to-run
-        // state, or a source table that's only replicated to tenant_*
-        // schemas at provision time). Skip.
+        // Entity owns this table (synchronize !== false) but the source
+        // schema has no physical table. Treat as error-level drift so a
+        // deploy cannot pass with a clean boot signal while the app would
+        // crash on first query.
+        this.route(
+          'missing_column',
+          `[${schema}.${tableName}] entity declares owned table but DB has no such table in any non-tenant schema`,
+          errorViolations,
+          warningViolations,
+        );
         return;
       }
       if (firstRow.schemaname !== schema) {
@@ -450,7 +501,7 @@ export function createSchemaDriftValidator(
       // the column is a data-loss operation gated by an allowlist
       // (Phase 3 dropOrphanedColumns primitive). Routes via registry
       // severity, so operators see the drift surface WITHOUT blocking
-      // the "Schema drift scan clean" boot signal.
+      // the schema_drift_clean boot signal.
       //
       // Phase 8 Stage 2+ may elevate specific orphan columns to error
       // severity once every existing E violation is either allowlisted
@@ -484,8 +535,8 @@ export function createSchemaDriftValidator(
         return entity.schema;
       }
 
-      if (TENANT_AWARE_SCHEMAS.has(serviceName)) {
-        return serviceName;
+      if (TENANT_AWARE_SCHEMAS.has(sourceSchemaName)) {
+        return sourceSchemaName;
       }
 
       return 'public';

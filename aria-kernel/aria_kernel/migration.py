@@ -280,7 +280,12 @@ def migrate_tools_v2_to_v3(
     acknowledge: bool,
     reason: str,
 ) -> dict[str, Any]:
-    """Plan ARIA-V2 §3.8 — migrate aria-tools/ from contract v2 to v3.
+    """Plan ARIA-V2 §3.8 + I-34 — migrate aria-tools/ from contract v2 to v3.
+
+    Frozen-profile-aware: under ``ARIA_RUNTIME_PROFILE=frozen`` the
+    write is rejected via the standard ``tool_governance`` gate so
+    the no-write invariant cannot be accidentally bypassed through
+    a contract upgrade.
 
     v2→v3 rebinds the tools root from environment-bound ``bound_repo_hash``
     (mixed-in filesystem path + remote URL) to environment-independent
@@ -297,6 +302,11 @@ def migrate_tools_v2_to_v3(
     if not acknowledge or not reason.strip():
         raise ValueError("v2-to-v3 tools migration requires --acknowledge and --reason")
     root = Path(tools_dir)
+    # Plan ARIA-V2 I-34 — frozen-profile guard. Migration is a high-
+    # impact write to aria-tools/repo_identity.json + governance.jsonl;
+    # the tool_governance gate rejects under frozen.
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("tool_governance", base_dir=str(root))
     repo_root = _resolve_repo_root(workspace_root)
     if not (root / "repo_identity.json").exists():
         raise GovernanceError("tools_v2_to_v3_no_identity: aria-tools/repo_identity.json missing")
@@ -410,6 +420,11 @@ def migrate_tools_bootstrap(
     if not acknowledge or not reason.strip():
         raise ValueError("bootstrap tools migration requires --acknowledge and --reason")
     root = Path(tools_dir)
+    # Plan ARIA-V2 I-34 — frozen-profile guard at the umbrella entry
+    # point too; chained migrations would otherwise mutate before the
+    # underlying step's gate fires.
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("tool_governance", base_dir=str(root))
     current_version = tools_contract_version(root) if root.exists() else 0
     chain = []
     if current_version < 2:

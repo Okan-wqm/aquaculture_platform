@@ -283,6 +283,60 @@ def _parse_days(value: str) -> int:
     return days
 
 
+# Plan ARIA-V2 §Phase 1 AUDITTRAIL-HIGH-005a + Rec C — every
+# operator-supplied ``--reason`` is now validated for:
+#   * non-whitespace length >= 10 chars (rejects "" / "   " / "short")
+#   * absence of PII tokens (email / phone / SSN-shaped strings)
+# Applied as an argparse ``type=`` validator so failures fire at parse
+# time with ArgumentTypeError, producing a clean CLI exit and an
+# auditable error message rather than reaching the audit row.
+_REASON_MIN_NON_WHITESPACE_CHARS = 10
+import re as _aria_re
+_REASON_PII_PATTERNS = (
+    # email
+    _aria_re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),
+    # north-american phone (xxx-xxx-xxxx, (xxx) xxx-xxxx, xxx.xxx.xxxx)
+    _aria_re.compile(r"\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}"),
+    # SSN (xxx-xx-xxxx)
+    _aria_re.compile(r"\d{3}-\d{2}-\d{4}"),
+)
+
+
+def _validate_reason(text: str) -> str:
+    """Plan ARIA-V2 AUDITTRAIL-HIGH-005a — ``--reason`` content validator.
+
+    Used as ``argparse.add_argument(..., type=_validate_reason)`` so the
+    CLI rejects empty / whitespace-only / too-short reasons + reasons
+    containing common PII shapes (email / phone / SSN). Returns the
+    stripped text so the downstream handler receives a clean string.
+
+    Rationale: audit rows carry ``reason`` as a free-text justification.
+    Without this validator, ``--reason ""`` and ``--reason " "`` are
+    accepted as legal CLI input but reduce the audit row's
+    ``justification`` field to mandatory-shape compliance theater.
+    Mirroring ``libs/backend-common/src/audit/audited-operation.decorator.ts``
+    discipline at the kernel CLI surface.
+    """
+    stripped = (text or "").strip()
+    non_whitespace = "".join(stripped.split())
+    if len(non_whitespace) < _REASON_MIN_NON_WHITESPACE_CHARS:
+        raise argparse.ArgumentTypeError(
+            f"--reason must contain at least {_REASON_MIN_NON_WHITESPACE_CHARS} "
+            f"non-whitespace characters (got {len(non_whitespace)!r}). "
+            "Audit rows require operator justification — empty or trivial "
+            "reasons reduce the audit trail to shape-only compliance."
+        )
+    for pattern in _REASON_PII_PATTERNS:
+        if pattern.search(stripped):
+            raise argparse.ArgumentTypeError(
+                "--reason must not contain PII tokens (email / phone / SSN). "
+                "Audit rows are operator-private but operator-only-visibility "
+                "is data-minimization-preserving; PII in justification text "
+                "expands the disclosure surface unnecessarily."
+            )
+    return stripped
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         return _main(argv)
@@ -345,13 +399,13 @@ def _main(argv: list[str] | None = None) -> int:
     migrate_parser = add_subparser(feedback_sub, "migrate-v1-to-v2")
     add_workspace_args(migrate_parser)
     migrate_parser.add_argument("--acknowledge", action="store_true")
-    migrate_parser.add_argument("--reason", required=True)
+    migrate_parser.add_argument("--reason", required=True, type=_validate_reason)
 
     rollback_parser = add_subparser(feedback_sub, "rollback-v2-to-v1")
     add_workspace_args(rollback_parser)
     rollback_parser.add_argument("--from-backup", required=True)
     rollback_parser.add_argument("--acknowledge", action="store_true")
-    rollback_parser.add_argument("--reason", required=True)
+    rollback_parser.add_argument("--reason", required=True, type=_validate_reason)
     rollback_parser.add_argument("--force-discard-since-migration", action="store_true")
 
     discovery_parser = add_subparser(sub, "discovery")
@@ -369,11 +423,11 @@ def _main(argv: list[str] | None = None) -> int:
     migrate_tools = add_subparser(integrity_sub, "migrate-tools-v1-to-v2")
     migrate_tools.add_argument("--workspace-root", required=True)
     migrate_tools.add_argument("--acknowledge", action="store_true")
-    migrate_tools.add_argument("--reason", required=True)
+    migrate_tools.add_argument("--reason", required=True, type=_validate_reason)
     rollback_tools = add_subparser(integrity_sub, "rollback-tools-v2-to-v1")
     rollback_tools.add_argument("--from-backup", required=True)
     rollback_tools.add_argument("--acknowledge", action="store_true")
-    rollback_tools.add_argument("--reason", required=True)
+    rollback_tools.add_argument("--reason", required=True, type=_validate_reason)
     rollback_tools.add_argument("--force-discard-since-migration", action="store_true")
 
     # Plan ARIA-V2 §3.8 — v2→v3 migration + idempotent umbrella bootstrap
@@ -383,14 +437,14 @@ def _main(argv: list[str] | None = None) -> int:
     migrate_tools_v3 = add_subparser(integrity_sub, "migrate-tools-v2-to-v3")
     migrate_tools_v3.add_argument("--workspace-root", required=True)
     migrate_tools_v3.add_argument("--acknowledge", action="store_true")
-    migrate_tools_v3.add_argument("--reason", required=True)
+    migrate_tools_v3.add_argument("--reason", required=True, type=_validate_reason)
     migrate_tools_boot = add_subparser(integrity_sub, "migrate-tools-bootstrap")
     migrate_tools_boot.add_argument("--workspace-root", required=True)
     migrate_tools_boot.add_argument("--acknowledge", action="store_true")
-    migrate_tools_boot.add_argument("--reason", required=True)
+    migrate_tools_boot.add_argument("--reason", required=True, type=_validate_reason)
     rollback_tools_v3 = add_subparser(integrity_sub, "rollback-tools-v3-to-v2")
     rollback_tools_v3.add_argument("--acknowledge", action="store_true")
-    rollback_tools_v3.add_argument("--reason", required=True)
+    rollback_tools_v3.add_argument("--reason", required=True, type=_validate_reason)
 
     tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
@@ -400,7 +454,7 @@ def _main(argv: list[str] | None = None) -> int:
     tool_list.add_argument("--status", default=None)
     tool_quarantine = add_subparser(tool_sub, "quarantine")
     tool_quarantine.add_argument("--tool-id", required=True)
-    tool_quarantine.add_argument("--reason", required=True)
+    tool_quarantine.add_argument("--reason", required=True, type=_validate_reason)
     tool_run = add_subparser(tool_sub, "run")
     tool_run.add_argument("--tool-id", required=True)
     tool_run.add_argument("--input", default="{}")
@@ -541,7 +595,7 @@ def _main(argv: list[str] | None = None) -> int:
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
     memory_withdraw = add_subparser(memory_sub, "withdraw")
     memory_withdraw.add_argument("--belief-id", required=True)
-    memory_withdraw.add_argument("--reason", required=True)
+    memory_withdraw.add_argument("--reason", required=True, type=_validate_reason)
 
     pressure_parser = add_subparser(sub, "pressure")
     pressure_sub = pressure_parser.add_subparsers(dest="pressure_command", required=True)
@@ -595,7 +649,7 @@ def _main(argv: list[str] | None = None) -> int:
     worker_mark.add_argument("--by", required=True)
     worker_cancel = add_subparser(worker_sub, "cancel")
     worker_cancel.add_argument("pressure_event_id")
-    worker_cancel.add_argument("--reason", required=True)
+    worker_cancel.add_argument("--reason", required=True, type=_validate_reason)
 
     # Plan 025 §D — autonomous scheduler family. ``planner-dispatch``
     # runs the in-kernel daemon that polls next_pending_request and
@@ -832,7 +886,7 @@ def _main(argv: list[str] | None = None) -> int:
     )
     a_release.add_argument("--claim-id", required=True)
     a_release.add_argument("--agent-id", required=True)
-    a_release.add_argument("--reason", required=True)
+    a_release.add_argument("--reason", required=True, type=_validate_reason)
     # Plan 026R §B.1 — lease-bound release. The raw lease_token must
     # arrive via an environment variable (NEVER argv — argv is logged in
     # most CI/journald setups and would leak the token). Mirrors the
@@ -1222,7 +1276,7 @@ def _main(argv: list[str] | None = None) -> int:
     hr_record = add_subparser(hr_sub, "record")
     hr_record.add_argument("--request-id", required=True)
     hr_record.add_argument("--severity", default=None)
-    hr_record.add_argument("--reason", required=True)
+    hr_record.add_argument("--reason", required=True, type=_validate_reason)
     hr_list = add_subparser(hr_sub, "list")
     hr_list.add_argument("--include-resolved", action="store_true")
     hr_resolve = add_subparser(hr_sub, "resolve")

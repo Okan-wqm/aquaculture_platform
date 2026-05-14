@@ -173,6 +173,11 @@ class V13ContractTests(unittest.TestCase):
         invalid = self.base / "not-a-repo"
         invalid.mkdir()
         stderr = StringIO()
+        # Plan ARIA-V2 I-31 — --reason must be ≥10 non-whitespace chars
+        # (audit trail discipline). Original test used "bad root" (8
+        # chars) which is now rejected at parse time. Using a longer
+        # reason that still triggers the downstream repo_resolution_failed
+        # check exercises the exit code path the test was validating.
         with redirect_stderr(stderr):
             code = main(
                 [
@@ -184,7 +189,7 @@ class V13ContractTests(unittest.TestCase):
                     str(invalid),
                     "--acknowledge",
                     "--reason",
-                    "bad root",
+                    "bad-root regression test fixture",
                 ],
             )
         self.assertEqual(code, 14)

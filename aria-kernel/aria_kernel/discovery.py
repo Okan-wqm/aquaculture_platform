@@ -35,6 +35,22 @@ def run_discovery(
     file_counts = snapshot["file_counts"]
     legacy_tracked_file_count = file_counts["allowed"]
     fingerprint = _repo_fingerprint(root, fates, file_counts)
+    # Plan ARIA-V2 §3.5 + I-37 — single-fire deprecation event when
+    # the legacy ``web_module_count`` field is computed. The field is
+    # preserved for backward-compat with downstream consumers but the
+    # event names the rename (``web_mfe_count`` is the canonical
+    # successor) so future drops are detectable at audit time.
+    append_tools_governance(
+        tools_root,
+        "discovery_legacy_field_emitted",
+        {
+            "legacy_field": "web_module_count",
+            "canonical_successor": "web_mfe_count",
+            "severity": "deprecation",
+            "removal_target": "v4",
+            "cycle_id": cycle_id,
+        },
+    )
     service_map = _service_map(root)
     completion_proof = {
         "schema_version": 1,
@@ -86,6 +102,8 @@ def _repo_fingerprint(root: Path, fates: list[dict[str, Any]], file_counts: dict
         and "/src/database/migrations/" in str(fate.get("path", ""))
         and str(fate.get("path", "")).endswith(".sql")
     )
+    web_modules_children = _children(root / "web" / "modules")
+    web_mfe_count = len(web_modules_children)
     return {
         "schema_version": 2,
         "generated_at": utc_now(),
@@ -96,7 +114,13 @@ def _repo_fingerprint(root: Path, fates: list[dict[str, Any]], file_counts: dict
         "language_histogram": dict(sorted(language_histogram.items())),
         "service_count": len(_children(root / "apps")),
         "web_dir_child_count": len(_children(root / "web")),
-        "web_module_count": len(_children(root / "web" / "modules")),
+        # Plan ARIA-V2 §3.5 — ``web_mfe_count`` is the canonical name.
+        # ``web_module_count`` preserved as legacy mirror (same value)
+        # for backward-compat with downstream consumers; deprecation
+        # event ``discovery_legacy_field_emitted`` fires once per
+        # cycle so the rename is audit-visible. Removal target: v4.
+        "web_mfe_count": web_mfe_count,
+        "web_module_count": web_mfe_count,
         "web_app_count": len(_children(root / "web" / "apps")),
         "platform_lib_count": len(_children(root / "platform/libs")),
         "shared_lib_count": len(_children(root / "libs")),
@@ -106,6 +130,14 @@ def _repo_fingerprint(root: Path, fates: list[dict[str, Any]], file_counts: dict
         "migration_count": migration_ts_count + migration_sql_count,
         "has_nx": (root / "nx.json").exists(),
         "has_package_json": (root / "package.json").exists(),
+        # Plan ARIA-V2 §3.5 — surface the MFEs missing project.json so
+        # downstream memory.py can emit ``web-modules-missing-project-json``
+        # belief with concrete evidence_refs.
+        "web_modules_missing_project_json": [
+            child.relative_to(root).as_posix()
+            for child in web_modules_children
+            if not (child / "project.json").exists()
+        ],
     }
 
 
@@ -119,29 +151,126 @@ def _is_migration_ts_path(path: str) -> bool:
 
 
 def _service_map(root: Path) -> dict[str, Any]:
+    """Plan ARIA-V2 §3.5 — SERVICE_MAP v2 typed-buckets shape.
+
+    Pre-§3.5 ``web`` was a flat list of top-level web/* directory
+    children (4 entries: apps, modules, shared-ui, shell). The MFEs
+    under web/modules/ were never enumerated, so drift surfaces on
+    individual MFEs (e.g. dashboard's sensor-service drift) couldn't
+    be discovered by downstream consumers reading SERVICE_MAP.
+
+    Post-§3.5 ``web`` becomes a typed dict with explicit buckets so
+    consumers can drill into MFE / app / shell layers separately:
+
+      web: {
+        modules: [...7 MFE rows...],
+        apps: [...AquaMobil row...],
+        shared_ui: [...shared-ui row...],
+        shell: [...shell row...],
+      }
+
+    schema_version bumped to 2; v1 consumers read the legacy flat
+    shape via upcasters.service_map_v1_to_v2.downcast().
+    """
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": utc_now(),
         "apps": _project_rows(root, "apps"),
-        "web": _project_rows(root, "web"),
+        "web": {
+            "modules": _project_rows(root, "web/modules"),
+            "apps": _project_rows(root, "web/apps"),
+            "shared_ui": _project_rows_at_path(root, "web/shared-ui"),
+            "shell": _project_rows_at_path(root, "web/shell"),
+        },
         "platform_libs": _project_rows(root, "platform/libs"),
         "libs": _project_rows(root, "libs"),
     }
 
 
+# Plan ARIA-V2 §3.5 — MFE allowlist used as a fallback signal in
+# ``is_leaf_project``. Children matching this allowlist are recognized
+# as leaf projects even when project.json is missing; the gap is
+# surfaced separately via ``web_modules_missing_project_json``.
+_MFE_NAME_ALLOWLIST: frozenset[str] = frozenset({
+    "dashboard",
+    "farm-module",
+    "sensor-module",
+    "hr-module",
+    "admin-panel",
+    "tenant-admin",
+    "hydroponics-module",
+})
+
+
+def is_leaf_project(child: Path) -> bool:
+    """Plan ARIA-V2 §3.5 + I-17 — decide whether a directory is a
+    project leaf based on locally-observable markers ONLY.
+
+    The predicate is Tier-1 idempotent: it inspects ``child`` direct
+    contents and the child's name; it does NOT recurse into the
+    subtree. Removing this invariant would let SERVICE_MAP collapse
+    multi-level project hierarchies into nested-confusion, breaking
+    the v2 typed-bucket contract.
+
+    Markers (any one is sufficient):
+      * ``child / "project.json"`` exists (Nx project)
+      * ``child / "Cargo.toml"`` exists (Rust crate)
+      * child name is in the MFE allowlist (legacy guard for MFEs
+        that haven't gained project.json yet; surfaced separately
+        via ``web_modules_missing_project_json`` belief)
+    """
+    if (child / "project.json").is_file():
+        return True
+    if (child / "Cargo.toml").is_file():
+        return True
+    if child.name in _MFE_NAME_ALLOWLIST:
+        return True
+    return False
+
+
 def _project_rows(root: Path, relative_dir: str) -> list[dict[str, Any]]:
+    """Plan ARIA-V2 §3.5 — recursive project-rows walk.
+
+    At each level, if any child satisfies ``is_leaf_project`` the
+    function enumerates those leaves and stops descending. If no
+    child is a leaf but children exist, recurse one level deeper.
+    This handles nested structures (e.g. web/modules/<mfe>) without
+    requiring the caller to know the depth ahead of time.
+    """
     base = root / relative_dir
-    rows = []
-    for child in _children(base):
-        rows.append(
-            {
-                "name": child.name,
-                "path": child.relative_to(root).as_posix(),
-                "has_project_json": (child / "project.json").exists(),
-                "has_readme": (child / "README.md").exists(),
-            },
-        )
+    rows: list[dict[str, Any]] = []
+    children = _children(base)
+    if not children:
+        return rows
+    if any(is_leaf_project(child) for child in children):
+        for child in children:
+            rows.append(_project_row(root, child))
+        return rows
+    # No leaves at this level — recurse one level into each subdir.
+    for child in children:
+        rows.extend(_project_rows(root, child.relative_to(root).as_posix()))
     return rows
+
+
+def _project_rows_at_path(root: Path, relative_path: str) -> list[dict[str, Any]]:
+    """Plan ARIA-V2 §3.5 — single-project row variant for known leaves
+    like ``web/shared-ui`` and ``web/shell`` that are themselves the
+    project (not parent directories of sibling projects).
+    """
+    target = root / relative_path
+    if not target.exists() or not target.is_dir():
+        return []
+    return [_project_row(root, target)]
+
+
+def _project_row(root: Path, child: Path) -> dict[str, Any]:
+    return {
+        "name": child.name,
+        "path": child.relative_to(root).as_posix(),
+        "has_project_json": (child / "project.json").exists(),
+        "has_readme": (child / "README.md").exists(),
+        "is_leaf_project": is_leaf_project(child),
+    }
 
 
 def _children(path: Path) -> list[Path]:

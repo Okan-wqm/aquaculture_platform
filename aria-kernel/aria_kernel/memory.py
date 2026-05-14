@@ -136,6 +136,26 @@ def update_memory(
             confidence=0.85,
         )
         beliefs_written += 1
+    # Plan ARIA-V2 §3.5 + I-16 — surface MFEs missing project.json
+    # as a first-class belief so downstream architecture-baseline
+    # reviewers can decide whether to gate the gap. Discovery
+    # populates ``web_modules_missing_project_json`` in REPO_FINGERPRINT
+    # with concrete evidence paths.
+    missing_mfe_project_json = fingerprint.get("web_modules_missing_project_json") or []
+    if include_discovery_beliefs and isinstance(missing_mfe_project_json, list) and missing_mfe_project_json:
+        _record_belief(
+            root,
+            cycle_id=cycle_id,
+            belief_id="web-modules-missing-project-json",
+            claim=(
+                f"{len(missing_mfe_project_json)} MFE(s) under web/modules/ "
+                "lack project.json — Nx-aware tooling cannot enumerate them; "
+                "operator decides whether to add project.json or allowlist the gap."
+            ),
+            evidence_refs=list(missing_mfe_project_json),
+            confidence=1.0,
+        )
+        beliefs_written += 1
     if include_tool_candidates:
         quarantined_tool_ids = _quarantined_tool_ids(root)
         beliefs_written += _mark_quarantined_source_beliefs(root, cycle_id, quarantined_tool_ids)

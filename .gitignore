@@ -169,3 +169,42 @@ aria-tools/feedback-consensus-uncertainties.jsonl
 aria-tools/quarantine.jsonl
 aria-tools/migration_state.json
 aria-tools/diagnostics/
+
+# Plan ARIA-V2 §3.4 — full per-clone runtime state sweep (Phase 5).
+# GDPR rationale: ARIA_ACTOR defaults to <user>@<hostname> (personal
+# data per GDPR Art 4); operator --reason text is free-text PII-
+# adjacent. Storing the runtime ledgers only on the operator's
+# machine is data-minimization-correct, and the committed daily
+# anchor (Phase 6) replaces git history as the audit-trust source.
+# Tracked allowlist enforced by aria-kernel/tests/test_aria_tools_tracked_allowlist.py (I-23):
+#   - aria-tools/repo_identity.json     (v3 schema stamp, version fields only)
+#   - aria-tools/agent-evals/fixtures/   (eval fixtures)
+#   - aria-tools/reports/daily/          (daily chain-tip anchors, Phase 6)
+aria-tools/registry.json
+aria-tools/registry-stub-allowlist.json
+aria-tools/agent-invocations/
+aria-tools/agent-network/
+aria-tools/capability-gaps/
+aria-tools/change-ledger/
+aria-tools/cycle-diff/
+aria-tools/cycle-state/
+aria-tools/cycle-metrics/
+aria-tools/dashboards/
+aria-tools/discovery/
+aria-tools/dispatch/
+aria-tools/fitness/
+aria-tools/memory/
+aria-tools/observability/
+aria-tools/plans/
+aria-tools/pressure/
+aria-tools/problem_clusters.jsonl
+aria-tools/triage/
+aria-tools/workspaces/
+# Within aria-tools/agent-evals/ only the fixtures/ subdir is tracked.
+aria-tools/agent-evals/*
+!aria-tools/agent-evals/fixtures/
+!aria-tools/agent-evals/fixtures/**
+# Within aria-tools/reports/ only the committed daily anchors are tracked.
+aria-tools/reports/*
+!aria-tools/reports/daily/
+!aria-tools/reports/daily/**

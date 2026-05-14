@@ -349,6 +349,17 @@ def _workspace_snapshot_raw(root: Path) -> Any:
     filter. The raw view is the load-bearing input for scope-out
     mutation detection: comparing before_raw vs after_raw catches
     every mutation regardless of declared scope.
+
+    Plan ARIA-V2 §3.4 + I-24 — once ``aria-tools/`` runtime ledgers
+    are gitignored, ``git status --porcelain`` reports them as
+    nothing-to-see. Scope-out detection would then go blind to
+    ledger mutations, defeating the load-bearing audit contract.
+    Augmenting the git output with a content-hashed directory
+    snapshot of ``aria-tools/`` keeps the contract: ANY mutation
+    under ``aria-tools/`` (tracked or ignored) shows up in the
+    before/after delta. The augmentation runs alongside git status,
+    not instead — tracked-file mutations elsewhere remain visible
+    via the porcelain channel.
     """
     git_dir = root / ".git"
     if git_dir.exists():
@@ -359,8 +370,45 @@ def _workspace_snapshot_raw(root: Path) -> Any:
             check=False,
         )
         if completed.returncode == 0:
-            return ("git", _normalized_git_status_raw(completed.stdout))
+            # Plan ARIA-V2 §3.4 + I-24 — augment with content-hashed
+            # aria-tools/ overlay so gitignored runtime mutations stay
+            # visible. Overlay rows use a synthetic ``--`` status code
+            # (non-conflicting with git's two-letter porcelain codes),
+            # carry size + sha256, and join the git status rows in a
+            # SINGLE flat string tuple to preserve the load-bearing
+            # shape ``("git", tuple_of_strings)`` consumed by
+            # ``_partition_mutations`` and downstream scope-out audit.
+            combined: list[str] = list(_normalized_git_status_raw(completed.stdout))
+            for rel, size, content_hash in _aria_tools_dir_overlay(root):
+                combined.append(f"-- {rel} size={size} {content_hash}")
+            return ("git", tuple(sorted(combined)))
     return ("dir", _directory_snapshot(root))
+
+
+def _aria_tools_dir_overlay(root: Path) -> tuple[tuple[str, int, str], ...]:
+    """Plan ARIA-V2 §3.4 + I-24 — content-hashed view of aria-tools/.
+
+    Returns a stable, sorted tuple of (relative_path, size_bytes,
+    sha256). Used to augment the git-mode workspace snapshot so
+    gitignored runtime writes (governance.jsonl append, runs.jsonl
+    append, …) still produce a before/after delta and stay audit-
+    visible to scope-out detection.
+    """
+    base = root / "aria-tools"
+    if not base.exists() or not base.is_dir():
+        return ()
+    rows: list[tuple[str, int, str]] = []
+    for path in base.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            stat = path.stat()
+            rel = path.relative_to(root).as_posix()
+            rows.append((rel, stat.st_size, _sha256(path.read_bytes())))
+        except OSError:
+            continue
+    rows.sort()
+    return tuple(rows)
 
 
 def _normalized_git_status_raw(stdout: bytes) -> tuple[str, ...]:

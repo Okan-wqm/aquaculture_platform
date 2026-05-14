@@ -234,6 +234,29 @@ def run_enterprise_cycle(
     # fires first; failure aborts the cycle with cycle_aborted_by_
     # pre_phase. The legacy run_phases kwarg continues to run AFTER
     # tools (post-tool observation).
+    # Plan ARIA-V2 §3.4 + CRITICAL-009 fix — input validation runs at
+    # function entry BEFORE any side effect (discovery, memory write,
+    # ledger append, FATES integrity recompute). Pre-fix the unknown-
+    # phase check at line 391 fired AFTER ``update_memory`` had already
+    # raised ``memory_fates_content_hash_mismatch`` against the (mutating)
+    # governance.jsonl, so operators received the wrong error class for
+    # a structurally-detectable input mistake. Validating preconditions
+    # at entry is the Tier-1 architectural shape (impossible to ship a
+    # cycle that mutates ledgers under a malformed run_phases tuple).
+    if run_phases is not None:
+        _unknown_run = [p for p in tuple(run_phases) if p not in SUPPORTED_CYCLE_PHASES]
+        if _unknown_run:
+            raise ValueError(
+                f"unknown cycle phase(s): {_unknown_run}; "
+                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
+            )
+    if pre_tool_phases is not None:
+        _unknown_pre = [p for p in tuple(pre_tool_phases) if p not in SUPPORTED_CYCLE_PHASES]
+        if _unknown_pre:
+            raise ValueError(
+                f"unknown pre_tool_phases: {_unknown_pre}; "
+                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
+            )
     started = time.monotonic()
     # Plan 025 §C — UTC wall-clock of cycle start. Bounds the
     # change_committed window for validation_matrix phase so the

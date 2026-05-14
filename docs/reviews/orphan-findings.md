@@ -3573,3 +3573,34 @@ Fix (Tier-1 Make-Impossible): REMOVE the sensor-ingestion entry from service-cri
 The retained doc comment block documents the restore path so the entry is not added back accidentally with the wrong level (the previous comment said level: optional which would still fail).
 
 Status: RESOLVED on chore/sensor-ingestion-manifest-cleanup.
+
+
+---
+
+## ORPHAN-MEDIUM-075 — test_concurrent_submit_race_5_subprocesses fails in full suite, passes in isolation
+
+**Severity:** MEDIUM (test-infrastructure; production code path unaffected — fails on assertion, not on submit_claim_result correctness)
+**Discovered:** 2026-05-14, Plan ARIA-V2 Phase 4 full-kernel sweep
+**File:** `aria-kernel/tests/test_submit_claim_result_envelope_drift.py` lines 234-300
+
+**Evidence:**
+```
+Isolation run:  Ran 6 tests in 6.393s OK
+Full suite run: AssertionError: 0 != 5 : []
+                (line 290: self.assertEqual(len(outcomes), 5, outcomes))
+```
+
+**Problem:** The test spawns 5 child processes via `multiprocessing.get_context("spawn")` and waits for each to put an outcome on `result_queue`. In the full kernel suite the queue is empty after all 5 children join, meaning every child crashed BEFORE reaching the broad `except Exception` block (lines 217-230) that catches into the queue. The crash happens during cold-import of `aria_kernel.agent_invocations` OR before, in spawn-bootstrap. The pre-existing tool_registry race noted in the test docstring (ORPHAN-062, `_atomic_write_json` shared .tmp path) is documented as tolerated (caught by the except block), so this is a DIFFERENT failure mode: zero outcomes means crash-before-try.
+
+**Reproducibility:**
+1. Run full kernel suite: `PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'`
+2. Observe: 1548/1549 pass, this test fails with `len(outcomes) == 0`.
+3. Run alone: `PYTHONPATH=aria-kernel:. python3 -m unittest aria-kernel.tests.test_submit_claim_result_envelope_drift -v` → 6/6 pass.
+
+**Hypothesis:** Some prior test in alphabetical order leaves OS-level state (env var, signal handler, multiprocessing context state) that breaks spawn-bootstrap for this test's children. Spawn mode inherits parent env vars but re-imports modules.
+
+**Pre-existence:** Failure observed in Phase 4 full sweep (commit 696816f9, before any Phase 5 change). Phase 5 fixed the SIBLING failure (`test_unknown_phase_raises_value_error`) but did not affect this one — exonerating Phase 5 changes.
+
+**Recommendation:** Phase 6 investigation. Binary-search the alphabetical predecessor list to find the polluting test; root-cause the inherited OS state. If the root cause is a multiprocessing context global, switch the test to forkserver mode OR ensure cleanup in tearDownClass of the polluter.
+
+**Status:** OPEN. Owner: ARIA-V2 Phase 6 (`/var/aqua-saas/.worktrees/snowball` snowball branch). Deadline: end of Plan ARIA-V2 PR (Phase 6 commit).

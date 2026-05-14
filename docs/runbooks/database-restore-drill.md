@@ -1,5 +1,45 @@
 # Database Restore Drill
 
+## Backup Workflow Missing-Secret Repair
+
+The production backup workflow resolves its credentials from the
+`production-backup` GitHub Environment, not from generic repository secrets.
+Create it before seeding credentials:
+
+1. Go to `Settings -> Environments -> New environment`.
+2. Name it `production-backup`.
+3. Restrict deployment branches to `main`.
+4. Do not configure required reviewers or a wait timer. The scheduled backup
+   must not wait for human approval at 03:00 UTC.
+5. Add the following values under
+   `Settings -> Environments -> production-backup -> Environment secrets`.
+
+| Secret | Meaning | Runtime mapping | Safe example format |
+|---|---|---|---|
+| `DROPLET_HOST` | Production droplet host name or IP address | `appleboy/ssh-action` `host` | `203.0.113.10` or `prod.example.com` |
+| `DROPLET_USER` | SSH user on the production droplet | `appleboy/ssh-action` `username` | `deploy` |
+| `DROPLET_SSH_KEY` | Private key matching the droplet user's authorized key | `appleboy/ssh-action` `key` | `-----BEGIN OPENSSH PRIVATE KEY----- ...` |
+| `SPACES_BUCKET` | DigitalOcean Spaces bucket for backup artifacts | remote `SPACES_BUCKET` | `aqua-pg-backups` |
+| `SPACES_ENDPOINT` | Spaces S3-compatible regional endpoint | remote `SPACES_ENDPOINT` | `https://fra1.digitaloceanspaces.com` |
+| `SPACES_ACCESS_KEY_ID` | Spaces access key id with write access to the backup prefix | remote `AWS_ACCESS_KEY_ID` | `DO00EXAMPLEKEYID` |
+| `SPACES_SECRET_ACCESS_KEY` | Spaces secret access key | remote `AWS_SECRET_ACCESS_KEY` | `<DigitalOcean Spaces secret access key>` |
+| `BACKUP_POSTGRES_USER` | PostgreSQL role used by `pg_dump` | remote `POSTGRES_USER` | `aquaculture` |
+| `BACKUP_POSTGRES_DB` | PostgreSQL database to dump | remote `POSTGRES_DB` | `aquaculture` |
+| `BACKUP_POSTGRES_PASSWORD` | Password passed to `pg_dump` through `PGPASSWORD` inside `docker exec` | remote `PGPASSWORD` | `<same value as production POSTGRES_PASSWORD>` |
+
+The source of truth for this contract is
+`.github/manifests/backup-secrets.json`; the workflow preflight, SSH runtime
+mapping, and this runbook must stay in lockstep with that manifest.
+
+To close a missing-secret incident, a dry-run is not enough. After the
+environment secrets are present, run `Backup - Production Postgres` from
+`main` with `dry_run: false`, verify the new object under
+`pg-backups/YYYY/MM/DD/`, run `head-object` for its byte count and
+`Metadata.sha256`, restore that exact object into the ephemeral Postgres
+drill container below, then record the workflow URL, object key, bytes,
+SHA-256, operator, timestamp, restore duration, and sanity-check output in
+the drill log.
+
 **Purpose:** verify that the nightly backups produced by
 `tools/scripts/database/backup-databases.sh` can actually be restored, end to
 end, on a clean Postgres instance. A backup whose restore path has never been
@@ -31,7 +71,7 @@ NOT the production droplet):
 | `gpg` | 2.2 | only required if backups are GPG-encrypted |
 
 Export the Spaces credentials used by the nightly workflow (or a read-only
-subset):
+subset from `production-backup`):
 
 ```bash
 export AWS_ACCESS_KEY_ID=…
@@ -58,21 +98,22 @@ pg-backups/2026/04/14/aquaculture-20260414T030000Z.dump
 ```
 
 Record the object's SHA-256 metadata (populated by `backup-databases.sh`
-under the `x-amz-meta-sha256` header):
+under the `x-amz-meta-sha256` header) and the byte length:
 
 ```bash
 aws s3api head-object \
   --bucket "${SPACES_BUCKET}" \
   --key    "pg-backups/2026/04/14/aquaculture-20260414T030000Z.dump" \
   --endpoint-url "${SPACES_ENDPOINT}" \
-  --query Metadata
+  --query '{bytes:ContentLength,sha256:Metadata.sha256}'
 ```
 
 ## 3. Spin an ephemeral Postgres
 
 Use the **same** `postgres` image and major version that runs on the
-droplet. The droplet's image is pinned in `docker-compose.droplet.yml`;
-check that file for the exact tag before running the command below.
+droplet. The droplet's image is pinned in `docker-compose.droplet.yml`; the
+example below is derived from that file and must be updated if the compose
+image changes.
 
 ```bash
 docker network create drill-net 2>/dev/null || true
@@ -82,7 +123,7 @@ docker run -d \
   -e POSTGRES_USER=aquaculture \
   -e POSTGRES_PASSWORD=drillpass \
   -e POSTGRES_DB=postgres \
-  timescale/timescaledb:2.17.2-pg16
+  timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
 
 # Wait for readiness (≤30s typical)
 until docker exec aqua-postgres-drill pg_isready -U aquaculture; do sleep 1; done
@@ -153,8 +194,8 @@ Append a row to the drill log (`docs/runbooks/_logs/database-restore-drills.md`
 — create if it does not exist) with the following fields. This row is the
 evidence we passed the drill.
 
-| Date (UTC) | Operator | Dump key | Dump bytes | Restore wall-clock | All counts non-zero? | Deltas from previous drill | Notes |
-|---|---|---|---|---|---|---|---|
+| Date (UTC) | Operator | Workflow URL | Dump key | Dump bytes | Dump sha256 | Restore wall-clock | Sanity-check output | All counts non-zero? | Deltas from previous drill | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|
 
 Commit the updated log in the same PR that fixes any issue the drill
 surfaced; if the drill was clean, commit the log entry on its own.
@@ -163,8 +204,8 @@ surfaced; if the drill was clean, commit the log entry on its own.
 
 | Symptom | Likely cause | Next step |
 |---|---|---|
-| `pg_restore: error: could not read from input file` | dump truncated during upload | re-run `backup-databases.sh`, check object size vs `stat` at source |
+| `pg_restore: error: could not read from input file` | dump truncated during upload | re-run `backup-databases.sh`; compare `head-object` bytes and `Metadata.sha256` against the workflow log |
 | `pg_restore: error: role "xxx_service" does not exist` | dump was produced WITHOUT `--no-owner` | patch `backup-databases.sh`; re-run |
 | All schema counts zero | `pg_dump` ran against empty DB or pointed at wrong container | confirm `POSTGRES_CONTAINER`/`POSTGRES_DB` in the workflow env |
-| `aws: error: An error occurred (403)` | Spaces key lost its ListObject/GetObject permission | rotate the Spaces key, update `backup-production.yml` secrets |
+| `aws: error: An error occurred (403)` | Spaces key lost its ListObject/GetObject permission | rotate the Spaces key, update `production-backup` environment secrets |
 | GPG decryption fails | archive key not imported into local keyring | import the public key; keep the private half OFFLINE |

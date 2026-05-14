@@ -69,6 +69,20 @@ Defined in `infrastructure/docker/init-scripts/00-init-schemas.sh`. Rotated via:
 
 Can be done one role at a time without cross-service impact because each service has its own role.
 
+## DigitalOcean Spaces keys (backup workflow)
+
+The production backup workflow reads Spaces credentials from the
+`production-backup` GitHub Environment. Rotate `SPACES_ACCESS_KEY_ID` and
+`SPACES_SECRET_ACCESS_KEY` there, not as generic repository secrets.
+
+Proof of rotation requires a real backup run. A `dry_run: true` workflow only
+proves the SSH and `pg_dump` path because it sets `BACKUP_DUMP_ONLY=true` and
+skips upload. To prove the new Spaces key can write restorable backups, run
+`Backup - Production Postgres` from `main` with `dry_run: false`, verify the
+new `pg-backups/YYYY/MM/DD/` object with `aws s3api head-object` for
+`ContentLength` and `Metadata.sha256`, then restore that exact object using
+`docs/runbooks/database-restore-drill.md`.
+
 ## Audit trail
 
 Every rotation triggers a WARN log entry via the standard logging middleware. Grep production logs for `secret.rotated` to confirm the deploy picked up the new value. Consider adding a Grafana alert on absence of this entry after a scheduled rotation window.
@@ -86,9 +100,9 @@ Closes `docs/reviews/infra-expert/2026-04-14-infrastructure-hardening.md#INFRA-R
 | `PASSWORD_PEPPER` | 180 days (or on incident) | 30 days | auth-service oncall | §"Password pepper" (incident-response only outside cadence) |
 | `REDIS_PASSWORD` | 180 days | 30 days | infra oncall | roll via droplet env + `docker compose up -d redis` |
 | NATS mTLS client certs | 12 months | 30 days | infra oncall | `scripts/generate-internal-certs.sh` regenerates in lockstep with `infrastructure/nats/services.yaml` |
-| DigitalOcean Spaces keys (backup workflow) | 90 days | 14 days | infra oncall | rotate in DO panel → update `SPACES_ACCESS_KEY_ID` / `SPACES_SECRET_ACCESS_KEY` GitHub secrets → run the `Backup - Production Postgres` workflow with `dry_run: true` to verify |
+| DigitalOcean Spaces keys (backup workflow) | 90 days | 14 days | infra oncall | rotate in DO panel → update `SPACES_ACCESS_KEY_ID` / `SPACES_SECRET_ACCESS_KEY` in the `production-backup` GitHub Environment → run `Backup - Production Postgres` with `dry_run: false` → verify `head-object` size + `Metadata.sha256` → restore that exact object |
 | RDS Proxy IAM auth token (only when `enable_rds_proxy=true`) | 12 hours (auto, AWS-managed) | n/a | infra oncall | AWS rotates IAM auth tokens automatically every 15 min while the proxy is active. There is NO operator-run rotation for the auth token itself; the rotation knob is the **DB master credentials secret** (above) which the proxy reads via its IAM role. Operator action required only on a suspected proxy IAM role compromise — recreate the role via Terraform (`module.rds_proxy.iam_role_arn`) and run `aws rds reboot-db-proxy --db-proxy-name <name>`. Reference: `infrastructure/terraform/modules/rds-proxy/main.tf` (the role's `secretsmanager:GetSecretValue` policy is scoped to the exact secret ARN — no wildcard rotation needed). |
 
 **Reminders:** `.github/workflows/secret-rotation-reminder.yml` opens a GitHub issue `Rotation due: <secret>` during the lead-time window. The issue is assigned to the owner team listed above; closing the issue without rotating the secret requires a comment explaining the deferral, its new due date, and the mitigating control.
 
-**Deferrals are capped at one cadence interval.** A JWT keypair cannot be deferred twice in a row; the second deferral auto-escalates to the CTO as a CRITICAL finding under INFRA-ROTATION-001.
+**Rotation postponements are capped at one cadence interval.** A JWT keypair cannot be postponed twice in a row; the second postponement auto-escalates to the CTO as a CRITICAL finding under INFRA-ROTATION-001.

@@ -13,9 +13,10 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry run (backup but skip upload) — set "true" to enable'
+        description: 'Dry run (pg_dump + local integrity checks, skip upload)'
+        type: boolean
         required: false
-        default: 'false'
+        default: false
 
 concurrency:
   group: backup-production
@@ -26,6 +27,9 @@ jobs:
     name: pg_dump → DO Spaces
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment:
+      name: production-backup
+      deployment: false
 
     permissions:
       contents: read
@@ -37,12 +41,14 @@ jobs:
         with:
           fetch-depth: 1
 
-      # Fail fast on the runner if any required secret is empty, before we
-      # spin up the SSH tunnel + 30s repo sync only to fail at line 41 of
-      # backup-databases.sh inside the droplet. Mirrors the env contract of
-      # tools/scripts/database/backup-databases.sh (the SSoT for required vars).
+      # Fail fast on the runner if any required resolved Actions secret is
+      # empty, before we open an SSH session to the droplet.
       - name: Preflight — assert backup secrets present
+        id: backup_secret_preflight
         env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
           SPACES_BUCKET: ${{ secrets.SPACES_BUCKET }}
           SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
           SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
@@ -50,23 +56,7 @@ jobs:
           BACKUP_POSTGRES_USER: ${{ secrets.BACKUP_POSTGRES_USER }}
           BACKUP_POSTGRES_DB: ${{ secrets.BACKUP_POSTGRES_DB }}
           BACKUP_POSTGRES_PASSWORD: ${{ secrets.BACKUP_POSTGRES_PASSWORD }}
-          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
-          DROPLET_USER: ${{ secrets.DROPLET_USER }}
-          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
-        run: |
-          missing=()
-          for v in SPACES_BUCKET SPACES_ENDPOINT SPACES_ACCESS_KEY_ID SPACES_SECRET_ACCESS_KEY \
-                   BACKUP_POSTGRES_USER BACKUP_POSTGRES_DB BACKUP_POSTGRES_PASSWORD \
-                   DROPLET_HOST DROPLET_USER DROPLET_SSH_KEY; do
-            eval "val=\${$v}"
-            [ -z "$val" ] && missing+=("$v")
-          done
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::Missing required repository secrets: ${missing[*]}"
-            echo "Provision them at: https://github.com/${{ github.repository }}/settings/secrets/actions"
-            exit 1
-          fi
-          echo "All ${#missing[@]:-0} backup secrets present (10 required)."
+        run: bash tools/scripts/database/assert-backup-secrets.sh
 
       # The droplet already has the backup script on disk (repo is checked out
       # under /var/aqua-saas). We SSH in and invoke it with the required env.
@@ -75,13 +65,20 @@ jobs:
       - name: Run backup-databases.sh on the droplet
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
         env:
-          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          POSTGRES_USER: ${{ secrets.BACKUP_POSTGRES_USER }}
+          POSTGRES_DB: ${{ secrets.BACKUP_POSTGRES_DB }}
+          SPACES_BUCKET: ${{ secrets.SPACES_BUCKET }}
+          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
+          PGPASSWORD: ${{ secrets.BACKUP_POSTGRES_PASSWORD }}
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           command_timeout: 25m
-          envs: DRY_RUN
+          envs: DRY_RUN,POSTGRES_USER,POSTGRES_DB,SPACES_BUCKET,SPACES_ENDPOINT,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,PGPASSWORD
           script: |
             set -euo pipefail
             cd /var/aqua-saas
@@ -123,30 +120,29 @@ jobs:
 
             echo "=== Running backup ==="
             export POSTGRES_CONTAINER=aqua-postgres
-            export POSTGRES_USER='${{ secrets.BACKUP_POSTGRES_USER }}'
-            export POSTGRES_DB='${{ secrets.BACKUP_POSTGRES_DB }}'
-            export SPACES_BUCKET='${{ secrets.SPACES_BUCKET }}'
-            export SPACES_ENDPOINT='${{ secrets.SPACES_ENDPOINT }}'
-            export AWS_ACCESS_KEY_ID='${{ secrets.SPACES_ACCESS_KEY_ID }}'
-            export AWS_SECRET_ACCESS_KEY='${{ secrets.SPACES_SECRET_ACCESS_KEY }}'
             export BACKUP_PREFIX='pg-backups'
-            export PGPASSWORD='${{ secrets.BACKUP_POSTGRES_PASSWORD }}'
 
             if [ "${DRY_RUN}" = "true" ]; then
-              echo "DRY_RUN=true — overriding SPACES_BUCKET to a sentinel and disabling upload"
-              # Surface dry-run by pointing at a bucket that is expected to 403;
-              # the pg_dump portion still runs so we validate connectivity.
-              export SPACES_BUCKET='DRY_RUN_DO_NOT_UPLOAD'
-              bash tools/scripts/database/backup-databases.sh || echo "[dry-run] upload failure expected"
+              echo "DRY_RUN=true — running pg_dump and local integrity checks without upload"
+              export BACKUP_DUMP_ONLY=true
             else
-              bash tools/scripts/database/backup-databases.sh
+              export BACKUP_DUMP_ONLY=false
             fi
 
-      - name: Notify on failure
-        if: failure()
+            bash tools/scripts/database/backup-databases.sh
+
+      - name: Notify on secret/config preflight failure
+        if: failure() && steps.backup_secret_preflight.outcome == 'failure'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            core.setFailed('Production Postgres backup secret/config preflight failed — configure the production-backup environment secrets. Runbook: docs/runbooks/database-restore-drill.md');
+
+      - name: Notify on runtime backup failure
+        if: failure() && steps.backup_secret_preflight.outcome == 'success'
         # Surfaces through the existing notification channel used by
         # deploy-digitalocean.yml — keep the delivery mechanism consistent.
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            core.setFailed('Production Postgres backup failed — check the job log. Runbook: docs/runbooks/database-restore-drill.md');
+            core.setFailed('Production Postgres backup runtime failed — backup object was not proven uploaded/restorable. Check the job log. Runbook: docs/runbooks/database-restore-drill.md');

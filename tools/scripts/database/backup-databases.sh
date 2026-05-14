@@ -19,13 +19,15 @@
 #   POSTGRES_CONTAINER    Docker container name              [default: aqua-postgres]
 #   POSTGRES_USER         Superuser for the dump             [default: aquaculture]
 #   POSTGRES_DB           Database name                       [default: aquaculture]
-#   SPACES_BUCKET         DO Spaces bucket (no s3:// prefix)  [required]
+#   SPACES_BUCKET         DO Spaces bucket (no s3:// prefix)  [required unless BACKUP_DUMP_ONLY=true]
 #   SPACES_ENDPOINT       Spaces region endpoint              [default: https://fra1.digitaloceanspaces.com]
-#   AWS_ACCESS_KEY_ID     Spaces access key                   [required]
-#   AWS_SECRET_ACCESS_KEY Spaces secret key                   [required]
+#   AWS_ACCESS_KEY_ID     Spaces access key                   [required unless BACKUP_DUMP_ONLY=true]
+#   AWS_SECRET_ACCESS_KEY Spaces secret key                   [required unless BACKUP_DUMP_ONLY=true]
 #   BACKUP_PREFIX         Key prefix inside the bucket        [default: pg-backups]
 #   BACKUP_GPG_RECIPIENT  GPG recipient for encryption        [optional; skip if unset]
 #   MIN_DUMP_BYTES        Abort if dump is smaller            [default: 10000]
+#   PGPASSWORD            Password passed to pg_dump          [optional]
+#   BACKUP_DUMP_ONLY      Run pg_dump + local checks only     [default: false]
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
@@ -37,14 +39,25 @@ SPACES_ENDPOINT="${SPACES_ENDPOINT:-https://fra1.digitaloceanspaces.com}"
 BACKUP_PREFIX="${BACKUP_PREFIX:-pg-backups}"
 BACKUP_GPG_RECIPIENT="${BACKUP_GPG_RECIPIENT:-}"
 MIN_DUMP_BYTES="${MIN_DUMP_BYTES:-10000}"
+BACKUP_DUMP_ONLY="${BACKUP_DUMP_ONLY:-false}"
 
-: "${SPACES_BUCKET:?SPACES_BUCKET required}"
-: "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID required}"
-: "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY required}"
+case "${BACKUP_DUMP_ONLY}" in
+  true|false) ;;
+  *)
+    echo "ERROR: BACKUP_DUMP_ONLY must be 'true' or 'false'." >&2
+    exit 2
+    ;;
+esac
 
-if ! command -v aws >/dev/null 2>&1; then
-  echo "ERROR: aws CLI not found on PATH. Install awscli v2." >&2
-  exit 2
+if [ "${BACKUP_DUMP_ONLY}" != "true" ]; then
+  : "${SPACES_BUCKET:?SPACES_BUCKET required}"
+  : "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID required}"
+  : "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY required}"
+
+  if ! command -v aws >/dev/null 2>&1; then
+    echo "ERROR: aws CLI not found on PATH. Install awscli v2." >&2
+    exit 2
+  fi
 fi
 
 if ! docker inspect "${POSTGRES_CONTAINER}" >/dev/null 2>&1; then
@@ -65,15 +78,22 @@ log "Starting pg_dump of ${POSTGRES_DB} via ${POSTGRES_CONTAINER} (custom format
 # --format=custom: binary, compressed, parallel-restorable
 # --no-owner / --no-privileges: dump is restorable into any role layout,
 #   which is what the drill runbook depends on.
-docker exec -i "${POSTGRES_CONTAINER}" \
-  pg_dump \
-    -U "${POSTGRES_USER}" \
-    -d "${POSTGRES_DB}" \
-    --format=custom \
-    --compress=6 \
-    --no-owner \
-    --no-privileges \
-  > "${DUMP_PATH}" 2> "${DUMP_PATH}.stderr"
+if ! docker exec -i -e "PGPASSWORD=${PGPASSWORD:-}" "${POSTGRES_CONTAINER}" \
+    pg_dump \
+      -U "${POSTGRES_USER}" \
+      -d "${POSTGRES_DB}" \
+      --format=custom \
+      --compress=6 \
+      --no-owner \
+      --no-privileges \
+    > "${DUMP_PATH}" 2> "${DUMP_PATH}.stderr"; then
+  if [ -s "${DUMP_PATH}.stderr" ]; then
+    log "pg_dump stderr:"
+    sed 's/^/  pg_dump| /' "${DUMP_PATH}.stderr"
+  fi
+  echo "ERROR: pg_dump failed for database '${POSTGRES_DB}' in ${POSTGRES_CONTAINER}." >&2
+  exit 3
+fi
 
 DUMP_SIZE=$(stat -c '%s' "${DUMP_PATH}")
 log "pg_dump produced ${DUMP_SIZE} bytes"
@@ -108,6 +128,15 @@ if [ -n "${BACKUP_GPG_RECIPIENT}" ]; then
   UPLOAD_PATH="${DUMP_PATH}.gpg"
 fi
 
+UPLOAD_SIZE=$(stat -c '%s' "${UPLOAD_PATH}")
+UPLOAD_SHA256=$(sha256sum "${UPLOAD_PATH}" | awk '{print $1}')
+log "Local artifact integrity: size=${UPLOAD_SIZE} sha256=${UPLOAD_SHA256}"
+
+if [ "${BACKUP_DUMP_ONLY}" = "true" ]; then
+  log "BACKUP_DUMP_ONLY=true — skipping upload after successful pg_dump and local integrity checks"
+  exit 0
+fi
+
 REMOTE_KEY="${BACKUP_PREFIX}/$(date -u +%Y/%m/%d)/$(basename "${UPLOAD_PATH}")"
 log "Uploading to s3://${SPACES_BUCKET}/${REMOTE_KEY}"
 
@@ -115,6 +144,25 @@ aws s3 cp "${UPLOAD_PATH}" "s3://${SPACES_BUCKET}/${REMOTE_KEY}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
   --only-show-errors \
   --sse AES256 \
-  --metadata "source=${POSTGRES_CONTAINER},db=${POSTGRES_DB},sha256=$(sha256sum "${UPLOAD_PATH}" | cut -d' ' -f1)"
+  --metadata "source=${POSTGRES_CONTAINER},db=${POSTGRES_DB},sha256=${UPLOAD_SHA256}"
 
-log "Backup complete: size=${DUMP_SIZE} key=s3://${SPACES_BUCKET}/${REMOTE_KEY}"
+log "Verifying uploaded object metadata"
+HEAD_OBJECT=$(aws s3api head-object \
+  --bucket "${SPACES_BUCKET}" \
+  --key "${REMOTE_KEY}" \
+  --endpoint-url "${SPACES_ENDPOINT}" \
+  --query '[ContentLength, Metadata.sha256]' \
+  --output text)
+read -r REMOTE_SIZE REMOTE_SHA256 <<< "${HEAD_OBJECT}"
+
+if [ "${REMOTE_SIZE}" != "${UPLOAD_SIZE}" ]; then
+  echo "ERROR: uploaded object size mismatch for s3://${SPACES_BUCKET}/${REMOTE_KEY}: local=${UPLOAD_SIZE} remote=${REMOTE_SIZE}" >&2
+  exit 5
+fi
+
+if [ "${REMOTE_SHA256}" != "${UPLOAD_SHA256}" ]; then
+  echo "ERROR: uploaded object sha256 metadata mismatch for s3://${SPACES_BUCKET}/${REMOTE_KEY}: local=${UPLOAD_SHA256} remote=${REMOTE_SHA256}" >&2
+  exit 5
+fi
+
+log "Backup complete: size=${UPLOAD_SIZE} sha256=${UPLOAD_SHA256} key=s3://${SPACES_BUCKET}/${REMOTE_KEY}"

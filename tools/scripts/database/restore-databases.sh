@@ -83,10 +83,39 @@ trap 'rm -rf "${TMP}"' EXIT
 
 LOCAL_DUMP="${TMP}/$(basename "${BACKUP_KEY}")"
 
+log "Reading object metadata for s3://${SPACES_BUCKET}/${BACKUP_KEY}"
+HEAD_OBJECT=$(aws s3api head-object \
+  --bucket "${SPACES_BUCKET}" \
+  --key "${BACKUP_KEY}" \
+  --endpoint-url "${SPACES_ENDPOINT}" \
+  --query '[ContentLength, Metadata.sha256]' \
+  --output text)
+read -r REMOTE_SIZE REMOTE_SHA256 <<< "${HEAD_OBJECT}"
+
+if [ -z "${REMOTE_SHA256:-}" ] || [ "${REMOTE_SHA256}" = "None" ] || [ "${REMOTE_SHA256}" = "null" ]; then
+  echo "ERROR: backup object is missing required sha256 metadata: s3://${SPACES_BUCKET}/${BACKUP_KEY}" >&2
+  exit 5
+fi
+
 log "Downloading s3://${SPACES_BUCKET}/${BACKUP_KEY}"
 aws s3 cp "s3://${SPACES_BUCKET}/${BACKUP_KEY}" "${LOCAL_DUMP}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
   --only-show-errors
+
+LOCAL_SIZE=$(stat -c '%s' "${LOCAL_DUMP}")
+LOCAL_SHA256=$(sha256sum "${LOCAL_DUMP}" | awk '{print $1}')
+
+if [ "${LOCAL_SIZE}" != "${REMOTE_SIZE}" ]; then
+  echo "ERROR: downloaded object size mismatch for s3://${SPACES_BUCKET}/${BACKUP_KEY}: local=${LOCAL_SIZE} remote=${REMOTE_SIZE}" >&2
+  exit 5
+fi
+
+if [ "${LOCAL_SHA256}" != "${REMOTE_SHA256}" ]; then
+  echo "ERROR: downloaded object sha256 mismatch for s3://${SPACES_BUCKET}/${BACKUP_KEY}: local=${LOCAL_SHA256} remote=${REMOTE_SHA256}" >&2
+  exit 5
+fi
+
+log "Downloaded object integrity verified: size=${LOCAL_SIZE} sha256=${LOCAL_SHA256}"
 
 if [[ "${LOCAL_DUMP}" == *.gpg ]]; then
   : "${BACKUP_GPG_KEY:?BACKUP_GPG_KEY required to decrypt .gpg archive}"

@@ -45,7 +45,7 @@ from aria_kernel.migration import (
     rollback_tools_v2_to_v1,
     rollback_workspace_v2_to_v1,
 )
-from aria_kernel.memory import withdraw_belief
+from aria_kernel.memory import rebuild_fates, reset_memory, withdraw_belief
 from aria_kernel.plan_convergence import (
     evaluate_plan,
     force_plan_human_required,
@@ -596,6 +596,28 @@ def _main(argv: list[str] | None = None) -> int:
     memory_withdraw = add_subparser(memory_sub, "withdraw")
     memory_withdraw.add_argument("--belief-id", required=True)
     memory_withdraw.add_argument("--reason", required=True, type=_validate_reason)
+
+    # Plan ARIA-V2 §3.3 — operator-grade audited recovery surface.
+    # ``memory rebuild-fates`` re-hashes every FATES.files entry from
+    # current disk state and rewrites FATES.json with the new hashes;
+    # ``memory reset`` moves the entire memory dir to a backup path
+    # and re-bootstraps empty memory state. Both emit governance
+    # events with operator actor + reason; both gated by frozen-
+    # profile guard via the standard tool_governance surface.
+    memory_rebuild = add_subparser(memory_sub, "rebuild-fates")
+    add_workspace_args(memory_rebuild)
+    memory_rebuild.add_argument("--cycle-id", required=True)
+    memory_rebuild.add_argument("--reason", required=True, type=_validate_reason)
+    memory_rebuild.add_argument("--acknowledge", action="store_true")
+
+    memory_reset = add_subparser(memory_sub, "reset")
+    add_workspace_args(memory_reset)
+    memory_reset.add_argument("--reason", required=True, type=_validate_reason)
+    memory_reset.add_argument("--acknowledge", action="store_true")
+    memory_reset.add_argument("--backup-to", required=True,
+        help="Plan ARIA-V2 §3.3 — destination directory for the "
+             "pre-reset memory state. Must be operator-supplied; "
+             "no default to prevent accidental data loss.")
 
     pressure_parser = add_subparser(sub, "pressure")
     pressure_sub = pressure_parser.add_subparsers(dest="pressure_command", required=True)
@@ -1760,6 +1782,30 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "memory" and args.memory_command == "withdraw":
         print(json.dumps(withdraw_belief(belief_id=args.belief_id, reason=args.reason, base_dir=args.tools_dir), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "memory" and args.memory_command == "rebuild-fates":
+        result = rebuild_fates(
+            cycle_id=args.cycle_id,
+            workspace_root=args.workspace_root,
+            workspace_base=args.workspace_base,
+            base_dir=args.tools_dir,
+            reason=args.reason,
+            acknowledge=args.acknowledge,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "memory" and args.memory_command == "reset":
+        result = reset_memory(
+            workspace_root=args.workspace_root,
+            workspace_base=args.workspace_base,
+            backup_to=args.backup_to,
+            base_dir=args.tools_dir,
+            reason=args.reason,
+            acknowledge=args.acknowledge,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
     if args.command == "pressure" and args.pressure_command == "explain":

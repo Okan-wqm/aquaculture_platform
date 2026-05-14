@@ -10,6 +10,21 @@ from typing import Any
 from .snapshot import build_repo_snapshot
 from .tool_registry import append_tools_governance, ensure_tools_binding, ensure_tools_dir, utc_now
 
+# Plan ARIA-V2 §3.6 + I-22 — both the ARIA Phase-1 PoC and the kernel
+# discovery engine MUST consume the *same* exclusion frozenset
+# (``poc.EXCLUDED_DIRS is discovery.EXCLUDED_DIRS``). The bootstrap
+# below makes ``tools.shared`` importable from any CWD by computing
+# the repo root from ``__file__`` (Tier-1: import resolution becomes
+# a function of file layout, not operator-environment PYTHONPATH).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from tools.shared.excluded_paths import (
+    BASE_EXCLUDED_DIRS as EXCLUDED_DIRS,
+    augmented_excluded_paths,
+)
+
 
 def run_discovery(
     *,

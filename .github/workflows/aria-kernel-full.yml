@@ -9,6 +9,10 @@ on:
       - "aria-kernel/**"
       - "docs/aria/**"
       - ".github/workflows/aria-kernel*.yml"
+      # Plan ARIA-V2 §3.6 — tools/aria-poc + tools/shared host the
+      # PoC dedup + EXCLUDED_DIRS invariants (I-19..I-22, I-39).
+      - "tools/aria-poc/**"
+      - "tools/shared/**"
 
 concurrency:
   group: aria-kernel-full-${{ github.ref }}
@@ -28,7 +32,14 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
-      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'
+      - name: Run aria-kernel unit + invariant tests
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
+      # Plan ARIA-V2 §3.6 + CRITICAL-013 — tools/aria-poc + tools/shared
+      # invariants run under the same quality gate.
+      - name: Run tools/aria-poc invariant tests (Plan ARIA-V2 §3.6)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/aria-poc/tests -p '*test*.py'
+      - name: Run tools/shared invariant tests (Plan ARIA-V2 §3.6)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/shared/tests -p '*test*.py'
       - name: Reset CI-local ARIA state
         run: |
           rm -rf ./.aria-ci/tools ./.aria-ci/workspaces

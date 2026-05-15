@@ -13,6 +13,7 @@ on:
     paths:
       - "aria-kernel/**"
       - "docs/aria/**"
+      - "docs/adr/**"
       - ".github/workflows/aria-kernel*.yml"
       - "tools/aria-poc/**"
       - "tools/shared/**"
@@ -23,6 +24,13 @@ on:
       - "docs/**"
       - "**.md"
       - "aria-tools/reports/daily/**"
+      # Plan ARIA-V3 §B3 + INFRA-HIGH-008 — SPEC + ADR edits MUST
+      # retrigger kernel tests so a Plan ARIA-V3 SPEC §0.2 / §5.4 /
+      # §8.1 amendment cannot drift from the kernel's invariant
+      # suite. Negation patterns un-ignore ``docs/aria/**`` and
+      # ``docs/adr/**`` from the broader ``docs/**`` exclusion.
+      - "!docs/aria/**"
+      - "!docs/adr/**"
 
 permissions:
   contents: read

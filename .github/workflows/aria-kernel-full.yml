@@ -14,6 +14,14 @@ on:
       - "docs/**"
       - "**.md"
       - "aria-tools/reports/daily/**"
+      # Plan ARIA-V3 §B3 + INFRA-HIGH-008 — SPEC + ADR edits MUST
+      # retrigger kernel tests so a Plan ARIA-V3 SPEC §0.2 / §5.4 /
+      # §8.1 amendment cannot drift from the kernel's invariant
+      # suite. The bang-prefix entries are negation patterns
+      # (un-ignore), so ``docs/aria/**`` and ``docs/adr/**`` paths
+      # bypass the broader ``docs/**`` ignore.
+      - "!docs/aria/**"
+      - "!docs/adr/**"
 
 permissions:
   contents: read

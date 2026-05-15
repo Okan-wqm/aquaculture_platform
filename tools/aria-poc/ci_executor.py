@@ -22,11 +22,12 @@ Cost-cap discipline:
   - The Claude Code CLI's own --max-turns / --max-requests are layer 2.
   - kernel submit_claim_result budget guard is layer 3.
 
-Invocation contract: see tools/aria-poc/ci_executor_contract_spike.md
-for the full spike doc. The actual `claude code agent ...` CLI form
-remains UNVERIFIED at Phase 8 commit time; CLAUDE_CODE_MOCK=1 wires the
-test fixture path; CLAUDE_CODE_MOCK=0 (default) requires the operator to
-have a live `claude` binary on $PATH and a valid OAuth token.
+Invocation contract: see tools/aria-poc/ci_executor_contract_proven.md
+for the load-bearing contract — argv shape locked by Plan ARIA-V3
+invariant I-V3-21. `CLAUDE_CODE_MOCK=1` wires the test fixture path;
+`CLAUDE_CODE_MOCK=0` (default after Plan ARIA-V3 §B1) requires a live
+`claude` binary on $PATH and a valid OAuth token; the workflow installs
+both via the executor preflight steps.
 """
 from __future__ import annotations
 
@@ -263,15 +264,15 @@ def invoke_claude_code(
 
     if shutil.which("claude") is None:
         raise ClaudeCodeUnavailable(
-            "`claude` binary not on $PATH; the spike doc at "
-            "tools/aria-poc/ci_executor_contract_spike.md tracks the "
-            "remaining contract gap. Set CLAUDE_CODE_MOCK=1 to run the "
+            "`claude` binary not on $PATH; the proven-contract doc at "
+            "tools/aria-poc/ci_executor_contract_proven.md is the SSoT "
+            "for argv shape. Set CLAUDE_CODE_MOCK=1 to run the "
             "executor's outer pipeline against a deterministic mock."
         )
 
-    # Production path — UNVERIFIED contract per spike doc.
-    # The operator must run this once against a live Claude Code CLI to
-    # confirm the flag set is correct; the spike doc remains the SSoT.
+    # Production path — Plan ARIA-V3 §B1 PROVEN argv contract; the
+    # tuple below is locked byte-for-byte by invariant I-V3-21 against
+    # tools/aria-poc/ci_executor_contract_proven.md proven_argv block.
     argv = [
         "claude",
         "code",
@@ -465,6 +466,37 @@ def _on_disk_anchors(
     return claim_hash, request_hash
 
 
+def _record_mock_mode_audit(tools_dir: Path) -> None:
+    """Plan ARIA-V3 §B1 AUDITTRAIL-HIGH-009 — record which layer
+    decided the CLAUDE_CODE_MOCK value at executor entry.
+
+    The workflow's pre-flight step computes ``effective_mock`` +
+    ``mock_source`` (kill_switch / workflow_dispatch_input /
+    workflow_default_post_b1) and exports both via the env. This
+    function appends one ``mock_mode_default_flipped`` governance
+    row per executor invocation so an audit reviewer can replay the
+    decision chain. Invariant I-V3-23a locks this contract.
+    """
+    try:
+        # Late import — keeps the executor module importable when the
+        # kernel package isn't on sys.path (mock-mode unit tests).
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+        from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
+    except ImportError:
+        return
+    root = ensure_tools_dir(tools_dir)
+    append_tools_governance(
+        root,
+        "mock_mode_default_flipped",
+        {
+            "effective_mock": os.environ.get(MOCK_MODE_ENV_VAR, "unset"),
+            "mock_source": os.environ.get("CLAUDE_CODE_MOCK_SOURCE", "unset"),
+            "workflow_run_id": os.environ.get("GITHUB_RUN_ID", "local"),
+            "workflow_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "local"),
+        },
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point — runs one cycle. Designed to be called by GHA step."""
     args = argv if argv is not None else sys.argv[1:]
@@ -477,6 +509,12 @@ def main(argv: list[str] | None = None) -> int:
 
     repo = Path.cwd().resolve()
     tools_dir = repo / "aria-tools"
+
+    # Plan ARIA-V3 §B1 AUDITTRAIL-HIGH-009 — single governance row
+    # per executor invocation recording the effective mock state +
+    # source. Runs BEFORE any kernel-side work so even an early
+    # crash leaves the mock-mode decision in the audit log.
+    _record_mock_mode_audit(tools_dir)
 
     # Plan 026R §B.1 — agent_id is computed once + reused for every
     # subsequent kernel CLI call (claim + release fail-fast branches +

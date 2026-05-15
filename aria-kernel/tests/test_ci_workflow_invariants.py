@@ -32,11 +32,18 @@ _WORKFLOWS = _REPO_ROOT / ".github" / "workflows"
 # Plan ARIA-V2 §3.7 — only aria-kernel* + aria-daily-report are under
 # the §3.7 invariant; the broader repo has many workflows owned by
 # other teams that this plan does not gate.
+#
+# Plan ARIA-V3 §B1 INFRA-HIGH-007 — aria-agent-executor.yml added to
+# the governed set; it is kernel-owned (executes the CI-side
+# ci_executor.py + worker_executor.py) and must satisfy all six §3.7
+# clauses (paths filter, SHA-pinning, npm-ci --ignore-scripts,
+# checkout persist-credentials false, top-level permissions, etc.).
 _GOVERNED_WORKFLOWS: frozenset[str] = frozenset({
     "aria-kernel.yml",
     "aria-kernel-full.yml",
     "aria-kernel-fast.yml",
     "aria-daily-report.yml",
+    "aria-agent-executor.yml",
 })
 
 # Plan ARIA-V2 §3.7 + INFRA-HIGH-004 allowlist — the daily-report

@@ -81,7 +81,11 @@ class GenesisPolicyTests(unittest.TestCase):
         self.assertNotIn("_garbage", merged)
 
     def test_policy_keys_contract(self):
-        # Locked contract — adding/removing a known key requires explicit code review.
+        # Locked contract — adding/removing a known key requires
+        # explicit code review. Plan ARIA-V3 §B0 + §B2 extended the
+        # contract with `cost_caps_usd` (cost circuit breaker, B0)
+        # and `circuit_breaker` (failure breaker, B2 — primitive
+        # added now so override-merge stays forward-compatible).
         self.assertEqual(
             POLICY_KEYS,
             {
@@ -90,6 +94,8 @@ class GenesisPolicyTests(unittest.TestCase):
                 "max_requests_per_cycle",
                 "materialization_requires_acknowledge",
                 "fitness_staleness_threshold_days",
+                "cost_caps_usd",
+                "circuit_breaker",
             },
         )
 

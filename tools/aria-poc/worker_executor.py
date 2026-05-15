@@ -21,11 +21,11 @@ Lease-token redaction discipline (mirrors ci_executor.py):
 * Stderr redacted at every subprocess return surface.
 
 Live-mode contract: the live ``claude`` CLI invocation shape is
-tracked under the same spike doc as the planner CLI
-(``tools/aria-poc/ci_executor_contract_spike.md``). Until the
-operator runs the live workflow against a real Claude Code OAuth
-token + verified CLI, the live branch raises ClaudeCodeUnavailable
-— the architectural seam is explicit, not silently disabled.
+locked under the proven-contract doc that the planner CLI also
+references (``tools/aria-poc/ci_executor_contract_proven.md``).
+Plan ARIA-V3 §B1 promoted the spike to load-bearing status; the
+argv tuple below is verified against the doc's ``proven_argv``
+YAML block by invariant I-V3-21.
 """
 from __future__ import annotations
 
@@ -222,16 +222,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if shutil.which("claude") is None:
         raise ClaudeCodeUnavailable(
-            "`claude` binary not on $PATH; the spike doc at "
-            "tools/aria-poc/ci_executor_contract_spike.md tracks the "
-            "remaining contract gap. Set CLAUDE_CODE_MOCK=1 to run the "
+            "`claude` binary not on $PATH; the proven-contract doc at "
+            "tools/aria-poc/ci_executor_contract_proven.md is the SSoT "
+            "for argv shape. Set CLAUDE_CODE_MOCK=1 to run the "
             "worker against a deterministic mock."
         )
 
-    # Live path — UNVERIFIED contract per spike doc. The operator runs
-    # this once against a real Claude Code CLI to confirm the prompt
-    # + flag set; the spike doc remains the SSoT until the operator
-    # captures the response artefact and updates "What is verified".
+    # Live path — Plan ARIA-V3 §B1 PROVEN argv contract; locked
+    # against the proven_argv worker_executor block in
+    # tools/aria-poc/ci_executor_contract_proven.md by invariant
+    # I-V3-21 (byte-for-byte match).
     prompt_file = (
         tools_dir / "dispatch" / "prompts" / f"{assignment_id}.md"
     )

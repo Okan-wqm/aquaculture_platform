@@ -1984,13 +1984,23 @@ def _main(argv: list[str] | None = None) -> int:
     ):
         # Plan 025 §E — autonomous worker scheduler daemon entry.
         # Mirrors the planner-dispatch wiring above.
+        # Plan ARIA-V3 §A2 — github_adapter is REQUIRED. Factory
+        # derives Recording (observe/standard/frozen) vs GhCli
+        # (strict/autonomous) from the runtime profile.
         from .autonomous_worker_scheduler import run_worker_scheduler_daemon
+        from .github_adapters import select_github_adapter
+        from .runtime_profile import get_profile
         workspace = (
             paths.repo_root if paths is not None
             else Path(args.workspace_root).resolve()
         )
+        profile = get_profile(base_dir=args.tools_dir)
+        github_adapter = select_github_adapter(
+            profile=profile, base_dir=args.tools_dir, cwd=str(workspace),
+        )
         result = run_worker_scheduler_daemon(
             base_dir=args.tools_dir,
+            github_adapter=github_adapter,
             workspace_root=workspace,
             max_iterations=args.max_iterations,
             poll_interval_seconds=args.poll_interval_seconds,
@@ -2930,18 +2940,25 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "autonomy" and args.autonomy_command == "run":
         # Plan 026R §F.1 — unified orchestrator entry point.
-        # Plan ARIA-V3 §A1 — auto_merge_runner is now REQUIRED.
-        # The factory derives the runner from the current runtime
-        # profile (observe/standard/frozen → NoOp; strict/autonomous
-        # → Real wrapping merge_if_green).
+        # Plan ARIA-V3 §A1 — auto_merge_runner is REQUIRED.
+        # Plan ARIA-V3 §A2 — github_adapter is REQUIRED.
+        # Both factories key off the runtime profile so the
+        # operator never passes either dependency explicitly.
         from .autonomy_orchestrator import run_autonomy_orchestrator
         from .auto_merge_runners import select_auto_merge_runner
+        from .github_adapters import select_github_adapter
         from .runtime_profile import get_profile
         profile = get_profile(base_dir=args.tools_dir)
         auto_merge_runner = select_auto_merge_runner(profile=profile)
+        github_adapter = select_github_adapter(
+            profile=profile,
+            base_dir=args.tools_dir,
+            cwd=str(args.workspace_root),
+        )
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
             auto_merge_runner=auto_merge_runner,
+            github_adapter=github_adapter,
             workspace_root=args.workspace_root,
             max_cycles=args.max_cycles,
             max_iterations_per_phase=args.max_iterations_per_phase,

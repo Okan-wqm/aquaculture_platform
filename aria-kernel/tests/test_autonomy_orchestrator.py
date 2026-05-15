@@ -52,7 +52,11 @@ def _fake_planner_drainer(*, base_dir, workspace_root, max_iterations):
     }
 
 
-def _fake_worker_drainer(*, base_dir, workspace_root, max_iterations):
+def _fake_worker_drainer(**kwargs):
+    """Plan ARIA-V3 §A2 — accept arbitrary kwargs so the orchestrator
+    can pass through new dependencies (e.g. ``github_adapter``)
+    without breaking this fixture.
+    """
     return {
         "iterations": 1,
         "assignments_dispatched": 3,
@@ -96,6 +100,21 @@ class _FakeAutoMergeRunner:
 _fake_auto_merge_runner = _FakeAutoMergeRunner()
 
 
+class _FakeGitHubAdapter:
+    """Plan ARIA-V3 §A2 — required github_adapter test fixture.
+
+    The orchestrator now requires a GitHubAdapter Protocol instance.
+    These tests inject fake worker_drainer + fake invoke_worker that
+    do not touch GitHub, so a placeholder that satisfies attribute
+    lookups is sufficient. Real adapter selection lives in
+    aria_kernel.github_adapters.select_github_adapter and is
+    exercised by tests/invariants/v3/test_phase_a1_a2_required_injection.py.
+    """
+
+
+_fake_github_adapter = _FakeGitHubAdapter()
+
+
 class AutonomyOrchestratorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-f1-"))
@@ -120,6 +139,8 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             bridge_drainer=_fake_bridge_drainer,
             # Plan ARIA-V3 §A1 — auto_merge_runner is REQUIRED.
             auto_merge_runner=_fake_auto_merge_runner,
+            # Plan ARIA-V3 §A2 — github_adapter is REQUIRED.
+            github_adapter=_fake_github_adapter,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

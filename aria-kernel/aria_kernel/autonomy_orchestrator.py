@@ -170,6 +170,7 @@ def run_autonomy_orchestrator(
     *,
     base_dir: str | Path,
     auto_merge_runner: "AutoMergeRunner",
+    github_adapter: Any,
     workspace_root: str | Path | None = None,
     max_cycles: int = DEFAULT_MAX_CYCLES,
     max_iterations_per_phase: int = DEFAULT_MAX_ITERATIONS_PER_PHASE,
@@ -409,10 +410,14 @@ def run_autonomy_orchestrator(
                 )
 
                 # Phase: worker dispatch drain (bounded).
+                # Plan ARIA-V3 §A2 — github_adapter is REQUIRED;
+                # plumbed through to the scheduler daemon which
+                # passes it to dispatch_one_pending_worker_assignment.
                 worker_result = worker_drainer(
                     base_dir=root,
                     workspace_root=workspace_root,
                     max_iterations=max_iterations_per_phase,
+                    github_adapter=github_adapter,
                 )
                 worker_assignments = int(
                     worker_result.get("assignments_dispatched") or 0,

@@ -208,3 +208,13 @@ aria-tools/agent-evals/*
 aria-tools/reports/*
 !aria-tools/reports/daily/
 !aria-tools/reports/daily/**
+
+# Plan ARIA-V3 §A2 + §A5 + §B0 + §B2 — autonomous-loop runtime
+# state. Each entry is operator-local; never committed.
+# Tracked allowlist enforced by I-23 (test_aria_tools_tracked_allowlist).
+aria-tools/audit/
+aria-tools/acks/
+aria-tools/secrets/
+aria-tools/breakers/
+aria-tools/budget/
+aria-tools/locks/

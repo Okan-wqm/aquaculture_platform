@@ -229,6 +229,7 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "planner_dispatch_command",
         "worker_dispatch_command",
         "worktree_command",
+        "report_command",
         "agent_report_command",
         "triage_command",
         "agent_network_command",
@@ -742,6 +743,29 @@ def _main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Skip the best-effort origin fetch (offline mode).",
     )
+
+    # Plan ARIA-V2 §3.9 + I-26 — daily report anchor CLI. Replaces the
+    # heredoc stub in aria-daily-report.yml with an audit-trust anchor
+    # that records governance.jsonl tail hash, sealed cycle IDs, and
+    # integrity_index_chain_root for the day. Committed daily anchor
+    # files become the audit-trust source after Phase 5 gitignored
+    # per-clone runtime ledgers.
+    report_parser = add_subparser(sub, "report",
+        help="Plan ARIA-V2 §3.9 — daily chain-tip anchor + audit reports.")
+    report_sub = report_parser.add_subparsers(dest="report_command", required=True)
+    rep_daily = add_subparser(report_sub, "daily",
+        help="Generate the daily chain-tip anchor and write it to a markdown file.")
+    rep_daily.add_argument("--emit-anchor", action="store_true",
+                            help="Write the YAML-frontmatter anchor to --output-path.")
+    rep_daily.add_argument("--date", required=True,
+                            help="YYYY-MM-DD (UTC) — date the anchor covers.")
+    rep_daily.add_argument("--output-path", required=True,
+                            help="Target markdown path under aria-tools/reports/daily/.")
+    rep_daily.add_argument("--workspace-root", default=".")
+    # ``--tools-dir`` is inherited from _TOOLS_DIR_PARENT (Plan 024 §F);
+    # ``add_subparser`` funnels every subcommand through that parent so
+    # an explicit add_argument here would collide. The handler reads
+    # ``args.tools_dir`` directly.
 
     agent_report_parser = add_subparser(sub, "agent-report")
     agent_report_sub = agent_report_parser.add_subparsers(dest="agent_report_command", required=True)
@@ -1997,6 +2021,28 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("gate_pass") else 1
+
+    # Plan ARIA-V2 §3.9 + I-26 — daily report anchor handler.
+    if args.command == "report" and args.report_command == "daily":
+        if not args.emit_anchor:
+            raise SystemExit(
+                "aria-kernel report daily currently requires --emit-anchor "
+                "(future flags will add --diff and --aggregate variants)."
+            )
+        from aria_kernel.report import emit_anchor_to_path
+        workspace_root = Path(args.workspace_root).resolve()
+        if args.tools_dir:
+            tools_root = Path(args.tools_dir).resolve()
+        else:
+            tools_root = workspace_root / "aria-tools"
+        result = emit_anchor_to_path(
+            date=args.date,
+            workspace_root=workspace_root,
+            tools_root=tools_root,
+            output_path=Path(args.output_path).resolve(),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "agent-report" and args.agent_report_command == "scan-registry":
         require_workspace_v2(paths)

@@ -1,21 +1,25 @@
 name: aria-kernel-full
 
+# Plan ARIA-V2 §3.7 (Phase 6) — same hygiene as aria-kernel.yml plus
+# paths-ignore on docs/** + aria-tools/reports/daily/** so the aria-bot
+# daily-anchor commit does not retrigger the full workflow (INFRA-MED-001
+# compute-fanout mitigation).
+
 on:
   workflow_dispatch:
   push:
     branches:
       - snowball
-    paths:
-      - "aria-kernel/**"
-      - "docs/aria/**"
-      - ".github/workflows/aria-kernel*.yml"
-      # Plan ARIA-V2 §3.6 — tools/aria-poc + tools/shared host the
-      # PoC dedup + EXCLUDED_DIRS invariants (I-19..I-22, I-39).
-      - "tools/aria-poc/**"
-      - "tools/shared/**"
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "aria-tools/reports/daily/**"
+
+permissions:
+  contents: read
 
 concurrency:
-  group: aria-kernel-full-${{ github.ref }}
+  group: aria-kernel-full-${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -24,6 +28,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
@@ -31,15 +37,15 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts --no-audit
       - name: Run aria-kernel unit + invariant tests
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
       # Plan ARIA-V2 §3.6 + CRITICAL-013 — tools/aria-poc + tools/shared
       # invariants run under the same quality gate.
       - name: Run tools/aria-poc invariant tests (Plan ARIA-V2 §3.6)
-        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/aria-poc/tests -p '*test*.py'
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/aria-poc/invariants -p '*test*.py'
       - name: Run tools/shared invariant tests (Plan ARIA-V2 §3.6)
-        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/shared/tests -p '*test*.py'
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/shared/invariants -p '*test*.py'
       - name: Reset CI-local ARIA state
         run: |
           rm -rf ./.aria-ci/tools ./.aria-ci/workspaces

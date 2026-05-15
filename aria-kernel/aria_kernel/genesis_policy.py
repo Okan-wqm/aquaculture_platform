@@ -11,6 +11,11 @@ POLICY_KEYS = {
     "max_requests_per_cycle",
     "materialization_requires_acknowledge",
     "fitness_staleness_threshold_days",
+    # Plan ARIA-V3 §B0 + INFRA-CRITICAL-001 — cost caps consumed by
+    # ``cost_budget.assert_within_budget`` to gate autonomous spawns.
+    "cost_caps_usd",
+    # Plan ARIA-V3 §B2 — circuit-breaker failure threshold.
+    "circuit_breaker",
 }
 
 DEFAULT_FILENAME = "genesis_policy_default.json"

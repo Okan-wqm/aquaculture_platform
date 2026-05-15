@@ -4,5 +4,14 @@
   "enable_request_generation": true,
   "max_requests_per_cycle": 5,
   "materialization_requires_acknowledge": true,
-  "fitness_staleness_threshold_days": 7
+  "fitness_staleness_threshold_days": 7,
+  "cost_caps_usd": {
+    "daily": 5.0,
+    "monthly": 100.0,
+    "per_run": 0.5
+  },
+  "circuit_breaker": {
+    "threshold_24h": 3,
+    "auto_downgrade_to": "strict"
+  }
 }

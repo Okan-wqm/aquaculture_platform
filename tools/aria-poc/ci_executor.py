@@ -191,8 +191,9 @@ def invoke_claude_code(
     role from the request row's SSoT field.
 
     Returns the CLI exit code. Raises ClaudeCodeUnavailable when the
-    `claude` binary is not on $PATH and mock mode is OFF — this is the
-    contract-gap case the spike doc tracks.
+    `claude` binary is not on $PATH and mock mode is OFF — the proven
+    contract doc at tools/aria-poc/ci_executor_contract_proven.md is
+    the argv SSoT (Plan ARIA-V3 §B1 promotion, invariant I-V3-21).
     """
     if _is_mock_mode():
         # Test path: write a deterministic mock envelope to the output

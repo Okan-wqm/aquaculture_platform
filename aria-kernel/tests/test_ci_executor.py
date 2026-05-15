@@ -110,7 +110,15 @@ class InvokeClaudeCodeTests(unittest.TestCase):
                         timeout_seconds=300,
                         role="evidence_judgment",
                     )
-        self.assertIn("contract gap", str(ctx.exception))
+        # Plan ARIA-V3 §B1 — spike doc was promoted to proven-contract
+        # doc (DEBT-2026-05-08-001 retired by commit cf30da50). The
+        # ClaudeCodeUnavailable message now cites the load-bearing
+        # proven-contract doc as the argv SSoT instead of the
+        # spike-era "contract gap" language.
+        self.assertIn("proven-contract doc", str(ctx.exception))
+        self.assertIn(
+            "ci_executor_contract_proven.md", str(ctx.exception)
+        )
 
 
 if __name__ == "__main__":

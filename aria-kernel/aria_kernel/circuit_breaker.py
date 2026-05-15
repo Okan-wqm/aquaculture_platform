@@ -113,19 +113,28 @@ def _load_threshold(base_dir: str | Path) -> int:
 
 
 def _read_failures(base_dir: str | Path) -> list[dict[str, Any]]:
+    """Plan ARIA-V3 §B2 — read the failures ledger via the strict
+    JSONL reader (Plan 026R §A.3 invariant).
+
+    Tolerant mode is correct here: a corrupt row in the breaker
+    ledger should NOT block the breaker's current-state read
+    (failing closed on a single bad row would defeat the breaker's
+    own purpose of being the kernel's safety net). The strict
+    reader still emits ``ledger_corruption_diagnostic`` so an
+    operator audit catches the corruption.
+    """
+    from .strict_jsonl_reader import read_strict_jsonl
+
     path = _failures_path(base_dir)
     if not path.exists():
         return []
-    rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return rows
+    return list(
+        read_strict_jsonl(
+            path,
+            on_corruption="tolerant",
+            base_dir=Path(base_dir),
+        )
+    )
 
 
 def _count_failures_24h(rows: list[dict[str, Any]]) -> int:

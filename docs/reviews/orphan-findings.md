@@ -3610,3 +3610,35 @@ Full suite run: AssertionError: 0 != 5 : []
 **Defensive belt-and-suspenders:** The test also now (a) wraps the spawn'd worker's cold-import in try/except so any future failure mode lands on the audit queue, (b) reads exit codes from every child to surface silent OS-level kills, (c) uses bounded `result_queue.get(timeout=10)` instead of polling `empty()`. These are debug-discipline improvements; the load-bearing fix is the directory rename.
 
 **Status:** RESOLVED on Plan ARIA-V2 Phase 6 (pending commit). Fix landed at `tools/aria-poc/invariants/` + `tools/shared/invariants/` rename + CI workflow path updates (aria-kernel.yml, aria-kernel-full.yml). Test passes in isolation (6.364s OK) and the full-suite collision is structurally impossible.
+
+
+---
+
+## ORPHAN-MEDIUM-076 — test_tenant_scoping_adapter_runs_in_shadow_without_mutation fails in full suite, passes in isolation
+
+**Severity:** MEDIUM (test-infrastructure flake; production code path unaffected — fails on `repository_mutation_attempt: True` assertion, not on adapter correctness)
+**Discovered:** 2026-05-15, Plan ARIA-V3 Phase A0 full-kernel sweep
+**File:** `aria-kernel/tests/test_007c_adapters_integration.py:22-36`
+
+**Evidence:**
+```
+Isolation run:  Ran 1 test in 48.154s  OK
+Direct run via run_tool:  mutated=False, scope_out_mutations=[], errors=[]
+Full suite run: AssertionError: True is not false
+                (line 81: self.assertFalse(run["evidence_validation"]["repository_mutation_attempt"]))
+```
+
+**Problem:** The shadow-mode tenant-scoping-adapter runs against `apps/farm-service/src` via `run_tool`. In isolation `repository_mutation_attempt` is False. In the full kernel suite the flag is True. The adapter itself does not mutate the workspace; the diff is detected by `_workspace_snapshot` (filtered) or `_workspace_snapshot_raw` (which includes the `_aria_tools_dir_overlay` from Plan ARIA-V2 §I-24).
+
+**Reproducibility:**
+1. `PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'` → fails this test once near tests/test_007c_adapters_integration.py.
+2. Same test in isolation → passes.
+3. Direct run via run_tool (Python REPL) → no mutation.
+
+**Hypothesis:** Some sibling test running BEFORE `test_007c_adapters_integration.py` in alphabetical discovery order writes to `aria-tools/` (or causes the overlay walk to read different bytes for at least one path between before/after of the adapter run). Likely candidates: a test that mutates a file under `aria-tools/` it does not own (cross-test leakage), or a flaky filesystem race where `ts-node` triggers a transient write into a path the overlay scans.
+
+**Pre-existence vs Phase A0 attribution:** Phase A0 added new files under `aria-kernel/`, `.claude/`, `docs/`, and ONE file under `aria-tools/preflight/`. The preflight file is static (staged + content-hashed; identical bytes before/after of any adapter run). None of the A0 modules touch tool_runner or `_workspace_snapshot*`. The most plausible explanation is a pre-existing flake exposed by a stochastic ordering effect when the suite has 10 more tests (1571 vs 1561). The 28-skipped count is unchanged between sweeps, ruling out skip-side variance.
+
+**Recommendation:** Plan ARIA-V3 Phase A1 invariants will not touch this surface. Phase B0/B1 expand the workflow gates; consider adding `--mute-suite-flakes` lane that runs `test_007c_adapters_integration` as a follow-up isolation step after the main sweep (post-V3 once tier-1 fixes have landed). Root-cause investigation: instrument `_workspace_snapshot_raw` to log the symmetric difference of (before, after) keys + the specific file paths whose sha256 differs.
+
+**Status:** OPEN. Owner: ARIA-V3 follow-up after Phase A4 (autonomous loop architecture stabilises first; flake hunting on shifting code base is wasteful). Same class as ORPHAN-MEDIUM-075 (isolation-pass / suite-fail).

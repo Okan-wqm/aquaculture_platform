@@ -38,6 +38,11 @@ _ALLOWLIST_PATTERNS: frozenset[str] = frozenset({
     "aria-tools/repo_identity.json",
     "aria-tools/agent-evals/fixtures/*.json",
     "aria-tools/reports/daily/*.md",
+    # Plan ARIA-V3 §A0 — pre-flight evidence (branch protection capture,
+    # gh api snapshot, operator acknowledgement). Tracked so CI can verify
+    # the operator pre-flight decisions; immutable history per
+    # Plan ARIA-V3 §6 INFRA-HIGH-006 acknowledgement path.
+    "aria-tools/preflight/*.json",
 })
 
 

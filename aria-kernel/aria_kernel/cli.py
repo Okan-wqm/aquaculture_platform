@@ -2930,9 +2930,18 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "autonomy" and args.autonomy_command == "run":
         # Plan 026R §F.1 — unified orchestrator entry point.
+        # Plan ARIA-V3 §A1 — auto_merge_runner is now REQUIRED.
+        # The factory derives the runner from the current runtime
+        # profile (observe/standard/frozen → NoOp; strict/autonomous
+        # → Real wrapping merge_if_green).
         from .autonomy_orchestrator import run_autonomy_orchestrator
+        from .auto_merge_runners import select_auto_merge_runner
+        from .runtime_profile import get_profile
+        profile = get_profile(base_dir=args.tools_dir)
+        auto_merge_runner = select_auto_merge_runner(profile=profile)
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
+            auto_merge_runner=auto_merge_runner,
             workspace_root=args.workspace_root,
             max_cycles=args.max_cycles,
             max_iterations_per_phase=args.max_iterations_per_phase,

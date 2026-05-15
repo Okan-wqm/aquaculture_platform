@@ -44,9 +44,14 @@ Injection seams for tests:
 * ``bridge_drainer`` — defaults to
   ``bridge_status_ledger.replay_pending_bridges`` if present else
   a no-op (graceful degrade when bridge surface absent)
-* ``auto_merge_runner`` — optional; orchestrator skips auto-merge
-  when None (default), since auto-merge requires a change_id flow
-  that the orchestrator does not synthesize unilaterally
+* ``auto_merge_runner`` — REQUIRED (Plan ARIA-V3 §A1 GAP-2 closure).
+  Pre-V3 this was optional with a ``None`` default that silently
+  skipped auto-merge; V3 makes it required so the orchestrator's
+  loop is well-defined under the type system. Profile-derived
+  selection lives in ``auto_merge_runners.select_auto_merge_runner``
+  (NoOp for observe/standard/frozen; Real wrapping merge_if_green
+  for strict/autonomous). Invariant I-V3-01 locks the
+  required-parameter contract.
 
 All other args mirror the §D + §E daemon contract for surface
 parity.
@@ -57,11 +62,18 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from .autonomy_state import AutonomyStateReducer
 from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
+
+if TYPE_CHECKING:
+    # Plan ARIA-V3 §A1 — typed-only import keeps the annotation
+    # load-bearing without a runtime cycle (auto_merge_runners
+    # imports from auto_merge which imports from this module's
+    # peers; TYPE_CHECKING avoids a circular import at runtime).
+    from .auto_merge_runners import AutoMergeRunner
 
 
 __all__ = [
@@ -157,6 +169,7 @@ def _drain_next_cycle_queue(
 def run_autonomy_orchestrator(
     *,
     base_dir: str | Path,
+    auto_merge_runner: "AutoMergeRunner",
     workspace_root: str | Path | None = None,
     max_cycles: int = DEFAULT_MAX_CYCLES,
     max_iterations_per_phase: int = DEFAULT_MAX_ITERATIONS_PER_PHASE,
@@ -166,7 +179,6 @@ def run_autonomy_orchestrator(
     planner_drainer: Callable[..., dict[str, Any]] | None = None,
     worker_drainer: Callable[..., dict[str, Any]] | None = None,
     bridge_drainer: Callable[..., dict[str, Any]] | None = None,
-    auto_merge_runner: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Plan 026R §F.1 LOAD-BEARING — run one or more autonomy cycles.
 
@@ -428,28 +440,32 @@ def run_autonomy_orchestrator(
                     },
                 )
 
-                # Phase: optional auto-merge (skipped when no runner).
-                if auto_merge_runner is not None:
-                    auto_merge_result = auto_merge_runner(
-                        base_dir=root,
-                        workspace_root=workspace_root,
-                    )
-                    extra_merges = int(
-                        auto_merge_result.get("merges_completed") or 0,
-                    )
-                    auto_merges_total += extra_merges
-                    cycle_summary["auto_merge"] = auto_merge_result
-                    AutonomyStateReducer.transition(
-                        root,
-                        cycle_id=cycle_id,
-                        phase="auto_merge_completed",
-                        status=str(
-                            auto_merge_result.get("status") or "ok",
-                        ),
-                        auto_merges_delta=extra_merges,
-                        profile=profile_snapshot,
-                        details={},
-                    )
+                # Plan ARIA-V3 §A1 — auto_merge_runner is REQUIRED.
+                # NoOpAutoMergeRunner returns ``status="skipped"``,
+                # ``merges_completed=0`` for non-permitted profiles
+                # (observe / standard / frozen); RealAutoMergeRunner
+                # wraps ``merge_if_green`` for strict + autonomous.
+                # The orchestrator no longer special-cases ``None``.
+                auto_merge_result = auto_merge_runner(
+                    base_dir=root,
+                    workspace_root=workspace_root,
+                )
+                extra_merges = int(
+                    auto_merge_result.get("merges_completed") or 0,
+                )
+                auto_merges_total += extra_merges
+                cycle_summary["auto_merge"] = auto_merge_result
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="auto_merge_completed",
+                    status=str(
+                        auto_merge_result.get("status") or "ok",
+                    ),
+                    auto_merges_delta=extra_merges,
+                    profile=profile_snapshot,
+                    details={},
+                )
 
                 per_cycle_results.append(cycle_summary)
 

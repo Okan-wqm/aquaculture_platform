@@ -71,6 +71,31 @@ def _fake_bridge_drainer(*, base_dir, max_iterations):
     }
 
 
+class _FakeAutoMergeRunner:
+    """Plan ARIA-V3 §A1 migration — orchestrator now requires an
+    auto_merge_runner. The existing fake_worker_drainer accumulates
+    merges_completed=1 per cycle for backward-compat with the
+    pre-V3 happy-path test; this fake runner adds zero so the
+    historical assertion (auto_merges_completed=2 across 2 cycles)
+    is preserved exactly.
+    """
+
+    profile = "standard"
+
+    def __call__(self, *, base_dir, workspace_root):
+        return {
+            "schema_version": 1,
+            "status": "skipped",
+            "reason": "fake_runner_for_orchestrator_tests",
+            "merges_completed": 0,
+            "candidates_evaluated": 0,
+            "profile": self.profile,
+        }
+
+
+_fake_auto_merge_runner = _FakeAutoMergeRunner()
+
+
 class AutonomyOrchestratorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-f1-"))
@@ -93,6 +118,8 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             planner_drainer=_fake_planner_drainer,
             worker_drainer=_fake_worker_drainer,
             bridge_drainer=_fake_bridge_drainer,
+            # Plan ARIA-V3 §A1 — auto_merge_runner is REQUIRED.
+            auto_merge_runner=_fake_auto_merge_runner,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

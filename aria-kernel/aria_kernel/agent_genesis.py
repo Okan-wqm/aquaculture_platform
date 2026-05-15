@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -329,25 +330,37 @@ def materialize_agent_draft(
     draft_id: str,
     assignment_id: str,
     workspace_root: str | Path,
+    gate: "AutoActionGate",  # type: ignore[name-defined]  # noqa: F821
     base_dir: str | Path | None = None,
-    acknowledge: bool = False,
     run_invariants: bool = False,
     operator_synthetic_override: bool = False,
+    ack_id: str | None = None,
 ) -> dict[str, Any]:
     """Materialise an approved genesis draft onto the worktree.
 
+    Plan ARIA-V3 §A4 + §2a + §2k — the pre-V3 ``acknowledge: bool``
+    parameter is REMOVED. Materialise now requires an
+    ``AutoActionGate`` (Plan ARIA-V3 §A4) which encapsulates:
+      * The runtime profile + lane + classifier decision.
+      * The ack-token consumption (operator-minted via
+        ``aria-kernel ack mint`` OR autonomous auto-mint under
+        autonomous profile on L3-snowball).
+      * The ``materialize_event_id`` UUID that links the
+        three-event audit chain (draft_validated → ack_consumed
+        → materialize_committed).
+
     Plan 026R §E.6 — sandbox + synthetic gate at the materialise
-    boundary. Pre-§E.6 ``materialize_agent_draft`` only required the
-    operator ``acknowledge`` flag; it did NOT check whether a
-    passing sandbox decision backed the draft, and it did NOT
-    block synthetic-sandbox materialisation. The result: a draft
-    whose sandbox FAILED (or never ran) could be materialised
-    silently, or a synthetic-mode sandbox could promote a fixture
-    into production. §E.6 mirrors §E.2's approve gate at the
-    materialise boundary.
+    boundary. Pre-§E.6 the function only required ``acknowledge``;
+    it did NOT check whether a passing sandbox decision backed the
+    draft. §E.6 + V3 §A4 stack: sandbox-pass + autonomous-or-ack
+    + grammar validator.
     """
-    if not acknowledge:
-        raise GovernanceError("materialize_agent_draft_requires_acknowledge")
+    from .auto_action_gate import AutoActionGate
+    if not isinstance(gate, AutoActionGate):
+        raise GovernanceError(
+            f"materialize_agent_draft requires gate: AutoActionGate "
+            f"(Plan ARIA-V3 §A4 GAP-1 closure); got {type(gate).__name__!r}"
+        )
     draft = _find_draft(draft_id, base_dir)
     sandbox = _latest_sandbox(draft_id, base_dir)
     if not sandbox or sandbox.get("decision") != "pass":
@@ -371,6 +384,12 @@ def materialize_agent_draft(
     target_path = str(draft.get("target_path") or "")
     if not target_path.startswith(".claude/agents/aria-") or not target_path.endswith(".md"):
         raise GovernanceError("target_path_not_agent_scoped")
+    # Plan ARIA-V3 §A4 + §2g — three-event audit chain linked by
+    # ``materialize_event_id`` (AUDITTRAIL-CRITICAL-003 closure):
+    #   1. draft_validated (post grammar gate, below)
+    #   2. ack_consumed (gate.acquire_or_consume)
+    #   3. materialize_committed (file write + final ledger row)
+    materialize_event_id = gate.materialize_event_id
     # Plan ARIA-V3 §A3 — body comes from the drafter (worker_executor
     # spawned ``claude code agent --subagent-type aria-drafter``); it is
     # NOT the kernel's responsibility to synthesise markdown. The
@@ -435,6 +454,31 @@ def materialize_agent_draft(
                 "materialize_body_grammar_invalid: "
                 + ";".join(result.complaints)
             )
+        # Plan ARIA-V3 §2g event 1 — draft_validated.
+        from .tool_registry import append_tools_governance
+        append_tools_governance(
+            ensure_tools_dir(base_dir),
+            "draft_validated",
+            {
+                "materialize_event_id": materialize_event_id,
+                "draft_id": draft_id,
+                "intent_id": intent_obj.intent_id,
+                "validator_result": "valid",
+                "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+            },
+        )
+    # Plan ARIA-V3 §2g event 2 — ack_consumed (via the gate's
+    # unified path: operator-token consumed OR autonomous auto-mint).
+    gate_outcome = gate.acquire_or_consume(
+        ack_id=ack_id,
+        base_dir=ensure_tools_dir(base_dir),
+        draft_id=draft_id,
+        intent_id=str(intent_dict.get("intent_id", "")) if isinstance(intent_dict, dict) else "",
+        target_path=target_path,
+        kind="agent",
+        commit_sha_at_mint="HEAD",
+        profile_state_at_mint=f"{gate.profile}:v1",
+    )
     target = worktree / target_path
     touched = [target_path]
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -449,6 +493,26 @@ def materialize_agent_draft(
         if completed.returncode != 0:
             subprocess.run(["git", "restore", "--", *touched], cwd=worktree, text=True, capture_output=True, check=False)
             status = "rejected"
+    # Plan ARIA-V3 §2g event 3 — materialize_committed (post file
+    # write; carries the body sha256 pre/post + commit linkage).
+    from .tool_registry import append_tools_governance
+    append_tools_governance(
+        ensure_tools_dir(base_dir),
+        "materialize_committed",
+        {
+            "materialize_event_id": materialize_event_id,
+            "target_path": target_path,
+            "file_sha256_pre": "",
+            "file_sha256_post": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+            "commit_sha": "unknown",
+            "draft_id": draft_id,
+            "assignment_id": assignment_id,
+            "kind": "agent",
+            "status": status,
+            "ack_consumed_at": gate_outcome.get("consumed_at"),
+            "ack_id": gate_outcome.get("ack_id"),
+        },
+    )
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -458,6 +522,11 @@ def materialize_agent_draft(
         "target_path": target_path,
         "status": status,
         "validation": validation,
+        "materialize_event_id": materialize_event_id,
+        "ack_id": gate_outcome.get("ack_id"),
+        "gate_profile": gate.profile,
+        "gate_lane": gate.lane,
+        "gate_human_ack_required": gate.human_ack_required,
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "materializations.jsonl", row)
 

@@ -26,6 +26,15 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
         self.base = self.tmp / "aria-tools"
         from aria_kernel.runtime_profile import set_profile
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
+        # Plan ARIA-V3 §A4 + §A5 — gate.acquire_or_consume calls
+        # ack_ledger which needs an HMAC key. Initialise here so
+        # the test materialise path can auto-mint + consume.
+        from aria_kernel.ack_ledger import init_ack_ledger
+        init_ack_ledger(
+            base_dir=self.base,
+            reason="materialize gate test ledger init",
+            operator_approval_ref="RFC-MAT-TEST",
+        )
         self.worktree = self.tmp / "worktree"
         self.worktree.mkdir()
 
@@ -54,6 +63,19 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
         }
 
     def _materialize(self, sandbox_state, **kwargs):
+        from aria_kernel.auto_action_gate import gate_from_test_fixture
+
+        # Plan ARIA-V3 §A4 + §2l — pre-V3 ``acknowledge=True`` is
+        # gone; construct a Gate via the test-fixture factory with
+        # ``policy_requires_acknowledge=False`` so the gate auto-
+        # mints + consumes (no operator ack token needed in the
+        # unit-test path).
+        gate = gate_from_test_fixture(
+            profile="autonomous",
+            lane="L3-snowball",
+            classifier_passed=True,
+            policy_requires_acknowledge=False,
+        )
         with patch(
             "aria_kernel.agent_genesis._find_draft",
             return_value=self._draft(),
@@ -68,8 +90,8 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
                 draft_id="drf-e6",
                 assignment_id="as-e6",
                 workspace_root=self.tmp,
+                gate=gate,
                 base_dir=self.base,
-                acknowledge=True,
                 **kwargs,
             )
 

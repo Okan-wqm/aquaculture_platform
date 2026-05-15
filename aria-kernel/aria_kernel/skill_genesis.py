@@ -159,12 +159,23 @@ def materialize_skill(
     draft_id: str,
     assignment_id: str,
     workspace_root: str | Path,
+    gate: "AutoActionGate",  # type: ignore[name-defined]  # noqa: F821
     base_dir: str | Path | None = None,
-    acknowledge: bool = False,
     run_invariants: bool = False,
+    ack_id: str | None = None,
 ) -> dict[str, Any]:
-    if not acknowledge:
-        raise GovernanceError("materialize_skill_requires_acknowledge")
+    """Plan ARIA-V3 §A4 — acknowledge parameter REMOVED; gate REQUIRED.
+
+    The gate encapsulates profile + lane + classifier + ack-token
+    resolution + the ``materialize_event_id`` UUID that links the
+    three-event audit chain.
+    """
+    from .auto_action_gate import AutoActionGate
+    if not isinstance(gate, AutoActionGate):
+        raise GovernanceError(
+            f"materialize_skill requires gate: AutoActionGate "
+            f"(Plan ARIA-V3 §A4); got {type(gate).__name__!r}"
+        )
     draft = _find_draft(draft_id, base_dir)
     if draft is None:
         raise GovernanceError(
@@ -186,6 +197,8 @@ def materialize_skill(
     target_path = str(draft.get("target_path") or "")
     if not target_path.startswith(".claude/skills/") or not target_path.endswith(".md"):
         raise GovernanceError("target_path_not_skill_scoped")
+    # Plan ARIA-V3 §A4 + §2g — three-event audit chain link.
+    materialize_event_id = gate.materialize_event_id
     # Plan ARIA-V3 §A3 — body comes from the drafter; kernel does
     # not synthesise markdown. Materialize refuses fail-closed when
     # the drafter has not produced a validated body yet.
@@ -195,6 +208,18 @@ def materialize_skill(
             f"skill_materialize_requires_drafter_body: draft_id={draft_id!r} "
             f"has no validated body yet (drafter run pending or failed)"
         )
+    # Plan ARIA-V3 §2g event 2 — ack_consumed (operator or auto).
+    intent_dict = draft.get("intent") or {}
+    gate_outcome = gate.acquire_or_consume(
+        ack_id=ack_id,
+        base_dir=ensure_tools_dir(base_dir),
+        draft_id=draft_id,
+        intent_id=str(intent_dict.get("intent_id", "")),
+        target_path=target_path,
+        kind="skill",
+        commit_sha_at_mint="HEAD",
+        profile_state_at_mint=f"{gate.profile}:v1",
+    )
     target = worktree / target_path
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
@@ -208,6 +233,24 @@ def materialize_skill(
         if completed.returncode != 0:
             subprocess.run(["git", "restore", "--", target_path], cwd=worktree, text=True, capture_output=True, check=False)
             status = "rejected"
+    # Plan ARIA-V3 §2g event 3 — materialize_committed.
+    import hashlib as _hl
+    from .tool_registry import append_tools_governance
+    append_tools_governance(
+        ensure_tools_dir(base_dir),
+        "materialize_committed",
+        {
+            "materialize_event_id": materialize_event_id,
+            "target_path": target_path,
+            "file_sha256_post": _hl.sha256(body.encode("utf-8")).hexdigest(),
+            "draft_id": draft_id,
+            "assignment_id": assignment_id,
+            "kind": "skill",
+            "status": status,
+            "ack_consumed_at": gate_outcome.get("consumed_at"),
+            "ack_id": gate_outcome.get("ack_id"),
+        },
+    )
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -217,6 +260,11 @@ def materialize_skill(
         "target_path": target_path,
         "status": status,
         "validation": validation,
+        "materialize_event_id": materialize_event_id,
+        "ack_id": gate_outcome.get("ack_id"),
+        "gate_profile": gate.profile,
+        "gate_lane": gate.lane,
+        "gate_human_ack_required": gate.human_ack_required,
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "materializations.jsonl", row)
 

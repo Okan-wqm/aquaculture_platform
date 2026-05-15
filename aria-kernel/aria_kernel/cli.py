@@ -1391,7 +1391,14 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(ag_materialize)
     ag_materialize.add_argument("--draft-id", required=True)
     ag_materialize.add_argument("--assignment-id", required=True)
-    ag_materialize.add_argument("--acknowledge", action="store_true")
+    # Plan ARIA-V3 §A4 + §2k — pre-V3 ``--acknowledge`` flag REMOVED.
+    # Operators MUST first mint an ack token via
+    # ``aria-kernel ack mint --draft-id ... --reason ...`` then pass
+    # the returned ``ack_id`` via ``--ack-token``.
+    ag_materialize.add_argument(
+        "--ack-token", required=True,
+        help="ack_id minted via `aria-kernel ack mint` (Plan ARIA-V3 §A5).",
+    )
     ag_materialize.add_argument("--run-invariants", action="store_true")
     ag_list = add_subparser(agent_genesis_sub, "list")
     ag_list.add_argument("--materializations", action="store_true")
@@ -1418,7 +1425,11 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(sg_materialize)
     sg_materialize.add_argument("--draft-id", required=True)
     sg_materialize.add_argument("--assignment-id", required=True)
-    sg_materialize.add_argument("--acknowledge", action="store_true")
+    # Plan ARIA-V3 §A4 + §2k — pre-V3 ``--acknowledge`` flag REMOVED.
+    sg_materialize.add_argument(
+        "--ack-token", required=True,
+        help="ack_id minted via `aria-kernel ack mint` (Plan ARIA-V3 §A5).",
+    )
     sg_materialize.add_argument("--run-invariants", action="store_true")
     sg_list = add_subparser(skill_genesis_sub, "list")
     sg_list.add_argument("--kind", choices=["requests", "drafts", "sandbox", "materializations"], default="drafts")
@@ -2958,13 +2969,30 @@ def _main(argv: list[str] | None = None) -> int:
                 base_dir=args.tools_dir,
             )
         elif args.agent_genesis_command == "materialize":
+            # Plan ARIA-V3 §A4 — construct AutoActionGate from the
+            # current runtime profile + lane + classifier; consume
+            # the operator-minted ack token via the gate's unified
+            # path.
+            from .auto_action_gate import (
+                ClassifierDecision,
+                gate_from_policy,
+            )
+            from .runtime_profile import get_profile
+            current_profile = get_profile(base_dir=args.tools_dir)
+            v3_gate = gate_from_policy(
+                base_dir=args.tools_dir,
+                profile=current_profile,
+                lane=None,
+                classifier=ClassifierDecision(passed=True),
+            )
             result = materialize_agent_draft(
                 draft_id=args.draft_id,
                 assignment_id=args.assignment_id,
                 workspace_root=args.workspace_root,
+                gate=v3_gate,
                 base_dir=args.tools_dir,
-                acknowledge=args.acknowledge,
                 run_invariants=args.run_invariants,
+                ack_id=args.ack_token,
             )
         elif args.agent_genesis_command == "list":
             result = list_agent_materializations(base_dir=args.tools_dir) if args.materializations else list_agent_drafts(base_dir=args.tools_dir)
@@ -2999,13 +3027,28 @@ def _main(argv: list[str] | None = None) -> int:
                     base_dir=args.tools_dir,
                 )
         elif args.skill_genesis_command == "materialize":
+            # Plan ARIA-V3 §A4 — gate-driven materialize. Same factory
+            # path as agent-genesis materialize.
+            from .auto_action_gate import (
+                ClassifierDecision,
+                gate_from_policy,
+            )
+            from .runtime_profile import get_profile
+            current_profile = get_profile(base_dir=args.tools_dir)
+            v3_gate = gate_from_policy(
+                base_dir=args.tools_dir,
+                profile=current_profile,
+                lane=None,
+                classifier=ClassifierDecision(passed=True),
+            )
             result = materialize_skill(
                 draft_id=args.draft_id,
                 assignment_id=args.assignment_id,
                 workspace_root=args.workspace_root,
+                gate=v3_gate,
                 base_dir=args.tools_dir,
-                acknowledge=args.acknowledge,
                 run_invariants=args.run_invariants,
+                ack_id=args.ack_token,
             )
         elif args.skill_genesis_command == "list":
             result = list_skill_genesis(base_dir=args.tools_dir, kind=args.kind)

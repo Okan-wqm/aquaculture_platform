@@ -53,6 +53,14 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci --ignore-scripts --no-audit
+      # Plan ARIA-V2 §Phase 1 CRITICAL-020 — aria-kernel declares
+      # pyyaml>=6.0 in pyproject.toml (required by I-25 + I-26
+      # invariants for YAML workflow + frontmatter parsing).
+      # Architectural shape: pyproject.toml is the dep SSoT; CI
+      # installs from it editable so any future kernel-dep addition
+      # propagates without CI surgery.
+      - name: Install aria-kernel package (pyyaml + future deps)
+        run: python3 -m pip install --upgrade pip && python3 -m pip install -e aria-kernel
       - name: Run aria-kernel unit + invariant tests
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
       # Plan ARIA-V2 §3.6 + CRITICAL-013 — tests under tools/aria-poc/invariants

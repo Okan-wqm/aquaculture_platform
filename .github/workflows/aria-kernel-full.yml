@@ -38,6 +38,10 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci --ignore-scripts --no-audit
+      # Plan ARIA-V2 §Phase 1 CRITICAL-020 — install kernel deps
+      # (pyyaml etc.) from pyproject.toml SSoT.
+      - name: Install aria-kernel package
+        run: python3 -m pip install --upgrade pip && python3 -m pip install -e aria-kernel
       - name: Run aria-kernel unit + invariant tests
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
       # Plan ARIA-V2 §3.6 + CRITICAL-013 — tools/aria-poc + tools/shared

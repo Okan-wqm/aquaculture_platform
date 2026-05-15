@@ -229,6 +229,7 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "planner_dispatch_command",
         "worker_dispatch_command",
         "worktree_command",
+        "ack_command",
         "report_command",
         "agent_report_command",
         "triage_command",
@@ -1341,6 +1342,43 @@ def _main(argv: list[str] | None = None) -> int:
     c_run.add_argument("--tool-id", required=True)
     c_run.add_argument("--cycle-id", default=None)
     c_run.add_argument("--min-confidence", type=float, default=None)
+
+    # Plan ARIA-V3 §A5 — ack ledger CLI surface. ``ack init`` + ``ack
+    # mint`` + ``ack rotate-key`` + ``ack revoke-key`` + ``ack verify``
+    # + ``ack list-keys``. The HMAC key custody runbook lives at
+    # docs/runbooks/aria-ack-key-rotation.md (Phase A0 deliverable).
+    ack_parser = add_subparser(sub, "ack")
+    ack_sub = ack_parser.add_subparsers(dest="ack_command", required=True)
+    ack_init = add_subparser(ack_sub, "init",
+        help="Mint the first HMAC key (Plan ARIA-V3 §A5).")
+    ack_init.add_argument("--reason", required=True, type=_validate_reason)
+    ack_init.add_argument("--operator-approval-ref", required=True)
+    ack_init.add_argument("--force", action="store_true",
+        help="DR-regenerate over an existing key (see runbook §4).")
+    ack_mint = add_subparser(ack_sub, "mint",
+        help="Operator-mint an ack token for a materialize.")
+    ack_mint.add_argument("--draft-id", required=True)
+    ack_mint.add_argument("--intent-id", required=True)
+    ack_mint.add_argument("--target-path", required=True)
+    ack_mint.add_argument("--kind", required=True, choices=["agent", "skill"])
+    ack_mint.add_argument("--reason", required=True, type=_validate_reason)
+    ack_mint.add_argument("--operator-approval-ref", required=True)
+    ack_mint.add_argument("--operator-user-id", required=True)
+    ack_mint.add_argument("--profile-state", default="standard")
+    ack_mint.add_argument("--commit-sha", default="HEAD")
+    ack_mint.add_argument("--parent-observation-id", default=None)
+    ack_rotate = add_subparser(ack_sub, "rotate-key",
+        help="Append a new HMAC key, retire the previous head.")
+    ack_rotate.add_argument("--reason", required=True, type=_validate_reason)
+    ack_rotate.add_argument("--operator-approval-ref", required=True)
+    ack_rotate.add_argument("--emergency", action="store_true",
+        help="Mark as emergency rotation (separate audit event).")
+    ack_verify = add_subparser(ack_sub, "verify",
+        help="Recompute HMAC over the rolling key list for last N rows.")
+    ack_verify.add_argument("--range", default="last-50",
+        help="``last-N`` or ``full``.")
+    ack_list_keys = add_subparser(ack_sub, "list-keys",
+        help="Print the rolling key list (secrets redacted).")
 
     agent_genesis_parser = add_subparser(sub, "agent-genesis")
     agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
@@ -2842,6 +2880,71 @@ def _main(argv: list[str] | None = None) -> int:
             min_confidence=args.min_confidence if args.min_confidence is not None else CONSENSUS_MIN_CONFIDENCE,
             base_dir=args.tools_dir,
         )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    # Plan ARIA-V3 §A5 — ack ledger dispatch.
+    if args.command == "ack":
+        from .ack_ledger import (
+            init_ack_ledger,
+            list_keys,
+            mint_operator_ack,
+            rotate_key,
+            verify_range,
+        )
+        if args.ack_command == "init":
+            result = init_ack_ledger(
+                base_dir=args.tools_dir,
+                reason=args.reason,
+                operator_approval_ref=args.operator_approval_ref,
+                force=args.force,
+            )
+        elif args.ack_command == "mint":
+            row = mint_operator_ack(
+                base_dir=args.tools_dir,
+                draft_id=args.draft_id,
+                intent_id=args.intent_id,
+                target_path=args.target_path,
+                kind=args.kind,
+                reason=args.reason,
+                operator_user_id=args.operator_user_id,
+                profile_name=args.profile_state,
+                profile_state_at_mint=args.profile_state,
+                commit_sha_at_mint=args.commit_sha,
+                parent_observation_id=args.parent_observation_id,
+            )
+            result = row.to_dict()
+        elif args.ack_command == "rotate-key":
+            result = rotate_key(
+                base_dir=args.tools_dir,
+                reason=args.reason,
+                operator_approval_ref=args.operator_approval_ref,
+                emergency=args.emergency,
+            )
+        elif args.ack_command == "verify":
+            raw_range = (args.range or "").strip()
+            last_n: int | None
+            if raw_range == "full":
+                last_n = None
+            elif raw_range.startswith("last-"):
+                try:
+                    last_n = int(raw_range[len("last-"):])
+                except ValueError:
+                    parser.error(
+                        f"--range must be 'full' or 'last-N'; got {raw_range!r}"
+                    )
+                    return 2
+            else:
+                parser.error(
+                    f"--range must be 'full' or 'last-N'; got {raw_range!r}"
+                )
+                return 2
+            result = verify_range(base_dir=args.tools_dir, last_n=last_n)
+        elif args.ack_command == "list-keys":
+            result = {"keys": list_keys(base_dir=args.tools_dir)}
+        else:
+            parser.error("unknown ack command")
+            return 2
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 

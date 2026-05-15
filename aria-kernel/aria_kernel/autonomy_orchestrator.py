@@ -166,6 +166,54 @@ def _drain_next_cycle_queue(
     return len(pending)
 
 
+def _autonomous_preflight(
+    *,
+    base_dir: Path,
+    profile_snapshot: str,
+) -> tuple[str, str | None]:
+    """Plan ARIA-V3 §B2 — cost + failure + lease preflight.
+
+    Returns ``("ok", None)`` when the cycle is permitted to enter the
+    autonomous path; ``("blocked", reason_code)`` when refused. Non-
+    autonomous profiles short-circuit OK (the preflight is autonomous-
+    only — strict/standard/observe/frozen have their own gates).
+
+    Reason codes (exit_reason values):
+      * ``cost_breaker_tripped`` — B0 cost circuit breaker tripped
+      * ``failure_breaker_tripped`` — B2 failure circuit breaker tripped
+      * ``autonomous_host_lease_blocked`` — §2n cross-host lease held
+        by a different host
+    """
+    if profile_snapshot != "autonomous":
+        return ("ok", None)
+    # Lazy imports — keep run_autonomy_orchestrator importable when
+    # the new B2 modules are absent (e.g. cold downgrade scenarios).
+    try:
+        from .cost_budget import current_state as _cost_state
+        if _cost_state(base_dir) == "tripped":
+            return ("blocked", "cost_breaker_tripped")
+    except ImportError:
+        pass
+    try:
+        from .circuit_breaker import current_state as _failure_state
+        if _failure_state(base_dir) == "tripped":
+            return ("blocked", "failure_breaker_tripped")
+    except ImportError:
+        pass
+    try:
+        from .autonomous_host_lease import acquire_lease
+        from .tool_registry import GovernanceError as _GE
+        try:
+            acquire_lease(base_dir=base_dir)
+        except _GE as exc:
+            if "autonomous_host_lease_blocked" in str(exc):
+                return ("blocked", "autonomous_host_lease_blocked")
+            raise
+    except ImportError:
+        pass
+    return ("ok", None)
+
+
 def run_autonomy_orchestrator(
     *,
     base_dir: str | Path,
@@ -296,6 +344,35 @@ def run_autonomy_orchestrator(
                         },
                     )
                     exit_reason = "profile_frozen"
+                    break
+
+                # Plan ARIA-V3 §B2 — autonomous-profile preflight gate.
+                # ONLY fires when profile == "autonomous"; non-autonomous
+                # profiles short-circuit. The gate checks three breakers
+                # in priority order:
+                #   1. cost_budget (B0) — $cost overrun
+                #   2. circuit_breaker (B2) — failure-count overrun
+                #   3. autonomous_host_lease (§2n) — cross-host race
+                # On any breaker tripped, exit cleanly with the matching
+                # reason code (no error, no retry storm).
+                preflight_status, preflight_reason = _autonomous_preflight(
+                    base_dir=root,
+                    profile_snapshot=profile_snapshot,
+                )
+                if preflight_status == "blocked":
+                    AutonomyStateReducer.transition(
+                        root,
+                        cycle_id=None,
+                        phase=preflight_reason or "autonomous_preflight_blocked",
+                        status="ok",
+                        profile=profile_snapshot,
+                        details={
+                            "cycle_index": cycle_n,
+                            "daemon_id": daemon_id,
+                            "preflight_reason": preflight_reason,
+                        },
+                    )
+                    exit_reason = preflight_reason or "autonomous_preflight_blocked"
                     break
 
                 cycle_id = datetime.now(timezone.utc).strftime(

@@ -78,6 +78,44 @@ jobs:
           npm install -g --ignore-scripts @anthropic-ai/claude-code@1.0.0
           claude --version || true
 
+      # Plan ARIA-V3 §B2 + §2n + INFRA-HIGH-004 — cross-host lease
+      # check. If a local daemon currently holds the autonomous-loop
+      # lease (e.g. operator is running ``aria-kernel autonomy run``
+      # on their laptop), this GHA cron MUST refuse to enter the
+      # autonomous path to prevent double-claim / double-materialize
+      # races. The lease state is read from the snowball-committed
+      # ``aria-tools/locks/autonomous-host.lock`` file; a fresh lease
+      # (< 5 min old) belonging to a different host blocks the cron.
+      # The cron exits cleanly with reason ``autonomous_host_lease_blocked``
+      # rather than failing — no retry storm.
+      - name: Pre-flight — cross-host autonomous-loop lease check
+        id: lease_check
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -c "
+          import json, sys
+          from aria_kernel.autonomous_host_lease import lease_state
+          state = lease_state('aria-tools')
+          print(json.dumps(state))
+          if state['state'] == 'fresh':
+              host = state.get('host_id', '')
+              # If the fresh lease is held by a local (non-GHA) host
+              # we refuse. GHA-runner-held leases come from prior
+              # cron runs and should be allowed to renew through the
+              # acquire_lease path below.
+              if not host.startswith('gha-runner:'):
+                  print(f'::warning::autonomous_host_lease_blocked: held by {host}', file=sys.stderr)
+                  with open('${{ github.workspace }}/.lease-blocked', 'w') as f:
+                      f.write(host)
+                  sys.exit(0)
+          " 2>&1 | head -20
+
+      - name: Skip autonomous loop when local lease is fresh
+        if: hashFiles('.lease-blocked') != ''
+        run: |
+          echo "Local host holds autonomous-loop lease; exiting cleanly per Plan ARIA-V3 §2n."
+          exit 0
+
       # Plan ARIA-V3 §B1 INFRA-CRITICAL-002 — refuse to start when
       # the workflow is in live mode but the OAuth token is unset.
       # The kill switch (vars.ARIA_MOCK_KILL_SWITCH) is read AHEAD

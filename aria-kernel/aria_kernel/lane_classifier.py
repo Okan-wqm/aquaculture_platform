@@ -142,9 +142,68 @@ def derive_lane_from_gh_pr(pr_number: int, *, cwd: str | Path = ".") -> LaneDeci
     return derive_lane_from_pr_metadata(payload)
 
 
+_CLASSIFIER_VERSION: str = "v1.0.0-plan-aria-v3-b2"
+
+
+def emit_lane_classification_audit_row(
+    *,
+    base_dir: str | Path,
+    decision: LaneDecision,
+    classifier_inputs: dict[str, Any],
+    allowed_paths: list[str] | None = None,
+    rejected_paths: list[str] | None = None,
+    linked_materialize_event_id: str | None = None,
+) -> dict[str, Any]:
+    """Plan ARIA-V3 §B2 + AUDITTRAIL-HIGH-007 — emit the
+    ``l3_lane_classification_decided`` governance event.
+
+    The audit row carries every field needed to replay the lane
+    decision later:
+      * ``classifier_inputs`` — the raw PR metadata dict the
+        classifier consumed (base_branch, baseRefName from gh, etc.)
+      * ``decision`` — the LaneDecision (lane + base_branch +
+        decision_reason)
+      * ``allowed_paths`` / ``rejected_paths`` — what the diff
+        classifier accepted / rejected at this lane level
+      * ``classifier_version`` — version of the lane-classifier
+        contract for downward compatibility (an old replay against
+        a new classifier sees the version mismatch and refuses)
+      * ``linked_materialize_event_id`` — links this lane decision
+        to the materialize chain (Plan ARIA-V3 §2g three-event
+        chain), enabling per-materialize audit replay.
+
+    Caller MUST be the autonomous orchestrator entering an L3 path;
+    other callers (CLI inspect, test harness) use the LaneDecision
+    object directly without emitting an audit row.
+    """
+    from .tool_registry import append_tools_governance, ensure_tools_dir
+
+    root = ensure_tools_dir(base_dir)
+    details = {
+        "classifier_inputs": classifier_inputs,
+        "decision": {
+            "lane": decision.lane,
+            "base_branch": decision.base_branch,
+            "decision_reason": decision.decision_reason,
+            "is_autonomous_eligible": decision.is_autonomous_eligible(),
+        },
+        "allowed_paths": allowed_paths or [],
+        "rejected_paths": rejected_paths or [],
+        "classifier_version": _CLASSIFIER_VERSION,
+        "linked_materialize_event_id": linked_materialize_event_id,
+    }
+    append_tools_governance(
+        root,
+        "l3_lane_classification_decided",
+        details,
+    )
+    return details
+
+
 __all__ = [
     "LaneDecision",
     "derive_lane_from_base_branch",
     "derive_lane_from_pr_metadata",
     "derive_lane_from_gh_pr",
+    "emit_lane_classification_audit_row",
 ]

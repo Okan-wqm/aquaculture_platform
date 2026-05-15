@@ -613,15 +613,13 @@ services:
       # aborts BEFORE this service ever runs.
       db-migrate:
         condition: service_completed_successfully
-      # ARCH-GW-002: All subgraph dependencies use service_started (not service_healthy).
+      # ARCH-GW-002: Subgraph dependencies use service_started because the
+      # gateway owns readiness through RetryableIntrospectAndCompose.
       #
-      # WHY: Gateway has RetryableIntrospectAndCompose with 12 attempts and ~36s budget.
-      # It already handles subgraphs that aren't ready yet by retrying composition.
-      # Using service_healthy here creates a fragile dependency chain:
-      #   messaging unhealthy → gateway can't start → nginx can't start → entire platform down
-      # With service_started, gateway starts immediately and retries composition until
-      # all subgraphs are available. If a subgraph never comes up, gateway logs the error
-      # and the health check reports degraded — but nginx and other services stay up.
+      # Composition is fail-closed: if any subgraph never becomes reachable,
+      # NestFactory.create() fails before listen(), /health/live never starts
+      # responding, and Docker restarts the gateway. There is no degraded
+      # supergraph after composition exhaustion.
       auth-service:
         condition: service_started
       farm-service:
@@ -782,6 +780,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      nats:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
@@ -1275,6 +1275,8 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       nats:
         condition: service_healthy

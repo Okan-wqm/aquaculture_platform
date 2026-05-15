@@ -89,7 +89,7 @@ export class EquipmentType {
   @Column({ type: 'jsonb' })
   specificationSchema: SpecificationSchema;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column('text', { array: true, nullable: true })
   allowedSubEquipmentTypes?: string[]; // SubEquipmentType code'ları
 
   @Column({ default: true })

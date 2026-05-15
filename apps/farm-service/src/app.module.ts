@@ -89,91 +89,11 @@ import { GraphQLContextFactory } from './common/graphql-context.factory';
 import { GraphQLContextModule } from './common/graphql-context.module';
 import { getTenantSchemaName } from './common/utils/schema-sanitizer';
 
-// Migrations — imported as class references so webpack/tsc bundles them.
-// Glob paths ('dist/migrations/*.js') do NOT work with NX builds because
-// all source files are bundled into a single output, leaving zero file matches.
-// MigrationRunnerService (database.module) executes these on OnApplicationBootstrap
-// AFTER SourceSchemaBootstrapService.synchronize() has run, ensuring tables exist
-// before the migrations attempt to ALTER them.
-import { CreateInitialSchema1700000000000 } from './database/migrations/1700000000000-CreateInitialSchema';
-import { AddSystemHierarchy1734336000000 } from './database/migrations/1734336000000-AddSystemHierarchy';
-import { AddBatchDocuments1734500000000 } from './database/migrations/1734500000000-AddBatchDocuments';
-// `MakeDepartmentSiteIdNullable1765012800000` was deleted: its intent
-// (siteId nullable, FK ON DELETE SET NULL, unique index on (tenantId, code))
-// is fully expressed by the current Department entity decorators. Every
-// environment that bootstraps via SourceSchemaBootstrapService.synchronize()
-// already has the post-refactor camelCase schema, so the migration could
-// never run successfully — the snake_case `site_id` column it targets does
-// not exist anywhere. Removing the dead migration is the architectural fix;
-// the git history preserves the audit trail. Adding an idempotency guard
-// would only mask a no-op behind ceremonial code, not solve the structural
-// issue of a migration whose desired state is now provided by another mechanism.
-//
-// `AddCleanerFishSupport1768500000000` was deleted for the SAME class of
-// reason: its ALTER TABLE column adds are now expressed by the @Column
-// decorators on Species/Batch/TankBatch/TankOperation entities, its enum
-// extension targeted `operation_type_enum` but TypeORM synchronize creates
-// the enum as `tank_operations_operationtype_enum` (default
-// {table}_{column_lowercase}_enum convention) so ALTER TYPE on the legacy
-// name fails on every fresh environment, and every idempotency branch in
-// the migration logged "column already exists, skipping" in production —
-// proof the schema was already provisioned by synchronize before the
-// migration ever ran. The only non-redundant part — the global cleaner
-// fish species seed — has been moved to
-// FarmSeedService.seedGlobalCleanerFishSpecies() so it ships on every
-// cold start in every environment, idempotently. Git history preserves
-// the full original migration for audit purposes.
-import { AddRegulatorySettings1769000000000 } from './database/migrations/1769000000000-AddRegulatorySettings';
-import { AddSpeciesTags1769100000000 } from './database/migrations/1769100000000-AddSpeciesTags';
-import { AddFeedMinFishWeight1770000000000 } from './database/migrations/1770000000000-AddFeedMinFishWeight';
-import { AddStorageManagement1771000000000 } from './database/migrations/1771000000000-AddStorageManagement';
-import { AddPurchaseOrders1772000000000 } from './database/migrations/1772000000000-AddPurchaseOrders';
-import { AddWeatherTables1773000000000 } from './database/migrations/1773000000000-AddWeatherTables';
-import { AddFeederCalibrations1774000000000 } from './database/migrations/1774000000000-AddFeederCalibrations';
-import { AddFeederFieldsToExecution1775000000000 } from './database/migrations/1775000000000-AddFeederFieldsToExecution';
-// NEW-S1: Schema convergence — drop dead PondBatch `batches` table and
-// converge `farms`/`ponds`/`workers`.`tenantId` from the legacy varchar
-// type to uuid, matching the corrected entity decorators. Runs IMMEDIATELY
-// BEFORE EnableRowLevelSecurity so the RLS policy install no longer fails
-// with `operator does not exist: text = uuid` on legacy columns.
-import { ConvergeTenantIdTypesAndDropPondBatch1775900000000 } from './database/migrations/1775900000000-ConvergeTenantIdTypesAndDropPondBatch';
-import { EnableRowLevelSecurity1776000000000 } from './database/migrations/1776000000000-EnableRowLevelSecurity';
-import { CreateFarmOutboxTable1780300000000 } from './database/migrations/1780300000000-CreateFarmOutboxTable';
-import { RefreshTenantRlsPredicate1781000000000 } from './database/migrations/1781000000000-RefreshTenantRlsPredicate';
-import { ConvertFarmOutboxToIdentity1781200000000 } from './database/migrations/1781200000000-ConvertFarmOutboxToIdentity';
-import { AddTenantActivePartialIndexes1781800000000 } from './database/migrations/1781800000000-AddTenantActivePartialIndexes';
-// NEW-H1: convert audit columns from TIMESTAMP to TIMESTAMPTZ across the
-// farm schema. Excludes farm_outbox/audit_logs/audit_log to stay in lockstep
-// with the RLS migration's exclusion list. Helper uses dynamic discovery,
-// so any new entity that uses the bare @CreateDateColumn() decorator is
-// picked up automatically without amending this list.
-import { ConvertAuditColumnsToTimestamptz1781900000000 } from './database/migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
-// C2/P-H1 fix: add leasedAt/leasedBy columns to farm_outbox so the
-// OutboxWorkerService can claim rows atomically across replicas via
-// SELECT ... FOR UPDATE SKIP LOCKED. Unblocks horizontal scaling of
-// farm-service — before this migration, multi-replica deploys caused
-// every replica to publish every event, relying on NATS dedup to
-// absorb the duplicates.
-import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/1782000000000-AddFarmOutboxLeaseColumns';
-// P-C1 fix: AFTER INSERT trigger on farm_outbox that fires
-// pg_notify('farm_outbox_notify', ''), paired with the shared
-// OutboxNotifyListener to wake the worker immediately on every new
-// row. Drops median enqueue-to-publish latency from ~500ms (cron
-// cadence) to ~5ms.
-import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1782100000000-AddFarmOutboxNotifyTrigger';
-import { MovePublicTablesToFarm1786000000000 } from './database/migrations/1786000000000-MovePublicTablesToFarm';
-import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1786200000000-AddFarmOutboxModernColumns';
-import { AddDomainRetentionFunctions1787000000000 } from './database/migrations/1787000000000-AddDomainRetentionFunctions';
-import { AddStorageInventoryReceivedDate1787100000000 } from './database/migrations/1787100000000-AddStorageInventoryReceivedDate';
-import { CreateStorageLotMixes1787150000000 } from './database/migrations/1787150000000-CreateStorageLotMixes';
-import { AddStorageLotMixesGinIndex1787200000000 } from './database/migrations/1787200000000-AddStorageLotMixesGinIndex';
-import { AddRecurringTemplateTimezone1787300000000 } from './database/migrations/1787300000000-AddRecurringTemplateTimezone';
-import { AddDailyBatchFeedingMaterializedView1787400000000 } from './database/migrations/1787400000000-AddDailyBatchFeedingMaterializedView';
-import { AddDailyTankWaterQualityMaterializedView1787500000000 } from './database/migrations/1787500000000-AddDailyTankWaterQualityMaterializedView';
-import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrations/1788100000000-WireSupplierSitesAndSiteContacts';
-import { DedupeEquipmentTypesByCode1788200000000 } from './database/migrations/1788200000000-DedupeEquipmentTypesByCode';
-import { AddBiomassReports1788300000000 } from './database/migrations/1788300000000-AddBiomassReports';
-import { AddMissingFarmTables1789200000000 } from './database/migrations/1789200000000-AddMissingFarmTables';
+// Migrations — FARM_MIGRATIONS is the canonical class list shared by
+// AppModule, TypeORM CLI paths, E2E, and invariants. Keeping the list in
+// one manifest prevents runtime registration from drifting behind the
+// db-migrate glob used in production.
+import { FARM_MIGRATIONS } from './database/migrations/manifest';
 
 @Module({
   imports: [
@@ -203,41 +123,7 @@ import { AddMissingFarmTables1789200000000 } from './database/migrations/1789200
           // database.module executes migrations at OnApplicationBootstrap
           // so SourceSchemaBootstrapService.synchronize() (OnModuleInit)
           // creates base tables BEFORE any ALTER statement runs.
-          migrations: [
-            CreateInitialSchema1700000000000,
-            AddSystemHierarchy1734336000000,
-            AddBatchDocuments1734500000000,
-            AddRegulatorySettings1769000000000,
-            AddSpeciesTags1769100000000,
-            AddFeedMinFishWeight1770000000000,
-            AddStorageManagement1771000000000,
-            AddPurchaseOrders1772000000000,
-            AddWeatherTables1773000000000,
-            AddFeederCalibrations1774000000000,
-            AddFeederFieldsToExecution1775000000000,
-            ConvergeTenantIdTypesAndDropPondBatch1775900000000,
-            EnableRowLevelSecurity1776000000000,
-            CreateFarmOutboxTable1780300000000,
-            RefreshTenantRlsPredicate1781000000000,
-            ConvertFarmOutboxToIdentity1781200000000,
-            AddTenantActivePartialIndexes1781800000000,
-            ConvertAuditColumnsToTimestamptz1781900000000,
-            AddFarmOutboxLeaseColumns1782000000000,
-            AddFarmOutboxNotifyTrigger1782100000000,
-            MovePublicTablesToFarm1786000000000,
-            AddFarmOutboxModernColumns1786200000000,
-            AddDomainRetentionFunctions1787000000000,
-            AddStorageInventoryReceivedDate1787100000000,
-            CreateStorageLotMixes1787150000000,
-            AddStorageLotMixesGinIndex1787200000000,
-            AddRecurringTemplateTimezone1787300000000,
-            AddDailyBatchFeedingMaterializedView1787400000000,
-            AddDailyTankWaterQualityMaterializedView1787500000000,
-            WireSupplierSitesAndSiteContacts1788100000000,
-            DedupeEquipmentTypesByCode1788200000000,
-            AddBiomassReports1788300000000,
-            AddMissingFarmTables1789200000000,
-          ],
+          migrations: [...FARM_MIGRATIONS],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
           //   aqua-db-migrate container runs migrations BEFORE service

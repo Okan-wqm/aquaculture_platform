@@ -34,6 +34,53 @@ function validator(
   return new Validator(dataSource, configService);
 }
 
+function entityWithColumn(
+  column: Partial<EntityMetadata['columns'][number]>,
+): EntityMetadata {
+  return {
+    synchronize: true,
+    schema: 'auth',
+    tableName: 'users',
+    columns: [
+      {
+        databaseName: 'tenantIds',
+        propertyName: 'tenantIds',
+        type: 'uuid',
+        isArray: false,
+        isNullable: false,
+        ...column,
+      },
+    ],
+    checks: [],
+  } as unknown as EntityMetadata;
+}
+
+function dataSourceForColumn(dbColumn: {
+  column_name: string;
+  data_type: string;
+  udt_name: string | null;
+  is_nullable: string;
+}): DataSource {
+  return {
+    entityMetadatas: [entityWithColumn({ isArray: true })],
+    query: jest.fn(async (sql: string) => {
+      if (sql.includes('FROM pg_tables')) {
+        return [{ schemaname: 'auth' }];
+      }
+      if (sql.includes('information_schema.columns')) {
+        return [dbColumn];
+      }
+      if (sql.includes('FROM pg_constraint')) {
+        return [];
+      }
+      if (sql.includes('FROM observability.emergency_overrides')) {
+        return [];
+      }
+      return [];
+    }),
+  } as unknown as DataSource;
+}
+
 describe('SchemaDriftValidator boot signal contract', () => {
   let logSpy: jest.SpyInstance;
   let warnSpy: jest.SpyInstance;
@@ -246,6 +293,71 @@ describe('SchemaDriftValidator boot signal contract', () => {
         serviceName: 'alert-engine',
         schemaName: 'alert',
       }),
+    );
+  });
+
+  it('accepts native uuid[] columns reported as ARRAY/_uuid', async () => {
+    const dataSource = dataSourceForColumn({
+      column_name: 'tenantIds',
+      data_type: 'ARRAY',
+      udt_name: '_uuid',
+      is_nullable: 'NO',
+    });
+
+    await validator(
+      dataSource,
+      config({ NODE_ENV: 'production' }),
+    ).onApplicationBootstrap();
+
+    expect(logSpy).toHaveBeenCalledWith(
+      SCHEMA_DRIFT_CLEAN_SIGNAL,
+      expect.objectContaining({
+        bootSignal: 'schema_drift_clean',
+        status: 'ok',
+        checkedOwnedEntities: 1,
+      }),
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects scalar uuid entity columns backed by ARRAY/_uuid', async () => {
+    const dataSource = dataSourceForColumn({
+      column_name: 'tenantId',
+      data_type: 'ARRAY',
+      udt_name: '_uuid',
+      is_nullable: 'NO',
+    }) as DataSource & { entityMetadatas: EntityMetadata[] };
+    dataSource.entityMetadatas = [
+      entityWithColumn({ databaseName: 'tenantId', propertyName: 'tenantId' }),
+    ];
+
+    await expect(
+      validator(dataSource, config({ NODE_ENV: 'production' }))
+        .onApplicationBootstrap(),
+    ).rejects.toThrow(/entity declares uuid but DB is uuid\[\]/);
+
+    expect(logSpy).not.toHaveBeenCalledWith(
+      SCHEMA_DRIFT_CLEAN_SIGNAL,
+      expect.anything(),
+    );
+  });
+
+  it('rejects uuid[] entity columns backed by ARRAY/_text', async () => {
+    const dataSource = dataSourceForColumn({
+      column_name: 'tenantIds',
+      data_type: 'ARRAY',
+      udt_name: '_text',
+      is_nullable: 'NO',
+    });
+
+    await expect(
+      validator(dataSource, config({ NODE_ENV: 'production' }))
+        .onApplicationBootstrap(),
+    ).rejects.toThrow(/entity declares uuid\[\] but DB is text\[\]/);
+
+    expect(logSpy).not.toHaveBeenCalledWith(
+      SCHEMA_DRIFT_CLEAN_SIGNAL,
+      expect.anything(),
     );
   });
 

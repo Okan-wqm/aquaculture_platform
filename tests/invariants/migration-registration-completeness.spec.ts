@@ -124,6 +124,22 @@ function appModulePath(service: string): string | null {
   return existsSync(candidate) ? candidate : null;
 }
 
+function registrationSourceFor(service: string, appSrc: string): string {
+  if (service !== 'farm-service' || !appSrc.includes('FARM_MIGRATIONS')) {
+    return appSrc;
+  }
+
+  const manifestPath = resolve(
+    REPO_ROOT,
+    'apps/farm-service/src/database/migrations/manifest.ts',
+  );
+  if (!existsSync(manifestPath)) {
+    return appSrc;
+  }
+
+  return `${appSrc}\n${readFileSync(manifestPath, 'utf8')}`;
+}
+
 function usesGlobPattern(appModuleSrc: string): boolean {
   // Pattern: `migrations: [__dirname + '/migrations/*{.ts,.js}']` or
   // `migrations: [__dirname + '/migrations/*.{ts,js}']` etc. — any
@@ -186,13 +202,14 @@ describe('INVARIANT (ORPHAN-FARM-MIGRATION-REGISTRATION): every migration is reg
     }
 
     const migrations = listMigrationFilesFor(service);
+    const registrationSrc = registrationSourceFor(service, appSrc);
     const missing: string[] = [];
     for (const migFile of migrations) {
       const classes = migrationFileToClassNames(migFile);
       // The migration file must export at least one class. If multiple
       // classes are exported (rare), at least ONE must be referenced.
       if (classes.length === 0) continue;
-      const referenced = classes.some((cls) => appSrc.includes(cls));
+      const referenced = classes.some((cls) => registrationSrc.includes(cls));
       if (!referenced) {
         if (isExplicitlyGatedManualMigration(migFile)) {
           continue;

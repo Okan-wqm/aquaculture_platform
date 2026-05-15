@@ -409,12 +409,13 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
            * ARCH-GW-005: Federated subgraph registry.
            *
            * CRITICAL INVARIANT: Every service listed here MUST also appear in:
-           *   1. docker-compose.droplet.yml gateway depends_on with condition: service_healthy
+           *   1. docker-compose.droplet.yml gateway depends_on with condition: service_started
            *   2. health.service.ts serviceUrls map (for /health/detail monitoring)
            *
-           * If a subgraph is added here but not in depends_on, the gateway container
-           * starts before that subgraph is ready, causing composition failure that
-           * blocks NestFactory.create() and prevents /health/live from responding.
+           * The gateway may start before a subgraph is ready, but
+           * RetryableIntrospectAndCompose owns the retry window. If a subgraph
+           * never becomes reachable, composition failure blocks NestFactory.create()
+           * and prevents /health/live from responding; Docker restarts the gateway.
            *
            * Composition is ALL-OR-NOTHING: if any single subgraph fails introspection,
            * the entire supergraph composition fails. There is no partial composition.

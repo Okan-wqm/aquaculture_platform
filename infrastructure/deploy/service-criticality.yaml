@@ -77,18 +77,9 @@ services:
     level: critical
     reason: ingests live telemetry; missing a window loses production data
 
-  # ORPHAN-CRITICAL-074: sensor-ingestion is gated behind the `rust-sidecar`
-  # Compose profile (see docker-compose.droplet.yml line ~900) and therefore
-  # NOT enumerated by `docker compose config --services`. Keeping an entry
-  # here triggers the validator's "manifest references services not in
-  # compose" coverage check (check-service-health.ts:215). The cleanest
-  # state is: NO entry while the service is profile-gated. When the
-  # operator enables COMPOSE_PROFILES=rust-sidecar AND the CI Rust build
-  # matrix publishes a multi-arch GHCR image, restore the entry as
-  # `level: critical` with the original reason "Rust sidecar that decodes
-  # sensor payloads and publishes to NATS — without it sensor-service has
-  # no source of telemetry to consume. Same data-loss profile as
-  # sensor-service."
+  - name: sensor-ingestion
+    level: required
+    reason: rollout-aware Rust sidecar; profile-gated but must be classified when present in compose
 
   - name: hr-service
     level: warning

@@ -22,6 +22,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
 
+import { CreateInitialSchema1780000000000 } from './migrations/1780000000000-CreateInitialSchema';
 import { ConvertTimestampToTimestamptz1781500000000 } from './migrations/1781500000000-ConvertTimestampToTimestamptz';
 import { ConvertAuditColumnsToTimestamptz1781900000000 } from './migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
 import { AuditLogImmutability1782000000000 } from './migrations/1782000000000-AuditLogImmutability';
@@ -41,6 +42,8 @@ import { AddUserPermissionsUserFk1787900000000 } from './migrations/178790000000
 import { ConvertAuditIpColumnsToInet1788000000000 } from './migrations/1788000000000-ConvertAuditIpColumnsToInet';
 import { AddAuditLogShapeExtension1788100000000 } from './migrations/1788100000000-AddAuditLogShapeExtension';
 import { CreateSharedAccessLogs1788400000000 } from './migrations/1788400000000-CreateSharedAccessLogs';
+import { AlignAdminEntitySurface1789000000000 } from './migrations/1789000000000-AlignAdminEntitySurface';
+import { AlignAdminEntitySurfaceExt1789100000000 } from './migrations/1789100000000-AlignAdminEntitySurfaceExt';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { AdminApiRetentionBootstrapModule } from './retention/retention-bootstrap.module';
@@ -94,6 +97,7 @@ import { UsersModule } from './users/users.module';
           // in 2026-Q1. Operators may further raise via DATABASE_POOL_SIZE.
           defaultPoolSize: 40,
           migrations: [
+            CreateInitialSchema1780000000000,
             ConvertTimestampToTimestamptz1781500000000,
             ConvertAuditColumnsToTimestamptz1781900000000,
             AuditLogImmutability1782000000000,
@@ -113,6 +117,8 @@ import { UsersModule } from './users/users.module';
             ConvertAuditIpColumnsToInet1788000000000,
             AddAuditLogShapeExtension1788100000000,
             CreateSharedAccessLogs1788400000000,
+            AlignAdminEntitySurface1789000000000,
+            AlignAdminEntitySurfaceExt1789100000000,
           ],
           // admin-api opts in to TypeORM's built-in migration runner via the
           // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other

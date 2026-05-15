@@ -17,6 +17,11 @@ import {
   BOOT_INVARIANT_SIGNALS,
   emitBootInvariantSignal,
 } from '../constants/boot-invariant-signals';
+import {
+  expectedEntityDbType,
+  isUuidTypeDrift,
+  normalizeInformationSchemaType,
+} from './schema-drift/type-normalization';
 
 export const SCHEMA_DRIFT_CLEAN_SIGNAL =
   BOOT_INVARIANT_SIGNALS.schema_drift_clean.pattern;
@@ -340,9 +345,10 @@ export function createSchemaDriftValidator(
       const columnRows: Array<{
         column_name: string;
         data_type: string;
+        udt_name: string | null;
         is_nullable: string;
       }> = await this.dataSource.query(
-        `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
+        `SELECT column_name, data_type, udt_name, is_nullable FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
         [schema, tableName],
       );
       const columns = new Map(columnRows.map((r) => [r.column_name, r]));
@@ -416,15 +422,15 @@ export function createSchemaDriftValidator(
           // enum collection. Class C (nullability) still applies — a
           // nullable vs NOT NULL change IS a schema-semantic change that
           // survives encryption.
-        } else if (entityType === 'uuid') {
-          if (dbColumn.data_type !== 'uuid') {
-            this.route(
-              'uuid_type',
-              `[${schema}.${tableName}.${dbName}] entity declares uuid but DB is ${dbColumn.data_type}`,
-              errorViolations,
-              warningViolations,
-            );
-          }
+        } else if (isUuidTypeDrift(column, dbColumn)) {
+          const expected = expectedEntityDbType(column);
+          const actual = normalizeInformationSchemaType(dbColumn);
+          this.route(
+            'uuid_type',
+            `[${schema}.${tableName}.${dbName}] entity declares ${expected} but DB is ${actual}`,
+            errorViolations,
+            warningViolations,
+          );
         }
 
         // Nullability — entity says NOT NULL but DB says YES → latent
@@ -727,9 +733,10 @@ export function createSchemaDriftValidator(
         table_name: string;
         column_name: string;
         data_type: string;
+        udt_name: string | null;
         is_nullable: string;
       }> = await this.dataSource.query(
-        `SELECT table_schema, table_name, column_name, data_type, is_nullable
+        `SELECT table_schema, table_name, column_name, data_type, udt_name, is_nullable
            FROM information_schema.columns
           WHERE table_schema = ANY($1::text[])
             AND table_name = ANY($2::text[])`,
@@ -741,7 +748,10 @@ export function createSchemaDriftValidator(
       for (const row of columnRows) {
         const key = `${row.table_schema}.${row.table_name}`;
         const shape = shapesBySchemaTable.get(key) ?? new Map<string, string>();
-        shape.set(row.column_name, `${row.data_type}|${row.is_nullable}`);
+        shape.set(
+          row.column_name,
+          `${normalizeInformationSchemaType(row)}|${row.is_nullable}`,
+        );
         shapesBySchemaTable.set(key, shape);
       }
 

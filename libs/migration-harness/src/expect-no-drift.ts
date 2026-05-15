@@ -42,7 +42,13 @@
  */
 import { randomBytes } from 'node:crypto';
 
-import { getEncryptedAtRestMetadata, isTenantDeltaAllowed } from '@aquaculture/backend-common/database';
+import {
+  expectedEntityDbType,
+  getEncryptedAtRestMetadata,
+  isTenantDeltaAllowed,
+  isUuidTypeDrift,
+  normalizeInformationSchemaType,
+} from '@aquaculture/backend-common/database';
 import type { DataSourceOptions, EntityMetadata, QueryRunner } from 'typeorm';
 
 export interface DriftReport {
@@ -167,9 +173,10 @@ async function scanDrift(
     const columnRows: Array<{
       column_name: string;
       data_type: string;
+      udt_name: string | null;
       is_nullable: string;
     }> = await ctx.qr.query(
-      `SELECT column_name, data_type, is_nullable
+      `SELECT column_name, data_type, udt_name, is_nullable
          FROM information_schema.columns
         WHERE table_schema = $1 AND table_name = $2`,
       [ctx.schema, tableName],
@@ -222,9 +229,11 @@ async function scanDrift(
           );
           byClass.encrypted_column_protection++;
         }
-      } else if (entityType === 'uuid' && dbColumn.data_type !== 'uuid') {
+      } else if (isUuidTypeDrift(column, dbColumn)) {
+        const expected = expectedEntityDbType(column);
+        const actual = normalizeInformationSchemaType(dbColumn);
         violations.push(
-          `[${ctx.schema}.${tableName}.${dbName}] entity declares uuid but DB is ${dbColumn.data_type}`,
+          `[${ctx.schema}.${tableName}.${dbName}] entity declares ${expected} but DB is ${actual}`,
         );
         byClass.uuid_type++;
       }
@@ -382,9 +391,10 @@ async function scanDrift(
         table_name: string;
         column_name: string;
         data_type: string;
+        udt_name: string | null;
         is_nullable: string;
       }> = await ctx.qr.query(
-        `SELECT table_schema, table_name, column_name, data_type, is_nullable
+        `SELECT table_schema, table_name, column_name, data_type, udt_name, is_nullable
            FROM information_schema.columns
           WHERE table_schema = ANY($1::text[])
             AND table_name = ANY($2::text[])`,
@@ -395,7 +405,10 @@ async function scanDrift(
         const key = `${row.table_schema}.${row.table_name}`;
         const shape =
           shapesBySchemaTable.get(key) ?? new Map<string, string>();
-        shape.set(row.column_name, `${row.data_type}|${row.is_nullable}`);
+        shape.set(
+          row.column_name,
+          `${normalizeInformationSchemaType(row)}|${row.is_nullable}`,
+        );
         shapesBySchemaTable.set(key, shape);
       }
       for (const entity of entities) {

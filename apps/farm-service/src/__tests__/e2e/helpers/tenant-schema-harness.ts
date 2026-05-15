@@ -55,7 +55,7 @@ export async function createSourceEquipmentTypesReferenceTable(dataSource: DataS
       "category" VARCHAR(50) NOT NULL DEFAULT 'other',
       "icon" VARCHAR(50) NULL,
       "specificationSchema" JSONB NOT NULL DEFAULT '{"fields":[]}'::jsonb,
-      "allowedSubEquipmentTypes" TEXT NULL,
+      "allowedSubEquipmentTypes" TEXT[] NULL,
       "isActive" BOOLEAN NOT NULL DEFAULT true,
       "isSystem" BOOLEAN NOT NULL DEFAULT false,
       "sortOrder" INTEGER NOT NULL DEFAULT 0,

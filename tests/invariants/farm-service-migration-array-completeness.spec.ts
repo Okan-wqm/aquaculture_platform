@@ -66,6 +66,22 @@ const APP_MODULE_PATH = path.resolve(
   REPO_ROOT,
   'apps/farm-service/src/app.module.ts',
 );
+const MANIFEST_PATH = path.resolve(
+  REPO_ROOT,
+  'apps/farm-service/src/database/migrations/manifest.ts',
+);
+const FARM_SEED_PATH = path.resolve(
+  REPO_ROOT,
+  'apps/farm-service/src/database/services/farm-seed.service.ts',
+);
+const EQUIPMENT_TYPE_ENTITY_PATH = path.resolve(
+  REPO_ROOT,
+  'apps/farm-service/src/equipment/entities/equipment-type.entity.ts',
+);
+const TENANT_SCHEMA_HARNESS_PATH = path.resolve(
+  REPO_ROOT,
+  'apps/farm-service/src/__tests__/e2e/helpers/tenant-schema-harness.ts',
+);
 
 /**
  * Class name pattern: `<Name><13-digit-timestamp>`. Every migration
@@ -112,14 +128,14 @@ function listOnDiskMigrationClasses(): string[] {
 
 /**
  * Extract the names of every class imported from
- * './database/migrations/...' in app.module.ts. The import block
+ * './<timestamp>-...' in the canonical manifest. The import block
  * captures multiple classes per `import { X, Y } from '...';`
  * statement (rare for migrations but cheap to support).
  */
 function listImportedMigrationClasses(): string[] {
-  const source = readFileSync(APP_MODULE_PATH, 'utf8');
+  const source = readFileSync(MANIFEST_PATH, 'utf8');
   const importRegex =
-    /import\s*\{([^}]+)\}\s*from\s*['"]\.\/database\/migrations\/[^'"]+['"]\s*;/g;
+    /import\s*\{([^}]+)\}\s*from\s*['"]\.\/\d{13}-[^'"]+['"]\s*;/g;
   const names: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = importRegex.exec(source)) !== null) {
@@ -135,35 +151,21 @@ function listImportedMigrationClasses(): string[] {
 }
 
 /**
- * Extract the names listed inside the `migrations: [...]` array of
- * the `createServiceTypeOrmConfig({...})` call. The regex narrowly
- * matches the array contents to avoid catching unrelated `migrations`
- * occurrences elsewhere in the file (none today, but defence-in-
- * depth).
+ * Extract the names listed inside the FARM_MIGRATIONS manifest array.
  */
 function listArrayMigrationClasses(): string[] {
-  const source = readFileSync(APP_MODULE_PATH, 'utf8');
-  // The literal `migrations: [...]` string appears in two places:
-  // (a) a docblock illustrating the registration pattern, and
-  // (b) the real array inside createServiceTypeOrmConfig({...}).
-  // The docblock copy is short and contains a literal '...' so the
-  // captured group has length ~3 with no class identifiers. Picking
-  // the LAST match (greedy reverse) selects the real array.
-  const matches = [...source.matchAll(/migrations:\s*\[([\s\S]*?)\]/g)];
-  // Choose the longest match — the real array is much larger than
-  // the docblock placeholder (whichever match captures > 100 chars
-  // is the real one; the placeholder is < 10).
-  const realMatch = matches
-    .filter((m) => m[1] && m[1].length > 100)
-    .sort((a, b) => b[1]!.length - a[1]!.length)[0];
-  if (!realMatch || !realMatch[1]) {
+  const source = readFileSync(MANIFEST_PATH, 'utf8');
+  const match = source.match(
+    /export\s+const\s+FARM_MIGRATIONS\s*=\s*\[([\s\S]*?)\]\s+as\s+const/,
+  );
+  if (!match || !match[1]) {
     throw new Error(
-      `Could not locate the real \`migrations: [...]\` array in ${APP_MODULE_PATH}. ` +
-        'Either the array was renamed/moved (update this invariant) or ' +
+      `Could not locate the FARM_MIGRATIONS array in ${MANIFEST_PATH}. ` +
+        'Either the manifest was renamed/moved (update this invariant) or ' +
         'the file is unreadable.',
     );
   }
-  const body = realMatch[1];
+  const body = match[1];
   const names: string[] = [];
   // Each line that contains a class identifier is a migration entry.
   // Lines that are pure comments are ignored — the regex requires the
@@ -191,7 +193,15 @@ describe('farm-service migration array completeness (FARM-LOW-001 follow-up)', (
     expect(onDisk.length).toBeGreaterThanOrEqual(20);
   });
 
-  it('every on-disk migration class is imported in app.module.ts', () => {
+  it('AppModule delegates runtime migrations to FARM_MIGRATIONS', () => {
+    const source = readFileSync(APP_MODULE_PATH, 'utf8');
+    expect(source).toMatch(
+      /import\s+\{\s*FARM_MIGRATIONS\s*\}\s+from\s+['"]\.\/database\/migrations\/manifest['"]/,
+    );
+    expect(source).toMatch(/migrations:\s*\[\s*\.\.\.FARM_MIGRATIONS\s*\]/);
+  });
+
+  it('every on-disk migration class is imported in manifest.ts', () => {
     const missing = onDisk
       .filter((cls) => !imported.includes(cls))
       .sort();
@@ -205,17 +215,34 @@ describe('farm-service migration array completeness (FARM-LOW-001 follow-up)', (
     expect(stale).toEqual([]);
   });
 
-  it('every imported migration class appears in the migrations: [] array', () => {
+  it('every imported migration class appears in FARM_MIGRATIONS', () => {
     const orphaned = imported
       .filter((cls) => !inArray.includes(cls))
       .sort();
     expect(orphaned).toEqual([]);
   });
 
-  it('every entry in the migrations: [] array is imported', () => {
+  it('every entry in FARM_MIGRATIONS is imported', () => {
     const phantom = inArray
       .filter((cls) => !imported.includes(cls))
       .sort();
     expect(phantom).toEqual([]);
+  });
+
+  it('equipment type subtype codes use native text[] from entity through seed and E2E DDL', () => {
+    const entitySrc = readFileSync(EQUIPMENT_TYPE_ENTITY_PATH, 'utf8');
+    const seedSrc = readFileSync(FARM_SEED_PATH, 'utf8');
+    const harnessSrc = readFileSync(TENANT_SCHEMA_HARNESS_PATH, 'utf8');
+
+    expect(entitySrc).toMatch(
+      /@Column\(\s*['"]text['"],\s*\{\s*array:\s*true,\s*nullable:\s*true\s*\}\s*\)/s,
+    );
+    expect(seedSrc).toMatch(/et\.allowedSubEquipmentTypes\s*\|\|\s*\[\]/);
+    expect(seedSrc).not.toMatch(
+      /JSON\.stringify\(\s*et\.allowedSubEquipmentTypes/,
+    );
+    expect(harnessSrc).toMatch(
+      /"allowedSubEquipmentTypes"\s+TEXT\[\]\s+NULL/i,
+    );
   });
 });

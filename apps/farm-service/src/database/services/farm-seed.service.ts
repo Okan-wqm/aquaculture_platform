@@ -346,17 +346,19 @@ export class FarmSeedService implements OnApplicationBootstrap {
                category = $3,
                icon = $4,
                "specificationSchema" = $5,
-               "sortOrder" = $6,
+               "allowedSubEquipmentTypes" = $6,
+               "sortOrder" = $7,
                "updatedAt" = NOW()
-           WHERE code = $7`,
+           WHERE code = $8`,
           [
             et.name,
             et.description,
             et.category,
             et.icon,
             JSON.stringify(et.specificationSchema),
+            et.allowedSubEquipmentTypes || [],
             et.sortOrder,
-            et.code
+            et.code,
           ]
         );
         this.logger.log(`  Updated equipment type: ${et.name} (${et.code})`);
@@ -372,8 +374,8 @@ export class FarmSeedService implements OnApplicationBootstrap {
             et.category,
             et.icon,
             JSON.stringify(et.specificationSchema),
-            JSON.stringify(et.allowedSubEquipmentTypes || []),
-            et.sortOrder
+            et.allowedSubEquipmentTypes || [],
+            et.sortOrder,
           ]
         );
         this.logger.log(`  Created equipment type: ${et.name} (${et.code})`);

@@ -29,8 +29,8 @@ import { MigrationRunnerService } from './services/migration-runner.service';
     AuditLogService,
     AuditRedactionService,
     CodeGeneratorService,
-    FarmSeedService,
     MigrationRunnerService,
+    FarmSeedService,
   ],
   exports: [AuditLogService, AuditRedactionService, CodeGeneratorService, TypeOrmModule],
 })

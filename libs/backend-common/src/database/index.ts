@@ -160,6 +160,15 @@ export type {
   DriftClassSpec,
   DriftSeverity,
 } from './schema-drift/drift-classes';
+export {
+  expectedEntityDbType,
+  isUuidTypeDrift,
+  normalizeInformationSchemaType,
+} from './schema-drift/type-normalization';
+export type {
+  EntityColumnTypeShape,
+  InformationSchemaColumnShape,
+} from './schema-drift/type-normalization';
 
 // pg_catalog introspector — normalized ORM-agnostic snapshot of a PG
 // schema. Consumed by SchemaDriftValidator + Phase 4 PR gate. Replaces

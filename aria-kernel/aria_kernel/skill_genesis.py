@@ -5,8 +5,22 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .draft_intent import (
+    BANNED_PHRASES_DEFAULT,
+    AcceptanceTest,
+    SkillDraftIntent,
+)
+from .draft_pii_filter import mask_pii_in_intent
 from .ledger import append_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+
+
+# Plan ARIA-V3 §A3 — skill grammar contract (required sections in
+# the rendered body). Locked by I-V3-07b. Adding a section requires
+# matching draft_validator update + I-V3-07b parametrization.
+_SKILL_REQUIRED_SECTIONS: tuple[str, ...] = (
+    "Validation checklist",
+)
 
 
 FIXTURE_RE = re.compile(r"^##\s+Fixture:\s*(.+)$", re.MULTILINE)
@@ -58,15 +72,25 @@ def draft_skill(
         raise GovernanceError("skill name is invalid")
     if not owners or not handoff_agents:
         raise GovernanceError("skill draft requires owners and handoff agents")
-    content = _render_skill(name=name, description=description, owners=owners, handoff_agents=handoff_agents)
+    # Plan ARIA-V3 §A3 — kernel emits the SkillDraftIntent (grammar),
+    # not the rendered markdown. Body synthesis is delegated to the
+    # drafter via worker_executor.py. ``draft.body`` is populated
+    # after a passing drafter run + grammar validation.
+    intent = _render_skill(
+        name=name,
+        description=description,
+        owners=owners,
+        handoff_agents=handoff_agents,
+    )
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
         "draft_id": f"skill-draft-{name}",
         "request_id": request_id,
         "name": name,
-        "target_path": f".claude/skills/{name}.md",
-        "content": content,
+        "target_path": intent.target_path,
+        "intent": intent.to_dict(),
+        "body": None,
         "status": "draft_shadow",
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "drafts.jsonl", row)
@@ -162,10 +186,19 @@ def materialize_skill(
     target_path = str(draft.get("target_path") or "")
     if not target_path.startswith(".claude/skills/") or not target_path.endswith(".md"):
         raise GovernanceError("target_path_not_skill_scoped")
+    # Plan ARIA-V3 §A3 — body comes from the drafter; kernel does
+    # not synthesise markdown. Materialize refuses fail-closed when
+    # the drafter has not produced a validated body yet.
+    body = draft.get("body")
+    if not isinstance(body, str) or not body.strip():
+        raise GovernanceError(
+            f"skill_materialize_requires_drafter_body: draft_id={draft_id!r} "
+            f"has no validated body yet (drafter run pending or failed)"
+        )
     target = worktree / target_path
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
-    tmp.write_text(str(draft.get("content") or ""), encoding="utf-8")
+    tmp.write_text(body, encoding="utf-8")
     tmp.replace(target)
     status = "accepted"
     validation = None
@@ -198,26 +231,54 @@ def list_skill_genesis(*, base_dir: str | Path | None = None, kind: str = "draft
     return load_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / filename)
 
 
-def _render_skill(*, name: str, description: str, owners: list[str], handoff_agents: list[str]) -> str:
-    return "\n".join(
-        [
-            "---",
-            f"name: {name}",
-            f"description: {description}",
-            "type: skill",
-            "version: 0.1.0",
-            f"owners: [{', '.join(owners)}]",
-            "handoff:",
-            f"  on_complete_invoke: [{', '.join(handoff_agents)}]",
-            "---",
-            "",
-            "## Validation checklist",
-            "- true-positive fixture passes",
-            "- false-positive guard passes",
-            "- handoff resolves",
-            "",
-        ],
+def _render_skill(
+    *,
+    name: str,
+    description: str,
+    owners: list[str],
+    handoff_agents: list[str],
+) -> SkillDraftIntent:
+    """Plan ARIA-V3 §A3 + I-V3-12b — return the grammar, not the body.
+
+    The skill body (markdown including `## Fixture: <id>` blocks the
+    sandbox parses) is synthesised by ``worker_executor.py`` drafter
+    mode and validated against this intent via
+    ``draft_validator.validate_body_against_intent`` before
+    materialisation. PII masking applied before the intent reaches
+    Claude (AUDITTRAIL-HIGH-008).
+    """
+    intent = SkillDraftIntent(
+        intent_kind="skill",
+        intent_id=f"intent-skill-{name}",
+        name=name,
+        target_path=f".claude/skills/{name}.md",
+        description=description,
+        required_sections=_SKILL_REQUIRED_SECTIONS,
+        owners=tuple(owners),
+        handoff_agents=tuple(handoff_agents),
+        shadow_period_days=14,
+        precision_threshold=0.85,
+        acceptance_tests=(
+            AcceptanceTest(
+                name="true-positive",
+                expected="finding_emitted",
+                description="canonical true-positive fixture",
+            ),
+            AcceptanceTest(
+                name="false-positive-guard",
+                expected="no_finding",
+                description="false-positive suppression test",
+            ),
+            AcceptanceTest(
+                name="handoff-resolves",
+                expected="handoff_dispatch_recorded",
+                description="post-emit handoff to declared agents",
+            ),
+        ),
+        evidence_allowlist=tuple(),
+        diff_classifier_lane="L3-snowball",
     )
+    return mask_pii_in_intent(intent)  # type: ignore[return-value]
 
 
 def _find_request(

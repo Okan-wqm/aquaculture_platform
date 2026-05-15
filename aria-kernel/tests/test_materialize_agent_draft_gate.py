@@ -34,10 +34,17 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _draft(self) -> dict:
+        # Plan ARIA-V3 §A3 — kernel no longer produces markdown; the
+        # ``body`` field is populated by the drafter (worker_executor
+        # spawning ``claude code agent --subagent-type aria-drafter``).
+        # This test isolates materialize so we synthesise the body
+        # directly. Without an ``intent`` field the grammar validator
+        # at materialize is skipped (intent-less drafts pre-date the
+        # V3 grammar gate; production flow always has intent).
         return {
             "draft_id": "drf-e6",
             "target_path": ".claude/agents/aria-test-agent.md",
-            "content": "# test agent body",
+            "body": "# test agent body",
         }
 
     def _dispatch(self) -> dict:

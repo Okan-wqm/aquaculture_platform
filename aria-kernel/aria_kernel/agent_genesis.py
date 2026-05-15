@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -7,18 +8,23 @@ from pathlib import Path
 from typing import Any
 
 from .capability_gap import latest_capability_gaps
+from .draft_intent import (
+    BANNED_PHRASES_DEFAULT,
+    AcceptanceTest,
+    AgentDraftIntent,
+)
+from .draft_pii_filter import mask_pii_in_intent
 from .ledger import append_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
-BANNED_PHRASES = (
-    "for " + "now",
-    "interim " + "solution",
-    "tempor" + "ary",
-    "good " + "enough",
-    "defer" + "red",
-    "out " + "of " + "scope",
-)
+# Plan ARIA-V3 §A3 — banned-phrase list relocated to ``draft_intent``
+# as the single SSoT. The local concatenation form below is preserved
+# (kernel-self-scan: ``_validate_draft`` rejects an intent whose
+# purpose/evidence_contract free-text contains the banned phrases).
+# CLAUDE.md banned-phrase audit re-imports the SSoT.
+BANNED_PHRASES = BANNED_PHRASES_DEFAULT
+
 REQUIRED_DRAFT_FIELDS = ("name", "purpose", "scope_globs", "forbidden_globs", "evidence_contract", "output_schema", "validation_fixtures")
 
 
@@ -44,11 +50,15 @@ def draft_agent_from_gap(
         "related_existing_agents": gap.get("related_existing_agents", []),
     }
     _validate_draft(draft)
-    content = _render_agent_markdown(draft)
+    # Plan ARIA-V3 §A3 — kernel emits the INTENT (grammar), not the
+    # body. The body is synthesised by worker_executor.py drafter
+    # mode and written into ``draft.body`` by the dispatch hook
+    # (Phase A3 invariant I-V3-12c locks the no-markdown discipline).
+    intent = _render_agent_intent(draft)
     root = ensure_tools_dir(base_dir)
-    draft_path = root / "agent-genesis" / "drafts" / f"{name}.md"
+    draft_path = root / "agent-genesis" / "drafts" / f"{name}.intent.json"
     draft_path.parent.mkdir(parents=True, exist_ok=True)
-    draft_path.write_text(content, encoding="utf-8")
+    draft_path.write_text(intent.to_intent_file(), encoding="utf-8")
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -56,10 +66,15 @@ def draft_agent_from_gap(
         "draft_id": f"draft-{name}",
         "status": "draft_shadow",
         "draft": draft,
-        "content": content,
+        # Plan ARIA-V3 §A3 — ``intent`` is the kernel-authored grammar
+        # (replaces the pre-V3 ``content`` string). ``body`` is
+        # populated AFTER the drafter run + grammar validation
+        # passes; materialize gates on body presence.
+        "intent": intent.to_dict(),
+        "body": None,
         "draft_path": draft_path.as_posix(),
-        "target_path": f".claude/agents/{name}.md",
-        "blocked_by": ["operator_approval_required"],
+        "target_path": intent.target_path,
+        "blocked_by": ["awaiting_drafter_body_synthesis"],
     }
     return append_jsonl(root / "agent-genesis" / "drafts.jsonl", row)
 
@@ -356,11 +371,75 @@ def materialize_agent_draft(
     target_path = str(draft.get("target_path") or "")
     if not target_path.startswith(".claude/agents/aria-") or not target_path.endswith(".md"):
         raise GovernanceError("target_path_not_agent_scoped")
+    # Plan ARIA-V3 §A3 — body comes from the drafter (worker_executor
+    # spawned ``claude code agent --subagent-type aria-drafter``); it is
+    # NOT the kernel's responsibility to synthesise markdown. The
+    # ``body`` field replaces the pre-V3 ``content`` field. A missing
+    # body means the drafter has not (yet) run successfully for this
+    # draft; materialize refuses fail-closed.
+    body = draft.get("body")
+    if not isinstance(body, str) or not body.strip():
+        raise GovernanceError(
+            f"materialize_requires_drafter_body: draft {draft_id!r} has "
+            f"no validated body yet (drafter run pending or failed; "
+            f"check agent-genesis/drafter-invocations.jsonl)"
+        )
+    # Defense-in-depth: re-run the grammar validator on the body
+    # at materialize-time. Sandbox already validated, but persisted
+    # body could be mutated between sandbox + materialize; locking
+    # the gate at the materialise boundary closes that window.
+    intent_dict = draft.get("intent")
+    if isinstance(intent_dict, dict):
+        from .draft_intent import (
+            AcceptanceTest as _AT,
+            AgentDraftIntent as _ADI,
+        )
+        from .draft_validator import validate_body_against_intent
+
+        intent_obj = _ADI(
+            intent_kind=intent_dict.get("intent_kind", "agent"),
+            intent_id=intent_dict.get("intent_id", ""),
+            name=intent_dict.get("name", ""),
+            target_path=intent_dict.get("target_path", target_path),
+            purpose=intent_dict.get("purpose", ""),
+            required_sections=tuple(intent_dict.get("required_sections") or ()),
+            scope_globs=tuple(intent_dict.get("scope_globs") or ()),
+            forbidden_globs=tuple(intent_dict.get("forbidden_globs") or ()),
+            evidence_contract=intent_dict.get("evidence_contract", ""),
+            output_schema=dict(intent_dict.get("output_schema") or {}),
+            acceptance_tests=tuple(
+                _AT(
+                    name=t.get("name", ""),
+                    expected=t.get("expected", ""),
+                    description=t.get("description", ""),
+                )
+                for t in intent_dict.get("acceptance_tests") or ()
+            ),
+            evidence_allowlist=tuple(intent_dict.get("evidence_allowlist") or ()),
+            diff_classifier_lane=intent_dict.get(
+                "diff_classifier_lane", "L3-snowball",
+            ),
+            banned_phrases=tuple(intent_dict.get("banned_phrases") or ()),
+            related_existing_agents=tuple(
+                intent_dict.get("related_existing_agents") or ()
+            ),
+        )
+        policy_path = (
+            Path(__file__).resolve().parent / "data" / "auto_action_policy.json"
+        )
+        result = validate_body_against_intent(
+            body, intent_obj, auto_action_policy_path=policy_path,
+        )
+        if not result.valid:
+            raise GovernanceError(
+                "materialize_body_grammar_invalid: "
+                + ";".join(result.complaints)
+            )
     target = worktree / target_path
     touched = [target_path]
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
-    tmp.write_text(str(draft.get("content") or ""), encoding="utf-8")
+    tmp.write_text(body, encoding="utf-8")
     tmp.replace(target)
     status = "accepted"
     validation = None
@@ -524,12 +603,25 @@ def _scope_from_evidence(evidence_refs: list[str]) -> list[str]:
 
 
 def _validate_draft(draft: dict[str, Any]) -> None:
+    """Plan ARIA-V3 §A3 — kernel-side draft sanity gate.
+
+    Post-V3 the kernel does NOT produce markdown; it produces a
+    ``DraftIntent``. The banned-phrase scan moved to body-time via
+    ``draft_validator.validate_body_against_intent``. The kernel's
+    self-scan here remains a defense-in-depth check on operator-
+    facing free-text (purpose + evidence_contract) so a banned
+    phrase fed in via the gap dict cannot propagate to the intent
+    file the drafter receives.
+    """
     missing = [field for field in REQUIRED_DRAFT_FIELDS if field not in draft]
     if missing:
         raise GovernanceError("agent draft missing fields: " + ", ".join(missing))
-    rendered = _render_agent_markdown(draft).lower()
+    free_text = " ".join((
+        str(draft.get("purpose") or ""),
+        str(draft.get("evidence_contract") or ""),
+    )).lower()
     for phrase in BANNED_PHRASES:
-        if phrase in rendered:
+        if phrase.lower() in free_text:
             raise GovernanceError(f"agent draft contains banned phrase: {phrase}")
     if not str(draft["name"]).startswith("aria-"):
         raise GovernanceError("generated agent name must start with aria-")
@@ -537,37 +629,68 @@ def _validate_draft(draft: dict[str, Any]) -> None:
         raise GovernanceError("agent draft requires at least 3 validation fixtures")
 
 
-def _render_agent_markdown(draft: dict[str, Any]) -> str:
-    scopes = "\n".join(f"- `{scope}`" for scope in draft["scope_globs"])
-    forbidden = "\n".join(f"- `{scope}`" for scope in draft["forbidden_globs"])
-    fixtures = "\n".join(f"- {item['name']}: {item['expected']}" for item in draft["validation_fixtures"])
-    return "\n".join(
-        [
-            "---",
-            f"name: {draft['name']}",
-            f"description: {draft['purpose']}",
-            "---",
-            "",
-            "## Purpose",
-            str(draft["purpose"]),
-            "",
-            "## Scope",
-            scopes,
-            "",
-            "## Forbidden Scope",
-            forbidden,
-            "",
-            "## Evidence Contract",
-            str(draft["evidence_contract"]),
-            "",
-            "## Output Schema",
-            str(draft["output_schema"]),
-            "",
-            "## Validation Fixtures",
-            fixtures,
-            "",
-        ],
+# Plan ARIA-V3 §A3 + §2b + §2.4 — kernel emits a structured
+# ``AgentDraftIntent`` (grammar + acceptance tests + evidence
+# allowlist + diff classifier lane + banned phrases). The body is
+# synthesised by ``tools/aria-poc/worker_executor.py`` (drafter
+# mode) and validated against this intent before materialisation.
+# SPEC §5.4 preserved: kernel never invokes ``Agent()`` directly.
+#
+# I-V3-12a locks the return type. The kernel module tree contains
+# ZERO markdown literals after V3 (I-V3-12c grep invariant).
+_AGENT_REQUIRED_SECTIONS: tuple[str, ...] = (
+    "Purpose",
+    "Scope",
+    "Forbidden Scope",
+    "Evidence Contract",
+    "Output Schema",
+    "Validation Fixtures",
+)
+
+
+def _render_agent_intent(draft: dict[str, Any]) -> AgentDraftIntent:
+    """Plan ARIA-V3 §A3 + I-V3-12a — return the grammar, not the body.
+
+    The intent is consumed by ``draft_validator.validate_body_against_intent``
+    (kernel-side body grammar gate) AND by
+    ``tools/aria-poc/worker_executor.py`` (drafter spawn — passed as
+    ``--intent-file``). PII is masked at this boundary so the
+    intent that reaches Claude carries no operator/commit-author
+    email/phone/SSN (AUDITTRAIL-HIGH-008 closure).
+    """
+    fixtures = tuple(
+        AcceptanceTest(
+            name=str(item["name"]),
+            expected=str(item["expected"]),
+            description=str(item.get("description") or ""),
+        )
+        for item in draft["validation_fixtures"]
     )
+    name = str(draft["name"])
+    target_path = f".claude/agents/{name}.md"
+    intent = AgentDraftIntent(
+        intent_kind="agent",
+        intent_id=f"intent-{name}",
+        name=name,
+        target_path=target_path,
+        purpose=str(draft["purpose"]),
+        required_sections=_AGENT_REQUIRED_SECTIONS,
+        scope_globs=tuple(draft["scope_globs"]),
+        forbidden_globs=tuple(draft["forbidden_globs"]),
+        evidence_contract=str(draft["evidence_contract"]),
+        output_schema=dict(draft["output_schema"]),
+        acceptance_tests=fixtures,
+        evidence_allowlist=tuple(draft.get("evidence_refs") or ()),
+        diff_classifier_lane="L3-snowball",
+        related_existing_agents=tuple(
+            draft.get("related_existing_agents") or ()
+        ),
+    )
+    # AUDITTRAIL-HIGH-008 — PII mask BEFORE the intent is persisted
+    # or shipped to the drafter. The masker preserves the intent
+    # structure; only free-text fields get redacted with deterministic
+    # ``<pii:kind:sha8>`` tokens.
+    return mask_pii_in_intent(intent)  # type: ignore[return-value]
 
 
 def _sandbox_blockers(decision: str) -> list[str]:

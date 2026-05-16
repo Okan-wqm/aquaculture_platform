@@ -91,7 +91,7 @@ _IMPERATIVE_PREFIX_RE = re.compile(
 # ``token_budget_for_tier``.
 TOKEN_BUDGET_PER_TIER: dict[int, int] = {
     1: 1500,
-    2: 2200,
+    2: 2800,
     3: 3500,
 }
 TOKEN_BUDGET_PER_FILE: int = TOKEN_BUDGET_PER_TIER[3]  # legacy alias

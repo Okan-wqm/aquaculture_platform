@@ -2038,7 +2038,11 @@ def _main(argv: list[str] | None = None) -> int:
         # (strict/autonomous) from the runtime profile.
         from .autonomous_worker_scheduler import run_worker_scheduler_daemon
         from .github_adapters import select_github_adapter
-        from .runtime_profile import get_profile
+        # Plan ARIA-V3.1 §2a — ``get_profile`` is imported at module
+        # level (line 105). A nested re-import here previously made
+        # ``get_profile`` LOCAL to ``_main`` for the WHOLE function
+        # body (Python scoping rule), which silently broke earlier
+        # callsites at line 1841/1850/1853 with UnboundLocalError.
         workspace = (
             paths.repo_root if paths is not None
             else Path(args.workspace_root).resolve()
@@ -2973,11 +2977,17 @@ def _main(argv: list[str] | None = None) -> int:
             # current runtime profile + lane + classifier; consume
             # the operator-minted ack token via the gate's unified
             # path.
+            #
+            # Plan ARIA-V3.1 §2a — ``get_profile`` is module-level
+            # imported at line 105; the previous nested re-import
+            # of ``get_profile`` was redundant AND shadowed the
+            # module-level binding for the entire ``_main`` body,
+            # silently breaking earlier callsites at lines 1841 /
+            # 1850 / 1853 with UnboundLocalError.
             from .auto_action_gate import (
                 ClassifierDecision,
                 gate_from_policy,
             )
-            from .runtime_profile import get_profile
             current_profile = get_profile(base_dir=args.tools_dir)
             v3_gate = gate_from_policy(
                 base_dir=args.tools_dir,
@@ -3029,11 +3039,13 @@ def _main(argv: list[str] | None = None) -> int:
         elif args.skill_genesis_command == "materialize":
             # Plan ARIA-V3 §A4 — gate-driven materialize. Same factory
             # path as agent-genesis materialize.
+            #
+            # Plan ARIA-V3.1 §2a — ``get_profile`` is module-level
+            # imported at line 105; nested re-import removed.
             from .auto_action_gate import (
                 ClassifierDecision,
                 gate_from_policy,
             )
-            from .runtime_profile import get_profile
             current_profile = get_profile(base_dir=args.tools_dir)
             v3_gate = gate_from_policy(
                 base_dir=args.tools_dir,
@@ -3093,7 +3105,8 @@ def _main(argv: list[str] | None = None) -> int:
         from .autonomy_orchestrator import run_autonomy_orchestrator
         from .auto_merge_runners import select_auto_merge_runner
         from .github_adapters import select_github_adapter
-        from .runtime_profile import get_profile
+        # Plan ARIA-V3.1 §2a — ``get_profile`` already imported
+        # at module level (line 105); nested re-import removed.
         profile = get_profile(base_dir=args.tools_dir)
         auto_merge_runner = select_auto_merge_runner(profile=profile)
         github_adapter = select_github_adapter(

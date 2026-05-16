@@ -1380,6 +1380,60 @@ def _main(argv: list[str] | None = None) -> int:
     ack_list_keys = add_subparser(ack_sub, "list-keys",
         help="Print the rolling key list (secrets redacted).")
 
+    # Plan ARIA-V4 §2e — inter-agent question envelope CLI surface.
+    # ``aria-kernel question ask`` / ``answer`` / ``list``.
+    question_parser = add_subparser(sub, "question")
+    question_sub = question_parser.add_subparsers(
+        dest="question_command", required=True,
+    )
+    q_ask = add_subparser(question_sub, "ask",
+        help="Emit aria/agent-question/v1 row (Plan ARIA-V4 §2e).")
+    q_ask.add_argument("--asker-agent-id", required=True)
+    q_ask.add_argument("--target-agent-id", required=True)
+    q_ask.add_argument(
+        "--question-kind", required=True,
+        choices=["tier_classification", "extrapolation_check", "invariant_grounding"],
+    )
+    q_ask.add_argument("--rule-text", required=True, type=_validate_reason)
+    q_ask.add_argument(
+        "--hypothesised-tier", required=True, type=int,
+        choices=[1, 2, 3],
+    )
+    q_ask.add_argument(
+        "--evidence-ref", required=True, action="append",
+        help="file:line OR SPEC.md§X.Y — pass multiple times.",
+    )
+    q_ask.add_argument("--cycle-id", required=True)
+    q_answer = add_subparser(question_sub, "answer",
+        help="Emit aria/agent-question-response/v1 row.")
+    q_answer.add_argument("--question-id", required=True)
+    q_answer.add_argument("--answerer-agent-id", required=True)
+    q_answer.add_argument(
+        "--verdict", required=True,
+        choices=["agreed", "disagreed", "refused"],
+    )
+    q_answer.add_argument(
+        "--answered-tier", type=int, choices=[1, 2, 3], default=None,
+        help="Required when verdict in {agreed, disagreed}.",
+    )
+    q_answer.add_argument(
+        "--rationale", default="",
+        type=lambda s: _validate_reason(s) if s else "",
+    )
+    q_answer.add_argument(
+        "--counter-evidence-ref", action="append", default=[],
+    )
+    q_answer.add_argument(
+        "--refusal-reason", default=None,
+        choices=["scope", "evidence", "envelope", "operator_required"],
+    )
+    q_answer.add_argument("--cycle-id", required=True)
+    q_list = add_subparser(question_sub, "list",
+        help="List questions with optional filters.")
+    q_list.add_argument("--cycle-id", default=None)
+    q_list.add_argument("--asker-agent-id", default=None)
+    q_list.add_argument("--target-agent-id", default=None)
+
     agent_genesis_parser = add_subparser(sub, "agent-genesis")
     agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
     ag_draft = add_subparser(agent_genesis_sub, "draft")
@@ -2959,6 +3013,53 @@ def _main(argv: list[str] | None = None) -> int:
             result = {"keys": list_keys(base_dir=args.tools_dir)}
         else:
             parser.error("unknown ack command")
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    # Plan ARIA-V4 §2e — inter-agent question envelope dispatch.
+    if args.command == "question":
+        from .agent_question import (
+            answer as question_answer,
+            ask as question_ask,
+            list_questions,
+        )
+        if args.question_command == "ask":
+            question = question_ask(
+                base_dir=args.tools_dir,
+                asker_agent_id=args.asker_agent_id,
+                target_agent_id=args.target_agent_id,
+                question_kind=args.question_kind,
+                rule_text=args.rule_text,
+                hypothesised_tier=args.hypothesised_tier,
+                evidence_refs=args.evidence_ref,
+                cycle_id=args.cycle_id,
+            )
+            result = question.to_dict()
+        elif args.question_command == "answer":
+            response = question_answer(
+                base_dir=args.tools_dir,
+                question_id=args.question_id,
+                answerer_agent_id=args.answerer_agent_id,
+                answered_tier=args.answered_tier,
+                rationale=args.rationale,
+                counter_evidence_refs=args.counter_evidence_ref,
+                verdict=args.verdict,
+                refusal_reason=args.refusal_reason,
+                cycle_id=args.cycle_id,
+            )
+            result = response.to_dict()
+        elif args.question_command == "list":
+            result = {
+                "questions": list_questions(
+                    base_dir=args.tools_dir,
+                    cycle_id=args.cycle_id,
+                    asker_agent_id=args.asker_agent_id,
+                    target_agent_id=args.target_agent_id,
+                ),
+            }
+        else:
+            parser.error("unknown question command")
             return 2
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

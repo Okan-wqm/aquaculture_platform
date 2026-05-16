@@ -218,3 +218,9 @@ aria-tools/secrets/
 aria-tools/breakers/
 aria-tools/budget/
 aria-tools/locks/
+
+# Plan ARIA-V4 §2e — inter-agent question envelope ledger. Hash-
+# chained (gitignored per V2 I-23 update); operator-local audit
+# trail of cross-agent tier-classification questions.
+aria-tools/agent-questions.jsonl
+aria-tools/agent-questions.jsonl.lock

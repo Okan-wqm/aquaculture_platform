@@ -16,7 +16,50 @@ POLICY_KEYS = {
     "cost_caps_usd",
     # Plan ARIA-V3 §B2 — circuit-breaker failure threshold.
     "circuit_breaker",
+    # Plan ARIA-V6 §2e v2 — convergent_skill_authoring loop config
+    # (max_authoring_rounds, sandbox_min_fixtures, recall_floor).
+    "convergent_authoring",
+    # Plan ARIA-V6 §2e v2 — narrow auto-promotion exception under
+    # autonomous-profile + precision/FP/clean-cycles thresholds.
+    # Default disabled; operator opt-in via override.
+    "auto_promote",
 }
+
+
+AUTO_PROMOTE_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "min_precision": 0.95,
+    "min_clean_cycles": 5,
+    "profiles": ["autonomous"],
+}
+
+
+def auto_promote_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """Plan ARIA-V6 §2e v2 — resolve auto_promote settings with defaults.
+
+    Returns the auto_promote block from the merged policy, falling
+    back to ``AUTO_PROMOTE_DEFAULTS`` for any missing fields. Always
+    returns a dict with the four required keys so callers can do
+    ``if policy['enabled']:`` without ``.get`` plumbing.
+    """
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        # Use default policy when no repo_root supplied — auto_promote
+        # block is read from the package-shipped default JSON file.
+        from pathlib import Path as _P
+        import json as _json
+        raw = _json.loads(
+            (_P(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(AUTO_PROMOTE_DEFAULTS)
+    raw_block = merged.get("auto_promote")
+    if isinstance(raw_block, dict):
+        for key, default in AUTO_PROMOTE_DEFAULTS.items():
+            if key in raw_block:
+                block[key] = raw_block[key]
+    return block
 
 DEFAULT_FILENAME = "genesis_policy_default.json"
 OVERRIDE_RELPATH = "aria-config/genesis_policy.json"

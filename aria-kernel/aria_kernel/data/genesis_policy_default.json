@@ -20,5 +20,12 @@
     "sandbox_min_fixtures": 10,
     "recall_floor": 0.90,
     "max_rounds_override_enabled": false
+  },
+  "auto_promote": {
+    "_doc": "Plan ARIA-V6 §2e v2 — narrow auto-promotion exception. Default disabled; operator MUST opt-in via override. Even when enabled, the operator_approval path is UNCHANGED — auto-promote is a parallel admission, not a replacement.",
+    "enabled": false,
+    "min_precision": 0.95,
+    "min_clean_cycles": 5,
+    "profiles": ["autonomous"]
   }
 }

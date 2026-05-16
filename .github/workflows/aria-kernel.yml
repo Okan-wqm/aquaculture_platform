@@ -71,6 +71,16 @@ jobs:
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/aria-poc/invariants -p '*test*.py'
       - name: Run tools/shared invariant tests (Plan ARIA-V2 §3.6)
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/shared/invariants -p '*test*.py'
+      # Plan ARIA-V5 §3e v2 R1 — pedagogy lint over all 81 agents.
+      # Warn-mode (no --strict flag) respects the allowlist at
+      # tests/invariants/agent-pedagogy.allowlist.json — current
+      # 80 entries expire 30 days from their added_at date. As
+      # operator writes narrative pairings, allowlist entries are
+      # removed; when allowlist is empty, this step naturally
+      # tightens. After all editorial work lands, a follow-up
+      # commit can add --strict to make allowlist-bypass impossible.
+      - name: Run pedagogy lint (Plan ARIA-V5 §3e)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel.pedagogy_lint --agents-dir .claude/agents --allowlist tests/invariants/agent-pedagogy.allowlist.json --format text
       - name: Reset CI-local ARIA state
         run: |
           rm -rf ./.aria-ci/tools ./.aria-ci/workspaces

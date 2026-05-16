@@ -67,6 +67,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from .autonomy_state import AutonomyStateReducer
 from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
+from .reflection import run_reflection
 
 if TYPE_CHECKING:
     # Plan ARIA-V3 §A1 — typed-only import keeps the annotation
@@ -413,12 +414,15 @@ def run_autonomy_orchestrator(
                     "queue_drained": drained,
                 }
 
-                # Phase: run cycle (discovery + tools + reflection).
+                # Phase: run cycle (discovery + tools; reflection is
+                # deferred to post-drainer per V3.3 §2b — see the
+                # post_drain_reflection block after auto_merge below).
                 try:
                     cycle_result = cycle_runner(
                         workspace_root=workspace_root,
                         cycle_id=cycle_id,
                         base_dir=root,
+                        defer_reflection=True,
                     )
                     cycle_summary["cycle"] = cycle_result
                     cycle_status = "ok"
@@ -548,6 +552,29 @@ def run_autonomy_orchestrator(
                     profile=profile_snapshot,
                     details={},
                 )
+
+                # Plan ARIA-V3.3 §2b — post-drainer reflection. Runs
+                # AFTER planner+bridge+worker+auto_merge drains so the
+                # daily report's "Total governance events" count
+                # covers the full cycle. Pre-V3.3 reflection ran
+                # MID-cycle inside ``run_enterprise_cycle`` and
+                # captured a pre-drainer snapshot — the 2026-05-16
+                # autonomous-loop audit observed "Total: 4" in the
+                # operator-facing daily report while the actual
+                # governance.jsonl had ~25+ rows by cycle end. V3.3
+                # closes F-010-D2-POSTMORTEM by relocating reflection
+                # invocation to the orchestrator's terminal phase.
+                # The direct CLI path (``aria-kernel cycle run``)
+                # still runs reflection inline because it has no
+                # planner+worker drainers downstream — the legacy
+                # contract holds for that surface via
+                # ``defer_reflection=False`` default.
+                post_drain_reflection = run_reflection(
+                    cycle_id=cycle_id,
+                    base_dir=root,
+                    repo_root=workspace_root,
+                )
+                cycle_summary["reflection"] = post_drain_reflection
 
                 per_cycle_results.append(cycle_summary)
 

@@ -225,7 +225,19 @@ def run_enterprise_cycle(
     run_phases: tuple[str, ...] | None = None,
     pre_tool_phases: tuple[str, ...] | None = None,
     plan_id: str | None = None,
+    defer_reflection: bool = False,
 ) -> dict[str, Any]:
+    # Plan ARIA-V3.3 §2b — ``defer_reflection`` opt-in for the autonomy
+    # orchestrator. When True, the in-cycle ``run_reflection`` call
+    # (line ~397 below) is skipped and ``state["reflection"]`` is
+    # ``None``; the orchestrator invokes reflection itself AFTER its
+    # planner+bridge+worker+auto_merge drainer phases complete so the
+    # operator-visible daily report counts the full cycle (~25+ events)
+    # rather than the pre-drainer snapshot (~4 events) that the
+    # 2026-05-16 autonomous-loop audit surfaced as F-010-D2-POSTMORTEM.
+    # Default ``False`` preserves the direct CLI contract (``aria-
+    # kernel cycle run``) so non-orchestrator callers still receive a
+    # reflection payload in the state dict.
     # Plan 023 v3 §R-1 — pre_tool_phases kwarg runs extended phases
     # BEFORE the tool loop. Pre-Plan-023 all extended phases ran
     # AFTER tools, so architecture_baseline / validation_matrix_pre /
@@ -394,7 +406,16 @@ def run_enterprise_cycle(
         cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
     )
     pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
-    reflection = run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
+    # Plan ARIA-V3.3 §2b — orchestrator-deferred reflection. When the
+    # autonomy orchestrator drives the cycle (``defer_reflection=True``)
+    # it owns reflection invocation post-drainer-drains so the daily
+    # report covers the full cycle. Direct CLI callers default to
+    # False and keep the inline reflection.
+    reflection = (
+        None
+        if defer_reflection
+        else run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
+    )
     metrics = record_cycle_metrics(
         cycle_id=cycle_id,
         phase_durations_ms={"cycle": int((time.monotonic() - started) * 1000)},

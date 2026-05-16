@@ -31,7 +31,13 @@ from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
 
 
-def _fake_cycle_runner(*, workspace_root, cycle_id, base_dir):
+def _fake_cycle_runner(
+    *, workspace_root, cycle_id, base_dir, defer_reflection=False,
+):
+    # Plan ARIA-V3.3 §2b — mocks must mirror the real cycle_runner
+    # contract; the orchestrator passes ``defer_reflection=True`` so
+    # the kwarg has to be accepted by every cycle_runner injection
+    # seam.
     return {
         "schema_version": 2,
         "cycle_id": cycle_id,
@@ -39,7 +45,9 @@ def _fake_cycle_runner(*, workspace_root, cycle_id, base_dir):
     }
 
 
-def _failing_cycle_runner(*, workspace_root, cycle_id, base_dir):
+def _failing_cycle_runner(
+    *, workspace_root, cycle_id, base_dir, defer_reflection=False,
+):
     raise RuntimeError("simulated cycle failure")
 
 

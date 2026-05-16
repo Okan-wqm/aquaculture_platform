@@ -17,7 +17,21 @@ def run_reflection(
     cycle_id: str,
     base_dir: str | Path | None = None,
     repo_root: str | Path | None = None,
+    convergence_result: dict[str, Any] | None = None,
+    review_result: dict[str, Any] | None = None,
+    pedagogy_lint_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # Plan ARIA-V5 §3f v2 — reflection schema v1 → v2 additive bump.
+    # Three optional kwargs let the autonomy orchestrator inject its
+    # post-drain Gate A (convergence) and Gate B (review) verdicts
+    # plus the V5.3 pedagogy-lint snapshot into the reflection row.
+    # When ANY of the three is None, the corresponding sub-object is
+    # emitted as null in the JSON — direct CLI callers
+    # (``aria-kernel cycle run``) preserve the legacy v1 contract
+    # while the orchestrator path produces a v2-shaped row.
+    # Backward compatibility: all existing reflection consumers use
+    # ``.get(key, default)`` access (verified by Plan v2 §3f
+    # Validator 1); v1 readers tolerate the new fields transparently.
     # Plan ARIA-V3.2 §2b hotfix (F-010 subfinding D2) — reflection
     # MUST operate on an absolute ``base_dir`` so
     # ``_gate_activity_summary`` reads from the canonical
@@ -66,7 +80,7 @@ def run_reflection(
     human_required = _human_required_summary(root)
     gate_activity = _gate_activity_summary(root)
     reflection = {
-        "schema_version": 1,
+        "schema_version": 2,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "coverage": _coverage(root, cycle_id),
@@ -89,6 +103,15 @@ def run_reflection(
         "committed_debts": committed["debts"],
         "human_required": human_required,
         "gate_activity": gate_activity,
+        # Plan ARIA-V5 §3f v2 — convergence + review + pedagogy sub-
+        # objects. Direct CLI path (no orchestrator kwargs) emits
+        # null; orchestrator path populates with real verdicts so
+        # the daily report covers the full cycle including Gate A
+        # and Gate B outcomes.
+        "convergence": _build_convergence_telemetry(
+            convergence_result, review_result,
+        ),
+        "pedagogy": _build_pedagogy_telemetry(pedagogy_lint_result),
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -363,6 +386,142 @@ def _committed_findings_and_debts(
     return {"findings": findings_summary, "debts": debts_summary}
 
 
+def _build_convergence_telemetry(
+    convergence_result: dict[str, Any] | None,
+    review_result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Plan ARIA-V5 §3f v2 — assemble the reflection ``convergence``
+    sub-object from orchestrator-supplied Gate A + Gate B results.
+
+    Returns ``None`` when BOTH inputs are None — preserves direct
+    CLI path's legitimately-skipped semantics. When either is
+    supplied, returns a v2-shaped sub-object with ``pre_impl``
+    (Gate A) + ``post_impl`` (Gate B) blocks.
+
+    Field schema (operator-facing, all int/str types):
+      pre_impl.rounds_count, arbiter_verdict, gaps_found_count,
+              plan_id, token_cost_estimate,
+              resumed_from_persistence, convergence_id
+      post_impl.rounds_count, review_verdict, gaps_found_count,
+                impl_artifacts_ref, auto_merge_blocked_by
+    """
+    if convergence_result is None and review_result is None:
+        return None
+    pre_impl: dict[str, Any] | None = None
+    if convergence_result is not None:
+        pre_impl = {
+            "rounds_count": int(convergence_result.get("rounds_count", 0)),
+            "arbiter_verdict": str(
+                convergence_result.get("arbiter_verdict", "split"),
+            ),
+            "gaps_found_count": len(
+                convergence_result.get("unsatisfied_items", []),
+            ),
+            "plan_id": convergence_result.get("plan_id"),
+            "token_cost_estimate": int(
+                convergence_result.get("token_cost_estimate", 0),
+            ),
+            "resumed_from_persistence": bool(
+                convergence_result.get("resumed_from_persistence", False),
+            ),
+            "convergence_id": convergence_result.get("convergence_id"),
+        }
+    post_impl: dict[str, Any] | None = None
+    if review_result is not None:
+        verdict = str(review_result.get("review_verdict", "gaps_open"))
+        post_impl = {
+            "rounds_count": int(review_result.get("rounds_count", 0)),
+            "review_verdict": verdict,
+            "gaps_found_count": len(review_result.get("gaps_found", [])),
+            "impl_artifacts_ref": review_result.get("impl_artifacts_ref"),
+            "auto_merge_blocked_by": (
+                None if verdict == "no_gaps" else f"review_{verdict}"
+            ),
+        }
+    return {"pre_impl": pre_impl, "post_impl": post_impl}
+
+
+def _build_pedagogy_telemetry(
+    pedagogy_lint_result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Plan ARIA-V5 §3f v2 — assemble the reflection ``pedagogy``
+    sub-object from V5.3 pedagogy-lint output.
+
+    Returns ``None`` until V5.3 (commit C4) wires the lint
+    runner. Once C4 lands, ``pedagogy_lint_result`` carries
+    ``lint_pass_rate`` (float), ``violation_count`` (int), and
+    ``agents_scanned`` (int) — the three operational metrics
+    surfaced via ``/aria-status`` per Plan v2 §7.
+    """
+    if pedagogy_lint_result is None:
+        return None
+    return {
+        "lint_pass_rate": float(
+            pedagogy_lint_result.get("lint_pass_rate", 0.0),
+        ),
+        "violation_count": int(
+            pedagogy_lint_result.get("violation_count", 0),
+        ),
+        "agents_scanned": int(
+            pedagogy_lint_result.get("agents_scanned", 0),
+        ),
+    }
+
+
+def _render_convergence_section(reflection: dict[str, Any]) -> list[str]:
+    """Plan ARIA-V5 §3f v2 — render the daily report's Convergence
+    section. Gated on ``schema_version >= 2`` AND a non-null
+    ``convergence`` sub-object. Returns an empty list otherwise so
+    the report layout is unchanged for v1-shaped rows.
+    """
+    if int(reflection.get("schema_version", 1)) < 2:
+        return []
+    convergence = reflection.get("convergence")
+    if not convergence:
+        return []
+    pre = convergence.get("pre_impl")
+    post = convergence.get("post_impl")
+    lines = ["## Convergence", ""]
+    if pre is not None:
+        lines.extend([
+            f"- Pre-impl rounds: {pre.get('rounds_count', 0)}",
+            f"- Arbiter verdict: {pre.get('arbiter_verdict', '?')}",
+            f"- Pre-impl gaps: {pre.get('gaps_found_count', 0)}",
+            f"- Plan: {pre.get('plan_id', '?')}",
+            f"- Resumed from persistence: {pre.get('resumed_from_persistence', False)}",
+            "",
+        ])
+    if post is not None:
+        lines.extend([
+            f"- Post-impl rounds: {post.get('rounds_count', 0)}",
+            f"- Review verdict: {post.get('review_verdict', '?')}",
+            f"- Post-impl gaps: {post.get('gaps_found_count', 0)}",
+            f"- Auto-merge blocked by: {post.get('auto_merge_blocked_by') or '(unblocked)'}",
+            "",
+        ])
+    return lines
+
+
+def _render_pedagogy_section(reflection: dict[str, Any]) -> list[str]:
+    """Plan ARIA-V5 §3f v2 — render the daily report's Pedagogy
+    section. Gated on ``schema_version >= 2`` AND a non-null
+    ``pedagogy`` sub-object (V5.3 lint emits this).
+    """
+    if int(reflection.get("schema_version", 1)) < 2:
+        return []
+    pedagogy = reflection.get("pedagogy")
+    if not pedagogy:
+        return []
+    return [
+        "## Pedagogy",
+        "",
+        f"- Lint pass rate: {pedagogy.get('lint_pass_rate', 0.0):.2%}",
+        f"- Violations: {pedagogy.get('violation_count', 0)}",
+        f"- Agents scanned: {pedagogy.get('agents_scanned', 0)}",
+        "",
+    ]
+
+
 def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
     day = str(reflection["recorded_at"])[:10]
     path = root / "reports" / "daily" / f"{day}.md"
@@ -456,6 +615,12 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         f"- Merged: {reflection['auto_merge_summary'].get('merged', 0)}",
         f"- Failed: {reflection['auto_merge_summary'].get('failed', 0)}",
         "",
+        # Plan ARIA-V5 §3f v2 — Convergence + Pedagogy sections render
+        # only when reflection schema_version >= 2 AND the orchestrator
+        # supplied verdicts. Direct CLI path emits null sub-objects so
+        # the sections appear empty / are skipped entirely.
+        *_render_convergence_section(reflection),
+        *_render_pedagogy_section(reflection),
         "## Committed Findings",
         "",
         f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",

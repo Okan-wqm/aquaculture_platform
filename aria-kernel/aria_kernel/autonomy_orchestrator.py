@@ -599,14 +599,23 @@ def run_autonomy_orchestrator(
                                 convergence_result.get("rounds_count"),
                         },
                     )
-                    # Plan ARIA-V3.3 §2b — post-drain reflection STILL
-                    # runs on convergence-blocked cycles so the daily
-                    # report covers them. The orchestrator owns this
-                    # invocation (defer_reflection=True on cycle_runner).
+                    # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain
+                    # reflection STILL runs on convergence-blocked
+                    # cycles so the daily report covers them. V5.4
+                    # bumps reflection to schema v2 and injects the
+                    # Gate A convergence_result so the operator-facing
+                    # daily report shows WHY the cycle was blocked.
                     post_drain_reflection = run_reflection(
                         cycle_id=cycle_id,
                         base_dir=root,
                         repo_root=workspace_root,
+                        convergence_result=convergence_result,
+                        # review_result + pedagogy_lint_result are
+                        # absent on convergence-blocked cycles (Gate
+                        # B never fired); pass None explicitly so the
+                        # reflection v2 sub-object renders post_impl
+                        # as None.
+                        review_result=None,
                     )
                     cycle_summary["reflection"] = post_drain_reflection
                     per_cycle_results.append(cycle_summary)
@@ -768,26 +777,26 @@ def run_autonomy_orchestrator(
                     details={},
                 )
 
-                # Plan ARIA-V3.3 §2b — post-drainer reflection. Runs
-                # AFTER planner+bridge+worker+auto_merge drains so the
-                # daily report's "Total governance events" count
-                # covers the full cycle. Pre-V3.3 reflection ran
-                # MID-cycle inside ``run_enterprise_cycle`` and
-                # captured a pre-drainer snapshot — the 2026-05-16
-                # autonomous-loop audit observed "Total: 4" in the
-                # operator-facing daily report while the actual
-                # governance.jsonl had ~25+ rows by cycle end. V3.3
-                # closes F-010-D2-POSTMORTEM by relocating reflection
-                # invocation to the orchestrator's terminal phase.
-                # The direct CLI path (``aria-kernel cycle run``)
-                # still runs reflection inline because it has no
-                # planner+worker drainers downstream — the legacy
-                # contract holds for that surface via
-                # ``defer_reflection=False`` default.
+                # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain reflection
+                # runs AFTER planner+bridge+convergence+worker+review+
+                # auto_merge so the operator-facing daily report covers
+                # the FULL cycle including Gate A + Gate B verdicts.
+                # V3.3 closes F-010-D2-POSTMORTEM by relocating
+                # reflection from cycle.py:397 to here; V5.4 bumps the
+                # schema to v2 and injects the Gate A + Gate B + V5.3
+                # pedagogy snapshots so the daily report's
+                # ``## Convergence`` + ``## Pedagogy`` sections render
+                # next to the existing Tool Health + Auto-Merge
+                # sections. Direct CLI path (``aria-kernel cycle run``)
+                # still runs reflection inline without these kwargs;
+                # its v2 row carries convergence: null + pedagogy:
+                # null to signal legitimately-skipped semantics.
                 post_drain_reflection = run_reflection(
                     cycle_id=cycle_id,
                     base_dir=root,
                     repo_root=workspace_root,
+                    convergence_result=convergence_result,
+                    review_result=review_result,
                 )
                 cycle_summary["reflection"] = post_drain_reflection
 

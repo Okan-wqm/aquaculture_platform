@@ -39,15 +39,18 @@
       "severity": "HIGH",
       "tier": 1,
       "phase": "V3.2 Phase 3.3",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "resolved_by_commit": "7a6d3a84",
+      "resolution_note": "Plan ARIA-V3.2 Phase 3.3 introduced _stamp_belief_freshness as single chokepoint; refactored 3 writers to route through it. Verified-live in fresh-run cycle cyc-20260516T133120Z-auto (all 3 beliefs carry current cycle base_commit_sha + last_seen_cycle)."
     },
     {
       "id": "F-010-D2",
-      "title": "Reflection caller-layer absolute-path assertion (narrow scope)",
+      "title": "Reflection 'Total governance events' label-vs-data drift",
       "severity": "MEDIUM",
       "tier": 2,
-      "phase": "V3.2 Phase 3.2",
-      "status": "OPEN"
+      "phase": "V3.2 Phase 3.2 (MISDIAGNOSED — hotfix unblocked CLI; real defect tracked under D2-POSTMORTEM)",
+      "status": "OPEN",
+      "v3_2_outcome_note": "Phase 3.2 commit 6f515895 added strict-raise assertion on relative base_dir which BROKE the normal CLI path; hotfix commit aa18ee62 replaced with .resolve(). The hotfix unblocks the cycle but does NOT close the actual D2 defect (see F-010-D2-POSTMORTEM). Real root cause is reflection ordering, not path resolution."
     },
     {
       "id": "F-010-D3",
@@ -55,7 +58,9 @@
       "severity": "LOW",
       "tier": 3,
       "phase": "V3.2 Phase 3.1",
-      "status": "RESOLVED"
+      "status": "RESOLVED",
+      "resolved_by_commit": "0abc2eba",
+      "resolution_note": "Plan ARIA-V3.2 Phase 3.1 added cycle_id to discovery.py:46 dict + holistic closed-allowlist invariant (I-V3.2-08). Verified-live in fresh-run cycle cyc-20260516T133120Z-auto (event carries cycle_id='cyc-20260516T133120Z-auto')."
     },
     {
       "id": "F-010-D4-DEFERRED",
@@ -66,11 +71,29 @@
       "deferred_to": "Plan ARIA-V3.3",
       "deferred_reason": "Architectural-scope-too-large: ~30 callsites depend on the CWD-relative fallback; many tests chdir into fixture dirs; operator workflows rely on it. NOT a 'for now' deferral — named follow-up plan with explicit owner (kernel team) + scope.",
       "status": "OPEN"
+    },
+    {
+      "id": "F-010-D2-POSTMORTEM",
+      "title": "V3.2 §2b 'shadow-tree' theory was wrong; actual D2 root cause is reflection-runs-mid-cycle (ORPHAN-MEDIUM-077)",
+      "severity": "MEDIUM",
+      "tier": 1,
+      "phase": "DEFERRED",
+      "deferred_to": "Plan ARIA-V3.3 §2 (alongside F-010-D4)",
+      "deferred_reason": "The 2026-05-16 autonomous-loop fresh-run revealed that the V3.2 §2b 'Total events: 4 vs 29' defect is NOT a path-resolution shadow-tree issue. It is a TIMING/ORDERING issue: run_reflection runs MID-cycle inside run_enterprise_cycle (cycle.py:397), BEFORE the planner+worker dispatch daemons emit their 20+ iteration events. The daily report captures a snapshot at reflection-time, missing the post-reflection events. The V3.2 narrow fix (Phase 3.2 commit 6f515895 strict raise) BROKE the normal CLI path and was hotfixed by commit aa18ee62 to use .resolve() — which unblocks the cycle but does NOT close the actual D2 defect. ORPHAN-MEDIUM-077 documents this with 4 fix options; recommended option (a) reorder run_reflection to AFTER planner+worker dispatch in run_autonomy_orchestrator. Architectural scope: contract change for run_enterprise_cycle direct callers, OR add an optional defer_reflection parameter, OR separate daily-report write from reflection compute. V3.3 §2 owns this alongside F-010-D4 because both touch the cycle architecture.",
+      "evidence_refs": [
+        "docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-077",
+        "aria-tools/reports/daily/2026-05-16.md (post-V3.2 fresh-run; says Total: 4)",
+        "aria-tools/governance.jsonl (29 rows at cycle end)",
+        "aria-kernel/aria_kernel/cycle.py:397 (reflection invocation site mid-cycle)",
+        "aria-kernel/aria_kernel/reflection.py:_gate_activity_summary (correctly counts what's in governance.jsonl AT reflection time)"
+      ],
+      "status": "OPEN"
     }
   ],
   "severity": "HIGH",
   "scope": "aria-kernel/aria_kernel/{discovery,reflection,memory,cycle}.py + aria-kernel/tests/invariants/v3_2/",
-  "state": "RESOLVED",
+  "state": "OPEN",
+  "v3_2_phase_outcome_note": "Plan ARIA-V3.2 closed D1 + D3 architecturally (Tier-1 + Tier-3). D2 was MISDIAGNOSED — V3.2 §2b 'shadow tree' theory was wrong (post-V3.2 autonomous-loop empirical audit confirmed real root cause is reflection-runs-mid-cycle). V3.2 hotfix aa18ee62 unblocks the CLI but does NOT close D2. D4 + D2-POSTMORTEM tracked under Plan ARIA-V3.3 §2.",
   "review_file": "/root/.claude/plans/immutable-sparking-waterfall.md",
   "owner_agent": "orchestrator",
   "raised_in_cycle": "10-agent-fresh-run-audit-2026-05-16"

@@ -3642,3 +3642,48 @@ Full suite run: AssertionError: True is not false
 **Recommendation:** Plan ARIA-V3 Phase A1 invariants will not touch this surface. Phase B0/B1 expand the workflow gates; consider adding `--mute-suite-flakes` lane that runs `test_007c_adapters_integration` as a follow-up isolation step after the main sweep (post-V3 once tier-1 fixes have landed). Root-cause investigation: instrument `_workspace_snapshot_raw` to log the symmetric difference of (before, after) keys + the specific file paths whose sha256 differs.
 
 **Status:** OPEN. Owner: ARIA-V3 follow-up after Phase A4 (autonomous loop architecture stabilises first; flake hunting on shifting code base is wasteful). Same class as ORPHAN-MEDIUM-075 (isolation-pass / suite-fail).
+
+
+---
+
+## ORPHAN-MEDIUM-077 — Daily report "Total governance events" reflects mid-cycle snapshot, not cycle-final count
+
+**Severity:** MEDIUM (operator-facing UX defect; reflection itself works correctly but renders a misleading number)
+**Discovered:** 2026-05-16, autonomous-loop fresh-run audit post Plan ARIA-V3.2 (HEAD `aa18ee62`)
+**File:** `aria-kernel/aria_kernel/cycle.py:397` (reflection invocation point) + `aria-kernel/aria_kernel/reflection.py:_gate_activity_summary`
+
+**Evidence (fresh-run cycle `cyc-20260516T133120Z-auto`):**
+```
+$ wc -l aria-tools/governance.jsonl
+29
+
+$ grep "Total governance events" aria-tools/reports/daily/2026-05-16.md
+- Total governance events: 4
+```
+
+The 4 events the report sees: `autonomy_orchestrator_started`, `agent_fitness_computed`, `discovery_dirty_tree_skipped`, `discovery_legacy_field_emitted` — exactly the kinds emitted BEFORE `run_reflection` runs.
+
+After reflection completes, the cycle emits 25 more events (5×4 iteration rows + 4 daemon-lifecycle rows + 1 orchestrator-exit), bringing the file to 29 rows. The report file is written DURING reflection so it captures only the pre-reflection snapshot.
+
+**Problem:** The label "Total governance events" implies all-time / end-of-cycle count. The operator reading the report sees "4 events" and assumes the cycle barely ran. The actual cycle emitted 25× more events after the snapshot.
+
+**Misdiagnosis cleared:** Plan ARIA-V3.2 §2b initially attributed this to a "shadow tree" path-resolution issue (`tool_registry.tools_dir` CWD-relative fallback creating `aria-kernel/aria-tools/` shadow). The V3.2 fix-attempt added an absolute-path raise at `run_reflection` entry which BROKE the normal CLI path. V3.2 hotfix commit `aa18ee62` replaced the raise with `.resolve()`. The shadow-tree theory was wrong; the actual root cause is reflection ordering.
+
+**Reproducibility:**
+1. Wipe `aria-tools/`, run `PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run --tools-dir aria-tools --workspace-root . --max-cycles 1`.
+2. Inspect `aria-tools/reports/daily/<today>.md`.
+3. Compare "Total governance events: N" against `wc -l aria-tools/governance.jsonl`. N will be < actual.
+
+**Architectural fix options (for follow-up planning):**
+
+(a) **Reorder:** move `run_reflection` to the END of the cycle, after planner+worker daemons complete. Risk: reflection consumes ledger state — needs the planner+worker events already written. Reorder may be straightforward.
+
+(b) **Re-emit at cycle end:** emit a "reflection_final" event at cycle end that updates the daily report with end-of-cycle counts. Adds a write path; rendering becomes operator-confusing (two reports per cycle).
+
+(c) **Relabel:** keep reflection mid-cycle; change the label from "Total governance events" to "Governance events at reflection time (mid-cycle)" + add "Cycle phase emissions continue post-reflection." More honest UX, less effort.
+
+(d) **Defer to cycle-end emission of reflection ONLY** (re-architect to defer the actual write until the cycle is fully done, but compute the snapshot at reflection time).
+
+**Recommended:** Option (a) — reorder. The reflection function is meant to be the cycle's summary; running it mid-cycle violates that semantic. Run_reflection should be the LAST thing in `run_enterprise_cycle` after planner+worker drains complete.
+
+**Status:** OPEN. Owner: Plan ARIA-V3.3 (will own the broader `tools_dir` rewrite AND can absorb this reordering work as part of the same architectural pass). Tracked separately so V3.3 scope decisions can include or exclude it.

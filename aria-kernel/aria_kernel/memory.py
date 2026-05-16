@@ -469,6 +469,49 @@ def validate_repo_evidence(
             raise GovernanceError("memory belief cannot use ARIA self-output as evidence")
 
 
+def _stamp_belief_freshness(
+    row: dict[str, Any],
+    *,
+    cycle_id: str,
+    repo_state: dict[str, Any],
+    status: str,
+    prior_verified_at: str | None = None,
+) -> None:
+    """Plan ARIA-V3.2 §2a (F-010 D1) — single chokepoint for
+    belief-row freshness stamping. EVERY writer that emits a row
+    to ``beliefs.jsonl`` (_record_belief, _apply_diff_to_existing_beliefs,
+    _mark_quarantined_source_beliefs) MUST call this helper BEFORE
+    ``append_jsonl``. The helper stamps:
+
+      * ``recorded_at`` + ``updated_at`` — both set to ``utc_now()``
+        every cycle (the row's age in this cycle).
+      * ``base_commit_sha`` + ``repo_state_id`` — refreshed to the
+        CURRENT cycle's repo_state. Pre-V3.2 the diff-decay +
+        quarantine paths inherited these from ``row = dict(belief)``,
+        leaving them frozen at the original verification SHA even
+        after evidence changed.
+      * ``last_seen_cycle`` — current cycle_id.
+      * ``verified_at`` — refreshed to ``utc_now()`` ONLY when
+        ``status == "supported"``. Other statuses preserve the
+        prior verification timestamp (audit-trail signal of "when
+        was this last verified") so the operator can see how long
+        ago the belief left the supported state.
+
+    Invariants I-V3.2-01..03b lock the contract. The helper is
+    pure — no I/O, no side effects beyond mutating ``row``.
+    """
+    now = utc_now()
+    row["recorded_at"] = now
+    row["updated_at"] = now
+    row["base_commit_sha"] = repo_state.get("base_commit_sha")
+    row["repo_state_id"] = repo_state.get("repo_state_id")
+    row["last_seen_cycle"] = cycle_id
+    if status == "supported":
+        row["verified_at"] = now
+    elif prior_verified_at is not None and "verified_at" not in row:
+        row["verified_at"] = prior_verified_at
+
+
 def _record_belief(
     root: Path,
     *,
@@ -519,27 +562,34 @@ def _record_belief(
     verification_status = "verified" if status == "supported" else status
     row = {
         "schema_version": 2,
-        "recorded_at": utc_now(),
-        "updated_at": utc_now(),
-        "repo_state_id": repo_state.get("repo_state_id"),
-        "base_commit_sha": repo_state.get("base_commit_sha"),
         "belief_id": belief_id,
         "claim": claim,
         "confidence": next_confidence,
         "status": status,
         "evidence_refs": evidence_refs,
         "first_seen_cycle": (existing or {}).get("first_seen_cycle", cycle_id),
-        "last_seen_cycle": cycle_id,
         "support_count": support_count,
         "contradiction_count": contradiction_count,
         "needs_revalidation_cycles": needs_revalidation_cycles,
         "evidence_state": evidence_state,
         "evidence_hashes": _evidence_hashes(root, cycle_id, evidence_refs),
         "verification_status": verification_status,
-        "verified_at": utc_now() if verification_status == "verified" else (existing or {}).get("verified_at"),
         "source_tool_ids": sorted(set(source_tool_ids or (existing or {}).get("source_tool_ids", []))),
         "glob_match_history": _next_glob_history(existing, cycle_id, evidence_state),
     }
+    # Plan ARIA-V3.2 §2a (F-010 D1) — route freshness fields through
+    # the single ``_stamp_belief_freshness`` chokepoint so every
+    # writer to beliefs.jsonl uses the same logic. Pre-V3.2 this
+    # writer had its own inline freshness stamping (verified_at logic
+    # was correct here); the diff-decay + quarantine writers below
+    # did NOT have it, causing multi-writer staleness drift.
+    _stamp_belief_freshness(
+        row,
+        cycle_id=cycle_id,
+        repo_state=repo_state,
+        status=status,
+        prior_verified_at=(existing or {}).get("verified_at"),
+    )
     append_jsonl(root / "memory" / "beliefs.jsonl", row)
     _record_learning_event(
         root,
@@ -607,9 +657,6 @@ def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, A
         }
         row.update(
             {
-                "recorded_at": utc_now(),
-                "updated_at": utc_now(),
-                "last_seen_cycle": cycle_id,
                 "status": status,
                 "needs_revalidation_cycles": revalidation_cycles,
                 "stale_reason": "evidence changed, disappeared, or glob no longer matches",
@@ -618,6 +665,30 @@ def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, A
                 "glob_match_history": _next_glob_history(belief, cycle_id, evidence_state, current_paths=current_paths),
             },
         )
+        # Plan ARIA-V3.2 §2a (F-010 D1) — route freshness fields
+        # through the single chokepoint. Pre-V3.2 this writer
+        # inherited ``base_commit_sha`` + ``repo_state_id`` from the
+        # prior belief row (via ``row = dict(belief)``), leaving them
+        # frozen at the original verification SHA. The unified
+        # ``_stamp_belief_freshness`` helper refreshes them to the
+        # current cycle's repo_state. ``verified_at`` is PRESERVED
+        # via prior_verified_at because status=needs_revalidation
+        # MUST NOT re-verify.
+        repo_state = _repo_state(root, cycle_id)
+        prior_verified_at = belief.get("verified_at")
+        _stamp_belief_freshness(
+            row,
+            cycle_id=cycle_id,
+            repo_state=repo_state,
+            status=status,
+            prior_verified_at=prior_verified_at,
+        )
+        # Pre-helper, the row pre-set its own verified_at via
+        # ``row = dict(belief)``. The helper preserves it when
+        # status != supported AND row doesn't already carry it; the
+        # dict-copy guarantees the field IS present so the helper
+        # is a no-op for verified_at here — which is the intended
+        # invariant (audit-trail signal "last verified at when").
         append_jsonl(root / "memory" / "beliefs.jsonl", row)
         _record_learning_event(
             root,
@@ -670,14 +741,26 @@ def _mark_quarantined_source_beliefs(root: Path, cycle_id: str, quarantined_tool
         row = dict(belief)
         row.update(
             {
-                "recorded_at": utc_now(),
-                "updated_at": utc_now(),
-                "last_seen_cycle": cycle_id,
                 "status": status,
                 "needs_revalidation_cycles": revalidation_cycles,
                 "revalidation_reason": "source tool is quarantined",
                 "quarantined_source_tool_ids": matched_tool_ids,
             },
+        )
+        # Plan ARIA-V3.2 §2a (F-010 D1) — same architectural pattern
+        # as the diff-decay writer above: route freshness fields
+        # through the single chokepoint to refresh base_commit_sha
+        # + repo_state_id to the current cycle. Pre-V3.2 the
+        # quarantine writer inherited stale freshness fields via
+        # ``row = dict(belief)``.
+        repo_state = _repo_state(root, cycle_id)
+        prior_verified_at = belief.get("verified_at")
+        _stamp_belief_freshness(
+            row,
+            cycle_id=cycle_id,
+            repo_state=repo_state,
+            status=status,
+            prior_verified_at=prior_verified_at,
         )
         append_jsonl(root / "memory" / "beliefs.jsonl", row)
         _record_uncertainty(

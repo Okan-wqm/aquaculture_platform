@@ -81,6 +81,12 @@ jobs:
       # commit can add --strict to make allowlist-bypass impossible.
       - name: Run pedagogy lint (Plan ARIA-V5 §3e)
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel.pedagogy_lint --agents-dir .claude/agents --allowlist tests/invariants/agent-pedagogy.allowlist.json --format text
+      # Plan ARIA-V6 §3 V6.5 (C5) — specialist-review dry-run validates
+      # the Lane-A inventory + role mapping. Warn-mode at C5; flip to
+      # --strict in a follow-up commit once the Lane-A inventory is
+      # fully populated.
+      - name: Specialist-review dry-run (Plan ARIA-V6 §3 V6.5)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel specialist-review dry-run --agents-dir .claude/agents
       - name: Reset CI-local ARIA state
         run: |
           rm -rf ./.aria-ci/tools ./.aria-ci/workspaces

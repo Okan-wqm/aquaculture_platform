@@ -1465,6 +1465,24 @@ def _main(argv: list[str] | None = None) -> int:
     ag_list = add_subparser(agent_genesis_sub, "list")
     ag_list.add_argument("--materializations", action="store_true")
 
+    # Plan ARIA-V6 §3 V6.5 (C5) — specialist-review dry-run for CI
+    # validation of the Lane-A inventory + role mapping.
+    specialist_review_parser = add_subparser(sub, "specialist-review")
+    specialist_review_sub = specialist_review_parser.add_subparsers(
+        dest="specialist_review_command", required=True,
+    )
+    sr_dry = add_subparser(specialist_review_sub, "dry-run")
+    sr_dry.add_argument(
+        "--agents-dir", default=".claude/agents",
+        help="Path to the .claude/agents directory (default: relative)",
+    )
+    sr_dry.add_argument(
+        "--strict", action="store_true",
+        help="Exit non-zero on inventory drift. C5 ships warn-mode "
+             "by default (--strict flip is a separate commit once "
+             "the Lane-A inventory is fully populated).",
+    )
+
     skill_genesis_parser = add_subparser(sub, "skill-genesis")
     skill_genesis_sub = skill_genesis_parser.add_subparsers(dest="skill_genesis_command", required=True)
     sg_request = add_subparser(skill_genesis_sub, "request")
@@ -3162,6 +3180,60 @@ def _main(argv: list[str] | None = None) -> int:
             parser.error("unknown agent-genesis command")
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if not isinstance(result, dict) or result.get("status") != "rejected" else 1
+
+    if args.command == "specialist-review":
+        if args.specialist_review_command == "dry-run":
+            from .specialist_review_runner import (
+                _CROSS_CUTTING_SPECIALISTS,
+                _DOMAIN_TOUCH_MAP,
+                _TIER_1_SPECIALISTS,
+            )
+            from .agent_invocations import ROLES
+            agents_dir = Path(args.agents_dir).resolve()
+            inventory_findings: list[dict[str, Any]] = []
+            # Verify every specialist named in the touch-map exists as
+            # an agent .md file under .claude/agents.
+            all_specialists: set[str] = set(_CROSS_CUTTING_SPECIALISTS)
+            for agents in _DOMAIN_TOUCH_MAP.values():
+                all_specialists.update(agents)
+            all_specialists.update(_TIER_1_SPECIALISTS)
+            for agent_name in sorted(all_specialists):
+                if ":" in agent_name:
+                    # Plugin-namespaced agents (e.g. "frontend-mobile-
+                    # development:mobile-developer") live under a
+                    # different discovery path; skip filesystem check
+                    # for them at C5 warn-mode.
+                    continue
+                md_path = agents_dir / f"{agent_name}.md"
+                if not md_path.exists():
+                    inventory_findings.append({
+                        "severity": "WARN",
+                        "missing_agent": agent_name,
+                        "expected_path": str(md_path),
+                    })
+            role_present = "specialist_domain_review" in ROLES
+            if not role_present:
+                inventory_findings.append({
+                    "severity": "ERROR",
+                    "role_missing": "specialist_domain_review",
+                    "hint": "agent_invocations.ROLES must include the V6.1 role",
+                })
+            result = {
+                "schema_version": 1,
+                "agents_dir": str(agents_dir),
+                "specialists_inventoried": len(all_specialists),
+                "findings": inventory_findings,
+                "role_specialist_domain_review_present": role_present,
+                "status": "ok" if not inventory_findings else (
+                    "drift_detected" if args.strict else "warn_only"
+                ),
+            }
+            print(json.dumps(result, indent=2, sort_keys=True))
+            if args.strict and inventory_findings:
+                return 1
+            return 0
+        parser.error("unknown specialist-review command")
+        return 1
 
     if args.command == "skill-genesis":
         if args.skill_genesis_command == "request":

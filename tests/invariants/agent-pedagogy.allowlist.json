@@ -62,6 +62,11 @@
       "file_mtime_at_entry": 1778904243.3590064,
       "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
     },
+    ".claude/agents/aria-challenger-drafter.md": {
+      "added_at": "2026-05-16T22:30:00.000000Z",
+      "file_mtime_at_entry": 1778967382.0,
+      "reason": "Plan ARIA-V6 \u00a72d v2 B-V8-1 \u2014 NEW V6.2 drafter agent (Tier-2 hybrid). Architectural content shipped at C2 commit; narrative pairing to V5 strict-mode **Why:** / **Consequence:** / **Example:** markers within 6 lines of every MUST/NEVER is follow-up editorial work. Allowlist expires 30 days from added_at; remove entry when V5 strict-mode narrative markers are added."
+    },
     ".claude/agents/aria-change-intelligence.md": {
       "added_at": "2026-05-16T20:08:32.043595Z",
       "file_mtime_at_entry": 1778904274.5444145,
@@ -76,6 +81,11 @@
       "added_at": "2026-05-16T20:08:32.043595Z",
       "file_mtime_at_entry": 1778904305.1618145,
       "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
+    },
+    ".claude/agents/aria-primary-drafter.md": {
+      "added_at": "2026-05-16T22:30:00.000000Z",
+      "file_mtime_at_entry": 1778967343.0,
+      "reason": "Plan ARIA-V6 \u00a72d v2 B-V8-1 \u2014 NEW V6.2 drafter agent (Tier-2 hybrid). Architectural content shipped at C2 commit; narrative pairing to V5 strict-mode **Why:** / **Consequence:** / **Example:** markers within 6 lines of every MUST/NEVER is follow-up editorial work. Allowlist expires 30 days from added_at; remove entry when V5 strict-mode narrative markers are added."
     },
     ".claude/agents/audit-trail-completeness-auditor.md": {
       "added_at": "2026-05-16T20:06:42.891462Z",

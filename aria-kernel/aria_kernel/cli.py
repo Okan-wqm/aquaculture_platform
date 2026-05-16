@@ -1470,6 +1470,29 @@ def _main(argv: list[str] | None = None) -> int:
     sg_request = add_subparser(skill_genesis_sub, "request")
     sg_request.add_argument("--capability-gap-key", required=True)
     sg_request.add_argument("--title", required=True)
+    # Plan ARIA-V6 §2d v2 — convergent authoring opt-in.
+    sg_request.add_argument(
+        "--convergent", action="store_true",
+        help="Route through convergent_skill_authoring loop (V6.2). "
+             "Requires --seed-file with the F-012-adapter-seeds.jsonl "
+             "row contents.",
+    )
+    sg_request.add_argument(
+        "--seed-file", default=None,
+        help="Path to a JSON file containing the seed dict "
+             "(declared_scope, claim_types, must_satisfy, "
+             "calibration_corpus_path, adapter_lang). Required with "
+             "--convergent.",
+    )
+    # Plan ARIA-V6 §2d v2 C3 — batch-mint convergent requests.
+    sg_seed = add_subparser(skill_genesis_sub, "seed")
+    sg_seed.add_argument("--from", dest="seeds_path", required=True,
+                         help="Path to F-012-adapter-seeds.jsonl")
+    sg_seed.add_argument(
+        "--convergent", action="store_true",
+        help="Mint each seed row as a convergent request. Required "
+             "for V6.2 routing.",
+    )
     sg_draft = add_subparser(skill_genesis_sub, "draft")
     sg_draft.add_argument("--request-id", required=True)
     sg_draft.add_argument("--name", required=True)
@@ -3142,7 +3165,34 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "skill-genesis":
         if args.skill_genesis_command == "request":
-            result = request_skill_genesis(capability_gap_key=args.capability_gap_key, title=args.title, base_dir=args.tools_dir)
+            seed_dict = None
+            if args.convergent:
+                if not args.seed_file:
+                    parser.error(
+                        "skill-genesis request --convergent requires "
+                        "--seed-file (Plan ARIA-V6 §2d v2)"
+                    )
+                seed_dict = json.loads(
+                    Path(args.seed_file).read_text(encoding="utf-8")
+                )
+            result = request_skill_genesis(
+                capability_gap_key=args.capability_gap_key,
+                title=args.title,
+                convergent=args.convergent,
+                seed=seed_dict,
+                base_dir=args.tools_dir,
+            )
+        elif args.skill_genesis_command == "seed":
+            from .skill_genesis import seed_adapter_requests
+            if not args.convergent:
+                parser.error(
+                    "skill-genesis seed currently requires --convergent "
+                    "(Plan ARIA-V6 §2d v2 C3)"
+                )
+            result = seed_adapter_requests(
+                seeds_path=args.seeds_path,
+                base_dir=args.tools_dir,
+            )
         elif args.skill_genesis_command == "draft":
             result = draft_skill(
                 request_id=args.request_id,

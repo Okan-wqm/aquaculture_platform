@@ -66,6 +66,11 @@
       "pedagogy_tier": 3,
       "rationale": "Read-only adversarial judge. Style prohibitions about falsification methodology + silence-vs-explicit-disagreement benefit from narrative. No safety rules."
     },
+    "aria-challenger-drafter": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan ARIA-V6 §2d v2 — evidence-grounded adapter challenger for the convergent_skill_authoring loop. Hybrid form REQUIRED: imperative headlines for the three Tier-1 constraints (100% validation, evidence-grounded debate, mutual hallucination guarantee) + narrative bodies explaining peer-audit discipline + counter-example sourcing from real fixtures. Cross-fact-check duty against primary's refs via Path.exists + git show; speculation rejected."
+    },
     "aria-challenger-planner": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 2,
@@ -98,6 +103,11 @@
       "consequence_leak_protections": [],
       "pedagogy_tier": 3,
       "rationale": "Read-only fixture curator. Style prohibitions about TP/FP threshold + operator-review-only-write-path benefit from narrative."
+    },
+    "aria-primary-drafter": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan ARIA-V6 §2d v2 — evidence-grounded adapter primary drafter for the convergent_skill_authoring loop. Hybrid form REQUIRED: imperative headlines for the three Tier-1 constraints (100% validation, evidence-grounded debate, mutual hallucination guarantee) + narrative bodies explaining why ≥3 evidence_refs/rule + Phase 0 evidence_pack binding prevent hallucinated rule space. Authoring duty (not safety duty); no consequence_leak protections needed."
     },
     "aria-primary-planner": {
       "consequence_leak_protections": [],

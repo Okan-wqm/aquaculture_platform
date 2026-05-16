@@ -13,5 +13,12 @@
   "circuit_breaker": {
     "threshold_24h": 3,
     "auto_downgrade_to": "strict"
+  },
+  "convergent_authoring": {
+    "_doc": "Plan ARIA-V6 §2d v2 — convergent adapter authoring loop config. Operator opt-in via skill-genesis request --convergent.",
+    "max_authoring_rounds": 6,
+    "sandbox_min_fixtures": 10,
+    "recall_floor": 0.90,
+    "max_rounds_override_enabled": false
   }
 }

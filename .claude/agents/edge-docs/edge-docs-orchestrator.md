@@ -4,6 +4,7 @@ description: Coordinates the edge-docs producer team to generate Siemens-vendor-
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Agent
+pedagogy-tier: 3
 ---
 
 # Edge-Docs Orchestrator — Lane-C Documentation Dispatcher

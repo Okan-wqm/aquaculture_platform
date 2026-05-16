@@ -4,6 +4,7 @@ description: Verifies that create/edit form inputs in `web/**` flow through API 
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Form Write Auditor -- UI-to-Persistence Roundtrip Reviewer

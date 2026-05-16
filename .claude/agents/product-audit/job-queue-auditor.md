@@ -4,6 +4,7 @@ description: Reviews queued, scheduled, retried, and dead-lettered work to verif
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Job Queue Auditor -- Async Execution and Retry Truth Authority

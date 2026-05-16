@@ -4,6 +4,7 @@ description: Reviews shared platform kernel code in `platform/libs/{cqrs,event-b
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Platform Kernel Expert -- Shared Runtime & Contract Reviewer

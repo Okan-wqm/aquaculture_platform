@@ -4,6 +4,7 @@ description: Verifies that persisted data can be fetched back from the database 
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Data Readback Auditor -- Persistence-to-UI Truth Reviewer

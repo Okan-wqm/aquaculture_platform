@@ -4,6 +4,7 @@ description: Cross-agent conflict detector and architectural decision authority.
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Architectural Arbiter -- Cross-Agent Conflict & Architectural Decision Authority

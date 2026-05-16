@@ -4,6 +4,7 @@ description: Audits create/read/update/delete product flows for tenant isolation
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Tenant Isolation Auditor -- Product Flow Isolation Authority

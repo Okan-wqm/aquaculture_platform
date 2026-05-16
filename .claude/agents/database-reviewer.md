@@ -4,6 +4,7 @@ description: Reviews the state health of PostgreSQL schemas, tables, columns, in
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Database Reviewer -- Senior Schema State Auditor

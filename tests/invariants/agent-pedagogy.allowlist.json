@@ -1,0 +1,408 @@
+{
+  "$schema": "aria/pedagogy-allowlist/v1",
+  "comment": "30-day grandfather entries for V5.3 C4 landing. C4 ships the pedagogy-lint infrastructure + tier frontmatter; actual narrative content for the 72 agents below lands in subsequent commits. As narrative is written for an agent, REMOVE its entry from this allowlist. Entries expire 30 days after added_at; after expiry the lint goes red regardless of allowlist (R-P4 force-clear).",
+  "entries": {
+    ".claude/agents/_maintenance/aria-challenger-planner.md": {
+      "added_at": "2026-05-16T20:08:32.043595Z",
+      "file_mtime_at_entry": 1778904591.633526,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
+    },
+    ".claude/agents/_maintenance/aria-drafter.md": {
+      "added_at": "2026-05-16T20:08:32.043595Z",
+      "file_mtime_at_entry": 1778904638.8231335,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
+    },
+    ".claude/agents/_maintenance/aria-primary-planner.md": {
+      "added_at": "2026-05-16T20:08:32.043595Z",
+      "file_mtime_at_entry": 1778904554.0080411,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
+    },
+    ".claude/agents/_maintenance/aria-prompt-writer.md": {
+      "added_at": "2026-05-16T20:08:32.043595Z",
+      "file_mtime_at_entry": 1778904357.4484956,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
+    },
+    ".claude/agents/_maintenance/gdpr-erasure-executor.md": {
+      "added_at": "2026-05-16T20:06:42.869434Z",
+      "file_mtime_at_entry": 1778962002.8678803,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-1 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/_maintenance/implementation-planner.md": {
+      "added_at": "2026-05-16T20:06:42.876170Z",
+      "file_mtime_at_entry": 1778962002.8738804,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/_maintenance/prompt-writer.md": {
+      "added_at": "2026-05-16T20:06:42.880221Z",
+      "file_mtime_at_entry": 1778962002.8788805,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/admin-expert.md": {
+      "added_at": "2026-05-16T20:06:42.881272Z",
+      "file_mtime_at_entry": 1778962002.8798804,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/ai-safety-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.886235Z",
+      "file_mtime_at_entry": 1778962002.8798804,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/alert-engine-expert.md": {
+      "added_at": "2026-05-16T20:06:42.888304Z",
+      "file_mtime_at_entry": 1778962002.8848805,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/architectural-arbiter.md": {
+      "added_at": "2026-05-16T20:06:42.890084Z",
+      "file_mtime_at_entry": 1778962002.8878806,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/aria-adversarial-judge.md": {
+      "added_at": "2026-05-16T20:08:32.043595Z",
+      "file_mtime_at_entry": 1778904243.3590064,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
+    },
+    ".claude/agents/aria-change-intelligence.md": {
+      "added_at": "2026-05-16T20:08:32.043595Z",
+      "file_mtime_at_entry": 1778904274.5444145,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
+    },
+    ".claude/agents/aria-evidence-judge.md": {
+      "added_at": "2026-05-16T20:08:32.043595Z",
+      "file_mtime_at_entry": 1778904117.9563565,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
+    },
+    ".claude/agents/aria-goldset-curator.md": {
+      "added_at": "2026-05-16T20:08:32.043595Z",
+      "file_mtime_at_entry": 1778904305.1618145,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
+    },
+    ".claude/agents/audit-trail-completeness-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.891462Z",
+      "file_mtime_at_entry": 1778962002.8898807,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/auth-security-expert.md": {
+      "added_at": "2026-05-16T20:06:42.899284Z",
+      "file_mtime_at_entry": 1778962002.8948808,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-1 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/billing-expert.md": {
+      "added_at": "2026-05-16T20:06:42.901650Z",
+      "file_mtime_at_entry": 1778962002.8998806,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/build-validator.md": {
+      "added_at": "2026-05-16T20:06:42.905184Z",
+      "file_mtime_at_entry": 1778962002.9008808,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/circuit-breaker-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.907536Z",
+      "file_mtime_at_entry": 1778962002.9038808,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/compliance-expert.md": {
+      "added_at": "2026-05-16T20:06:42.909902Z",
+      "file_mtime_at_entry": 1778962002.9078808,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-1 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/context-manager.md": {
+      "added_at": "2026-05-16T20:06:42.915045Z",
+      "file_mtime_at_entry": 1778962002.908881,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/contract-parity-enforcer.md": {
+      "added_at": "2026-05-16T20:06:42.915906Z",
+      "file_mtime_at_entry": 1778962002.9138808,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/data-expert.md": {
+      "added_at": "2026-05-16T20:06:42.922262Z",
+      "file_mtime_at_entry": 1778962002.914881,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/database-reviewer.md": {
+      "added_at": "2026-05-16T20:06:42.927626Z",
+      "file_mtime_at_entry": 1778962002.9258811,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/api-reference-writer.md": {
+      "added_at": "2026-05-16T20:06:42.935905Z",
+      "file_mtime_at_entry": 1778962002.933881,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/architecture-writer.md": {
+      "added_at": "2026-05-16T20:06:42.937180Z",
+      "file_mtime_at_entry": 1778962002.9348812,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/commercial-legal-writer.md": {
+      "added_at": "2026-05-16T20:06:42.937984Z",
+      "file_mtime_at_entry": 1778962002.9358811,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/compliance-evidence-writer.md": {
+      "added_at": "2026-05-16T20:06:42.940435Z",
+      "file_mtime_at_entry": 1778962002.9388812,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/deployment-runbook-writer.md": {
+      "added_at": "2026-05-16T20:06:42.941222Z",
+      "file_mtime_at_entry": 1778962002.9398813,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/edge-docs-orchestrator.md": {
+      "added_at": "2026-05-16T20:06:42.942146Z",
+      "file_mtime_at_entry": 1778962002.9408813,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/operations-sla-writer.md": {
+      "added_at": "2026-05-16T20:06:42.944725Z",
+      "file_mtime_at_entry": 1778962002.9408813,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/product-overview-writer.md": {
+      "added_at": "2026-05-16T20:06:42.945550Z",
+      "file_mtime_at_entry": 1778962002.9438813,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/protocol-reference-writer.md": {
+      "added_at": "2026-05-16T20:06:42.946228Z",
+      "file_mtime_at_entry": 1778962002.9448812,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/security-architecture-writer.md": {
+      "added_at": "2026-05-16T20:06:42.948166Z",
+      "file_mtime_at_entry": 1778962002.9448812,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-1 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/siemens-integration-writer.md": {
+      "added_at": "2026-05-16T20:06:42.948884Z",
+      "file_mtime_at_entry": 1778962002.9468813,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/siemens-rfp-responder.md": {
+      "added_at": "2026-05-16T20:06:42.949595Z",
+      "file_mtime_at_entry": 1778962002.9478812,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-docs/test-evidence-writer.md": {
+      "added_at": "2026-05-16T20:06:42.950322Z",
+      "file_mtime_at_entry": 1778962002.9488814,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-3 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/edge-expert.md": {
+      "added_at": "2026-05-16T20:06:42.953035Z",
+      "file_mtime_at_entry": 1778962002.9508812,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/farm-expert.md": {
+      "added_at": "2026-05-16T20:06:42.955575Z",
+      "file_mtime_at_entry": 1778962002.9538815,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/frontend-expert.md": {
+      "added_at": "2026-05-16T20:06:42.957028Z",
+      "file_mtime_at_entry": 1778962002.9548814,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-1 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/hr-expert.md": {
+      "added_at": "2026-05-16T20:06:42.957926Z",
+      "file_mtime_at_entry": 1778962002.9558814,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/infra-expert.md": {
+      "added_at": "2026-05-16T20:06:42.962949Z",
+      "file_mtime_at_entry": 1778962002.9608815,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/legal-hold-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.963647Z",
+      "file_mtime_at_entry": 1778962002.9618814,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-1 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/mcp-expert.md": {
+      "added_at": "2026-05-16T20:06:42.964506Z",
+      "file_mtime_at_entry": 1778962002.9628816,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/memory-leak-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.965383Z",
+      "file_mtime_at_entry": 1778962002.9638815,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/messaging-expert.md": {
+      "added_at": "2026-05-16T20:06:42.966512Z",
+      "file_mtime_at_entry": 1778962002.9648814,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/multi-tenant-saas-expert.md": {
+      "added_at": "2026-05-16T20:06:42.971157Z",
+      "file_mtime_at_entry": 1778962002.9688816,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/observability-expert.md": {
+      "added_at": "2026-05-16T20:06:42.973781Z",
+      "file_mtime_at_entry": 1778962002.9708817,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/orchestrator.md": {
+      "added_at": "2026-05-16T20:06:42.974932Z",
+      "file_mtime_at_entry": 1778962002.9728816,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/performance-expert.md": {
+      "added_at": "2026-05-16T20:06:42.977994Z",
+      "file_mtime_at_entry": 1778962002.9738817,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/platform-kernel-expert.md": {
+      "added_at": "2026-05-16T20:06:42.978927Z",
+      "file_mtime_at_entry": 1778962002.9768817,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/access-boundary-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.980749Z",
+      "file_mtime_at_entry": 1778962002.9788816,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/accessibility-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.981577Z",
+      "file_mtime_at_entry": 1778962002.9798818,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/billing-reconciliation-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.982242Z",
+      "file_mtime_at_entry": 1778962002.9808817,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/button-action-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.985609Z",
+      "file_mtime_at_entry": 1778962002.9808817,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/chart-widget-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.986374Z",
+      "file_mtime_at_entry": 1778962002.9848819,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/context-manager.md": {
+      "added_at": "2026-05-16T20:06:42.987057Z",
+      "file_mtime_at_entry": 1778962002.9858818,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/data-readback-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.987613Z",
+      "file_mtime_at_entry": 1778962002.9858818,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/edge-industrial-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.988310Z",
+      "file_mtime_at_entry": 1778962002.9868817,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/file-transfer-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.989096Z",
+      "file_mtime_at_entry": 1778962002.9868817,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/form-write-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.992315Z",
+      "file_mtime_at_entry": 1778962002.990882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/job-queue-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.993076Z",
+      "file_mtime_at_entry": 1778962002.9918818,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/list-visibility-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.993675Z",
+      "file_mtime_at_entry": 1778962002.9918818,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/mobile-app-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.994214Z",
+      "file_mtime_at_entry": 1778962002.9928818,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/orchestrator.md": {
+      "added_at": "2026-05-16T20:06:42.995031Z",
+      "file_mtime_at_entry": 1778962002.993882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/product-audit-arbiter.md": {
+      "added_at": "2026-05-16T20:06:42.996759Z",
+      "file_mtime_at_entry": 1778962002.993882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/realtime-sync-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.997523Z",
+      "file_mtime_at_entry": 1778962002.9958818,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/schema-surface-parity-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.998228Z",
+      "file_mtime_at_entry": 1778962002.996882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/table-grid-auditor.md": {
+      "added_at": "2026-05-16T20:06:42.998908Z",
+      "file_mtime_at_entry": 1778962002.996882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/tenant-isolation-auditor.md": {
+      "added_at": "2026-05-16T20:06:43.001912Z",
+      "file_mtime_at_entry": 1778962002.997882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/ui-action-mapper.md": {
+      "added_at": "2026-05-16T20:06:43.005880Z",
+      "file_mtime_at_entry": 1778962003.000882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/webhook-ingress-auditor.md": {
+      "added_at": "2026-05-16T20:06:43.006742Z",
+      "file_mtime_at_entry": 1778962003.004882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/product-audit/workflow-state-auditor.md": {
+      "added_at": "2026-05-16T20:06:43.007518Z",
+      "file_mtime_at_entry": 1778962003.005882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/root-cause-auditor.md": {
+      "added_at": "2026-05-16T20:06:43.008379Z",
+      "file_mtime_at_entry": 1778962003.006882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/security-reviewer.md": {
+      "added_at": "2026-05-16T20:06:43.009216Z",
+      "file_mtime_at_entry": 1778962003.007882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-1 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/sensor-expert.md": {
+      "added_at": "2026-05-16T20:06:43.010031Z",
+      "file_mtime_at_entry": 1778962003.008882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/supply-chain-auditor.md": {
+      "added_at": "2026-05-16T20:06:43.014102Z",
+      "file_mtime_at_entry": 1778962003.008882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-1 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/tenant-cost-attribution-expert.md": {
+      "added_at": "2026-05-16T20:06:43.015198Z",
+      "file_mtime_at_entry": 1778962003.0138822,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    },
+    ".claude/agents/test-runner.md": {
+      "added_at": "2026-05-16T20:06:43.016218Z",
+      "file_mtime_at_entry": 1778962003.014882,
+      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 Tier-2 classification landed in C4 commit; narrative pairings deferred to follow-up commits. Allowlist expires 30 days from added_at; remove entry when narrative lands."
+    }
+  },
+  "plan": "Plan ARIA-V5 \u00a73e v2 R-P4 / R1",
+  "schema_version": 1
+}

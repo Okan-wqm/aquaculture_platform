@@ -4,6 +4,7 @@ description: Coordinates end-to-end product audit agents to verify web and mobil
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Agent
+pedagogy-tier: 2
 ---
 
 # Product Audit Orchestrator -- Lane-B End-to-End Product Review Coordinator

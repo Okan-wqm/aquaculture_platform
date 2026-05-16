@@ -4,6 +4,7 @@ description: Meta-agent that coordinates domain expert agents for comprehensive 
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Agent
+pedagogy-tier: 2
 ---
 
 # Review Orchestrator -- Multi-Agent Coordinator

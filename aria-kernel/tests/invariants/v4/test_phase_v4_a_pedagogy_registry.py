@@ -41,13 +41,19 @@ _NAME_RE = re.compile(r"^name:\s*(\S+)\s*$", re.MULTILINE)
 
 
 def _aria_agent_files() -> list[Path]:
-    """Plan ARIA-V4 §2a — every aria-*.md file under
-    ``.claude/agents/aria-*.md`` OR
-    ``.claude/agents/_maintenance/aria-*.md``.
+    """Plan ARIA-V4 §2a + V5.3 §3e v2 R1 — loosen scope to every
+    agent file under ``.claude/agents/**/*.md`` (V5.3 universalizes
+    V4's pedagogy-tier discipline to all 81 agents). READMEs skipped.
+
+    Pre-V5.3 the V4 invariant scanned only the 9 ``aria-*.md``
+    agents — V5.3 §3e R1 explicitly loosens the glob via this
+    helper. The downstream tests (I-V4-01..03) continue to assert
+    pedagogy-tier presence + registry co-equality, now over the
+    full 81-agent corpus.
     """
     return sorted(
-        list(_AGENTS_DIR.glob("aria-*.md"))
-        + list((_AGENTS_DIR / "_maintenance").glob("aria-*.md"))
+        p for p in _AGENTS_DIR.rglob("*.md")
+        if p.name != "README.md"
     )
 
 

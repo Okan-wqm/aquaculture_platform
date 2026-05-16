@@ -4,6 +4,7 @@ description: Produces the security documentation chapters a Siemens OT cyber-sec
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 1
 ---
 
 # Security Architecture Writer — Lane-C Producer

@@ -4,6 +4,7 @@ description: Produces architectural documentation for sens-api-gateway — C4 mo
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 3
 ---
 
 # Architecture Writer — Lane-C Producer

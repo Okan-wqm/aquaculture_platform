@@ -4,6 +4,7 @@ description: Invoked when reviewing, auditing, or analyzing the farm domain -- i
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Farm Domain Expert -- Senior Reviewer & Architect

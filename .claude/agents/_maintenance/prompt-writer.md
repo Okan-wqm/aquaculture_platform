@@ -4,6 +4,7 @@ description: Auxiliary maintenance tool that generates enterprise production-gra
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write
+pedagogy-tier: 3
 ---
 
 # Agent Prompt Writer -- Enterprise Agent Definition Generator

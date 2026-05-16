@@ -4,6 +4,7 @@ description: Cross-cutting reviewer for platform observability discipline — Pr
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Observability Expert -- Metrics + Traces + Logs Discipline Reviewer

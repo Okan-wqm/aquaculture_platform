@@ -4,6 +4,7 @@ description: Produces the operations chapters a Siemens customer's plant-IT, shi
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 3
 ---
 
 # Operations SLA Writer — Lane-C Producer

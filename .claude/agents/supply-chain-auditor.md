@@ -4,6 +4,7 @@ description: Cross-cutting reviewer for software supply chain integrity — npm 
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 1
 ---
 
 # Supply-Chain Auditor -- Software Supply-Chain Integrity Reviewer

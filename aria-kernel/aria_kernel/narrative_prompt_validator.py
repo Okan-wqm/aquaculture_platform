@@ -83,8 +83,27 @@ _IMPERATIVE_PREFIX_RE = re.compile(
 # Plan ARIA-V4 §2g — per-agent narrative-token budget. Imperative
 # form ≈15 tokens per rule; narrative ≈180-240. For 20-prohibition
 # agent the math is 300 → ~4K. V4 caps narrative tokens per file
-# at 2000 (the prompt-writer agent estimate from the 6-agent audit).
-TOKEN_BUDGET_PER_FILE: int = 2000
+# tier-aware: Tier-1 ≤1500 (terse imperative); Tier-2 ≤2200
+# (hybrid; headline + narrative body); Tier-3 ≤2500 (full
+# narrative; most bloat tolerated because every prohibition expands
+# 4-section). The legacy ``TOKEN_BUDGET_PER_FILE`` alias is kept
+# for back-compat with downstream callers; new code MUST use
+# ``token_budget_for_tier``.
+TOKEN_BUDGET_PER_TIER: dict[int, int] = {
+    1: 1500,
+    2: 2200,
+    3: 3500,
+}
+TOKEN_BUDGET_PER_FILE: int = TOKEN_BUDGET_PER_TIER[3]  # legacy alias
+
+
+def token_budget_for_tier(tier: int | None) -> int:
+    """Plan ARIA-V4 §2g — per-tier budget; default to Tier-3
+    headroom when tier is None (transitional state).
+    """
+    if tier is None:
+        return TOKEN_BUDGET_PER_TIER[3]
+    return TOKEN_BUDGET_PER_TIER.get(tier, TOKEN_BUDGET_PER_TIER[3])
 
 
 @dataclass
@@ -253,11 +272,13 @@ def validate_file(
         and entry.get("rule_class")
     }
 
-    # Token-budget check applies regardless of tier.
-    if result.approx_tokens > TOKEN_BUDGET_PER_FILE:
+    # Token-budget check applies regardless of tier; budget is
+    # tier-aware (Plan ARIA-V4 §2g).
+    tier_budget = token_budget_for_tier(tier)
+    if result.approx_tokens > tier_budget:
         result.violations.append(
             f"{path.name}: approx tokens {result.approx_tokens} > "
-            f"budget {TOKEN_BUDGET_PER_FILE} (Plan ARIA-V4 §2g "
+            f"tier-{tier} budget {tier_budget} (Plan ARIA-V4 §2g "
             f"I-V4-07)"
         )
 

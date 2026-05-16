@@ -305,31 +305,27 @@ def answer(
 
 
 def _read_all_rows(base_dir: str | Path) -> list[dict[str, Any]]:
-    """Plan ARIA-V4 §2e — strict-jsonl read of agent-questions.jsonl."""
+    """Plan ARIA-V4 §2e — strict-jsonl read of agent-questions.jsonl.
+
+    Routes through ``strict_jsonl_reader.read_strict_jsonl`` per
+    Plan 026R §A.3 invariant — the bare ``except
+    json.JSONDecodeError: continue`` pattern is forbidden on JSONL
+    reads in the kernel. ``tolerant`` mode is correct here because
+    a corrupt row in the question ledger should not block the
+    anti-coupling check (the strict reader still emits
+    ``ledger_corruption_diagnostic`` for forensic audit).
+    """
+    from .strict_jsonl_reader import read_strict_jsonl
+
     path = _questions_path(base_dir)
     if not path.exists():
         return []
-    try:
-        from .strict_jsonl_reader import read_strict_jsonl
-        return list(
-            read_strict_jsonl(
-                path, on_corruption="tolerant",
-                base_dir=Path(base_dir),
-            )
+    return list(
+        read_strict_jsonl(
+            path, on_corruption="tolerant",
+            base_dir=Path(base_dir),
         )
-    except ImportError:
-        rows: list[dict[str, Any]] = []
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-                if isinstance(row, dict):
-                    rows.append(row)
-            except json.JSONDecodeError:
-                continue
-        return rows
+    )
 
 
 def find_question(

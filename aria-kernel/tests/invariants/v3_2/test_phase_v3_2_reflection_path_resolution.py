@@ -219,7 +219,7 @@ class PhaseV3_2ReflectionPathResolution(unittest.TestCase):
         with self.assertRaises(GovernanceError) as ctx:
             run_reflection(
                 cycle_id="cycle-v3_2-06",
-                base_dir=Path("aria-tools"),  # relative
+                base_dir=Path("aria-tools"),  # allowlist-aria-tools-literal: test deliberately passes a relative literal to verify V3.2 §2b rejection
             )
         self.assertIn(
             "reflection_requires_absolute_tools_root",

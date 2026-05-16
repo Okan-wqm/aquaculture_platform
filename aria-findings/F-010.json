@@ -4,7 +4,10 @@
   "certainty": "CONFIRMED",
   "claim_summary": "Plan ARIA-V3.2 — Runtime-Defect Closure post-V4 fresh-run audit. 10-agent parallel audit on commit 5b88522a surfaced 3 runtime defects + 1 deferred shadow-tree issue. D1: belief evidence freshness — multiple write paths to beliefs.jsonl (_record_belief / _apply_diff_to_existing_beliefs / _mark_quarantined_source_beliefs) with only the support path stamping freshness fields. D2: daily-report 'Total governance events' reads from shadow aria-kernel/aria-tools/ tree due to tool_registry.tools_dir CWD-relative fallback. D3: discovery_dirty_tree_skipped governance event missing cycle_id in details. D4 (DEFERRED to V3.3): full tools_dir Tier-1 rewrite + shadow-tree purge (blast radius too large — ~30 callsite migration). Plan ARIA-V3.2 lands Tier-1 unified-writer fix for D1, Tier-2 narrow caller-layer assertion for D2, Tier-3 schema completeness for D3, with 10 invariants total under aria-kernel/tests/invariants/v3_2/.",
   "claim_type": "plan_aria_v3_2_runtime_defect_closure_arc",
-  "closes_in_commit": "<TBD per phase commit>",
+  "closes_in_commit": "Plan ARIA-V3.2: 0abc2eba (Phase 3.1 D3) + 6f515895 (Phase 3.2 D2) + 7a6d3a84 (Phase 3.3 D1) + (this commit Phase 3.4 holistic replay + F-010 RESOLVED transition).",
+  "resolved_at": "2026-05-16T00:00:00Z",
+  "resolution_summary": "Plan ARIA-V3.2 CONVERGED — 4 commits on snowball, 10 invariants under aria-kernel/tests/invariants/v3_2/, 3 architectural defects closed (D1 unified belief-freshness writer Tier-1; D2 reflection absolute-path assertion Tier-2; D3 discovery_dirty_tree_skipped cycle_id Tier-3 + holistic closed-allowlist guard). F-010-D4 (full tools_dir Tier-1 rewrite) remains OPEN as a named-scope follow-up tracked under Plan ARIA-V3.3 §2 (scope-too-large for V3.2 because ~30 callsites depend on the relative fallback).",
+  "resolution_summary_short": "Plan ARIA-V3.2 CONVERGED — 3 architectural defects closed via Tier-1/Tier-2 fixes, 10 new invariants, zero patches. F-010-D4 remains open as V3.3 follow-up (named scope).",
   "created_at": "2026-05-16T00:00:00Z",
   "evidence_chain_id": "chain_aria_v3_2_runtime_defect_closure",
   "evidences": [
@@ -52,7 +55,7 @@
       "severity": "LOW",
       "tier": 3,
       "phase": "V3.2 Phase 3.1",
-      "status": "OPEN"
+      "status": "RESOLVED"
     },
     {
       "id": "F-010-D4-DEFERRED",
@@ -67,7 +70,7 @@
   ],
   "severity": "HIGH",
   "scope": "aria-kernel/aria_kernel/{discovery,reflection,memory,cycle}.py + aria-kernel/tests/invariants/v3_2/",
-  "state": "OPEN",
+  "state": "RESOLVED",
   "review_file": "/root/.claude/plans/immutable-sparking-waterfall.md",
   "owner_agent": "orchestrator",
   "raised_in_cycle": "10-agent-fresh-run-audit-2026-05-16"

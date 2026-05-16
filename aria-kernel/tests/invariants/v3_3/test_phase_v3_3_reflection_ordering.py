@@ -217,6 +217,18 @@ class PhaseV3_3ReflectionOrdering(unittest.TestCase):
                 "request_ids": [],
                 "convergence_id": kwargs.get("convergence_id", kwargs.get("plan_id", "plan-test")),
             }
+        def _v6_fake_specialist_review_runner(**kwargs):
+            return {
+                "cycle_id": kwargs.get("cycle_id", "cycle-test"),
+                "specialists_dispatched": [],
+                "specialists_timed_out": [],
+                "consolidated_verdict": "consolidated_no_gaps",
+                "findings_by_specialist": {},
+                "request_ids": [],
+                "rounds_count": 1,
+                "token_cost_estimate": 0,
+                "profile": kwargs.get("profile", "standard"),
+            }
         return run_autonomy_orchestrator(
             base_dir=self.base,
             workspace_root=str(self.tmp),
@@ -232,6 +244,7 @@ class PhaseV3_3ReflectionOrdering(unittest.TestCase):
             github_adapter=_FakeGitHubAdapter(),
             convergence_runner=_v5_fake_convergence_runner,
             review_runner=_v5_fake_review_runner,
+            specialist_review_runner=_v6_fake_specialist_review_runner,
         )
 
     def _read_governance(self) -> list[dict]:

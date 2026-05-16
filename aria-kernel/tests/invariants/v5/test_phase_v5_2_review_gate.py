@@ -94,6 +94,23 @@ def _review_no_gaps_fake(**kwargs):
     }
 
 
+def _specialists_no_gaps_fake(**kwargs):
+    """Plan ARIA-V6 §2c v2 — V6.1 made specialist_review_runner
+    REQUIRED; V5.2 tests pass this happy-path fake so the cycle
+    proceeds through worker_drainer + auto_merge unimpeded."""
+    return {
+        "cycle_id": kwargs.get("cycle_id", "cycle-test"),
+        "specialists_dispatched": [],
+        "specialists_timed_out": [],
+        "consolidated_verdict": "consolidated_no_gaps",
+        "findings_by_specialist": {},
+        "request_ids": [],
+        "rounds_count": 1,
+        "token_cost_estimate": 0,
+        "profile": kwargs.get("profile", "standard"),
+    }
+
+
 def _review_verdict_fake_factory(verdict: str, rounds: int = 1):
     def _runner(**kwargs):
         return {
@@ -142,6 +159,10 @@ class PhaseV5_2ReviewGate(unittest.TestCase):
             github_adapter=_FakeGitHubAdapter(),
             convergence_runner=_converged_fake,
             review_runner=_review_no_gaps_fake,
+            # Plan ARIA-V6 §2c v2 — V6.1 makes specialist_review_runner
+            # REQUIRED; V5.2 tests pass happy-path fake so the cycle
+            # proceeds past Gate C into worker_drainer + auto_merge.
+            specialist_review_runner=_specialists_no_gaps_fake,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

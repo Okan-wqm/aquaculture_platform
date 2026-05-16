@@ -31,6 +31,14 @@ ROLES = {
     "consensus_arbitration",
     "change_intelligence",
     "goldset_curation",
+    # Plan ARIA-V6 §2c V6.1 Phase 6.1 — Gate C Lane-A specialist
+    # dispatch role. ~60 Lane-A domain experts (auth-security-expert,
+    # farm-expert, edge-expert, etc.) consume this role envelope per
+    # cycle when orchestrator's specialist_review_runner mints requests.
+    # ci_executor extension claims these envelopes + spawns Claude
+    # Code subprocesses; transform_specialist_output converts markdown
+    # responses to ARIA findings schema.
+    "specialist_domain_review",
 }
 STATUSES = {"completed", "rejected", "partial"}
 

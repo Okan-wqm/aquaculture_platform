@@ -69,8 +69,18 @@
       "path": "F-007.json",
       "severity": "HIGH",
       "status": "RESOLVED"
+    },
+    {
+      "claim_summary": "Plan ARIA-V6 — Autonomous Adapter Genesis via Convergent LLM Authoring + Lane-A Specialist Wiring. V5 wired Gate A convergence + Gate B post-impl review; V6 adds Gate C (Lane-A specialist dispatch) + convergent_skill_authoring (evidence-grounded primary-challenger debate with 3 CROSS-VERIFY gates) + 9 priority adapter seeds + auto-promotion under narrow safe conditions. Three Tier-1 constraints: 100% validation as structural exit, evidence-grounded debate, mutual hallucination guarantee. C1 lands V6.1 (D1 RESOLVED); C2..C5 OPEN.",
+      "claim_type": "plan_aria_v6_autonomous_adapter_genesis_arc",
+      "created_at": "2026-05-16T22:30:00Z",
+      "evidence_chain_id": "chain_aria_v6_autonomous_adapter_genesis_arc",
+      "finding_id": "F-012",
+      "path": "F-012.json",
+      "severity": "HIGH",
+      "status": "OPEN"
     }
   ],
-  "generated_at": "2026-05-11T00:00:00Z",
+  "generated_at": "2026-05-16T22:30:00Z",
   "schema_version": 1
 }

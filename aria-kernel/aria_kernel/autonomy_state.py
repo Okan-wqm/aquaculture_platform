@@ -69,6 +69,18 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     "review_round_completed",
     "review_resolved",
     "review_blocked_merge",
+    # Plan ARIA-V6 §2c V6.1 Phase 6.1 — Gate C Lane-A specialist
+    # dispatch phases. Fired between convergence_resolved and
+    # worker_dispatch_drained: specialist_review_started when N
+    # specialists are minted; _round_completed per polling pass;
+    # _resolved on terminal verdict (consolidated_no_gaps /
+    # consolidated_remediation_required / consolidated_judge_split /
+    # specialists_unavailable); _blocked when verdict requires
+    # remediation and worker_drainer skipped.
+    "specialist_review_started",
+    "specialist_review_round_completed",
+    "specialist_review_resolved",
+    "specialist_review_blocked",
     "next_cycle_queued",
     "aria_stop",
     "profile_frozen",

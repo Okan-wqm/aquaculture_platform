@@ -85,6 +85,10 @@ if TYPE_CHECKING:
     # Same TYPE_CHECKING discipline; review_runner imports from
     # agent_invocations which imports from ledger.
     from .review_runner import ReviewRunner
+    # Plan ARIA-V6 §2c v2 — SpecialistReviewRunner Protocol typed-
+    # only import (Gate C Lane-A dispatch). Same TYPE_CHECKING
+    # discipline as other runners.
+    from .specialist_review_runner import SpecialistReviewRunner
 
 
 __all__ = [
@@ -232,6 +236,7 @@ def run_autonomy_orchestrator(
     github_adapter: Any,
     convergence_runner: "ConvergenceRunner",
     review_runner: "ReviewRunner",
+    specialist_review_runner: "SpecialistReviewRunner",
     workspace_root: str | Path | None = None,
     max_cycles: int = DEFAULT_MAX_CYCLES,
     max_iterations_per_phase: int = DEFAULT_MAX_ITERATIONS_PER_PHASE,
@@ -615,6 +620,111 @@ def run_autonomy_orchestrator(
                         # B never fired); pass None explicitly so the
                         # reflection v2 sub-object renders post_impl
                         # as None.
+                        review_result=None,
+                    )
+                    cycle_summary["reflection"] = post_drain_reflection
+                    per_cycle_results.append(cycle_summary)
+                    continue
+
+                # Plan ARIA-V6 §2c V6.1 Phase 6.1 — Gate C Lane-A
+                # specialist dispatch. Inserted between Gate A's
+                # converged-verdict check and worker_drainer. The
+                # specialist_review_runner mints N domain-expert
+                # envelopes (pressure-driven selection), polls for
+                # verdicts, and gates worker_drainer on the
+                # consolidated verdict.
+                #
+                # Operator vision (Plan ARIA-V6 §1 verbatim):
+                #   "planları sureklı en bastan revıew ederek
+                #    ıkı agent bırbırıne atarak valıde sekılde
+                #    sonlanrmalı"
+                #
+                # Profile gating (per Plan §2c step 3):
+                #   * observe → never dispatch Tier-1; defensive
+                #   * standard → dispatch all; specialists_unavailable
+                #               proceeds (fail-open degraded)
+                #   * strict   → specialists_unavailable BLOCKS
+                #               (fail-closed; operator-requested gate)
+                #   * autonomous → fail-open (degraded acceptable)
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="specialist_review_started",
+                    status="ok",
+                    profile=profile_snapshot,
+                    details={"plan_id": convergence_result.get("plan_id")},
+                )
+                _touched_services = list({
+                    p.get("source", "") for p in (convergence_result.get("converged_plan", {}).get("must_satisfy") or [])
+                }) or [f"cycle/{cycle_id}"]
+                specialist_review_result = specialist_review_runner(
+                    cycle_id=cycle_id,
+                    base_dir=root,
+                    workspace_root=workspace_root,
+                    plan_id=convergence_result.get("plan_id") or f"plan-{cycle_id}",
+                    convergence_id=convergence_result.get("convergence_id")
+                    or convergence_result.get("plan_id")
+                    or f"plan-{cycle_id}",
+                    touched_services=_touched_services,
+                    pressures=[],
+                    profile=str(profile_snapshot or "standard"),
+                    max_specialists_per_cycle=max_iterations_per_phase,
+                )
+                cycle_summary["specialist_review"] = specialist_review_result
+                specialist_verdict = specialist_review_result.get(
+                    "consolidated_verdict", "specialists_unavailable",
+                )
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="specialist_review_resolved",
+                    status=str(specialist_verdict),
+                    profile=profile_snapshot,
+                    details={
+                        "specialists_dispatched_count": len(
+                            specialist_review_result.get("specialists_dispatched", [])
+                        ),
+                        "specialists_timed_out_count": len(
+                            specialist_review_result.get("specialists_timed_out", [])
+                        ),
+                    },
+                )
+
+                # Plan ARIA-V6 §2c v2 — profile-conditional verdict
+                # gating. Strict profile fails closed on unavailable;
+                # standard/autonomous fail open. Remediation_required
+                # ALWAYS blocks regardless of profile.
+                _is_strict = str(profile_snapshot) == "strict"
+                _blocks_cycle = specialist_verdict in {
+                    "consolidated_remediation_required",
+                    "consolidated_judge_split",
+                } or (
+                    _is_strict and specialist_verdict == "specialists_unavailable"
+                )
+                if _blocks_cycle:
+                    cycle_summary["dispatch_blocked_reason"] = (
+                        f"specialist_{specialist_verdict}"
+                    )
+                    AutonomyStateReducer.transition(
+                        root,
+                        cycle_id=cycle_id,
+                        phase="specialist_review_blocked",
+                        status=str(specialist_verdict),
+                        profile=profile_snapshot,
+                        details={
+                            "specialists_dispatched_count": len(
+                                specialist_review_result.get("specialists_dispatched", [])
+                            ),
+                        },
+                    )
+                    # Reflection still runs (V3.3 §2b + V5.4 §3f)
+                    # on specialist-blocked cycles so daily report
+                    # covers them.
+                    post_drain_reflection = run_reflection(
+                        cycle_id=cycle_id,
+                        base_dir=root,
+                        repo_root=workspace_root,
+                        convergence_result=convergence_result,
                         review_result=None,
                     )
                     cycle_summary["reflection"] = post_drain_reflection

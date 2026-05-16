@@ -1,0 +1,59 @@
+{
+  "$schema": "aria/finding/v1",
+  "finding_id": "F-012",
+  "certainty": "CONFIRMED",
+  "claim_summary": "Plan ARIA-V6 — Autonomous Adapter Genesis via Convergent LLM Authoring + Lane-A Specialist Wiring. V5 wired the architectural shape (Gate A convergence + Gate B post-impl review) and universalized pedagogy to 81 agents, but operator's G1-G10 coverage audit revealed ~70% adapter gap and the capability_gap → skill_genesis loop still has 3 MANUAL gates (Draft, Sandbox, SHADOW→ACTIVE). V6 closes the gap via FOUR architectural moves: (D1) Gate C Lane-A specialist dispatch as a Tier-1 required kwarg on run_autonomy_orchestrator inserted between Gate A and worker_drainer, with deterministic pressure-driven specialist selection + cost cap + verdict-aggregation hallucination guard via Path.exists() against workspace_root; (D2) convergent_skill_authoring loop that makes adapter SOURCE CODE the product of a primary↔challenger debate bound to a Phase 0 evidence_pack (≥10 real file:line observations) with three CROSS-VERIFY gates (Path.exists + git show + snippet match) and judge-consensus exit at 100% calibration precision + recall>=0.90 + critical_FPs==0; (D3) operator-curated F-012-adapter-seeds.jsonl with 9 priority adapters that the V6.2 mechanism PRODUCES (NOT hand-coded); (D4) auto-promotion under narrow safe conditions (autonomous profile + min_precision>=0.95 + min_clean_cycles>=5 + critical_FPs==0 + evidence_chains_valid) via auto_promote_token, operator_approval path UNCHANGED. Three Tier-1 constraints derived from operator vision: 100% validation as structural exit, evidence-grounded debate (no hallucinated rule space), mutual hallucination guarantee.",
+  "claim_type": "plan_aria_v6_autonomous_adapter_genesis_arc",
+  "closes_in_commit": "Plan ARIA-V6 in progress: this commit C1 Phase 6.1 Gate C lands V6.1 (D1 RESOLVED). C2..C5 are tracked under D2..D4 + RESOLVED transition.",
+  "created_at": "2026-05-16T22:30:00Z",
+  "resolved_at": null,
+  "resolution_summary": "OPEN — Plan ARIA-V6 v2 APPROVED via 10-validator audit (13 BLOCKING corrections applied + 25 CONCERN tracked as Phase 0 work). C1 lands D1 (V6.1 Gate C specialist_review_runner + 6 invariants + R-A9 V3.3/V5 fixture compat + ROLES extension + AUTONOMY_PHASES extension + orchestrator wiring + CLI integration). C2..C5 OPEN.",
+  "scope": "aria-kernel/aria_kernel/{autonomy_orchestrator,specialist_review_runner,convergent_skill_authoring,evidence_collector,agent_invocations,autonomy_state,cli,skill_genesis,tool_registry,genesis_policy,adapter_calibration,reflection,verification_auditor,calibration_bootstrap,specialist_verdict_transformer}.py + aria-kernel/tests/invariants/v6/ + aria-kernel/tests/test_autonomy_orchestrator.py + aria-kernel/tests/invariants/{v3_3,v5}/ + tools/aria-poc/ci_executor.py + .claude/agents/{aria-primary-drafter,aria-challenger-drafter,aria-verification-auditor}.md + .claude/agents/_pedagogy-registry.json + tests/invariants/agent-pedagogy.allowlist.json + .github/workflows/aria-kernel*.yml + aria-findings/F-012-adapter-seeds.jsonl",
+  "severity": "HIGH",
+  "state": "OPEN",
+  "subfindings": [
+    {
+      "id": "F-012-D1",
+      "title": "V6.1 Gate C — Lane-A specialist dispatch wiring (specialist_review_runner Tier-1 required kwarg + deterministic selection + verdict-aggregation hallucination guard)",
+      "severity": "HIGH",
+      "tier": 1,
+      "phase": "V6 Phase 6.1 (Commit C1)",
+      "status": "RESOLVED",
+      "resolved_by_commit": "C1 (this commit)",
+      "resolution_note": "Plan ARIA-V6 Phase 6.1 (Commit C1) Tier-1 architectural wiring. specialist_review_runner REQUIRED kwarg on run_autonomy_orchestrator (no default, no Optional annotation per V5 §A1 precedent — I-V6-01 signature invariant). specialist_review_runner.py provides SpecialistReviewRunner Protocol + SpecialistReviewResult TypedDict + select_specialist_agents() deterministic algorithm (domain touch-map × cross-cutting × profile gate × cost cap) + transform_specialist_output() markdown→findings transformer with Path.exists hallucination guard (B-V9-1 fix — verified refs keep declared severity, unverified-only downgrade to MEDIUM) + run_specialist_review_runner() default impl + select_specialist_review_runner(profile) factory. Orchestrator inserts Gate C between convergence_resolved and worker_dispatch_drained; profile-conditional verdict gating (strict fails closed on specialists_unavailable; standard/autonomous fail open). 4 new AUTONOMY_PHASES (specialist_review_started/_round_completed/_resolved/_blocked). agent_invocations.ROLES extended with specialist_domain_review. cli.py integrates select_specialist_review_runner(profile). 6 V6.1 invariants pin the contract (I-V6-01 required-kwarg sig + I-V6.1-02 phase ordering + I-V6.1-03 selection determinism + I-V6.1-04 transform hallucination guard + I-V6.1-05 cost cap). R-A9 fixture compat applied to V3.3 + V5.1 + V5.2 invariant tests + tests/test_autonomy_orchestrator.py (all 44 regression tests green)."
+    },
+    {
+      "id": "F-012-D2",
+      "title": "V6.2 — Convergent adapter authoring loop (evidence-grounded primary↔challenger debate with 3 CROSS-VERIFY gates + judge-consensus 100% precision exit)",
+      "severity": "HIGH",
+      "tier": 1,
+      "phase": "V6 Phase 6.2 (Commit C2)",
+      "status": "OPEN",
+      "resolved_by_commit": null,
+      "resolution_note": "PENDING C2: evidence_collector.py (Phase 0 pre-authoring REAL repo scanner, ≥10 file:line observations per seed, bound to base_commit_sha, raises InsufficientEvidenceError on shortfall) + convergent_skill_authoring.py (primary_draft → CROSS-VERIFY #1 → challenger_draft → CROSS-VERIFY #2 → peer_review CROSS-VERIFY #3 → arbiter → sandbox → judges → 100% precision/recall/critical_FPs exit OR max_authoring_rounds=6 cap with drafts preserved). Plan_convergence binding via start_plan(plan_id=f'adapter-{seed_id}'). _results_pair_hash_check reused for collusion detection. 7 V6.2 invariants planned (I-V6.2-01..07). aria-primary-drafter + aria-challenger-drafter Lane-A agents added with evidence-grounding must_satisfy contracts."
+    },
+    {
+      "id": "F-012-D3",
+      "title": "V6.3 — Operator-curated adapter request seeds (9 priority adapters consumed by V6.2 mechanism)",
+      "severity": "MEDIUM",
+      "tier": 2,
+      "phase": "V6 Phase 6.3 (Commit C3)",
+      "status": "OPEN",
+      "resolved_by_commit": null,
+      "resolution_note": "PENDING C3: aria-findings/F-012-adapter-seeds.jsonl with 9 priority adapter requests (rust-edge-protocol, nats-topic-acl, graphql-security, gdpr-ops, stripe-webhook, ai-guardrails, mf-remote-integrity, docker-security, db-index-coverage) carrying must_satisfy + calibration_corpus_path per seed. skill_genesis.seed_adapter_requests(seeds_path) CLI subcommand batches seeds into skill-genesis/requests.jsonl with convergent=True flag. 3 V6.3 invariants planned (I-V6.3-01..03)."
+    },
+    {
+      "id": "F-012-D4",
+      "title": "V6.4 — Auto-promotion under safe conditions (autonomous profile + precision_history + critical_FPs==0 + evidence_chains_valid)",
+      "severity": "MEDIUM",
+      "tier": 2,
+      "phase": "V6 Phase 6.4 (Commit C4)",
+      "status": "OPEN",
+      "resolved_by_commit": null,
+      "resolution_note": "PENDING C4: tool_registry.transition_tool gains auto_promote_token kwarg; literal predicate `if (not operator_approval and not auto_promote_token) or not evidence_chains_valid:` (B-V1-1 preserves V5 evidence_chains_valid check; I-V6.4-04 source-substring guard). genesis_policy auto_promote.{enabled, min_precision, min_clean_cycles, profiles} block (default disabled). adapter_calibration.compute_auto_promote_token tamper-evident hash. operator_approval path UNCHANGED. 4 V6.4 invariants planned (I-V6.4-01..04)."
+    }
+  ],
+  "review_file": "/root/.claude/plans/immutable-sparking-waterfall.md",
+  "owner_agent": "orchestrator",
+  "raised_in_cycle": "10-validator-v6-plan-2026-05-16"
+}

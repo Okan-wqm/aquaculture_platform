@@ -91,6 +91,25 @@ def _fake_review_runner(**kwargs):
     }
 
 
+def _fake_specialist_review_runner(**kwargs):
+    """Plan ARIA-V6 §2c V6.1 — happy-path mock specialist review runner.
+
+    Returns ``consolidated_verdict="consolidated_no_gaps"`` so cycle
+    proceeds through worker_drainer. R-A9 compat pattern from V5 §A1.
+    """
+    return {
+        "cycle_id": kwargs.get("cycle_id", "cycle-test"),
+        "specialists_dispatched": ["auth-security-expert", "farm-expert"],
+        "specialists_timed_out": [],
+        "consolidated_verdict": "consolidated_no_gaps",
+        "findings_by_specialist": {},
+        "request_ids": [],
+        "rounds_count": 1,
+        "token_cost_estimate": 0,
+        "profile": kwargs.get("profile", "standard"),
+    }
+
+
 def _fake_planner_drainer(*, base_dir, workspace_root, max_iterations):
     return {
         "iterations": 1,
@@ -199,6 +218,11 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             # review_verdict="no_gaps" so auto_merge_runner still
             # fires per existing V3-era test expectations.
             review_runner=_fake_review_runner,
+            # Plan ARIA-V6 §2c v2 — specialist_review_runner is
+            # REQUIRED (V6.1 Tier-1, no default). Happy-path fake
+            # returns consolidated_no_gaps so cycle proceeds through
+            # worker_drainer.
+            specialist_review_runner=_fake_specialist_review_runner,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

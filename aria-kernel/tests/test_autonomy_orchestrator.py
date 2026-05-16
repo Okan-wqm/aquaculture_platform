@@ -51,6 +51,27 @@ def _failing_cycle_runner(
     raise RuntimeError("simulated cycle failure")
 
 
+def _fake_convergence_runner(**kwargs):
+    """Plan ARIA-V5 §4 V5.1 — happy-path mock convergence runner.
+
+    Returns ``arbiter_verdict="converged"`` on round 1 so the cycle
+    proceeds through worker_drainer + auto_merge_runner unimpeded.
+    Accepts ``**kwargs`` permissively (V3 §A2 pattern) so future
+    ConvergenceRunner Protocol kwargs do not break this fixture.
+    """
+    return {
+        "plan_id": kwargs.get("plan_id", f"plan-{kwargs.get('cycle_id', 'test')}"),
+        "converged_plan": {"plan_id": kwargs.get("plan_id"), "must_satisfy": []},
+        "rounds_count": 1,
+        "arbiter_verdict": "converged",
+        "unsatisfied_items": [],
+        "request_ids": [],
+        "transcript_path": f"convergence/{kwargs.get('cycle_id', 'test')}.jsonl",
+        "resumed_from_persistence": False,
+        "convergence_id": kwargs.get("plan_id", "plan-test"),
+    }
+
+
 def _fake_planner_drainer(*, base_dir, workspace_root, max_iterations):
     return {
         "iterations": 1,
@@ -149,6 +170,11 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             auto_merge_runner=_fake_auto_merge_runner,
             # Plan ARIA-V3 §A2 — github_adapter is REQUIRED.
             github_adapter=_fake_github_adapter,
+            # Plan ARIA-V5 §3c v2 — convergence_runner is REQUIRED
+            # (V5.1 Tier-1, no default). Happy-path fake returns
+            # arbiter_verdict="converged" so existing V3-era tests
+            # see worker_drainer + auto_merge_runner fire normally.
+            convergence_runner=_fake_convergence_runner,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

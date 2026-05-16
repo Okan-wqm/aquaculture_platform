@@ -84,7 +84,18 @@ def create_agent_invocation_request(
     context_repo_root: str | Path | None = None,
     context_window_tokens_override: int | None = None,
     role_cap_override: dict[str, float] | None = None,
+    plan_revision_hash: str | None = None,
 ) -> dict[str, Any]:
+    # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
+    # envelope to a specific plan revision so I-V5.1-03 can assert
+    # primary + challenger envelopes share the same plan_revision_hash
+    # AND convergence_id. Pre-V5 the envelope carried convergence_id
+    # alone — primary↔challenger could refer to different revisions of
+    # the same plan and the cross-review collusion check at
+    # plan_convergence.py:473 would not catch it. The field is
+    # optional (None = "not applicable") so legacy callers continue
+    # to work; convergent_planning_bridge.py forwards a value on the
+    # convergent-plan flow.
     if role not in ROLES:
         raise GovernanceError(f"unknown invocation role: {role}")
     if not target_agent.strip():
@@ -171,6 +182,13 @@ def create_agent_invocation_request(
         "must_satisfy": list(must_satisfy or []),
         "allowed_scope": list(allowed_scope or []),
         "evidence_refs": list(evidence_refs or []),
+        # Plan ARIA-V5 §3c v2 (B1 fix) — plan_revision_hash binds the
+        # envelope to a specific plan revision so I-V5.1-03 can assert
+        # primary + challenger envelopes share the hash for the same
+        # convergence round. Defaults to None for non-convergent
+        # callers (the request_state_legacy_unmigrated reject still
+        # fires for legacy fields, not for this new optional field).
+        "plan_revision_hash": plan_revision_hash,
     }
     # Plan 024 §B-2 — when the caller opted out of strict enforcement,
     # emit a governance event capturing target_agent + role + missing

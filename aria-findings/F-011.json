@@ -1,0 +1,76 @@
+{
+  "$schema": "aria/finding/v1",
+  "finding_id": "F-011",
+  "certainty": "CONFIRMED",
+  "claim_summary": "Plan ARIA-V5 — Adversarial Convergence Gates + Pedagogy Universalization. The autonomy orchestrator runs planner_drainer + worker_drainer + auto_merge unconditionally with no primary↔challenger convergence gate and no post-implementation adversarial review. Operator vision (2026-05-16): every plan must be reviewed continuously with two agents debating back-and-forth until validation is complete, and after implementation agents must again check for gaps. V5 wires the existing plan_convergence (1479 LOC) + convergent_planning_bridge (119 LOC) infrastructure into the runtime so Gate A (pre-worker convergence) gates worker_drainer, Gate B (post-impl review) gates auto_merge_runner. Pedagogy universalization extends V4's pedagogy-tier discipline from 9 ARIA agents to all 84 agents (75 currently without narrative pairings); operator's 'orneklerle acıklanmalı' principle becomes mandatory for Tier-1+Tier-3.",
+  "claim_type": "plan_aria_v5_adversarial_convergence_gates_arc",
+  "closes_in_commit": "Plan ARIA-V5: TBD-C1 (Phase 5.1 Fix-A Gate A wiring) + TBD-C2 (Phase 5.2 Fix-B Gate B wiring) + TBD-C3 (Phase 5.4 telemetry v2) + TBD-C4 (Phase 5.3 pedagogy universalization) + TBD-C5 (F-011 RESOLVED transition).",
+  "created_at": "2026-05-16T20:00:00Z",
+  "evidence_chain_id": "chain_aria_v5_convergence_gates_arc",
+  "evidences": [
+    {
+      "ref": "aria-kernel/aria_kernel/autonomy_orchestrator.py:497",
+      "summary": "worker_drainer is called UNCONDITIONALLY — no pre-dispatch convergence check exists. V5.1 Gate A wiring inserts convergence_runner call after the bridge_drained transition (after line 491) and gates worker_drainer on arbiter_verdict == 'converged'."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/autonomy_orchestrator.py:535",
+      "summary": "auto_merge_runner is called UNCONDITIONALLY after worker_drainer — no post-implementation review check. V5.2 Gate B wiring inserts review_runner call between lines ~530 and 535 and gates auto_merge_runner on review_verdict == 'no_gaps'."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/plan_convergence.py",
+      "summary": "1479 LOC state machine for primary↔challenger convergence already exists with 11 event kinds, 3 terminal states (CONVERGED/HUMAN_REQUIRED/ABANDONED), NEXT_ROUND_REQUIRED intermediate, satisfaction matrix, cross-review collusion check. NOT wired to autonomy_orchestrator — only operator CLI subcommands consume it today."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/convergent_planning_bridge.py:30+81",
+      "summary": "start_convergent_plan_with_envelope() + issue_challenger_envelope() both exist (119 LOC adapter to agent_invocations envelope queue). Plan ARIA-V5 §2 — both unwired to the runtime orchestrator."
+    },
+    {
+      "ref": ".claude/agents/aria-*.md (9 files)",
+      "summary": "Plan ARIA-V4 pedagogy-tier discipline applied to 9 ARIA agents. V5.3 extends to remaining 75 agents (84 total — Lane-A experts + Lane-B product-audit + _maintenance). Operator anchor (Plan V5 §1): 'agentlara yapma demek yerıne yaptıgında neler olacak neden yapmaması gerektıgı orneklerle acıklanmalı'."
+    },
+    {
+      "ref": "/root/.claude/plans/2026-05-16-aria-v5-convergence-gates.md",
+      "summary": "Plan ARIA-V5 v2 master plan — 6-agent audit (3 Explore + 3 Plan) + 3 validator agents (architectural + test seam + pedagogy). 13 corrections applied v1→v2. 5 commits planned, 14 V5 invariants + 2 required-injection invariants, F-010 successor."
+    }
+  ],
+  "subfindings": [
+    {
+      "id": "F-011-D1",
+      "title": "V5.1 Gate A — pre-worker convergence wiring (primary↔challenger debate loop)",
+      "severity": "HIGH",
+      "tier": 1,
+      "phase": "V5 Phase 5.1 (Commit C1)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-011-D2",
+      "title": "V5.2 Gate B — post-implementation adversarial review wiring (adversarial+evidence judges + auto_merge gating)",
+      "severity": "HIGH",
+      "tier": 1,
+      "phase": "V5 Phase 5.2 (Commit C2)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-011-D3",
+      "title": "V5.4 — Reflection schema v2 + convergence/pedagogy telemetry sub-objects",
+      "severity": "MEDIUM",
+      "tier": 2,
+      "phase": "V5 Phase 5.4 (Commit C3)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-011-D4",
+      "title": "V5.3 — Pedagogy universalization to 75 non-V4 agents + pedagogy_lint module + scaffold tool + lazy-expansion sibling .pedagogy.md files",
+      "severity": "MEDIUM",
+      "tier": 2,
+      "phase": "V5 Phase 5.3 (Commit C4)",
+      "status": "OPEN"
+    }
+  ],
+  "severity": "HIGH",
+  "scope": "aria-kernel/aria_kernel/{autonomy_orchestrator,convergence_drainer,review_runner,agent_invocations,convergent_planning_bridge,plan_convergence,autonomy_state,autonomous_planner_dispatcher,reflection,cli}.py + aria-kernel/tests/invariants/v5/ + .claude/agents/**/*.md + aria-kernel/aria_kernel/pedagogy_lint.py + scripts/aria/agent-pedagogy-scaffold.py",
+  "state": "OPEN",
+  "review_file": "/root/.claude/plans/2026-05-16-aria-v5-convergence-gates.md",
+  "owner_agent": "orchestrator",
+  "raised_in_cycle": "6-agent-v5-plan-2026-05-16"
+}

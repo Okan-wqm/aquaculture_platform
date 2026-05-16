@@ -45,10 +45,30 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     "planner_dispatch_drained",
     "bridge_drained",
     "convergent_plan_completed",
+    # Plan ARIA-V5 §2 V5.1 Gate A — pre-worker primary↔challenger
+    # convergence phases. ``convergence_started`` fires when the
+    # drainer issues the primary envelope; ``..._round_completed`` per
+    # round; ``..._resolved`` on terminal verdict; ``..._blocked``
+    # when verdict != "converged" and worker_drainer is therefore
+    # skipped. All four are discoverability-only — the reducer
+    # accepts any phase string (autonomy_state.py:146 docstring).
+    "convergence_started",
+    "convergence_round_completed",
+    "convergence_resolved",
+    "convergence_blocked",
     "worker_dispatch_drained",
     "validation_completed",
     "pr_lifecycle_completed",
     "auto_merge_completed",
+    # Plan ARIA-V5 §2 V5.2 Gate B — post-implementation adversarial
+    # review phases. ``review_started`` fires when review_runner is
+    # invoked; ``..._round_completed`` per judge round;
+    # ``..._resolved`` on terminal verdict; ``..._blocked_merge`` when
+    # verdict != "no_gaps" and auto_merge_runner is therefore skipped.
+    "review_started",
+    "review_round_completed",
+    "review_resolved",
+    "review_blocked_merge",
     "next_cycle_queued",
     "aria_stop",
     "profile_frozen",

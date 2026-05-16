@@ -189,6 +189,24 @@ class PhaseV3_3ReflectionOrdering(unittest.TestCase):
         from aria_kernel.autonomy_orchestrator import (
             run_autonomy_orchestrator,
         )
+        # Plan ARIA-V5 R-A9 (v2) — V3.3 invariant tests must supply
+        # convergence_runner since V5.1 makes it REQUIRED. A happy-
+        # path fake returns arbiter_verdict="converged" so worker +
+        # auto_merge still fire and the V3.3 reflection-ordering
+        # assertions hold (governance row ordering between drainer
+        # rows and reflection_recorded events).
+        def _v5_fake_convergence_runner(**kwargs):
+            return {
+                "plan_id": kwargs.get("plan_id", "plan-test"),
+                "converged_plan": {},
+                "rounds_count": 1,
+                "arbiter_verdict": "converged",
+                "unsatisfied_items": [],
+                "request_ids": [],
+                "transcript_path": "",
+                "resumed_from_persistence": False,
+                "convergence_id": kwargs.get("plan_id", "plan-test"),
+            }
         return run_autonomy_orchestrator(
             base_dir=self.base,
             workspace_root=str(self.tmp),
@@ -202,6 +220,7 @@ class PhaseV3_3ReflectionOrdering(unittest.TestCase):
             },
             auto_merge_runner=_FakeAutoMergeRunner(),
             github_adapter=_FakeGitHubAdapter(),
+            convergence_runner=_v5_fake_convergence_runner,
         )
 
     def _read_governance(self) -> list[dict]:

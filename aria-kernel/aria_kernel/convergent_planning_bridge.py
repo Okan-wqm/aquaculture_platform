@@ -37,7 +37,13 @@ def start_convergent_plan_with_envelope(
     allowed_scope: list[str],
     base_dir: str | Path | None = None,
     suggested_prompt: str = "Draft an architecture-first convergent plan.",
+    plan_revision_hash: str | None = None,
 ) -> dict[str, Any]:
+    # Plan ARIA-V5 §3c v2 (B1 fix) — plan_revision_hash forwarded to
+    # the envelope so I-V5.1-03 can assert primary + challenger share
+    # the same hash binding. Defaults to ``initial_revision_id`` when
+    # caller doesn't supply (the revision id itself is content-bound
+    # via plan_convergence's content_hash discipline).
     """Open a plan in plan_convergence AND issue the primary planner envelope.
 
     Returns the merged record so the caller has both the plan ledger row
@@ -71,6 +77,7 @@ def start_convergent_plan_with_envelope(
         convergence_id=plan_id,
         round_number=1,
         base_dir=base_dir,
+        plan_revision_hash=plan_revision_hash or initial_revision_id,
     )
     return {
         "plan": plan_row,
@@ -87,6 +94,7 @@ def issue_challenger_envelope(
     allowed_scope: list[str],
     suggested_prompt: str = "Independently scan the codebase and write a competing plan from the same evidence.",
     base_dir: str | Path | None = None,
+    plan_revision_hash: str | None = None,
 ) -> dict[str, Any]:
     """Issue the challenger planner envelope for a given convergence round.
 
@@ -116,4 +124,5 @@ def issue_challenger_envelope(
         convergence_id=plan_id,
         round_number=round_number,
         base_dir=base_dir,
+        plan_revision_hash=plan_revision_hash,
     )

@@ -75,6 +75,12 @@ if TYPE_CHECKING:
     # imports from auto_merge which imports from this module's
     # peers; TYPE_CHECKING avoids a circular import at runtime).
     from .auto_merge_runners import AutoMergeRunner
+    # Plan ARIA-V5 §3c v2 — ConvergenceRunner Protocol typed-only
+    # import. Same TYPE_CHECKING discipline as auto_merge_runners
+    # above: the convergence_drainer module imports from
+    # plan_convergence + convergent_planning_bridge which import
+    # from tool_registry which imports from this module's peers.
+    from .convergence_drainer import ConvergenceRunner
 
 
 __all__ = [
@@ -220,6 +226,7 @@ def run_autonomy_orchestrator(
     base_dir: str | Path,
     auto_merge_runner: "AutoMergeRunner",
     github_adapter: Any,
+    convergence_runner: "ConvergenceRunner",
     workspace_root: str | Path | None = None,
     max_cycles: int = DEFAULT_MAX_CYCLES,
     max_iterations_per_phase: int = DEFAULT_MAX_ITERATIONS_PER_PHASE,
@@ -230,6 +237,22 @@ def run_autonomy_orchestrator(
     worker_drainer: Callable[..., dict[str, Any]] | None = None,
     bridge_drainer: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    # Plan ARIA-V5 §3a v2 — ``convergence_runner`` is REQUIRED with NO
+    # default (Tier-1 "Make impossible"). The kwarg mirrors the V3 §A1
+    # ``auto_merge_runner`` + §A2 ``github_adapter`` precedent: every
+    # caller must explicitly supply a runner. Operator-facing CLI uses
+    # ``select_convergence_runner(profile)`` from
+    # ``aria_kernel.convergence_drainer``; tests inject mock fakes
+    # directly. The orchestrator does NOT silently default — a missing
+    # kwarg becomes a TypeError at signature binding, NOT a silent
+    # skip of the convergence gate.
+    #
+    # Why Tier-1 not Tier-2: the operator's V5 vision ("planları sureklı
+    # en bastan revıew ederek ıkı agent bırbırıne atarak valıde sekılde
+    # sonlanrmalı") demands convergence on EVERY cycle. A Tier-2
+    # optional-with-None-default would let a future caller silently
+    # bypass the gate. Required-kwarg + invariant I-V5-01 enforce the
+    # contract structurally.
     """Plan 026R §F.1 LOAD-BEARING — run one or more autonomy cycles.
 
     Returns a structured summary with per-cycle phase results +
@@ -489,6 +512,100 @@ def run_autonomy_orchestrator(
                         "iterations": bridge_result.get("iterations"),
                     },
                 )
+
+                # Plan ARIA-V5 §2 V5.1 Phase 5.1 — Gate A pre-worker
+                # convergence drainer. Drive primary↔challenger debate
+                # until consensus arbiter or max_rounds; gate
+                # worker_drainer on arbiter_verdict == "converged".
+                #
+                # Operator vision (Plan ARIA-V5 §1 verbatim):
+                #   "planları sureklı en bastan revıew ederek ıkı agent
+                #   bırbırıne atarak valıde sekılde sonlanrmalı"
+                #
+                # The convergence_runner is REQUIRED (Tier-1, no default
+                # at signature). When verdict != "converged", the
+                # remainder of this cycle (worker_drainer +
+                # auto_merge_runner) is skipped; reflection still runs
+                # so the operator-facing daily report records the
+                # convergence-blocked status.
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="convergence_started",
+                    status="ok",
+                    profile=profile_snapshot,
+                    details={"plan_id": f"plan-{cycle_id}"},
+                )
+                convergence_result = convergence_runner(
+                    cycle_id=cycle_id,
+                    base_dir=root,
+                    workspace_root=workspace_root,
+                    plan_id=f"plan-{cycle_id}",
+                    plan_seed={"cycle_id": cycle_id},
+                    must_satisfy=[{
+                        "id": "cycle-impl-satisfies-scope",
+                        "description":
+                            "Implementation must satisfy the cycle's "
+                            "must_satisfy contract derived from "
+                            "discovery + planner output.",
+                    }],
+                    evidence_refs=[f"cycle:{cycle_id}"],
+                    allowed_scope=[f"cycle/{cycle_id}"],
+                    max_rounds=max_iterations_per_phase,
+                )
+                cycle_summary["convergence"] = convergence_result
+                arbiter_verdict = convergence_result.get(
+                    "arbiter_verdict", "split",
+                )
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="convergence_resolved",
+                    status=str(arbiter_verdict),
+                    profile=profile_snapshot,
+                    details={
+                        "rounds_count":
+                            convergence_result.get("rounds_count"),
+                        "unsatisfied_count": len(
+                            convergence_result.get("unsatisfied_items", [])
+                        ),
+                        "plan_id": convergence_result.get("plan_id"),
+                    },
+                )
+
+                if arbiter_verdict != "converged":
+                    # Plan ARIA-V5 §2 V5.1 — convergence did not pass.
+                    # Skip worker_drainer + auto_merge_runner for this
+                    # cycle. Reflection still runs (V3.3 §2b) so the
+                    # daily report captures the convergence-blocked
+                    # status; operator sees the verdict in
+                    # cycle_summary["dispatch_blocked_reason"].
+                    cycle_summary["dispatch_blocked_reason"] = (
+                        f"convergence_{arbiter_verdict}"
+                    )
+                    AutonomyStateReducer.transition(
+                        root,
+                        cycle_id=cycle_id,
+                        phase="convergence_blocked",
+                        status=str(arbiter_verdict),
+                        profile=profile_snapshot,
+                        details={
+                            "rounds_count":
+                                convergence_result.get("rounds_count"),
+                        },
+                    )
+                    # Plan ARIA-V3.3 §2b — post-drain reflection STILL
+                    # runs on convergence-blocked cycles so the daily
+                    # report covers them. The orchestrator owns this
+                    # invocation (defer_reflection=True on cycle_runner).
+                    post_drain_reflection = run_reflection(
+                        cycle_id=cycle_id,
+                        base_dir=root,
+                        repo_root=workspace_root,
+                    )
+                    cycle_summary["reflection"] = post_drain_reflection
+                    per_cycle_results.append(cycle_summary)
+                    continue
 
                 # Phase: worker dispatch drain (bounded).
                 # Plan ARIA-V3 §A2 — github_adapter is REQUIRED;

@@ -3229,10 +3229,12 @@ def _main(argv: list[str] | None = None) -> int:
         # Plan 026R §F.1 — unified orchestrator entry point.
         # Plan ARIA-V3 §A1 — auto_merge_runner is REQUIRED.
         # Plan ARIA-V3 §A2 — github_adapter is REQUIRED.
-        # Both factories key off the runtime profile so the
-        # operator never passes either dependency explicitly.
+        # Plan ARIA-V5 §3c v2 — convergence_runner is REQUIRED (V5.1
+        # Tier-1). All three factories key off the runtime profile so
+        # the operator never passes any dependency explicitly.
         from .autonomy_orchestrator import run_autonomy_orchestrator
         from .auto_merge_runners import select_auto_merge_runner
+        from .convergence_drainer import select_convergence_runner
         from .github_adapters import select_github_adapter
         # Plan ARIA-V3.1 §2a — ``get_profile`` already imported
         # at module level (line 105); nested re-import removed.
@@ -3243,10 +3245,12 @@ def _main(argv: list[str] | None = None) -> int:
             base_dir=args.tools_dir,
             cwd=str(args.workspace_root),
         )
+        convergence_runner = select_convergence_runner(profile=profile)
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
             auto_merge_runner=auto_merge_runner,
             github_adapter=github_adapter,
+            convergence_runner=convergence_runner,
             workspace_root=args.workspace_root,
             max_cycles=args.max_cycles,
             max_iterations_per_phase=args.max_iterations_per_phase,

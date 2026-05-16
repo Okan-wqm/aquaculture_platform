@@ -67,8 +67,96 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _walk_up_to_bound_identity(start_cwd: str | os.PathLike[str]) -> Path | None:
+    """Plan ARIA-V3.3 §2a — walk-up resolver for an existing aria-tools.
+
+    Walks the directory chain from ``start_cwd`` toward the filesystem
+    root. At each ancestor checks whether
+    ``<ancestor>/aria-tools/repo_identity.json`` exists; returns the
+    FIRST matching ``<ancestor>/aria-tools`` as an absolute path.
+
+    Why walk-up vs CWD-relative fallback (pre-V3.3 behavior):
+      * Pre-V3.3, ``tools_dir(None)`` returned ``Path("aria-tools")``
+        — CWD-relative. A kernel invocation from inside the
+        ``aria-kernel/`` subdir silently created a SHADOW
+        ``aria-kernel/aria-tools/`` tree because the relative path
+        resolved against the wrong cwd. Reflection then read the
+        shadow ledger (a handful of stale rows) instead of the
+        canonical worktree-rooted ``aria-tools/``.
+      * Walk-up locates the canonical tools root from ANY cwd inside
+        the worktree by definition — the canonical root is the first
+        initialized aria-tools encountered on the way to filesystem
+        root. The defect class is structurally impossible after this
+        change (Tier-1 — "make impossible").
+
+    Returns ``None`` if no initialized aria-tools is found before the
+    filesystem root. The caller decides whether ``None`` means
+    "fail-fast" (the default ``tools_dir`` path) or "no-op" (the
+    frozen-profile read helper ``ensure_tools_dir_readonly``).
+    """
+    cur = Path(start_cwd).resolve()
+    while True:
+        candidate = cur / "aria-tools" / "repo_identity.json"
+        if candidate.is_file():
+            return (cur / "aria-tools").resolve()
+        if cur.parent == cur:
+            return None
+        cur = cur.parent
+
+
 def tools_dir(path: str | os.PathLike[str] | None = None) -> Path:
-    return Path(path or os.environ.get("ARIA_TOOLS_DIR", "aria-tools"))
+    """Plan ARIA-V3.3 §2a — always-absolute tools_dir resolver.
+
+    Resolution order:
+      1. Explicit ``path`` argument → ``Path(path).resolve()``.
+      2. ``ARIA_TOOLS_DIR`` env var → ``Path(env).resolve()``.
+      3. Walk up from cwd to the first
+         ``<ancestor>/aria-tools/repo_identity.json`` and return that
+         absolute directory.
+      4. Raise ``GovernanceError("tools_root_unresolvable")`` with a
+         remediation pointer to ``aria-kernel integrity migrate-tools-
+         bootstrap``.
+
+    Why this matters (Plan ARIA-V3.3 §2a / F-010-D4):
+      The pre-V3.3 fallback ``Path("aria-tools")`` was CWD-relative.
+      When the kernel was invoked from inside the ``aria-kernel/``
+      subdir (e.g. ``cd aria-kernel && python -m aria_kernel.cli ...``),
+      the relative path resolved against the wrong cwd and silently
+      created a SHADOW ``aria-kernel/aria-tools/`` tree. Reflection
+      then read the shadow ledger instead of the canonical worktree-
+      rooted ``aria-tools/`` — the daily report's "Total governance
+      events" number diverged from the actual governance.jsonl
+      contents.
+
+      V3.3 closes the class architecturally: ``tools_dir`` NEVER
+      returns a CWD-relative path. Every successful return is an
+      absolute Path; if no path can be inferred, the kernel raises
+      with an explicit remediation message rather than auto-creating a
+      shadow.
+
+    Operator workflow on a fresh checkout: run
+    ``aria-kernel integrity migrate-tools-bootstrap --workspace-root .
+    --tools-dir aria-tools --acknowledge --reason "<text>"`` once.
+    Subsequent invocations from any cwd inside the worktree find the
+    canonical aria-tools via walk-up.
+    """
+    if path is not None:
+        return Path(path).resolve()
+    env = os.environ.get("ARIA_TOOLS_DIR")
+    if env:
+        return Path(env).resolve()
+    discovered = _walk_up_to_bound_identity(Path.cwd())
+    if discovered is not None:
+        return discovered
+    raise GovernanceError(
+        "tools_root_unresolvable: no --tools-dir argument, no "
+        "ARIA_TOOLS_DIR env var, and no parent directory contains an "
+        "initialized aria-tools/ with repo_identity.json. Run "
+        "`aria-kernel integrity migrate-tools-bootstrap "
+        "--workspace-root . --tools-dir aria-tools --acknowledge "
+        "--reason \"<text>\"` to initialize a tools root, OR set "
+        "ARIA_TOOLS_DIR=<absolute-path>, OR pass --tools-dir explicitly."
+    )
 
 
 def registry_path(base_dir: str | os.PathLike[str] | None = None) -> Path:

@@ -231,7 +231,7 @@ class PhaseV3_2ReflectionPathResolution(unittest.TestCase):
         cycle_id = "cycle-v3_2-06"
         # Seed a tools_root under cwd so .resolve() finds it.
         os.chdir(self.tmp)
-        rel_tools = Path("aria-tools")
+        rel_tools = Path("aria-tools")  # allowlist-aria-tools-literal: V3.2 hotfix + V3.3 §2a verify relative input gets resolved to absolute, not rejected
         abs_tools = (self.tmp / "aria-tools").resolve()
         abs_tools.mkdir(parents=True, exist_ok=True)
         seed_governance_jsonl(

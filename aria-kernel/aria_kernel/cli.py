@@ -199,6 +199,14 @@ def add_subparser(
 _TOOLS_DIR_REQUIRED_COMMANDS: frozenset[tuple[str, ...]] = frozenset({
     ("integrity", "migrate-tools-v1-to-v2"),
     ("integrity", "rollback-tools-v2-to-v1"),
+    # Plan ARIA-V3.3 §2a — bootstrap-class commands MUST name the
+    # target tools dir explicitly because no walk-up can succeed
+    # before bootstrap has ever run. The CLI rejects a bare
+    # ``migrate-tools-bootstrap`` invocation BEFORE
+    # tool_registry.tools_dir is consulted, so operators get a clear
+    # ``--tools-dir is required`` error instead of the downstream
+    # ``tools_root_unresolvable`` GovernanceError.
+    ("integrity", "migrate-tools-bootstrap"),
 })
 
 
@@ -1517,26 +1525,46 @@ def _main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    # Plan 024 §F — post-parse path resolution + required-validation.
-    # (a) ENV var fallback: ARIA_TOOLS_DIR is the zero-effort default
-    #     when neither flag position carried a value. We always set
-    #     args.tools_dir on the Namespace (even to None) so downstream
-    #     dispatch sites can call args.tools_dir without AttributeError;
-    #     downstream resolvers (e.g. tool_registry.tools_dir(None))
-    #     already handle None by falling back to "aria-tools".
-    # (b) Required-validation: 2 commands genuinely require operator-
-    #     supplied --tools-dir (integrity migrate/rollback). Validation
-    #     in a single dict avoids 89 per-callsite required=True flags.
-    if not getattr(args, "tools_dir", None):
-        env_default = os.environ.get("ARIA_TOOLS_DIR")
-        args.tools_dir = env_default if env_default else None
-
+    # Plan 024 §F + Plan ARIA-V3.3 §2a — post-parse path resolution +
+    # required-validation. Resolution order at CLI entry:
+    #   1. --tools-dir flag (already parsed by argparse if passed)
+    #   2. ARIA_TOOLS_DIR env var
+    #   3. Walk-up from cwd to <ancestor>/aria-tools/repo_identity.json
+    # The required-commands check uses ONLY paths (1)+(2). Destructive
+    # integrity migrations refuse to accept a walk-up-discovered tools
+    # dir because the operator MUST name the target explicitly — a
+    # walk-up resolution would silently rollback whatever tools dir
+    # happened to be on the ancestor chain. Walk-up is a soft default
+    # for normal commands, not a substitute for explicit operator
+    # intent on destructive paths.
+    # Pre-V3.3, downstream ``tools_dir(None)`` silently fell back to
+    # ``Path("aria-tools")`` (CWD-relative), creating shadow
+    # ``aria-kernel/aria-tools/`` trees when the kernel was invoked
+    # from inside the aria-kernel subdir. V3.3 adds step (3) at the
+    # CLI boundary so args.tools_dir is either an absolute path or
+    # None, never a relative literal. If args.tools_dir remains None
+    # and the command needs a tools root, downstream
+    # tool_registry.tools_dir() raises ``tools_root_unresolvable``
+    # with the bootstrap remediation pointer.
     cmd_path = _command_path(args)
-    if cmd_path in _TOOLS_DIR_REQUIRED_COMMANDS and not args.tools_dir:
+    explicit_or_env = (
+        getattr(args, "tools_dir", None)
+        or os.environ.get("ARIA_TOOLS_DIR")
+    )
+    if cmd_path in _TOOLS_DIR_REQUIRED_COMMANDS and not explicit_or_env:
         parser.error(
             f"--tools-dir is required for command {' '.join(cmd_path)} "
             f"(or set ARIA_TOOLS_DIR env var)"
         )
+
+    if getattr(args, "tools_dir", None):
+        args.tools_dir = str(Path(args.tools_dir).resolve())
+    elif os.environ.get("ARIA_TOOLS_DIR"):
+        args.tools_dir = str(Path(os.environ["ARIA_TOOLS_DIR"]).resolve())
+    else:
+        from .tool_registry import _walk_up_to_bound_identity
+        discovered = _walk_up_to_bound_identity(Path.cwd())
+        args.tools_dir = str(discovered) if discovered is not None else None
 
     legacy_pressure_explain = (
         args.command == "pressure"

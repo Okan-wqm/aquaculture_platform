@@ -43,7 +43,17 @@ def run_discovery(
         append_tools_governance(
             tools_root,
             "discovery_dirty_tree_skipped",
-            {"dirty_files_count": len(dirty_paths), "head_sha": snapshot.get("base_commit_sha")},
+            # Plan ARIA-V3.2 §2c (F-010-D3) — every cycle-bound
+            # governance event MUST carry cycle_id so replay tools
+            # filtering by cycle correctly surface the dirty-tree
+            # decision. Sibling event ``discovery_legacy_field_emitted``
+            # below also includes it (line 66). Invariant I-V3.2-08
+            # locks the closed allowlist contract.
+            {
+                "dirty_files_count": len(dirty_paths),
+                "head_sha": snapshot.get("base_commit_sha"),
+                "cycle_id": cycle_id,
+            },
         )
     fates = snapshot["fates"]
     missing = [fate["path"] for fate in fates if fate["fate"] == "unknown"]

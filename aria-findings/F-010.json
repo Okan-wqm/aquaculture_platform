@@ -1,0 +1,74 @@
+{
+  "$schema": "aria/finding/v1",
+  "finding_id": "F-010",
+  "certainty": "CONFIRMED",
+  "claim_summary": "Plan ARIA-V3.2 — Runtime-Defect Closure post-V4 fresh-run audit. 10-agent parallel audit on commit 5b88522a surfaced 3 runtime defects + 1 deferred shadow-tree issue. D1: belief evidence freshness — multiple write paths to beliefs.jsonl (_record_belief / _apply_diff_to_existing_beliefs / _mark_quarantined_source_beliefs) with only the support path stamping freshness fields. D2: daily-report 'Total governance events' reads from shadow aria-kernel/aria-tools/ tree due to tool_registry.tools_dir CWD-relative fallback. D3: discovery_dirty_tree_skipped governance event missing cycle_id in details. D4 (DEFERRED to V3.3): full tools_dir Tier-1 rewrite + shadow-tree purge (blast radius too large — ~30 callsite migration). Plan ARIA-V3.2 lands Tier-1 unified-writer fix for D1, Tier-2 narrow caller-layer assertion for D2, Tier-3 schema completeness for D3, with 10 invariants total under aria-kernel/tests/invariants/v3_2/.",
+  "claim_type": "plan_aria_v3_2_runtime_defect_closure_arc",
+  "closes_in_commit": "<TBD per phase commit>",
+  "created_at": "2026-05-16T00:00:00Z",
+  "evidence_chain_id": "chain_aria_v3_2_runtime_defect_closure",
+  "evidences": [
+    {
+      "ref": "aria-kernel/aria_kernel/memory.py:472-555 + :580-641 + :652-698",
+      "summary": "D1 ROOT CAUSE — three independent writers to beliefs.jsonl; only _record_belief stamps verified_at + base_commit_sha. _apply_diff_to_existing_beliefs (diff-decay) + _mark_quarantined_source_beliefs (quarantine) append rows without refreshing freshness."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/tool_registry.py:70-71",
+      "summary": "D2 ROOT CAUSE — tools_dir() default fallback Path('aria-tools') is CWD-relative. When invoked from aria-kernel/ subdir, creates SHADOW aria-kernel/aria-tools/ tree. Reflection's _gate_activity_summary then reads the shadow ledger (8 stale rows) instead of canonical aria-tools/governance.jsonl (29 fresh rows)."
+    },
+    {
+      "ref": "aria-kernel/aria_kernel/discovery.py:43-47",
+      "summary": "D3 ROOT CAUSE — append_tools_governance call for 'discovery_dirty_tree_skipped' omits cycle_id in details dict, despite cycle_id being in function scope and every sibling event including it."
+    },
+    {
+      "ref": "/root/.claude/plans/immutable-sparking-waterfall.md",
+      "summary": "Plan ARIA-V3.2 master plan — 6-agent audit (3 Explore + 3 Plan), 4 commits planned (D3 -> D2 -> D1 -> holistic), 10 invariants under aria-kernel/tests/invariants/v3_2/, F-010-D4 named-deferral to V3.3."
+    },
+    {
+      "ref": "Plan ARIA-V3 + V3.1 + V4 CONVERGED baseline (1676/1676 kernel tests green)",
+      "summary": "Predecessor — F-009 RESOLVED at V4 final commit 5b88522a. V3.2 extends, does not replace; new invariants land at v3_2/ alongside existing v3/, v3_1/, v4/."
+    }
+  ],
+  "subfindings": [
+    {
+      "id": "F-010-D1",
+      "title": "Belief evidence freshness — unify writers through single freshness-stamping helper",
+      "severity": "HIGH",
+      "tier": 1,
+      "phase": "V3.2 Phase 3.3",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-010-D2",
+      "title": "Reflection caller-layer absolute-path assertion (narrow scope)",
+      "severity": "MEDIUM",
+      "tier": 2,
+      "phase": "V3.2 Phase 3.2",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-010-D3",
+      "title": "discovery_dirty_tree_skipped governance event missing cycle_id",
+      "severity": "LOW",
+      "tier": 3,
+      "phase": "V3.2 Phase 3.1",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-010-D4-DEFERRED",
+      "title": "Full tools_dir Tier-1 rewrite + shadow-tree purge",
+      "severity": "MEDIUM",
+      "tier": 1,
+      "phase": "DEFERRED",
+      "deferred_to": "Plan ARIA-V3.3",
+      "deferred_reason": "Architectural-scope-too-large: ~30 callsites depend on the CWD-relative fallback; many tests chdir into fixture dirs; operator workflows rely on it. NOT a 'for now' deferral — named follow-up plan with explicit owner (kernel team) + scope.",
+      "status": "OPEN"
+    }
+  ],
+  "severity": "HIGH",
+  "scope": "aria-kernel/aria_kernel/{discovery,reflection,memory,cycle}.py + aria-kernel/tests/invariants/v3_2/",
+  "state": "OPEN",
+  "review_file": "/root/.claude/plans/immutable-sparking-waterfall.md",
+  "owner_agent": "orchestrator",
+  "raised_in_cycle": "10-agent-fresh-run-audit-2026-05-16"
+}

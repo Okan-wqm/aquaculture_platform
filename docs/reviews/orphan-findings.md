@@ -3686,4 +3686,56 @@ After reflection completes, the cycle emits 25 more events (5×4 iteration rows 
 
 **Recommended:** Option (a) — reorder. The reflection function is meant to be the cycle's summary; running it mid-cycle violates that semantic. Run_reflection should be the LAST thing in `run_enterprise_cycle` after planner+worker drains complete.
 
-**Status:** OPEN. Owner: Plan ARIA-V3.3 (will own the broader `tools_dir` rewrite AND can absorb this reordering work as part of the same architectural pass). Tracked separately so V3.3 scope decisions can include or exclude it.
+**Status:** RESOLVED (2026-05-16) via Plan ARIA-V3.3 Phase 3.2 commit `b892ef09`. Implementation chose option (a)+(d) hybrid: `run_enterprise_cycle` gained `defer_reflection: bool = False` kwarg; the autonomy orchestrator passes `True` and invokes `run_reflection` itself AFTER its `planner_drainer + bridge_drainer + worker_drainer + auto_merge_runner` phases complete. The direct CLI path (`aria-kernel cycle run`) preserves the legacy inline-reflection contract via the `False` default. Three V3.3 invariants pin the contract: I-V3.3-05 (reflection observes drainer events), I-V3.3-06 (daily report total matches reflection snapshot), I-V3.3-07 (defer_reflection kwarg returns reflection=None + no daily report). Empirical end-to-end verification (2026-05-16 autonomous-loop fresh-run, max-cycles=1): daily report `Total governance events: 47` vs actual `governance.jsonl` 48 rows — delta=1 (the post-reflection `autonomy_orchestrator_exit` row). Pre-V3.3 the delta was ~25. F-010 umbrella RESOLVED in commit `e1c57d65`.
+
+---
+
+
+## ORPHAN-MEDIUM-078 — `<root> / "aria-tools"` literal-join callsites bypass V3.3 walk-up resolver (parallel resolution surface)
+
+**Severity:** MEDIUM (Tier-3 latent gap; defect class is closed for `tools_dir(None)` but the same shape could re-emerge through unresolved literal joins)
+**Discovered:** 2026-05-16, post Plan ARIA-V3.3 6-agent fresh-run audit (Agent A structural verdict, HEAD `e1c57d65`)
+**Files (8+ callsites identified):**
+
+- `aria-kernel/aria_kernel/cli.py:2182` (`workspace_root / "aria-tools"`)
+- `aria-kernel/aria_kernel/tool_runner.py:397` (`root / "aria-tools"`)
+- `aria-kernel/aria_kernel/report.py:122` (`workspace_root / "aria-tools"`)
+- `aria-kernel/aria_kernel/finding.py:211` (`repo_root / "aria-tools"`)
+- `aria-kernel/aria_kernel/telemetry.py:73` (`workspace_root / "aria-tools"`)
+- `aria-kernel/aria_kernel/architecture_spine_gate.py:266` + `:319` (`paths.repo_root / "aria-tools"`)
+- `aria-kernel/aria_kernel/surface_manifest_validator.py:183, 366, 408` (`repo_root / "aria-tools"`)
+
+**Evidence:** Plan ARIA-V3.3 Phase 3.1 made `tool_registry.tools_dir()` the SSoT for tools-root resolution — explicit path → `ARIA_TOOLS_DIR` env → walk-up → raise. However, the callsites above join `"aria-tools"` directly onto an already-resolved `workspace_root` / `repo_root` / `paths.repo_root` instead of routing through `tool_registry.tools_dir()`. Per Agent A's verdict, these are technically *correct* today because all callers pass an already-absolute root, but they **bypass the V3.3 SSoT**:
+
+```
+# V3.3 SSoT:
+tools_dir()  # honors --tools-dir flag, ARIA_TOOLS_DIR env, walk-up
+
+# Bypass shape (current pattern at 8+ sites):
+workspace_root / "aria-tools"  # always <workspace_root>/aria-tools/, ignores env override
+```
+
+**Problem:** If an operator ever sets `ARIA_TOOLS_DIR=/custom/path` to override the location (a documented escape hatch per V3.3 §2a resolution-order step 2), the `tool_registry.tools_dir()` path honors it but the 8+ literal-join callsites still go to `<workspace_root>/aria-tools/`. The two surfaces diverge. Operator workflows that depend on the env override will silently get a partial split.
+
+The defect is currently LATENT — no operator workflow has reported divergent paths because the env override is rarely used in production. But the V3.3 SSoT discipline is undermined by parallel literal-join surfaces.
+
+**Risk:** Tier-3 ("make detectable") gap. Today's correctness depends on every caller passing an absolute resolved root; tomorrow a caller could pass an unresolved or wrong root and the literal-join would create a shadow tree all over again (precisely the F-010-D4 class that V3.3 §2a closed for `tools_dir(None)`).
+
+**Reproducibility:**
+1. Set `ARIA_TOOLS_DIR=/tmp/override-aria-tools` (a valid initialized override).
+2. Run a kernel command that uses one of the literal-join callsites (e.g. `aria-kernel report daily --emit-anchor`).
+3. Observe: governance/anchor writes go to `<workspace_root>/aria-tools/`, NOT `/tmp/override-aria-tools/`.
+4. Run a kernel command that uses `tool_registry.tools_dir()` (e.g. `aria-kernel autonomy run`).
+5. Observe: writes go to `/tmp/override-aria-tools/`.
+
+**Architectural fix options:**
+
+(a) **Funnel every callsite through a single `resolve_tools_root(workspace_root=None)` helper in `tool_registry`** — the helper internally calls `tools_dir()` and asserts the resolved path == `<workspace_root>/aria-tools` when both are provided. Tier-2 architectural: makes the SSoT the only path; removes the literal-join surface entirely.
+
+(b) **Lint invariant** that bans `"aria-tools"` string literal joins outside `tool_registry.py` — Tier-3 detectable. AST scan in CI rejects new bypass callsites.
+
+(c) **Audit + update 8 callsites individually** to route through `tools_dir()` — Tier-2 architectural, identical end-state to (a) but spread across more files.
+
+**Recommended:** Option (a) — single architectural helper in `tool_registry` (`resolve_tools_root(workspace_root) -> Path`) + Option (b) as the CI invariant that pins the discipline. Both as a single follow-up plan, since they share scope.
+
+**Status:** OPEN. Owner: follow-up plan TBD. Tier-3 gap; not blocking V3.3 closure (F-010-D4 is RESOLVED at the `tools_dir(None)` surface). Tracked here so the V3.3 architectural pass extends naturally if a future operator wants to harden the parallel surfaces.

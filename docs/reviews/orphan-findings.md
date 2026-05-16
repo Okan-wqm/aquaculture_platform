@@ -3739,3 +3739,63 @@ The defect is currently LATENT — no operator workflow has reported divergent p
 **Recommended:** Option (a) — single architectural helper in `tool_registry` (`resolve_tools_root(workspace_root) -> Path`) + Option (b) as the CI invariant that pins the discipline. Both as a single follow-up plan, since they share scope.
 
 **Status:** OPEN. Owner: follow-up plan TBD. Tier-3 gap; not blocking V3.3 closure (F-010-D4 is RESOLVED at the `tools_dir(None)` surface). Tracked here so the V3.3 architectural pass extends naturally if a future operator wants to harden the parallel surfaces.
+
+
+## ORPHAN-HIGH-079 — autonomy run crashes at `convergence_started` when no upstream planner produced plan_content; V5+V6 Gates A/B/C never fire in autonomous mode
+
+**Severity:** HIGH
+**Discovered:** 2026-05-16, POST-V6 30-cycle autonomy run on snowball (Plan ARIA-V6 CONVERGED)
+**File:** `aria-kernel/aria_kernel/convergence_drainer.py:296` → `aria-kernel/aria_kernel/convergent_planning_bridge.py:59` → `aria-kernel/aria_kernel/plan_convergence.py:54` → `_validate_plan_content` at `plan_convergence.py:1122`
+
+**Evidence:**
+```
+Traceback (most recent call last):
+  File "aria-kernel/aria_kernel/autonomy_orchestrator.py", line 549, in run_autonomy_orchestrator
+    convergence_result = convergence_runner(
+  File "aria-kernel/aria_kernel/convergence_drainer.py", line 296, in run_convergence_drainer
+    primary_record = start_convergent_plan_with_envelope(
+  File "aria-kernel/aria_kernel/convergent_planning_bridge.py", line 59, in start_convergent_plan_with_envelope
+    plan_row = start_plan(
+  File "aria-kernel/aria_kernel/plan_convergence.py", line 54, in start_plan
+    _validate_plan_content(plan_content)
+  File "aria-kernel/aria_kernel/plan_convergence.py", line 1122, in _validate_plan_content
+    raise GovernanceError(f"plan content missing required field(s): {', '.join(missing)}")
+aria_kernel.tool_registry.GovernanceError: plan content missing required field(s):
+  schema_version, title, summary, affected_surfaces, key_changes,
+  validation_commands, evidence_refs
+```
+
+**Problem:** When `aria-kernel autonomy run --max-cycles 30` fires in a clean autonomous-mode environment (no operator-supplied plan_content from an upstream planner_drainer), the cycle sequence is:
+
+1. `cycle_started` ✓
+2. `planner_dispatch_drained` ✓ (status=max_iterations — no envelopes claimed)
+3. `bridge_drained` ✓ (status=skipped — nothing to bridge)
+4. `convergence_started` ✓ (Gate A fires)
+5. `convergence_drainer` calls `start_convergent_plan_with_envelope(...)` with an EMPTY `plan_content={}` payload
+6. `plan_convergence.start_plan()` calls `_validate_plan_content(plan_content)` which REJECTS the empty dict — 7 required fields missing
+7. `GovernanceError` propagates up + the entire autonomy run dies; the second cycle's `convergence_started` row IS written (the crash is mid-phase, before `convergence_resolved`)
+
+**Observed run shape (2 cycles):**
+- Each cycle: `cycle_started → planner_dispatch_drained → bridge_drained → convergence_started [CRASH]`
+- 0 `convergence_resolved` verdicts
+- 0 `specialist_review_*` rows (Gate C never reached)
+- 0 `review_*` rows (Gate B never reached)
+- 0 `auto_merge_completed` rows
+
+**Architectural fault line:** The bridge (`convergent_planning_bridge.start_convergent_plan_with_envelope`) is asked to mint a convergent plan from whatever payload the upstream planner produced. In autonomous-mode without an upstream planner emitting a non-empty payload, the bridge forwards an empty dict directly into `plan_convergence.start_plan()`, which fails-closed on a validation that's correct in isolation but ungated upstream.
+
+V5.1 wired Gate A as Tier-1 architectural required-kwarg. The wiring is correct; the bridge → plan_convergence handshake is the missing piece. V6 was built on top of V5's Gate A so V6's mechanism (Gate C + convergent_skill_authoring) is structurally unreachable in autonomous-mode until this handshake gap closes.
+
+**Why this is NOT a V6 regression:** the same crash reproduces on V5's CONVERGED state (commit `f6f2d4c8`) — V6 only added a new gate AFTER the convergence verdict, so it inherits the V5 failure path without adding a new one. Operator's directive "ariayı 30 cycle çalıştır çıktılarını bitince analiz edicez" surfaced a V5 gap that the V5 test suite did not catch (the V5 test suite mocked `convergence_runner` so the empty-plan_content path never reached `plan_convergence.start_plan`).
+
+**Architectural fix options:**
+
+(a) **Bridge synthesizes a minimal-valid plan_content** (Tier-2 architectural) — when no upstream payload exists, `convergent_planning_bridge` mints a sentinel plan with `schema_version=1, title="autonomous-cycle-no-plan", summary="no upstream planner produced a plan_content; skipping convergence", affected_surfaces=[], key_changes=[], validation_commands=[], evidence_refs=[]` and the convergence_drainer returns verdict `no_plan_to_converge` so Gate A surfaces a NEW verdict that gates worker_drainer + auto_merge_runner WITHOUT crashing the cycle.
+
+(b) **convergence_drainer detects empty payload pre-bridge** (Tier-1 architectural) — before calling `start_convergent_plan_with_envelope`, the drainer asserts `plan_content` is non-empty and returns verdict `no_plan_to_converge` directly. Tighter than (a) because it avoids the synthetic-plan_content path entirely.
+
+(c) **`_validate_plan_content` opts in only when fields are present** (FORBIDDEN) — would silently accept malformed plans + propagate to challenger/judges. Symptom-hiding, not architectural; rejected.
+
+**Recommended:** Option (b) — at `convergence_drainer.py:280-296` (just before the bridge call), check `bool(plan_content)` and return early with verdict `no_plan_to_converge`. Add a new phase `convergence_no_plan` to `AUTONOMY_PHASES` so the operator sees the cycle's terminal state in autonomy_state.jsonl.
+
+**Status:** OPEN. Owner: V7 (or V6.6 patch arc). Tier-1 architectural — V6 cannot run autonomously end-to-end without this fix. POST-V6 30-cycle smoke surfaced this; V5 + V6 CONVERGED state on snowball still holds because the bug is at runtime (not test-time), but operator-driven autonomy runs dead-end at cycle 2. Documenting here so V7 plan picks it up; F-012 RESOLVED state preserved (V6 architectural arc closed; runtime end-to-end is a separate finding).

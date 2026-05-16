@@ -72,6 +72,25 @@ def _fake_convergence_runner(**kwargs):
     }
 
 
+def _fake_review_runner(**kwargs):
+    """Plan ARIA-V5 §4 V5.2 — happy-path mock review runner.
+
+    Returns ``review_verdict="no_gaps"`` on round 1 so the cycle
+    proceeds through auto_merge_runner unimpeded. Accepts ``**kwargs``
+    permissively so future ReviewRunner Protocol kwargs do not break
+    this fixture.
+    """
+    return {
+        "plan_id": kwargs.get("plan_id", "plan-test"),
+        "impl_artifacts_ref": kwargs.get("impl_artifacts_ref", f"cycle:{kwargs.get('cycle_id', 'test')}"),
+        "review_verdict": "no_gaps",
+        "rounds_count": 1,
+        "gaps_found": [],
+        "request_ids": [],
+        "convergence_id": kwargs.get("convergence_id", kwargs.get("plan_id", "plan-test")),
+    }
+
+
 def _fake_planner_drainer(*, base_dir, workspace_root, max_iterations):
     return {
         "iterations": 1,
@@ -175,6 +194,11 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             # arbiter_verdict="converged" so existing V3-era tests
             # see worker_drainer + auto_merge_runner fire normally.
             convergence_runner=_fake_convergence_runner,
+            # Plan ARIA-V5 §3d v2 — review_runner is REQUIRED (V5.2
+            # Tier-1, no default). Happy-path fake returns
+            # review_verdict="no_gaps" so auto_merge_runner still
+            # fires per existing V3-era test expectations.
+            review_runner=_fake_review_runner,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

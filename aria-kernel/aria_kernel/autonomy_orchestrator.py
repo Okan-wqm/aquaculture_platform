@@ -81,6 +81,10 @@ if TYPE_CHECKING:
     # plan_convergence + convergent_planning_bridge which import
     # from tool_registry which imports from this module's peers.
     from .convergence_drainer import ConvergenceRunner
+    # Plan ARIA-V5 §3d v2 — ReviewRunner Protocol typed-only import.
+    # Same TYPE_CHECKING discipline; review_runner imports from
+    # agent_invocations which imports from ledger.
+    from .review_runner import ReviewRunner
 
 
 __all__ = [
@@ -227,6 +231,7 @@ def run_autonomy_orchestrator(
     auto_merge_runner: "AutoMergeRunner",
     github_adapter: Any,
     convergence_runner: "ConvergenceRunner",
+    review_runner: "ReviewRunner",
     workspace_root: str | Path | None = None,
     max_cycles: int = DEFAULT_MAX_CYCLES,
     max_iterations_per_phase: int = DEFAULT_MAX_ITERATIONS_PER_PHASE,
@@ -643,16 +648,109 @@ def run_autonomy_orchestrator(
                     },
                 )
 
-                # Plan ARIA-V3 §A1 — auto_merge_runner is REQUIRED.
-                # NoOpAutoMergeRunner returns ``status="skipped"``,
-                # ``merges_completed=0`` for non-permitted profiles
-                # (observe / standard / frozen); RealAutoMergeRunner
-                # wraps ``merge_if_green`` for strict + autonomous.
-                # The orchestrator no longer special-cases ``None``.
-                auto_merge_result = auto_merge_runner(
+                # Plan ARIA-V5 §2 V5.2 Phase 5.2 — Gate B post-impl
+                # adversarial review. Mint adversarial_judge +
+                # evidence_judge envelopes; gate auto_merge_runner
+                # on review_verdict == "no_gaps". Pre-V5
+                # auto_merge_runner fired unconditionally after
+                # worker_drainer — implementations could merge
+                # without independent review.
+                #
+                # Operator vision (Plan ARIA-V5 §1 verbatim):
+                #   "ımplementerler ımplement ettıkten sonra da eksık
+                #   varmı yanlıs varmı dıye agentlar yıne kontrol
+                #   etmelı"
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="review_started",
+                    status="ok",
+                    profile=profile_snapshot,
+                    details={"plan_id": convergence_result.get("plan_id")},
+                )
+                review_result = review_runner(
+                    cycle_id=cycle_id,
                     base_dir=root,
                     workspace_root=workspace_root,
+                    plan_id=convergence_result.get("plan_id") or f"plan-{cycle_id}",
+                    convergence_id=convergence_result.get("convergence_id")
+                    or convergence_result.get("plan_id")
+                    or f"plan-{cycle_id}",
+                    impl_artifacts_ref=str(
+                        worker_result.get("impl_artifacts_ref")
+                        or f"cycle:{cycle_id}"
+                    ),
+                    worker_artifact_hash=str(
+                        worker_result.get("worker_artifact_hash") or ""
+                    ),
+                    must_satisfy=[{
+                        "id": "post-impl-no-gaps",
+                        "description":
+                            "Implementation satisfies the convergence-"
+                            "stage must_satisfy contract; no gaps remain.",
+                    }],
+                    max_review_rounds=max_iterations_per_phase,
                 )
+                cycle_summary["review"] = review_result
+                review_verdict = review_result.get("review_verdict", "gaps_open")
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="review_resolved",
+                    status=str(review_verdict),
+                    profile=profile_snapshot,
+                    details={
+                        "rounds_count":
+                            review_result.get("rounds_count"),
+                        "gaps_found_count": len(
+                            review_result.get("gaps_found", [])
+                        ),
+                    },
+                )
+
+                # Plan ARIA-V3 §A1 — auto_merge_runner is REQUIRED.
+                # Plan ARIA-V5 §2 V5.2 — auto_merge_runner is now
+                # GATED by review_verdict == "no_gaps". Tier-1
+                # source-substring invariant I-V5.2-04 asserts the
+                # literal guard expression below MUST exist in this
+                # module's source.
+                if review_result["review_verdict"] == "no_gaps":
+                    # NoOpAutoMergeRunner returns ``status="skipped"``,
+                    # ``merges_completed=0`` for non-permitted profiles
+                    # (observe / standard / frozen); RealAutoMergeRunner
+                    # wraps ``merge_if_green`` for strict + autonomous.
+                    auto_merge_result = auto_merge_runner(
+                        base_dir=root,
+                        workspace_root=workspace_root,
+                    )
+                else:
+                    # Plan ARIA-V5 §2 V5.2 — review found gaps OR
+                    # judges split OR review exhausted rounds.
+                    # Block auto-merge for this cycle; surface the
+                    # block reason on the cycle summary.
+                    auto_merge_result = {
+                        "schema_version": 1,
+                        "status": "skipped",
+                        "reason": f"review_{review_verdict}",
+                        "merges_completed": 0,
+                        "candidates_evaluated": 0,
+                        "profile": profile_snapshot,
+                    }
+                    cycle_summary["auto_merge_blocked_by"] = (
+                        f"review_{review_verdict}"
+                    )
+                    AutonomyStateReducer.transition(
+                        root,
+                        cycle_id=cycle_id,
+                        phase="review_blocked_merge",
+                        status=str(review_verdict),
+                        profile=profile_snapshot,
+                        details={
+                            "gaps_found_count": len(
+                                review_result.get("gaps_found", [])
+                            ),
+                        },
+                    )
                 extra_merges = int(
                     auto_merge_result.get("merges_completed") or 0,
                 )

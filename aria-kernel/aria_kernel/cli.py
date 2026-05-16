@@ -3236,6 +3236,7 @@ def _main(argv: list[str] | None = None) -> int:
         from .auto_merge_runners import select_auto_merge_runner
         from .convergence_drainer import select_convergence_runner
         from .github_adapters import select_github_adapter
+        from .review_runner import select_review_runner
         # Plan ARIA-V3.1 §2a — ``get_profile`` already imported
         # at module level (line 105); nested re-import removed.
         profile = get_profile(base_dir=args.tools_dir)
@@ -3246,11 +3247,13 @@ def _main(argv: list[str] | None = None) -> int:
             cwd=str(args.workspace_root),
         )
         convergence_runner = select_convergence_runner(profile=profile)
+        review_runner = select_review_runner(profile=profile)
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
             auto_merge_runner=auto_merge_runner,
             github_adapter=github_adapter,
             convergence_runner=convergence_runner,
+            review_runner=review_runner,
             workspace_root=args.workspace_root,
             max_cycles=args.max_cycles,
             max_iterations_per_phase=args.max_iterations_per_phase,

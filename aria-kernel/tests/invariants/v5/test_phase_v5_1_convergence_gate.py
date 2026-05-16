@@ -103,6 +103,19 @@ def _verdict_fake_factory(verdict: str, rounds: int = 4):
     return _runner
 
 
+def _review_no_gaps_fake(**kwargs):
+    """Plan ARIA-V5 §3d v2 — V5.2 made review_runner REQUIRED; V5.1
+    tests pass this happy-path fake so the cycle proceeds through
+    auto_merge after convergence verdict==converged."""
+    return {
+        "plan_id": kwargs.get("plan_id", "plan-test"),
+        "impl_artifacts_ref": kwargs.get("impl_artifacts_ref", ""),
+        "review_verdict": "no_gaps", "rounds_count": 1,
+        "gaps_found": [], "request_ids": [],
+        "convergence_id": kwargs.get("convergence_id", "plan-test"),
+    }
+
+
 class PhaseV5_1ConvergenceGate(unittest.TestCase):
     def setUp(self) -> None:
         from aria_kernel.runtime_profile import set_profile
@@ -136,6 +149,10 @@ class PhaseV5_1ConvergenceGate(unittest.TestCase):
             auto_merge_runner=_FakeAutoMergeRunner(),
             github_adapter=_FakeGitHubAdapter(),
             convergence_runner=_converged_fake,
+            # Plan ARIA-V5 §3d v2 — V5.2 makes review_runner REQUIRED;
+            # V5.1 tests pass happy-path fake by default so the cycle
+            # progresses past worker_drainer to auto_merge.
+            review_runner=_review_no_gaps_fake,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

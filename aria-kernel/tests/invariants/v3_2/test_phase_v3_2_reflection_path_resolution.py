@@ -211,19 +211,49 @@ class PhaseV3_2ReflectionPathResolution(unittest.TestCase):
             ),
         )
 
-    # I-V3.2-06 — fail-fast on relative base_dir.
-    def test_i_v3_2_06_reflection_rejects_relative_base_dir(self) -> None:
-        from aria_kernel.reflection import run_reflection
-        from aria_kernel.tool_registry import GovernanceError
+    # I-V3.2-06 — relative base_dir is resolved to absolute (hotfix).
+    def test_i_v3_2_06_reflection_resolves_relative_base_dir(self) -> None:
+        """Plan ARIA-V3.2 §2b hotfix — the V3.2 first-attempt
+        RAISED on relative ``base_dir``, but the CLI's normal path
+        passes a relative literal. The hotfix converts relative to
+        absolute via ``.resolve()`` rather than rejecting.
 
-        with self.assertRaises(GovernanceError) as ctx:
-            run_reflection(
-                cycle_id="cycle-v3_2-06",
-                base_dir=Path("aria-tools"),  # allowlist-aria-tools-literal: test deliberately passes a relative literal to verify V3.2 §2b rejection
-            )
-        self.assertIn(
-            "reflection_requires_absolute_tools_root",
-            str(ctx.exception),
+        This invariant verifies the relative path is normalized
+        WITHOUT exception. The deeper CWD-shadow-tree class is
+        tracked under Plan ARIA-V3.3 §2 (F-010-D4); the V3.2
+        hotfix preserves the normal CLI path while keeping
+        ``run_reflection`` documented as expecting an absolute
+        tools root post-normalization.
+        """
+        from aria_kernel.reflection import run_reflection
+        from tests.invariants.v3_2._helpers import seed_governance_jsonl
+
+        cycle_id = "cycle-v3_2-06"
+        # Seed a tools_root under cwd so .resolve() finds it.
+        os.chdir(self.tmp)
+        rel_tools = Path("aria-tools")
+        abs_tools = (self.tmp / "aria-tools").resolve()
+        abs_tools.mkdir(parents=True, exist_ok=True)
+        seed_governance_jsonl(
+            abs_tools,
+            {"agent_fitness_computed": 1},
+            cycle_id=cycle_id,
+        )
+        _minimal_cycle_state(abs_tools, cycle_id)
+        # The hotfix MUST NOT raise on a relative path. It should
+        # resolve to absolute against cwd.
+        reflection = run_reflection(
+            cycle_id=cycle_id,
+            base_dir=rel_tools,  # allowlist-aria-tools-literal: V3.2 hotfix verifies the relative-path-resolution path works without raise
+        )
+        ga = reflection.get("gate_activity", {})
+        self.assertGreater(
+            ga.get("total_events", 0), 0,
+            msg=(
+                "V3.2 hotfix — relative base_dir must resolve to "
+                "the absolute tools root via .resolve() WITHOUT "
+                "raising; reflection should produce a normal payload"
+            ),
         )
 
 

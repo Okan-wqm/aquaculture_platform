@@ -18,26 +18,28 @@ def run_reflection(
     base_dir: str | Path | None = None,
     repo_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    # Plan ARIA-V3.2 §2b (F-010 subfinding D2) — reflection MUST
-    # receive an absolute ``base_dir`` so ``_gate_activity_summary``
-    # reads from the canonical aria-tools/governance.jsonl, NOT a
-    # shadow tree created by tool_registry.tools_dir()'s CWD-relative
-    # fallback. The fresh-run audit on 2026-05-16 surfaced a daily
-    # report that read 8 stale rows from aria-kernel/aria-tools/
-    # instead of 29 fresh rows from the worktree-root aria-tools/.
-    # The full tools_dir() Tier-1 rewrite is tracked under Plan
-    # ARIA-V3.3 §2 (F-010-D4) because ~30 callsites depend on the
-    # relative fallback; this narrow reflection-entry guard catches
-    # the specific defect class. Invariant I-V3.2-04..06 lock the
-    # contract.
-    if base_dir is not None and not Path(base_dir).is_absolute():
-        from .tool_registry import GovernanceError
-
-        raise GovernanceError(
-            f"reflection_requires_absolute_tools_root: base_dir="
-            f"{base_dir!r} is relative; provide an absolute path "
-            f"(Plan ARIA-V3.2 §2b)"
-        )
+    # Plan ARIA-V3.2 §2b hotfix (F-010 subfinding D2) — reflection
+    # MUST operate on an absolute ``base_dir`` so
+    # ``_gate_activity_summary`` reads from the canonical
+    # aria-tools/governance.jsonl, NOT a shadow tree created by
+    # tool_registry.tools_dir()'s CWD-relative fallback.
+    #
+    # The V3.2 first-attempt RAISED on relative paths, but the
+    # CLI's normal path (`cycle.py:397` → ``base_dir=root`` where
+    # ``root`` traces back to ``Path('aria-tools')``) passes a
+    # relative literal — the strict raise broke every cycle in
+    # the operator-replay path. The hotfix converts the strict
+    # raise to a non-destructive ``.resolve()`` so relative
+    # becomes absolute deterministically against the current cwd
+    # WITHOUT rejecting the call.
+    #
+    # The DEEPER CWD-shadow-tree class (when cwd is wrong) is the
+    # blast-radius case tracked under Plan ARIA-V3.3 §2 (F-010-D4).
+    # The Tier-1 ``tools_dir`` rewrite there does walk-up-to-find-
+    # bound-identity which closes the shadow-tree class entirely.
+    # Invariants I-V3.2-04..06 lock this hotfix's contract.
+    if base_dir is not None:
+        base_dir = Path(base_dir).resolve()
     root = ensure_tools_dir(base_dir)
     # Plan 026R §A.2 — hot-path consumers move from `load_jsonl` (silent
     # accept of tampered / hashless rows) to `load_jsonl_verified` which

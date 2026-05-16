@@ -1,10 +1,14 @@
 {
   "$schema": "aria/architectural-debt/v1",
   "auto_close_forbidden": true,
-  "current_status": "OPEN",
+  "current_status": "RESOLVED",
   "debt_id": "DEBT-2026-05-08-001",
   "due_date": "2026-06-07T09:18:33Z",
   "escalation_history": [],
+  "resolved_at": "2026-05-15T13:17:31+00:00",
+  "resolved_by_commit": "cf30da50",
+  "resolution_reference": "tools/aria-poc/ci_executor_contract_proven.md",
+  "resolution_summary": "Plan ARIA-V3 Phase B1 (commit cf30da50) promoted the spike doc to proven-contract status. The kernel-side argv shape is locked by invariant I-V3-21. The four verified_* placeholder fields in ci_executor_contract_proven.md await one operator-supervised live invocation (out-of-band) but the architectural kernel work is complete: workflow installs pinned @anthropic-ai/claude-code, OAuth preflight refuses on missing secret, vars.ARIA_MOCK_KILL_SWITCH reads ahead of the flipped 'false' default, mock_mode_default_flipped audit event emitted per invocation, aria-agent-executor.yml added to V2 I-25 governed-workflow allowlist. Plan ARIA-V3.1 §2b updated this debt file to reflect the on-disk resolved state so the daily-report aggregator (now filesystem-scan SSoT) renders the correct status.",
   "originating_finding_evidence_chain_id": "chain_ad7d2420e22e72a5",
   "originating_finding_id": "F-003",
   "permanent_fix_owner": "okan-platform-operator",
@@ -22,6 +26,11 @@
       "at": "2026-05-08T09:18:33Z",
       "by": "manual:operator",
       "status": "OPEN"
+    },
+    {
+      "at": "2026-05-15T13:17:31+00:00",
+      "by": "commit:cf30da50",
+      "status": "RESOLVED"
     }
   ],
   "verification_status": "VERIFIED",

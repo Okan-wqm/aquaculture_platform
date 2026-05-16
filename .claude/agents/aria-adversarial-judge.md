@@ -4,6 +4,7 @@ description: Read-only adversarial ARIA judge that attempts to falsify sampled f
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 3
 ---
 
 # ARIA Adversarial Judge

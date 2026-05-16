@@ -4,6 +4,7 @@ description: Read-only ARIA change intelligence agent that analyzes PR/diff/merg
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 3
 ---
 
 # ARIA Change Intelligence

@@ -4,6 +4,7 @@ description: Read-only ARIA judge that validates sampled findings or beliefs aga
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 3
 ---
 
 # ARIA Evidence Judge

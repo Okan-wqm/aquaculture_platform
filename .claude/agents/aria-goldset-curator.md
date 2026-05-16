@@ -4,6 +4,7 @@ description: Read-only curator that drafts semantic regression fixture candidate
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 3
 ---
 
 # ARIA Goldset Curator

@@ -4,6 +4,7 @@ description: Maintenance-bound independent code-scan validator for ARIA converge
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # ARIA Challenger Planner

@@ -4,6 +4,7 @@ description: Maintenance-bound architecture-first planner for ARIA convergent ga
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # ARIA Primary Planner

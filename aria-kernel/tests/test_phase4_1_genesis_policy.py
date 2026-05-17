@@ -90,6 +90,9 @@ class GenesisPolicyTests(unittest.TestCase):
         #     max_authoring_rounds + sandbox_min_fixtures + recall_floor)
         #   * V6 §2e — auto_promote (narrow auto-promotion exception
         #     under autonomous-profile-only safe conditions)
+        #   * V7 §2h — skill_genesis_drainer (V7.4 drainer config:
+        #     enabled + max_authorings_per_cycle + max_tokens_per_cycle +
+        #     estimated_tokens_per_authoring). Closes V6 CONCERN #19.
         self.assertEqual(
             POLICY_KEYS,
             {
@@ -102,6 +105,7 @@ class GenesisPolicyTests(unittest.TestCase):
                 "circuit_breaker",
                 "convergent_authoring",
                 "auto_promote",
+                "skill_genesis_drainer",
             },
         )
 

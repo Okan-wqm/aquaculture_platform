@@ -219,6 +219,7 @@ class PhaseV6_1SpecialistGate(unittest.TestCase):
         )
         from tests.invariants.v6._helpers import (
             _plan_synthesizer_fake_runner,
+            _skill_genesis_drainer_fake_runner,
             _specialists_no_gaps_fake_runner,
         )
         kwargs = dict(
@@ -238,6 +239,8 @@ class PhaseV6_1SpecialistGate(unittest.TestCase):
             # Plan ARIA-V7 §2i v2 — V7.1 makes plan_synthesizer REQUIRED;
             # V6.1 tests pass happy-path fake so cycle proceeds through Gate A.
             plan_synthesizer=_plan_synthesizer_fake_runner,
+            # Plan ARIA-V7 §2h v2 — V7.4 skill_genesis_drainer REQUIRED.
+            skill_genesis_drainer=_skill_genesis_drainer_fake_runner,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

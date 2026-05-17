@@ -111,14 +111,7 @@ def _fake_specialist_review_runner(**kwargs):
 
 
 def _fake_plan_synthesizer(**kwargs):
-    """Plan ARIA-V7 §2i v2 V7.1 — happy-path mock plan_synthesizer.
-
-    Returns structurally-valid plan_content (all 7 required fields per
-    plan_convergence._validate_plan_content) so the cycle proceeds
-    through Gate A unimpeded. R-A9 compat pattern from V5/V6 §A1.
-    Tests that exercise the no-pressure path inject a synthesizer
-    returning ``None`` directly via the kwarg.
-    """
+    """Plan ARIA-V7 §2i v2 V7.1 — happy-path mock plan_synthesizer."""
     cycle_id = kwargs.get("cycle_id", "cycle-test")
     return {
         "schema_version": 1,
@@ -134,6 +127,28 @@ def _fake_plan_synthesizer(**kwargs):
             "cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0,
         }],
         "evidence_refs": ["fixture/path.py:1:fixture line"],
+    }
+
+
+def _fake_skill_genesis_drainer(**kwargs):
+    """Plan ARIA-V7 §2h v2 V7.4 — happy-path mock skill_genesis_drainer.
+
+    Returns ``aggregate_verdict="no_requests"`` (no convergent requests
+    to dispatch) so the cycle proceeds through Gate A unimpeded.
+    R-A9 compat pattern from V5/V6/V7.1 §A1.
+    """
+    return {
+        "cycle_id": kwargs.get("cycle_id", "cycle-test"),
+        "requests_scanned": 0,
+        "requests_dispatched": 0,
+        "requests_skipped_corpus_missing": 0,
+        "requests_skipped_evidence_insufficient": 0,
+        "requests_skipped_already_terminal": 0,
+        "requests_skipped_token_budget": 0,
+        "requests_skipped_non_convergent": 0,
+        "authoring_results": [],
+        "tokens_spent_this_cycle": 0,
+        "aggregate_verdict": "no_requests",
     }
 
 
@@ -255,6 +270,10 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             # structurally-valid plan_content so the cycle proceeds
             # through Gate A unimpeded.
             plan_synthesizer=_fake_plan_synthesizer,
+            # Plan ARIA-V7 §2h v2 — skill_genesis_drainer is REQUIRED
+            # (V7.4 Tier-1, no default). Happy-path fake returns
+            # aggregate_verdict="no_requests" so cycle proceeds.
+            skill_genesis_drainer=_fake_skill_genesis_drainer,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

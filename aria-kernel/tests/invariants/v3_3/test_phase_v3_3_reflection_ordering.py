@@ -240,6 +240,18 @@ class PhaseV3_3ReflectionOrdering(unittest.TestCase):
                 "validation_commands": [{"cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0}],
                 "evidence_refs": ["fixture.py:1:line"],
             }
+        def _v7_fake_skill_genesis_drainer(**kwargs):
+            return {
+                "cycle_id": kwargs.get("cycle_id", "cycle-test"),
+                "requests_scanned": 0, "requests_dispatched": 0,
+                "requests_skipped_corpus_missing": 0,
+                "requests_skipped_evidence_insufficient": 0,
+                "requests_skipped_already_terminal": 0,
+                "requests_skipped_token_budget": 0,
+                "requests_skipped_non_convergent": 0,
+                "authoring_results": [], "tokens_spent_this_cycle": 0,
+                "aggregate_verdict": "no_requests",
+            }
         return run_autonomy_orchestrator(
             base_dir=self.base,
             workspace_root=str(self.tmp),
@@ -257,6 +269,7 @@ class PhaseV3_3ReflectionOrdering(unittest.TestCase):
             review_runner=_v5_fake_review_runner,
             specialist_review_runner=_v6_fake_specialist_review_runner,
             plan_synthesizer=_v7_fake_plan_synthesizer,
+            skill_genesis_drainer=_v7_fake_skill_genesis_drainer,
         )
 
     def _read_governance(self) -> list[dict]:

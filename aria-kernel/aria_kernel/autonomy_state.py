@@ -100,6 +100,17 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     # autonomy loop (closes ORPHAN-HIGH-079 for malformed-payload
     # edge cases beyond V7.1's empty-skip).
     "convergence_invalid_plan",
+    # Plan ARIA-V7 §2h v2 Phase 7.4 — skill_genesis_drainer phases.
+    # ``skill_genesis_drainer_started`` fires when the drainer scans
+    # the requests.jsonl ledger; ``_resolved`` on terminal verdict
+    # (dispatched_clean / dispatched_mixed / drainer_disabled /
+    # token_budget_exceeded / authoring_error_present / no_requests).
+    # ``_round_completed`` fires per request dispatched;
+    # ``_blocked`` fires when verdict requires operator review.
+    "skill_genesis_drainer_started",
+    "skill_genesis_drainer_round_completed",
+    "skill_genesis_drainer_resolved",
+    "skill_genesis_drainer_blocked",
     "next_cycle_queued",
     "aria_stop",
     "profile_frozen",

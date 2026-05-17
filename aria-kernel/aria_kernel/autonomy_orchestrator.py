@@ -95,6 +95,12 @@ if TYPE_CHECKING:
     # precedent and the source-substring invariant I-V7.1-04 pins
     # the contract.
     from .plan_synthesizer import PlanSynthesizer
+    # Plan ARIA-V7 §2h v2 — SkillGenesisDrainer Protocol typed-only
+    # import (V7.4 V6.2 convergent_skill_authoring producer).
+    # REQUIRED kwarg; injects dispatcher_factory drafter/judge/sandbox
+    # callables via internal CLI default-resolution (operator can
+    # override via direct test injection).
+    from .skill_genesis_drainer import SkillGenesisDrainer
 
 
 __all__ = [
@@ -244,6 +250,7 @@ def run_autonomy_orchestrator(
     review_runner: "ReviewRunner",
     specialist_review_runner: "SpecialistReviewRunner",
     plan_synthesizer: "PlanSynthesizer",
+    skill_genesis_drainer: "SkillGenesisDrainer",
     workspace_root: str | Path | None = None,
     max_cycles: int = DEFAULT_MAX_CYCLES,
     max_iterations_per_phase: int = DEFAULT_MAX_ITERATIONS_PER_PHASE,
@@ -527,6 +534,60 @@ def run_autonomy_orchestrator(
                     profile=profile_snapshot,
                     details={
                         "iterations": bridge_result.get("iterations"),
+                    },
+                )
+
+                # Plan ARIA-V7 §2h v2 Phase 7.4 — skill_genesis_drainer.
+                # Polls skill-genesis/requests.jsonl for convergent=True
+                # rows + dispatches each via run_convergent_authoring
+                # (V6.2 surface that was DEAD CODE pre-V7). Status
+                # update via derived-state ledger (request-status.jsonl);
+                # crash-catch persists status=authoring_error BEFORE
+                # re-raise; per-cycle token budget cap. Fires here
+                # (AFTER bridge_drained, BEFORE plan_synthesizer +
+                # Gate A) so authoring on cycle N can feed cycle N+1's
+                # convergence target.
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="skill_genesis_drainer_started",
+                    status="ok",
+                    profile=profile_snapshot,
+                    details={"plan_id": f"plan-{cycle_id}"},
+                )
+                # Plan ARIA-V7 §2g v2 — dispatcher_factory provides
+                # the 5 callables run_convergent_authoring expects.
+                # Production defaults mint envelopes + poll for
+                # consumer (ci_executor); tests injecting custom
+                # skill_genesis_drainer can bypass these factories
+                # entirely.
+                from .dispatcher_factory import (
+                    select_drafter as _v7_select_drafter,
+                    select_judge as _v7_select_judge,
+                    select_sandbox_runner as _v7_select_sandbox_runner,
+                )
+                _v7_genesis_result = skill_genesis_drainer(
+                    cycle_id=cycle_id,
+                    base_dir=root,
+                    workspace_root=Path(workspace_root) if workspace_root else root,
+                    profile=str(profile_snapshot or "standard"),
+                    primary_drafter=_v7_select_drafter(role="primary_authoring"),
+                    challenger_drafter=_v7_select_drafter(role="challenger_authoring"),
+                    evidence_judge=_v7_select_judge(role="evidence_judgment"),
+                    adversarial_judge=_v7_select_judge(role="adversarial_judgment"),
+                    sandbox_runner=_v7_select_sandbox_runner(),
+                )
+                cycle_summary["skill_genesis"] = _v7_genesis_result
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="skill_genesis_drainer_resolved",
+                    status=str(_v7_genesis_result.get("aggregate_verdict") or "ok"),
+                    profile=profile_snapshot,
+                    details={
+                        "requests_scanned": _v7_genesis_result.get("requests_scanned"),
+                        "requests_dispatched": _v7_genesis_result.get("requests_dispatched"),
+                        "tokens_spent_this_cycle": _v7_genesis_result.get("tokens_spent_this_cycle"),
                     },
                 )
 

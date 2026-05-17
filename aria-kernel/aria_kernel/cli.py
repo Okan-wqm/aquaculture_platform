@@ -3365,6 +3365,11 @@ def _main(argv: list[str] | None = None) -> int:
         # on run_autonomy_orchestrator; without this wiring the
         # autonomous loop crashes with TypeError at signature binding.
         from .plan_synthesizer import select_plan_synthesizer
+        # Plan ARIA-V7 §2h v2 Phase 7.4 — skill_genesis_drainer
+        # factory. REQUIRED kwarg; consumes convergent=True requests
+        # from skill-genesis/requests.jsonl + invokes V6.2
+        # run_convergent_authoring per request.
+        from .skill_genesis_drainer import select_skill_genesis_drainer
         # Plan ARIA-V3.1 §2a — ``get_profile`` already imported
         # at module level (line 105); nested re-import removed.
         profile = get_profile(base_dir=args.tools_dir)
@@ -3378,6 +3383,7 @@ def _main(argv: list[str] | None = None) -> int:
         review_runner = select_review_runner(profile=profile)
         specialist_review_runner = select_specialist_review_runner(profile=profile)
         plan_synthesizer = select_plan_synthesizer(profile=profile)
+        skill_genesis_drainer = select_skill_genesis_drainer(profile=profile)
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
             auto_merge_runner=auto_merge_runner,
@@ -3386,6 +3392,7 @@ def _main(argv: list[str] | None = None) -> int:
             review_runner=review_runner,
             specialist_review_runner=specialist_review_runner,
             plan_synthesizer=plan_synthesizer,
+            skill_genesis_drainer=skill_genesis_drainer,
             workspace_root=args.workspace_root,
             max_cycles=args.max_cycles,
             max_iterations_per_phase=args.max_iterations_per_phase,

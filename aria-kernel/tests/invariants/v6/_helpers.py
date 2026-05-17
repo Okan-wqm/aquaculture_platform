@@ -116,3 +116,22 @@ def _plan_synthesizer_no_pressure_fake_runner(**kwargs: Any) -> None:
     finds no workspace deltas. Cycle should emit cycle_runner_no_pressure
     phase + skip Gate A/B/C/worker/auto_merge."""
     return None
+
+
+def _skill_genesis_drainer_fake_runner(**kwargs: Any) -> dict[str, Any]:
+    """Plan ARIA-V7 §2h v2 V7.4 — happy-path mock skill_genesis_drainer.
+
+    Returns aggregate_verdict='no_requests' so the cycle proceeds
+    through Gate A unimpeded. R-A9 compat for V6.1 invariant tests.
+    """
+    return {
+        "cycle_id": kwargs.get("cycle_id", "cycle-test"),
+        "requests_scanned": 0, "requests_dispatched": 0,
+        "requests_skipped_corpus_missing": 0,
+        "requests_skipped_evidence_insufficient": 0,
+        "requests_skipped_already_terminal": 0,
+        "requests_skipped_token_budget": 0,
+        "requests_skipped_non_convergent": 0,
+        "authoring_results": [], "tokens_spent_this_cycle": 0,
+        "aggregate_verdict": "no_requests",
+    }

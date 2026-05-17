@@ -118,6 +118,20 @@ def _specialists_no_gaps(**kwargs):
     }
 
 
+def _skill_genesis_drainer_fake(**kwargs):
+    return {
+        "cycle_id": kwargs.get("cycle_id", "cycle-test"),
+        "requests_scanned": 0, "requests_dispatched": 0,
+        "requests_skipped_corpus_missing": 0,
+        "requests_skipped_evidence_insufficient": 0,
+        "requests_skipped_already_terminal": 0,
+        "requests_skipped_token_budget": 0,
+        "requests_skipped_non_convergent": 0,
+        "authoring_results": [], "tokens_spent_this_cycle": 0,
+        "aggregate_verdict": "no_requests",
+    }
+
+
 class PhaseV7_2OrchestratorTryExcept(unittest.TestCase):
     def setUp(self) -> None:
         from aria_kernel.runtime_profile import set_profile
@@ -149,6 +163,7 @@ class PhaseV7_2OrchestratorTryExcept(unittest.TestCase):
             review_runner=_review_no_gaps,
             specialist_review_runner=_specialists_no_gaps,
             plan_synthesizer=_v7_fake_plan_synthesizer_valid,
+            skill_genesis_drainer=_skill_genesis_drainer_fake,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

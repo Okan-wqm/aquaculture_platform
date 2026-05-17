@@ -104,9 +104,7 @@ def _verdict_fake_factory(verdict: str, rounds: int = 4):
 
 
 def _plan_synthesizer_fake(**kwargs):
-    """Plan ARIA-V7 §2i v2 — V7.1 made plan_synthesizer REQUIRED;
-    V5.1 tests pass this happy-path fake so the cycle proceeds
-    through Gate A unimpeded."""
+    """Plan ARIA-V7 §2i v2 — V7.1 made plan_synthesizer REQUIRED."""
     cycle_id = kwargs.get("cycle_id", "cycle-test")
     return {
         "schema_version": 1,
@@ -116,6 +114,21 @@ def _plan_synthesizer_fake(**kwargs):
         "key_changes": [{"id": "c1", "description": "x", "paths": ["fixture.py"]}],
         "validation_commands": [{"cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0}],
         "evidence_refs": ["fixture.py:1:line"],
+    }
+
+
+def _skill_genesis_drainer_fake(**kwargs):
+    """Plan ARIA-V7 §2h v2 — V7.4 made skill_genesis_drainer REQUIRED."""
+    return {
+        "cycle_id": kwargs.get("cycle_id", "cycle-test"),
+        "requests_scanned": 0, "requests_dispatched": 0,
+        "requests_skipped_corpus_missing": 0,
+        "requests_skipped_evidence_insufficient": 0,
+        "requests_skipped_already_terminal": 0,
+        "requests_skipped_token_budget": 0,
+        "requests_skipped_non_convergent": 0,
+        "authoring_results": [], "tokens_spent_this_cycle": 0,
+        "aggregate_verdict": "no_requests",
     }
 
 
@@ -194,6 +207,9 @@ class PhaseV5_1ConvergenceGate(unittest.TestCase):
             # REQUIRED; V5.1 tests pass happy-path fake so cycle
             # proceeds through Gate A.
             plan_synthesizer=_plan_synthesizer_fake,
+            # Plan ARIA-V7 §2h v2 — V7.4 makes skill_genesis_drainer
+            # REQUIRED; happy-path fake returns no_requests.
+            skill_genesis_drainer=_skill_genesis_drainer_fake,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

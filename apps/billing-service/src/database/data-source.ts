@@ -15,7 +15,7 @@ loadEnv({ path: ['.env.local', '.env'] });
  *
  * Keeping CLI and runtime configs co-located keeps the entity + migrations
  * paths in sync: both point at `src/billing/entities/*.entity.ts` and
- * `src/database/migrations/*.ts`. Divergence is a classic source of
+ * `src/database/migrations/[0-9]*.ts`. Divergence is a classic source of
  * "migration generated on staging, fails in production" incidents — we
  * avoid it by having one file define both paths.
  */
@@ -28,7 +28,7 @@ export default new DataSource({
   database: process.env.DATABASE_NAME ?? 'aquaculture',
   schema: process.env.DATABASE_SCHEMA ?? 'billing',
   entities: ['src/**/*.entity.ts'],
-  migrations: ['src/database/migrations/*.ts'],
+  migrations: ['src/database/migrations/[0-9]*.ts'],
   // CLI runs migrations one-at-a-time by operator command; the runtime
   // service uses MigrationRunnerService which provides richer logging +
   // per-migration search_path pinning + hard-fail semantics.

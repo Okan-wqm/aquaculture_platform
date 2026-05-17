@@ -4,19 +4,30 @@ import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { join } from 'path';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
-import { RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import {
+  RlsModule,
+  AuditColumnsModule,
+  createMigrationRunnerService,
+  SchemaDriftModule,
+  createServiceTypeOrmConfig,
+} from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
-import { UserContextMiddleware, TenantContextMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import {
+  UserContextMiddleware,
+  TenantContextMiddleware,
+  StripInternalHeadersMiddleware,
+} from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
-import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import {
+  AuditLogModule,
+  AuditLogInterceptor,
+  AuditedOperationModule,
+} from '@aquaculture/backend-common/audit';
 
 /**
  * BillingMigrationRunnerService — runs pending TypeORM migrations in the
@@ -43,7 +54,10 @@ import { MeteringModule } from './modules/metering/metering.module';
 import { InvoiceLineItem, TaxInfo, BillingAddress } from './billing/entities/invoice.entity';
 import { PaymentMethodDetails, RefundInfo } from './billing/entities/payment.entity';
 import { PlanLimits, PlanPricing } from './billing/entities/subscription.entity';
-import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscription-module-item.entity';
+import {
+  ModuleQuantities,
+  ModuleLineItem,
+} from './billing/entities/subscription-module-item.entity';
 
 @Module({
   imports: [
@@ -69,7 +83,7 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
           // migrations at OnApplicationBootstrap with search_path pinning
           // + per-migration transaction isolation. Factory default
           // (migrationsRun: false) keeps TypeORM out of that codepath.
-          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+          migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
           //   aqua-db-migrate container runs migrations BEFORE service
@@ -228,8 +242,7 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     // SECURITY: Global JWT auth guard - requires authentication on all resolvers
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector): JwtAuthGuard =>
-        new JwtAuthGuard(reflector),
+      useFactory: (reflector: Reflector): JwtAuthGuard => new JwtAuthGuard(reflector),
       inject: [Reflector],
     },
     // SECURITY: Global tenant guard - ensures tenant isolation
@@ -242,8 +255,7 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     // SECURITY: Roles guard - enforces @Roles() decorator authorization
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard =>
-        new RolesGuard(reflector),
+      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
       inject: [Reflector],
     },
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
@@ -269,11 +281,7 @@ export class AppModule implements NestModule {
     // 1. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
     // 2. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
     consumer
-      .apply(
-        StripInternalHeadersMiddleware,
-        UserContextMiddleware,
-        TenantContextMiddleware,
-      )
+      .apply(StripInternalHeadersMiddleware, UserContextMiddleware, TenantContextMiddleware)
       .forRoutes('*');
   }
 }

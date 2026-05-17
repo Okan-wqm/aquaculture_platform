@@ -31,7 +31,7 @@ export default new DataSource({
   database: process.env.DATABASE_NAME ?? 'aquaculture',
   schema: 'event_store',
   entities: ['src/**/*.entity.ts'],
-  migrations: ['src/migrations/*.ts'],
+  migrations: ['src/migrations/[0-9]*.ts'],
   migrationsRun: false,
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',

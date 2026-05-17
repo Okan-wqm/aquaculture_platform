@@ -4,10 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { join } from 'path';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
@@ -17,7 +14,11 @@ import { GraphQLError, GraphQLFormattedError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import {
+  AuditLogModule,
+  AuditLogInterceptor,
+  AuditedOperationModule,
+} from '@aquaculture/backend-common/audit';
 import {
   AuditColumnsModule,
   createMigrationRunnerService,
@@ -101,12 +102,19 @@ import { EmployeeKPI } from './performance/entities/kpi.entity';
 // Nested ObjectTypes for orphanedTypes registration
 import { ContactInfo, Address, NextOfKin } from './hr/entities/employee.entity';
 import { GeoCoordinates } from './aquaculture/entities/work-area.entity';
-import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquaculture/entities/work-rotation.entity';
+import {
+  TransportInfo,
+  CheckInLocation,
+  CheckInHistoryEntry,
+} from './aquaculture/entities/work-rotation.entity';
 import { DailyAttendanceOverview } from './attendance/query-handlers/get-daily-attendance-overview.handler';
 import { HRDashboardStats } from './hr/query-handlers/get-hr-dashboard-stats.handler';
 import { CompetencyRating } from './performance/entities/performance-review.entity';
 import { KeyResult, GoalMilestone } from './performance/entities/goal.entity';
-import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handlers/get-performance-summary.handler';
+import {
+  PerformanceSummary,
+  ReviewSummaryItem,
+} from './performance/query-handlers/get-performance-summary.handler';
 
 @Module({
   imports: [
@@ -159,7 +167,7 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
             Goal,
             EmployeeKPI,
           ],
-          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+          migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
           //   aqua-db-migrate container runs migrations BEFORE service
@@ -225,7 +233,9 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
               });
               const maxComplexity = 1000;
               if (complexity > maxComplexity) {
-                throw new GraphQLError(`Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`);
+                throw new GraphQLError(
+                  `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
+                );
               }
             },
           }),
@@ -320,8 +330,7 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
     // SECURITY: Roles guard - enforces @Roles() decorator authorization
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard =>
-        new RolesGuard(reflector),
+      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
       inject: [Reflector],
     },
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */

@@ -2,10 +2,7 @@ import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { join } from 'path';
 import { Request } from 'express';
@@ -32,7 +29,14 @@ interface GraphQLContextRequest extends Request {
     roles: string[];
   };
 }
-import { createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import {
+  createTenantConnectionBootstrap,
+  TenantSchemaSyncService,
+  SourceSchemaWriteGuardService,
+  RlsModule,
+  SchemaDriftModule,
+  createServiceTypeOrmConfig,
+} from '@aquaculture/backend-common/database';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
@@ -89,10 +93,11 @@ import { GraphQLContextFactory } from './common/graphql-context.factory';
 import { GraphQLContextModule } from './common/graphql-context.module';
 import { getTenantSchemaName } from './common/utils/schema-sanitizer';
 
-// Migrations — FARM_MIGRATIONS is the canonical class list shared by
-// AppModule, TypeORM CLI paths, E2E, and invariants. Keeping the list in
-// one manifest prevents runtime registration from drifting behind the
-// db-migrate glob used in production.
+// Migrations — FARM_MIGRATIONS is the canonical runtime class list. Keep this
+// import path stable; invariants compare it with the on-disk migrations
+// directory and the production db-migrate numeric glob. The numeric glob
+// intentionally excludes manifest.js so TypeORM does not load the same classes
+// twice via the manifest import graph.
 import { FARM_MIGRATIONS } from './database/migrations/manifest';
 
 @Module({
@@ -244,9 +249,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
               if (typeof userIdHeader === 'string') {
                 req.user = {
                   sub: userIdHeader,
-                  roles: typeof userRolesHeader === 'string'
-                    ? JSON.parse(userRolesHeader)
-                    : [],
+                  roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
                 };
               }
             }
@@ -254,9 +257,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
             // Fallback if x-user-payload not present
             req.user = {
               sub: userIdHeader,
-              roles: typeof userRolesHeader === 'string'
-                ? JSON.parse(userRolesHeader)
-                : [],
+              roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
             };
           }
 
@@ -479,8 +480,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     // SECURITY: Roles guard - enforces @Roles() decorator authorization
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard =>
-        new RolesGuard(reflector),
+      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
       inject: [Reflector],
     },
     // Phase 6.1.2 — fail-closed permission-matrix guard. Rejects

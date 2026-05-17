@@ -141,6 +141,7 @@ export default {
         '<rootDir>/adoption-invariants.spec.ts',
         '<rootDir>/required-signals-vs-emitters.spec.ts',
         '<rootDir>/migration-registration-completeness.spec.ts',
+        '<rootDir>/migration-glob-contract.spec.ts',
         '<rootDir>/farm-service-migration-array-completeness.spec.ts',
         '<rootDir>/three-store-invariants.spec.ts',
       ],

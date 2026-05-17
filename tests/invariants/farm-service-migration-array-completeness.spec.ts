@@ -4,8 +4,8 @@
  *
  * Farm-service has TWO migration discovery paths:
  *
- *   a. The aqua-db-migrate orchestrator's glob
- *      'apps/farm-service/src/database/migrations/*{.ts,.js}'
+ *   a. The aqua-db-migrate orchestrator's numeric migration glob
+ *      'apps/farm-service/src/database/migrations/[0-9]*{.ts,.js}'
  *      used by production deploys.
  *
  *   b. The explicit `migrations: [...]` array in
@@ -58,17 +58,16 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const MIGRATIONS_DIR = path.resolve(
-  REPO_ROOT,
-  'apps/farm-service/src/database/migrations',
-);
-const APP_MODULE_PATH = path.resolve(
-  REPO_ROOT,
-  'apps/farm-service/src/app.module.ts',
-);
+const MIGRATIONS_DIR = path.resolve(REPO_ROOT, 'apps/farm-service/src/database/migrations');
+const APP_MODULE_PATH = path.resolve(REPO_ROOT, 'apps/farm-service/src/app.module.ts');
+const DATA_SOURCE_PATH = path.resolve(REPO_ROOT, 'apps/farm-service/src/database/data-source.ts');
 const MANIFEST_PATH = path.resolve(
   REPO_ROOT,
   'apps/farm-service/src/database/migrations/manifest.ts',
+);
+const DB_MIGRATE_SCHEMA_REGISTRY_PATH = path.resolve(
+  REPO_ROOT,
+  'apps/db-migrate/src/schema-registry.ts',
 );
 const FARM_SEED_PATH = path.resolve(
   REPO_ROOT,
@@ -134,14 +133,16 @@ function listOnDiskMigrationClasses(): string[] {
  */
 function listImportedMigrationClasses(): string[] {
   const source = readFileSync(MANIFEST_PATH, 'utf8');
-  const importRegex =
-    /import\s*\{([^}]+)\}\s*from\s*['"]\.\/\d{13}-[^'"]+['"]\s*;/g;
+  const importRegex = /import\s*\{([^}]+)\}\s*from\s*['"]\.\/\d{13}-[^'"]+['"]\s*;/g;
   const names: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = importRegex.exec(source)) !== null) {
     const inner = m[1]!;
     for (const raw of inner.split(',')) {
-      const ident = raw.trim().replace(/^type\s+/, '').replace(/\s+as\s+\w+$/, '');
+      const ident = raw
+        .trim()
+        .replace(/^type\s+/, '')
+        .replace(/\s+as\s+\w+$/, '');
       if (MIGRATION_CLASS_REGEX.test(ident)) {
         names.push(ident);
       }
@@ -155,9 +156,7 @@ function listImportedMigrationClasses(): string[] {
  */
 function listArrayMigrationClasses(): string[] {
   const source = readFileSync(MANIFEST_PATH, 'utf8');
-  const match = source.match(
-    /export\s+const\s+FARM_MIGRATIONS\s*=\s*\[([\s\S]*?)\]\s+as\s+const/,
-  );
+  const match = source.match(/export\s+const\s+FARM_MIGRATIONS\s*=\s*\[([\s\S]*?)\]\s+as\s+const/);
   if (!match || !match[1]) {
     throw new Error(
       `Could not locate the FARM_MIGRATIONS array in ${MANIFEST_PATH}. ` +
@@ -202,31 +201,35 @@ describe('farm-service migration array completeness (FARM-LOW-001 follow-up)', (
   });
 
   it('every on-disk migration class is imported in manifest.ts', () => {
-    const missing = onDisk
-      .filter((cls) => !imported.includes(cls))
-      .sort();
+    const missing = onDisk.filter((cls) => !imported.includes(cls)).sort();
     expect(missing).toEqual([]);
   });
 
   it('every imported migration class exists on disk', () => {
-    const stale = imported
-      .filter((cls) => !onDisk.includes(cls))
-      .sort();
+    const stale = imported.filter((cls) => !onDisk.includes(cls)).sort();
     expect(stale).toEqual([]);
   });
 
   it('every imported migration class appears in FARM_MIGRATIONS', () => {
-    const orphaned = imported
-      .filter((cls) => !inArray.includes(cls))
-      .sort();
+    const orphaned = imported.filter((cls) => !inArray.includes(cls)).sort();
     expect(orphaned).toEqual([]);
   });
 
   it('every entry in FARM_MIGRATIONS is imported', () => {
-    const phantom = inArray
-      .filter((cls) => !imported.includes(cls))
-      .sort();
+    const phantom = inArray.filter((cls) => !imported.includes(cls)).sort();
     expect(phantom).toEqual([]);
+  });
+
+  it('db-migrate farm glob excludes manifest.ts to avoid duplicate TypeORM migration classes', () => {
+    const source = readFileSync(DB_MIGRATE_SCHEMA_REGISTRY_PATH, 'utf8');
+    expect(source).toContain("'apps/farm-service/src/database/migrations/[0-9]*{.ts,.js}'");
+    expect(source).not.toContain("'apps/farm-service/src/database/migrations/*{.ts,.js}'");
+  });
+
+  it('TypeORM CLI data-source also excludes manifest.ts from migration discovery', () => {
+    const source = readFileSync(DATA_SOURCE_PATH, 'utf8');
+    expect(source).toContain("'src/database/migrations/[0-9]*.ts'");
+    expect(source).not.toContain("'src/database/migrations/*.ts'");
   });
 
   it('equipment type subtype codes use native text[] from entity through seed and E2E DDL', () => {
@@ -238,11 +241,7 @@ describe('farm-service migration array completeness (FARM-LOW-001 follow-up)', (
       /@Column\(\s*['"]text['"],\s*\{\s*array:\s*true,\s*nullable:\s*true\s*\}\s*\)/s,
     );
     expect(seedSrc).toMatch(/et\.allowedSubEquipmentTypes\s*\|\|\s*\[\]/);
-    expect(seedSrc).not.toMatch(
-      /JSON\.stringify\(\s*et\.allowedSubEquipmentTypes/,
-    );
-    expect(harnessSrc).toMatch(
-      /"allowedSubEquipmentTypes"\s+TEXT\[\]\s+NULL/i,
-    );
+    expect(seedSrc).not.toMatch(/JSON\.stringify\(\s*et\.allowedSubEquipmentTypes/);
+    expect(harnessSrc).toMatch(/"allowedSubEquipmentTypes"\s+TEXT\[\]\s+NULL/i);
   });
 });

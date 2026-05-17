@@ -4,7 +4,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
-import { RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import {
+  RlsModule,
+  SchemaDriftModule,
+  createServiceTypeOrmConfig,
+} from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { InternalApiKeyGuard } from './guards/internal-api-key.guard';
 import { EventStoreModule } from './event-store/event-store.module';
@@ -12,7 +16,8 @@ import { ProjectionsModule } from './projections/projections.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 // Migration class imports removed — TypeOrmModule now uses the glob
-// pattern '/migrations/*.{js,ts}' to load every migration on disk
+// pattern '/migrations/[0-9]*.{js,ts}' to load every timestamped migration
+// on disk while excluding support files from TypeORM's migration loader
 // (ORPHAN-HIGH-001 cure). Pre-fix the explicit array missed
 // 1781000000000-CreateEventStoreTables and 1800000000000-AddFindingsTable.
 
@@ -38,12 +43,11 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         createServiceTypeOrmConfig(configService, {
           serviceName: 'event-store',
           schema: 'event_store',
-          migrations: [__dirname + '/migrations/*.{js,ts}'],
+          migrations: [__dirname + '/migrations/[0-9]*.{js,ts}'],
           // event-store opts in to TypeORM's built-in migration runner via
           // DATABASE_MIGRATIONS_RUN (default true). No MigrationRunnerService
           // for this service yet.
-          migrationsRunFromEnv: (cfg) =>
-            cfg.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
+          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
         }),
     }),
     CqrsModule.forRoot(),

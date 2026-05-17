@@ -4,15 +4,16 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import {
+  AuditLogModule,
+  AuditLogInterceptor,
+  AuditedOperationModule,
+} from '@aquaculture/backend-common/audit';
 import {
   AuditColumnsModule,
   createMigrationRunnerService,
@@ -101,7 +102,7 @@ const complexityCache = new Map<string, number>();
           serviceName: 'ai',
           schema: 'ai',
           entities: [AgentConversation, TenantAgentConfig, ToolExecutionAudit],
-          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+          migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
           //   aqua-db-migrate container runs migrations BEFORE service
@@ -163,14 +164,19 @@ const complexityCache = new Map<string, number>();
                       operationName: request.operationName,
                       query: document,
                       variables: request.variables,
-                      estimators: [fieldExtensionsEstimator(), simpleEstimator({ defaultComplexity: 1 })],
+                      estimators: [
+                        fieldExtensionsEstimator(),
+                        simpleEstimator({ defaultComplexity: 1 }),
+                      ],
                     });
                     complexityCache.set(cacheKey, complexity);
                   }
 
                   const maxComplexity = 1000;
                   if (complexity > maxComplexity) {
-                    throw new GraphQLError(`Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`);
+                    throw new GraphQLError(
+                      `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
+                    );
                   }
                 },
               }),
@@ -261,14 +267,16 @@ const complexityCache = new Map<string, number>();
     },
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard =>
-        new RolesGuard(reflector),
+      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
       inject: [Reflector],
     },
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, configService: ConfigService, rateLimiter: SlidingWindowStrategy): ThrottlerGuard =>
-        new ThrottlerGuard(reflector, configService, rateLimiter),
+      useFactory: (
+        reflector: Reflector,
+        configService: ConfigService,
+        rateLimiter: SlidingWindowStrategy,
+      ): ThrottlerGuard => new ThrottlerGuard(reflector, configService, rateLimiter),
       inject: [Reflector, ConfigService, SlidingWindowStrategy],
     },
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */

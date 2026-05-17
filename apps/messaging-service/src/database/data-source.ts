@@ -33,10 +33,7 @@ export default new DataSource({
   database: process.env.DATABASE_NAME ?? 'aquaculture',
   schema: 'messaging',
   entities: ['src/**/*.entity.ts'],
-  migrations: [
-    'src/migrations/*.ts',
-    'src/database/migrations/*.ts',
-  ],
+  migrations: ['src/migrations/[0-9]*.ts', 'src/database/migrations/[0-9]*.ts'],
   migrationsTableName: 'migrations',
   migrationsRun: false,
   synchronize: false,

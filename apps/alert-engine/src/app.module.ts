@@ -2,20 +2,36 @@ import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { join } from 'path';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
-import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import {
+  SourceSchemaBootstrapService,
+  createTenantConnectionBootstrap,
+  TenantSchemaSyncService,
+  SourceSchemaWriteGuardService,
+  RlsModule,
+  createMigrationRunnerService,
+  SchemaDriftModule,
+  createServiceTypeOrmConfig,
+} from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import {
+  TenantContextMiddleware,
+  CorrelationIdMiddleware,
+  UserContextMiddleware,
+  createTenantSchemaMiddleware,
+  StripInternalHeadersMiddleware,
+} from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
-import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import {
+  AuditLogModule,
+  AuditLogInterceptor,
+  AuditedOperationModule,
+} from '@aquaculture/backend-common/audit';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('alert');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
 
@@ -64,7 +80,7 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
         createServiceTypeOrmConfig(configService, {
           serviceName: 'alert',
           schema: 'alert',
-          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+          migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
           //   aqua-db-migrate container runs migrations BEFORE service
@@ -190,8 +206,7 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     // SECURITY: Roles guard - enforces @Roles() decorator authorization
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard =>
-        new RolesGuard(reflector),
+      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
       inject: [Reflector],
     },
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */

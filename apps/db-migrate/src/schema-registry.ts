@@ -78,9 +78,13 @@
  * this container to compile every service's source tree plus their
  * transitive backend-common dependencies. Instead, we let TypeORM load
  * migrations from disk at runtime — the same mechanism the services'
- * own CLI data-source.ts files use. This keeps this container's bundle
- * small and makes "add a new migration" a zero-change event for this
- * file (the new .ts/.js simply shows up under the glob).
+ * own CLI data-source.ts files use. The glob is deliberately restricted
+ * to timestamp-prefixed files (`[0-9]*`) so support modules such as
+ * `manifest.ts`, helpers, and constants can live near migrations without
+ * TypeORM importing them as migrations. This keeps "add a new
+ * timestamped migration" a zero-change event for this file while preventing
+ * the duplicate-class failure where a manifest imports every migration and
+ * the glob imports both the manifest and the original files.
  *
  * The Dockerfile copies each service's migrations directory into the
  * container at its canonical path so the globs below match at runtime.
@@ -95,7 +99,8 @@ export interface SchemaRegistryEntry {
    * Glob pattern (RELATIVE TO THIS CONTAINER'S WORKDIR at runtime) pointing
    * at the migration files. Supports both .ts (dev run) and .js (container
    * run) via the `{.ts,.js}` suffix — TypeORM evaluates the appropriate one
-   * based on what's actually on disk.
+   * based on what's actually on disk. Globs MUST include `[0-9]*` after
+   * `/migrations/` so only timestamped migration files are auto-loaded.
    *
    * NOTE: the container's Dockerfile MUST copy each service's migrations
    * into a predictable path. See `infrastructure/docker/Dockerfile.db-migrate`.
@@ -119,9 +124,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'auth-service',
     schema: 'auth',
-    migrationsGlob: [
-      'apps/auth-service/src/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/auth-service/src/migrations/[0-9]*{.ts,.js}'],
     reason:
       'Tenant trust root. auth.tenants is referenced (by tenantId FK) from ' +
       'every other service, so its migrations MUST settle before downstream ' +
@@ -132,9 +135,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'farm-service',
     schema: 'farm',
-    migrationsGlob: [
-      'apps/farm-service/src/database/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/farm-service/src/database/migrations/[0-9]*{.ts,.js}'],
     reason:
       'Primary aquaculture domain — highest fan-out of downstream ' +
       'consumers (alert-engine, billing, sensor aggregates).',
@@ -142,9 +143,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'sensor-service',
     schema: 'sensor',
-    migrationsGlob: [
-      'apps/sensor-service/src/database/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/sensor-service/src/database/migrations/[0-9]*{.ts,.js}'],
     reason:
       'Feeds telemetry into farm-service batch/harvest pipelines. ' +
       'Installs TimescaleDB hypertables + continuous aggregates — ' +
@@ -154,9 +153,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'hr-service',
     schema: 'hr',
-    migrationsGlob: [
-      'apps/hr-service/src/database/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/hr-service/src/database/migrations/[0-9]*{.ts,.js}'],
     reason:
       'Schema-per-tenant service. Source-schema migrations clone into ' +
       'every tenant_<uuid> schema at tenant onboarding — running before ' +
@@ -166,8 +163,8 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'messaging-service',
     schema: 'messaging',
     migrationsGlob: [
-      'apps/messaging-service/src/migrations/*{.ts,.js}',
-      'apps/messaging-service/src/database/migrations/*{.ts,.js}',
+      'apps/messaging-service/src/migrations/[0-9]*{.ts,.js}',
+      'apps/messaging-service/src/database/migrations/[0-9]*{.ts,.js}',
     ],
     reason:
       'Schema-per-tenant. RLS policies reference auth.tenants (ADR-011/014); ' +
@@ -176,9 +173,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'hydroponics-service',
     schema: 'hydroponics',
-    migrationsGlob: [
-      'apps/hydroponics-service/src/database/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/hydroponics-service/src/database/migrations/[0-9]*{.ts,.js}'],
     reason:
       'Schema-per-tenant, farm-adjacent domain. No migration files yet — ' +
       'entry kept as forward declaration so the first migration addition ' +
@@ -189,9 +184,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'alert-engine',
     schema: 'alert',
-    migrationsGlob: [
-      'apps/alert-engine/src/database/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/alert-engine/src/database/migrations/[0-9]*{.ts,.js}'],
     reason:
       'Consumes sensor + farm events. Alert rule definitions reference ' +
       'metric column names — must migrate after sensor/farm to avoid ' +
@@ -200,9 +193,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'billing-service',
     schema: 'billing',
-    migrationsGlob: [
-      'apps/billing-service/src/database/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/billing-service/src/database/migrations/[0-9]*{.ts,.js}'],
     reason:
       'Consumes subscription/usage events. Independent of domain ' +
       'schemas at DDL level but reads domain-event payloads; ordering ' +
@@ -211,9 +202,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'notification-service',
     schema: 'notification',
-    migrationsGlob: [
-      'apps/notification-service/src/database/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/notification-service/src/database/migrations/[0-9]*{.ts,.js}'],
     reason:
       'Cross-domain event sink. Notification log references tenantId; ' +
       'runs after auth + domain schemas.',
@@ -221,9 +210,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'ai-service',
     schema: 'ai',
-    migrationsGlob: [
-      'apps/ai-service/src/database/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/ai-service/src/database/migrations/[0-9]*{.ts,.js}'],
     reason:
       'Schema-per-tenant AI context. Reads across domains for conversation ' +
       'context — last in the consumer tier to see all upstream columns.',
@@ -233,9 +220,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'admin-api-service',
     schema: 'admin',
-    migrationsGlob: [
-      'apps/admin-api-service/src/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/admin-api-service/src/migrations/[0-9]*{.ts,.js}'],
     reason:
       'SUPER_ADMIN analytics + audit. Runs last in service tier so ' +
       'cross-schema read migrations see the final column shape.',
@@ -243,20 +228,18 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'config-service',
     schema: 'config',
-    migrationsGlob: [
-      'apps/config-service/src/database/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/config-service/src/database/migrations/[0-9]*{.ts,.js}'],
     reason:
       'Dynamic configuration keys. Wave 4-A.2 (2026-05-08) canonicalized ' +
       'the dedicated `config` schema + `config_service` role per ADR-011 ' +
-      'update. Configuration entity declares schema: \'config\'.',
+      "update. Configuration entity declares schema: 'config'.",
   },
   {
     service: 'observability-service',
     schema: 'observability',
     migrationsGlob: [
       // no migrations yet; placeholder for the first migration addition
-      'apps/observability-service/src/database/migrations/*{.ts,.js}',
+      'apps/observability-service/src/database/migrations/[0-9]*{.ts,.js}',
     ],
     reason:
       'Metrics aggregation storage. No migrations today (relies on ' +
@@ -266,9 +249,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'event-store-service',
     schema: 'event_store',
-    migrationsGlob: [
-      'apps/event-store-service/src/migrations/*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/event-store-service/src/migrations/[0-9]*{.ts,.js}'],
     reason:
       'Cross-service event persistence. Schema ordering is irrelevant ' +
       'at DDL level (no FKs into domain schemas); placed last so any ' +

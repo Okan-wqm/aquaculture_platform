@@ -1,7 +1,11 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import {
+  RlsModule,
+  SchemaDriftModule,
+  createServiceTypeOrmConfig,
+} from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -44,7 +48,7 @@ import { InternalApiGuard } from './guards/internal-api.guard';
           // which masked 5 on-disk migrations (cost rollup, migration
           // events, schema-object history, emergency overrides, migration
           // backfill progress) — none of them ran on a fresh deploy.
-          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+          migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
         }),
     }),
     PrometheusModule,

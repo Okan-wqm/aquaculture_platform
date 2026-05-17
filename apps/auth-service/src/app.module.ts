@@ -8,11 +8,21 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
-import { RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import {
+  RlsModule,
+  SchemaDriftModule,
+  createServiceTypeOrmConfig,
+} from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import {
+  TenantContextMiddleware,
+  CorrelationIdMiddleware,
+  UserContextMiddleware,
+  RequestLoggingMiddleware,
+  StripInternalHeadersMiddleware,
+} from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
@@ -69,7 +79,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
           // the MigrationRunnerService factory which adds search_path
           // invariants and production hard-fail semantics.
           migrationsRun: true,
-          migrations: [__dirname + '/migrations/*{.ts,.js}'],
+          migrations: [__dirname + '/migrations/[0-9]*{.ts,.js}'],
         }),
     }),
 
@@ -101,7 +111,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
            * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
            * Without depth limiting, an attacker can craft a deeply nested GraphQL query
            * that causes exponential resource consumption on the server.
-          */
+           */
           validationRules: [depthLimit(10)],
           // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
           // WHY: auth developer UI must not rely on deprecated Apollo Playground behavior.
@@ -165,8 +175,8 @@ import { TenantModule } from './modules/tenant/tenant.module';
         if (isProduction && (!privateKey || !publicKey)) {
           throw new Error(
             'CRITICAL SECURITY ERROR: JWT_PRIVATE_KEY and JWT_PUBLIC_KEY must be configured in production. ' +
-            'auth-service is the sole token issuer and requires RSA key pair for RS256 signing. ' +
-            'Application startup aborted to prevent security vulnerability.',
+              'auth-service is the sole token issuer and requires RSA key pair for RS256 signing. ' +
+              'Application startup aborted to prevent security vulnerability.',
           );
         }
 
@@ -178,7 +188,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
           if (allowDevSecret !== 'true') {
             throw new Error(
               'JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are not configured. For development, set ALLOW_DEV_JWT_SECRET=true and provide DEV_JWT_SECRET ' +
-              `with at least ${SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters. NEVER enable this in staging/production!`,
+                `with at least ${SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters. NEVER enable this in staging/production!`,
             );
           }
 
@@ -191,13 +201,16 @@ import { TenantModule } from './modules/tenant/tenant.module';
           const logger = new Logger('JwtModule');
           logger.warn(
             'SECURITY: Using DEV_JWT_SECRET with HS256 for local development only. ' +
-            'Production MUST use RS256 with JWT_PRIVATE_KEY/JWT_PUBLIC_KEY.',
+              'Production MUST use RS256 with JWT_PRIVATE_KEY/JWT_PUBLIC_KEY.',
           );
           return {
             secret: devSecret,
             signOptions: {
               algorithm: 'HS256' as const,
-              expiresIn: configService.get('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
+              expiresIn: configService.get(
+                'JWT_EXPIRES_IN',
+                SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN,
+              ),
               issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
               audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),
             },
@@ -212,7 +225,10 @@ import { TenantModule } from './modules/tenant/tenant.module';
             // Consumer services verify with the public key; a compromised consumer
             // cannot forge tokens for other services.
             algorithm: 'RS256' as const,
-            expiresIn: configService.get('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
+            expiresIn: configService.get(
+              'JWT_EXPIRES_IN',
+              SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN,
+            ),
             issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
             audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),
           },
@@ -333,8 +349,12 @@ import { TenantModule } from './modules/tenant/tenant.module';
     // SECURITY: Global JWT auth guard
     {
       provide: APP_GUARD,
-      useFactory: (jwtService: JwtService, reflector: Reflector, configService: ConfigService, tokenBlacklist?: ITokenBlacklist): JwtAuthGuard =>
-        new JwtAuthGuard(jwtService, reflector, configService, tokenBlacklist),
+      useFactory: (
+        jwtService: JwtService,
+        reflector: Reflector,
+        configService: ConfigService,
+        tokenBlacklist?: ITokenBlacklist,
+      ): JwtAuthGuard => new JwtAuthGuard(jwtService, reflector, configService, tokenBlacklist),
       inject: [JwtService, Reflector, ConfigService, { token: TOKEN_BLACKLIST, optional: true }],
     },
     // SECURITY: Global tenant guard - ensures tenant isolation
@@ -347,8 +367,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
     // SECURITY: Roles guard - enforces @Roles() decorator authorization
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard =>
-        new RolesGuard(reflector),
+      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
       inject: [Reflector],
     },
   ],
@@ -365,7 +384,7 @@ export class AppModule implements NestModule {
         // identity using INTERNAL_SERVICE_SECRET); if not, the four
         // spoofable internal headers are stripped from req.headers.
         StripInternalHeadersMiddleware,
-        MetricsMiddleware,        // Record request metrics (first for accurate duration)
+        MetricsMiddleware, // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

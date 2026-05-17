@@ -22,9 +22,10 @@
  * # Allow-list
  *
  * Services that load migrations via a glob (`migrations: [__dirname +
- * '/migrations/*{.ts,.js}']`) are exempt — the glob auto-includes
- * every file. Detection is via reading the AppModule and looking for
- * the glob pattern.
+ * '/migrations/[0-9]*{.ts,.js}']`) are exempt — the numeric glob
+ * auto-includes every timestamped migration file while excluding support
+ * files such as manifest.ts. Detection is via reading the AppModule and
+ * looking for the glob pattern.
  *
  * Services that have NO migrations directory are exempt (no findings
  * to register).
@@ -78,23 +79,19 @@ function listMigrationFilesFor(service: string): string[] {
     const dir = resolve(REPO_ROOT, 'apps', service, sub);
     if (!existsSync(dir) || !statSync(dir).isDirectory()) continue;
     try {
-      const ls = execFileSync(
-        'git',
-        ['-C', REPO_ROOT, 'ls-files', `apps/${service}/${sub}/*.ts`],
-        { encoding: 'utf8' },
-      );
+      const ls = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', `apps/${service}/${sub}/*.ts`], {
+        encoding: 'utf8',
+      });
       out.push(
-        ...ls
-          .split('\n')
-          .filter(
-            (f) =>
-              f.length > 0 &&
-              !f.endsWith('.spec.ts') &&
-              !f.endsWith('.test.ts') &&
-              !f.includes('/__tests__/') &&
-              // Exclude TypeORM CLI data-source helpers if any drift here.
-              !f.endsWith('/data-source.ts'),
-          ),
+        ...ls.split('\n').filter(
+          (f) =>
+            f.length > 0 &&
+            !f.endsWith('.spec.ts') &&
+            !f.endsWith('.test.ts') &&
+            !f.includes('/__tests__/') &&
+            // Exclude TypeORM CLI data-source helpers if any drift here.
+            !f.endsWith('/data-source.ts'),
+        ),
       );
     } catch {
       // empty directory — ignore
@@ -106,9 +103,13 @@ function listMigrationFilesFor(service: string): string[] {
 function listServicesWithMigrations(): string[] {
   const ls = execFileSync(
     'git',
-    ['-C', REPO_ROOT, 'ls-files',
-     'apps/*/src/migrations/*.ts',
-     'apps/*/src/database/migrations/*.ts'],
+    [
+      '-C',
+      REPO_ROOT,
+      'ls-files',
+      'apps/*/src/migrations/*.ts',
+      'apps/*/src/database/migrations/*.ts',
+    ],
     { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
   );
   const services = new Set<string>();
@@ -129,10 +130,7 @@ function registrationSourceFor(service: string, appSrc: string): string {
     return appSrc;
   }
 
-  const manifestPath = resolve(
-    REPO_ROOT,
-    'apps/farm-service/src/database/migrations/manifest.ts',
-  );
+  const manifestPath = resolve(REPO_ROOT, 'apps/farm-service/src/database/migrations/manifest.ts');
   if (!existsSync(manifestPath)) {
     return appSrc;
   }
@@ -141,12 +139,11 @@ function registrationSourceFor(service: string, appSrc: string): string {
 }
 
 function usesGlobPattern(appModuleSrc: string): boolean {
-  // Pattern: `migrations: [__dirname + '/migrations/*{.ts,.js}']` or
-  // `migrations: [__dirname + '/migrations/*.{ts,js}']` etc. — any
-  // string-literal inside the migrations array that pairs a `*` glob
-  // wildcard with a `{ext1,ext2}` extension list. Both `*{...}` and
-  // `*.{...}` shapes are valid TypeORM globs and appear in the repo.
-  return /migrations:\s*\[[^\]]*\*\.?\{/i.test(appModuleSrc);
+  // Pattern: `migrations: [__dirname + '/migrations/[0-9]*{.ts,.js}']`
+  // or `migrations: [__dirname + '/migrations/[0-9]*.{ts,js}']` etc.
+  // The numeric prefix keeps support files in migrations directories out of
+  // TypeORM's migration loader; migration-glob-contract.spec.ts enforces it.
+  return /migrations:\s*\[[\s\S]*?\/migrations\/\[0-9\]\*\.?\{/i.test(appModuleSrc);
 }
 
 function migrationFileToClassNames(rel: string): string[] {
@@ -192,7 +189,8 @@ describe('INVARIANT (ORPHAN-FARM-MIGRATION-REGISTRATION): every migration is reg
     const appSrc = readFileSync(appPath, 'utf8');
 
     if (usesGlobPattern(appSrc)) {
-      // Glob auto-includes every file → no per-file registration needed.
+      // Numeric glob auto-includes every timestamped migration file while
+      // excluding support files → no per-file registration needed.
       return;
     }
 
@@ -226,7 +224,7 @@ describe('INVARIANT (ORPHAN-FARM-MIGRATION-REGISTRATION): every migration is reg
           `\n\nA fresh deploy of "${service}" will never run these migrations — ` +
           `the schema state will silently lag the entity declarations. ` +
           `Add the imports + array entries OR switch the service's TypeOrmModule config ` +
-          `to use the glob pattern \`migrations: [__dirname + '/migrations/*{.ts,.js}']\`.`,
+          `to use the numeric glob pattern \`migrations: [__dirname + '/migrations/[0-9]*{.ts,.js}']\`.`,
       );
     }
   });

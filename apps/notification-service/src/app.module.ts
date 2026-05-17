@@ -2,14 +2,15 @@ import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import {
+  AuditLogModule,
+  AuditLogInterceptor,
+  AuditedOperationModule,
+} from '@aquaculture/backend-common/audit';
 import {
   AuditColumnsModule,
   createMigrationRunnerService,
@@ -79,7 +80,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
           // them to `notification`. After the move, the search_path pin
           // here will resolve them first.
           schema: 'notification',
-          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+          migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
           //   aqua-db-migrate container runs migrations BEFORE service
@@ -125,18 +126,33 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
          * WHY: notification subgraph developer UI must not rely on deprecated Apollo Playground behavior.
          */
         introspection: configService.get('NODE_ENV') !== 'production',
-        context: ({ req }: { req: Record<string, unknown> & { headers: Record<string, string | undefined>; user?: Record<string, unknown> } }) => {
+        context: ({
+          req,
+        }: {
+          req: Record<string, unknown> & {
+            headers: Record<string, string | undefined>;
+            user?: Record<string, unknown>;
+          };
+        }) => {
           const userPayloadHeader = req.headers['x-user-payload'];
           const userIdHeader = req.headers['x-user-id'];
           const userRolesHeader = req.headers['x-user-roles'];
           if (typeof userPayloadHeader === 'string') {
-            try { req.user = JSON.parse(userPayloadHeader); } catch {
+            try {
+              req.user = JSON.parse(userPayloadHeader);
+            } catch {
               if (typeof userIdHeader === 'string') {
-                req.user = { sub: userIdHeader, roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [] };
+                req.user = {
+                  sub: userIdHeader,
+                  roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
+                };
               }
             }
           } else if (typeof userIdHeader === 'string') {
-            req.user = { sub: userIdHeader, roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [] };
+            req.user = {
+              sub: userIdHeader,
+              roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
+            };
           }
           return { req };
         },
@@ -254,8 +270,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     },
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard =>
-        new RolesGuard(reflector),
+      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
       inject: [Reflector],
     },
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */

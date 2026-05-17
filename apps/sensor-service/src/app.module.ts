@@ -1,7 +1,4 @@
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { Logger, Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
@@ -58,7 +55,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
-import { createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, SchemaDriftModule } from '@aquaculture/backend-common/database';
+import {
+  createTenantConnectionBootstrap,
+  TenantSchemaSyncService,
+  SourceSchemaWriteGuardService,
+  SchemaDriftModule,
+} from '@aquaculture/backend-common/database';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
@@ -94,8 +96,9 @@ import { FeedingParameter } from './plc-control/entities/feeding-parameter.entit
 import { PlcAlarm } from './plc-control/entities/plc-alarm.entity';
 import { PlcTelemetry } from './plc-control/entities/plc-telemetry.entity';
 // Migration class imports removed — TypeOrmModule now uses the glob
-// pattern '/database/migrations/*.{js,ts}' to load every migration on
-// disk. See ORPHAN-HIGH-001 cure note in migrations: array below.
+// pattern '/database/migrations/[0-9]*.{js,ts}' to load every timestamped
+// migration on disk while excluding support files from TypeORM's migration
+// loader. See ORPHAN-HIGH-001 cure note in migrations: array below.
 import { CredentialVaultModule } from './infrastructure/vault/credential-vault.module';
 import { AuditModule } from './infrastructure/audit/audit.module';
 import { AuditLog } from './infrastructure/audit/audit-log.entity';
@@ -190,11 +193,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
           // CreateReadingsAggregates, CreateEdgeDevicesTable,
           // AddSensorMetricsCompositeIndex, CreateScadaTables) — schema
           // state lagged the entity declarations on every fresh deploy.
-          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+          migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // When sync is on (initial deploy), skip migrations to avoid index conflicts.
           // When sync is off (production), run migrations for structural changes.
-          migrationsRunFromEnv: (cfg) =>
-            cfg.get('DATABASE_SYNC', 'false') !== 'true',
+          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_SYNC', 'false') !== 'true',
         }),
     }),
 
@@ -252,9 +254,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
                   });
 
                   if (complexity > maxComplexity) {
-                    logger.warn(
-                      `Query complexity ${complexity} exceeds max ${maxComplexity}`,
-                    );
+                    logger.warn(`Query complexity ${complexity} exceeds max ${maxComplexity}`);
                     throw new GraphQLError(
                       `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
                       {
@@ -407,8 +407,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     // Without this, @Roles decorators would have no effect!
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard =>
-        new RolesGuard(reflector),
+      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
       inject: [Reflector],
     },
     // Bootstrap source schema tables on startup (creates template tables if missing)
@@ -428,12 +427,12 @@ export class AppModule implements NestModule {
         // SEC-CRITICAL-002 sweep — strips forged internal headers when the
         // request lacks a valid x-service-identity HMAC signature.
         StripInternalHeadersMiddleware,
-        MetricsMiddleware,        // Record request metrics (first for accurate duration)
+        MetricsMiddleware, // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,
         TenantContextMiddleware,
-        TenantSchemaMiddleware,   // Sets PostgreSQL search_path to tenant schema
+        TenantSchemaMiddleware, // Sets PostgreSQL search_path to tenant schema
       )
       .forRoutes('*');
   }

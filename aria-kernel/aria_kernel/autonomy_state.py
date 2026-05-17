@@ -81,6 +81,16 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     "specialist_review_round_completed",
     "specialist_review_resolved",
     "specialist_review_blocked",
+    # Plan ARIA-V7 §2i v2 Phase 7.1 — cycle_runner plan synthesis
+    # phases. ``cycle_runner_synthesized_plan`` fires when the
+    # plan_synthesizer produced a valid plan_content from real
+    # workspace deltas; ``cycle_runner_no_pressure`` fires when
+    # discovery found nothing and the orchestrator routes directly
+    # to reflection (Gate A + downstream phases skipped). The
+    # constant is a discoverability hint; the reducer accepts any
+    # phase string.
+    "cycle_runner_synthesized_plan",
+    "cycle_runner_no_pressure",
     "next_cycle_queued",
     "aria_stop",
     "profile_frozen",

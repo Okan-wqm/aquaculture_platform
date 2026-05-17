@@ -90,3 +90,29 @@ def _specialists_verdict_fake_runner_factory(verdict: str):
             profile=kwargs.get("profile", "standard"),
         )
     return _runner
+
+
+def _plan_synthesizer_fake_runner(**kwargs: Any) -> dict[str, Any] | None:
+    """Plan ARIA-V7 §2i v2 V7.1 — happy-path mock plan_synthesizer.
+
+    Returns a structurally-valid plan_content (all 7 required fields)
+    so the cycle proceeds through Gate A unimpeded. R-A9 compat for
+    V6.1 invariant tests + reused by future V7 tests.
+    """
+    cycle_id = kwargs.get("cycle_id", "cycle-test")
+    return {
+        "schema_version": 1,
+        "title": f"Fake cycle {cycle_id}",
+        "summary": "R-A9 V7 fixture",
+        "affected_surfaces": ["fixture.py"],
+        "key_changes": [{"id": "c1", "description": "x", "paths": ["fixture.py"]}],
+        "validation_commands": [{"cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0}],
+        "evidence_refs": ["fixture.py:1:line"],
+    }
+
+
+def _plan_synthesizer_no_pressure_fake_runner(**kwargs: Any) -> None:
+    """V7.1 no-pressure mock — synthesizer returns None when discovery
+    finds no workspace deltas. Cycle should emit cycle_runner_no_pressure
+    phase + skip Gate A/B/C/worker/auto_merge."""
+    return None

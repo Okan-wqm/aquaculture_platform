@@ -229,6 +229,17 @@ class PhaseV3_3ReflectionOrdering(unittest.TestCase):
                 "token_cost_estimate": 0,
                 "profile": kwargs.get("profile", "standard"),
             }
+        def _v7_fake_plan_synthesizer(**kwargs):
+            cycle_id = kwargs.get("cycle_id", "cycle-test")
+            return {
+                "schema_version": 1,
+                "title": f"Fake cycle {cycle_id}",
+                "summary": "R-A9 V7 fixture",
+                "affected_surfaces": ["fixture.py"],
+                "key_changes": [{"id": "c1", "description": "x", "paths": ["fixture.py"]}],
+                "validation_commands": [{"cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0}],
+                "evidence_refs": ["fixture.py:1:line"],
+            }
         return run_autonomy_orchestrator(
             base_dir=self.base,
             workspace_root=str(self.tmp),
@@ -245,6 +256,7 @@ class PhaseV3_3ReflectionOrdering(unittest.TestCase):
             convergence_runner=_v5_fake_convergence_runner,
             review_runner=_v5_fake_review_runner,
             specialist_review_runner=_v6_fake_specialist_review_runner,
+            plan_synthesizer=_v7_fake_plan_synthesizer,
         )
 
     def _read_governance(self) -> list[dict]:

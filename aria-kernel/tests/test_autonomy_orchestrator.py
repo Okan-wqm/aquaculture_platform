@@ -110,6 +110,33 @@ def _fake_specialist_review_runner(**kwargs):
     }
 
 
+def _fake_plan_synthesizer(**kwargs):
+    """Plan ARIA-V7 §2i v2 V7.1 — happy-path mock plan_synthesizer.
+
+    Returns structurally-valid plan_content (all 7 required fields per
+    plan_convergence._validate_plan_content) so the cycle proceeds
+    through Gate A unimpeded. R-A9 compat pattern from V5/V6 §A1.
+    Tests that exercise the no-pressure path inject a synthesizer
+    returning ``None`` directly via the kwarg.
+    """
+    cycle_id = kwargs.get("cycle_id", "cycle-test")
+    return {
+        "schema_version": 1,
+        "title": f"Fake cycle {cycle_id}",
+        "summary": "Fake plan_content for R-A9 fixture compat",
+        "affected_surfaces": ["fixture/path.py"],
+        "key_changes": [{
+            "id": "fixture-change-1",
+            "description": "fixture cluster",
+            "paths": ["fixture/path.py"],
+        }],
+        "validation_commands": [{
+            "cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0,
+        }],
+        "evidence_refs": ["fixture/path.py:1:fixture line"],
+    }
+
+
 def _fake_planner_drainer(*, base_dir, workspace_root, max_iterations):
     return {
         "iterations": 1,
@@ -223,6 +250,11 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             # returns consolidated_no_gaps so cycle proceeds through
             # worker_drainer.
             specialist_review_runner=_fake_specialist_review_runner,
+            # Plan ARIA-V7 §2i v2 — plan_synthesizer is REQUIRED
+            # (V7.1 Tier-1, no default). Happy-path fake returns a
+            # structurally-valid plan_content so the cycle proceeds
+            # through Gate A unimpeded.
+            plan_synthesizer=_fake_plan_synthesizer,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

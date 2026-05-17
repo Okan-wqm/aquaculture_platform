@@ -1,0 +1,89 @@
+{
+  "$schema": "aria/finding/v1",
+  "finding_id": "F-013",
+  "certainty": "CONFIRMED",
+  "claim_summary": "Plan ARIA-V7 — Autonomous Runtime Completeness. V6 closed the architectural arc (Tier-1 contracts + 23 invariants); the POST-V6 30-cycle smoke + 10-validator audit revealed that V5/V6 contracts are correctly wired at the test boundary but runtime data does not flow through them in autonomous mode. ORPHAN-HIGH-079 crash (orchestrator hardcoded plan_seed sentinel → plan_convergence validator rejects → cycle crash at Gate A); V6.2 run_convergent_authoring is dead code (zero production callsites); V6.4 auto-promote precision_history is never populated; specialist + drafter + judge envelopes are minted but never claimed (no consumer). V7 wires the PRODUCERS for every V5/V6 contract across 8 commits: cycle_runner plan synthesis (C1) + orchestrator try/except invalid-plan handling (C2) + universal agent dispatcher (C3) + skill_genesis_drainer (C4) + corpus-aware + evidence-pack pre-flight (C5) + calibration_reporter orchestrator phase (C6) + reflection v3 + analyzer + cycle watchdog (C7) + F-013 RESOLVED + 30-cycle hard-gate verification (C8). Operator vision principle: 'yama yok, susturma yok, kör bırakma yok, sonraya bırakma yok — her zaman mımarı cozum'. V7 v2 audit-revised plan addressed 5 BLOCKING gaps + 3 underspec items + 2 banned-phrase removals + 1 verification hardening before C1 implementation began.",
+  "claim_type": "plan_aria_v7_runtime_completeness_arc",
+  "closes_in_commit": "Plan ARIA-V7 v2 in progress: this commit C1 Phase 7.1 plan_synthesizer producer lands V7.1 (D1 RESOLVED). C2..C8 are tracked under D2..D7 + ORPHAN-079 final closure at C8.",
+  "created_at": "2026-05-17T00:00:00Z",
+  "resolved_at": null,
+  "resolution_summary": "OPEN — Plan ARIA-V7 v2 APPROVED via 10-validator audit (5 BLOCKING corrections applied + 3 underspec items resolved + 2 banned-phrase removals + 1 verification hardening). C1 lands D1 (V7.1 plan_synthesizer + 5 invariants + R-A9 V3.3/V5/V6 fixture compat + REQUIRED kwarg + AUTONOMY_PHASES extension + orchestrator wiring + CLI integration). C2..C8 OPEN.",
+  "scope": "aria-kernel/aria_kernel/{plan_synthesizer,skill_genesis_drainer,dispatcher_factory,autonomy_orchestrator,autonomy_state,cli,reflection,genesis_policy}.py + aria-kernel/aria_kernel/data/genesis_policy_default.json + aria-kernel/scripts/post-v7-autonomy-analysis.py + tools/aria-poc/ci_executor.py + aria-kernel/tests/invariants/v7/ + aria-kernel/tests/{test_autonomy_orchestrator,test_phase4_1_genesis_policy}.py + aria-kernel/tests/invariants/{v3_3,v5,v6}/ + aria-findings/F-013-*.json + aria-findings/_index.json + docs/reviews/orphan-findings.md",
+  "severity": "HIGH",
+  "state": "OPEN",
+  "subfindings": [
+    {
+      "id": "F-013-D1",
+      "title": "V7.1 plan_synthesizer — producer wires real workspace discovery into Gate A",
+      "severity": "HIGH",
+      "tier": 1,
+      "phase": "V7 Phase 7.1 (Commit C1)",
+      "status": "RESOLVED",
+      "resolved_by_commit": "C1 (this commit)",
+      "resolution_note": "Plan ARIA-V7 Phase 7.1 (Commit C1) Tier-1 architectural wiring. plan_synthesizer.py (NEW ~280 LOC) provides PlanSynthesizer Protocol + synthesize_plan_content_from_cycle default (git diff with HEAD~1 → HEAD~10 → 24-hr reflog fallback) + select_plan_synthesizer(profile) factory + helpers (_discover_affected_paths + _cluster_changes + _collect_evidence_refs) + bounded outputs (_MAX_AFFECTED_SURFACES=100 + _MAX_KEY_CHANGES=50 + _MAX_EVIDENCE_REFS=10). REQUIRED plan_synthesizer kwarg on run_autonomy_orchestrator (no default, no Optional annotation per V5/V6 §A1 precedent). Orchestrator replaces hardcoded plan_seed={'cycle_id': cycle_id} with plan_synthesizer call; None return emits cycle_runner_no_pressure phase + skip Gate A. AUTONOMY_PHASES extended +2. cli.py wires factory. R-A9 compat across 5 test files. 5 V7.1 invariants (I-V7.1-01..05) + source-substring guard on literal _REQUIRED_FIELDS 7-tuple. No synthetic data — every field derived from real repo state. Every evidence_ref resolves via Path.exists at workspace_root."
+    },
+    {
+      "id": "F-013-D2",
+      "title": "V7.2 orchestrator try/except + invalid-plan verdict — catches downstream validator rejection",
+      "severity": "HIGH",
+      "tier": 1,
+      "phase": "V7 Phase 7.2 (Commit C2)",
+      "status": "OPEN",
+      "resolved_by_commit": null,
+      "resolution_note": "PENDING C2: wrap convergence_runner call in try/except GovernanceError; emit convergence_invalid_plan phase + governance event capturing raw plan_content for forensics; source-substring invariant I-V7.2-04 pins the try/except envelope. 5 V7.2 invariants planned. Closes ORPHAN-HIGH-079 even for future malformed payloads (not just empty)."
+    },
+    {
+      "id": "F-013-D3",
+      "title": "V7.3 universal agent dispatcher — Claude Code subprocess consumer for all envelope roles",
+      "severity": "HIGH",
+      "tier": 1,
+      "phase": "V7 Phase 7.3 (Commit C3)",
+      "status": "OPEN",
+      "resolved_by_commit": null,
+      "resolution_note": "PENDING C3: tools/aria-poc/ci_executor.py extension + aria-kernel/aria_kernel/dispatcher_factory.py (NEW ~180 LOC). claim_and_dispatch_one for 8 SUPPORTED_ROLES (specialist_domain_review + primary_authoring + challenger_authoring + evidence_judgment + adversarial_judgment + primary_plan + challenger_plan + cross_review). DispatcherConfig + env-var resolution + subprocess timeout discipline + refusal-envelope on failure. 5 V7.3 invariants planned. Closes G4 (V7 v1 banned-phrase 'deferred' elimination)."
+    },
+    {
+      "id": "F-013-D4",
+      "title": "V7.4 skill_genesis_drainer — invokes V6.2 convergent authoring loop per cycle",
+      "severity": "HIGH",
+      "tier": 1,
+      "phase": "V7 Phase 7.4 (Commit C4)",
+      "status": "OPEN",
+      "resolved_by_commit": null,
+      "resolution_note": "PENDING C4: NEW skill_genesis_drainer.py (~380 LOC) + REQUIRED kwarg + derived-state status update via request-status.jsonl (mirrors agent_invocations.derive_request_state) + crash-catch with status=authoring_error before re-raise + token budget cap (max_tokens_per_cycle 50K default) + deterministic recorded_at order. 9 V7.4 invariants planned. Closes G2 dead V6.2 code + V6 CONCERN #19 (pre-cycle budget audit)."
+    },
+    {
+      "id": "F-013-D5",
+      "title": "V7.5 corpus-aware drainer with evidence-pack pre-flight fallback",
+      "severity": "MEDIUM",
+      "tier": 1,
+      "phase": "V7 Phase 7.5 (Commit C5)",
+      "status": "OPEN",
+      "resolved_by_commit": null,
+      "resolution_note": "PENDING C5: per-seed validate_calibration_corpus_sanity + fallback collect_evidence_pack pre-flight. Missing corpus + sufficient evidence-pack → authoring proceeds (chicken-and-egg paradox broken). Authoring marked corpus_proxy='evidence_pack' for operator visibility. 5 V7.5 invariants planned. Closes G5 (V7 v1 chicken-and-egg paradox)."
+    },
+    {
+      "id": "F-013-D6",
+      "title": "V7.6 calibration_reporter orchestrator phase — populates precision_history for V6.4 auto-promote",
+      "severity": "HIGH",
+      "tier": 1,
+      "phase": "V7 Phase 7.6 (Commit C6)",
+      "status": "OPEN",
+      "resolved_by_commit": null,
+      "resolution_note": "PENDING C6: NEW orchestrator phase AFTER auto_merge and BEFORE reflection; invokes generate_adapter_calibration_report per cycle for all SHADOW/ACTIVE adapters; persists precision_history. Without this V6.4 compute_auto_promote_token can NEVER fire (V6 latent dead loop). 4 V7.6 invariants planned. Closes V6.4 architectural gap."
+    },
+    {
+      "id": "F-013-D7",
+      "title": "V7.7 reflection v3 + analyzer V7-aware + cycle watchdog",
+      "severity": "MEDIUM",
+      "tier": 2,
+      "phase": "V7 Phase 7.7 (Commit C7)",
+      "status": "OPEN",
+      "resolved_by_commit": null,
+      "resolution_note": "PENDING C7: reflection.py schema_version 2→3 (additive); new optional kwargs skill_genesis_result + calibration_result + cycle_runner_result; cycle_deadline_seconds watchdog (Tier-1 within Tier-2 phase); analyzer renamed post-v7-autonomy-analysis.py with V7 phase counters + orphan_convergence_started detection. 5 V7.7 invariants planned. Closes G7 + 30-cycle gate flakiness (H-1)."
+    }
+  ],
+  "review_file": "/root/.claude/plans/immutable-sparking-waterfall.md",
+  "owner_agent": "orchestrator",
+  "raised_in_cycle": "10-validator-v7-plan-audit-2026-05-17"
+}

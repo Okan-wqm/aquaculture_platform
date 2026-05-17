@@ -3360,6 +3360,11 @@ def _main(argv: list[str] | None = None) -> int:
         from .github_adapters import select_github_adapter
         from .review_runner import select_review_runner
         from .specialist_review_runner import select_specialist_review_runner
+        # Plan ARIA-V7 §2i v2 Phase 7.1 — plan_synthesizer factory
+        # wired into the autonomy CLI. The synthesizer is REQUIRED
+        # on run_autonomy_orchestrator; without this wiring the
+        # autonomous loop crashes with TypeError at signature binding.
+        from .plan_synthesizer import select_plan_synthesizer
         # Plan ARIA-V3.1 §2a — ``get_profile`` already imported
         # at module level (line 105); nested re-import removed.
         profile = get_profile(base_dir=args.tools_dir)
@@ -3372,6 +3377,7 @@ def _main(argv: list[str] | None = None) -> int:
         convergence_runner = select_convergence_runner(profile=profile)
         review_runner = select_review_runner(profile=profile)
         specialist_review_runner = select_specialist_review_runner(profile=profile)
+        plan_synthesizer = select_plan_synthesizer(profile=profile)
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
             auto_merge_runner=auto_merge_runner,
@@ -3379,6 +3385,7 @@ def _main(argv: list[str] | None = None) -> int:
             convergence_runner=convergence_runner,
             review_runner=review_runner,
             specialist_review_runner=specialist_review_runner,
+            plan_synthesizer=plan_synthesizer,
             workspace_root=args.workspace_root,
             max_cycles=args.max_cycles,
             max_iterations_per_phase=args.max_iterations_per_phase,

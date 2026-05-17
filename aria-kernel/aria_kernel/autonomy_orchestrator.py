@@ -89,6 +89,12 @@ if TYPE_CHECKING:
     # only import (Gate C Lane-A dispatch). Same TYPE_CHECKING
     # discipline as other runners.
     from .specialist_review_runner import SpecialistReviewRunner
+    # Plan ARIA-V7 §2i v2 — PlanSynthesizer Protocol typed-only
+    # import (cycle_runner plan_content producer). Same TYPE_CHECKING
+    # discipline. The synthesizer is a REQUIRED kwarg per V5/V6 §A1
+    # precedent and the source-substring invariant I-V7.1-04 pins
+    # the contract.
+    from .plan_synthesizer import PlanSynthesizer
 
 
 __all__ = [
@@ -237,6 +243,7 @@ def run_autonomy_orchestrator(
     convergence_runner: "ConvergenceRunner",
     review_runner: "ReviewRunner",
     specialist_review_runner: "SpecialistReviewRunner",
+    plan_synthesizer: "PlanSynthesizer",
     workspace_root: str | Path | None = None,
     max_cycles: int = DEFAULT_MAX_CYCLES,
     max_iterations_per_phase: int = DEFAULT_MAX_ITERATIONS_PER_PHASE,
@@ -538,6 +545,74 @@ def run_autonomy_orchestrator(
                 # auto_merge_runner) is skipped; reflection still runs
                 # so the operator-facing daily report records the
                 # convergence-blocked status.
+                # Plan ARIA-V7 §2i v2 Phase 7.1 — plan_synthesizer
+                # produces real plan_content from workspace discovery
+                # BEFORE Gate A fires. Pre-V7, the orchestrator
+                # hardcoded ``plan_seed={"cycle_id": cycle_id}`` — a
+                # 1-key sentinel that ``plan_convergence._validate_
+                # plan_content`` rejected as malformed, crashing the
+                # autonomous cycle (ORPHAN-HIGH-079). V7.1 wires the
+                # producer side: real workspace deltas → 7-field
+                # plan_content dict that passes the validator.
+                #
+                # When the synthesizer returns None (no workspace
+                # pressure), emit ``cycle_runner_no_pressure`` phase
+                # + skip Gate A + Gate C + worker + Gate B +
+                # auto_merge for this cycle. Reflection still runs
+                # (V3.3 §2b preservation).
+                _v7_plan_content = plan_synthesizer(
+                    cycle_id=cycle_id,
+                    workspace_root=Path(workspace_root) if workspace_root else root,
+                    base_dir=root,
+                )
+                if _v7_plan_content is None:
+                    AutonomyStateReducer.transition(
+                        root,
+                        cycle_id=cycle_id,
+                        phase="cycle_runner_no_pressure",
+                        status="no_workspace_pressure",
+                        profile=profile_snapshot,
+                        details={"plan_id": f"plan-{cycle_id}"},
+                    )
+                    cycle_summary["plan_synthesizer"] = {
+                        "status": "no_pressure", "plan_content": None,
+                    }
+                    post_drain_reflection = run_reflection(
+                        cycle_id=cycle_id,
+                        base_dir=root,
+                        repo_root=workspace_root,
+                        convergence_result=None,
+                        review_result=None,
+                    )
+                    cycle_summary["reflection"] = post_drain_reflection
+                    per_cycle_results.append(cycle_summary)
+                    continue
+                # Plan ARIA-V7 §2i v2 — synthesizer produced real plan.
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="cycle_runner_synthesized_plan",
+                    status="ok",
+                    profile=profile_snapshot,
+                    details={
+                        "plan_id": f"plan-{cycle_id}",
+                        "affected_surfaces_count": len(
+                            _v7_plan_content.get("affected_surfaces", [])
+                        ),
+                        "key_changes_count": len(
+                            _v7_plan_content.get("key_changes", [])
+                        ),
+                    },
+                )
+                cycle_summary["plan_synthesizer"] = {
+                    "status": "synthesized",
+                    "affected_surfaces_count": len(
+                        _v7_plan_content.get("affected_surfaces", [])
+                    ),
+                    "key_changes_count": len(
+                        _v7_plan_content.get("key_changes", [])
+                    ),
+                }
                 AutonomyStateReducer.transition(
                     root,
                     cycle_id=cycle_id,
@@ -551,7 +626,7 @@ def run_autonomy_orchestrator(
                     base_dir=root,
                     workspace_root=workspace_root,
                     plan_id=f"plan-{cycle_id}",
-                    plan_seed={"cycle_id": cycle_id},
+                    plan_seed=_v7_plan_content,
                     must_satisfy=[{
                         "id": "cycle-impl-satisfies-scope",
                         "description":

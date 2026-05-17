@@ -94,6 +94,22 @@ def _review_no_gaps_fake(**kwargs):
     }
 
 
+def _plan_synthesizer_fake(**kwargs):
+    """Plan ARIA-V7 §2i v2 — V7.1 made plan_synthesizer REQUIRED;
+    V5.2 tests pass this happy-path fake so the cycle proceeds
+    through Gate A unimpeded."""
+    cycle_id = kwargs.get("cycle_id", "cycle-test")
+    return {
+        "schema_version": 1,
+        "title": f"Fake cycle {cycle_id}",
+        "summary": "R-A9 V7 fixture",
+        "affected_surfaces": ["fixture.py"],
+        "key_changes": [{"id": "c1", "description": "x", "paths": ["fixture.py"]}],
+        "validation_commands": [{"cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0}],
+        "evidence_refs": ["fixture.py:1:line"],
+    }
+
+
 def _specialists_no_gaps_fake(**kwargs):
     """Plan ARIA-V6 §2c v2 — V6.1 made specialist_review_runner
     REQUIRED; V5.2 tests pass this happy-path fake so the cycle
@@ -163,6 +179,9 @@ class PhaseV5_2ReviewGate(unittest.TestCase):
             # REQUIRED; V5.2 tests pass happy-path fake so the cycle
             # proceeds past Gate C into worker_drainer + auto_merge.
             specialist_review_runner=_specialists_no_gaps_fake,
+            # Plan ARIA-V7 §2i v2 — V7.1 makes plan_synthesizer REQUIRED;
+            # V5.2 tests pass happy-path fake so cycle proceeds through Gate A.
+            plan_synthesizer=_plan_synthesizer_fake,
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

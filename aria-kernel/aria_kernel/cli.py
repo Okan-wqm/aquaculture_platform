@@ -1254,6 +1254,15 @@ def _main(argv: list[str] | None = None) -> int:
         "--daemon-id", default="autonomy",
         help="fcntl single-instance lock id (default: autonomy).",
     )
+    # Plan ARIA-V7 §3 V7.7 — cycle deadline watchdog CLI flag.
+    auto_run.add_argument(
+        "--cycle-deadline-seconds", type=float, default=1800.0,
+        help="Per-cycle wall-clock deadline (default 1800s = 30 min). "
+             "When exceeded, orchestrator emits cycle_deadline_exceeded "
+             "phase + writes ARIA_STOP to halt the autonomy loop cleanly. "
+             "Set lower (e.g. 60) to verify the V7 phase progression "
+             "quickly without polling for Gate A/B/C consumer envelopes.",
+    )
     auto_status = add_subparser(
         autonomy_sub, "status",
         help="Print the canonical AutonomyState derived from autonomy_state.jsonl.",
@@ -3397,6 +3406,7 @@ def _main(argv: list[str] | None = None) -> int:
             max_cycles=args.max_cycles,
             max_iterations_per_phase=args.max_iterations_per_phase,
             daemon_id=args.daemon_id,
+            cycle_deadline_seconds=args.cycle_deadline_seconds,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         # Exit non-zero only when the orchestrator could not start

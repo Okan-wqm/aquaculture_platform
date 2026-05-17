@@ -81,14 +81,14 @@
       "status": "RESOLVED"
     },
     {
-      "claim_summary": "Plan ARIA-V7 — Autonomous Runtime Completeness. V6 closed architectural arc; V7 wires producers for every V5/V6 contract across 8 commits. Closes ORPHAN-HIGH-079 (orchestrator hardcoded plan_seed crash) + V6.2 dead code + V6.4 auto-promote dead loop + specialist consumer gap. Operator anchor: yama yok, susturma yok, kor birakma yok, sonraya birakma yok. 10-validator audit applied inline before C1.",
+      "claim_summary": "Plan ARIA-V7 CONVERGED — Autonomous Runtime Completeness. V6 closed architectural arc; V7 wired producers for every V5/V6 contract across 8 commits. Closed ORPHAN-HIGH-079 (orchestrator hardcoded plan_seed crash) + V6.2 dead code + V6.4 auto-promote dead loop + specialist consumer gap. Operator anchor: yama yok, susturma yok, kor birakma yok, sonraya birakma yok. 10-validator audit applied inline before C1. 38 V7 invariants.",
       "claim_type": "plan_aria_v7_runtime_completeness_arc",
       "created_at": "2026-05-17T00:00:00Z",
       "evidence_chain_id": "chain_aria_v7_runtime_completeness_arc",
       "finding_id": "F-013",
       "path": "F-013.json",
       "severity": "HIGH",
-      "status": "OPEN"
+      "status": "RESOLVED"
     }
   ],
   "generated_at": "2026-05-17T00:00:00Z",

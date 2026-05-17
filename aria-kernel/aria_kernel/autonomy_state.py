@@ -118,6 +118,11 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     # Without this V6.4 compute_auto_promote_token can NEVER fire
     # (V6.4 was a latent dead loop pre-V7).
     "calibration_reporter_completed",
+    # Plan ARIA-V7 §3 Phase 7.7 — cycle watchdog deadline phase.
+    # Fires when a cycle exceeds cycle_deadline_seconds; orchestrator
+    # writes ARIA_STOP to halt the autonomy loop cleanly. No silent
+    # hang (closes V7.8 verification gate H-1 flakiness).
+    "cycle_deadline_exceeded",
     "next_cycle_queued",
     "aria_stop",
     "profile_frozen",

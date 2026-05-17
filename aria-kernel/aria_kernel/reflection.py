@@ -20,6 +20,9 @@ def run_reflection(
     convergence_result: dict[str, Any] | None = None,
     review_result: dict[str, Any] | None = None,
     pedagogy_lint_result: dict[str, Any] | None = None,
+    skill_genesis_result: dict[str, Any] | None = None,
+    calibration_result: dict[str, Any] | None = None,
+    cycle_runner_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3f v2 — reflection schema v1 → v2 additive bump.
     # Three optional kwargs let the autonomy orchestrator inject its
@@ -80,7 +83,13 @@ def run_reflection(
     human_required = _human_required_summary(root)
     gate_activity = _gate_activity_summary(root)
     reflection = {
-        "schema_version": 2,
+        # Plan ARIA-V7 §3 Phase 7.7 — schema_version v2 → v3
+        # (additive bump). New optional sub-objects (skill_genesis,
+        # calibration, cycle_runner) carry the V7.4 + V7.6 + V7.1
+        # producer outputs. v2 readers tolerate the new fields
+        # via `.get(key, default)` access (validated by V5.4
+        # consumer audit; same pattern applies to v3).
+        "schema_version": 3,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "coverage": _coverage(root, cycle_id),
@@ -112,6 +121,12 @@ def run_reflection(
             convergence_result, review_result,
         ),
         "pedagogy": _build_pedagogy_telemetry(pedagogy_lint_result),
+        # Plan ARIA-V7 §3 Phase 7.7 — V7 producer telemetry. Direct
+        # CLI path (no orchestrator kwargs) emits null sentinels;
+        # orchestrator path populates with real producer outputs.
+        "skill_genesis": skill_genesis_result if skill_genesis_result else None,
+        "calibration": calibration_result if calibration_result else None,
+        "cycle_runner": cycle_runner_result if cycle_runner_result else None,
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),

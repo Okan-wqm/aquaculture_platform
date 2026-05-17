@@ -1,4 +1,4 @@
-"""Plan ARIA-V6 POST-V6 — 30-cycle autonomy run analyzer.
+"""Plan ARIA-V7 POST-V7 — 30-cycle autonomy run analyzer (V6 + V7 phases).
 
 Reads aria-tools/autonomy_state.jsonl + aria-tools/reflection/*.json +
 aria-tools/governance.jsonl produced by the 30-cycle autonomy run and
@@ -6,10 +6,17 @@ emits a structured analysis report covering:
 
   * Phase-firing histogram per cycle (which phases fired, how often)
   * Verdict distribution for Gate A (convergence) + Gate B (review)
-    + Gate C (specialist_review) per cycle
+    + Gate C (specialist_review) + V7 phases (skill_genesis_drainer,
+    convergence_invalid_plan, cycle_runner_no_pressure,
+    calibration_reporter_completed) per cycle
+  * Orphan-convergence-started detection (V7.8 hard gate H-1):
+    every convergence_started row MUST be followed by exactly one
+    of convergence_resolved, convergence_invalid_plan, or
+    convergence_skipped_no_payload within the same cycle.
   * Defensive-default rate (specialists_unavailable, primary_silent,
-    challenger_unavailable) — expected high since no external dispatcher
-    is running in the snowball CI environment
+    challenger_unavailable, dispatchers_unavailable) — expected high
+    since no external ci_executor is running in the snowball CI
+    environment
   * GovernanceError surface from governance.jsonl
   * Cycle-to-cycle drift signal (did anything change cycle over cycle?)
 
@@ -71,6 +78,13 @@ def main(tools_dir: str = "./aria-tools") -> int:
     convergence_verdicts: collections.Counter = collections.Counter()
     review_verdicts: collections.Counter = collections.Counter()
     specialist_verdicts: collections.Counter = collections.Counter()
+    # Plan ARIA-V7 §3 Phase 7.7 — V7 phase verdict counters.
+    skill_genesis_verdicts: collections.Counter = collections.Counter()
+    calibration_statuses: collections.Counter = collections.Counter()
+    cycle_runner_outcomes: collections.Counter = collections.Counter()
+    invalid_plan_count = 0
+    no_pressure_count = 0
+    deadline_exceeded_count = 0
     for row in autonomy_state:
         phase = row.get("phase") or ""
         status = row.get("status") or ""
@@ -80,6 +94,34 @@ def main(tools_dir: str = "./aria-tools") -> int:
             review_verdicts[status] += 1
         elif phase == "specialist_review_resolved":
             specialist_verdicts[status] += 1
+        elif phase == "skill_genesis_drainer_resolved":
+            skill_genesis_verdicts[status] += 1
+        elif phase == "calibration_reporter_completed":
+            calibration_statuses[status] += 1
+        elif phase == "cycle_runner_synthesized_plan":
+            cycle_runner_outcomes["synthesized"] += 1
+        elif phase == "cycle_runner_no_pressure":
+            cycle_runner_outcomes["no_pressure"] += 1
+            no_pressure_count += 1
+        elif phase == "convergence_invalid_plan":
+            invalid_plan_count += 1
+        elif phase == "cycle_deadline_exceeded":
+            deadline_exceeded_count += 1
+
+    # Plan ARIA-V7 §3 V7.7 — orphan convergence_started detection.
+    # Every convergence_started row MUST be followed by exactly one
+    # of convergence_resolved, convergence_invalid_plan, or
+    # convergence_skipped_no_payload within the same cycle.
+    orphan_convergence_started_count = 0
+    for cid, bucket in cycles.items():
+        phases = bucket.get("phases", [])
+        starts = [i for i, p in enumerate(phases) if p == "convergence_started"]
+        resolutions = {"convergence_resolved", "convergence_invalid_plan",
+                       "convergence_skipped_no_payload"}
+        for start_idx in starts:
+            tail = phases[start_idx + 1:]
+            if not any(p in resolutions for p in tail):
+                orphan_convergence_started_count += 1
 
     governance_class_hist: collections.Counter = collections.Counter()
     for row in governance:
@@ -94,6 +136,14 @@ def main(tools_dir: str = "./aria-tools") -> int:
         "convergence_verdict_histogram": dict(convergence_verdicts.most_common()),
         "review_verdict_histogram": dict(review_verdicts.most_common()),
         "specialist_review_verdict_histogram": dict(specialist_verdicts.most_common()),
+        # Plan ARIA-V7 §3 V7.7 — V7 phase counters.
+        "skill_genesis_drainer_verdict_histogram": dict(skill_genesis_verdicts.most_common()),
+        "calibration_reporter_status_histogram": dict(calibration_statuses.most_common()),
+        "cycle_runner_outcomes": dict(cycle_runner_outcomes.most_common()),
+        "convergence_invalid_plan_count": invalid_plan_count,
+        "cycle_runner_no_pressure_count": no_pressure_count,
+        "cycle_deadline_exceeded_count": deadline_exceeded_count,
+        "orphan_convergence_started_count": orphan_convergence_started_count,
         "governance_event_histogram": dict(governance_class_hist.most_common()),
         "first_cycle": _stub_cycle(next(iter(cycles.values()), None)),
         "last_cycle": _stub_cycle(list(cycles.values())[-1] if cycles else None),
@@ -108,6 +158,13 @@ def main(tools_dir: str = "./aria-tools") -> int:
     print(f"  Convergence verdicts:   {dict(convergence_verdicts)}", file=sys.stderr)
     print(f"  Review verdicts:        {dict(review_verdicts)}", file=sys.stderr)
     print(f"  Specialist verdicts:    {dict(specialist_verdicts)}", file=sys.stderr)
+    print(f"  Skill genesis verdicts: {dict(skill_genesis_verdicts)}", file=sys.stderr)
+    print(f"  Calibration statuses:   {dict(calibration_statuses)}", file=sys.stderr)
+    print(f"  Cycle runner outcomes:  {dict(cycle_runner_outcomes)}", file=sys.stderr)
+    print(f"  invalid_plan count:     {invalid_plan_count}", file=sys.stderr)
+    print(f"  no_pressure count:      {no_pressure_count}", file=sys.stderr)
+    print(f"  deadline_exceeded:      {deadline_exceeded_count}", file=sys.stderr)
+    print(f"  orphan started count:   {orphan_convergence_started_count} (V7.8 hard gate H-1)", file=sys.stderr)
     print(f"  Governance events:      {dict(governance_class_hist)}", file=sys.stderr)
     return 0
 

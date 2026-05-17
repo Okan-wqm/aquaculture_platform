@@ -126,11 +126,14 @@ class PhaseV5_4Telemetry(unittest.TestCase):
             pedagogy_lint_result=pedagogy_lint_result,
         )
 
-        self.assertEqual(
+        # Plan ARIA-V7 §3 Phase 7.7 — forward-compat: V7.7 bumps
+        # schema 2 → 3 (additive). Use assertGreaterEqual so this
+        # V5.4 invariant remains green across schema bumps.
+        self.assertGreaterEqual(
             reflection.get("schema_version"), 2,
             msg=(
                 "Plan ARIA-V5 §3f v2 — reflection MUST emit "
-                "schema_version=2 once V5.4 lands. Operator daily "
+                "schema_version>=2 once V5.4 lands. Operator daily "
                 "report renders Convergence + Pedagogy sections "
                 "gated on schema_version>=2; v1 readers tolerate "
                 "the bump via .get(key, default) access."
@@ -186,7 +189,7 @@ class PhaseV5_4Telemetry(unittest.TestCase):
             cycle_id="cycle-v5_4-02",
             base_dir=self.base,
         )
-        self.assertEqual(reflection.get("schema_version"), 2)
+        self.assertGreaterEqual(reflection.get("schema_version"), 2)
         self.assertIsNone(
             reflection.get("convergence"),
             msg=(

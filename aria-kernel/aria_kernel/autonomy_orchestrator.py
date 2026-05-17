@@ -252,6 +252,7 @@ def run_autonomy_orchestrator(
     plan_synthesizer: "PlanSynthesizer",
     skill_genesis_drainer: "SkillGenesisDrainer",
     workspace_root: str | Path | None = None,
+    cycle_deadline_seconds: float = 1800.0,
     max_cycles: int = DEFAULT_MAX_CYCLES,
     max_iterations_per_phase: int = DEFAULT_MAX_ITERATIONS_PER_PHASE,
     daemon_id: str = DEFAULT_DAEMON_ID,
@@ -358,6 +359,12 @@ def run_autonomy_orchestrator(
                 )
 
             for cycle_n in range(max_cycles):
+                # Plan ARIA-V7 §3 V7.7 — per-cycle watchdog.
+                # ``_cycle_started_at`` captures monotonic time at
+                # cycle entry; the deadline check at the end of each
+                # cycle compares against ``cycle_deadline_seconds``.
+                # Hard-bound by I-V7.7-04 source-substring invariant.
+                _cycle_started_at = time.monotonic()
                 # ARIA_STOP precedes the profile gate (matches
                 # daemons + cycle.py:244 ordering).
                 if aria_stop_path.exists():
@@ -1157,6 +1164,34 @@ def run_autonomy_orchestrator(
                 cycle_summary["reflection"] = post_drain_reflection
 
                 per_cycle_results.append(cycle_summary)
+
+                # Plan ARIA-V7 §3 V7.7 — cycle watchdog. If wall-clock
+                # since cycle_started exceeded cycle_deadline_seconds,
+                # emit cycle_deadline_exceeded phase + write ARIA_STOP
+                # to halt the autonomy loop cleanly. No silent hang.
+                # Pinned by I-V7.7-04 source-substring invariant.
+                _deadline_hit = (time.monotonic() - _cycle_started_at) >= cycle_deadline_seconds
+                if _deadline_hit:
+                    AutonomyStateReducer.transition(
+                        root,
+                        cycle_id=cycle_id,
+                        phase="cycle_deadline_exceeded",
+                        status="deadline_hit",
+                        profile=profile_snapshot,
+                        details={
+                            "cycle_deadline_seconds": cycle_deadline_seconds,
+                            "elapsed_seconds": (
+                                time.monotonic() - _cycle_started_at
+                            ),
+                        },
+                    )
+                    try:
+                        aria_stop_path.parent.mkdir(parents=True, exist_ok=True)
+                        aria_stop_path.write_text(
+                            "cycle_deadline_exceeded", encoding="utf-8",
+                        )
+                    except OSError:
+                        pass
 
             else:
                 # for-else: ran every iteration without break.

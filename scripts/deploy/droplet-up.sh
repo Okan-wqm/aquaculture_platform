@@ -477,11 +477,26 @@ else
   # The compose SERVICE name is `db-migrate` (container_name is
   # `aqua-db-migrate`).
   docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
-  if ! docker compose -f docker-compose.droplet.yml \
-        up --no-build --abort-on-container-exit \
-        --exit-code-from db-migrate db-migrate; then
+  DB_MIGRATE_TIMEOUT_SECONDS="${DB_MIGRATE_TIMEOUT_SECONDS:-1200}"
+  set +e
+  timeout --kill-after=30s "${DB_MIGRATE_TIMEOUT_SECONDS}s" \
+    docker compose -f docker-compose.droplet.yml \
+      up --no-build --abort-on-container-exit \
+      --exit-code-from db-migrate db-migrate
+  DB_MIGRATE_STATUS=$?
+  set -e
+  if [ "${DB_MIGRATE_STATUS}" -eq 124 ] || [ "${DB_MIGRATE_STATUS}" -eq 137 ]; then
+    echo "::error::aqua-db-migrate exceeded ${DB_MIGRATE_TIMEOUT_SECONDS}s — aborting before service restart."
+    echo "--- aqua-db-migrate logs (last 500 lines) ---"
+    docker logs aqua-db-migrate --tail=500 2>&1 || true
+    echo "--- db-migrate/postgres status ---"
+    docker compose -f docker-compose.droplet.yml ps db-migrate postgres 2>&1 || true
+    docker compose -f docker-compose.droplet.yml stop db-migrate 2>&1 || true
+    exit 1
+  elif [ "${DB_MIGRATE_STATUS}" -ne 0 ]; then
     echo "::error::aqua-db-migrate failed — selective deploy aborted BEFORE restarting services."
-    echo "Inspect logs: docker logs aqua-db-migrate"
+    echo "--- aqua-db-migrate logs (last 500 lines) ---"
+    docker logs aqua-db-migrate --tail=500 2>&1 || true
     exit 1
   fi
   echo "  aqua-db-migrate completed successfully"

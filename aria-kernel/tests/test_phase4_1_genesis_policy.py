@@ -82,10 +82,14 @@ class GenesisPolicyTests(unittest.TestCase):
 
     def test_policy_keys_contract(self):
         # Locked contract — adding/removing a known key requires
-        # explicit code review. Plan ARIA-V3 §B0 + §B2 extended the
-        # contract with `cost_caps_usd` (cost circuit breaker, B0)
-        # and `circuit_breaker` (failure breaker, B2 — primitive
-        # added now so override-merge stays forward-compatible).
+        # explicit code review. Extended over the V3-V7 arc:
+        #   * V3 §B0 — cost_caps_usd (cost circuit breaker)
+        #   * V3 §B2 — circuit_breaker (failure breaker, primitive
+        #     added so override-merge stays forward-compatible)
+        #   * V6 §2d — convergent_authoring (loop config block:
+        #     max_authoring_rounds + sandbox_min_fixtures + recall_floor)
+        #   * V6 §2e — auto_promote (narrow auto-promotion exception
+        #     under autonomous-profile-only safe conditions)
         self.assertEqual(
             POLICY_KEYS,
             {
@@ -96,6 +100,8 @@ class GenesisPolicyTests(unittest.TestCase):
                 "fitness_staleness_threshold_days",
                 "cost_caps_usd",
                 "circuit_breaker",
+                "convergent_authoring",
+                "auto_promote",
             },
         )
 

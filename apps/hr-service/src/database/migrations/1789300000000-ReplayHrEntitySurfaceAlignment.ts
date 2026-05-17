@@ -52,7 +52,10 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
         .join(', ')}`,
     );
 
+    await this.configureBoundedMigrationSession(queryRunner);
+
     const schemas = await this.listTargetSchemas(queryRunner);
+    this.logger.log(`Targeting ${schemas.length} HR schema(s): ${schemas.join(', ')}`);
     for (const schema of schemas) {
       await this.renameLegacySnakeCaseColumns(queryRunner, schema, entities);
     }
@@ -84,11 +87,20 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
     return ['hr', ...tenants];
   }
 
+  private async configureBoundedMigrationSession(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`SET LOCAL lock_timeout = '10s'`);
+    await queryRunner.query(`SET LOCAL statement_timeout = '10min'`);
+    this.logger.log(
+      'Bounded migration session configured: lock_timeout=10s, statement_timeout=10min.',
+    );
+  }
+
   private async renameLegacySnakeCaseColumns(
     queryRunner: QueryRunner,
     schema: string,
     entities: readonly EntityMetadata[],
   ): Promise<void> {
+    this.logger.log(`[${schema}] starting legacy snake_case column normalization.`);
     let renamed = 0;
     const samples: string[] = [];
 
@@ -132,12 +144,13 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
     const unsafe: string[] = [];
 
     for (const schema of schemas) {
+      this.logger.log(`[${schema}] starting required-column safety preflight.`);
       for (const entity of entities) {
         if (!(await this.tableExists(queryRunner, schema, entity.tableName))) {
           continue;
         }
-        const rowCount = await this.rowCount(queryRunner, schema, entity.tableName);
-        if (rowCount === 0) continue;
+        const hasRows = await this.tableHasRows(queryRunner, schema, entity.tableName);
+        if (!hasRows) continue;
 
         const names = await this.columnNames(queryRunner, schema, entity.tableName);
         for (const column of entity.columns) {
@@ -147,6 +160,7 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
           unsafe.push(`${schema}.${entity.tableName}.${column.databaseName}`);
         }
       }
+      this.logger.log(`[${schema}] required-column safety preflight complete.`);
     }
 
     if (unsafe.length > 0) {
@@ -199,6 +213,7 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
     plan: readonly { query: string; parameters?: unknown[] }[],
   ): Promise<void> {
     await queryRunner.query(`SET LOCAL search_path = ${quoteIdent(schema)}, public`);
+    this.logger.log(`[${schema}] applying ${plan.length} validator-alignment statement(s).`);
 
     const rebased = plan.map((q) => ({
       query: schema === 'hr' ? q.query : q.query.replace(/"hr"\./g, `${quoteIdent(schema)}.`),
@@ -233,6 +248,7 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
     let notNullFixed = 0;
 
     for (const schema of schemas) {
+      this.logger.log(`[${schema}] starting validator-contract final heal.`);
       for (const entity of entities) {
         if (!(await this.tableExists(queryRunner, schema, entity.tableName))) {
           continue;
@@ -267,17 +283,17 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
           }
 
           if (!column.isNullable && dbCol.is_nullable === 'YES') {
-            const nullRows = await this.nullCount(
+            const hasNullRows = await this.hasNullRows(
               queryRunner,
               schema,
               entity.tableName,
               column.databaseName,
             );
-            if (nullRows > 0) {
+            if (hasNullRows) {
               throw new Error(
                 `ReplayHrEntitySurfaceAlignment refuses to SET NOT NULL on ` +
                   `${schema}.${entity.tableName}.${column.databaseName}; ` +
-                  `${nullRows} row(s) are NULL. Backfill explicitly first.`,
+                  `at least one row is NULL. Backfill explicitly first.`,
               );
             }
             await queryRunner.query(
@@ -462,25 +478,34 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
     return rows[0];
   }
 
-  private async rowCount(queryRunner: QueryRunner, schema: string, table: string): Promise<number> {
-    const rows: Array<{ count: string }> = await queryRunner.query(
-      `SELECT COUNT(*)::text AS count FROM ${quoteQualified(schema, table)}`,
+  private async tableHasRows(
+    queryRunner: QueryRunner,
+    schema: string,
+    table: string,
+  ): Promise<boolean> {
+    const rows: Array<{ exists: boolean }> = await queryRunner.query(
+      `SELECT EXISTS (
+        SELECT 1 FROM ${quoteQualified(schema, table)} LIMIT 1
+      ) AS exists`,
     );
-    return Number(rows[0]?.count ?? '0');
+    return rows[0]?.exists === true;
   }
 
-  private async nullCount(
+  private async hasNullRows(
     queryRunner: QueryRunner,
     schema: string,
     table: string,
     column: string,
-  ): Promise<number> {
-    const rows: Array<{ count: string }> = await queryRunner.query(
-      `SELECT COUNT(*)::text AS count
-       FROM ${quoteQualified(schema, table)}
-       WHERE ${quoteIdent(column)} IS NULL`,
+  ): Promise<boolean> {
+    const rows: Array<{ exists: boolean }> = await queryRunner.query(
+      `SELECT EXISTS (
+        SELECT 1
+          FROM ${quoteQualified(schema, table)}
+         WHERE ${quoteIdent(column)} IS NULL
+         LIMIT 1
+      ) AS exists`,
     );
-    return Number(rows[0]?.count ?? '0');
+    return rows[0]?.exists === true;
   }
 
   private async assertUuidCastable(
@@ -489,18 +514,20 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
     table: string,
     column: string,
   ): Promise<void> {
-    const rows: Array<{ count: string }> = await queryRunner.query(
-      `SELECT COUNT(*)::text AS count
-       FROM ${quoteQualified(schema, table)}
-       WHERE ${quoteIdent(column)} IS NOT NULL
-         AND lower(${quoteIdent(column)}::text) !~ $1`,
+    const rows: Array<{ exists: boolean }> = await queryRunner.query(
+      `SELECT EXISTS (
+        SELECT 1
+          FROM ${quoteQualified(schema, table)}
+         WHERE ${quoteIdent(column)} IS NOT NULL
+           AND lower(${quoteIdent(column)}::text) !~ $1
+         LIMIT 1
+      ) AS exists`,
       [ReplayHrEntitySurfaceAlignment1789300000000.UUID_RE],
     );
-    const invalid = Number(rows[0]?.count ?? '0');
-    if (invalid > 0) {
+    if (rows[0]?.exists === true) {
       throw new Error(
         `ReplayHrEntitySurfaceAlignment refuses to cast ` +
-          `${schema}.${table}.${column} to uuid; ${invalid} row(s) are not ` +
+          `${schema}.${table}.${column} to uuid; at least one row is not ` +
           'valid UUID literals. Backfill explicitly first.',
       );
     }

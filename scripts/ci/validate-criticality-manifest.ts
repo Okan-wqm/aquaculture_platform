@@ -22,19 +22,21 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import yaml from 'js-yaml';
-import { writeDummyEnvForCompose } from './lib/compose-dummy-env.ts';
+import {
+  entryProfiles,
+  loadComposeServiceProfiles,
+  profileLabel,
+} from '../deploy/compose-profile-contract.ts';
 
-const COMPOSE_FILE =
-  process.env['COMPOSE_FILE'] ?? 'docker-compose.droplet.yml';
-const MANIFEST_PATH =
-  process.env['MANIFEST'] ??
-  'infrastructure/deploy/service-criticality.yaml';
+const COMPOSE_FILE = process.env['COMPOSE_FILE'] ?? 'docker-compose.droplet.yml';
+const MANIFEST_PATH = process.env['MANIFEST'] ?? 'infrastructure/deploy/service-criticality.yaml';
 
 type CriticalityLevel = 'critical' | 'required' | 'warning' | 'ignored';
 
 interface ManifestEntry {
   name: string;
   level: CriticalityLevel;
+  profiles?: string[];
   reason?: string;
 }
 
@@ -64,53 +66,14 @@ function loadManifest(path: string): ManifestEntry[] {
   return Array.isArray(data.services) ? data.services : [];
 }
 
-function listComposeServices(composeFile: string): string[] {
-  if (!existsSync(composeFile)) {
-    console.error(`::error::compose file not found at ${composeFile}`);
-    process.exit(2);
-  }
-  // Parse the compose file directly instead of shelling out to
-  // `docker compose config --services`. The compose CLI tries to
-  // interpolate `${VAR:?msg}` references and aborts when CI has no
-  // matching env var present — even though this validator only needs
-  // the service-name list (no interpolation, no resolution of
-  // extends:, no merging across multiple compose files).
-  //
-  // Direct YAML parse is correct for our use case because:
-  //   - droplet.yml is a single compose file (no `-f` chaining).
-  //   - No service uses `extends:` (verified via grep at the time of
-  //     this rewrite); if that ever changes, the validator must be
-  //     updated to follow the extends graph, but the architectural
-  //     contract — "every service in compose has a criticality entry"
-  //     — operates on the literal service names, not the resolved
-  //     merged config.
-  //
-  // Removing the docker dependency here also lets the validator run
-  // in any CI runner without docker, which the previous shape
-  // implicitly required.
-  let parsed: unknown;
+function listComposeServices(composeFile: string): Map<string, string[]> {
   try {
-    parsed = yaml.load(readFileSync(composeFile, 'utf8'));
+    return loadComposeServiceProfiles(composeFile);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`::error::compose YAML parse failed: ${msg}`);
+    console.error(`::error::${msg}`);
     process.exit(2);
   }
-  if (
-    !parsed ||
-    typeof parsed !== 'object' ||
-    !('services' in parsed) ||
-    typeof (parsed as { services: unknown }).services !== 'object' ||
-    (parsed as { services: unknown }).services === null
-  ) {
-    console.error(
-      `::error::compose file ${composeFile} has no \`services\` mapping`,
-    );
-    process.exit(2);
-  }
-  return Object.keys(
-    (parsed as { services: Record<string, unknown> }).services,
-  ).sort();
 }
 
 function main(): void {
@@ -118,7 +81,8 @@ function main(): void {
   const composeFile = resolve(COMPOSE_FILE);
 
   const entries = loadManifest(manifestPath);
-  const composeSvcs = listComposeServices(composeFile);
+  const composeProfiles = listComposeServices(composeFile);
+  const composeSvcs = [...composeProfiles.keys()].sort();
 
   // Schema-level checks first: names present, levels valid, no dupes.
   const seen = new Set<string>();
@@ -138,6 +102,13 @@ function main(): void {
           `(allowed: ${[...VALID_LEVELS].join(', ')})`,
       );
     }
+    if (
+      entry.profiles !== undefined &&
+      (!Array.isArray(entry.profiles) ||
+        entry.profiles.some((profile) => typeof profile !== 'string' || !profile))
+    ) {
+      bad.push(`profiles for ${entry.name} must be a non-empty string array when present`);
+    }
     if (seen.has(entry.name)) {
       bad.push(`duplicate entry for ${entry.name}`);
     }
@@ -152,18 +123,12 @@ function main(): void {
 
   const manifestNames = new Set(entries.map((e) => e.name));
 
-  const missingFromManifest = composeSvcs.filter(
-    (s) => !manifestNames.has(s),
-  );
-  const extraInManifest = [...manifestNames].filter(
-    (s) => !composeSvcs.includes(s),
-  );
+  const missingFromManifest = composeSvcs.filter((s) => !manifestNames.has(s));
+  const extraInManifest = [...manifestNames].filter((s) => !composeSvcs.includes(s));
 
   let ok = true;
   if (missingFromManifest.length > 0) {
-    console.error(
-      '::error::compose services without a criticality entry:',
-    );
+    console.error('::error::compose services without a criticality entry:');
     for (const s of missingFromManifest) console.error(`  - ${s}`);
     console.error(
       '  Add a `{ name: <svc>, level: <critical|required|warning|ignored>, reason: ... }` entry to',
@@ -172,18 +137,41 @@ function main(): void {
     ok = false;
   }
   if (extraInManifest.length > 0) {
-    console.error(
-      '::error::criticality entries pointing at services not in compose:',
-    );
+    console.error('::error::criticality entries pointing at services not in compose:');
     for (const s of extraInManifest) console.error(`  - ${s}`);
+    ok = false;
+  }
+
+  const profileMismatches: string[] = [];
+  for (const entry of entries) {
+    const composeServiceProfiles = composeProfiles.get(entry.name);
+    if (!composeServiceProfiles) continue;
+
+    const manifestProfiles = entryProfiles(entry);
+    if (
+      composeServiceProfiles.length !== manifestProfiles.length ||
+      composeServiceProfiles.some((profile, index) => profile !== manifestProfiles[index])
+    ) {
+      profileMismatches.push(
+        `${entry.name}: compose profiles=${profileLabel(composeServiceProfiles)} ` +
+          `manifest profiles=${profileLabel(manifestProfiles)}`,
+      );
+    }
+  }
+
+  if (profileMismatches.length > 0) {
+    console.error('::error::criticality profile metadata does not match compose:');
+    for (const mismatch of profileMismatches) console.error(`  - ${mismatch}`);
+    console.error(
+      '  Profile-gated compose services must declare the same `profiles` list in the criticality manifest.',
+    );
     ok = false;
   }
 
   if (!ok) process.exit(1);
 
   console.log(
-    `OK: ${entries.length} services declared in manifest, ` +
-      `all present in ${COMPOSE_FILE}.`,
+    `OK: ${entries.length} services declared in manifest, ` + `all present in ${COMPOSE_FILE}.`,
   );
 }
 

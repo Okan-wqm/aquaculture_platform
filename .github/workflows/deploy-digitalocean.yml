@@ -81,9 +81,9 @@ on:
 # push images and tags. The called workflow's permissions OVERRIDE the
 # caller's when declared at this top level.
 permissions:
-  contents: write   # push the deployed/production tag after success
-  packages: write   # push container images to GHCR
-  id-token: write   # OIDC for GHCR auth where used
+  contents: write # push the deployed/production tag after success
+  packages: write # push container images to GHCR
+  id-token: write # OIDC for GHCR auth where used
 
 env:
   REGISTRY: ghcr.io
@@ -128,7 +128,7 @@ jobs:
       github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 60   # staging deploy typically lands in ~30 min
+    timeout-minutes: 60 # staging deploy typically lands in ~30 min
     steps:
       # ────────────────────────────────────────────────────────────────────
       # WS9 / ADR-016 Phase D — topology-aware enablement gate.
@@ -297,10 +297,46 @@ jobs:
           fi
 
   # ===========================================================================
+  # Deploy manifest gates
+  #
+  # Manual deploys must run the same SSoT checks as PR/merge CI before touching
+  # the droplet. This catches criticality/signals/compose drift before the
+  # SSH deploy script stops live containers.
+  # ===========================================================================
+  deploy-manifest-gates:
+    needs: [staging-gate]
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit
+
+      - name: Run deploy manifest gates
+        run: |
+          npm run gates:criticality-manifest
+          npm run gates:signals-manifest
+
+  # ===========================================================================
   # Prepare - Detect affected services & build dynamic matrices
   # ===========================================================================
   prepare:
-    needs: [staging-gate]
+    needs: [staging-gate, deploy-manifest-gates]
     # CI-success precondition is now implicit: workflow_call is only
     # invoked from ci-affected.yml's final `deploy` job after all other
     # jobs are green. workflow_dispatch is operator-initiated.
@@ -834,7 +870,14 @@ jobs:
   # Deploy to DigitalOcean Droplet (selective — affected services only)
   # ===========================================================================
   deploy:
-    needs: [prepare, build-backend-artifacts, build-frontend-artifacts, build-backend-images, build-frontend-images]
+    needs:
+      [
+        prepare,
+        build-backend-artifacts,
+        build-frontend-artifacts,
+        build-backend-images,
+        build-frontend-images,
+      ]
     # Only deploy if at least one image build succeeded (artifact jobs may be skipped when there are no changes)
     if: |
       always() &&
@@ -878,7 +921,7 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          command_timeout: 75m  # Sequential pulls on slow disk + service bootstrap for 22+ Docker images
+          command_timeout: 75m # Sequential pulls on slow disk + service bootstrap for 22+ Docker images
           # envs: forwards these env vars from the GitHub runner into the
           # remote bash session on the droplet.
           envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_SHA,GHCR_TOKEN,GHCR_ACTOR

@@ -79,6 +79,7 @@ services:
 
   - name: sensor-ingestion
     level: required
+    profiles: [rust-sidecar]
     reason: rollout-aware Rust sidecar; profile-gated but must be classified when present in compose
 
   - name: hr-service

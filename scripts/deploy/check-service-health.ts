@@ -21,28 +21,30 @@
  *
  * Exit codes:
  *   0  every `critical` / `required` service is healthy
- *   1  at least one `critical` or `required` service failed
+ *   1  at least one `critical` service failed; caller should rollback
  *   2  invocation error
+ *   3  at least one `required` service failed; caller should fail without rollback
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import yaml from 'js-yaml';
+import {
+  entryProfiles,
+  isProfileActive,
+  parseActiveProfiles,
+  profileLabel,
+} from './compose-profile-contract.ts';
 
-const COMPOSE_FILE =
-  process.env['COMPOSE_FILE'] ?? 'docker-compose.droplet.yml';
-const MANIFEST_PATH =
-  process.env['MANIFEST'] ??
-  'infrastructure/deploy/service-criticality.yaml';
-const POLL_INTERVAL = Number.parseInt(
-  process.env['POLL_INTERVAL'] ?? '10',
-  10,
-);
+const COMPOSE_FILE = process.env['COMPOSE_FILE'] ?? 'docker-compose.droplet.yml';
+const MANIFEST_PATH = process.env['MANIFEST'] ?? 'infrastructure/deploy/service-criticality.yaml';
+const POLL_INTERVAL = Number.parseInt(process.env['POLL_INTERVAL'] ?? '10', 10);
 
 type CriticalityLevel = 'critical' | 'required' | 'warning' | 'ignored';
 
 interface ManifestEntry {
   name: string;
   level: CriticalityLevel;
+  profiles?: string[];
   reason?: string;
 }
 
@@ -56,7 +58,7 @@ interface ContainerState {
   service: string;
   container: string;
   health: string; // "healthy" / "unhealthy" / "starting" / ""
-  state: string;  // "running" / "exited" / ...
+  state: string; // "running" / "exited" / ...
 }
 
 function sleep(ms: number): Promise<void> {
@@ -70,20 +72,15 @@ function loadManifest(path: string): { services: ManifestEntry[]; sla: number } 
   }
   const data = yaml.load(readFileSync(path, 'utf8')) as Manifest | null;
   const defaults = data?.defaults ?? {};
-  const sla = Number.parseInt(
-    String(defaults.readiness_sla_seconds ?? 300),
-    10,
-  );
+  const sla = Number.parseInt(String(defaults.readiness_sla_seconds ?? 300), 10);
   const services = Array.isArray(data?.services) ? data!.services! : [];
   return { services, sla };
 }
 
 function composeServices(composeFile: string): string[] {
-  const out = execFileSync(
-    'docker',
-    ['compose', '-f', composeFile, 'config', '--services'],
-    { encoding: 'utf8' },
-  );
+  const out = execFileSync('docker', ['compose', '-f', composeFile, 'config', '--services'], {
+    encoding: 'utf8',
+  });
   return out
     .split('\n')
     .map((s) => s.trim())
@@ -97,11 +94,9 @@ function composeServices(composeFile: string): string[] {
  * (NDJSON) and v2.29+ (JSON array) shapes are handled.
  */
 function currentStates(composeFile: string): Map<string, ContainerState> {
-  const result = spawnSync(
-    'docker',
-    ['compose', '-f', composeFile, 'ps', '--format', 'json'],
-    { encoding: 'utf8' },
-  );
+  const result = spawnSync('docker', ['compose', '-f', composeFile, 'ps', '--format', 'json'], {
+    encoding: 'utf8',
+  });
   if (result.status !== 0) return new Map();
   const raw = (result.stdout ?? '').trim();
   if (!raw) return new Map();
@@ -141,10 +136,7 @@ function currentStates(composeFile: string): Map<string, ContainerState> {
  *
  * `ignored` entries always count as satisfied.
  */
-function isSatisfied(
-  entry: ManifestEntry,
-  state: ContainerState | undefined,
-): boolean {
+function isSatisfied(entry: ManifestEntry, state: ContainerState | undefined): boolean {
   if (entry.level === 'ignored') return true;
   if (!state) return false;
   if (state.health === 'healthy') return true;
@@ -188,7 +180,7 @@ function report(
       `::error::${failRequired} required service(s) failed. Operator ` +
         'investigation required before declaring success.',
     );
-    return 1;
+    return 3;
   }
   if (warnings > 0) {
     console.warn(
@@ -202,18 +194,18 @@ function report(
 
 async function main(): Promise<void> {
   const { services: manifest, sla } = loadManifest(MANIFEST_PATH);
+  const activeProfiles = parseActiveProfiles();
+  const activeManifest = manifest.filter((entry) => isProfileActive(entry, activeProfiles));
+  const skippedManifest = manifest.filter((entry) => !isProfileActive(entry, activeProfiles));
 
   // Coverage check: every manifest entry must name a real compose
-  // service. Prevents manifest drift referencing renamed / deleted
-  // services.
+  // service in the active profile set. Profile-gated services are
+  // classified in the manifest, but only polled when the corresponding
+  // Compose profile is enabled.
   const composeSvcs = composeServices(COMPOSE_FILE);
-  const missing = manifest
-    .map((e) => e.name)
-    .filter((n) => !composeSvcs.includes(n));
+  const missing = activeManifest.map((e) => e.name).filter((n) => !composeSvcs.includes(n));
   if (missing.length > 0) {
-    console.error(
-      `::error::manifest references services not in ${COMPOSE_FILE}:`,
-    );
+    console.error(`::error::manifest references services not in ${COMPOSE_FILE}:`);
     for (const name of missing) console.error(`  - ${name}`);
     process.exit(2);
   }
@@ -222,19 +214,26 @@ async function main(): Promise<void> {
   console.log('=== Service health check ===');
   console.log(`  manifest: ${MANIFEST_PATH}`);
   console.log(`  compose : ${COMPOSE_FILE}`);
+  console.log(`  profiles: ${profileLabel([...activeProfiles].sort())}`);
   console.log(`  SLA     : ${sla}s (${maxRounds} rounds × ${POLL_INTERVAL}s)`);
+  for (const entry of skippedManifest) {
+    console.log(
+      `  skip profile-gated service: ${entry.name} ` +
+        `(profiles=${profileLabel(entryProfiles(entry))})`,
+    );
+  }
 
   let states: Map<string, ContainerState> = new Map();
   for (let round = 1; round <= maxRounds; round += 1) {
     console.log(`--- Round ${round}/${maxRounds} ---`);
     states = currentStates(COMPOSE_FILE);
 
-    const criticalOk = manifest
-      .filter((e) => e.level === 'critical')
+    const blockingOk = activeManifest
+      .filter((e) => e.level === 'critical' || e.level === 'required')
       .every((e) => isSatisfied(e, states.get(e.name)));
 
-    if (criticalOk) {
-      console.log('  all critical services satisfied');
+    if (blockingOk) {
+      console.log('  all critical/required services satisfied');
       break;
     }
 
@@ -243,7 +242,7 @@ async function main(): Promise<void> {
     }
   }
 
-  process.exit(report(manifest, states, sla));
+  process.exit(report(activeManifest, states, sla));
 }
 
 main().catch((err: unknown) => {

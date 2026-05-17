@@ -522,17 +522,22 @@ done
 # gate. Replaces the old "poll only gateway-api /health/live" block
 # that silently passed when other backends crash-looped (2026-04-14
 # cascade failure mode). The script reads
-# `infrastructure/deploy/service-criticality.yaml` and rolls back
-# only when a `critical` level service fails to reach healthy
-# inside the SLA. Non-critical services surface as warnings.
+# `infrastructure/deploy/service-criticality.yaml`. Critical failures
+# rollback; required failures fail the deploy without rollback so an
+# operator can inspect the optional rollout surface in place.
+# Warning-level failures surface as warnings.
 # Uses Node 22 built-in TypeScript type-stripping so no
 # tsc/tsx/python is required on the droplet — Node is already
 # a base dependency for the service containers.
-echo "=== Waiting for all critical services ==="
-if ! COMPOSE_FILE=docker-compose.droplet.yml \
-     MANIFEST=infrastructure/deploy/service-criticality.yaml \
-     POLL_INTERVAL=10 \
-     node scripts/deploy/check-service-health.ts; then
+echo "=== Waiting for critical/required services ==="
+set +e
+COMPOSE_FILE=docker-compose.droplet.yml \
+  MANIFEST=infrastructure/deploy/service-criticality.yaml \
+  POLL_INTERVAL=10 \
+  node scripts/deploy/check-service-health.ts
+HEALTH_STATUS=$?
+set -e
+if [ "${HEALTH_STATUS}" -eq 1 ]; then
   echo "::error::Critical service health check failed. Initiating rollback."
   if [ -n "$PREV_GATEWAY" ]; then
     echo "Rolling back to previous gateway image: ${PREV_GATEWAY}"
@@ -542,6 +547,12 @@ if ! COMPOSE_FILE=docker-compose.droplet.yml \
   else
     echo "No previous image digest available; manual intervention required."
   fi
+  exit 1
+elif [ "${HEALTH_STATUS}" -eq 3 ]; then
+  echo "::error::Required service health check failed. Deploy failed without rollback."
+  exit 1
+elif [ "${HEALTH_STATUS}" -ne 0 ]; then
+  echo "::error::Service health check could not run (exit ${HEALTH_STATUS}). Deploy failed without rollback."
   exit 1
 fi
 

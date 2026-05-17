@@ -702,6 +702,35 @@ def run_autonomy_orchestrator(
                 # + governance event capturing the raw plan_content
                 # for forensics. Source-substring invariant I-V7.2-04
                 # pins the literal try/except envelope.
+                # Plan ARIA-V7 §2i v2 BUGFIX — caller passes
+                # plan_synthesizer's REAL fields to convergence_runner
+                # (was passing 1-element stubs that the agent
+                # correctly refused as "underspecified envelope").
+                # The plan_synthesizer producer mints valid 7-field
+                # plan_content; the caller MUST forward those fields
+                # into the convergence envelope so the agent receives
+                # the actual work surface (evidence_refs +
+                # allowed_scope from synthesized plan; must_satisfy
+                # derived from key_changes clusters).
+                _v7_must_satisfy = [
+                    {
+                        "id": str(kc.get("id", f"key-change-{i}")),
+                        "description": str(kc.get("description", "")),
+                    }
+                    for i, kc in enumerate(_v7_plan_content.get("key_changes") or [])
+                ] or [{
+                    "id": "cycle-impl-satisfies-scope",
+                    "description":
+                        "Implementation must satisfy the cycle's "
+                        "must_satisfy contract derived from "
+                        "discovery + planner output.",
+                }]
+                _v7_evidence_refs = list(
+                    _v7_plan_content.get("evidence_refs") or [f"cycle:{cycle_id}"]
+                )
+                _v7_allowed_scope = list(
+                    _v7_plan_content.get("affected_surfaces") or [f"cycle/{cycle_id}"]
+                ) or [f"cycle/{cycle_id}"]
                 try:
                     convergence_result = convergence_runner(
                         cycle_id=cycle_id,
@@ -709,15 +738,9 @@ def run_autonomy_orchestrator(
                         workspace_root=workspace_root,
                         plan_id=f"plan-{cycle_id}",
                         plan_seed=_v7_plan_content,
-                        must_satisfy=[{
-                            "id": "cycle-impl-satisfies-scope",
-                            "description":
-                                "Implementation must satisfy the cycle's "
-                                "must_satisfy contract derived from "
-                                "discovery + planner output.",
-                        }],
-                        evidence_refs=[f"cycle:{cycle_id}"],
-                        allowed_scope=[f"cycle/{cycle_id}"],
+                        must_satisfy=_v7_must_satisfy,
+                        evidence_refs=_v7_evidence_refs,
+                        allowed_scope=_v7_allowed_scope,
                         max_rounds=max_iterations_per_phase,
                     )
                 except GovernanceError as _v7_exc:

@@ -229,6 +229,52 @@ def run_skill_genesis_drainer(
         request_id = req.get("request_id", "")
         seed = req.get("seed") or {}
 
+        # Plan ARIA-V7 §2h v2 Phase 7.5 — corpus-aware pre-flight
+        # with evidence-pack fallback (chicken-and-egg break).
+        #
+        # Workflow:
+        #   1. If corpus is sane (V6.2 B-V2-2 validator passes) →
+        #      proceed to standard authoring.
+        #   2. Else, fallback: collect_evidence_pack on declared_scope
+        #      + claim_types. If >=10 real observations → mark
+        #      seed with corpus_proxy="evidence_pack" + proceed.
+        #      Operator labels the authored adapter's predictions
+        #      post-authoring (corpus chicken-and-egg broken).
+        #   3. Else, persist status=skipped_evidence_insufficient +
+        #      continue (operator-visible; NO crash, NO silent skip).
+        corpus_proxy = None
+        corpus_path_str = seed.get("calibration_corpus_path", "")
+        if corpus_path_str:
+            from .skill_genesis import validate_calibration_corpus_sanity
+            sanity = validate_calibration_corpus_sanity(
+                corpus_path=corpus_path_str,
+            )
+            if sanity.get("status") != "ok":
+                # Corpus missing or malformed; try evidence-pack fallback.
+                from .evidence_collector import (
+                    InsufficientEvidenceError,
+                    collect_evidence_pack,
+                )
+                try:
+                    collect_evidence_pack(
+                        seed_id=seed.get("seed_id", request_id),
+                        declared_scope=list(seed.get("declared_scope") or []),
+                        claim_types=list(seed.get("claim_types") or []),
+                        workspace_root=workspace_root or Path.cwd(),
+                        base_dir=base_dir,
+                        persist=False,
+                    )
+                    corpus_proxy = "evidence_pack"
+                except (InsufficientEvidenceError, ValueError):
+                    _persist_status(
+                        request_id, "skipped_evidence_insufficient", base_dir,
+                        reason=(
+                            f"corpus_status={sanity.get('status')}; "
+                            f"evidence_pack collection failed"
+                        ),
+                    )
+                    result["requests_skipped_evidence_insufficient"] += 1
+                    continue
         # Plan ARIA-V7 §2h v2 (I-V7.4-08) — crash-catch envelope.
         # Source-substring invariant pins the literal try/except.
         try:
@@ -254,7 +300,14 @@ def run_skill_genesis_drainer(
             request_id,
             str(authoring_result.get("authoring_verdict", "unknown")),
             base_dir,
+            reason=(f"corpus_proxy={corpus_proxy}" if corpus_proxy else ""),
         )
+        if corpus_proxy:
+            # Plan ARIA-V7 §3 Phase 7.5 (B-V2-1) — surface
+            # corpus_proxy in result so operator sees authoring used
+            # evidence-pack-only (no labeled corpus); SHADOW
+            # promotion is gated until operator labels output.
+            authoring_result["corpus_proxy"] = corpus_proxy
         result["tokens_spent_this_cycle"] += estimated_tokens_per_authoring
         result["authoring_results"].append(authoring_result)
         result["requests_dispatched"] += 1

@@ -754,6 +754,18 @@ def main(argv: list[str] | None = None) -> int:
         "must_satisfy": claim.get("must_satisfy") or [],
         "allowed_scope": claim.get("allowed_scope") or [],
         "evidence_refs": claim.get("evidence_refs") or [],
+        # Plan ARIA-V7 §2g v2 — additional fields surfaced into the
+        # envelope dict so the prompt template can render them for
+        # the agent. Pre-V7 the dict held only the 4 fields above;
+        # the agent contract requires target_agent / convergence_id
+        # / suggested_prompt to bind the request to the convergence
+        # loop and to read the operator's intent.
+        "target_agent": claim.get("target_agent") or subagent_type,
+        "convergence_id": claim.get("convergence_id"),
+        "suggested_prompt": claim.get("suggested_prompt"),
+        "forbidden_scope": claim.get("forbidden_scope") or [],
+        "impact_graph_refs": claim.get("impact_graph_refs") or [],
+        "validation_commands": claim.get("validation_commands") or [],
         # Plan 026R §B.5 anchors — verified by ci_executor at envelope
         # deserialise time when the planner-hook single-claim env-var
         # contract delivers the metadata.
@@ -796,8 +808,74 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0  # cost-cap exceedance is a budget signal, NOT a build failure
 
-    # Step 3 — invoke Claude Code (mocked in tests, real CLI in prod).
+    # Plan ARIA-V7 §2g v2 — write the request's suggested_prompt to
+    # the canonical prompts/ path BEFORE invoking the CLI. Pre-V7
+    # this was assumed pre-staged by the workflow; V7's parallel-
+    # consumer mode mints requests directly via
+    # create_agent_invocation_request which writes ONLY to
+    # requests.jsonl (no prompt file). Without this write, the
+    # modernized invoke_claude_code reads an empty prompt and the
+    # claude CLI subprocess errors with "missing prompt".
     prompt_file = tools_dir / "agent-invocations" / "prompts" / f"{request_id}.md"
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    _suggested_prompt = str(request_envelope.get("suggested_prompt") or "")
+    _must_satisfy_block = ""
+    _ms_list = request_envelope.get("must_satisfy") or []
+    if isinstance(_ms_list, list) and _ms_list:
+        _must_satisfy_lines = ["", "## Must satisfy", ""]
+        for _item in _ms_list:
+            if isinstance(_item, dict):
+                _mid = _item.get("id", "?")
+                _mdesc = _item.get("description", "")
+                _must_satisfy_lines.append(f"- **{_mid}**: {_mdesc}")
+        _must_satisfy_block = "\n".join(_must_satisfy_lines) + "\n"
+    # Plan ARIA-V7 §2g v2 V7.9 — render ALL V5/V6/V7 envelope fields
+    # so the agent reads the complete contract surface, NOT just a
+    # role-prompt skeleton. Previously the prompt only carried role +
+    # target_agent + suggested_prompt; agents (e.g. aria-primary-
+    # planner) correctly rejected with `envelope_underspecified`
+    # because evidence_refs / allowed_scope / impact_graph_refs /
+    # expected_output_path / validation_commands were absent. The
+    # template now mirrors the request_envelope dict's full schema so
+    # agents have everything their contract requires to produce a
+    # real response (not refusal).
+    def _bullet_list(items, key_func=None):
+        if not items:
+            return "  _(none)_"
+        if key_func is None:
+            return "\n".join(f"  - `{item}`" for item in items)
+        return "\n".join(f"  - {key_func(item)}" for item in items)
+
+    _evidence_refs = request_envelope.get("evidence_refs") or []
+    _allowed_scope = request_envelope.get("allowed_scope") or []
+    _forbidden_scope = request_envelope.get("forbidden_scope") or []
+    _impact_refs = request_envelope.get("impact_graph_refs") or []
+    _validation_cmds = request_envelope.get("validation_commands") or []
+    _expected_path = request_envelope.get("expected_output_path", "")
+
+    _prompt_payload = (
+        f"# ARIA agent request {request_id}\n\n"
+        f"**Role**: {request_envelope.get('role', 'unknown')}\n"
+        f"**Target agent**: {request_envelope.get('target_agent', 'unknown')}\n"
+        f"**Convergence ID**: {request_envelope.get('convergence_id', 'n/a')}\n"
+        f"**Expected output path**: `{_expected_path}`\n\n"
+        f"## Suggested prompt\n\n{_suggested_prompt}\n\n"
+        f"## Evidence refs (file:line entries; the ONLY admissible evidence)\n\n"
+        f"{_bullet_list(_evidence_refs)}\n\n"
+        f"## Allowed scope\n\n{_bullet_list(_allowed_scope)}\n\n"
+        f"## Forbidden scope\n\n{_bullet_list(_forbidden_scope)}\n\n"
+        f"## Impact graph refs\n\n{_bullet_list(_impact_refs)}\n\n"
+        f"## Validation commands\n\n"
+        f"{_bullet_list(_validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
+        f"{_must_satisfy_block}\n"
+        f"## Response\n\n"
+        f"Write your `aria/agent-response/v1` JSON envelope per your "
+        f"agent contract. The envelope MUST cite ONLY evidence_refs "
+        f"present in this prompt + must stay within allowed_scope. "
+        f"Output the JSON envelope as the body of your response.\n"
+    )
+    prompt_file.write_text(_prompt_payload, encoding="utf-8")
+
     timeout = _max_timeout_seconds()
     try:
         # Plan 024 v3 §B-8 — pass real lease identity + role from
@@ -825,6 +903,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if cli_exit != 0:
         sys.stderr.write(f"claude code agent exited {cli_exit}\n")
+        # Plan ARIA-V7 §2g v2 — release the lease on CLI failure so
+        # the claim doesn't sit in CLAIMED state until expiry; the
+        # convergence_drainer's poll sees the requeue and either
+        # routes to primary_silent verdict OR a later consumer
+        # attempts a fresh claim. Pre-V7 leak: CLI exit != 0 kept
+        # the claim active, blocking re-claims for the lease window.
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=f"claude_cli_exit_{cli_exit}",
+        )
         return 1
 
     # Step 4 — submit through the kernel CLI; lease-token via env var.

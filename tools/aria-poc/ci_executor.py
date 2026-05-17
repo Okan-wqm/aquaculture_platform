@@ -86,6 +86,124 @@ class ClaudeCodeUnavailable(Exception):
     """The `claude` binary is not on $PATH (CI env not provisioned)."""
 
 
+# Plan ARIA-V7 §2g v2 Phase 7.3 — closed enum of dispatchable roles.
+# Mirrors aria_kernel/dispatcher_factory.SUPPORTED_ROLES. Adding a
+# role requires updating BOTH the consumer (this file) AND the
+# kernel factory module. Closed enum prevents typo'd roles from
+# silently flowing into the queue.
+SUPPORTED_ROLES: frozenset[str] = frozenset({
+    "specialist_domain_review",
+    "primary_authoring",
+    "challenger_authoring",
+    "evidence_judgment",
+    "adversarial_judgment",
+    "primary_plan",
+    "challenger_plan",
+    "cross_review",
+})
+
+
+def claim_and_dispatch_one(
+    *,
+    role: str,
+    tools_dir: Path,
+    repo_root: Path,
+) -> dict[str, Any]:
+    """Plan ARIA-V7 §2g v2 Phase 7.3 — single-role claim + dispatch.
+
+    Workflow:
+      1. Validate role is in SUPPORTED_ROLES.
+      2. Check ANTHROPIC_API_KEY env var presence (per
+         DispatcherConfig). Absent → return
+         ``{"status": "dispatchers_unavailable"}``.
+      3. Find next pending request of the given role via
+         ``aria-kernel agent-invocations list --role <role>
+         --pending-only``.
+      4. If no pending → return ``{"status": "no_pending"}``.
+      5. Spawn this script as subprocess with ``request_id`` to
+         exercise the existing claim → invoke → release flow.
+      6. Capture subprocess result + return.
+
+    Returns a dict with keys: ``status``, ``request_id``,
+    ``role``, ``stdout_tail``, ``stderr_tail``, ``exit_code``.
+
+    Used by the operator-runnable consumer loop:
+      python tools/aria-poc/ci_executor.py --consume specialist_domain_review
+    """
+    if role not in SUPPORTED_ROLES:
+        raise ValueError(
+            f"claim_and_dispatch_one_unknown_role: {role!r} "
+            f"(must be one of {sorted(SUPPORTED_ROLES)})"
+        )
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return {
+            "status": "dispatchers_unavailable",
+            "role": role,
+            "reason": "ANTHROPIC_API_KEY env var not set",
+        }
+
+    # Find next pending request for this role.
+    list_proc = subprocess.run(
+        [
+            "python3", "-m", "aria_kernel", "agent-invocations", "list",
+            "--role", role,
+            "--pending-only",
+            "--limit", "1",
+            "--tools-dir", str(tools_dir),
+        ],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(repo_root / "aria-kernel")},
+    )
+    if list_proc.returncode != 0:
+        return {
+            "status": "list_failed",
+            "role": role,
+            "stderr_tail": list_proc.stderr[-1000:],
+            "exit_code": list_proc.returncode,
+        }
+
+    try:
+        pending = json.loads(list_proc.stdout)
+    except json.JSONDecodeError:
+        return {
+            "status": "list_output_not_json",
+            "role": role,
+            "stdout_tail": list_proc.stdout[-500:],
+        }
+
+    if not pending:
+        return {"status": "no_pending", "role": role}
+
+    request = pending[0] if isinstance(pending, list) else pending
+    request_id = request.get("request_id") or request.get("id")
+    if not request_id:
+        return {
+            "status": "request_missing_id",
+            "role": role,
+            "raw": request,
+        }
+
+    target_agent = request.get("target_agent", "")
+    dispatch_proc = subprocess.run(
+        ["python3", str(Path(__file__).resolve()), request_id, target_agent],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(repo_root / "aria-kernel")},
+        cwd=str(repo_root),
+    )
+    return {
+        "status": "dispatched" if dispatch_proc.returncode == 0 else "dispatch_failed",
+        "request_id": request_id,
+        "role": role,
+        "target_agent": target_agent,
+        "exit_code": dispatch_proc.returncode,
+        "stdout_tail": dispatch_proc.stdout[-2000:],
+        "stderr_tail": dispatch_proc.stderr[-2000:],
+    }
+
+
 def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
     """Defensive: never let the raw token slip into a log message."""
     if not lease_token:

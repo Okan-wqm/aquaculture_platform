@@ -24,7 +24,9 @@ export class OwnConfigTablesByConfigService1789100000000 implements MigrationInt
     await qr.query(`
       DO $$
       DECLARE
+        rel record;
         seq record;
+        typ record;
       BEGIN
         IF NOT EXISTS (
           SELECT 1 FROM pg_roles WHERE rolname = 'config_service'
@@ -35,11 +37,35 @@ export class OwnConfigTablesByConfigService1789100000000 implements MigrationInt
 
         ALTER SCHEMA config OWNER TO config_service;
 
-        ALTER TABLE IF EXISTS config.configurations OWNER TO config_service;
-        ALTER TABLE IF EXISTS config.configuration_history OWNER TO config_service;
+        FOR rel IN
+          SELECT c.relname
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'config'
+             AND c.relkind IN ('r', 'p')
+             AND c.relname IN ('configurations', 'configuration_history')
+        LOOP
+          EXECUTE format('ALTER TABLE %I.%I OWNER TO config_service', 'config', rel.relname);
+          EXECUTE format(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO config_service',
+            'config',
+            rel.relname
+          );
+        END LOOP;
 
-        ALTER TYPE IF EXISTS config.configurations_value_type_enum OWNER TO config_service;
-        ALTER TYPE IF EXISTS config.configurations_environment_enum OWNER TO config_service;
+        FOR typ IN
+          SELECT t.typname
+            FROM pg_type t
+            JOIN pg_namespace n ON n.oid = t.typnamespace
+           WHERE n.nspname = 'config'
+             AND t.typname IN (
+               'configurations_value_type_enum',
+               'configurations_environment_enum'
+             )
+        LOOP
+          EXECUTE format('ALTER TYPE %I.%I OWNER TO config_service', 'config', typ.typname);
+          EXECUTE format('GRANT USAGE ON TYPE %I.%I TO config_service', 'config', typ.typname);
+        END LOOP;
 
         FOR seq IN
           SELECT c.relname
@@ -48,21 +74,15 @@ export class OwnConfigTablesByConfigService1789100000000 implements MigrationInt
            WHERE n.nspname = 'config'
              AND c.relkind = 'S'
         LOOP
-          EXECUTE format('ALTER SEQUENCE config.%I OWNER TO config_service', seq.relname);
+          EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO config_service', 'config', seq.relname);
+          EXECUTE format(
+            'GRANT USAGE, SELECT, UPDATE ON SEQUENCE %I.%I TO config_service',
+            'config',
+            seq.relname
+          );
         END LOOP;
 
         GRANT USAGE, CREATE ON SCHEMA config TO config_service;
-        GRANT SELECT, INSERT, UPDATE, DELETE
-          ON TABLE config.configurations, config.configuration_history
-          TO config_service;
-        GRANT USAGE
-          ON TYPE
-            config.configurations_value_type_enum,
-            config.configurations_environment_enum
-          TO config_service;
-        GRANT USAGE, SELECT, UPDATE
-          ON ALL SEQUENCES IN SCHEMA config
-          TO config_service;
       END $$;
     `);
 

@@ -1,6 +1,10 @@
 import { Logger } from '@nestjs/common';
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { dropDependentPartialIndexes, parseAlterColumnTypeTargets } from '@aquaculture/backend-common/database';
+import {
+  dropDependentPartialIndexes,
+  parseAlterColumnTypeTargets,
+} from '@aquaculture/backend-common/database';
+import { listHrOwnedEntities } from './hr-owned-entities';
 
 /**
  * HealHrEnumTypeDrift
@@ -100,7 +104,7 @@ export class HealHrEnumTypeDrift1786900000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     const conn = queryRunner.connection;
 
-    const hrEntities = conn.entityMetadatas.filter((m) => m.schema === 'hr');
+    const hrEntities = listHrOwnedEntities(conn.entityMetadatas);
     if (hrEntities.length === 0) {
       // Non-entity-aware runner path (e.g. legacy `typeorm migration:run` CLI
       // without apps/hr-service entities bundled). Silent skip rather than
@@ -109,7 +113,7 @@ export class HealHrEnumTypeDrift1786900000000 implements MigrationInterface {
       // invoking this migration), and a throw would break non-aqua-db-migrate
       // invocations that have no use for this healing step.
       this.logger.warn(
-        'HealHrEnumTypeDrift: no entities with schema=\'hr\' on connection — skipping (likely non-entity-aware runner).',
+        'HealHrEnumTypeDrift: no HR-owned entities on connection — skipping (likely non-entity-aware runner).',
       );
       return;
     }
@@ -208,23 +212,15 @@ export class HealHrEnumTypeDrift1786900000000 implements MigrationInterface {
 
     // Pre-flight: DROP partial indexes whose WHERE predicate would block
     // any ALTER COLUMN TYPE in `relevantQueries`.
-    const alterTypeTargets = parseAlterColumnTypeTargets(
-      relevantQueries.map((q) => q.query),
-    );
+    const alterTypeTargets = parseAlterColumnTypeTargets(relevantQueries.map((q) => q.query));
     if (alterTypeTargets.length > 0) {
-      const droppedDeps = await dropDependentPartialIndexes(
-        queryRunner,
-        alterTypeTargets,
-      );
+      const droppedDeps = await dropDependentPartialIndexes(queryRunner, alterTypeTargets);
       this.logger.log(
         `Source hr schema: pre-flight DROP of ${droppedDeps.length} ` +
           `dependent object(s) on ${alterTypeTargets.length} ALTER-COLUMN-TYPE target(s). ` +
           (droppedDeps.length > 0
             ? `Dropped: ${droppedDeps
-                .map(
-                  (d) =>
-                    `${d.kind}:${d.schema}.${d.name} (blocking ${d.table}.${d.column})`,
-                )
+                .map((d) => `${d.kind}:${d.schema}.${d.name} (blocking ${d.table}.${d.column})`)
                 .join(', ')}.`
             : 'No blocking partial indexes, constraint-backed indexes, or CHECK constraints present.'),
       );
@@ -247,9 +243,7 @@ export class HealHrEnumTypeDrift1786900000000 implements MigrationInterface {
     `);
     const tenantSchemas = tenantRows
       .map((r) => r.schema_name)
-      .filter((s) =>
-        HealHrEnumTypeDrift1786900000000.SAFE_TENANT_SCHEMA.test(s),
-      );
+      .filter((s) => HealHrEnumTypeDrift1786900000000.SAFE_TENANT_SCHEMA.test(s));
 
     if (tenantSchemas.length === 0) {
       this.logger.log('No tenant clones found — propagation step is a no-op.');
@@ -293,9 +287,7 @@ export class HealHrEnumTypeDrift1786900000000 implements MigrationInterface {
         parameters: q.parameters,
       }));
 
-      const tenantAlterTargets = parseAlterColumnTypeTargets(
-        tenantQueries.map((q) => q.query),
-      );
+      const tenantAlterTargets = parseAlterColumnTypeTargets(tenantQueries.map((q) => q.query));
       if (tenantAlterTargets.length > 0) {
         const droppedTenantDeps = await dropDependentPartialIndexes(
           queryRunner,

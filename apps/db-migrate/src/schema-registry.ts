@@ -107,6 +107,13 @@ export interface SchemaRegistryEntry {
    */
   migrationsGlob: string[];
   /**
+   * Optional entity metadata globs for migrations that intentionally use
+   * `connection.entityMetadatas` / `RdbmsSchemaBuilder.log()` to compute a
+   * one-shot catch-up plan. Most services do not need this; HR does because
+   * its historical drift-heal migrations are entity-driven.
+   */
+  entitiesGlob?: string[];
+  /**
    * Human-readable rationale for the ordering slot. Logged on first pass
    * so operators reading deploy output see the reasoning without having
    * to open this source file.
@@ -154,6 +161,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'hr-service',
     schema: 'hr',
     migrationsGlob: ['apps/hr-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    entitiesGlob: ['apps/hr-service/src/**/*.entity.{ts,js}'],
     reason:
       'Schema-per-tenant service. Source-schema migrations clone into ' +
       'every tenant_<uuid> schema at tenant onboarding — running before ' +

@@ -57,6 +57,7 @@
  */
 import { DataSource, MigrationExecutor } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
+import type { MixedList } from 'typeorm/common/MixedList';
 
 /**
  * Safe SQL identifier regex — must match the regex used by
@@ -78,6 +79,8 @@ export interface RunSchemaOptions {
   schema: string;
   /** TypeORM migrations path(s) or class list. */
   migrations: string[];
+  /** Optional TypeORM entity glob(s), required by entity-driven migrations. */
+  entities?: MixedList<string | Function>;
   /** Database connection parameters. */
   database: {
     host: string;
@@ -110,10 +113,8 @@ export interface RunSchemaResult {
  * isolate cleanly (an error in schema N does not leak a half-initialised
  * pool into schema N+1).
  */
-export async function runSchemaMigrations(
-  opts: RunSchemaOptions,
-): Promise<RunSchemaResult> {
-  const { schema, migrations, database, log, lockTimeoutSeconds = 300 } = opts;
+export async function runSchemaMigrations(opts: RunSchemaOptions): Promise<RunSchemaResult> {
+  const { schema, migrations, entities, database, log, lockTimeoutSeconds = 300 } = opts;
 
   if (!SAFE_IDENT_RE.test(schema)) {
     throw new Error(
@@ -129,6 +130,7 @@ export async function runSchemaMigrations(
     context: 'DbMigrate',
     schema,
     migrationsGlobs: migrations,
+    ...(entities !== undefined ? { entitiesGlobs: entities } : {}),
   });
 
   const dataSource = new DataSource({
@@ -139,6 +141,7 @@ export async function runSchemaMigrations(
     password: database.password,
     database: database.database,
     schema,
+    ...(entities !== undefined ? { entities } : {}),
     migrations,
     // The runner owns migration execution — TypeORM must NOT run them
     // itself at init time, or we'd execute them twice (once with the
@@ -192,9 +195,7 @@ export async function runSchemaMigrations(
 
     try {
       // ── Pin search_path at session level (NOT `SET LOCAL`) ──
-      await queryRunner.query(
-        `SET search_path TO "${schema}", public`,
-      );
+      await queryRunner.query(`SET search_path TO "${schema}", public`);
       const schemaRows: Array<{ current_schema: string }> =
         await queryRunner.query(`SELECT current_schema()`);
       const observed = schemaRows[0]?.current_schema;
@@ -240,9 +241,7 @@ export async function runSchemaMigrations(
       for (const migration of pending) {
         // Re-assert search_path before EVERY migration. Mirrors the
         // contract in libs/backend-common/src/database/migration-runner.
-        await queryRunner.query(
-          `SET search_path TO "${schema}", public`,
-        );
+        await queryRunner.query(`SET search_path TO "${schema}", public`);
 
         // Tier-1 architectural correctness: a migration class may
         // declare `transaction = false` to opt OUT of the per-migration
@@ -262,8 +261,7 @@ export async function runSchemaMigrations(
         // was wrapping the call in its OWN transaction layer, so the
         // executor's intent was overruled by the outer wrapper.
         const useTransaction =
-          (migration as { instance?: { transaction?: boolean } }).instance
-            ?.transaction !== false;
+          (migration as { instance?: { transaction?: boolean } }).instance?.transaction !== false;
 
         if (useTransaction) {
           await queryRunner.startTransaction();
@@ -315,9 +313,7 @@ export async function runSchemaMigrations(
     } finally {
       // Release the advisory lock even if an error bubbled up.
       try {
-        await queryRunner.query(
-          `SELECT pg_advisory_unlock(${lockKey})`,
-        );
+        await queryRunner.query(`SELECT pg_advisory_unlock(${lockKey})`);
       } catch {
         // unlock failure is non-fatal — the session closes below and
         // advisory locks are session-scoped by default.

@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { listHrOwnedEntities } from './hr-owned-entities';
 
 /**
  * HealHrNullabilityDrift
@@ -95,13 +96,13 @@ export class HealHrNullabilityDrift1787000000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     const conn = queryRunner.connection;
 
-    const hrEntities = conn.entityMetadatas.filter((m) => m.schema === 'hr');
+    const hrEntities = listHrOwnedEntities(conn.entityMetadatas);
     if (hrEntities.length === 0) {
       // Non-entity-aware runner path — orchestrator loads hr entities
       // before invoking this migration; a throw here would break
       // non-aqua-db-migrate invocations that have no use for this heal.
       this.logger.warn(
-        'HealHrNullabilityDrift: no entities with schema=\'hr\' on connection — skipping (likely non-entity-aware runner).',
+        'HealHrNullabilityDrift: no HR-owned entities on connection — skipping (likely non-entity-aware runner).',
       );
       return;
     }
@@ -146,9 +147,7 @@ export class HealHrNullabilityDrift1787000000000 implements MigrationInterface {
     `);
     const tenantSchemas = tenantRows
       .map((r) => r.schema_name)
-      .filter((s) =>
-        HealHrNullabilityDrift1787000000000.SAFE_TENANT_SCHEMA.test(s),
-      );
+      .filter((s) => HealHrNullabilityDrift1787000000000.SAFE_TENANT_SCHEMA.test(s));
 
     if (tenantSchemas.length === 0) {
       this.logger.log('No tenant clones found — propagation step is a no-op.');
@@ -257,9 +256,7 @@ export class HealHrNullabilityDrift1787000000000 implements MigrationInterface {
           );
           uuidTypeFixed++;
           if (firstSamples.length < 5) {
-            firstSamples.push(
-              `uuid:${meta.tableName}.${col.databaseName}(was=${dbCol.data_type})`,
-            );
+            firstSamples.push(`uuid:${meta.tableName}.${col.databaseName}(was=${dbCol.data_type})`);
           }
         }
 
@@ -272,9 +269,7 @@ export class HealHrNullabilityDrift1787000000000 implements MigrationInterface {
           );
           nullabilityFixed++;
           if (firstSamples.length < 5) {
-            firstSamples.push(
-              `notnull:${meta.tableName}.${col.databaseName}`,
-            );
+            firstSamples.push(`notnull:${meta.tableName}.${col.databaseName}`);
           }
         }
       }

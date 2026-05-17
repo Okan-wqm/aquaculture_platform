@@ -53,6 +53,8 @@
  *   2 — invocation error (missing env var, unreadable configuration,
  *       postgres unreachable).
  */
+import 'reflect-metadata';
+
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -130,8 +132,7 @@ function buildSsl(): PostgresConnectionOptions['ssl'] {
   const enabled = envOr('DATABASE_SSL', 'false') === 'true';
   if (!enabled) return false;
   const caPath = process.env['DATABASE_SSL_CA'];
-  const rejectUnauthorized =
-    envOr('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
+  const rejectUnauthorized = envOr('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
   return {
     rejectUnauthorized,
     ...(caPath ? { ca: readFileSync(caPath) } : {}),
@@ -149,13 +150,11 @@ async function main(): Promise<number> {
   // createMigrationRunnerService. A deploy that set this to "false"
   // in production almost certainly misconfigured the stack; refuse.
   const nodeEnv = envOr('NODE_ENV', 'development');
-  const migrationsRun =
-    envOr('DATABASE_MIGRATIONS_RUN', 'true') === 'true';
+  const migrationsRun = envOr('DATABASE_MIGRATIONS_RUN', 'true') === 'true';
   if (!migrationsRun && nodeEnv === 'production') {
     log({
       level: 'error',
-      message:
-        'SECURITY: DATABASE_MIGRATIONS_RUN must not be false in production',
+      message: 'SECURITY: DATABASE_MIGRATIONS_RUN must not be false in production',
     });
     return 2;
   }
@@ -182,8 +181,7 @@ async function main(): Promise<number> {
   } catch (err: unknown) {
     log({
       level: 'error',
-      message:
-        err instanceof Error ? err.message : String(err),
+      message: err instanceof Error ? err.message : String(err),
     });
     return 2;
   }
@@ -213,9 +211,11 @@ async function main(): Promise<number> {
       // Resolve each schema's migration glob against the bundle root so
       // the process works regardless of the process.cwd() at invocation.
       const migrations = entry.migrationsGlob.map((g) => resolve(root, g));
+      const entities = entry.entitiesGlob?.map((g) => resolve(root, g));
       const result = await runSchemaMigrations({
         schema: entry.schema,
         migrations,
+        ...(entities !== undefined ? { entities } : {}),
         database,
         log,
       });

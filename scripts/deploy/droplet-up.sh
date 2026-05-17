@@ -27,6 +27,18 @@
 set -e
 cd /var/aqua-saas
 
+dump_nonhealthy_container_logs() {
+  local label="${1:-snapshot}"
+  echo "=== Logs from non-healthy/restarting containers (${label}) ==="
+  for c in $(docker ps -a --format '{{.Names}}' --filter "label=com.docker.compose.project=aqua-saas"); do
+    HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
+    RESTARTS=$(docker inspect --format='{{.RestartCount}}' "$c" 2>/dev/null || echo "0")
+    if [ "$HEALTH" != "healthy" ] || [ "$RESTARTS" -gt 0 ] 2>/dev/null; then
+      echo "--- $c (health=$HEALTH, restarts=$RESTARTS) last 200 lines ---"
+      docker logs --tail 200 "$c" 2>&1 || true
+    fi
+  done
+}
 
 # SEC-CI-012: Checkout to the specific SHA that triggered the workflow
 # instead of git pull (prevents TOCTOU race if another commit lands mid-deploy)
@@ -508,15 +520,7 @@ fi
 echo "=== Container health status ==="
 docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true
 
-echo "=== Logs from non-healthy/restarting containers ==="
-for c in $(docker ps -a --format '{{.Names}}' --filter "label=com.docker.compose.project=aqua-saas"); do
-  HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
-  RESTARTS=$(docker inspect --format='{{.RestartCount}}' "$c" 2>/dev/null || echo "0")
-  if [ "$HEALTH" != "healthy" ] || [ "$RESTARTS" -gt 0 ] 2>/dev/null; then
-    echo "--- $c (health=$HEALTH, restarts=$RESTARTS) last 80 lines ---"
-    docker logs --tail 200 "$c" 2>&1 || true
-  fi
-done
+dump_nonhealthy_container_logs "pre-health-gate"
 
 # ADR-016 Phase C / WS6 — criticality-aware multi-service health
 # gate. Replaces the old "poll only gateway-api /health/live" block
@@ -538,6 +542,8 @@ COMPOSE_FILE=docker-compose.droplet.yml \
 HEALTH_STATUS=$?
 set -e
 if [ "${HEALTH_STATUS}" -eq 1 ]; then
+  docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true
+  dump_nonhealthy_container_logs "post-health-gate-failure"
   echo "::error::Critical service health check failed. Initiating rollback."
   if [ -n "$PREV_GATEWAY" ]; then
     echo "Rolling back to previous gateway image: ${PREV_GATEWAY}"
@@ -549,9 +555,13 @@ if [ "${HEALTH_STATUS}" -eq 1 ]; then
   fi
   exit 1
 elif [ "${HEALTH_STATUS}" -eq 3 ]; then
+  docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true
+  dump_nonhealthy_container_logs "post-required-health-failure"
   echo "::error::Required service health check failed. Deploy failed without rollback."
   exit 1
 elif [ "${HEALTH_STATUS}" -ne 0 ]; then
+  docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true
+  dump_nonhealthy_container_logs "post-health-invocation-failure"
   echo "::error::Service health check could not run (exit ${HEALTH_STATUS}). Deploy failed without rollback."
   exit 1
 fi

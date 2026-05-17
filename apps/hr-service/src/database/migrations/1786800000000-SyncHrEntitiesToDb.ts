@@ -1,7 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { MigrationInterface, QueryRunner } from 'typeorm';
 import type { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata';
-import { dropDependentPartialIndexes, parseAlterColumnTypeTargets } from '@aquaculture/backend-common/database';
+import {
+  dropDependentPartialIndexes,
+  parseAlterColumnTypeTargets,
+} from '@aquaculture/backend-common/database';
+import { listHrOwnedEntities } from './hr-owned-entities';
 
 /**
  * SyncHrEntitiesToDb
@@ -153,9 +157,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     //    and we'd silently no-op. With Phase H opt-in, the orchestrator
     //    loads apps/hr-service/src/**/*.entity.{ts,js} and filters out
     //    foreign-schema entries before this migration runs.
-    const hrEntities = conn.entityMetadatas.filter(
-      (m) => m.schema === 'hr',
-    );
+    const hrEntities = listHrOwnedEntities(conn.entityMetadatas);
     if (hrEntities.length === 0) {
       // Fresh-DB-after-Wave-1-baseline detection.
       //
@@ -197,7 +199,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       }
 
       throw new Error(
-        'SyncHrEntitiesToDb: no entities with schema=\'hr\' found in connection.entityMetadatas. ' +
+        'SyncHrEntitiesToDb: no HR-owned entities found in connection.entityMetadatas. ' +
           'The migration runner bundle is missing the hr entity files. Verify ' +
           'apps/db-migrate/src/schema-registry.ts hr slot declares entitiesGlob ' +
           'and apps/db-migrate/tsconfig.build.json includes the entity glob.',
@@ -221,10 +223,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       for (const col of meta.columns) {
         const rendered = renderEntityDefaultLiteral(col);
         if (rendered !== undefined) {
-          entityDefaultsByTableColumn.set(
-            `${meta.tableName}.${col.databaseName}`,
-            rendered,
-          );
+          entityDefaultsByTableColumn.set(`${meta.tableName}.${col.databaseName}`, rendered);
         }
       }
     }
@@ -322,9 +321,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     //    to hr; queries qualified to "hr" PASS; queries qualified to
     //    "auth" / "billing" / "tenant_<uuid>" / etc. are REJECTED.
     const hrUpQueries = allUpQueries.filter((q) => {
-      const schemaQualifierMatches = q.query.matchAll(
-        /"([a-zA-Z_][a-zA-Z0-9_]*)"\./g,
-      );
+      const schemaQualifierMatches = q.query.matchAll(/"([a-zA-Z_][a-zA-Z0-9_]*)"\./g);
       for (const m of schemaQualifierMatches) {
         // m[1] is the captured schema name. Under tsc --strict the
         // RegExpMatchArray indexer is `string | undefined`; in practice
@@ -427,11 +424,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       // (PRIMARY KEY / UNIQUE / CHECK / EXCLUDE all carry semantic
       // collision risk; FK is purely additive at the catalog level).
       // Wrapped in DO/EXCEPTION duplicate_object by makeIdempotent.
-      if (
-        /^ALTER\s+TABLE\b[^;]*?\bADD\s+CONSTRAINT\b[^;]*?\bFOREIGN\s+KEY\b/i.test(
-          t,
-        )
-      ) {
+      if (/^ALTER\s+TABLE\b[^;]*?\bADD\s+CONSTRAINT\b[^;]*?\bFOREIGN\s+KEY\b/i.test(t)) {
         return true;
       }
       return false;
@@ -470,8 +463,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       // PostgreSQL ≥ 9.5 supports IF NOT EXISTS on CREATE INDEX. Idempotent.
       s = s.replace(
         /^CREATE\s+(UNIQUE\s+)?INDEX\s+(?!IF\s+NOT\s+EXISTS\b)/i,
-        (_match: string, unique?: string) =>
-          `CREATE ${unique ?? ''}INDEX IF NOT EXISTS `,
+        (_match: string, unique?: string) => `CREATE ${unique ?? ''}INDEX IF NOT EXISTS `,
       );
       if (/^CREATE\s+TYPE\b/i.test(s)) {
         s = `DO $$ BEGIN ${s}; EXCEPTION WHEN duplicate_object THEN NULL; END $$`;
@@ -506,11 +498,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       //
       // R5 narrowness preserved: all classes are explicit names, no
       // `WHEN others`.
-      if (
-        /^ALTER\s+TABLE\b[^;]*?\bADD\s+CONSTRAINT\b[^;]*?\bFOREIGN\s+KEY\b/i.test(
-          s,
-        )
-      ) {
+      if (/^ALTER\s+TABLE\b[^;]*?\bADD\s+CONSTRAINT\b[^;]*?\bFOREIGN\s+KEY\b/i.test(s)) {
         s =
           `DO $$ BEGIN ${s}; ` +
           `EXCEPTION ` +
@@ -594,8 +582,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       // string-replace consistent (it only rewrites `"hr".` prefixes).
       const tableRef = m[1] ? `"${schemaName}"."${tableName}"` : `"${tableName}"`;
 
-      const dropDefaultStmt =
-        `ALTER TABLE ${tableRef} ALTER COLUMN "${columnName}" DROP DEFAULT`;
+      const dropDefaultStmt = `ALTER TABLE ${tableRef} ALTER COLUMN "${columnName}" DROP DEFAULT`;
       const out: Array<{ query: string; parameters?: unknown[] }> = [
         { query: dropDefaultStmt, parameters: undefined },
         { query: q.query, parameters: q.parameters },
@@ -604,8 +591,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       if (declared !== undefined) {
         out.push({
           query:
-            `ALTER TABLE ${tableRef} ALTER COLUMN "${columnName}" ` +
-            `SET DEFAULT ${declared}`,
+            `ALTER TABLE ${tableRef} ALTER COLUMN "${columnName}" ` + `SET DEFAULT ${declared}`,
           parameters: undefined,
         });
       }
@@ -677,19 +663,13 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       'hr',
     );
     if (alterTypeTargets.length > 0) {
-      const droppedDeps = await dropDependentPartialIndexes(
-        queryRunner,
-        alterTypeTargets,
-      );
+      const droppedDeps = await dropDependentPartialIndexes(queryRunner, alterTypeTargets);
       this.logger.log(
         `Source hr schema: pre-flight DROP of ${droppedDeps.length} ` +
           `dependent object(s) on ${alterTypeTargets.length} ALTER-COLUMN-TYPE target(s). ` +
           (droppedDeps.length > 0
             ? `Dropped: ${droppedDeps
-                .map(
-                  (d) =>
-                    `${d.kind}:${d.schema}.${d.name} (blocking ${d.table}.${d.column})`,
-                )
+                .map((d) => `${d.kind}:${d.schema}.${d.name} (blocking ${d.table}.${d.column})`)
                 .join(', ')}.`
             : 'No blocking partial indexes, constraint-backed indexes, or CHECK constraints present.'),
       );
@@ -811,7 +791,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     // the pre-deploy pg_dump backup, not via this path. See migration
     // docblock §"Down-rollback" for the rationale.
     const conn = queryRunner.connection;
-    const hrEntities = conn.entityMetadatas.filter((m) => m.schema === 'hr');
+    const hrEntities = listHrOwnedEntities(conn.entityMetadatas);
     if (hrEntities.length === 0) return;
 
     const tenantRows: Array<{ schema_name: string }> = await conn.query(`
@@ -869,9 +849,7 @@ function renderEntityDefaultLiteral(col: ColumnMetadata): string | undefined {
     return String(d);
   }
   if (Array.isArray(d)) {
-    const items = d.map((v) =>
-      typeof v === 'string' ? `'${v.replace(/'/g, "''")}'` : String(v),
-    );
+    const items = d.map((v) => (typeof v === 'string' ? `'${v.replace(/'/g, "''")}'` : String(v)));
     return `ARRAY[${items.join(', ')}]`;
   }
   if (typeof d === 'object') {

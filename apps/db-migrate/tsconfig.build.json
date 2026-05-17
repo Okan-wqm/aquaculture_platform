@@ -5,9 +5,7 @@
     "rootDir": "../..",
     "module": "commonjs",
     "target": "ES2021",
-    "types": [
-      "node"
-    ],
+    "types": ["node"],
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "declaration": false,
@@ -23,6 +21,7 @@
     "../farm-service/src/database/migrations/**/*.ts",
     "../sensor-service/src/database/migrations/**/*.ts",
     "../hr-service/src/database/migrations/**/*.ts",
+    "../hr-service/src/**/*.entity.ts",
     "../messaging-service/src/migrations/**/*.ts",
     "../messaging-service/src/database/migrations/**/*.ts",
     "../hydroponics-service/src/database/migrations/**/*.ts",

@@ -235,14 +235,19 @@ def main(argv: list[str] | None = None) -> int:
     prompt_file = (
         tools_dir / "dispatch" / "prompts" / f"{assignment_id}.md"
     )
+    # Plan ARIA-V7 §2g v2 — MODERN CLAUDE CLI 2.1.140 argv shape.
+    # Legacy `claude code agent --subagent-type X --prompt-file Y
+    # --working-directory Z` replaced by `claude --print --agent X
+    # --add-dir Z` with prompt piped via stdin. See
+    # ci_executor_contract_proven.md V7 modernization note.
     cli_argv = [
-        "claude", "code", "agent",
-        "--subagent-type", parsed.target_agent,
-        "--prompt-file", str(prompt_file),
-        "--working-directory", str(worktree_path),
+        "claude", "--print",
+        "--agent", parsed.target_agent,
+        "--add-dir", str(worktree_path),
     ]
+    _prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
     completed = subprocess.run(
-        cli_argv, capture_output=True, text=True,
+        cli_argv, input=_prompt_text, capture_output=True, text=True,
     )
     if completed.returncode != 0:
         sys.stderr.write(

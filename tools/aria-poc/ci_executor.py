@@ -223,6 +223,14 @@ def _max_timeout_seconds() -> int:
     return int(os.environ.get("MAX_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
 
 
+def _max_budget_usd() -> float:
+    """Plan ARIA-V7 §2g v2 — operator-tunable per-run USD cap for the
+    modern Claude Code CLI invocation. The CLI's --max-budget-usd
+    flag enforces this in-CLI; the kernel's budget guard (Plan
+    ARIA-V3 §B0) is the third defense layer."""
+    return float(os.environ.get("MAX_BUDGET_USD_PER_RUN", "2.0"))
+
+
 _TRUTHY_BOOL_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
 _FALSY_BOOL_VALUES: frozenset[str] = frozenset({"0", "false", "no", "off", ""})
 
@@ -389,26 +397,47 @@ def invoke_claude_code(
             "executor's outer pipeline against a deterministic mock."
         )
 
-    # Production path — Plan ARIA-V3 §B1 PROVEN argv contract; the
-    # tuple below is locked byte-for-byte by invariant I-V3-21 against
-    # tools/aria-poc/ci_executor_contract_proven.md proven_argv block.
+    # Plan ARIA-V7 §2g v2 — PROVEN argv contract MIGRATED to modern
+    # Claude Code CLI 2.1.140. The legacy ``claude code agent
+    # --subagent-type X --prompt-file Y --output-path Z`` shape was
+    # never live-verified (`claude code` subcommand REMOVED from
+    # modern CLI). V7's parallel-consumer mode requires a working
+    # contract. The migration is locked byte-for-byte by invariant
+    # I-V3-21 against the updated
+    # tools/aria-poc/ci_executor_contract_proven.md proven_argv
+    # block.
+    #
+    # Modern shape:
+    #   claude --print --agent <subagent_type> \\
+    #          --max-budget-usd $MAX_BUDGET_USD_PER_RUN \\
+    #          --output-format json
+    #     < prompt_file  (stdin)
+    #     > output_path  (stdout)
+    #
+    # Lease-token redaction discipline (Plan ARIA-V3 §B1) PRESERVED:
+    # token flows only through env (CLAUDE_CODE_OAUTH_TOKEN +
+    # ARIA_LEASE_TOKEN), never argv. The new argv shape carries NO
+    # secrets.
     argv = [
         "claude",
-        "code",
-        "agent",
-        "--subagent-type", subagent_type,
-        "--prompt-file", str(prompt_file),
-        "--output-path", str(output_path),
-        "--max-turns", str(_max_turns()),
-        "--max-requests", str(_max_requests()),
-        "--timeout-seconds", str(timeout_seconds),
+        "--print",
+        "--agent", subagent_type,
+        "--max-budget-usd", str(_max_budget_usd()),
+        "--output-format", "json",
     ]
+    prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     completed = subprocess.run(
         argv,
+        input=prompt_text,
         capture_output=True,
         text=True,
         timeout=timeout_seconds + 30,
     )
+    # Capture stdout to output_path (the modern CLI writes to stdout;
+    # legacy --output-path flag was removed).
+    if completed.stdout:
+        output_path.write_text(completed.stdout, encoding="utf-8")
     return completed.returncode
 
 
@@ -627,7 +656,17 @@ def main(argv: list[str] | None = None) -> int:
     subagent_type = args[1] if len(args) > 1 else "aria-evidence-judge"
 
     repo = Path.cwd().resolve()
-    tools_dir = repo / "aria-tools"
+    # Plan ARIA-V7 §2g v2 — honor ARIA_TOOLS_DIR env var so the
+    # consumer can run against a non-default tools directory (e.g.
+    # the operator-side ./aria-tools-v7-30cycle verification dir).
+    # Pre-V7 hardcoded `repo / "aria-tools"`; that broke the V7
+    # parallel-consumer workflow where autonomy run + consumer
+    # share a non-default tools_dir.
+    _env_tools = os.environ.get("ARIA_TOOLS_DIR")
+    if _env_tools:
+        tools_dir = Path(_env_tools).resolve()
+    else:
+        tools_dir = repo / "aria-tools"
 
     # Plan ARIA-V3 §B1 AUDITTRAIL-HIGH-009 — single governance row
     # per executor invocation recording the effective mock state +

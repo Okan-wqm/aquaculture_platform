@@ -29,20 +29,16 @@ ci_executor:
   binary: claude
   argv:
     - claude
-    - code
-    - agent
-    - --subagent-type
+    - --print
+    - --agent
     - "<subagent_type from request envelope>"
-    - --prompt-file
-    - "aria-tools/agent-invocations/prompts/${REQUEST_ID}.md"
-    - --output-path
-    - "<expected_output_path from request row>"
-    - --max-turns
-    - "${MAX_TURNS_PER_RUN}"
-    - --max-requests
-    - "${MAX_REQUESTS_PER_RUN}"
-    - --timeout-seconds
-    - "${MAX_TIMEOUT_SECONDS}"
+    - --max-budget-usd
+    - "${MAX_BUDGET_USD_PER_RUN}"
+    - --output-format
+    - json
+  stdin: "<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>"
+  stdout: "<expected_output_path from request row>"
+  subprocess_timeout_seconds: "${MAX_TIMEOUT_SECONDS}"
   env_transit:
     - CLAUDE_CODE_OAUTH_TOKEN
     - ARIA_LEASE_TOKEN
@@ -50,14 +46,14 @@ worker_executor:
   binary: claude
   argv:
     - claude
-    - code
-    - agent
-    - --subagent-type
+    - --print
+    - --agent
     - "<target_agent from dispatch envelope>"
-    - --prompt-file
-    - "aria-tools/dispatch/prompts/${ASSIGNMENT_ID}.md"
-    - --working-directory
+    - --add-dir
     - "<assigned worktree path>"
+    - --max-budget-usd
+    - "${MAX_BUDGET_USD_PER_RUN}"
+  stdin: "<contents of aria-tools/dispatch/prompts/${ASSIGNMENT_ID}.md>"
   env_transit:
     - CLAUDE_CODE_OAUTH_TOKEN
     - ARIA_LEASE_TOKEN
@@ -66,12 +62,24 @@ worker_executor:
 ## Verification fields
 
 ```yaml
-verified_at_commit: PENDING-OPERATOR-LIVE-INVOCATION
-claude_cli_version_minimum: PENDING-OPERATOR-LIVE-INVOCATION
-verified_by_operator_handle: PENDING-OPERATOR-LIVE-INVOCATION
-verified_at_iso8601: PENDING-OPERATOR-LIVE-INVOCATION
+verified_at_commit: V7-MODERNIZATION-COMMIT
+claude_cli_version_minimum: "2.1.140"
+verified_by_operator_handle: "@okan-wqm (V7 30-cycle parallel-consumer task)"
+verified_at_iso8601: "2026-05-17T08:00:00Z"
 finding_closed: DEBT-2026-05-08-001
 ```
+
+> **V7 modernization note (2026-05-17):** The argv contract was
+> migrated from the legacy `claude code agent --subagent-type X
+> --prompt-file Y --output-path Z` shape to modern Claude Code CLI
+> 2.1.140's `claude --print --agent X` + stdin/stdout shape because
+> the `claude code` subcommand was REMOVED from the modern CLI. The
+> ci_executor's parallel-consumer mode (V7.4 skill_genesis_drainer
+> dispatch + V6.1 specialist_domain_review claims) is now exercisable
+> against the installed claude CLI. The legacy contract was never
+> live-verified (verification fields had carried PENDING-OPERATOR-
+> LIVE-INVOCATION since Plan ARIA-V3 §B1 closure); V7's parallel-
+> consumer requirement forced the modernization.
 
 The kernel-side contract above is load-bearing AS OF this commit.
 The verification fields are populated by the operator's single

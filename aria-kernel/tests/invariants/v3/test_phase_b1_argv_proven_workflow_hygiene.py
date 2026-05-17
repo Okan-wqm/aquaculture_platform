@@ -77,16 +77,19 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
         ci_src = (
             _REPO_ROOT / "tools" / "aria-poc" / "ci_executor.py"
         ).read_text(encoding="utf-8")
+        # Plan ARIA-V7 §2g v2 — MODERN CLAUDE CLI 2.1.140 argv shape.
+        # Legacy `claude code agent --subagent-type X --prompt-file Y
+        # --output-path Z` removed; replaced by `claude --print
+        # --agent X --max-budget-usd N --output-format json` with
+        # stdin/stdout. See ci_executor_contract_proven.md V7
+        # modernization note for migration rationale.
         for token in (
             '"claude"',
-            '"code"',
-            '"agent"',
-            '"--subagent-type"',
-            '"--prompt-file"',
-            '"--output-path"',
-            '"--max-turns"',
-            '"--max-requests"',
-            '"--timeout-seconds"',
+            '"--print"',
+            '"--agent"',
+            '"--max-budget-usd"',
+            '"--output-format"',
+            '"json"',
         ):
             self.assertIn(
                 token, ci_src,
@@ -99,12 +102,10 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
         self.assertEqual(
             flag_set_doc,
             {
-                "--subagent-type",
-                "--prompt-file",
-                "--output-path",
-                "--max-turns",
-                "--max-requests",
-                "--timeout-seconds",
+                "--print",
+                "--agent",
+                "--max-budget-usd",
+                "--output-format",
             },
         )
 
@@ -118,13 +119,12 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
         worker_src = (
             _REPO_ROOT / "tools" / "aria-poc" / "worker_executor.py"
         ).read_text(encoding="utf-8")
+        # Plan ARIA-V7 §2g v2 — modernized claude CLI argv shape.
         for token in (
             '"claude"',
-            '"code"',
-            '"agent"',
-            '"--subagent-type"',
-            '"--prompt-file"',
-            '"--working-directory"',
+            '"--print"',
+            '"--agent"',
+            '"--add-dir"',
         ):
             self.assertIn(
                 token, worker_src,
@@ -135,7 +135,7 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
         }
         self.assertEqual(
             flag_set_doc,
-            {"--subagent-type", "--prompt-file", "--working-directory"},
+            {"--print", "--agent", "--add-dir", "--max-budget-usd"},
         )
 
     # I-V3-22 — workflow_dispatch input mock default flipped to false.

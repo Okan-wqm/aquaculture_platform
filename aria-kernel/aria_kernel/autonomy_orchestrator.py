@@ -1081,6 +1081,58 @@ def run_autonomy_orchestrator(
                     details={},
                 )
 
+                # Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter
+                # invokes generate_adapter_calibration_report for
+                # every SHADOW/ACTIVE adapter; persists precision_
+                # history to aria-tools/calibration/adapter-
+                # calibration-reports.jsonl. Without this V6.4
+                # compute_auto_promote_token can NEVER fire (V6.4
+                # was a latent dead loop pre-V7). Pinned by I-V7.6-04
+                # source-substring invariant. Phase fires AFTER
+                # auto_merge_runner and BEFORE reflection so V6.4
+                # observes the freshest calibration.
+                from .adapter_calibration import (
+                    generate_adapter_calibration_report,
+                )
+                from .tool_registry import list_tools as _v7_list_tools
+                _v7_calibration_tool_ids = [
+                    t.get("tool_id")
+                    for t in _v7_list_tools(base_dir=root)
+                    if t.get("kind") == "adapter"
+                    and t.get("status") in ("SHADOW", "ACTIVE")
+                    and t.get("tool_id")
+                ]
+                if _v7_calibration_tool_ids:
+                    try:
+                        calibration_result = generate_adapter_calibration_report(
+                            tool_ids=_v7_calibration_tool_ids,
+                            base_dir=root,
+                            cycle_id=cycle_id,
+                        )
+                        cycle_summary["calibration_reporter"] = calibration_result
+                    except Exception as _v7_calib_exc:
+                        # Surface failure without crashing the cycle.
+                        cycle_summary["calibration_reporter"] = {
+                            "status": "error",
+                            "error_class": type(_v7_calib_exc).__name__,
+                            "error_message": str(_v7_calib_exc)[:500],
+                        }
+                else:
+                    cycle_summary["calibration_reporter"] = {
+                        "status": "no_adapters",
+                        "tool_ids": [],
+                    }
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="calibration_reporter_completed",
+                    status=str(cycle_summary["calibration_reporter"].get("status") or "ok"),
+                    profile=profile_snapshot,
+                    details={
+                        "tool_ids_scanned": len(_v7_calibration_tool_ids),
+                    },
+                )
+
                 # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain reflection
                 # runs AFTER planner+bridge+convergence+worker+review+
                 # auto_merge so the operator-facing daily report covers

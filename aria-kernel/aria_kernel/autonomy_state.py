@@ -111,6 +111,13 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     "skill_genesis_drainer_round_completed",
     "skill_genesis_drainer_resolved",
     "skill_genesis_drainer_blocked",
+    # Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter phase fires
+    # AFTER auto_merge_runner and BEFORE reflection. Invokes
+    # generate_adapter_calibration_report for every SHADOW/ACTIVE
+    # adapter; persists precision_history to the calibration ledger.
+    # Without this V6.4 compute_auto_promote_token can NEVER fire
+    # (V6.4 was a latent dead loop pre-V7).
+    "calibration_reporter_completed",
     "next_cycle_queued",
     "aria_stop",
     "profile_frozen",

@@ -63,9 +63,10 @@ whether the service is tenant-scoped:
 
 2. **Tenant-scoped services** (`farm`, `sensor`, `hr`, `messaging`,
    `hydroponics`, `ai`, `alert`) — per-tenant entities OMIT the
-   `schema:` parameter. The runtime sets `search_path = "tenant_<uuid>",
-   public` per request, so unqualified table references resolve into
-   the tenant's clone schema (`tenant_<uuid_first_16_hex>`). The source
+   `schema:` parameter. The runtime sets
+   `search_path = "tenant_<uuid>", public` per request, so unqualified
+   table references resolve into the tenant's clone schema
+   (`tenant_<uuid_first_16_hex>`). The source
    schema (`farm`, `sensor`, etc.) holds template tables that
    `TenantSchemaSyncService` copies into each tenant clone via
    `CREATE TABLE LIKE source.X INCLUDING ALL`. Pinning `schema: 'farm'`
@@ -85,6 +86,21 @@ whether the service is tenant-scoped:
 The CI invariant test (`e2e/tests/integration/schema-invariants.spec.ts`)
 and the runtime schema-drift validator (`createSchemaDriftValidator` in
 backend-common) enforce both conventions.
+
+**Migration ledger boundary (2026-05-17 update):**
+
+TypeORM migration ledger objects inside a service schema
+(`typeorm_migrations`, `migrations_id_seq`, and equivalent metadata) are
+infrastructure metadata, not service domain data. Ownership-repair
+migrations must therefore declare the service domain surface they repair
+and must not sweep every `pg_class` object in the schema.
+
+For sequence repair, the canonical discovery path is `pg_depend` from a
+sequence to a whitelisted domain table/column (`deptype IN ('a', 'i')`).
+Schema-wide `relkind = 'S'` ownership sweeps are forbidden because they
+capture metadata sequences owned by the migration ledger and break
+database bootstrap before application containers start. This contract is
+guarded by `tests/invariants/postgres-ddl-contract.spec.ts`.
 
 ### Tier 2: `shared` schema
 

@@ -1,11 +1,7 @@
 import { Logger } from '@nestjs/common';
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableColumn } from 'typeorm';
 import type { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata';
 import type { EntityMetadata } from 'typeorm/metadata/EntityMetadata';
-import {
-  dropDependentPartialIndexes,
-  parseAlterColumnTypeTargets,
-} from '@aquaculture/backend-common/database';
 import { listHrOwnedEntities, quoteIdent, quoteQualified, toSnakeCase } from './hr-owned-entities';
 
 /**
@@ -61,17 +57,7 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
     }
 
     await this.assertMissingRequiredColumnsAreSafe(queryRunner, schemas, entities);
-
-    const plan = await this.buildValidatorAlignmentPlan(queryRunner, entities);
-    if (plan.length > 0) {
-      await this.applyPlan(queryRunner, 'hr', plan);
-      for (const schema of schemas.filter((s) => s !== 'hr')) {
-        await this.applyPlan(queryRunner, schema, plan);
-      }
-    } else {
-      this.logger.log('SchemaBuilder emitted no validator-relevant HR DDL.');
-    }
-
+    await this.alignEntitySurface(queryRunner, schemas, entities);
     await this.healUuidAndNullability(queryRunner, schemas, entities);
   }
 
@@ -174,68 +160,65 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
     }
   }
 
-  private async buildValidatorAlignmentPlan(
+  private async alignEntitySurface(
     queryRunner: QueryRunner,
+    schemas: readonly string[],
     entities: readonly EntityMetadata[],
-  ): Promise<Array<{ query: string; parameters?: unknown[] }>> {
-    await queryRunner.connection.query(`
-      CREATE TABLE IF NOT EXISTS "hr"."typeorm_metadata" (
-        "type" varchar NOT NULL,
-        "database" varchar,
-        "schema" varchar,
-        "table" varchar,
-        "name" varchar,
-        "value" text
-      )
-    `);
-
-    await queryRunner.query(`SET LOCAL search_path = "hr", public`);
-    const defaults = this.entityDefaultsByTableColumn(entities);
-    const sqlInMemory = await queryRunner.connection.driver.createSchemaBuilder().log();
-
-    const sourceQueries = sqlInMemory.upQueries
-      .filter((q) => this.referencesOnlyHrOrUnqualified(q.query))
-      .filter((q) => this.isValidatorRelevant(q.query))
-      .map((q) => ({ ...q, query: this.makeIdempotent(q.query) }))
-      .flatMap((q) => this.expandAlterColumnTypeWithDefaultRecovery(q, defaults));
-
-    this.logger.log(
-      `SchemaBuilder emitted ${sqlInMemory.upQueries.length} query plan item(s); ` +
-        `${sourceQueries.length} validator-relevant HR item(s) retained.`,
-    );
-
-    return sourceQueries;
-  }
-
-  private async applyPlan(
-    queryRunner: QueryRunner,
-    schema: string,
-    plan: readonly { query: string; parameters?: unknown[] }[],
   ): Promise<void> {
-    await queryRunner.query(`SET LOCAL search_path = ${quoteIdent(schema)}, public`);
-    this.logger.log(`[${schema}] applying ${plan.length} validator-alignment statement(s).`);
+    let createdTables = 0;
+    let addedColumns = 0;
 
-    const rebased = plan.map((q) => ({
-      query: schema === 'hr' ? q.query : q.query.replace(/"hr"\./g, `${quoteIdent(schema)}.`),
-      parameters: q.parameters,
-    }));
-
-    const alterTargets = parseAlterColumnTypeTargets(
-      rebased.map((q) => q.query),
-      schema,
-    );
-    if (alterTargets.length > 0) {
-      const dropped = await dropDependentPartialIndexes(queryRunner, alterTargets);
+    for (const schema of schemas) {
       this.logger.log(
-        `[${schema}] pre-flight DROP: ${dropped.length} blocker(s) for ` +
-          `${alterTargets.length} ALTER COLUMN TYPE target(s).`,
+        `[${schema}] starting deterministic entity-surface alignment for ` +
+          `${entities.length} HR table definition(s).`,
+      );
+      let schemaCreatedTables = 0;
+      let schemaAddedColumns = 0;
+      const samples: string[] = [];
+
+      for (const entity of entities) {
+        const canonicalTable = this.tableForSchema(queryRunner, schema, entity);
+        const tablePath = this.tablePath(queryRunner, schema, entity.tableName);
+        const exists = await this.tableExists(queryRunner, schema, entity.tableName);
+
+        if (!exists) {
+          await queryRunner.createTable(canonicalTable, true, false, true);
+          createdTables++;
+          schemaCreatedTables++;
+          if (samples.length < 8) {
+            samples.push(`create:${schema}.${entity.tableName}`);
+          }
+          continue;
+        }
+
+        const names = await this.columnNames(queryRunner, schema, entity.tableName);
+        for (const column of entity.columns) {
+          if (column.isVirtual) continue;
+          if (names.has(column.databaseName)) continue;
+
+          const tableColumn = this.tableColumnFor(canonicalTable, column);
+          await queryRunner.addColumn(tablePath, tableColumn);
+          names.add(column.databaseName);
+          addedColumns++;
+          schemaAddedColumns++;
+          if (samples.length < 8) {
+            samples.push(`add:${schema}.${entity.tableName}.${column.databaseName}`);
+          }
+        }
+      }
+
+      this.logger.log(
+        `[${schema}] deterministic entity-surface alignment complete: ` +
+          `${schemaCreatedTables} table(s) created, ${schemaAddedColumns} column(s) added` +
+          (samples.length > 0 ? `; samples: ${samples.join(', ')}` : ''),
       );
     }
 
-    for (const q of rebased) {
-      await queryRunner.query(q.query, q.parameters);
-    }
-    this.logger.log(`[${schema}] applied ${rebased.length} alignment statement(s).`);
+    this.logger.log(
+      `Deterministic entity-surface alignment complete: ${createdTables} table(s) ` +
+        `created, ${addedColumns} column(s) added across ${schemas.length} schema(s).`,
+    );
   }
 
   private async healUuidAndNullability(
@@ -321,107 +304,8 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
     );
   }
 
-  private referencesOnlyHrOrUnqualified(sql: string): boolean {
-    for (const match of sql.matchAll(/"([a-zA-Z_][a-zA-Z0-9_]*)"\./g)) {
-      const schema = match[1];
-      if (schema !== undefined && schema.toLowerCase() !== 'hr') {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private isValidatorRelevant(sql: string): boolean {
-    const t = sql.trim();
-    if (/^CREATE\s+TYPE\b/i.test(t)) return true;
-    if (/^CREATE\s+TABLE\b/i.test(t)) return true;
-    if (/^ALTER\s+TABLE\b[^;]*?\bADD\s+(?!CONSTRAINT\b)"/i.test(t)) return true;
-    if (/^ALTER\s+TABLE\b[^;]*?\bALTER\s+COLUMN\b/i.test(t)) return true;
-    return false;
-  }
-
-  private makeIdempotent(sql: string): string {
-    let s = sql;
-    s = s.replace(/^CREATE\s+TABLE\s+"/i, 'CREATE TABLE IF NOT EXISTS "');
-    s = s.replace(
-      /(\bALTER\s+TABLE\s+(?:"[^"]+"\.)?"[^"]+"\s+)ADD\s+"/i,
-      '$1ADD COLUMN IF NOT EXISTS "',
-    );
-    if (/^CREATE\s+TYPE\b/i.test(s)) {
-      s = `DO $$ BEGIN ${s}; EXCEPTION WHEN duplicate_object THEN NULL; END $$`;
-    }
-    return s;
-  }
-
-  private expandAlterColumnTypeWithDefaultRecovery(
-    q: { query: string; parameters?: unknown[] },
-    defaults: ReadonlyMap<string, string>,
-  ): Array<{ query: string; parameters?: unknown[] }> {
-    const m = q.query.match(
-      /^ALTER\s+TABLE\s+(?:"([^"]+)"\.)?"([^"]+)"\s+ALTER\s+COLUMN\s+"([^"]+)"\s+TYPE\b/i,
-    );
-    if (!m) return [{ query: q.query, parameters: q.parameters }];
-
-    const schemaName = m[1] ?? 'hr';
-    const tableName = m[2];
-    const columnName = m[3];
-    if (tableName === undefined || columnName === undefined) {
-      return [{ query: q.query, parameters: q.parameters }];
-    }
-
-    const tableRef = m[1] ? quoteQualified(schemaName, tableName) : quoteIdent(tableName);
-    const out: Array<{ query: string; parameters?: unknown[] }> = [
-      {
-        query: `ALTER TABLE ${tableRef} ALTER COLUMN ${quoteIdent(columnName)} DROP DEFAULT`,
-      },
-      { query: q.query, parameters: q.parameters },
-    ];
-    const declared = defaults.get(`${tableName}.${columnName}`);
-    if (declared !== undefined) {
-      out.push({
-        query:
-          `ALTER TABLE ${tableRef} ALTER COLUMN ${quoteIdent(columnName)} ` +
-          `SET DEFAULT ${declared}`,
-      });
-    }
-    return out;
-  }
-
-  private entityDefaultsByTableColumn(entities: readonly EntityMetadata[]): Map<string, string> {
-    const defaults = new Map<string, string>();
-    for (const meta of entities) {
-      for (const col of meta.columns) {
-        const rendered = this.renderEntityDefaultLiteral(col);
-        if (rendered !== undefined) {
-          defaults.set(`${meta.tableName}.${col.databaseName}`, rendered);
-        }
-      }
-    }
-    return defaults;
-  }
-
-  private renderEntityDefaultLiteral(col: ColumnMetadata): string | undefined {
-    const d = col.default;
-    if (d === undefined) return undefined;
-    if (d === null) return 'NULL';
-    if (typeof d === 'function') {
-      const result = d();
-      return typeof result === 'string' && result.length > 0 ? result : undefined;
-    }
-    if (typeof d === 'string') return `'${d.replace(/'/g, "''")}'`;
-    if (typeof d === 'number' || typeof d === 'boolean') return String(d);
-    if (Array.isArray(d)) {
-      return `ARRAY[${d
-        .map((v) => (typeof v === 'string' ? `'${v.replace(/'/g, "''")}'` : String(v)))
-        .join(', ')}]`;
-    }
-    if (typeof d === 'object') {
-      return `'${JSON.stringify(d).replace(/'/g, "''")}'::jsonb`;
-    }
-    return undefined;
-  }
-
   private hasSafeAddDefault(column: ColumnMetadata): boolean {
+    if (column.isPrimary) return false;
     return (
       column.default !== undefined ||
       column.isGenerated ||
@@ -531,6 +415,29 @@ export class ReplayHrEntitySurfaceAlignment1789300000000 implements MigrationInt
           'valid UUID literals. Backfill explicitly first.',
       );
     }
+  }
+
+  private tableForSchema(queryRunner: QueryRunner, schema: string, entity: EntityMetadata): Table {
+    const table = Table.create(entity, queryRunner.connection.driver);
+    table.database = undefined;
+    table.schema = schema;
+    table.name = this.tablePath(queryRunner, schema, entity.tableName);
+    return table;
+  }
+
+  private tableColumnFor(table: Table, column: ColumnMetadata): TableColumn {
+    const tableColumn = table.findColumnByName(column.databaseName);
+    if (!tableColumn) {
+      throw new Error(
+        `ReplayHrEntitySurfaceAlignment could not derive TableColumn metadata for ` +
+          `${table.name}.${column.databaseName}.`,
+      );
+    }
+    return tableColumn.clone();
+  }
+
+  private tablePath(queryRunner: QueryRunner, schema: string, table: string): string {
+    return queryRunner.connection.driver.buildTableName(table, schema);
   }
 
   public async down(_queryRunner: QueryRunner): Promise<void> {

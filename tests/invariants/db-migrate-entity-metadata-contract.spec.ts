@@ -5,6 +5,8 @@ import { resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const SCHEMA_REGISTRY = 'apps/db-migrate/src/schema-registry.ts';
 const DB_MIGRATE_TSCONFIG = 'apps/db-migrate/tsconfig.build.json';
+const HR_REPLAY_MIGRATION =
+  'apps/hr-service/src/database/migrations/1789300000000-ReplayHrEntitySurfaceAlignment.ts';
 
 function gitLsFiles(patterns: string[]): string[] {
   const out = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', ...patterns], {
@@ -47,5 +49,13 @@ describe('db-migrate entity metadata contract', () => {
 
     const tsconfig = read(DB_MIGRATE_TSCONFIG);
     expect(tsconfig).toContain('"../hr-service/src/**/*.entity.ts"');
+  });
+
+  it('HR replay migration does not depend on runtime schema-builder diffing', () => {
+    const source = read(HR_REPLAY_MIGRATION);
+
+    expect(source).not.toMatch(/createSchemaBuilder\(\)\.log\(/);
+    expect(source).toContain('alignEntitySurface');
+    expect(source).toContain('deterministic entity-surface alignment');
   });
 });

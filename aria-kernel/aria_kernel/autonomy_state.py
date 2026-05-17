@@ -91,6 +91,15 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     # phase string.
     "cycle_runner_synthesized_plan",
     "cycle_runner_no_pressure",
+    # Plan ARIA-V7 §2g v2 Phase 7.2 — orchestrator try/except
+    # envelope around convergence_runner. ``convergence_invalid_plan``
+    # fires when plan_convergence._validate_plan_content (or any
+    # downstream surface) raises GovernanceError. The crash is
+    # converted to a verdict + governance event for operator
+    # forensics; cycle continues to reflection without crashing the
+    # autonomy loop (closes ORPHAN-HIGH-079 for malformed-payload
+    # edge cases beyond V7.1's empty-skip).
+    "convergence_invalid_plan",
     "next_cycle_queued",
     "aria_stop",
     "profile_frozen",

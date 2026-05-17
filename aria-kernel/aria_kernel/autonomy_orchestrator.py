@@ -621,23 +621,81 @@ def run_autonomy_orchestrator(
                     profile=profile_snapshot,
                     details={"plan_id": f"plan-{cycle_id}"},
                 )
-                convergence_result = convergence_runner(
-                    cycle_id=cycle_id,
-                    base_dir=root,
-                    workspace_root=workspace_root,
-                    plan_id=f"plan-{cycle_id}",
-                    plan_seed=_v7_plan_content,
-                    must_satisfy=[{
-                        "id": "cycle-impl-satisfies-scope",
-                        "description":
-                            "Implementation must satisfy the cycle's "
-                            "must_satisfy contract derived from "
-                            "discovery + planner output.",
-                    }],
-                    evidence_refs=[f"cycle:{cycle_id}"],
-                    allowed_scope=[f"cycle/{cycle_id}"],
-                    max_rounds=max_iterations_per_phase,
-                )
+                # Plan ARIA-V7 §2g v2 Phase 7.2 — try/except envelope.
+                # Even with V7.1's plan_synthesizer producing real
+                # plan_content, downstream malformed-payload edge
+                # cases (operator-supplied debug payload, drifted
+                # schema, unexpected mutation in convergence_drainer)
+                # can still raise GovernanceError from
+                # plan_convergence._validate_plan_content. Without
+                # this try/except, the cycle CRASHES and the autonomy
+                # loop dies (ORPHAN-HIGH-079). The try/except converts
+                # the crash into a verdict (convergence_invalid_plan)
+                # + governance event capturing the raw plan_content
+                # for forensics. Source-substring invariant I-V7.2-04
+                # pins the literal try/except envelope.
+                try:
+                    convergence_result = convergence_runner(
+                        cycle_id=cycle_id,
+                        base_dir=root,
+                        workspace_root=workspace_root,
+                        plan_id=f"plan-{cycle_id}",
+                        plan_seed=_v7_plan_content,
+                        must_satisfy=[{
+                            "id": "cycle-impl-satisfies-scope",
+                            "description":
+                                "Implementation must satisfy the cycle's "
+                                "must_satisfy contract derived from "
+                                "discovery + planner output.",
+                        }],
+                        evidence_refs=[f"cycle:{cycle_id}"],
+                        allowed_scope=[f"cycle/{cycle_id}"],
+                        max_rounds=max_iterations_per_phase,
+                    )
+                except GovernanceError as _v7_exc:
+                    # Plan ARIA-V7 §2g v2 — invalid plan_content surface.
+                    AutonomyStateReducer.transition(
+                        root,
+                        cycle_id=cycle_id,
+                        phase="convergence_invalid_plan",
+                        status="governance_error",
+                        profile=profile_snapshot,
+                        details={
+                            "plan_id": f"plan-{cycle_id}",
+                            "error_class": type(_v7_exc).__name__,
+                            "error_message": str(_v7_exc)[:1000],
+                            "plan_content_keys": sorted(
+                                (_v7_plan_content or {}).keys()
+                            ),
+                        },
+                    )
+                    append_tools_governance(
+                        root,
+                        "convergence_invalid_plan",
+                        {
+                            "cycle_id": cycle_id,
+                            "plan_id": f"plan-{cycle_id}",
+                            "error_class": type(_v7_exc).__name__,
+                            "error_message": str(_v7_exc)[:2000],
+                            "plan_content_keys": sorted(
+                                (_v7_plan_content or {}).keys()
+                            ),
+                        },
+                    )
+                    cycle_summary["convergence_invalid_plan"] = {
+                        "error_class": type(_v7_exc).__name__,
+                        "error_message": str(_v7_exc)[:1000],
+                    }
+                    post_drain_reflection = run_reflection(
+                        cycle_id=cycle_id,
+                        base_dir=root,
+                        repo_root=workspace_root,
+                        convergence_result=None,
+                        review_result=None,
+                    )
+                    cycle_summary["reflection"] = post_drain_reflection
+                    per_cycle_results.append(cycle_summary)
+                    continue
                 cycle_summary["convergence"] = convergence_result
                 arbiter_verdict = convergence_result.get(
                     "arbiter_verdict", "split",

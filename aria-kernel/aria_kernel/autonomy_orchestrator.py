@@ -253,8 +253,10 @@ def run_autonomy_orchestrator(
     skill_genesis_drainer: "SkillGenesisDrainer",
     workspace_root: str | Path | None = None,
     cycle_deadline_seconds: float = 1800.0,
+    challenger_timeout_seconds: float = 1800.0,
     max_cycles: int = DEFAULT_MAX_CYCLES,
     max_iterations_per_phase: int = DEFAULT_MAX_ITERATIONS_PER_PHASE,
+    max_rounds: int = 4,
     daemon_id: str = DEFAULT_DAEMON_ID,
     aria_stop_filename: str = "ARIA_STOP",
     cycle_runner: Callable[..., dict[str, Any]] | None = None,
@@ -732,6 +734,15 @@ def run_autonomy_orchestrator(
                     _v7_plan_content.get("affected_surfaces") or [f"cycle/{cycle_id}"]
                 ) or [f"cycle/{cycle_id}"]
                 try:
+                    # Plan ORPHAN-HIGH-082 fix: convergence_runner kwargs are
+                    # now sourced from the orchestrator's own parameters
+                    # rather than from max_iterations_per_phase (different
+                    # concept — daemon dispatch iteration bound). This
+                    # closes the CLI → orchestrator → drainer plumbing
+                    # gap where --challenger-timeout-seconds and
+                    # --max-rounds were parsed by argparse + validated
+                    # but never reached the drainer; drainer used its
+                    # 1800s + 4-rounds defaults regardless of CLI input.
                     convergence_result = convergence_runner(
                         cycle_id=cycle_id,
                         base_dir=root,
@@ -741,7 +752,8 @@ def run_autonomy_orchestrator(
                         must_satisfy=_v7_must_satisfy,
                         evidence_refs=_v7_evidence_refs,
                         allowed_scope=_v7_allowed_scope,
-                        max_rounds=max_iterations_per_phase,
+                        max_rounds=max_rounds,
+                        challenger_timeout_seconds=challenger_timeout_seconds,
                     )
                 except GovernanceError as _v7_exc:
                     # Plan ARIA-V7 §2g v2 — invalid plan_content surface.

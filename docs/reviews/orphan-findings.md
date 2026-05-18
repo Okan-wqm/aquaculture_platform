@@ -3847,3 +3847,32 @@ V5.1 wired Gate A as Tier-1 architectural required-kwarg. The wiring is correct;
 V5/V6/V7 smoke runs also called submit_claim_result on planner-role submissions; if this CPU loop existed pre-V8, prior smokes hit it too (and timed out the same way, masked as `primary_silent`). The V8 dict-vs-set fix (B-V2-01) finally lets the poll observe state transitions, making submit-result's slowness visible for the first time.
 
 **Status:** OPEN. F-014 (V8 umbrella) marked RESOLVED at C6 for the architectural arc; the smoke gate is documented here as ORPHAN-HIGH-081 (separate investigation track). Operator decision needed: investigate now, or land V9 (which can include profiling tooling) and revisit.
+
+**2026-05-18 update (instrumentation landed):** `tools/aria-poc/ci_executor.py` now carries timestamped stage logs (`[ci-stage t=Xs] ...`) AND a bounded `SUBMIT_RESULT_TIMEOUT_SECONDS=120` survivability timeout on the submit subprocess. On timeout, ci_executor calls `_release_claim(reason="submit_timeout_120s")` so the consumer is never blocked by a leaking claim. The next dispatch event will reveal whether the hang is BEFORE the submit subprocess starts (ci_executor-side) or INSIDE the kernel submit-result (kernel-side), and where exactly in submit-result it lives.
+
+## ORPHAN-HIGH-082 — `--challenger-timeout-seconds` + `--max-rounds` CLI flags never plumbed from argparse to drainer
+
+**Severity**: HIGH (correctness — cycle deadlines silently 6× longer than requested)
+**Found**: 2026-05-18 during ORPHAN-HIGH-081 root-cause investigation; live autonomy run polled for 30 min instead of the operator-requested 5 min on cycle 1 round 1.
+**Status**: RESOLVED in same investigation session — fix landed alongside ORPHAN-HIGH-081 instrumentation.
+
+**Symptom**: ARIA autonomy launched with `--challenger-timeout-seconds 300 --max-rounds 2` continued to use 1800s drainer timeout (default) and 10-rounds bound (incorrectly sourced from `--max-iterations-per-phase`). Both CLI flags were dead arguments. The fail-fast validation at `aria-kernel/aria_kernel/cli.py:3422-3434` operated on `args.challenger_timeout_seconds` and `args.max_rounds`, then `run_autonomy_orchestrator(...)` was invoked without forwarding either argument.
+
+**Root cause**: Two-link plumbing gap.
+
+  - `run_autonomy_orchestrator()` signature at `aria-kernel/aria_kernel/autonomy_orchestrator.py:244` lacked `challenger_timeout_seconds` and `max_rounds` parameters entirely.
+  - The convergence_runner call inside the orchestrator (line 735+) was passing `max_rounds=max_iterations_per_phase` — `max_iterations_per_phase` is the daemon-dispatch iteration bound (e.g. 10 polls per dispatch cycle), semantically unrelated to convergence rounds (typically 2-4). Sharing one variable across both meanings is a category mistake.
+  - V8 C0 added the CLI flags + argparse validation but never extended the orchestrator signature.
+
+**Fix (Tier-1, make impossible at signature boundary)**:
+
+  - Added `challenger_timeout_seconds: float = 1800.0` and `max_rounds: int = 4` kwargs to `run_autonomy_orchestrator()`. Defaults align with drainer / Protocol defaults to avoid silent skew.
+  - CLI dispatch at `aria-kernel/aria_kernel/cli.py:3444` now forwards `args.challenger_timeout_seconds` and `args.max_rounds`.
+  - Orchestrator's `convergence_runner(...)` call now passes `challenger_timeout_seconds=challenger_timeout_seconds` AND `max_rounds=max_rounds` (replacing the wrong `max_rounds=max_iterations_per_phase`).
+  - 4 new invariants pinned at `aria-kernel/tests/invariants/v8/test_phase_v8_0_plumbing.py`:
+    * I-V8.0-07 — orchestrator signature exposes both kwargs
+    * I-V8.0-08 — CLI forwards both args via `args.X=args.X` source pattern
+    * I-V8.0-09 — orchestrator passes both kwargs to drainer; explicit negative check that `max_rounds=max_iterations_per_phase` does NOT regress
+    * I-V8.0-10 — defaults align across CLI → orchestrator → drainer + Protocol
+
+**Why filed as ORPHAN**: discovered during step-by-step ARIA observation (not via specialist agent review); operator's standing rule mandates documenting plan-independent visible problems with root-cause + tier-1 fix. Severity HIGH because CLI flags advertised as functional were silently dead — operator-induced timing knobs had zero effect on runtime behavior, completely defeating the V8 cycle-deadline guard rails.

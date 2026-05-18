@@ -3441,6 +3441,14 @@ def _main(argv: list[str] | None = None) -> int:
         specialist_review_runner = select_specialist_review_runner(profile=profile)
         plan_synthesizer = select_plan_synthesizer(profile=profile)
         skill_genesis_drainer = select_skill_genesis_drainer(profile=profile)
+        # ORPHAN-HIGH-082 fix: CLI flags --challenger-timeout-seconds and
+        # --max-rounds are now plumbed all the way to the orchestrator
+        # (and from there to convergence_runner). Previously the
+        # arguments were parsed + validated above (line 3422-3434) but
+        # never passed downstream, so the drainer silently fell back to
+        # its 1800s + 4-rounds defaults regardless of operator input.
+        # This was the root cause of cycle 1 polling for 30 min instead
+        # of 5 min on the first observed run.
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
             auto_merge_runner=auto_merge_runner,
@@ -3453,8 +3461,10 @@ def _main(argv: list[str] | None = None) -> int:
             workspace_root=args.workspace_root,
             max_cycles=args.max_cycles,
             max_iterations_per_phase=args.max_iterations_per_phase,
+            max_rounds=args.max_rounds,
             daemon_id=args.daemon_id,
             cycle_deadline_seconds=args.cycle_deadline_seconds,
+            challenger_timeout_seconds=args.challenger_timeout_seconds,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         # Exit non-zero only when the orchestrator could not start

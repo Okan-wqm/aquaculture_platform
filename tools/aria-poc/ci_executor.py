@@ -37,6 +37,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -44,9 +45,27 @@ from typing import Any
 DEFAULT_MAX_TURNS = 12
 DEFAULT_MAX_REQUESTS = 30
 DEFAULT_TIMEOUT_SECONDS = 1800
+# ORPHAN-HIGH-081 diagnostic + survivability bound. submit-result has
+# been observed to hang past consumer-loop timeout 360 (submit hung
+# without ever returning, no stderr, claim leaked). This bound localizes
+# the hang via timestamped stage logs AND lets ci_executor release the
+# claim itself on timeout rather than leaking via SIGKILL.
+SUBMIT_RESULT_TIMEOUT_SECONDS = 120
 
 LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
 OAUTH_TOKEN_ENV_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
+
+
+# Diagnostic — timestamped stage trace for ORPHAN-HIGH-081 root-cause hunt.
+# Lives on stderr so the consumer-loop log file captures it without
+# interfering with the kernel submit-result stdout JSON contract.
+_CI_T0 = time.monotonic()
+
+
+def _stage(msg: str) -> None:
+    elapsed = time.monotonic() - _CI_T0
+    sys.stderr.write(f"[ci-stage t={elapsed:7.2f}s] {msg}\n")
+    sys.stderr.flush()
 MOCK_MODE_ENV_VAR = "CLAUDE_CODE_MOCK"
 
 # Plan 026R §B.5 — single-claim env-var contract (mirror of
@@ -1153,25 +1172,44 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    _stage(f"claude_returned_exit={cli_exit} request_id={request_id} role={request_envelope.get('role')}")
+    _stage("submit_step_begin claim=" + claim_id)
     # Step 4 — submit through the kernel CLI; lease-token via env var.
-    submit_proc = subprocess.run(
-        [
-            "python3", "-m", "aria_kernel", "agent", "submit-result",
-            "--claim-id", claim_id,
-            "--agent-id", agent_id,
-            "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
-            "--output-path", str(expected_output_path),
-            "--workspace-root", str(repo),
-            "--tools-dir", str(tools_dir),
-        ],
-        capture_output=True,
-        text=True,
-        env={
-            **os.environ,
-            "PYTHONPATH": str(repo / "aria-kernel"),
-            LEASE_TOKEN_ENV_VAR: lease_token,
-        },
-    )
+    # ORPHAN-HIGH-081 — bounded timeout + survivable claim release on hang.
+    try:
+        submit_proc = subprocess.run(
+            [
+                "python3", "-m", "aria_kernel", "agent", "submit-result",
+                "--claim-id", claim_id,
+                "--agent-id", agent_id,
+                "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
+                "--output-path", str(expected_output_path),
+                "--workspace-root", str(repo),
+                "--tools-dir", str(tools_dir),
+            ],
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "PYTHONPATH": str(repo / "aria-kernel"),
+                LEASE_TOKEN_ENV_VAR: lease_token,
+            },
+            timeout=SUBMIT_RESULT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        _stage(f"submit_TIMEOUT after={SUBMIT_RESULT_TIMEOUT_SECONDS}s — releasing claim survivably")
+        sys.stderr.write(
+            f"submit-result hung past {SUBMIT_RESULT_TIMEOUT_SECONDS}s; "
+            f"partial stdout={(exc.stdout or '')[:200]!r} "
+            f"partial stderr={_redact_lease_in_message(exc.stderr or '', lease_token)[:200]!r}\n"
+        )
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=f"submit_timeout_{SUBMIT_RESULT_TIMEOUT_SECONDS}s",
+        )
+        return 1
+    _stage(f"submit_step_done rc={submit_proc.returncode}")
     if submit_proc.returncode != 0:
         sys.stderr.write(
             _redact_lease_in_message(submit_proc.stderr, lease_token) + "\n"

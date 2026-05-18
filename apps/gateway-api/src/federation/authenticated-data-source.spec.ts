@@ -76,6 +76,28 @@ function lowerCaseHeaders(headers: RequestInit['headers']): Record<string, strin
 }
 
 describe('AuthenticatedDataSource service identity signing', () => {
+  it('preserves Apollo default fetcher when no custom fetcher is supplied', async () => {
+    const dataSource = new AuthenticatedDataSource({
+      url: 'http://127.0.0.1:1/graphql',
+      secret: SECRET,
+    });
+
+    let thrown: unknown;
+    try {
+      await dataSource.fetcher('http://127.0.0.1:1/graphql', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: '{ __typename }' }),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeDefined();
+    expect(String((thrown as Error).message)).not.toContain('upstream is not a function');
+    expect(String((thrown as Error).message)).not.toContain('subgraph fetcher is unavailable');
+  });
+
   it('signs the exact final fetch body that Apollo sends to the subgraph', async () => {
     const { dataSource, calls } = createCapturingDataSource();
     const wireBody = JSON.stringify({

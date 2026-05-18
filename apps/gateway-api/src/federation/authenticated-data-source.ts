@@ -108,17 +108,30 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
   private readonly secret?: string;
 
   constructor(config: { url?: string; secret?: string; fetcher?: RemoteFetcher }) {
-    super({ url: config.url, fetcher: config.fetcher });
+    const dataSourceConfig: Partial<RemoteGraphQLDataSource<GatewayContext>> = {
+      url: config.url,
+    };
+    if (config.fetcher) {
+      dataSourceConfig.fetcher = config.fetcher;
+    }
+
+    super(dataSourceConfig);
     this.secret = config.secret;
     this.fetcher = this.withServiceIdentitySigning(this.fetcher);
   }
 
   private withServiceIdentitySigning(upstream: RemoteFetcher): RemoteFetcher {
+    if (typeof upstream !== 'function') {
+      throw new TypeError(
+        'Apollo subgraph fetcher is unavailable; service identity signing cannot run.',
+      );
+    }
+
     // Apollo serializes the final subgraph body after willSendRequest(); sign at
     // the fetch boundary so the HMAC binds the exact bytes sent on the wire.
     return async (url, init): ReturnType<RemoteFetcher> => {
+      const requestInit = init ?? {};
       if (this.secret) {
-        const requestInit = init ?? {};
         const headers = normalizeFetcherHeaders(requestInit.headers);
         const tenantId = getHeader(headers, 'x-tenant-id') ?? '';
         const signedTenantId = TENANT_UUID_RE.test(tenantId) ? tenantId : '';
@@ -136,7 +149,7 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
         }
         requestInit.headers = headers;
       }
-      return upstream(url, init);
+      return upstream(url, requestInit);
     };
   }
 

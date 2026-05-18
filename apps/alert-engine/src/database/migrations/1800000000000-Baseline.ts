@@ -1,5 +1,6 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
+import { applyTenantRlsToSchema, removeTenantRlsFromSchema } from '@aquaculture/backend-common/database'; // Faz 3.5 RLS additions: import block
 export class Baseline1800000000000 implements MigrationInterface {
     name = 'Baseline1800000000000'
 
@@ -39,10 +40,44 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_e7a3571ae327277e6e937eecac" ON "alert"."alert_history" ("severity", "acknowledged") `);
         await queryRunner.query(`CREATE INDEX "IDX_22d06ee2db9f4a34f9f42e387a" ON "alert"."alert_history" ("rule_id", "triggered_at") `);
         await queryRunner.query(`CREATE INDEX "IDX_fe91c3217551185531f30bde5e" ON "alert"."alert_history" ("tenant_id", "triggered_at") `);
-        await queryRunner.query(`ALTER TABLE "alert"."alert_incidents" ADD CONSTRAINT "FK_08af29c9206523c12da4497e8d2" FOREIGN KEY ("rule_id") REFERENCES "alert"."alert_rules"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "alert"."alert_incidents" ADD CONSTRAINT "FK_08af29c9206523c12da4497e8d2" FOREIGN KEY ("rule_id") REFERENCES "alert"."alert_rules"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+
+        // ── Faz 3.5 hand-author addition — RLS canonical predicate ──
+        await applyTenantRlsToSchema(queryRunner, {
+            schema: 'alert',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
+
+        // ── Faz 3.5 hand-author addition — audit immutability triggers ──
+        await queryRunner.query(`
+            CREATE OR REPLACE FUNCTION "alert".alert_audit_log_prevent_update_or_delete()
+            RETURNS trigger AS $
+            BEGIN
+              RAISE EXCEPTION 'Audit table "alert"."alert_audit_log" is append-only; UPDATE/DELETE refused (Faz 1.4 protected-tables-guard).';
+            END;
+            $ LANGUAGE plpgsql;
+        `);
+        await queryRunner.query(`
+            CREATE TRIGGER trg_alert_audit_log_prevent_update
+            BEFORE UPDATE OR DELETE ON "alert"."alert_audit_log"
+            FOR EACH ROW EXECUTE FUNCTION "alert".alert_audit_log_prevent_update_or_delete();
+        `);
+        await queryRunner.query(`
+            REVOKE UPDATE, DELETE ON "alert"."alert_audit_log" FROM PUBLIC;
+        `);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        // Reverse Faz 3.5 audit immutability triggers
+        await queryRunner.query(`DROP TRIGGER IF EXISTS trg_alert_audit_log_prevent_update ON "alert"."alert_audit_log";`);
+        await queryRunner.query(`DROP FUNCTION IF EXISTS "alert".alert_audit_log_prevent_update_or_delete();`);
+        // Reverse Faz 3.5 RLS install first (avoids policy-on-missing-table errors).
+        await removeTenantRlsFromSchema(queryRunner, {
+            schema: 'alert',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
         await queryRunner.query(`ALTER TABLE "alert"."alert_incidents" DROP CONSTRAINT "FK_08af29c9206523c12da4497e8d2"`);
         await queryRunner.query(`DROP INDEX "alert"."IDX_fe91c3217551185531f30bde5e"`);
         await queryRunner.query(`DROP INDEX "alert"."IDX_22d06ee2db9f4a34f9f42e387a"`);

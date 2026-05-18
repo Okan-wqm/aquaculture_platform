@@ -1,5 +1,6 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
+import { applyTenantRlsToSchema, removeTenantRlsFromSchema } from '@aquaculture/backend-common/database'; // Faz 3.5 RLS additions: import block
 export class Baseline1800000000000 implements MigrationInterface {
     name = 'Baseline1800000000000'
 
@@ -571,80 +572,114 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_11ec671630e347ab2ed2d8d0fb" ON "farm"."batch_documents" ("tenantId", "batchId") `);
         await queryRunner.query(`ALTER TABLE "farm"."water_quality_param_equipment" ADD CONSTRAINT "FK_563d89092078fc62582d287e87f" FOREIGN KEY ("parameterConfigId") REFERENCES "farm"."water_quality_parameter_configs"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."water_quality_param_equipment" ADD CONSTRAINT "FK_b506a2819e36b18268676dda953" FOREIGN KEY ("equipmentId") REFERENCES "farm"."equipment"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."departments" ADD CONSTRAINT "FK_cabc0ac7aa33c078cc7d0c92293" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."ponds" ADD CONSTRAINT "FK_3207589124723ddc81ebbbc29b0" FOREIGN KEY ("farmId") REFERENCES "farm"."farms"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."departments" ADD CONSTRAINT "FK_cabc0ac7aa33c078cc7d0c92293" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."ponds" ADD CONSTRAINT "FK_3207589124723ddc81ebbbc29b0" FOREIGN KEY ("farmId") REFERENCES "farm"."farms"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."tanks" ADD CONSTRAINT "FK_1474913d1150f0a7c2eb373e780" FOREIGN KEY ("departmentId") REFERENCES "farm"."departments"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."water_quality_measurements" ADD CONSTRAINT "FK_1c4823504eb071d159d3dab520e" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."water_quality_measurements" ADD CONSTRAINT "FK_d35bcd2481f2569cd34ccbdb584" FOREIGN KEY ("equipmentId") REFERENCES "farm"."equipment"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."systems" ADD CONSTRAINT "FK_7abaa3bc3d647f9caec38a193ec" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."systems" ADD CONSTRAINT "FK_4c8c6aaca1e1bd5a68afb501c65" FOREIGN KEY ("departmentId") REFERENCES "farm"."departments"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."systems" ADD CONSTRAINT "FK_bc606e525ac12ddf4c1f11b1dc9" FOREIGN KEY ("parentSystemId") REFERENCES "farm"."systems"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."sub_systems" ADD CONSTRAINT "FK_57735b80f595ff24f70d8f9e971" FOREIGN KEY ("systemId") REFERENCES "farm"."systems"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."sub_systems" ADD CONSTRAINT "FK_2ba5aedcfd67440e254cffee96d" FOREIGN KEY ("departmentId") REFERENCES "farm"."departments"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."supplier_sites" ADD CONSTRAINT "FK_f2e0603f05b80da25e6ea64fd1e" FOREIGN KEY ("supplierId") REFERENCES "farm"."suppliers"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."supplier_sites" ADD CONSTRAINT "FK_7a7b66ee632bbc9ef97a51fdd64" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."water_quality_measurements" ADD CONSTRAINT "FK_1c4823504eb071d159d3dab520e" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."water_quality_measurements" ADD CONSTRAINT "FK_d35bcd2481f2569cd34ccbdb584" FOREIGN KEY ("equipmentId") REFERENCES "farm"."equipment"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."systems" ADD CONSTRAINT "FK_7abaa3bc3d647f9caec38a193ec" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."systems" ADD CONSTRAINT "FK_4c8c6aaca1e1bd5a68afb501c65" FOREIGN KEY ("departmentId") REFERENCES "farm"."departments"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."systems" ADD CONSTRAINT "FK_bc606e525ac12ddf4c1f11b1dc9" FOREIGN KEY ("parentSystemId") REFERENCES "farm"."systems"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."sub_systems" ADD CONSTRAINT "FK_57735b80f595ff24f70d8f9e971" FOREIGN KEY ("systemId") REFERENCES "farm"."systems"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."sub_systems" ADD CONSTRAINT "FK_2ba5aedcfd67440e254cffee96d" FOREIGN KEY ("departmentId") REFERENCES "farm"."departments"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."supplier_sites" ADD CONSTRAINT "FK_f2e0603f05b80da25e6ea64fd1e" FOREIGN KEY ("supplierId") REFERENCES "farm"."suppliers"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."supplier_sites" ADD CONSTRAINT "FK_7a7b66ee632bbc9ef97a51fdd64" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."purchase_order_items" ADD CONSTRAINT "FK_3f92bb44026cedfe235c8b91244" FOREIGN KEY ("purchase_order_id") REFERENCES "farm"."purchase_orders"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."inventory_count_items" ADD CONSTRAINT "FK_085db583db6aaf793f2644a1efb" FOREIGN KEY ("inventory_count_id") REFERENCES "farm"."inventory_counts"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."site_contacts" ADD CONSTRAINT "FK_f4562369280291624a7d2ede829" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."site_contacts" ADD CONSTRAINT "FK_f4562369280291624a7d2ede829" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."spare_parts" ADD CONSTRAINT "FK_73203d99823599ad066ed91e417" FOREIGN KEY ("equipmentTypeId") REFERENCES "farm"."equipment_types"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."spare_parts" ADD CONSTRAINT "FK_0ea2c5136c1c193ac4153218850" FOREIGN KEY ("supplierId") REFERENCES "farm"."suppliers"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."harvest_plans" ADD CONSTRAINT "FK_4acd436216a8cadcbee28c74eca" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."harvest_records" ADD CONSTRAINT "FK_ada2c1e02353188190432d27659" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."harvest_records" ADD CONSTRAINT "FK_6cc3248b3d1f94783fc8df6654b" FOREIGN KEY ("harvestPlanId") REFERENCES "farm"."harvest_plans"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."harvest_records" ADD CONSTRAINT "FK_f2700f70783d7fab2e4397994a4" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."growth_measurements" ADD CONSTRAINT "FK_cb405ae6b02ef758267ca3ec912" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."health_events" ADD CONSTRAINT "FK_62d1381a3e4b1a129cf2c16038d" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."health_events" ADD CONSTRAINT "FK_bc630f00e7141c8da0e0ad64c69" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feeding_records" ADD CONSTRAINT "FK_6d9e37bd2972563632c57bd8a18" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feeding_records" ADD CONSTRAINT "FK_2f3d881c951d4b2dfc270fc299e" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."harvest_plans" ADD CONSTRAINT "FK_4acd436216a8cadcbee28c74eca" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."harvest_records" ADD CONSTRAINT "FK_ada2c1e02353188190432d27659" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."harvest_records" ADD CONSTRAINT "FK_6cc3248b3d1f94783fc8df6654b" FOREIGN KEY ("harvestPlanId") REFERENCES "farm"."harvest_plans"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."harvest_records" ADD CONSTRAINT "FK_f2700f70783d7fab2e4397994a4" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."growth_measurements" ADD CONSTRAINT "FK_cb405ae6b02ef758267ca3ec912" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."health_events" ADD CONSTRAINT "FK_62d1381a3e4b1a129cf2c16038d" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."health_events" ADD CONSTRAINT "FK_bc630f00e7141c8da0e0ad64c69" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feeding_records" ADD CONSTRAINT "FK_6d9e37bd2972563632c57bd8a18" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feeding_records" ADD CONSTRAINT "FK_2f3d881c951d4b2dfc270fc299e" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."feeding_records" ADD CONSTRAINT "FK_9de296b0707ef7b84b3c6df86f3" FOREIGN KEY ("feedId") REFERENCES "farm"."feeds"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feeding_program_tanks" ADD CONSTRAINT "FK_48dde9eee6446715ef4f533e977" FOREIGN KEY ("feedingProgramId") REFERENCES "farm"."feeding_programs"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feeding_program_tanks" ADD CONSTRAINT "FK_0390a09a5b09ffc79930f894e2d" FOREIGN KEY ("equipmentId") REFERENCES "farm"."equipment"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feeding_program_tanks" ADD CONSTRAINT "FK_8460f53905f663b5a5f9fce8cf9" FOREIGN KEY ("currentFeedId") REFERENCES "farm"."feeds"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feeding_program_tanks" ADD CONSTRAINT "FK_48dde9eee6446715ef4f533e977" FOREIGN KEY ("feedingProgramId") REFERENCES "farm"."feeding_programs"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feeding_program_tanks" ADD CONSTRAINT "FK_0390a09a5b09ffc79930f894e2d" FOREIGN KEY ("equipmentId") REFERENCES "farm"."equipment"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feeding_program_tanks" ADD CONSTRAINT "FK_8460f53905f663b5a5f9fce8cf9" FOREIGN KEY ("currentFeedId") REFERENCES "farm"."feeds"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."feed_inventory" ADD CONSTRAINT "FK_1cdd66fb201bfb186213ce4283b" FOREIGN KEY ("feedId") REFERENCES "farm"."feeds"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feed_inventory" ADD CONSTRAINT "FK_23ee2ee49ecf507e85b306d0c0b" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feed_inventory" ADD CONSTRAINT "FK_5fd23727537d197bda54c3263cc" FOREIGN KEY ("departmentId") REFERENCES "farm"."departments"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."daily_feeding_executions" ADD CONSTRAINT "FK_08f287592120f81a198f03ef4c1" FOREIGN KEY ("feedingProgramId") REFERENCES "farm"."feeding_programs"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."daily_feeding_executions" ADD CONSTRAINT "FK_4046d3ffbf2846cbef66827d9b2" FOREIGN KEY ("feedingProgramTankId") REFERENCES "farm"."feeding_program_tanks"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feeding_tables" ADD CONSTRAINT "FK_3b3c2f8354d1885f280dbcf38cd" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feed_inventory" ADD CONSTRAINT "FK_23ee2ee49ecf507e85b306d0c0b" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feed_inventory" ADD CONSTRAINT "FK_5fd23727537d197bda54c3263cc" FOREIGN KEY ("departmentId") REFERENCES "farm"."departments"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."daily_feeding_executions" ADD CONSTRAINT "FK_08f287592120f81a198f03ef4c1" FOREIGN KEY ("feedingProgramId") REFERENCES "farm"."feeding_programs"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."daily_feeding_executions" ADD CONSTRAINT "FK_4046d3ffbf2846cbef66827d9b2" FOREIGN KEY ("feedingProgramTankId") REFERENCES "farm"."feeding_program_tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feeding_tables" ADD CONSTRAINT "FK_3b3c2f8354d1885f280dbcf38cd" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."feeding_tables" ADD CONSTRAINT "FK_5a908b01473aaebffab9360acb1" FOREIGN KEY ("feedId") REFERENCES "farm"."feeds"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."feeds" ADD CONSTRAINT "FK_9ae89b939bb18b6692c9fb2e869" FOREIGN KEY ("supplierId") REFERENCES "farm"."suppliers"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."feeding_protocols" ADD CONSTRAINT "FK_e671f6263cd05ecc8a46fe30492" FOREIGN KEY ("feedId") REFERENCES "farm"."feeds"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feed_type_species" ADD CONSTRAINT "FK_ee3f0a0c1680b2aa8b6b9946934" FOREIGN KEY ("feedId") REFERENCES "farm"."feeds"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feed_type_species" ADD CONSTRAINT "FK_77ce8ea5f67211b7838860251b7" FOREIGN KEY ("speciesId") REFERENCES "farm"."species"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feed_sites" ADD CONSTRAINT "FK_676fd44f904645ac8ea7e0616d8" FOREIGN KEY ("feedId") REFERENCES "farm"."feeds"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."feed_sites" ADD CONSTRAINT "FK_fe564a2c266fc7b8bb3f91b4ea2" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feed_type_species" ADD CONSTRAINT "FK_ee3f0a0c1680b2aa8b6b9946934" FOREIGN KEY ("feedId") REFERENCES "farm"."feeds"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feed_type_species" ADD CONSTRAINT "FK_77ce8ea5f67211b7838860251b7" FOREIGN KEY ("speciesId") REFERENCES "farm"."species"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feed_sites" ADD CONSTRAINT "FK_676fd44f904645ac8ea7e0616d8" FOREIGN KEY ("feedId") REFERENCES "farm"."feeds"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."feed_sites" ADD CONSTRAINT "FK_fe564a2c266fc7b8bb3f91b4ea2" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."equipment" ADD CONSTRAINT "FK_48739cb24cb61249c8dfa7a0489" FOREIGN KEY ("departmentId") REFERENCES "farm"."departments"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."equipment" ADD CONSTRAINT "FK_c1da97bf39eaf7ebcff4a3964b3" FOREIGN KEY ("subSystemId") REFERENCES "farm"."sub_systems"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."equipment" ADD CONSTRAINT "FK_b4aab37995c15efd447d4ce681a" FOREIGN KEY ("parentEquipmentId") REFERENCES "farm"."equipment"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."equipment" ADD CONSTRAINT "FK_c1da97bf39eaf7ebcff4a3964b3" FOREIGN KEY ("subSystemId") REFERENCES "farm"."sub_systems"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."equipment" ADD CONSTRAINT "FK_b4aab37995c15efd447d4ce681a" FOREIGN KEY ("parentEquipmentId") REFERENCES "farm"."equipment"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."equipment" ADD CONSTRAINT "FK_94c37b4db0e99d46634f218d9d2" FOREIGN KEY ("equipmentTypeId") REFERENCES "farm"."equipment_types"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."sub_equipment" ADD CONSTRAINT "FK_5d5361b703a5adfbc07ff461f24" FOREIGN KEY ("parentEquipmentId") REFERENCES "farm"."equipment"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."sub_equipment" ADD CONSTRAINT "FK_5d5361b703a5adfbc07ff461f24" FOREIGN KEY ("parentEquipmentId") REFERENCES "farm"."equipment"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."sub_equipment" ADD CONSTRAINT "FK_fa9586e4ac223f16b82f7a1794e" FOREIGN KEY ("subEquipmentTypeId") REFERENCES "farm"."sub_equipment_types"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."equipment_systems" ADD CONSTRAINT "FK_fc056a8ff8bd98d7fd0ec62534a" FOREIGN KEY ("equipmentId") REFERENCES "farm"."equipment"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."equipment_systems" ADD CONSTRAINT "FK_b557e111e371788be666505d05a" FOREIGN KEY ("systemId") REFERENCES "farm"."systems"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."consumables" ADD CONSTRAINT "FK_33e7e3a06a646ab9360e19e1440" FOREIGN KEY ("supplier_id") REFERENCES "farm"."suppliers"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."chemicals" ADD CONSTRAINT "FK_d2d7d7c04366e2b89006cd1ff35" FOREIGN KEY ("supplierId") REFERENCES "farm"."suppliers"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."chemical_sites" ADD CONSTRAINT "FK_71f920a64a38cb44769058319dc" FOREIGN KEY ("chemicalId") REFERENCES "farm"."chemicals"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."chemical_sites" ADD CONSTRAINT "FK_9a3a798d2bc1a39c56f644f83b7" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."equipment_systems" ADD CONSTRAINT "FK_fc056a8ff8bd98d7fd0ec62534a" FOREIGN KEY ("equipmentId") REFERENCES "farm"."equipment"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."equipment_systems" ADD CONSTRAINT "FK_b557e111e371788be666505d05a" FOREIGN KEY ("systemId") REFERENCES "farm"."systems"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."consumables" ADD CONSTRAINT "FK_33e7e3a06a646ab9360e19e1440" FOREIGN KEY ("supplier_id") REFERENCES "farm"."suppliers"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."chemicals" ADD CONSTRAINT "FK_d2d7d7c04366e2b89006cd1ff35" FOREIGN KEY ("supplierId") REFERENCES "farm"."suppliers"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."chemical_sites" ADD CONSTRAINT "FK_71f920a64a38cb44769058319dc" FOREIGN KEY ("chemicalId") REFERENCES "farm"."chemicals"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."chemical_sites" ADD CONSTRAINT "FK_9a3a798d2bc1a39c56f644f83b7" FOREIGN KEY ("siteId") REFERENCES "farm"."sites"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."batches_v2" ADD CONSTRAINT "FK_ed10ac38236d25d7d31868bae58" FOREIGN KEY ("speciesId") REFERENCES "farm"."species"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."tank_batches" ADD CONSTRAINT "FK_5457774812bf653e83f7b0e3794" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."tank_batches" ADD CONSTRAINT "FK_f3bfe40ab36d0b7d35eefb24689" FOREIGN KEY ("primaryBatchId") REFERENCES "farm"."batches_v2"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."tank_operations" ADD CONSTRAINT "FK_59ca7abce3f3dcde67087a1ca50" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."tank_operations" ADD CONSTRAINT "FK_869513f97e06f00c30d84e8d08f" FOREIGN KEY ("sourceTankId") REFERENCES "farm"."tanks"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."tank_operations" ADD CONSTRAINT "FK_f867bdb56522cc11fad9f392fb7" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."tank_operations" ADD CONSTRAINT "FK_3d18fbe672f85453d7c737ac321" FOREIGN KEY ("destinationTankId") REFERENCES "farm"."tanks"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."tank_allocations" ADD CONSTRAINT "FK_cc580a03de9427dc329b29ac55f" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."tank_allocations" ADD CONSTRAINT "FK_16d9775af9c1a9205d80e6b5b25" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."tank_allocations" ADD CONSTRAINT "FK_da2ce23e89973748eb7e309f63a" FOREIGN KEY ("sourceTankId") REFERENCES "farm"."tanks"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."mortality_records" ADD CONSTRAINT "FK_d916fa21d316a9cf6587c252be6" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."mortality_records" ADD CONSTRAINT "FK_d07a4915dc7d0ec07fa11cae972" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."batch_locations" ADD CONSTRAINT "FK_35550bcdb1f76f58b4f69893195" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."batch_locations" ADD CONSTRAINT "FK_498ffd09cf18323406ecef859ba" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."tank_batches" ADD CONSTRAINT "FK_5457774812bf653e83f7b0e3794" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."tank_batches" ADD CONSTRAINT "FK_f3bfe40ab36d0b7d35eefb24689" FOREIGN KEY ("primaryBatchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."tank_operations" ADD CONSTRAINT "FK_59ca7abce3f3dcde67087a1ca50" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."tank_operations" ADD CONSTRAINT "FK_869513f97e06f00c30d84e8d08f" FOREIGN KEY ("sourceTankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."tank_operations" ADD CONSTRAINT "FK_f867bdb56522cc11fad9f392fb7" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."tank_operations" ADD CONSTRAINT "FK_3d18fbe672f85453d7c737ac321" FOREIGN KEY ("destinationTankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."tank_allocations" ADD CONSTRAINT "FK_cc580a03de9427dc329b29ac55f" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."tank_allocations" ADD CONSTRAINT "FK_16d9775af9c1a9205d80e6b5b25" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."tank_allocations" ADD CONSTRAINT "FK_da2ce23e89973748eb7e309f63a" FOREIGN KEY ("sourceTankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."mortality_records" ADD CONSTRAINT "FK_d916fa21d316a9cf6587c252be6" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."mortality_records" ADD CONSTRAINT "FK_d07a4915dc7d0ec07fa11cae972" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."batch_locations" ADD CONSTRAINT "FK_35550bcdb1f76f58b4f69893195" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."batch_locations" ADD CONSTRAINT "FK_498ffd09cf18323406ecef859ba" FOREIGN KEY ("tankId") REFERENCES "farm"."tanks"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "farm"."batch_feed_assignments" ADD CONSTRAINT "FK_9edd460ca918f2959169674cbbd" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "farm"."batch_documents" ADD CONSTRAINT "FK_98c06b6d9fa5c7a03fc8b6700d0" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "farm"."batch_documents" ADD CONSTRAINT "FK_98c06b6d9fa5c7a03fc8b6700d0" FOREIGN KEY ("batchId") REFERENCES "farm"."batches_v2"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+
+        // ── Faz 3.5 hand-author addition — RLS canonical predicate ──
+        await applyTenantRlsToSchema(queryRunner, {
+            schema: 'farm',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
+
+        // ── Faz 3.5 hand-author addition — audit immutability triggers ──
+        await queryRunner.query(`
+            CREATE OR REPLACE FUNCTION "farm".farm_audit_logs_prevent_update_or_delete()
+            RETURNS trigger AS $
+            BEGIN
+              RAISE EXCEPTION 'Audit table "farm"."farm_audit_logs" is append-only; UPDATE/DELETE refused (Faz 1.4 protected-tables-guard).';
+            END;
+            $ LANGUAGE plpgsql;
+        `);
+        await queryRunner.query(`
+            CREATE TRIGGER trg_farm_audit_logs_prevent_update
+            BEFORE UPDATE OR DELETE ON "farm"."farm_audit_logs"
+            FOR EACH ROW EXECUTE FUNCTION "farm".farm_audit_logs_prevent_update_or_delete();
+        `);
+        await queryRunner.query(`
+            REVOKE UPDATE, DELETE ON "farm"."farm_audit_logs" FROM PUBLIC;
+        `);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        // Reverse Faz 3.5 audit immutability triggers
+        await queryRunner.query(`DROP TRIGGER IF EXISTS trg_farm_audit_logs_prevent_update ON "farm"."farm_audit_logs";`);
+        await queryRunner.query(`DROP FUNCTION IF EXISTS "farm".farm_audit_logs_prevent_update_or_delete();`);
+        // Reverse Faz 3.5 RLS install first (avoids policy-on-missing-table errors).
+        await removeTenantRlsFromSchema(queryRunner, {
+            schema: 'farm',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
         await queryRunner.query(`ALTER TABLE "farm"."batch_documents" DROP CONSTRAINT "FK_98c06b6d9fa5c7a03fc8b6700d0"`);
         await queryRunner.query(`ALTER TABLE "farm"."batch_feed_assignments" DROP CONSTRAINT "FK_9edd460ca918f2959169674cbbd"`);
         await queryRunner.query(`ALTER TABLE "farm"."batch_locations" DROP CONSTRAINT "FK_498ffd09cf18323406ecef859ba"`);

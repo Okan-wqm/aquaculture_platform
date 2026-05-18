@@ -76,21 +76,42 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_refresh_tokens_expires" ON "auth"."refresh_tokens" ("expiresAt") `);
         await queryRunner.query(`CREATE UNIQUE INDEX "IDX_refresh_tokens_token" ON "auth"."refresh_tokens" ("token") `);
         await queryRunner.query(`CREATE INDEX "IDX_refresh_tokens_user_revoked" ON "auth"."refresh_tokens" ("userId", "isRevoked") `);
-        await queryRunner.query(`ALTER TABLE "auth"."tenant_modules" ADD CONSTRAINT "FK_54b5bb2fadb6ada4fe57a9e2701" FOREIGN KEY ("tenantId") REFERENCES "auth"."tenants"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "auth"."tenant_modules" ADD CONSTRAINT "FK_a001196031d22c837d0e45c450e" FOREIGN KEY ("moduleId") REFERENCES "auth"."modules"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "auth"."support_tickets" ADD CONSTRAINT "FK_7f39d4242941c82c75c939c7e0c" FOREIGN KEY ("tenantId") REFERENCES "auth"."tenants"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "auth"."ticket_comments" ADD CONSTRAINT "FK_f6beba8ae36e1ce20968d7a3192" FOREIGN KEY ("ticketId") REFERENCES "auth"."support_tickets"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "auth"."message_threads" ADD CONSTRAINT "FK_8bccdf9b34dc6b06fc2636856f4" FOREIGN KEY ("tenantId") REFERENCES "auth"."tenants"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "auth"."messages" ADD CONSTRAINT "FK_15f9bd2bf472ff12b6ee20012d0" FOREIGN KEY ("threadId") REFERENCES "auth"."message_threads"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "auth"."webauthn_credentials" ADD CONSTRAINT "FK_4e5d1a5131f49fdbc410b8ded04" FOREIGN KEY ("userId") REFERENCES "auth"."users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "auth"."user_module_assignments" ADD CONSTRAINT "FK_cdec674320f153ecf8e842cd443" FOREIGN KEY ("userId") REFERENCES "auth"."users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "auth"."user_module_assignments" ADD CONSTRAINT "FK_5d42a5b70f4506a9c29fb3bd225" FOREIGN KEY ("moduleId") REFERENCES "auth"."modules"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "auth"."announcements" ADD CONSTRAINT "FK_29f5be1631fdc08ce2ad6a9c034" FOREIGN KEY ("tenantId") REFERENCES "auth"."tenants"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "auth"."announcement_acknowledgments" ADD CONSTRAINT "FK_5b31e3f30a25937e045cfba3d6d" FOREIGN KEY ("announcementId") REFERENCES "auth"."announcements"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "auth"."refresh_tokens" ADD CONSTRAINT "FK_610102b60fea1455310ccd299de" FOREIGN KEY ("userId") REFERENCES "auth"."users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."tenant_modules" ADD CONSTRAINT "FK_54b5bb2fadb6ada4fe57a9e2701" FOREIGN KEY ("tenantId") REFERENCES "auth"."tenants"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."tenant_modules" ADD CONSTRAINT "FK_a001196031d22c837d0e45c450e" FOREIGN KEY ("moduleId") REFERENCES "auth"."modules"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."support_tickets" ADD CONSTRAINT "FK_7f39d4242941c82c75c939c7e0c" FOREIGN KEY ("tenantId") REFERENCES "auth"."tenants"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."ticket_comments" ADD CONSTRAINT "FK_f6beba8ae36e1ce20968d7a3192" FOREIGN KEY ("ticketId") REFERENCES "auth"."support_tickets"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."message_threads" ADD CONSTRAINT "FK_8bccdf9b34dc6b06fc2636856f4" FOREIGN KEY ("tenantId") REFERENCES "auth"."tenants"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."messages" ADD CONSTRAINT "FK_15f9bd2bf472ff12b6ee20012d0" FOREIGN KEY ("threadId") REFERENCES "auth"."message_threads"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."webauthn_credentials" ADD CONSTRAINT "FK_4e5d1a5131f49fdbc410b8ded04" FOREIGN KEY ("userId") REFERENCES "auth"."users"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."user_module_assignments" ADD CONSTRAINT "FK_cdec674320f153ecf8e842cd443" FOREIGN KEY ("userId") REFERENCES "auth"."users"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."user_module_assignments" ADD CONSTRAINT "FK_5d42a5b70f4506a9c29fb3bd225" FOREIGN KEY ("moduleId") REFERENCES "auth"."modules"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."announcements" ADD CONSTRAINT "FK_29f5be1631fdc08ce2ad6a9c034" FOREIGN KEY ("tenantId") REFERENCES "auth"."tenants"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."announcement_acknowledgments" ADD CONSTRAINT "FK_5b31e3f30a25937e045cfba3d6d" FOREIGN KEY ("announcementId") REFERENCES "auth"."announcements"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "auth"."refresh_tokens" ADD CONSTRAINT "FK_610102b60fea1455310ccd299de" FOREIGN KEY ("userId") REFERENCES "auth"."users"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+
+        // ── Faz 3.5 hand-author addition — audit immutability triggers ──
+        await queryRunner.query(`
+            CREATE OR REPLACE FUNCTION "auth".audit_logs_prevent_update_or_delete()
+            RETURNS trigger AS $
+            BEGIN
+              RAISE EXCEPTION 'Audit table "auth"."audit_logs" is append-only; UPDATE/DELETE refused (Faz 1.4 protected-tables-guard).';
+            END;
+            $ LANGUAGE plpgsql;
+        `);
+        await queryRunner.query(`
+            CREATE TRIGGER trg_audit_logs_prevent_update
+            BEFORE UPDATE OR DELETE ON "auth"."audit_logs"
+            FOR EACH ROW EXECUTE FUNCTION "auth".audit_logs_prevent_update_or_delete();
+        `);
+        await queryRunner.query(`
+            REVOKE UPDATE, DELETE ON "auth"."audit_logs" FROM PUBLIC;
+        `);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        // Reverse Faz 3.5 audit immutability triggers
+        await queryRunner.query(`DROP TRIGGER IF EXISTS trg_audit_logs_prevent_update ON "auth"."audit_logs";`);
+        await queryRunner.query(`DROP FUNCTION IF EXISTS "auth".audit_logs_prevent_update_or_delete();`);
         await queryRunner.query(`ALTER TABLE "auth"."refresh_tokens" DROP CONSTRAINT "FK_610102b60fea1455310ccd299de"`);
         await queryRunner.query(`ALTER TABLE "auth"."announcement_acknowledgments" DROP CONSTRAINT "FK_5b31e3f30a25937e045cfba3d6d"`);
         await queryRunner.query(`ALTER TABLE "auth"."announcements" DROP CONSTRAINT "FK_29f5be1631fdc08ce2ad6a9c034"`);

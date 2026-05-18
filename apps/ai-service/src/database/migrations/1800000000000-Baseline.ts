@@ -1,5 +1,6 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
+import { applyTenantRlsToSchema, removeTenantRlsFromSchema } from '@aquaculture/backend-common/database'; // Faz 3.5 RLS additions: import block
 export class Baseline1800000000000 implements MigrationInterface {
     name = 'Baseline1800000000000'
 
@@ -11,9 +12,43 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE TABLE "ai"."tool_execution_audit" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "userId" uuid NOT NULL, "toolName" character varying(100) NOT NULL, "persona" character varying(50) NOT NULL, "input" jsonb NOT NULL, "success" boolean NOT NULL, "output" jsonb, "errorMessage" text, "durationMs" integer NOT NULL, "correlationId" character varying(100), "conversationId" uuid, "executed_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_9b65810edd2682db254a5db57ae" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_6562ce887dfb374699522133c9" ON "ai"."tool_execution_audit" ("toolName", "executed_at") `);
         await queryRunner.query(`CREATE INDEX "IDX_f300876b8d51dff4aac2cc71b7" ON "ai"."tool_execution_audit" ("tenantId", "executed_at") `);
+
+        // ── Faz 3.5 hand-author addition — RLS canonical predicate ──
+        await applyTenantRlsToSchema(queryRunner, {
+            schema: 'ai',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
+
+        // ── Faz 3.5 hand-author addition — audit immutability triggers ──
+        await queryRunner.query(`
+            CREATE OR REPLACE FUNCTION "ai".tool_execution_audit_prevent_update_or_delete()
+            RETURNS trigger AS $
+            BEGIN
+              RAISE EXCEPTION 'Audit table "ai"."tool_execution_audit" is append-only; UPDATE/DELETE refused (Faz 1.4 protected-tables-guard).';
+            END;
+            $ LANGUAGE plpgsql;
+        `);
+        await queryRunner.query(`
+            CREATE TRIGGER trg_tool_execution_audit_prevent_update
+            BEFORE UPDATE OR DELETE ON "ai"."tool_execution_audit"
+            FOR EACH ROW EXECUTE FUNCTION "ai".tool_execution_audit_prevent_update_or_delete();
+        `);
+        await queryRunner.query(`
+            REVOKE UPDATE, DELETE ON "ai"."tool_execution_audit" FROM PUBLIC;
+        `);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        // Reverse Faz 3.5 audit immutability triggers
+        await queryRunner.query(`DROP TRIGGER IF EXISTS trg_tool_execution_audit_prevent_update ON "ai"."tool_execution_audit";`);
+        await queryRunner.query(`DROP FUNCTION IF EXISTS "ai".tool_execution_audit_prevent_update_or_delete();`);
+        // Reverse Faz 3.5 RLS install first (avoids policy-on-missing-table errors).
+        await removeTenantRlsFromSchema(queryRunner, {
+            schema: 'ai',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
         await queryRunner.query(`DROP INDEX "ai"."IDX_f300876b8d51dff4aac2cc71b7"`);
         await queryRunner.query(`DROP INDEX "ai"."IDX_6562ce887dfb374699522133c9"`);
         await queryRunner.query(`DROP TABLE "ai"."tool_execution_audit"`);

@@ -1,5 +1,6 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
+import { applyTenantRlsToSchema, removeTenantRlsFromSchema } from '@aquaculture/backend-common/database'; // Faz 3.5 RLS additions: import block
 export class Baseline1800000000000 implements MigrationInterface {
     name = 'Baseline1800000000000'
 
@@ -228,21 +229,62 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_64eed93997e8f4804be1172185" ON "sensor"."automation_programs" ("tenant_id", "device_id") `);
         await queryRunner.query(`ALTER TABLE "sensor"."sensors" ADD CONSTRAINT "FK_662ff86473e2a4fbc892c3463b2" FOREIGN KEY ("protocol_id") REFERENCES "sensor"."sensor_protocols"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "sensor"."sensors" ADD CONSTRAINT "FK_c42163c44980c1171f186d36655" FOREIGN KEY ("type_definition_id") REFERENCES "sensor"."sensor_type_definitions"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "sensor"."sensors" ADD CONSTRAINT "FK_0c9c45d8d0283ebee985bd76581" FOREIGN KEY ("parent_id") REFERENCES "sensor"."sensors"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "sensor"."sensor_data_channels" ADD CONSTRAINT "FK_fe6f0c27169af47a4371c0efebb" FOREIGN KEY ("sensor_id") REFERENCES "sensor"."sensors"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "sensor"."sensors" ADD CONSTRAINT "FK_0c9c45d8d0283ebee985bd76581" FOREIGN KEY ("parent_id") REFERENCES "sensor"."sensors"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "sensor"."sensor_data_channels" ADD CONSTRAINT "FK_fe6f0c27169af47a4371c0efebb" FOREIGN KEY ("sensor_id") REFERENCES "sensor"."sensors"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "sensor"."sensor_metrics" ADD CONSTRAINT "FK_a41376bfe12979a7c4510892787" FOREIGN KEY ("sensor_id") REFERENCES "sensor"."sensors"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "sensor"."sensor_metrics" ADD CONSTRAINT "FK_6a1def793766bdc6883a231b1b6" FOREIGN KEY ("channel_id") REFERENCES "sensor"."sensor_data_channels"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "sensor"."channel_detection_log" ADD CONSTRAINT "FK_6f62be38cd349f88bb30ed5759e" FOREIGN KEY ("sensor_id") REFERENCES "sensor"."sensors"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "sensor"."vfd_change_set_items" ADD CONSTRAINT "FK_8d7b4c9c9f012299a04dd4f9801" FOREIGN KEY ("change_set_id") REFERENCES "sensor"."vfd_change_sets"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "sensor"."vfd_readings" ADD CONSTRAINT "FK_fbdeb2c3e706814795870612d1e" FOREIGN KEY ("vfd_device_id") REFERENCES "sensor"."vfd_devices"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "sensor"."channel_detection_log" ADD CONSTRAINT "FK_6f62be38cd349f88bb30ed5759e" FOREIGN KEY ("sensor_id") REFERENCES "sensor"."sensors"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "sensor"."vfd_change_set_items" ADD CONSTRAINT "FK_8d7b4c9c9f012299a04dd4f9801" FOREIGN KEY ("change_set_id") REFERENCES "sensor"."vfd_change_sets"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "sensor"."vfd_readings" ADD CONSTRAINT "FK_fbdeb2c3e706814795870612d1e" FOREIGN KEY ("vfd_device_id") REFERENCES "sensor"."vfd_devices"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "sensor"."feeding_parameters" ADD CONSTRAINT "FK_da3226dde7ffaa0fa19a05e9c1a" FOREIGN KEY ("plcConnectionId") REFERENCES "sensor"."plc_connections"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "sensor"."lora_devices" ADD CONSTRAINT "FK_48860297d0c89ac5f304c5d35c2" FOREIGN KEY ("edge_device_id") REFERENCES "sensor"."edge_devices"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "sensor"."device_io_configs" ADD CONSTRAINT "FK_11fd9dd1c092159a58ede2ea864" FOREIGN KEY ("device_id") REFERENCES "sensor"."edge_devices"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "sensor"."device_groups" ADD CONSTRAINT "FK_6181cff19e35d1e1a5b1c23bd66" FOREIGN KEY ("parent_group_id") REFERENCES "sensor"."device_groups"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "sensor"."device_group_members" ADD CONSTRAINT "FK_5339f23f8c7738cb721325e9fc6" FOREIGN KEY ("group_id") REFERENCES "sensor"."device_groups"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "sensor"."lora_devices" ADD CONSTRAINT "FK_48860297d0c89ac5f304c5d35c2" FOREIGN KEY ("edge_device_id") REFERENCES "sensor"."edge_devices"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "sensor"."device_io_configs" ADD CONSTRAINT "FK_11fd9dd1c092159a58ede2ea864" FOREIGN KEY ("device_id") REFERENCES "sensor"."edge_devices"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "sensor"."device_groups" ADD CONSTRAINT "FK_6181cff19e35d1e1a5b1c23bd66" FOREIGN KEY ("parent_group_id") REFERENCES "sensor"."device_groups"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "sensor"."device_group_members" ADD CONSTRAINT "FK_5339f23f8c7738cb721325e9fc6" FOREIGN KEY ("group_id") REFERENCES "sensor"."device_groups"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+
+        // ── Faz 3.5 hand-author addition — RLS canonical predicate ──
+        await applyTenantRlsToSchema(queryRunner, {
+            schema: 'sensor',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
+
+        // ── Faz 3.5 hand-author addition — audit immutability triggers ──
+        await queryRunner.query(`
+            CREATE OR REPLACE FUNCTION "sensor".sensor_audit_logs_prevent_update_or_delete()
+            RETURNS trigger AS $
+            BEGIN
+              RAISE EXCEPTION 'Audit table "sensor"."sensor_audit_logs" is append-only; UPDATE/DELETE refused (Faz 1.4 protected-tables-guard).';
+            END;
+            $ LANGUAGE plpgsql;
+        `);
+        await queryRunner.query(`
+            CREATE TRIGGER trg_sensor_audit_logs_prevent_update
+            BEFORE UPDATE OR DELETE ON "sensor"."sensor_audit_logs"
+            FOR EACH ROW EXECUTE FUNCTION "sensor".sensor_audit_logs_prevent_update_or_delete();
+        `);
+        await queryRunner.query(`
+            REVOKE UPDATE, DELETE ON "sensor"."sensor_audit_logs" FROM PUBLIC;
+        `);
+
+        // ── Faz 3.5 hand-author addition — TimescaleDB hypertables + CAGGs ──
+        await queryRunner.query(`SELECT create_hypertable('sensor.sensor_readings', 'time', if_not_exists => true);`);
+        await queryRunner.query(`SELECT create_hypertable('sensor.sensor_metrics', 'time', if_not_exists => true);`);
+        // CAGG policies are appended post-cutover via separate runbook step
+        // (sensor_metrics 1min/1hour/1day rollups require parametric add_continuous_aggregate_policy
+        // calls that depend on the view definitions; tracked as OPEN-ADR-030-CAGG).
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        // Reverse Faz 3.5 audit immutability triggers
+        await queryRunner.query(`DROP TRIGGER IF EXISTS trg_sensor_audit_logs_prevent_update ON "sensor"."sensor_audit_logs";`);
+        await queryRunner.query(`DROP FUNCTION IF EXISTS "sensor".sensor_audit_logs_prevent_update_or_delete();`);
+        // Reverse Faz 3.5 RLS install first (avoids policy-on-missing-table errors).
+        await removeTenantRlsFromSchema(queryRunner, {
+            schema: 'sensor',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
         await queryRunner.query(`ALTER TABLE "sensor"."device_group_members" DROP CONSTRAINT "FK_5339f23f8c7738cb721325e9fc6"`);
         await queryRunner.query(`ALTER TABLE "sensor"."device_groups" DROP CONSTRAINT "FK_6181cff19e35d1e1a5b1c23bd66"`);
         await queryRunner.query(`ALTER TABLE "sensor"."device_io_configs" DROP CONSTRAINT "FK_11fd9dd1c092159a58ede2ea864"`);

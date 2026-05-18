@@ -242,11 +242,50 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "admin"."messages" ADD CONSTRAINT "FK_15f9bd2bf472ff12b6ee20012d0" FOREIGN KEY ("threadId") REFERENCES "admin"."message_threads"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "admin"."announcement_acknowledgments" ADD CONSTRAINT "FK_5b31e3f30a25937e045cfba3d6d" FOREIGN KEY ("announcementId") REFERENCES "admin"."announcements"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "admin"."ticket_comments" ADD CONSTRAINT "FK_f6beba8ae36e1ce20968d7a3192" FOREIGN KEY ("ticketId") REFERENCES "admin"."support_tickets"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "admin"."plan_module_assignments" ADD CONSTRAINT "FK_b9030d651d6a352411618af8a03" FOREIGN KEY ("plan_id") REFERENCES "admin"."plan_definitions"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "admin"."plan_module_assignments" ADD CONSTRAINT "FK_b9030d651d6a352411618af8a03" FOREIGN KEY ("plan_id") REFERENCES "admin"."plan_definitions"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "admin"."custom_plans" ADD CONSTRAINT "FK_07c65d2a248b7234c606436928d" FOREIGN KEY ("base_plan_id") REFERENCES "admin"."plan_definitions"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+
+        // ── Faz 3.5 hand-author addition — audit immutability triggers ──
+        await queryRunner.query(`
+            CREATE OR REPLACE FUNCTION "admin".audit_logs_prevent_update_or_delete()
+            RETURNS trigger AS $
+            BEGIN
+              RAISE EXCEPTION 'Audit table "admin"."audit_logs" is append-only; UPDATE/DELETE refused (Faz 1.4 protected-tables-guard).';
+            END;
+            $ LANGUAGE plpgsql;
+        `);
+        await queryRunner.query(`
+            CREATE TRIGGER trg_audit_logs_prevent_update
+            BEFORE UPDATE OR DELETE ON "admin"."audit_logs"
+            FOR EACH ROW EXECUTE FUNCTION "admin".audit_logs_prevent_update_or_delete();
+        `);
+        await queryRunner.query(`
+            REVOKE UPDATE, DELETE ON "admin"."audit_logs" FROM PUBLIC;
+        `);
+        await queryRunner.query(`
+            CREATE OR REPLACE FUNCTION "admin".impersonation_sessions_prevent_update_or_delete()
+            RETURNS trigger AS $
+            BEGIN
+              RAISE EXCEPTION 'Audit table "admin"."impersonation_sessions" is append-only; UPDATE/DELETE refused (Faz 1.4 protected-tables-guard).';
+            END;
+            $ LANGUAGE plpgsql;
+        `);
+        await queryRunner.query(`
+            CREATE TRIGGER trg_impersonation_sessions_prevent_update
+            BEFORE UPDATE OR DELETE ON "admin"."impersonation_sessions"
+            FOR EACH ROW EXECUTE FUNCTION "admin".impersonation_sessions_prevent_update_or_delete();
+        `);
+        await queryRunner.query(`
+            REVOKE UPDATE, DELETE ON "admin"."impersonation_sessions" FROM PUBLIC;
+        `);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        // Reverse Faz 3.5 audit immutability triggers
+        await queryRunner.query(`DROP TRIGGER IF EXISTS trg_audit_logs_prevent_update ON "admin"."audit_logs";`);
+        await queryRunner.query(`DROP FUNCTION IF EXISTS "admin".audit_logs_prevent_update_or_delete();`);
+        await queryRunner.query(`DROP TRIGGER IF EXISTS trg_impersonation_sessions_prevent_update ON "admin"."impersonation_sessions";`);
+        await queryRunner.query(`DROP FUNCTION IF EXISTS "admin".impersonation_sessions_prevent_update_or_delete();`);
         await queryRunner.query(`ALTER TABLE "admin"."custom_plans" DROP CONSTRAINT "FK_07c65d2a248b7234c606436928d"`);
         await queryRunner.query(`ALTER TABLE "admin"."plan_module_assignments" DROP CONSTRAINT "FK_b9030d651d6a352411618af8a03"`);
         await queryRunner.query(`ALTER TABLE "admin"."ticket_comments" DROP CONSTRAINT "FK_f6beba8ae36e1ce20968d7a3192"`);

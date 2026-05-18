@@ -1,5 +1,6 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
+import { applyTenantRlsToSchema, removeTenantRlsFromSchema } from '@aquaculture/backend-common/database'; // Faz 3.5 RLS additions: import block
 export class Baseline1800000000000 implements MigrationInterface {
     name = 'Baseline1800000000000'
 
@@ -210,35 +211,69 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_a71fa6f873632363fdfb34444f" ON "hr"."safety_training_records" ("tenantId", "employeeId", "trainingType") `);
         await queryRunner.query(`ALTER TABLE "hr"."payrolls" ADD CONSTRAINT "FK_eeffbd86fba74517d4dacc8ab37" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."employees" ADD CONSTRAINT "FK_f0a8343162ed3ecd2760ae2163f" FOREIGN KEY ("departmentHrId") REFERENCES "hr"."departments_hr"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."employee_certifications" ADD CONSTRAINT "FK_db01a87c4eb8b0d4082c1445518" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."employee_certifications" ADD CONSTRAINT "FK_db01a87c4eb8b0d4082c1445518" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."employee_certifications" ADD CONSTRAINT "FK_842cee08e0adea42ae825406d95" FOREIGN KEY ("certificationTypeId") REFERENCES "hr"."certification_types"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."leave_requests" ADD CONSTRAINT "FK_4eda1468756ca831495e308e407" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."leave_requests" ADD CONSTRAINT "FK_4eda1468756ca831495e308e407" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."leave_requests" ADD CONSTRAINT "FK_1a15bd6c14a42bb91c53712a5f4" FOREIGN KEY ("leaveTypeId") REFERENCES "hr"."leave_types"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."weekly_plan_entries" ADD CONSTRAINT "FK_96191c5adfd596faebc2b5bf142" FOREIGN KEY ("weeklyPlanId") REFERENCES "hr"."weekly_plans"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."weekly_plan_entries" ADD CONSTRAINT "FK_96191c5adfd596faebc2b5bf142" FOREIGN KEY ("weeklyPlanId") REFERENCES "hr"."weekly_plans"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."weekly_plan_entries" ADD CONSTRAINT "FK_6fc6dfcbe0579a05770d1ee8453" FOREIGN KEY ("shiftId") REFERENCES "hr"."shifts"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."weekly_plan_entries" ADD CONSTRAINT "FK_18d5b96780bd8ddf5b83eb862b4" FOREIGN KEY ("leaveRequestId") REFERENCES "hr"."leave_requests"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."weekly_plans" ADD CONSTRAINT "FK_254ddb1198988cb73a79cc6dc9b" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."performance_reviews" ADD CONSTRAINT "FK_89c1585d31979b8f709928bd2bf" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."performance_reviews" ADD CONSTRAINT "FK_89c1585d31979b8f709928bd2bf" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."performance_reviews" ADD CONSTRAINT "FK_a3c7d2780b0f68ada057ee17cf1" FOREIGN KEY ("reviewerId") REFERENCES "hr"."employees"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."employee_kpis" ADD CONSTRAINT "FK_23b6f3fd6a327381fac8ef28463" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."goals" ADD CONSTRAINT "FK_c3dba9d57c38067e0b34366acfd" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."employee_kpis" ADD CONSTRAINT "FK_23b6f3fd6a327381fac8ef28463" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."goals" ADD CONSTRAINT "FK_c3dba9d57c38067e0b34366acfd" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."goals" ADD CONSTRAINT "FK_45db60741e56aa6941b7cf77fde" FOREIGN KEY ("parentGoalId") REFERENCES "hr"."goals"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."leave_balances" ADD CONSTRAINT "FK_1e0df1791c9344d4bdde694be60" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."leave_balances" ADD CONSTRAINT "FK_98f067848742e213d1a55445379" FOREIGN KEY ("leaveTypeId") REFERENCES "hr"."leave_types"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."schedules" ADD CONSTRAINT "FK_93cff6e8ed305a333ecd59a5acd" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."leave_balances" ADD CONSTRAINT "FK_1e0df1791c9344d4bdde694be60" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."leave_balances" ADD CONSTRAINT "FK_98f067848742e213d1a55445379" FOREIGN KEY ("leaveTypeId") REFERENCES "hr"."leave_types"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."schedules" ADD CONSTRAINT "FK_93cff6e8ed305a333ecd59a5acd" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."schedules" ADD CONSTRAINT "FK_9f473001b5432ed29c44b898d0a" FOREIGN KEY ("shiftId") REFERENCES "hr"."shifts"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."schedule_entries" ADD CONSTRAINT "FK_bf3134da50d9e3b15dbee3d5b4a" FOREIGN KEY ("scheduleId") REFERENCES "hr"."schedules"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."schedule_entries" ADD CONSTRAINT "FK_bf3134da50d9e3b15dbee3d5b4a" FOREIGN KEY ("scheduleId") REFERENCES "hr"."schedules"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."schedule_entries" ADD CONSTRAINT "FK_7c960b7cf8997e304659dda34c9" FOREIGN KEY ("shiftId") REFERENCES "hr"."shifts"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."attendance_records" ADD CONSTRAINT "FK_2f86d1ade33d4dbc029e216904a" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."attendance_records" ADD CONSTRAINT "FK_2f86d1ade33d4dbc029e216904a" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."attendance_records" ADD CONSTRAINT "FK_6fe9e80bee61d5ac47a27d40f2c" FOREIGN KEY ("shiftId") REFERENCES "hr"."shifts"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."work_rotations" ADD CONSTRAINT "FK_0f8d0da9c491cdbbbd1d4ce6e1d" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."work_rotations" ADD CONSTRAINT "FK_0f8d0da9c491cdbbbd1d4ce6e1d" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."work_rotations" ADD CONSTRAINT "FK_1ae5f9a9d4c6896a53420a784fe" FOREIGN KEY ("workAreaId") REFERENCES "hr"."work_areas"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."training_enrollments" ADD CONSTRAINT "FK_26321e476485f2a4cc9435089da" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."training_enrollments" ADD CONSTRAINT "FK_26321e476485f2a4cc9435089da" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "hr"."training_enrollments" ADD CONSTRAINT "FK_4f261472a35957d9cf48638553c" FOREIGN KEY ("trainingCourseId") REFERENCES "hr"."training_courses"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "hr"."safety_training_records" ADD CONSTRAINT "FK_90c3be823ebf2dc92caced1b81f" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hr"."safety_training_records" ADD CONSTRAINT "FK_90c3be823ebf2dc92caced1b81f" FOREIGN KEY ("employeeId") REFERENCES "hr"."employees"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+
+        // ── Faz 3.5 hand-author addition — RLS canonical predicate ──
+        await applyTenantRlsToSchema(queryRunner, {
+            schema: 'hr',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
+
+        // ── Faz 3.5 hand-author addition — audit immutability triggers ──
+        await queryRunner.query(`
+            CREATE OR REPLACE FUNCTION "hr".payroll_audit_prevent_update_or_delete()
+            RETURNS trigger AS $
+            BEGIN
+              RAISE EXCEPTION 'Audit table "hr"."payroll_audit" is append-only; UPDATE/DELETE refused (Faz 1.4 protected-tables-guard).';
+            END;
+            $ LANGUAGE plpgsql;
+        `);
+        await queryRunner.query(`
+            CREATE TRIGGER trg_payroll_audit_prevent_update
+            BEFORE UPDATE OR DELETE ON "hr"."payroll_audit"
+            FOR EACH ROW EXECUTE FUNCTION "hr".payroll_audit_prevent_update_or_delete();
+        `);
+        await queryRunner.query(`
+            REVOKE UPDATE, DELETE ON "hr"."payroll_audit" FROM PUBLIC;
+        `);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        // Reverse Faz 3.5 audit immutability triggers
+        await queryRunner.query(`DROP TRIGGER IF EXISTS trg_payroll_audit_prevent_update ON "hr"."payroll_audit";`);
+        await queryRunner.query(`DROP FUNCTION IF EXISTS "hr".payroll_audit_prevent_update_or_delete();`);
+        // Reverse Faz 3.5 RLS install first (avoids policy-on-missing-table errors).
+        await removeTenantRlsFromSchema(queryRunner, {
+            schema: 'hr',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
         await queryRunner.query(`ALTER TABLE "hr"."safety_training_records" DROP CONSTRAINT "FK_90c3be823ebf2dc92caced1b81f"`);
         await queryRunner.query(`ALTER TABLE "hr"."training_enrollments" DROP CONSTRAINT "FK_4f261472a35957d9cf48638553c"`);
         await queryRunner.query(`ALTER TABLE "hr"."training_enrollments" DROP CONSTRAINT "FK_26321e476485f2a4cc9435089da"`);

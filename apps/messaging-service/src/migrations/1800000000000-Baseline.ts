@@ -1,5 +1,6 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
+import { applyTenantRlsToSchema, removeTenantRlsFromSchema } from '@aquaculture/backend-common/database'; // Faz 3.5 RLS additions: import block
 export class Baseline1800000000000 implements MigrationInterface {
     name = 'Baseline1800000000000'
 
@@ -56,18 +57,52 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE TABLE "messaging"."embeddings_metadata" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "modelName" character varying(128) NOT NULL, "modelVersion" character varying(64) NOT NULL, "dimension" integer NOT NULL, "distanceMetric" character varying(20) NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "isActive" boolean NOT NULL DEFAULT true, CONSTRAINT "uq_active_model" UNIQUE ("modelName", "isActive"), CONSTRAINT "PK_c0786b2d46e4fc890e1e32819fd" PRIMARY KEY ("id"))`);
         await queryRunner.query(`DROP INDEX "messaging"."idx_analysis_type"`);
         await queryRunner.query(`CREATE INDEX "idx_analysis_type" ON "messaging"."message_analysis" ("analysisType", "analyzedAt") `);
-        await queryRunner.query(`ALTER TABLE "messaging"."channel_members" ADD CONSTRAINT "FK_db73d12c31aa45d249f6efeaa01" FOREIGN KEY ("channelId") REFERENCES "messaging"."channels"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "messaging"."message_attachments" ADD CONSTRAINT "FK_feba9c7cced72676c716bc3e7bd" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "messaging"."message_receipts" ADD CONSTRAINT "FK_113e9f1bde01433819f03b64dec" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "messaging"."message_reactions" ADD CONSTRAINT "FK_22658274347308477aff2ac94b5" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "messaging"."pinned_messages" ADD CONSTRAINT "FK_dc6b1f46ce54f1f186f7be467d1" FOREIGN KEY ("channelId") REFERENCES "messaging"."channels"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "messaging"."pinned_messages" ADD CONSTRAINT "FK_1eeca1ccc15159c0444e46c63bb" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "messaging"."message_entity_references" ADD CONSTRAINT "FK_bb838c8f5f3a05818a99b3df865" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "messaging"."message_analysis" ADD CONSTRAINT "FK_300a3fda524de884763af2697dd" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE CASCADE ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "messaging"."knowledge_entries" ADD CONSTRAINT "FK_c5a793a94bb4d551916c3912ffd" FOREIGN KEY ("sourceMessageId", "sourceMessageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "messaging"."channel_members" ADD CONSTRAINT "FK_db73d12c31aa45d249f6efeaa01" FOREIGN KEY ("channelId") REFERENCES "messaging"."channels"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "messaging"."message_attachments" ADD CONSTRAINT "FK_feba9c7cced72676c716bc3e7bd" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "messaging"."message_receipts" ADD CONSTRAINT "FK_113e9f1bde01433819f03b64dec" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "messaging"."message_reactions" ADD CONSTRAINT "FK_22658274347308477aff2ac94b5" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "messaging"."pinned_messages" ADD CONSTRAINT "FK_dc6b1f46ce54f1f186f7be467d1" FOREIGN KEY ("channelId") REFERENCES "messaging"."channels"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "messaging"."pinned_messages" ADD CONSTRAINT "FK_1eeca1ccc15159c0444e46c63bb" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "messaging"."message_entity_references" ADD CONSTRAINT "FK_bb838c8f5f3a05818a99b3df865" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "messaging"."message_analysis" ADD CONSTRAINT "FK_300a3fda524de884763af2697dd" FOREIGN KEY ("messageId", "messageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "messaging"."knowledge_entries" ADD CONSTRAINT "FK_c5a793a94bb4d551916c3912ffd" FOREIGN KEY ("sourceMessageId", "sourceMessageCreatedAt") REFERENCES "messaging"."messages"("id","createdAt") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+
+        // ── Faz 3.5 hand-author addition — RLS canonical predicate ──
+        await applyTenantRlsToSchema(queryRunner, {
+            schema: 'messaging',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
+
+        // ── Faz 3.5 hand-author addition — audit immutability triggers ──
+        await queryRunner.query(`
+            CREATE OR REPLACE FUNCTION "messaging".compliance_audit_log_prevent_update_or_delete()
+            RETURNS trigger AS $
+            BEGIN
+              RAISE EXCEPTION 'Audit table "messaging"."compliance_audit_log" is append-only; UPDATE/DELETE refused (Faz 1.4 protected-tables-guard).';
+            END;
+            $ LANGUAGE plpgsql;
+        `);
+        await queryRunner.query(`
+            CREATE TRIGGER trg_compliance_audit_log_prevent_update
+            BEFORE UPDATE OR DELETE ON "messaging"."compliance_audit_log"
+            FOR EACH ROW EXECUTE FUNCTION "messaging".compliance_audit_log_prevent_update_or_delete();
+        `);
+        await queryRunner.query(`
+            REVOKE UPDATE, DELETE ON "messaging"."compliance_audit_log" FROM PUBLIC;
+        `);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        // Reverse Faz 3.5 audit immutability triggers
+        await queryRunner.query(`DROP TRIGGER IF EXISTS trg_compliance_audit_log_prevent_update ON "messaging"."compliance_audit_log";`);
+        await queryRunner.query(`DROP FUNCTION IF EXISTS "messaging".compliance_audit_log_prevent_update_or_delete();`);
+        // Reverse Faz 3.5 RLS install first (avoids policy-on-missing-table errors).
+        await removeTenantRlsFromSchema(queryRunner, {
+            schema: 'messaging',
+            tenantIdColumns: ['tenant_id', 'tenantId'],
+            excludeTables: [],
+        });
         await queryRunner.query(`ALTER TABLE "messaging"."knowledge_entries" DROP CONSTRAINT "FK_c5a793a94bb4d551916c3912ffd"`);
         await queryRunner.query(`ALTER TABLE "messaging"."message_analysis" DROP CONSTRAINT "FK_300a3fda524de884763af2697dd"`);
         await queryRunner.query(`ALTER TABLE "messaging"."message_entity_references" DROP CONSTRAINT "FK_bb838c8f5f3a05818a99b3df865"`);

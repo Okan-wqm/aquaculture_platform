@@ -847,3 +847,47 @@ jobs:
               exit 1
             fi
           done
+
+  # ---------------------------------------------------------------------------
+  # Deploy to DigitalOcean — production droplet (push-to-main only).
+  #
+  # ARCH-CI-009 + ADR-016: lint/type-check/test/build are PR-side gates; the
+  # PR review IS the merge gate. Once a commit reaches main, this job invokes
+  # deploy-digitalocean.yml as a reusable subworkflow so production deploy
+  # rolls out automatically — restoring the chain the deploy workflow's
+  # header comments document as its trigger model.
+  #
+  # Restoration history:
+  #   - deploy-digitalocean.yml was authored as a workflow_call subworkflow
+  #     ("invoked from .github/workflows/ci-affected.yml as the final job
+  #     after lint/type-check/test/build all pass on push to main"). That
+  #     invocation never landed in ci-affected.yml; the deploy workflow
+  #     could only fire via manual workflow_dispatch and was therefore
+  #     decoupled from main, breaking the staging-gate audit trail.
+  #   - This job closes that gap: every push to main triggers the deploy
+  #     subworkflow with `services: 'all'` and no staging-gate bypass.
+  #     Operator-initiated workflow_dispatch is unchanged.
+  #
+  # secrets: inherit forwards DROPLET_HOST, DROPLET_SSH_KEY, DROPLET_USER,
+  # STAGING_DROPLET_HOST + GITHUB_TOKEN (packages:write) to the called
+  # workflow. The called workflow declares its own permissions at the
+  # workflow level (contents: write, packages: write, id-token: write),
+  # which override this caller's contents:read constraint.
+  # ---------------------------------------------------------------------------
+  deploy:
+    needs: [detect-changes, install]
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.detect-changes.result == 'success' &&
+      (needs.install.result == 'success' || needs.install.result == 'skipped')
+    uses: ./.github/workflows/deploy-digitalocean.yml
+    secrets: inherit
+    # bypass_staging_gate + bypass_reason are intentionally NOT passed —
+    # the called workflow defaults them to 'false' / '' which is the
+    # correct posture for an automated push-to-main deploy. Passing
+    # them explicitly here would force a string value past actionlint's
+    # bool/string parser ambiguity for the literal 'false', and emergency
+    # bypass remains operator-initiated via workflow_dispatch.
+    with:
+      services: 'all'

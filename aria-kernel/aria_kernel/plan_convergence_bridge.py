@@ -200,10 +200,26 @@ def record_plan_result(
 
     review_payload = details.get("review") or details.get("cross_review") or details
     workspace_root = request.get("workspace_root") or response.get("workspace_root") or "."
-    # Carry the reviewer_agent into the V8 payload — bridge knows the
-    # agent_id from response while record-shaped review may omit it.
+    # Plan ARIA-V8.17 — reviewer_agent fallback order.
+    # The kernel-side `_validate_cross_review_record` checks the
+    # reviewer_agent against `reviewer_names(workspace_root)` (the
+    # set of names declared in `.claude/agents/`). The CORRECT
+    # reviewer identity is the request's target_agent — that's the
+    # kernel-issued planner name (`aria-cross-reviewer`). Pre-V8.17
+    # the bridge used `response.agent_id` as fallback, but that's the
+    # CI EXECUTOR identity (`ci-executor:gha-local`) — not a declared
+    # reviewer name. Result: `unknown reviewer: ci-executor:gha-local`.
+    # Fallback order: agent-supplied → request.target_agent
+    # (kernel-trustworthy) → hardcoded canonical name.
     if isinstance(review_payload, dict) and not review_payload.get("reviewer_agent"):
-        review_payload = {**review_payload, "reviewer_agent": response.get("agent_id") or "aria-cross-reviewer"}
+        review_payload = {
+            **review_payload,
+            "reviewer_agent": (
+                request.get("target_agent")
+                or response.get("target_agent")
+                or "aria-cross-reviewer"
+            ),
+        }
     return submit_cross_review_v8(
         plan_id=plan_id,
         review=review_payload,

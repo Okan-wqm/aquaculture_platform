@@ -214,6 +214,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   '0f714656', // Faz 3.5 hand-author additions — RLS + audit immutability + sensor hypertable
   'f6dd9c97', // fix(migration): faz-6-preflight ESM-safe __dirname recovery
   '8fedf695', // fix(migration): preflight checks both src/migrations and src/database/migrations paths
+  'a4ec8766', // fix(migration): post-Faz-6 invariant spec compatibility + .archive exclusion
 ]);
 
 interface Commit {

@@ -777,15 +777,33 @@ def claim_request(
     # (``claim_ledger_hash`` + ``request_ledger_hash``) feed §B.5's
     # metadata-tamper detection.
     envelope = request_for_check or {}
+    # Plan ARIA-V8.12 — extend the fused return with the additional
+    # envelope fields ci_executor needs to render a complete agent
+    # prompt. Pre-V8.12 fusion (Plan 026R §B.3) only carried 5 fields
+    # (expected_output_path, role, must_satisfy, allowed_scope,
+    # evidence_refs) which forced ci_executor to read `suggested_prompt`
+    # and `target_agent` from the claim row — but those fields are
+    # NOT persisted on the claim row (claims.jsonl carries only claim
+    # metadata, not envelope fields). The empty suggested_prompt
+    # cascaded into an empty `<untrusted_*>` body in the prompt file,
+    # and the cross-reviewer agent refused with `evidence_underspecified`.
     return {
         **row,
         "lease_token": lease_token,
-        # Envelope metadata (5 fields per plan §B.3):
+        # Envelope metadata (V8.12 extended set — all fields ci_executor's
+        # `_build_prompt_payload` renders into the agent prompt):
         "expected_output_path": envelope.get("expected_output_path"),
         "role": envelope.get("role"),
+        "target_agent": envelope.get("target_agent"),
+        "convergence_id": envelope.get("convergence_id"),
+        "suggested_prompt": envelope.get("suggested_prompt"),
         "must_satisfy": envelope.get("must_satisfy", []),
         "allowed_scope": envelope.get("allowed_scope", []),
+        "forbidden_scope": envelope.get("forbidden_scope", []),
         "evidence_refs": envelope.get("evidence_refs", []),
+        "impact_graph_refs": envelope.get("impact_graph_refs", []),
+        "validation_commands": envelope.get("validation_commands", []),
+        "plan_revision_hash": envelope.get("plan_revision_hash"),
         # Ledger-hash anchors (2 fields per plan §B.3 + §B.5):
         "claim_ledger_hash": claim_ledger_hash_value,
         "request_ledger_hash": request_ledger_hash_value,

@@ -118,6 +118,16 @@ export * from './migration-runner';
 export { MigrationRunnerModule } from './migration-runner/migration-runner.module';
 export type { MigrationRunnerModuleOptions } from './migration-runner/migration-runner.module';
 
+// SchemaVersionGate — Faz 1.5 of day-one baseline reset + ADR-021.
+// Strict superset of createMigrationRunnerService: in production-like
+// envs (DB_MIGRATE_AUTHORITATIVE=true) runs as a read-only probe that
+// refuses boot if aqua-db-migrate has not finalised the ledger. In dev
+// (default) delegates to the runner verbatim. Use this factory in every
+// service's app.module.ts instead of createMigrationRunnerService —
+// production safety + dev ergonomics in a single provider class.
+export { createSchemaVersionGate } from './schema-version-gate.service';
+export type { SchemaVersionGateOptions } from './schema-version-gate.service';
+
 // Retention — single-enforcer-many-policies pattern (plan v3 R17).
 // Tables with SOC2 / KVKK retention windows register a policy at
 // module-init; RetentionEnforcementService iterates all on a daily

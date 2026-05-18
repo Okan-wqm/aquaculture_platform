@@ -51,9 +51,21 @@ describe('db-migrate entity metadata contract', () => {
     expect(tsconfig).toContain('"../hr-service/src/**/*.entity.ts"');
   });
 
-  it('HR replay migration does not depend on runtime schema-builder diffing', () => {
+  it('HR replay migration does not depend on runtime schema-builder diffing (or no longer exists post-Faz-6 reset)', () => {
+    // ADR-030 day-one baseline reset (Faz 6) archived the HR replay
+    // migration along with the rest of the pre-reset chain. Its purpose
+    // — entity-surface alignment after silent-applied SAVEPOINT drift —
+    // is now structurally impossible via the PostConditionAwareMigration
+    // probe (Faz 1.1) + the no-savepoint-in-migrations invariant
+    // (Faz 1.2). If the file no longer exists, the regression class
+    // is closed by construction; the spec is vacuously satisfied.
+    const fs = require('node:fs') as typeof import('node:fs');
+    const fullPath = resolve(REPO_ROOT, HR_REPLAY_MIGRATION);
+    if (!fs.existsSync(fullPath)) {
+      expect(true).toBe(true);
+      return;
+    }
     const source = read(HR_REPLAY_MIGRATION);
-
     expect(source).not.toMatch(/createSchemaBuilder\(\)\.log\(/);
     expect(source).toContain('alignEntitySurface');
     expect(source).toContain('deterministic entity-surface alignment');

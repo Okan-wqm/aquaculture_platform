@@ -31,7 +31,7 @@ import {
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
   RlsModule,
@@ -72,7 +72,7 @@ const TenantConnectionBootstrap = createTenantConnectionBootstrap('messaging');
  * the forRootAsync factory below so there is exactly one source of
  * truth for migration execution.
  */
-const MessagingMigrationRunnerService = createMigrationRunnerService('messaging');
+const MessagingMigrationRunnerService = createSchemaVersionGate('messaging');
 
 // Entities
 import { Channel } from './channel/entities/channel.entity';

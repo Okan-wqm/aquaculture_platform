@@ -13,7 +13,7 @@ import {
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
   RlsModule,
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
@@ -47,7 +47,7 @@ const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
  * RLS-installing migrations land as deterministic commits without
  * reviving the hand-applied-psql anti-pattern.
  */
-const AlertMigrationRunnerService = createMigrationRunnerService('alert');
+const AlertMigrationRunnerService = createSchemaVersionGate('alert');
 import { EventBusModule } from '@platform/event-bus';
 import { AlertModule } from './alert/alert.module';
 import { HealthModule } from './health/health.module';

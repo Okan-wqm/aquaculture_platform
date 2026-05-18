@@ -11,7 +11,7 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 import {
   AuditColumnsModule,
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
   RlsModule,
   SchemaDriftModule,
@@ -41,7 +41,7 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
  *
  * Aligning the runner with the schema the entities + migrations target
  * is the canonical platform shape (billing-service:
- * `createMigrationRunnerService('billing')`, hr-service: `('hr')`,
+ * `createSchemaVersionGate('billing')`, hr-service: `('hr')`,
  * ai-service: `('ai')`). The aqua-db-migrate orchestrator container
  * already applies config migrations against `config`; this restores the
  * per-service runner to the same target so the orchestrator and
@@ -51,7 +51,7 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
  *
  * Closes: docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-069
  */
-const ConfigMigrationRunnerService = createMigrationRunnerService('config');
+const ConfigMigrationRunnerService = createSchemaVersionGate('config');
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';

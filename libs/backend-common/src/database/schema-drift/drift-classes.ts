@@ -54,7 +54,8 @@ export type DriftClassId =
   | 'check_constraint'
   | 'data_cast_incompatible'
   | 'per_tenant_shape_divergence'
-  | 'encrypted_column_protection';
+  | 'encrypted_column_protection'
+  | 'foreign_key_presence';
 
 export type DriftSeverity = 'error' | 'warn';
 
@@ -198,6 +199,23 @@ export const DRIFT_CLASSES: Readonly<Record<DriftClassId, DriftClassSpec>> =
       description:
         'Column decorated @EncryptedAtRest must have DB type bytea AND must NOT be altered by schema primitives. Refusal class — no primitive; remediation is a separate key-rotation runbook.',
       planRef: 'v3-R15-ADR-023',
+    },
+    foreign_key_presence: {
+      id: 'foreign_key_presence',
+      label: 'K',
+      // WARN during rollout window (Faz 1.8 day-one baseline reset).
+      // Phase elevation to 'error' happens after Faz 6 baseline reset
+      // when every service's FK set is canonically declared in the
+      // single Baseline migration. Pre-Faz-6 there are known historical
+      // gaps (sensor 1789200-AlignSensorEntitySurfaceFks chain landed
+      // FKs late in the migration timeline) that would fire false
+      // positives until cleanup completes. Opt-in via
+      // SCHEMA_DRIFT_VALIDATE_FK=true.
+      severity: 'warn',
+      primitive: null,
+      description:
+        'Entity declares a foreign key (@ManyToOne / @OneToOne / @JoinColumn) that the DB does not have via pg_constraint contype=f. Detects ledger-applied-but-DDL-skipped FK additions and the 3-deploy sensor-service AlignSensorEntitySurfaceFks regression class.',
+      planRef: 'v3-day-one-reset-Faz-1.8',
     },
   });
 

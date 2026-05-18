@@ -134,6 +134,17 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'device_groups',
       'device_group_members',
 
+      // Edge Platform v2 (per ADR-025 — sensor-service per-tenant ownership;
+      // supersedes ADR-022's standalone `edge` schema under admin-api).
+      // 7 entities under apps/sensor-service/src/edge-device/entities/v2/.
+      'devices',
+      'policies',
+      'licenses',
+      'firmware_releases',
+      'provisioning_records',
+      'witnesses',
+      'audit_archive_v1',
+
       // Audit
       'sensor_audit_logs',
     ],

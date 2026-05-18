@@ -13,7 +13,7 @@ import {
 } from '@aquaculture/backend-common/audit';
 import {
   AuditColumnsModule,
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
   RlsModule,
   SchemaDriftModule,
@@ -42,7 +42,7 @@ import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
  * which point the search_path pin here puts them at the front of the
  * resolution chain.
  */
-const NotificationMigrationRunnerService = createMigrationRunnerService('notification');
+const NotificationMigrationRunnerService = createSchemaVersionGate('notification');
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
 import { NotificationModule } from './notification/notification.module';

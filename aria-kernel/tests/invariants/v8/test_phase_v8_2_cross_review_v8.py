@@ -51,11 +51,27 @@ class TestV8CrossReviewStateTransition(unittest.TestCase):
         """plan_convergence_bridge.record_plan_result MUST dispatch
         role=cross_review to submit_cross_review_v8 (source-substring
         pin so a future regression to raw record_cross_review flips
-        a test, not a runtime warning)."""
-        src = inspect.getsource(plan_convergence_bridge.record_plan_result)
+        a test, not a runtime warning).
+
+        Plan ARIA-V9.0-B refactor split record_plan_result into
+        match/case + ``_dispatch_cross_review`` helper for typing
+        exhaustiveness (assert_never). Substring check now spans the
+        full bridge module so the dispatch can live in either the
+        primary function or its helper without losing invariant
+        coverage."""
+        bridge_src = inspect.getsource(plan_convergence_bridge)
         self.assertIn(
-            "submit_cross_review_v8(", src,
-            "bridge.record_plan_result MUST call submit_cross_review_v8 for cross_review role",
+            "submit_cross_review_v8(", bridge_src,
+            "bridge module MUST call submit_cross_review_v8 for cross_review role",
+        )
+        # Also confirm record_plan_result routes cross_review through
+        # the dispatch helper (refactor invariant — V9.0-B Tier-1
+        # match/case exhaustiveness; the helper holds the actual
+        # submit_cross_review_v8 call).
+        rpr_src = inspect.getsource(plan_convergence_bridge.record_plan_result)
+        self.assertIn(
+            '_dispatch_cross_review', rpr_src,
+            "record_plan_result MUST route cross_review through _dispatch_cross_review (V9.0-B factor)",
         )
 
     def test_i_v8_2_cr_03_requires_challenger_drafted_state(self):

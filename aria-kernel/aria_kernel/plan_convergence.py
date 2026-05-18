@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -29,8 +30,47 @@ EVENT_TYPES = {
     "plan_evaluated",
     "plan_abandoned",
     "lock_reaped",
+    # Plan ARIA-V9.0-B — implementation-phase event types. Adding a
+    # new event type beyond this set is a one-way door (every row in
+    # events.jsonl is now signed by content_hash; renaming a kind
+    # invalidates audit history). The v3 plan's 5 phases:
+    #
+    #   CONVERGED  (V8 P+C+CR terminal)
+    #     -- implementation_requested -->        IMPLEMENTATION_REQUESTED
+    #     -- implementation_started -->          IMPLEMENTATION_IN_FLIGHT
+    #     -- implementation_outcome_recorded --> IMPLEMENTATION_RECORDED
+    #     -- implementation_merged -->           IMPLEMENTATION_MERGED   (terminal)
+    #     -- implementation_rejected -->         IMPLEMENTATION_REJECTED (terminal)
+    #
+    # Per-event-type validators below check payload shape; state
+    # preconditions (impossible-state reachability) live in
+    # _apply_event, where the reducer raises GovernanceError if the
+    # current state.state does not match the single legal predecessor
+    # for the event_type. Closes architectural-arbiter CRIT-003.
+    "implementation_requested",
+    "implementation_started",
+    "implementation_outcome_recorded",
+    "implementation_merged",
+    "implementation_rejected",
 }
-TERMINAL_STATES = {"CONVERGED", "HUMAN_REQUIRED", "ABANDONED"}
+TERMINAL_STATES = {
+    "CONVERGED",
+    "HUMAN_REQUIRED",
+    "ABANDONED",
+    # Plan ARIA-V9.0-B — V9 implementation-phase terminal states. The
+    # V8 model treats CONVERGED as terminal; V9 extends past CONVERGED
+    # through the implementation phase and terminates at one of these
+    # two states (merged on green CI, rejected on red CI or
+    # implementation refusal). CONVERGED REMAINS in TERMINAL_STATES
+    # so existing V8 invariants (active-plan filters, _derive_state
+    # early-return) keep their semantics; V9's
+    # ``request_implementation`` re-opens a CONVERGED plan by writing
+    # an ``implementation_requested`` event whose reducer ignores
+    # TERMINAL_STATES (the V9 transition graph permits exactly one
+    # legal escape from CONVERGED: into IMPLEMENTATION_REQUESTED).
+    "IMPLEMENTATION_MERGED",
+    "IMPLEMENTATION_REJECTED",
+}
 ANSWERED_STATES = {"ANSWERED", "TIMEOUT_ABORTED"}
 MAX_CROSS_REVIEW_ROUNDS = 5
 REQUIRED_CROSS_REVIEW_DIRECTIONS = {"primary_to_challenger", "challenger_to_primary"}
@@ -572,8 +612,23 @@ def fold_plan_state(*, plan_id: str, base_dir: str | Path | None = None) -> dict
     cache_key = (_events_file_size_bytes(root), str(root), plan_id)
     cached = _FOLD_PLAN_STATE_CACHE.get(cache_key)
     if cached is not None:
-        # Defensive copy — callers may mutate the returned dict
-        return {k: (v.copy() if isinstance(v, (dict, list)) else v) for k, v in cached.items()}
+        # Plan ARIA-V9.0-B — deepcopy on cache HIT.
+        #
+        # Pre-V9 the cache returned a SHALLOW dict-comprehension copy
+        # (`{k: v.copy() if isinstance(v, (dict, list)) else v ...}`).
+        # That copied the top-level dict + the FIRST level of nested
+        # dicts/lists but NOT recursively. The V8 reducer wrote
+        # `state["rounds"][N]["tasks"][hash] = {...}` two levels deep;
+        # callers mutating round.tasks[hash].critique corrupted the
+        # shared cache. V9 introduces `state["implementation"] = {...,
+        # "validation_results": [{"stdout": ..., "stderr": ...}, ...]}`
+        # which is 3 levels deep — the shallow strategy is unsafe.
+        #
+        # performance-expert PERF-MED-011 quantified ~50μs ×
+        # ~1800 poll-calls/cycle = ~90ms/cycle overhead; acceptable.
+        # ai-safety MED-019 + arch-arbiter MED-009 both reference this
+        # site. Closes performance PERF-CRIT-004 + PERF-MED-011.
+        return copy.deepcopy(cached)
     events = [row for row in load_jsonl(events_path(root)) if row.get("plan_id") == plan_id]
     state = _initial_state(plan_id)
     for event in events:
@@ -583,7 +638,10 @@ def fold_plan_state(*, plan_id: str, base_dir: str | Path | None = None) -> dict
     # Cap cache size — drop oldest entry when full (FIFO)
     if len(_FOLD_PLAN_STATE_CACHE) >= _FOLD_PLAN_STATE_CACHE_MAX_ENTRIES:
         _FOLD_PLAN_STATE_CACHE.pop(next(iter(_FOLD_PLAN_STATE_CACHE)))
-    _FOLD_PLAN_STATE_CACHE[cache_key] = {k: (v.copy() if isinstance(v, (dict, list)) else v) for k, v in state.items()}
+    # Plan ARIA-V9.0-B — deepcopy on cache WRITE (paired with HIT-side
+    # deepcopy above so cache entry can never share nested-mutable
+    # references with the live `state` dict the caller now owns).
+    _FOLD_PLAN_STATE_CACHE[cache_key] = copy.deepcopy(state)
     return state
 
 
@@ -970,6 +1028,106 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
     elif event_type == "plan_abandoned":
         state["state"] = "ABANDONED"
         state["terminal_state"] = "ABANDONED"
+    # Plan ARIA-V9.0-B — implementation-phase reducer transitions.
+    # Each event_type checks the single legal predecessor state and
+    # raises GovernanceError(invalid_transition: …) on out-of-order
+    # arrival. Tier-1 (make impossible to reach an out-of-order
+    # IMPLEMENTATION_RECORDED without first passing through
+    # IMPLEMENTATION_REQUESTED + IMPLEMENTATION_IN_FLIGHT). Closes
+    # architectural-arbiter CRIT-003 + MED-009.
+    elif event_type == "implementation_requested":
+        if state.get("state") != "CONVERGED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_requested expected=CONVERGED"
+            )
+        state["state"] = "IMPLEMENTATION_REQUESTED"
+        state["implementation"] = {
+            "implementer_agent": payload["implementer_agent"],
+            "converged_plan_revision_id": payload["converged_plan_revision_id"],
+            "converged_plan_content_hash": payload["converged_plan_content_hash"],
+            "claim_id": None,
+            "pr_url": None,
+            "diff_hash": None,
+            "branch_tip_sha": None,
+            "validation_results": [],
+            "signer_key_fp": None,
+            "base_branch_sha": None,
+            "started_at": None,
+            "completed_at": None,
+            "merged_at": None,
+            "rejected_at": None,
+            "rejection_class": None,
+        }
+    elif event_type == "implementation_started":
+        if state.get("state") != "IMPLEMENTATION_REQUESTED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_started expected=IMPLEMENTATION_REQUESTED"
+            )
+        state["state"] = "IMPLEMENTATION_IN_FLIGHT"
+        state["implementation"]["claim_id"] = payload["claim_id"]
+        # V9.0-B: payload.implementer_agent is the agent that actually
+        # claimed the lease; reducer preserves it for cross-check
+        # against the implementer_agent recorded at request time —
+        # mismatch is a downstream invariant test, not a kernel reject
+        # (the kernel cannot adjudicate agent-identity drift).
+        state["implementation"]["claimed_by_agent"] = payload["implementer_agent"]
+        state["implementation"]["started_at"] = payload.get("started_at")
+    elif event_type == "implementation_outcome_recorded":
+        if state.get("state") != "IMPLEMENTATION_IN_FLIGHT":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_outcome_recorded expected=IMPLEMENTATION_IN_FLIGHT"
+            )
+        state["state"] = "IMPLEMENTATION_RECORDED"
+        impl = state["implementation"]
+        impl["pr_url"] = payload["pr_url"]
+        impl["diff_hash"] = payload["diff_hash"]
+        impl["branch_tip_sha"] = payload["branch_tip_sha"]
+        impl["validation_results"] = payload.get("validation_results", [])
+        impl["signer_key_fp"] = payload["signer_key_fp"]
+        impl["base_branch_sha"] = payload["base_branch_sha"]
+        impl["completed_at"] = payload.get("completed_at")
+    elif event_type == "implementation_merged":
+        if state.get("state") != "IMPLEMENTATION_RECORDED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_merged expected=IMPLEMENTATION_RECORDED"
+            )
+        state["state"] = "IMPLEMENTATION_MERGED"
+        state["terminal_state"] = "IMPLEMENTATION_MERGED"
+        state["implementation"]["merge_sha"] = payload["merge_sha"]
+        state["implementation"]["merged_at"] = payload["merged_at"]
+        state["implementation"]["idempotency_key_hash"] = payload["idempotency_key_hash"]
+    elif event_type == "implementation_rejected":
+        # implementation_rejected has 3 legal predecessor states
+        # (REQUESTED / IN_FLIGHT / RECORDED) — the rejection_class
+        # value carries which transition fired so the audit trail is
+        # unambiguous downstream.
+        valid_predecessors = {
+            "IMPLEMENTATION_REQUESTED",
+            "IMPLEMENTATION_IN_FLIGHT",
+            "IMPLEMENTATION_RECORDED",
+        }
+        prior_state = state.get("state")
+        if prior_state not in valid_predecessors:
+            raise GovernanceError(
+                f"invalid_transition: from={prior_state} "
+                f"event=implementation_rejected expected=any of "
+                f"{sorted(valid_predecessors)}"
+            )
+        state["state"] = "IMPLEMENTATION_REJECTED"
+        state["terminal_state"] = "IMPLEMENTATION_REJECTED"
+        impl = state.setdefault("implementation", {})
+        impl["rejection_class"] = payload["rejection_class"]
+        impl["rejected_at"] = payload["rejected_at"]
+        # Record the predecessor explicitly for audit forensics — V9.6
+        # auto_merge runner reads rejected_from_state to attribute
+        # rejection reason to a specific transition (e.g. ci_check_red
+        # arriving in RECORDED vs in_flight_abandoned arriving in
+        # IN_FLIGHT).
+        impl["rejected_from_state"] = prior_state
 
 
 def _derive_state(state: dict[str, Any]) -> None:
@@ -1451,6 +1609,80 @@ def _validate_event(event: dict[str, Any]) -> None:
         for field in ("stale_lock_pid", "lock_age_seconds", "reaped_by_pid"):
             if not isinstance(payload.get(field), int):
                 raise GovernanceError(f"lock_reaped {field} must be an integer")
+    # Plan ARIA-V9.0-B — implementation-phase event payload validators.
+    # State preconditions live in _apply_event (the reducer), not here
+    # — _validate_event is shape-only because validation runs once per
+    # event-load whereas state preconditions depend on the cumulative
+    # fold result. Splitting the responsibilities avoids a chicken-egg
+    # dependency on fold_plan_state during a fold.
+    elif event_type == "implementation_requested":
+        _require_non_empty(payload.get("implementer_agent"), "implementer_agent")
+        _require_non_empty(payload.get("converged_plan_revision_id"), "converged_plan_revision_id")
+        _require_hash(payload.get("converged_plan_content_hash"), "converged_plan_content_hash")
+    elif event_type == "implementation_started":
+        _require_non_empty(payload.get("claim_id"), "claim_id")
+        _require_non_empty(payload.get("implementer_agent"), "implementer_agent")
+    elif event_type == "implementation_outcome_recorded":
+        _require_non_empty(payload.get("claim_id"), "claim_id")
+        _require_non_empty(payload.get("pr_url"), "pr_url")
+        _require_hash(payload.get("diff_hash"), "diff_hash")
+        _require_non_empty(payload.get("branch_tip_sha"), "branch_tip_sha")
+        if not isinstance(payload.get("validation_results", []), list):
+            raise GovernanceError("validation_results must be an array")
+        _require_non_empty(payload.get("signer_key_fp"), "signer_key_fp")
+        _require_non_empty(payload.get("base_branch_sha"), "base_branch_sha")
+    elif event_type == "implementation_merged":
+        _require_non_empty(payload.get("merge_sha"), "merge_sha")
+        _require_non_empty(payload.get("merged_at"), "merged_at")
+        # Idempotency-key is a 5-tuple per V9.6 (closes arb HIGH-006).
+        # Encoded here as a sha256 hash of the canonical tuple so the
+        # validator can _require_hash without re-implementing 5-field
+        # parsing.
+        _require_hash(payload.get("idempotency_key_hash"), "idempotency_key_hash")
+    elif event_type == "implementation_rejected":
+        # 6 valid rejection classes:
+        #   no_claim_timeout            (poll deadline in REQUESTED state)
+        #   in_flight_abandoned         (poll deadline in IN_FLIGHT state)
+        #   ci_check_timeout            (auto-merge poll deadline)
+        #   ci_check_red                (any required check NOT SUCCESS)
+        #   merge_policy_violation      (evaluate_auto_merge ineligible)
+        #   branch_tip_drift            (headRefOid != recorded branch_tip_sha)
+        #   content_hash_mismatch       (content_hash drift between mint + outcome)
+        #   secret_leak_detected        (verify_no_secret_in_diff fired)
+        #   kernel_self_modification_attempted (envelope-mint refusal)
+        #   bash_command_denylist_hit   (V9.0-D ALLOWED_BASH_COMMANDS miss)
+        #   path_escape_outside_workspace (V9.0-D verify_no_path_escape fired)
+        #   file_lock_conflict          (V9.5 check 11 — per_file_mutual_exclusion)
+        valid_rejection_classes = frozenset({
+            "no_claim_timeout",
+            "in_flight_abandoned",
+            "ci_check_timeout",
+            "ci_check_red",
+            "merge_policy_violation",
+            "branch_tip_drift",
+            "content_hash_mismatch",
+            "secret_leak_detected",
+            "kernel_self_modification_attempted",
+            "bash_command_denylist_hit",
+            "path_escape_outside_workspace",
+            "file_lock_conflict",
+            "validation_failed",
+            "forbidden_scope_violation",
+            "plan_evidence_stale",
+            "branch_collision",
+            "prompt_injection_detected",
+            "dependency_pinning_unsafe",
+            "implementer_turn_budget_exhausted",
+            "cycle_budget_exhausted",
+            "gh_api_scope_violation",
+            "autonomous_profile_preconditions_not_met",
+        })
+        if payload.get("rejection_class") not in valid_rejection_classes:
+            raise GovernanceError(
+                f"implementation_rejected rejection_class must be one of "
+                f"{sorted(valid_rejection_classes)}, got {payload.get('rejection_class')!r}"
+            )
+        _require_non_empty(payload.get("rejected_at"), "rejected_at")
 
 
 def _evaluate_state(state: dict[str, Any], round_number: int) -> dict[str, Any]:

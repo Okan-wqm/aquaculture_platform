@@ -37,10 +37,31 @@ operator-tracked actions, not silent re-rejections.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+# Plan ARIA-V9.0-B — assert_never is the canonical exhaustiveness
+# tool. Python 3.11+ ships it under typing; earlier targets fall back
+# to typing_extensions if present, else a runtime stub that raises
+# AssertionError when reached. Closes architectural-arbiter HIGH-001
+# (role exhaustiveness).
+if sys.version_info >= (3, 11):
+    from typing import assert_never  # type: ignore[attr-defined]
+else:  # pragma: no cover — kernel pins Python >= 3.11
+    try:
+        from typing_extensions import assert_never  # type: ignore[no-redef]
+    except ImportError:
+        def assert_never(value: Any) -> Any:  # type: ignore[no-redef]
+            raise AssertionError(f"unreachable role discriminant: {value!r}")
 
 
+# Plan ARIA-V9.0-B — role discriminant typed as Literal so mypy
+# narrows the match/case branches below. Adding "implementation" in
+# V9.2/V9.3 extends this Literal + the PLANNER_BRIDGE_ROLES frozenset
+# in the SAME COMMIT — a refactor that drops "implementation" from
+# only one of the two surfaces fails the I-V9-DISPATCH-01 invariant.
+PlannerBridgeRole = Literal["primary_plan", "challenger_plan", "cross_review"]
 PLANNER_BRIDGE_ROLES: frozenset[str] = frozenset({
     "primary_plan",
     "challenger_plan",
@@ -133,84 +154,144 @@ def record_plan_result(
     if not isinstance(details, dict):
         details = {}
 
-    if role == "primary_plan":
-        # Plan ARIA-V8 v2 §4 Phase 8.2 — state-aware dispatch via
-        # _PRIMARY_PLAN_STATE_DISPATCH. Unknown state → BridgeContractViolation.
-        state_dict = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-        current_state = state_dict.get("state") if isinstance(state_dict, dict) else None
-        handler_name = _PRIMARY_PLAN_STATE_DISPATCH.get(str(current_state))
-        if handler_name is None:
+    # Plan ARIA-V9.0-B — match/case exhaustiveness with
+    # typing.assert_never. Pre-V9 the dispatch used `if ... if ...
+    # # role == "cross_review"` (silent fallthrough on a 4th role).
+    # V9.2/V9.3 add "implementation" which adds a 4th match arm; mypy
+    # then forces every new role to update every consumer that
+    # discriminates on PlannerBridgeRole. Closes
+    # architectural-arbiter HIGH-001.
+    match role:
+        case "primary_plan":
+            # Plan ARIA-V8 v2 §4 Phase 8.2 — state-aware dispatch via
+            # _PRIMARY_PLAN_STATE_DISPATCH. Unknown state →
+            # BridgeContractViolation.
+            state_dict = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+            current_state = state_dict.get("state") if isinstance(state_dict, dict) else None
+            handler_name = _PRIMARY_PLAN_STATE_DISPATCH.get(str(current_state))
+            if handler_name is None:
+                raise BridgeContractViolation(
+                    f"primary_plan_invalid_state: state={current_state} "
+                    f"plan_id={plan_id} expected one of "
+                    f"{sorted(_PRIMARY_PLAN_STATE_DISPATCH)}; convergence "
+                    f"pipeline contract broken — round dispatch in "
+                    f"convergence_drainer.py minted primary envelope before "
+                    f"plan reached CRITIQUED or CROSS_REVIEWED"
+                )
+            if handler_name == "record_revision":
+                revision_payload = details.get("revision") or details.get("plan") or details
+                return record_revision(
+                    plan_id=plan_id,
+                    revision=revision_payload,
+                    base_dir=base_dir,
+                )
+            # Defensive: the literal table only contains "record_revision"
+            # today. Future entries MUST extend this branch — typing.assert_never
+            # would catch a missing handler at mypy time; runtime fallback
+            # raises BridgeContractViolation.
             raise BridgeContractViolation(
-                f"primary_plan_invalid_state: state={current_state} "
-                f"plan_id={plan_id} expected one of "
-                f"{sorted(_PRIMARY_PLAN_STATE_DISPATCH)}; convergence "
-                f"pipeline contract broken — round dispatch in "
-                f"convergence_drainer.py minted primary envelope before "
-                f"plan reached CRITIQUED or CROSS_REVIEWED"
+                f"primary_plan_handler_missing: handler_name={handler_name} "
+                f"present in _PRIMARY_PLAN_STATE_DISPATCH but no dispatch arm; "
+                f"V8 bridge needs extension"
             )
-        if handler_name == "record_revision":
-            revision_payload = details.get("revision") or details.get("plan") or details
-            return record_revision(
+        case "challenger_plan":
+            return _dispatch_challenger_plan(
+                response=response,
+                details=details,
                 plan_id=plan_id,
-                revision=revision_payload,
+                base_dir=base_dir,
+                submit_challenger_plan=submit_challenger_plan,
+            )
+        case "cross_review":
+            return _dispatch_cross_review(
+                request=request,
+                response=response,
+                details=details,
+                plan_id=plan_id,
                 base_dir=base_dir,
             )
-        # Defensive: the literal table only contains "record_revision"
-        # today. Future entries MUST extend this branch — typing.assert_never
-        # would catch a missing handler at mypy time; runtime fallback
-        # raises BridgeContractViolation.
-        raise BridgeContractViolation(
-            f"primary_plan_handler_missing: handler_name={handler_name} "
-            f"present in _PRIMARY_PLAN_STATE_DISPATCH but no dispatch arm; "
-            f"V8 bridge needs extension"
-        )
+        case _:
+            # Tier-1 exhaustiveness. The role was filtered against
+            # PLANNER_BRIDGE_ROLES at the top of the function so this
+            # arm is statically unreachable; if a future commit adds a
+            # role to PLANNER_BRIDGE_ROLES but forgets the match arm,
+            # mypy's reachability check + this runtime assert_never
+            # catch it.
+            assert_never(role)  # type: ignore[arg-type]
 
-    if role == "challenger_plan":
-        # Plan ARIA-V8.1 — canonical-payload normalization.
-        # Agent emits `plan_content` (the substantive deliverable);
-        # bridge wraps it with kernel-state-derived envelope metadata
-        # (source_revision_id, source_plan_content_hash) so
-        # _normalize_challenger_plan -> _validate_plan_content can
-        # accept the submission. Pre-V8.1 the bridge passed raw
-        # `details` to submit_challenger_plan which always failed at
-        # `plan content must be a JSON object` because `details`
-        # contained agent metadata, not the canonical plan_content
-        # wrapper.
-        challenger_payload = _canonicalize_challenger_payload(
-            response=response,
-            details=details,
-            plan_id=plan_id,
-            base_dir=base_dir,
-        )
-        return submit_challenger_plan(
-            plan_id=plan_id,
-            challenger=challenger_payload,
-            base_dir=base_dir,
-        )
+    # Defensive trailing return — assert_never raises so this is
+    # unreachable; the explicit return keeps the function's static
+    # type clear to callers + linters.
+    return None
 
-    # role == "cross_review"
-    # Plan ARIA-V8.2 — single-step V8 P+C+CR transition.
-    # The V8 architecture mints ONE aria-cross-reviewer envelope per
-    # round that bidirectionally compares primary↔challenger. The
-    # legacy 3-event kernel flow (request_cross_review → record per
-    # task × 2 → CROSS_REVIEWED) is wrapped by submit_cross_review_v8
-    # into a single kernel call that synthesizes task metadata from
-    # state. Bridge dispatches to it instead of raw record_cross_review.
+
+def _dispatch_challenger_plan(
+    *,
+    response: dict[str, Any],
+    details: dict[str, Any],
+    plan_id: str,
+    base_dir: str | Path | None,
+    submit_challenger_plan: Any,
+) -> dict[str, Any]:
+    """Plan ARIA-V8.1 — canonical-payload normalization.
+
+    Agent emits ``plan_content`` (the substantive deliverable);
+    bridge wraps it with kernel-state-derived envelope metadata
+    (source_revision_id, source_plan_content_hash) so
+    ``_normalize_challenger_plan`` -> ``_validate_plan_content`` can
+    accept the submission. Pre-V8.1 the bridge passed raw ``details``
+    to ``submit_challenger_plan`` which always failed at ``plan
+    content must be a JSON object`` because ``details`` contained
+    agent metadata, not the canonical ``plan_content`` wrapper.
+    """
+    challenger_payload = _canonicalize_challenger_payload(
+        response=response,
+        details=details,
+        plan_id=plan_id,
+        base_dir=base_dir,
+    )
+    return submit_challenger_plan(
+        plan_id=plan_id,
+        challenger=challenger_payload,
+        base_dir=base_dir,
+    )
+
+
+def _dispatch_cross_review(
+    *,
+    request: dict[str, Any],
+    response: dict[str, Any],
+    details: dict[str, Any],
+    plan_id: str,
+    base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """Plan ARIA-V8.2 — single-step V8 P+C+CR transition.
+
+    The V8 architecture mints ONE aria-cross-reviewer envelope per
+    round that bidirectionally compares primary↔challenger. The
+    legacy 3-event kernel flow (request_cross_review → record per
+    task × 2 → CROSS_REVIEWED) is wrapped by ``submit_cross_review_v8``
+    into a single kernel call that synthesizes task metadata from
+    state. Bridge dispatches to it instead of raw
+    ``record_cross_review``.
+
+    Plan ARIA-V8.17 — reviewer_agent fallback order.
+
+    The kernel-side ``_validate_cross_review_record`` checks the
+    reviewer_agent against ``reviewer_names(workspace_root)`` (the
+    set of names declared in ``.claude/agents/``). The CORRECT
+    reviewer identity is the request's target_agent — that's the
+    kernel-issued planner name (``aria-cross-reviewer``). Pre-V8.17
+    the bridge used ``response.agent_id`` as fallback, but that's the
+    CI EXECUTOR identity (``ci-executor:gha-local``) — not a declared
+    reviewer name. Result: ``unknown reviewer: ci-executor:gha-local``.
+    Fallback order: agent-supplied → request.target_agent
+    (kernel-trustworthy) → hardcoded canonical name.
+    """
     from .plan_convergence import submit_cross_review_v8
 
     review_payload = details.get("review") or details.get("cross_review") or details
     workspace_root = request.get("workspace_root") or response.get("workspace_root") or "."
-    # Plan ARIA-V8.17 — reviewer_agent fallback order.
-    # The kernel-side `_validate_cross_review_record` checks the
-    # reviewer_agent against `reviewer_names(workspace_root)` (the
-    # set of names declared in `.claude/agents/`). The CORRECT
-    # reviewer identity is the request's target_agent — that's the
-    # kernel-issued planner name (`aria-cross-reviewer`). Pre-V8.17
-    # the bridge used `response.agent_id` as fallback, but that's the
-    # CI EXECUTOR identity (`ci-executor:gha-local`) — not a declared
-    # reviewer name. Result: `unknown reviewer: ci-executor:gha-local`.
-    # Fallback order: agent-supplied → request.target_agent
-    # (kernel-trustworthy) → hardcoded canonical name.
     if isinstance(review_payload, dict) and not review_payload.get("reviewer_agent"):
         review_payload = {
             **review_payload,

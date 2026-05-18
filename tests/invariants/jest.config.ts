@@ -146,6 +146,7 @@ export default {
         '<rootDir>/postgres-ddl-contract.spec.ts',
         '<rootDir>/service-criticality-profile-contract.spec.ts',
         '<rootDir>/farm-service-migration-array-completeness.spec.ts',
+        '<rootDir>/farm-live-schema-drift-repair-contract.spec.ts',
         '<rootDir>/three-store-invariants.spec.ts',
       ],
     },

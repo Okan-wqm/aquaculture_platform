@@ -40,6 +40,42 @@ dump_nonhealthy_container_logs() {
   done
 }
 
+run_db_migrate_or_exit() {
+  local deploy_mode="${1:-deploy}"
+
+  echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
+  # Pull the migration image separately so its failure does not cascade into
+  # service-container pull logic. Compose service name is `db-migrate`; the
+  # container_name is `aqua-db-migrate`.
+  docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
+
+  DB_MIGRATE_TIMEOUT_SECONDS="${DB_MIGRATE_TIMEOUT_SECONDS:-1200}"
+  set +e
+  timeout --kill-after=30s "${DB_MIGRATE_TIMEOUT_SECONDS}s" \
+    docker compose -f docker-compose.droplet.yml \
+      up --no-build --abort-on-container-exit \
+      --exit-code-from db-migrate db-migrate
+  DB_MIGRATE_STATUS=$?
+  set -e
+
+  if [ "${DB_MIGRATE_STATUS}" -eq 124 ] || [ "${DB_MIGRATE_STATUS}" -eq 137 ]; then
+    echo "::error::aqua-db-migrate exceeded ${DB_MIGRATE_TIMEOUT_SECONDS}s during ${deploy_mode} — aborting before service restart."
+    echo "--- aqua-db-migrate logs (last 500 lines) ---"
+    docker logs aqua-db-migrate --tail=500 2>&1 || true
+    echo "--- db-migrate/postgres status ---"
+    docker compose -f docker-compose.droplet.yml ps db-migrate postgres 2>&1 || true
+    docker compose -f docker-compose.droplet.yml stop db-migrate 2>&1 || true
+    exit 1
+  elif [ "${DB_MIGRATE_STATUS}" -ne 0 ]; then
+    echo "::error::aqua-db-migrate failed during ${deploy_mode} — aborting BEFORE service containers start."
+    echo "--- aqua-db-migrate logs (last 500 lines) ---"
+    docker logs aqua-db-migrate --tail=500 2>&1 || true
+    exit 1
+  fi
+
+  echo "  aqua-db-migrate completed successfully"
+}
+
 # SEC-CI-012: Checkout to the specific SHA that triggered the workflow
 # instead of git pull (prevents TOCTOU race if another commit lands mid-deploy)
 echo "=== Checking out deploy SHA ==="
@@ -367,21 +403,7 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   # safety-net, but operators MUST fix the upstream issue
   # rather than relying on the fallback.
   # ─────────────────────────────────────────────────────────────
-  echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
-  # Pull the migration image separately so its failure doesn't
-  # cascade into the service-container pull logic below.
-  # The compose SERVICE name is `db-migrate` (the container_name
-  # is `aqua-db-migrate` but `docker compose` operates on service
-  # names, not container names).
-  docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
-  if ! docker compose -f docker-compose.droplet.yml \
-        up --no-build --abort-on-container-exit \
-        --exit-code-from db-migrate db-migrate; then
-    echo "::error::aqua-db-migrate failed — schema migration aborted BEFORE service containers started."
-    echo "Inspect logs: docker logs aqua-db-migrate"
-    exit 1
-  fi
-  echo "  aqua-db-migrate completed successfully"
+  run_db_migrate_or_exit "full deploy"
 
   echo "=== Starting all services ==="
   docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1 || true
@@ -473,33 +495,7 @@ else
   # schema state coherent regardless of which services this
   # deploy restarts.
   # ─────────────────────────────────────────────────────────────
-  echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
-  # The compose SERVICE name is `db-migrate` (container_name is
-  # `aqua-db-migrate`).
-  docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
-  DB_MIGRATE_TIMEOUT_SECONDS="${DB_MIGRATE_TIMEOUT_SECONDS:-1200}"
-  set +e
-  timeout --kill-after=30s "${DB_MIGRATE_TIMEOUT_SECONDS}s" \
-    docker compose -f docker-compose.droplet.yml \
-      up --no-build --abort-on-container-exit \
-      --exit-code-from db-migrate db-migrate
-  DB_MIGRATE_STATUS=$?
-  set -e
-  if [ "${DB_MIGRATE_STATUS}" -eq 124 ] || [ "${DB_MIGRATE_STATUS}" -eq 137 ]; then
-    echo "::error::aqua-db-migrate exceeded ${DB_MIGRATE_TIMEOUT_SECONDS}s — aborting before service restart."
-    echo "--- aqua-db-migrate logs (last 500 lines) ---"
-    docker logs aqua-db-migrate --tail=500 2>&1 || true
-    echo "--- db-migrate/postgres status ---"
-    docker compose -f docker-compose.droplet.yml ps db-migrate postgres 2>&1 || true
-    docker compose -f docker-compose.droplet.yml stop db-migrate 2>&1 || true
-    exit 1
-  elif [ "${DB_MIGRATE_STATUS}" -ne 0 ]; then
-    echo "::error::aqua-db-migrate failed — selective deploy aborted BEFORE restarting services."
-    echo "--- aqua-db-migrate logs (last 500 lines) ---"
-    docker logs aqua-db-migrate --tail=500 2>&1 || true
-    exit 1
-  fi
-  echo "  aqua-db-migrate completed successfully"
+  run_db_migrate_or_exit "selective deploy"
 
   echo "=== Pulling affected images sequentially: ${DEPLOY_SERVICES} ==="
   for svc in ${DEPLOY_SERVICES}; do

@@ -39,6 +39,7 @@ import { AlignFarmEntitySurface1789000000000 } from './1789000000000-AlignFarmEn
 import { AlignFarmEntitySurfaceExt1789100000000 } from './1789100000000-AlignFarmEntitySurfaceExt';
 import { AddMissingFarmTables1789200000000 } from './1789200000000-AddMissingFarmTables';
 import { AlignFarmReferenceDataContracts1789300000000 } from './1789300000000-AlignFarmReferenceDataContracts';
+import { RepairFarmLiveSchemaDrift1789400000000 } from './1789400000000-RepairFarmLiveSchemaDrift';
 
 /**
  * Canonical farm-service migration class list.
@@ -89,4 +90,5 @@ export const FARM_MIGRATIONS = [
   AlignFarmEntitySurfaceExt1789100000000,
   AddMissingFarmTables1789200000000,
   AlignFarmReferenceDataContracts1789300000000,
+  RepairFarmLiveSchemaDrift1789400000000,
 ] as const;

@@ -283,15 +283,22 @@ class PhaseV5_1ConvergenceGate(unittest.TestCase):
         ``plan_revision_hash`` so the cross-review collusion check
         in plan_convergence.py:473 can identify same-revision pairs.
         """
+        # Plan ARIA-V8 v2 §4 Phase 8.1 (B-V2-07) — V5.1-03 ported.
+        # V8 deleted start_convergent_plan_with_envelope (legacy
+        # round-1 primary envelope is OBSOLETE; cycle_runner's
+        # plan_content IS the primary draft). Updated invariant
+        # verifies challenger + cross_review envelopes share
+        # convergence_id and plan_revision_hash — same collusion-
+        # detection guarantee, new V8 producer surface.
         from aria_kernel.convergent_planning_bridge import (
             issue_challenger_envelope,
-            start_convergent_plan_with_envelope,
+            start_convergent_plan_drafted_by_primary,
+        )
+        from aria_kernel.cross_review_bridge import (
+            issue_cross_review_envelope,
         )
 
-        # Plan ARIA-V5 §3c v2 — plan_content satisfies the
-        # plan_convergence._validate_plan_content schema (6 required
-        # fields). Each is minimum-viable for hermetic test fixture.
-        primary_record = start_convergent_plan_with_envelope(
+        start_convergent_plan_drafted_by_primary(
             plan_id="plan-v5_1-03",
             plan_content={
                 "schema_version": 1,
@@ -303,9 +310,6 @@ class PhaseV5_1ConvergenceGate(unittest.TestCase):
                 "evidence_refs": ["test.py"],
             },
             initial_revision_id="rev-1",
-            must_satisfy=[{"id": "rule-1", "description": "must satisfy rule 1"}],
-            evidence_refs=["test.py:1"],
-            allowed_scope=["test/"],
             base_dir=self.base,
         )
         challenger_record = issue_challenger_envelope(
@@ -317,25 +321,36 @@ class PhaseV5_1ConvergenceGate(unittest.TestCase):
             plan_revision_hash="rev-1",
             base_dir=self.base,
         )
-        primary_req = primary_record["primary_request"]
+        cross_review_record = issue_cross_review_envelope(
+            plan_id="plan-v5_1-03",
+            round_number=1,
+            primary_revision_id="rev-1",
+            primary_plan_text="primary text fixture",
+            challenger_revision_id="c-1",
+            challenger_plan_text="challenger text fixture",
+            must_satisfy=[{"id": "rule-1", "description": "must satisfy rule 1", "content_hash": "sha256:p"}],
+            evidence_refs=["test.py:1"],
+            allowed_scope=["test/"],
+            plan_revision_hash="rev-1",
+            base_dir=self.base,
+        )
         self.assertEqual(
-            primary_req["convergence_id"],
             challenger_record["convergence_id"],
+            cross_review_record["convergence_id"],
             msg=(
-                "V5.1 §3c v2 — primary + challenger envelopes MUST "
-                "share convergence_id (plan_id) so the cross-review "
-                "collusion check identifies same-plan pairs."
+                "V8 §4 Phase 8.1 — challenger + cross_review envelopes "
+                "MUST share convergence_id (plan_id) so independence "
+                "checking can identify same-plan envelopes."
             ),
         )
         self.assertEqual(
-            primary_req["plan_revision_hash"],
             challenger_record["plan_revision_hash"],
+            cross_review_record["plan_revision_hash"],
             msg=(
-                "V5.1 §3c v2 (B1 fix) — primary + challenger MUST "
-                "carry the SAME plan_revision_hash. Pre-V5 the "
-                "envelope had no revision hash field; primary↔"
-                "challenger could refer to different revisions and "
-                "the collusion check would miss it."
+                "V8 §4 Phase 8.1 — challenger + cross_review MUST "
+                "carry the SAME plan_revision_hash to bind the "
+                "cross-review verdict to a specific challenger "
+                "revision."
             ),
         )
 
@@ -352,9 +367,16 @@ class PhaseV5_1ConvergenceGate(unittest.TestCase):
         unconditionally — the operator-facing risk was an
         implementation landing without consensus.
         """
+        # Plan ARIA-V8 v2 §4 Phase 8.1 (B-V2-02) — primary_silent
+        # OBSOLETED; cross_review_unavailable / cross_review_self_agreement
+        # / primary_revision_failed / budget_exhausted added.
         non_converged = [
             "max_rounds", "split", "scope_abort",
-            "primary_silent", "challenger_unavailable",
+            "challenger_unavailable",
+            "cross_review_unavailable",
+            "cross_review_self_agreement",
+            "primary_revision_failed",
+            "budget_exhausted",
             "aria_stop_interrupted",
         ]
         for verdict in non_converged:

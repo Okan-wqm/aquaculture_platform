@@ -27,62 +27,34 @@ PLANNER_ROLES = {
 }
 
 
-def start_convergent_plan_with_envelope(
+def start_convergent_plan_drafted_by_primary(
     *,
     plan_id: str,
     plan_content: dict[str, Any],
     initial_revision_id: str,
-    must_satisfy: list[dict[str, Any]],
-    evidence_refs: list[str],
-    allowed_scope: list[str],
     base_dir: str | Path | None = None,
-    suggested_prompt: str = "Draft an architecture-first convergent plan.",
-    plan_revision_hash: str | None = None,
 ) -> dict[str, Any]:
-    # Plan ARIA-V5 §3c v2 (B1 fix) — plan_revision_hash forwarded to
-    # the envelope so I-V5.1-03 can assert primary + challenger share
-    # the same hash binding. Defaults to ``initial_revision_id`` when
-    # caller doesn't supply (the revision id itself is content-bound
-    # via plan_convergence's content_hash discipline).
-    """Open a plan in plan_convergence AND issue the primary planner envelope.
+    """Plan ARIA-V8 v2 §4 Phase 8.1 (B-V2-07) — open a plan WITHOUT a primary envelope.
 
-    Returns the merged record so the caller has both the plan ledger row
-    and the request_id the queue uses to track the planner submission.
+    The plan_content supplied here IS the primary's draft (V7.1 cycle_runner
+    synthesized it from real git diff). Round-1 no longer mints a primary
+    envelope (legacy plan-bootstrap entry was deleted in V8 per B-V2-07:
+    CLAUDE.md "no compat shims"). The drainer mints challenger + cross_review
+    envelopes immediately; round-2+ mints the primary REVISION envelope via
+    ``cross_review_bridge.issue_primary_envelope`` only after state advances
+    to CROSS_REVIEWED.
+
+    Returns the plan ledger row only (no primary_request key).
     """
-    if not isinstance(must_satisfy, list) or not must_satisfy:
-        raise GovernanceError("must_satisfy is required and must be non-empty")
-    if not isinstance(evidence_refs, list) or not evidence_refs:
-        raise GovernanceError("evidence_refs is required and must be non-empty")
-    if not isinstance(allowed_scope, list) or not allowed_scope:
-        raise GovernanceError("allowed_scope is required and must be non-empty")
-
+    if not isinstance(plan_content, dict) or not plan_content:
+        raise GovernanceError("plan_content is required and must be a non-empty dict")
     plan_row = start_plan(
         plan_id=plan_id,
         plan_content=plan_content,
         initial_revision_id=initial_revision_id,
         base_dir=base_dir,
     )
-
-    target_agent, role = PLANNER_ROLES["primary"]
-    # Plan 024 §B-2 — forward must_satisfy / allowed_scope / evidence_refs
-    # to the request row so the strict path reads them back at claim time
-    # instead of seeing empty defaults.
-    request = create_agent_invocation_request(
-        target_agent=target_agent,
-        role=role,
-        suggested_prompt=suggested_prompt,
-        must_satisfy=must_satisfy,
-        allowed_scope=allowed_scope,
-        evidence_refs=evidence_refs,
-        convergence_id=plan_id,
-        round_number=1,
-        base_dir=base_dir,
-        plan_revision_hash=plan_revision_hash or initial_revision_id,
-    )
-    return {
-        "plan": plan_row,
-        "primary_request": request,
-    }
+    return {"plan": plan_row}
 
 
 def issue_challenger_envelope(

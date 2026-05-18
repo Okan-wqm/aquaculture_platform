@@ -43,12 +43,25 @@ import time
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
+from .bridge_exceptions import BridgeContractViolation
 from .convergent_planning_bridge import (
     issue_challenger_envelope,
-    start_convergent_plan_with_envelope,
+    start_convergent_plan_drafted_by_primary,
+)
+from .cross_review_bridge import (
+    issue_cross_review_envelope,
+    issue_primary_envelope,
 )
 from .plan_convergence import TERMINAL_STATES, evaluate_plan, fold_plan_state
 from .tool_registry import ensure_tools_dir
+
+
+# Plan ARIA-V8 v2 §4 Phase 8.6 (B-V2-04) — round-envelope sequence
+# constants. These are REAL load-bearing constants the source-substring
+# invariants pin against (not invariant theater per architect B-V2-04).
+# Modifying the tuple = behaviour change captured by the invariant.
+_ROUND1_ENVELOPES: tuple[str, ...] = ("challenger", "cross_review")
+_ROUND_N_ENVELOPES: tuple[str, ...] = ("primary_revision", "challenger", "cross_review")
 
 
 # Plan ARIA-V5 §3c v2 — terminal-state intermediate marker. Not in
@@ -78,8 +91,17 @@ class ConvergenceResult(TypedDict):
         "max_rounds",
         "split",
         "scope_abort",
-        "primary_silent",
+        # Plan ARIA-V8 v2 §4 Phase 8.1 — primary_silent OBSOLETED.
+        # V8 P+C+CR pipeline: primary IS cycle_runner's plan_content
+        # (already present at plan-start). Primary cannot be "silent".
+        # Round-1 timeouts now classify as challenger_unavailable or
+        # cross_review_unavailable; round-2+ primary REVISION timeouts
+        # classify as primary_revision_failed.
         "challenger_unavailable",
+        "cross_review_unavailable",
+        "cross_review_self_agreement",
+        "primary_revision_failed",
+        "budget_exhausted",
         "aria_stop_interrupted",
     ]
     unsatisfied_items: list[dict[str, Any]]
@@ -163,8 +185,13 @@ def _derive_arbiter_verdict(
             return "split"
         if _REASON_MATERIAL_RISK in reasons:
             return "scope_abort"
+        # Plan ARIA-V8 v2 §4 Phase 8.1 (B-V2-02) — V8 obsoletes
+        # primary_silent (primary IS cycle_runner's plan_content).
+        # _REASON_PARTIAL now maps to cross_review_unavailable since
+        # partial coverage in V8 P+C+CR means the cross-reviewer
+        # couldn't fully verify both sides.
         if _REASON_PARTIAL in reasons:
-            return "primary_silent"
+            return "cross_review_unavailable"
         if _REASON_PENDING in reasons:
             return "challenger_unavailable"
     return "split"
@@ -296,56 +323,27 @@ def run_convergence_drainer(
             convergence_id=convergence_id,
         )
 
-    for round_n in range(starting_round, max_rounds + 1):
-        rounds_executed = round_n
+    # Plan ARIA-V8 v2 §4 Phase 8.1 (architect B2) — round-1 + round-2+
+    # share the challenger + cross_review envelope-mint sequence;
+    # extracted into _run_challenge_and_cross_review_phase helper.
+    def _run_challenge_and_cross_review_phase(
+        *,
+        current_round: int,
+        primary_revision_id: str,
+        primary_plan_text: str,
+    ) -> tuple[str | None, ConvergenceResult | None]:
+        """Mint challenger envelope → poll CHALLENGER_DRAFTED → mint
+        cross_review envelope → poll CROSS_REVIEWED.
 
-        if _check_aria_stop(root):
-            return _aria_stop_return()
-
-        if round_n == 1:
-            primary_record = start_convergent_plan_with_envelope(
-                plan_id=plan_id,
-                plan_content=plan_seed,
-                initial_revision_id=f"{plan_id}-r1",
-                must_satisfy=must_satisfy,
-                evidence_refs=evidence_refs,
-                allowed_scope=allowed_scope,
-                base_dir=base_dir,
-            )
-            primary_request_id = (
-                primary_record.get("primary_request", {}).get("request_id")
-            )
-            if primary_request_id:
-                request_ids.append(primary_request_id)
-
-        primary_state = _poll_for_state(
-            plan_id=plan_id,
-            target_states={
-                "CHALLENGER_DRAFTED", "CROSS_REVIEWED", "REVISED",
-            },
-            base_dir=base_dir,
-            deadline=time.monotonic() + challenger_timeout_seconds,
-            aria_stop_root=root,
-            sleep_interval=poll_sleep,
-        )
-        if _check_aria_stop(root):
-            return _aria_stop_return()
-        if primary_state is None:
-            return ConvergenceResult(
-                plan_id=plan_id,
-                converged_plan={},
-                rounds_count=rounds_executed,
-                arbiter_verdict="primary_silent",
-                unsatisfied_items=[],
-                request_ids=request_ids,
-                transcript_path=str(transcript_path),
-                resumed_from_persistence=resumed,
-                convergence_id=convergence_id,
-            )
-
+        Returns (challenger_revision_id, early_terminal_result):
+        - On success: (challenger_revision_id_string, None)
+        - On challenger poll timeout: (None, ConvergenceResult(challenger_unavailable))
+        - On cross_review poll timeout: (None, ConvergenceResult(cross_review_unavailable))
+        - On ARIA_STOP: (None, ConvergenceResult(aria_stop_interrupted))
+        """
         challenger_request = issue_challenger_envelope(
             plan_id=plan_id,
-            round_number=round_n,
+            round_number=current_round,
             must_satisfy=must_satisfy,
             evidence_refs=evidence_refs,
             allowed_scope=allowed_scope,
@@ -354,19 +352,18 @@ def run_convergence_drainer(
         challenger_request_id = challenger_request.get("request_id")
         if challenger_request_id:
             request_ids.append(challenger_request_id)
-
         challenger_state = _poll_for_state(
             plan_id=plan_id,
-            target_states={"CROSS_REVIEWED"},
+            target_states={"CHALLENGER_DRAFTED"},
             base_dir=base_dir,
             deadline=time.monotonic() + challenger_timeout_seconds,
             aria_stop_root=root,
             sleep_interval=poll_sleep,
         )
         if _check_aria_stop(root):
-            return _aria_stop_return()
+            return None, _aria_stop_return()
         if challenger_state is None:
-            return ConvergenceResult(
+            return None, ConvergenceResult(
                 plan_id=plan_id,
                 converged_plan={},
                 rounds_count=rounds_executed,
@@ -377,6 +374,142 @@ def run_convergence_drainer(
                 resumed_from_persistence=resumed,
                 convergence_id=convergence_id,
             )
+        # Derive challenger revision_id from the now-CHALLENGER_DRAFTED plan
+        challenger_revision_id = f"{plan_id}-c{current_round}"
+        try:
+            cur = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+            if isinstance(cur, dict):
+                challenger = cur.get("challenger") or {}
+                if isinstance(challenger, dict):
+                    rid = challenger.get("challenger_revision_id")
+                    if isinstance(rid, str) and rid:
+                        challenger_revision_id = rid
+        except Exception:
+            pass
+        # Mint cross_review envelope
+        cross_review_request = issue_cross_review_envelope(
+            plan_id=plan_id,
+            round_number=current_round,
+            primary_revision_id=primary_revision_id,
+            primary_plan_text=primary_plan_text,
+            challenger_revision_id=challenger_revision_id,
+            challenger_plan_text="(challenger plan loaded by aria-cross-reviewer via Read tool)",
+            must_satisfy=must_satisfy,
+            evidence_refs=evidence_refs,
+            allowed_scope=allowed_scope,
+            base_dir=base_dir,
+        )
+        cross_review_request_id = cross_review_request.get("request_id")
+        if cross_review_request_id:
+            request_ids.append(cross_review_request_id)
+        cross_review_state = _poll_for_state(
+            plan_id=plan_id,
+            target_states={"CROSS_REVIEWED"},
+            base_dir=base_dir,
+            deadline=time.monotonic() + challenger_timeout_seconds,
+            aria_stop_root=root,
+            sleep_interval=poll_sleep,
+        )
+        if _check_aria_stop(root):
+            return None, _aria_stop_return()
+        if cross_review_state is None:
+            return None, ConvergenceResult(
+                plan_id=plan_id,
+                converged_plan={},
+                rounds_count=rounds_executed,
+                arbiter_verdict="cross_review_unavailable",
+                unsatisfied_items=[],
+                request_ids=request_ids,
+                transcript_path=str(transcript_path),
+                resumed_from_persistence=resumed,
+                convergence_id=convergence_id,
+            )
+        return challenger_revision_id, None
+
+    for round_n in range(starting_round, max_rounds + 1):
+        rounds_executed = round_n
+
+        if _check_aria_stop(root):
+            return _aria_stop_return()
+
+        if round_n == 1:
+            # Plan ARIA-V8 v2 §4 Phase 8.1 — round-1 has NO primary envelope.
+            # plan_seed (from V7.1 cycle_runner) IS the primary draft;
+            # only register the plan in DRAFT state, then immediately
+            # mint challenger + cross_review (see _ROUND1_ENVELOPES).
+            start_convergent_plan_drafted_by_primary(
+                plan_id=plan_id,
+                plan_content=plan_seed,
+                initial_revision_id=f"{plan_id}-r1",
+                base_dir=base_dir,
+            )
+            primary_revision_id_for_round = f"{plan_id}-r1"
+        else:
+            # Plan ARIA-V8 v2 §4 Phase 8.4 — round-2+ mints primary REVISION
+            # envelope via cross_review_bridge.issue_primary_envelope.
+            # Tier-1: refused at mint-time if state not in CRITIQUED or
+            # CROSS_REVIEWED. Legal here because prior round reached CROSS_REVIEWED.
+            try:
+                primary_revision_request = issue_primary_envelope(
+                    plan_id=plan_id,
+                    round_number=round_n,
+                    must_satisfy=must_satisfy,
+                    evidence_refs=evidence_refs,
+                    allowed_scope=allowed_scope,
+                    base_dir=base_dir,
+                )
+            except BridgeContractViolation:
+                return ConvergenceResult(
+                    plan_id=plan_id,
+                    converged_plan={},
+                    rounds_count=rounds_executed,
+                    arbiter_verdict="primary_revision_failed",
+                    unsatisfied_items=[],
+                    request_ids=request_ids,
+                    transcript_path=str(transcript_path),
+                    resumed_from_persistence=resumed,
+                    convergence_id=convergence_id,
+                )
+            primary_revision_request_id = primary_revision_request.get("request_id")
+            if primary_revision_request_id:
+                request_ids.append(primary_revision_request_id)
+            # Wait for primary to revise (state advances to REVISED).
+            revised_state = _poll_for_state(
+                plan_id=plan_id,
+                target_states={"REVISED"},
+                base_dir=base_dir,
+                deadline=time.monotonic() + challenger_timeout_seconds,
+                aria_stop_root=root,
+                sleep_interval=poll_sleep,
+            )
+            if _check_aria_stop(root):
+                return _aria_stop_return()
+            if revised_state is None:
+                return ConvergenceResult(
+                    plan_id=plan_id,
+                    converged_plan={},
+                    rounds_count=rounds_executed,
+                    arbiter_verdict="primary_revision_failed",
+                    unsatisfied_items=[],
+                    request_ids=request_ids,
+                    transcript_path=str(transcript_path),
+                    resumed_from_persistence=resumed,
+                    convergence_id=convergence_id,
+                )
+            primary_revision_id_for_round = f"{plan_id}-r{round_n}"
+
+        # Render the primary plan text for the cross-reviewer prompt.
+        # cycle_runner's plan_seed is the canonical primary draft.
+        import json as _json
+        primary_plan_text = _json.dumps(plan_seed, indent=2, sort_keys=True)
+
+        challenger_revision_id, early_terminal = _run_challenge_and_cross_review_phase(
+            current_round=round_n,
+            primary_revision_id=primary_revision_id_for_round,
+            primary_plan_text=primary_plan_text,
+        )
+        if early_terminal is not None:
+            return early_terminal
 
         eval_result = evaluate_plan(
             plan_id=plan_id,

@@ -56,6 +56,10 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
     primitive with the correct payload."""
 
     def test_primary_plan_routes_to_record_revision(self) -> None:
+        """Plan ARIA-V8 v2 §4 Phase 8.2 (B-V2-06) — record_revision is
+        only called when plan state is in {CRITIQUED, CROSS_REVIEWED}.
+        Mock fold_plan_state to return CRITIQUED so the dispatch table
+        legally maps role=primary_plan → record_revision."""
         request = {"plan_id": "plan-p1", "role": "primary_plan"}
         response = {
             "role": "primary_plan",
@@ -67,6 +71,9 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
             },
         }
         with patch(
+            "aria_kernel.plan_convergence.fold_plan_state",
+            return_value={"state": "CRITIQUED"},
+        ), patch(
             "aria_kernel.plan_convergence.record_revision",
             return_value={"event_id": "ev-pp-1", "event_type": "revision_recorded"},
         ) as mock_rev:
@@ -81,6 +88,28 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
         self.assertEqual(kwargs["plan_id"], "plan-p1")
         self.assertEqual(kwargs["revision"]["revision_id"], "rev-1")
         self.assertEqual(result["event_id"], "ev-pp-1")
+
+    def test_primary_plan_on_draft_raises_bridge_contract_violation(self) -> None:
+        """Plan ARIA-V8 v2 §4 Phase 8.2 (B-V2-06) — DRAFT state refuses
+        primary_plan dispatch via BridgeContractViolation. V8 v1's
+        no_op path was structurally unreachable here (refused before
+        envelope is minted by cross_review_bridge.issue_primary_envelope)."""
+        from aria_kernel.bridge_exceptions import BridgeContractViolation
+        request = {"plan_id": "plan-p1-draft", "role": "primary_plan"}
+        response = {"role": "primary_plan", "details": {"revision": {}}}
+        with patch(
+            "aria_kernel.plan_convergence.fold_plan_state",
+            return_value={"state": "DRAFT"},
+        ):
+            with self.assertRaises(BridgeContractViolation) as ctx:
+                record_plan_result(
+                    role="primary_plan",
+                    request=request,
+                    response=response,
+                    base_dir=None,
+                )
+        self.assertIn("primary_plan_invalid_state", str(ctx.exception))
+        self.assertIn("DRAFT", str(ctx.exception))
 
     def test_challenger_plan_routes_to_submit_challenger_plan(self) -> None:
         request = {"plan_id": "plan-c1", "role": "challenger_plan"}

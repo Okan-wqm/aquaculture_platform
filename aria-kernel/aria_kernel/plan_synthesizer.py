@@ -494,7 +494,7 @@ def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
     """Plan ARIA-V9.4 source — ORPHAN findings from
     ``docs/reviews/orphan-findings.md``.
 
-    Scans for headings matching ``^## ORPHAN-(?P<severity>[A-Z]+)-(?P<id>\d+)``
+    Scans for headings matching ``^## ORPHAN-(?P<severity>[A-Z]+)-(?P<id>\\d+)``
     with subsequent ``Status: OPEN`` line. Each match becomes a
     candidate dict carrying severity + id + source_type.
 

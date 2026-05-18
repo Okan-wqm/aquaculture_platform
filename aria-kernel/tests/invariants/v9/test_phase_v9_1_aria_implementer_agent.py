@@ -80,10 +80,13 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1).strip(), "opus")
 
-    def test_i_v9_impl_01_pedagogy_tier_2(self):
+    def test_i_v9_impl_01_pedagogy_tier_3(self):
+        """Tier-3 pinned: aria-implementer has high prohibition density
+        (6 sections); Tier-3 narrative+Example pairing is the
+        architectural fit per registry rationale."""
         m = re.search(r"^pedagogy-tier:\s*(\d+)$", self.body, re.MULTILINE)
         self.assertIsNotNone(m)
-        self.assertEqual(m.group(1).strip(), "2")
+        self.assertEqual(m.group(1).strip(), "3")
 
     def test_i_v9_impl_01_security_contract_present(self):
         self.assertIn("## SECURITY CONTRACT", self.body)

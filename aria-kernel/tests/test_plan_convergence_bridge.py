@@ -3,7 +3,8 @@
 6 tests:
 
 * PLANNER_BRIDGE_ROLES = frozenset({"primary_plan", "challenger_plan",
-  "cross_review"}) — constant shape.
+  "cross_review", "implementation"}) — constant shape (V9.3 extended
+  with "implementation" for the aria-implementer writer agent).
 * primary_plan → record_revision dispatch + payload mapping.
 * challenger_plan → submit_challenger_plan dispatch + payload mapping.
 * cross_review → record_cross_review dispatch + payload mapping.
@@ -31,9 +32,14 @@ from aria_kernel.tool_registry import GovernanceError
 
 class PlannerBridgeRoleConstantsTests(unittest.TestCase):
     def test_planner_bridge_roles_set_shape(self) -> None:
+        """Plan ARIA-V9.3 — extends the set with "implementation" for
+        the writer-agent dispatch path (record_implementation_outcome)."""
         self.assertEqual(
             PLANNER_BRIDGE_ROLES,
-            frozenset({"primary_plan", "challenger_plan", "cross_review"}),
+            frozenset({
+                "primary_plan", "challenger_plan", "cross_review",
+                "implementation",
+            }),
         )
 
     def test_is_planner_bridge_role_predicate(self) -> None:

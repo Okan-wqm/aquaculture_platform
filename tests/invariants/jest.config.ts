@@ -150,6 +150,7 @@ export default {
         '<rootDir>/three-store-invariants.spec.ts',
         '<rootDir>/protected-tables-guard.spec.ts',
         '<rootDir>/no-savepoint-in-migrations.spec.ts',
+        '<rootDir>/rls-predicate-canonical.spec.ts',
       ],
     },
   ],

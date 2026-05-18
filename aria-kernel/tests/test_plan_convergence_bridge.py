@@ -112,20 +112,40 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
         self.assertIn("DRAFT", str(ctx.exception))
 
     def test_challenger_plan_routes_to_submit_challenger_plan(self) -> None:
+        """Plan ARIA-V8.1 — bridge canonicalizes the agent envelope
+        before passing to submit_challenger_plan. Agent emits
+        plan_content (here at top-level per V8.1 contract); bridge
+        wraps with source revision metadata from fold_plan_state."""
+        canonical_pc = {
+            "schema_version": 1,
+            "title": "test",
+            "summary": "test plan",
+            "affected_surfaces": [{"paths": ["x.py"]}],
+            "key_changes": ["A"],
+            "validation_commands": [{"cmd": "echo"}],
+            "evidence_refs": ["x.py:1"],
+        }
         request = {"plan_id": "plan-c1", "role": "challenger_plan"}
         response = {
             "role": "challenger_plan",
-            "details": {
-                "challenger": {
-                    "challenger_id": "ch-1",
-                    "round_number": 1,
-                },
+            "request_id": "AIR-ch-001",
+            "agent_id": "aria-challenger-planner",
+            "plan_content": canonical_pc,
+            "details": {},
+        }
+        kernel_state = {
+            "latest_revision": {
+                "revision_id": "rev-primary-001",
+                "content_hash": "sha256:abc",
             },
         }
         with patch(
             "aria_kernel.plan_convergence.submit_challenger_plan",
             return_value={"event_id": "ev-ch-1", "event_type": "challenger_plan_drafted"},
-        ) as mock_ch:
+        ) as mock_ch, patch(
+            "aria_kernel.plan_convergence.fold_plan_state",
+            return_value=kernel_state,
+        ):
             result = record_plan_result(
                 role="challenger_plan",
                 request=request,
@@ -135,7 +155,12 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
         mock_ch.assert_called_once()
         kwargs = mock_ch.call_args.kwargs
         self.assertEqual(kwargs["plan_id"], "plan-c1")
-        self.assertEqual(kwargs["challenger"]["challenger_id"], "ch-1")
+        challenger = kwargs["challenger"]
+        self.assertEqual(challenger["plan_content"], canonical_pc)
+        self.assertEqual(challenger["source_revision_id"], "rev-primary-001")
+        self.assertEqual(challenger["source_plan_content_hash"], "sha256:abc")
+        self.assertEqual(challenger["challenger_agent"], "aria-challenger-planner")
+        self.assertTrue(challenger["challenger_revision_id"].startswith("chal-plan-c1-"))
         self.assertEqual(result["event_type"], "challenger_plan_drafted")
 
     def test_cross_review_routes_to_record_cross_review(self) -> None:

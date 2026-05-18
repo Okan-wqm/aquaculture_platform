@@ -52,6 +52,21 @@ DEFAULT_TIMEOUT_SECONDS = 1800
 # claim itself on timeout rather than leaking via SIGKILL.
 SUBMIT_RESULT_TIMEOUT_SECONDS = 120
 
+# Plan ARIA-V8.1 Phase 3 — fail-fast canonical plan_content / cross_review
+# validation BEFORE submit subprocess. Mirrors the kernel-side gate at
+# plan_convergence._validate_plan_content + _validate_cross_review_record.
+# Without this gate, the agent's structurally invalid envelope reaches
+# submit_claim_result, gets ACCEPTED, then plan_convergence_bridge emits
+# `agent_bridge_warning: plan content must be a JSON object` and the
+# state machine stays in DRAFT — wasting the Opus cycle ($0.35/cycle)
+# and producing zero convergence signal. Fail-fast here releases the
+# claim with a precise reason so operators see WHICH field was wrong.
+_PLAN_CONTENT_REQUIRED = (
+    "schema_version", "title", "summary", "affected_surfaces",
+    "key_changes", "validation_commands", "evidence_refs",
+)
+_CROSS_REVIEW_REQUIRED = ("round_number", "verdict", "risks")
+
 LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
 OAUTH_TOKEN_ENV_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
 
@@ -66,6 +81,65 @@ def _stage(msg: str) -> None:
     elapsed = time.monotonic() - _CI_T0
     sys.stderr.write(f"[ci-stage t={elapsed:7.2f}s] {msg}\n")
     sys.stderr.flush()
+
+
+def _pre_submit_validate_envelope(envelope: dict[str, Any], role: str) -> list[str]:
+    """Plan ARIA-V8.1 Phase 3 — fail-fast canonical schema gate.
+
+    Validates the agent's response envelope against the same canonical
+    fields the kernel-side `plan_convergence._validate_plan_content` and
+    `_validate_cross_review_record` check. Returns a list of missing or
+    malformed field names (empty list = valid).
+
+    Why fail-fast here vs at kernel: kernel acceptance + bridge warning
+    leaves the plan in DRAFT and the cycle abandons with no convergence
+    signal. Detecting the drift in ci_executor lets us release the claim
+    with a precise reason so operators see WHICH field was wrong rather
+    than a generic "plan content must be a JSON object" warning.
+    """
+    errors: list[str] = []
+    if role in ("primary_plan", "challenger_plan"):
+        plan_content = envelope.get("plan_content")
+        if not isinstance(plan_content, dict):
+            return ["plan_content:absent_or_not_object"]
+        missing = [f for f in _PLAN_CONTENT_REQUIRED if f not in plan_content]
+        for f in missing:
+            errors.append(f"plan_content.{f}:missing")
+        # Lightweight value checks (kernel re-validates strictly)
+        if "title" in plan_content and not (
+            isinstance(plan_content["title"], str) and plan_content["title"].strip()
+        ):
+            errors.append("plan_content.title:empty_or_not_string")
+        if "summary" in plan_content and not (
+            isinstance(plan_content["summary"], str) and plan_content["summary"].strip()
+        ):
+            errors.append("plan_content.summary:empty_or_not_string")
+        if "key_changes" in plan_content and not (
+            isinstance(plan_content["key_changes"], list) and plan_content["key_changes"]
+        ):
+            errors.append("plan_content.key_changes:empty_or_not_list")
+        if "affected_surfaces" in plan_content and not isinstance(
+            plan_content["affected_surfaces"], list
+        ):
+            errors.append("plan_content.affected_surfaces:not_list")
+        if "validation_commands" in plan_content and not isinstance(
+            plan_content["validation_commands"], list
+        ):
+            errors.append("plan_content.validation_commands:not_list")
+        if "evidence_refs" in plan_content and not isinstance(
+            plan_content["evidence_refs"], list
+        ):
+            errors.append("plan_content.evidence_refs:not_list")
+    elif role == "cross_review":
+        cross_review = envelope.get("cross_review")
+        if not isinstance(cross_review, dict):
+            return ["cross_review:absent_or_not_object"]
+        missing = [f for f in _CROSS_REVIEW_REQUIRED if f not in cross_review]
+        for f in missing:
+            errors.append(f"cross_review.{f}:missing")
+    return errors
+
+
 MOCK_MODE_ENV_VAR = "CLAUDE_CODE_MOCK"
 
 # Plan 026R §B.5 — single-claim env-var contract (mirror of
@@ -1173,6 +1247,35 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     _stage(f"claude_returned_exit={cli_exit} request_id={request_id} role={request_envelope.get('role')}")
+
+    # Plan ARIA-V8.1 Phase 3 — pre-submit canonical schema validation.
+    # The agent's response envelope MUST satisfy plan_convergence's
+    # required-fields contract before we burn a submit subprocess on it.
+    # On failure we release the claim with a precise reason so operators
+    # see exactly which field the agent emitted incorrectly, instead of
+    # the kernel's generic `plan content must be a JSON object` warning.
+    try:
+        _envelope_for_validation = json.loads(expected_output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as _exc:
+        _envelope_for_validation = None
+    if isinstance(_envelope_for_validation, dict):
+        validation_errors = _pre_submit_validate_envelope(
+            _envelope_for_validation,
+            role=str(request_envelope.get("role") or ""),
+        )
+        if validation_errors:
+            _stage(f"pre_submit_validation_FAILED errors={validation_errors}")
+            sys.stderr.write(
+                f"plan_content_pre_submit_rejected: {','.join(validation_errors)}\n"
+            )
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason=f"plan_content_invalid:{','.join(validation_errors)[:160]}",
+            )
+            return 1
+        _stage("pre_submit_validation_passed")
+
     _stage("submit_step_begin claim=" + claim_id)
     # Step 4 — submit through the kernel CLI; lease-token via env var.
     # ORPHAN-HIGH-081 — bounded timeout + survivable claim release on hang.

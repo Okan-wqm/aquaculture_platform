@@ -166,7 +166,22 @@ def record_plan_result(
         )
 
     if role == "challenger_plan":
-        challenger_payload = details.get("challenger") or details.get("plan") or details
+        # Plan ARIA-V8.1 — canonical-payload normalization.
+        # Agent emits `plan_content` (the substantive deliverable);
+        # bridge wraps it with kernel-state-derived envelope metadata
+        # (source_revision_id, source_plan_content_hash) so
+        # _normalize_challenger_plan -> _validate_plan_content can
+        # accept the submission. Pre-V8.1 the bridge passed raw
+        # `details` to submit_challenger_plan which always failed at
+        # `plan content must be a JSON object` because `details`
+        # contained agent metadata, not the canonical plan_content
+        # wrapper.
+        challenger_payload = _canonicalize_challenger_payload(
+            response=response,
+            details=details,
+            plan_id=plan_id,
+            base_dir=base_dir,
+        )
         return submit_challenger_plan(
             plan_id=plan_id,
             challenger=challenger_payload,
@@ -182,6 +197,70 @@ def record_plan_result(
         workspace_root=workspace_root,
         base_dir=base_dir,
     )
+
+
+def _canonicalize_challenger_payload(
+    *,
+    response: dict[str, Any],
+    details: dict[str, Any],
+    plan_id: str,
+    base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """Plan ARIA-V8.1 — wrap agent's plan_content in canonical wrapper.
+
+    Returns a dict shaped for ``_normalize_challenger_plan``:
+        {
+          "challenger_agent": <agent_id>,
+          "challenger_revision_id": <derived id>,
+          "source_revision_id": <kernel latest revision_id>,
+          "source_plan_content_hash": <kernel latest content_hash>,
+          "plan_content": <agent's canonical plan_content>,
+        }
+
+    Extraction order for plan_content:
+      1. details.challenger.plan_content (deep canonical — preferred)
+      2. details.plan.plan_content (alt nesting)
+      3. response.plan_content (TOP-LEVEL — our V8.1 agent contract)
+      4. details.plan_content (semi-canonical)
+      5. details (last resort — preserves backward compat)
+    Returns whatever shape is present; downstream
+    ``_validate_plan_content`` strictly checks the required fields.
+    """
+    from .plan_convergence import fold_plan_state  # local import; avoid cycle
+
+    plan_content: Any = None
+    challenger_block = details.get("challenger")
+    if isinstance(challenger_block, dict) and "plan_content" in challenger_block:
+        plan_content = challenger_block.get("plan_content")
+    if plan_content is None:
+        plan_block = details.get("plan")
+        if isinstance(plan_block, dict) and "plan_content" in plan_block:
+            plan_content = plan_block.get("plan_content")
+    if plan_content is None:
+        plan_content = response.get("plan_content")
+    if plan_content is None:
+        plan_content = details.get("plan_content")
+
+    state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+    latest = (state.get("latest_revision") or {}) if isinstance(state, dict) else {}
+    source_revision_id = latest.get("revision_id")
+    source_hash = latest.get("content_hash")
+
+    # If the agent already supplied a canonical wrapper, prefer its
+    # fields where present; fall back to kernel-derived metadata for
+    # any that the agent omitted. The wrapper-style envelope (where
+    # the agent set source_revision_id explicitly) is still allowed —
+    # we only fill in the gaps.
+    supplied = challenger_block if isinstance(challenger_block, dict) else {}
+    request_id = response.get("request_id") or "unknown"
+    return {
+        "challenger_agent": supplied.get("challenger_agent") or response.get("agent_id"),
+        "challenger_revision_id": supplied.get("challenger_revision_id")
+        or f"chal-{plan_id}-{request_id[-12:]}",
+        "source_revision_id": supplied.get("source_revision_id") or source_revision_id,
+        "source_plan_content_hash": supplied.get("source_plan_content_hash") or source_hash,
+        "plan_content": plan_content,
+    }
 
 
 __all__ = [

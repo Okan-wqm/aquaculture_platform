@@ -111,12 +111,21 @@ describe('INVARIANT (e2e-messaging convergence): messaging-service uses Messagin
     workflowSrc = readFileSync(E2E_WORKFLOW_PATH, 'utf8');
   });
 
-  it('app.module.ts calls createMigrationRunnerService(\'messaging\')', () => {
-    if (!/createMigrationRunnerService\(\s*['"]messaging['"]\s*\)/.test(appModuleSrc)) {
+  it('app.module.ts calls createMigrationRunnerService(\'messaging\') or createSchemaVersionGate(\'messaging\')', () => {
+    // Faz 1.5 of the day-one baseline reset migrated the per-service
+    // factory from `createMigrationRunnerService` to the read-only
+    // `createSchemaVersionGate` (ADR-021). Both satisfy the SSoT
+    // contract: gate-mode wraps the legacy runner verbatim when
+    // DB_MIGRATE_AUTHORITATIVE is unset, and runs the production-side
+    // ledger probe when it is set. The spec accepts either factory name.
+    const legacyFactoryRe = /createMigrationRunnerService\(\s*['"]messaging['"]\s*\)/;
+    const gateFactoryRe = /createSchemaVersionGate\(\s*['"]messaging['"]\s*\)/;
+    if (!legacyFactoryRe.test(appModuleSrc) && !gateFactoryRe.test(appModuleSrc)) {
       throw new Error(
-        `${APP_MODULE_PATH}: missing \`createMigrationRunnerService('messaging')\` factory call. ` +
-          'The messaging-service migration runner is the SSoT for messaging schema migrations ' +
-          '— removing it brings back TypeORM\'s built-in runner which crashes on `transaction = \'none\'` migrations ' +
+        `${APP_MODULE_PATH}: missing both \`createMigrationRunnerService('messaging')\` ` +
+          `AND \`createSchemaVersionGate('messaging')\` factory calls. ` +
+          'The messaging-service migration runner / gate is the SSoT for messaging schema migrations ' +
+          '— removing both brings back TypeORM\'s built-in runner which crashes on `transaction = \'none\'` migrations ' +
           '(ForbiddenTransactionModeOverrideError).',
       );
     }

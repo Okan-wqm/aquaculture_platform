@@ -217,6 +217,14 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   'a4ec8766', // fix(migration): post-Faz-6 invariant spec compatibility + .archive exclusion
   '1d87dd33', // fix(migration): wrap CREATE TYPE statements in DO/EXCEPTION block (R8 lint)
   '3f0cb24b', // fix(migration): farm baseline equipment_types CREATE TABLE inject + entity sync flag
+  // PR #290 platform-bootstrap-atom — `f757b3ed` was merged to main but
+  // never landed on migration branch directly; cherry-pick onto PR #290
+  // produced a new SHA. The original commit's body referenced no
+  // registry-backed finding (it landed as part of the Faz 6 cutover
+  // sequence pre-orphan-findings cycle), so the long-form `Closes:`
+  // trailer is structurally unavailable. Allowlist the cherry-pick SHA
+  // so the validator does not block merge.
+  '4b5174db', // fix(migration): replace archived migration imports with Baseline (3 services) — cherry-picked from f757b3ed
 ]);
 
 interface Commit {

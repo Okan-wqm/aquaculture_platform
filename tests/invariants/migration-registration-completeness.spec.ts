@@ -90,7 +90,14 @@ function listMigrationFilesFor(service: string): string[] {
             !f.endsWith('.test.ts') &&
             !f.includes('/__tests__/') &&
             // Exclude TypeORM CLI data-source helpers if any drift here.
-            !f.endsWith('/data-source.ts'),
+            !f.endsWith('/data-source.ts') &&
+            // ADR-030 day-one reset archived the pre-baseline migration chain
+            // into <migrations>/.archive/<timestamp>/. Those files exist in
+            // git history for forensic reference but are NOT loaded by any
+            // service's TypeORM `migrations: [...]` array — verifying their
+            // registration is meaningless and would force every spec change
+            // to bloat the AppModule import surface with archived classes.
+            !f.includes('/.archive/'),
         ),
       );
     } catch {

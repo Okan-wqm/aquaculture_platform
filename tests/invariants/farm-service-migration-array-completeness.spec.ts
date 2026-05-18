@@ -169,7 +169,16 @@ function listArrayMigrationClasses(): string[] {
   // Each line that contains a class identifier is a migration entry.
   // Lines that are pure comments are ignored — the regex requires the
   // identifier to be preceded by start-of-line whitespace, not a `//`.
-  const entryRegex = /^\s*([A-Z][A-Za-z0-9]*\d{13})\s*,/gm;
+  //
+  // Trailing punctuation is `,` OR end-of-line — the latter covers
+  // single-element arrays where the only entry has no trailing comma.
+  // (The outer FARM_MIGRATIONS match already strips the surrounding
+  // `[ … ]`, so the close bracket never appears in `body` and a
+  // bracket-based pattern can't match it.) Post-ADR-030 the manifest is
+  // `[Baseline1800000000000]` (one entry, no trailing comma); the
+  // previous comma-only pattern silently returned `inArray = []` and
+  // tripped the orphaned-imported check.
+  const entryRegex = /^\s*([A-Z][A-Za-z0-9]*\d{13})\s*(?:,|$)/gm;
   let m: RegExpExecArray | null;
   while ((m = entryRegex.exec(body)) !== null) {
     names.push(m[1]!);
@@ -188,8 +197,13 @@ describe('farm-service migration array completeness (FARM-LOW-001 follow-up)', (
     inArray = listArrayMigrationClasses();
   });
 
-  it('finds at least 20 on-disk migrations (sanity — confirms the scan works)', () => {
-    expect(onDisk.length).toBeGreaterThanOrEqual(20);
+  it('finds at least 1 on-disk migration (sanity — confirms the scan works)', () => {
+    // Post-ADR-030 day-one reset farm-service ships exactly 1 baseline
+    // (apps/farm-service/src/database/migrations/1800000000000-Baseline.ts) +
+    // any post-reset add-ons. The pre-reset >=20 floor was tied to the
+    // ~25-file archaeology chain that's now archived. A single-digit
+    // floor still catches "scan returned empty" regressions.
+    expect(onDisk.length).toBeGreaterThanOrEqual(1);
   });
 
   it('AppModule delegates runtime migrations to FARM_MIGRATIONS', () => {

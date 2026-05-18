@@ -158,7 +158,12 @@ function listMigrationFiles(): string[] {
     .filter(Boolean)
     .filter((p) => !p.includes('__tests__'))
     .filter((p) => !p.endsWith('.spec.ts'))
-    .filter((p) => !p.endsWith('.test.ts'));
+    .filter((p) => !p.endsWith('.test.ts'))
+    // ADR-030 day-one reset archived the pre-baseline migration chain into
+    // <migrations>/.archive/<timestamp>/. Those files exist in git history
+    // for forensic reference but are never executed — destructive DDL inside
+    // them is not a production hazard. Treat the archive as out-of-scope.
+    .filter((p) => !p.includes('/.archive/'));
 }
 
 function lineContext(src: string, matchIndex: number): string {
@@ -203,7 +208,12 @@ describe('INVARIANT — protected-tables-guard (COMPLIANCE-CRITICAL-001)', () =>
   const files = listMigrationFiles();
 
   it('repository contains migration files to scan', () => {
-    expect(files.length).toBeGreaterThan(20);
+    // Sanity-check that the scan surface is non-empty. After ADR-030's
+    // day-one reset archived the pre-baseline chain into `.archive/`
+    // (excluded above), 14 consolidated baselines + a handful of
+    // post-reset add-ons remain. The threshold (>10) is a smoke
+    // probe: if it drops to single digits we want to know.
+    expect(files.length).toBeGreaterThan(10);
   });
 
   it('no NEW migration performs destructive DDL on a protected table/schema without -- COMPLIANCE-WAIVER:', () => {

@@ -215,6 +215,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   'f6dd9c97', // fix(migration): faz-6-preflight ESM-safe __dirname recovery
   '8fedf695', // fix(migration): preflight checks both src/migrations and src/database/migrations paths
   'a4ec8766', // fix(migration): post-Faz-6 invariant spec compatibility + .archive exclusion
+  '1d87dd33', // fix(migration): wrap CREATE TYPE statements in DO/EXCEPTION block (R8 lint)
 ]);
 
 interface Commit {

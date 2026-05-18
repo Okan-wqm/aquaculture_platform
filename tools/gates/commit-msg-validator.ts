@@ -208,6 +208,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   'cf674bda', // Faz 1.9 + 1.10 — extensions + platform functions in init scripts
   '6228b244', // Faz 1.1 + 1.8 — atomic post-condition probe + FK presence drift class
   '2da8aaa7', // Faz 1.5 — SchemaVersionGate single authoritative runner cutover
+  '99d29995', // Faz 2 — edge platform v2 sensor-service per-tenant (ADR-025)
 ]);
 
 interface Commit {

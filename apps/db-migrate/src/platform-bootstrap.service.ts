@@ -52,7 +52,6 @@ import 'reflect-metadata';
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { randomBytes } from 'node:crypto';
 
 import { DataSource } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
@@ -178,33 +177,29 @@ function substitutePlaceholders(sql: string, vars: Record<string, string>): stri
  * env vars rather than checked-in source. Idempotent: every role is
  * created if missing AND password-synced on every run.
  *
- * Password resolution:
- *   1. If env var set → use that.
- *   2. Else → log a warning and generate a random 256-bit password
- *      (effectively unusable — operator must set the env var on next
- *      deploy or that role is locked out).
+ * Password resolution contract (Tier-1 Make-Impossible, ADR-031 follow-up):
+ *   - Env var present AND non-empty → use that.
+ *   - Env var missing OR empty → throw before any database mutation.
+ *
+ * The previous random-password fallback was a silent failure surface:
+ * Phase 0 reported success while the random secret was never shared with
+ * the service container that connects as the role, so Phase 1+ services
+ * crash-looped on authentication. The contract is now: every role-bearing
+ * env var MUST be provisioned in /var/aqua-saas/.env BEFORE the migration
+ * container starts. `scripts/deploy/droplet-up.sh` already enforces this
+ * via its `generate_credential` block (l.421–424); fail-fast guarantees
+ * the contract holds.
  */
 function buildRolesSql(log: PlatformBootstrapOptions['log']): { sql: string; rolesCreated: number } {
   const blocks: string[] = [];
-  let envSourced = 0;
+  const missingEnv: string[] = [];
   for (const { role, passEnv } of SERVICE_ROLES) {
     const envValue = process.env[passEnv];
-    let pass: string;
-    if (envValue && envValue.length > 0) {
-      pass = envValue;
-      envSourced += 1;
-    } else {
-      pass = randomBytes(32).toString('base64');
-      log({
-        level: 'warn',
-        message:
-          `Role password env var missing — generated random password. ` +
-          `Service that connects as this role will fail until the env var is set.`,
-        context: 'PlatformBootstrap',
-        role,
-        envVar: passEnv,
-      });
+    if (!envValue || envValue.length === 0) {
+      missingEnv.push(`${passEnv} (role=${role})`);
+      continue;
     }
+    const pass = envValue;
     // Escape single quotes for safe embedding in PASSWORD '...' literal.
     const passEscaped = pass.replace(/'/g, "''");
     if (!SAFE_IDENT_RE.test(role)) {
@@ -222,13 +217,24 @@ END
 $platform_bootstrap_roles$;`,
     );
   }
+  if (missingEnv.length > 0) {
+    throw new Error(
+      `[platform-bootstrap] Phase 0 abort: ${missingEnv.length}/${SERVICE_ROLES.length} ` +
+        `service-role password env vars are missing or empty: ${missingEnv.join(', ')}. ` +
+        `Provision them in /var/aqua-saas/.env BEFORE running aqua-db-migrate. ` +
+        `docker-compose.droplet.yml's db-migrate service forwards each *_SERVICE_DB_PASS ` +
+        `with an empty :- fallback, so an unset host env var arrives as an empty string in ` +
+        `the container. Source of provisioning: scripts/deploy/droplet-up.sh ` +
+        `generate_credential loop (l.421–424 for full deploy, l.564–570 for selective). ` +
+        `Refusing to ship random passwords that no service can ever know.`,
+    );
+  }
   log({
     level: 'info',
     message: 'Stage 002 roles SQL synthesised',
     context: 'PlatformBootstrap',
     rolesTotal: SERVICE_ROLES.length,
-    rolesEnvSourced: envSourced,
-    rolesRandomPassword: SERVICE_ROLES.length - envSourced,
+    rolesEnvSourced: SERVICE_ROLES.length,
   });
   return { sql: blocks.join('\n'), rolesCreated: SERVICE_ROLES.length };
 }

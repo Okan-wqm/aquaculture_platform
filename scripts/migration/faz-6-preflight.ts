@@ -119,18 +119,15 @@ function checkBaselineFilesExist(): void {
     'messaging-service',
     'sensor-service',
   ];
+  // Services use either src/migrations/ (auth, admin-api, event-store,
+  // messaging) or src/database/migrations/. Check both paths.
   const missing: string[] = [];
   for (const svc of services) {
-    const baseline = resolve(
-      REPO_ROOT,
-      'apps',
-      svc,
-      'src',
-      'database',
-      'migrations',
-      '1800000000000-Baseline.ts',
-    );
-    if (!existsSync(baseline)) missing.push(svc);
+    const candidates = [
+      resolve(REPO_ROOT, 'apps', svc, 'src', 'database', 'migrations', '1800000000000-Baseline.ts'),
+      resolve(REPO_ROOT, 'apps', svc, 'src', 'migrations', '1800000000000-Baseline.ts'),
+    ];
+    if (!candidates.some((p) => existsSync(p))) missing.push(svc);
   }
   if (missing.length === 0) {
     pass('faz-3/baseline-files-present', `all 14 services have 1800000000000-Baseline.ts`);

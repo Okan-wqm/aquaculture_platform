@@ -1282,11 +1282,47 @@ def _main(argv: list[str] | None = None) -> int:
     )
     auto_run.add_argument(
         "--max-budget-usd-per-run", type=float, default=20.00,
-        help="Per-run LLM budget cap in USD (default $20.00). "
-             "convergence_drainer reserves per-cycle estimate before "
-             "minting envelopes; ci_executor reconciles actual cost "
-             "from response usage block. Cap exhausted mid-cycle "
-             "emits budget_exhausted arbiter_verdict.",
+        help="Per-run LLM budget cap in USD (default $20.00 — V8 era; "
+             "V9 v3 plan acceptance gate raises to $45 for 20-cycle "
+             "endurance because V9 implementer call adds ~$0.40/cycle "
+             "to V8's ~$0.70 baseline). convergence_drainer reserves "
+             "per-cycle estimate before minting envelopes; "
+             "ci_executor reconciles actual cost from response "
+             "usage block. Cap exhausted mid-cycle emits "
+             "budget_exhausted arbiter_verdict.",
+    )
+    # Plan ARIA-V9.7 — per-cycle hard cap kill-switch (ai HIGH-013).
+    # Per-cycle reservation; cycle that would exceed kills at next
+    # turn boundary, not after the turn completes (so refund/reserve
+    # discipline holds). $1.50 default = 20-cycle target $30 + 50%
+    # headroom.
+    auto_run.add_argument(
+        "--max-budget-usd-per-cycle", type=float, default=1.50,
+        help="Per-cycle LLM hard cap kill-switch in USD (default "
+             "$1.50). Cycle that would exceed: kernel emits "
+             "cycle_budget_exhausted refusal at next turn boundary. "
+             "Combined with --max-budget-usd-per-run, the two caps "
+             "bound both a single runaway cycle AND a slowly-creeping "
+             "run that accumulates over many small cycles. Closes "
+             "ai-safety HIGH-013 + perf CRIT-001.",
+    )
+    # Plan ARIA-V9.7 — autonomous-profile precondition gate
+    # (ai MED-016). Profile=autonomous routes through
+    # preflight.verify_preflight; profile=strict is the safe default
+    # for dry-run operator-driven cycles.
+    auto_run.add_argument(
+        "--profile", choices=("strict", "autonomous"),
+        default="strict",
+        help="Autonomy profile (default: strict). 'strict' permits "
+             "dry-run + operator-review cycles regardless of preflight; "
+             "'autonomous' requires preflight.verify_preflight to "
+             "return valid=True (GH_TOKEN present, signing key dir, "
+             "IMMUTABLE_PATHS non-empty, ALLOWED_BASH_COMMANDS "
+             "non-empty, branch protection rules in place). "
+             "Mismatch under autonomous → "
+             "autonomous_profile_preconditions_not_met rejection. "
+             "Operator runbook docs/runbooks/aria-github-app-setup.md "
+             "documents Mode A setup for autonomous profile.",
     )
     auto_status = add_subparser(
         autonomy_sub, "status",

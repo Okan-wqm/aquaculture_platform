@@ -61,11 +61,18 @@ else:  # pragma: no cover — kernel pins Python >= 3.11
 # V9.2/V9.3 extends this Literal + the PLANNER_BRIDGE_ROLES frozenset
 # in the SAME COMMIT — a refactor that drops "implementation" from
 # only one of the two surfaces fails the I-V9-DISPATCH-01 invariant.
-PlannerBridgeRole = Literal["primary_plan", "challenger_plan", "cross_review"]
+# Plan ARIA-V9.3 — implementation role added. The match/case in
+# record_plan_result + assert_never exhaustiveness ensures mypy
+# catches any future role addition that forgets to extend the
+# Literal alias OR the frozenset OR the dispatch arm.
+PlannerBridgeRole = Literal[
+    "primary_plan", "challenger_plan", "cross_review", "implementation",
+]
 PLANNER_BRIDGE_ROLES: frozenset[str] = frozenset({
     "primary_plan",
     "challenger_plan",
     "cross_review",
+    "implementation",
 })
 
 
@@ -143,6 +150,10 @@ def record_plan_result(
     )
     from .tool_registry import GovernanceError
 
+    # Plan ARIA-V9.3 — implementation dispatch also needs the V9.2
+    # record_implementation_outcome public API.
+    from .plan_convergence import record_implementation_outcome
+
     plan_id = _extract_plan_id(request, response)
     if plan_id is None:
         raise GovernanceError(
@@ -209,6 +220,15 @@ def record_plan_result(
                 details=details,
                 plan_id=plan_id,
                 base_dir=base_dir,
+            )
+        case "implementation":
+            return _dispatch_implementation(
+                request=request,
+                response=response,
+                details=details,
+                plan_id=plan_id,
+                base_dir=base_dir,
+                record_implementation_outcome=record_implementation_outcome,
             )
         case _:
             # Tier-1 exhaustiveness. The role was filtered against
@@ -305,6 +325,53 @@ def _dispatch_cross_review(
         plan_id=plan_id,
         review=review_payload,
         workspace_root=workspace_root,
+        base_dir=base_dir,
+    )
+
+
+def _dispatch_implementation(
+    *,
+    request: dict[str, Any],
+    response: dict[str, Any],
+    details: dict[str, Any],
+    plan_id: str,
+    base_dir: str | Path | None,
+    record_implementation_outcome: Any,
+) -> dict[str, Any]:
+    """Plan ARIA-V9.3 — bridge dispatch for role="implementation".
+
+    aria-implementer agent submits an aria/agent-response/v1 envelope
+    whose ``details.implementation`` carries the full outcome record.
+    The bridge extracts the record + calls
+    plan_convergence.record_implementation_outcome which validates
+    state precondition (IMPLEMENTATION_IN_FLIGHT) + payload shape +
+    transitions to IMPLEMENTATION_RECORDED.
+
+    Extracts:
+      * claim_id (kernel-issued lease at request time)
+      * pr_url, diff_hash, branch_tip_sha, base_branch_sha
+      * validation_results, signer_key_fp, completed_at
+
+    Any missing field surfaces as GovernanceError from the kernel-side
+    _validate_event payload check (defense-in-depth — the bridge
+    doesn't re-validate shape here).
+    """
+    impl = details.get("implementation") or details
+    if not isinstance(impl, dict):
+        raise GovernanceError(
+            f"implementation dispatch: details.implementation must be a dict, "
+            f"got {type(impl).__name__}"
+        )
+    return record_implementation_outcome(
+        plan_id=plan_id,
+        claim_id=impl.get("claim_id") or request.get("request_id") or "",
+        pr_url=impl.get("pr_url") or impl.get("pr_url_html") or "",
+        diff_hash=impl.get("diff_hash") or "",
+        branch_tip_sha=impl.get("branch_tip_sha") or "",
+        base_branch_sha=impl.get("base_branch_sha") or "",
+        validation_results=impl.get("validation_results") or [],
+        signer_key_fp=impl.get("signer_key_fp") or "",
+        completed_at=impl.get("completed_at") or "",
         base_dir=base_dir,
     )
 

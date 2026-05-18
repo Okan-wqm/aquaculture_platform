@@ -913,6 +913,7 @@ jobs:
           DEPLOY_SERVICES: ${{ needs.prepare.outputs.deploy_services }}
           FULL_DEPLOY: ${{ needs.prepare.outputs.full_deploy }}
           DEPLOY_SHA: ${{ github.sha }}
+          IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # GITHUB_ACTOR is a reserved env var set by the runner; use a
           # distinct name here and let the remote script read it.
@@ -924,7 +925,7 @@ jobs:
           command_timeout: 75m # Sequential pulls on slow disk + service bootstrap for 22+ Docker images
           # envs: forwards these env vars from the GitHub runner into the
           # remote bash session on the droplet.
-          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_SHA,GHCR_TOKEN,GHCR_ACTOR
+          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_SHA,IMAGE_PREFIX,GHCR_TOKEN,GHCR_ACTOR
           script: |
             # Pull the exact commit being deployed so scripts/deploy/droplet-up.sh
             # is loaded from the deploy's own source. Everything else is

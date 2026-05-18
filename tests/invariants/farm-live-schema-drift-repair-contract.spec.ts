@@ -14,10 +14,8 @@ const FARM_MIGRATION_MANIFEST = resolve(
   REPO_ROOT,
   'apps/farm-service/src/database/migrations/manifest.ts',
 );
-const DROPLET_DEPLOY_SCRIPT = resolve(
-  REPO_ROOT,
-  'scripts/deploy/droplet-up.sh',
-);
+const DROPLET_DEPLOY_SCRIPT = resolve(REPO_ROOT, 'scripts/deploy/droplet-up.sh');
+const DROPLET_DEPLOY_WORKFLOW = resolve(REPO_ROOT, '.github/workflows/deploy-digitalocean.yml');
 const SCHEMA_MANAGER = resolve(
   REPO_ROOT,
   'libs/backend-common/src/database/schema-manager.service.ts',
@@ -77,31 +75,17 @@ describe('farm live schema drift repair contract', () => {
     const source = read(FARM_ERASURE_AUDIT_REINSTATE_MIGRATION);
     const manifest = read(FARM_MIGRATION_MANIFEST);
 
-    expect(source).toContain(
-      'ReinstateFarmTenantErasureAuditOwnership1789500000000',
-    );
-    expect(source).toContain(
-      'CREATE TABLE IF NOT EXISTS farm.tenant_erasure_audit',
-    );
-    expect(source).toContain(
-      'farm.tenant_erasure_audit_prevent_mutation',
-    );
-    expect(source).toContain(
-      'ALTER TABLE farm.tenant_erasure_audit OWNER TO farm_service',
-    );
+    expect(source).toContain('ReinstateFarmTenantErasureAuditOwnership1789500000000');
+    expect(source).toContain('CREATE TABLE IF NOT EXISTS farm.tenant_erasure_audit');
+    expect(source).toContain('farm.tenant_erasure_audit_prevent_mutation');
+    expect(source).toContain('ALTER TABLE farm.tenant_erasure_audit OWNER TO farm_service');
     expect(source).toContain('withDdlSafety');
     expect(source).toContain('forward-only');
-    expect(source).not.toMatch(
-      /DROP TABLE\s+IF EXISTS\s+farm\.tenant_erasure_audit/,
-    );
+    expect(source).not.toMatch(/DROP TABLE\s+IF EXISTS\s+farm\.tenant_erasure_audit/);
     expect(source).not.toMatch(/synchronize:\s*true/);
 
-    expect(manifest).toContain(
-      'ReinstateFarmTenantErasureAuditOwnership1789500000000',
-    );
-    expect(manifest).toContain(
-      './1789500000000-ReinstateFarmTenantErasureAuditOwnership',
-    );
+    expect(manifest).toContain('ReinstateFarmTenantErasureAuditOwnership1789500000000');
+    expect(manifest).toContain('./1789500000000-ReinstateFarmTenantErasureAuditOwnership');
   });
 
   it('uses the same bounded db-migrate runner for full and selective deploys', () => {
@@ -128,6 +112,57 @@ describe('farm live schema drift repair contract', () => {
     expect(rawImagePrunes).toHaveLength(1);
   });
 
+  it('fails closed when an affected deploy image cannot be pulled', () => {
+    const source = read(DROPLET_DEPLOY_SCRIPT);
+
+    expect(source).toContain('APPLICATION_IMAGE_SERVICES');
+    expect(source).toContain('is_application_image_service()');
+    expect(source).toContain('deploy_includes_service()');
+    expect(source).toContain('pull_deploy_image_required()');
+    expect(source).toContain('DEPLOY_SHA is required');
+    expect(source).toContain('local immutable_ref="${image}:${DEPLOY_SHA}"');
+    expect(source).toContain('docker pull "${immutable_ref}"');
+    expect(source).toContain('docker tag "${immutable_ref}" "${compose_ref}"');
+    expect(source).toContain('Required image pull failed for ${svc} (${immutable_ref})');
+    expect(source).toContain(
+      'Aborting BEFORE service restart so the deploy cannot keep running stale images.',
+    );
+    expect(source).toContain('pull_deploy_image_required "$svc"');
+    expect(source).toContain('--force-recreate ${DEPLOY_SERVICES}');
+    expect(source).not.toContain('WARN: $svc pull failed, continuing');
+  });
+
+  it('pins full deploy application images without using mutable latest races', () => {
+    const source = read(DROPLET_DEPLOY_SCRIPT);
+
+    expect(source).toContain('FULL DEPLOY: Pulling application images by immutable deploy SHA');
+    expect(source).toContain('for svc in ${APPLICATION_IMAGE_SERVICES}; do');
+    expect(source).toContain('pull_deploy_image_required "$svc"');
+    expect(source).toContain('deploy_includes_service "db-migrate"');
+    expect(source).toContain(
+      'infrastructure image pull for $svc failed, continuing with local image if present',
+    );
+  });
+
+  it('forwards the canonical image prefix into the droplet script', () => {
+    const source = read(DROPLET_DEPLOY_WORKFLOW);
+
+    expect(source).toContain('IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}');
+    expect(source).toContain(
+      'envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_SHA,IMAGE_PREFIX,GHCR_TOKEN,GHCR_ACTOR',
+    );
+  });
+
+  it('captures rollback image from the real compose gateway container', () => {
+    const source = read(DROPLET_DEPLOY_SCRIPT);
+
+    expect(source).toContain('docker compose -f docker-compose.droplet.yml ps -q gateway-api');
+    expect(source).toContain('docker inspect --format');
+    expect(source).toContain('aqua-gateway');
+    expect(source).toContain('GATEWAY_IMAGE_REF');
+    expect(source).not.toContain('aqua-saas-gateway-api-1');
+  });
+
   it('keeps tenant erasure audit in farm strict-ownership source-only tables', () => {
     const source = read(SCHEMA_MANAGER);
     const farmStart = source.indexOf("moduleName: 'farm'");
@@ -138,12 +173,8 @@ describe('farm live schema drift repair contract', () => {
     expect(nextModule).toBeGreaterThan(farmStart);
     expect(farmBlock).toContain('strictOwnership: true');
     expect(farmBlock).toContain('infrastructureTables:');
-    expect(farmBlock).toMatch(
-      /infrastructureTables:\s*\[[\s\S]*'tenant_erasure_audit'/,
-    );
-    expect(farmBlock).not.toMatch(
-      /referenceDataTables:\s*\[[\s\S]*'tenant_erasure_audit'/,
-    );
+    expect(farmBlock).toMatch(/infrastructureTables:\s*\[[\s\S]*'tenant_erasure_audit'/);
+    expect(farmBlock).not.toMatch(/referenceDataTables:\s*\[[\s\S]*'tenant_erasure_audit'/);
     expect(farmBlock).not.toMatch(/tables:\s*\[[\s\S]*'tenant_erasure_audit'/);
   });
 });

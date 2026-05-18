@@ -1,0 +1,137 @@
+{
+  "finding_id": "F-015",
+  "id": "F-015",
+  "umbrella": true,
+  "title": "Plan ARIA-V9 + V10 v3 — Autonomous Implementation + Learning + Endurance (4-validator-audit hardened)",
+  "status": "OPEN",
+  "opened_at": "2026-05-18T15:00:00Z",
+  "resolved_at": null,
+  "closing_commits": [],
+  "plan": "/root/.claude/plans/immutable-sparking-waterfall.md",
+  "trigger": "V8 P+C+CR convergence-gate proven (14th live run produced two consecutive CONVERGED cycles T143056Z + T144139Z). V8 delivers logging + autonomy + verdicts but NOT professional implementations (CONVERGED plans never become real code), repo learning (each cycle stateless), real repo pressure (only git diff mined), skill genesis activation (V6.2 dormant), endurance verification (30-cycle gate ungated), or per-pattern cost telemetry. V9+V10 closes that value gap. 4-validator audit (architectural-arbiter + ai-safety-auditor + security-reviewer + performance-expert) on v1 plan returned 23 CRITICAL + 30 HIGH gaps; v3 plan folds every finding inline as Tier-1/Tier-2 anchors.",
+  "subfindings": [
+    {
+      "id": "F-015-V8-RC",
+      "title": "Module-inventory reconciliation (precondition; architectural-arbiter CRIT-001 was stale)",
+      "status": "RESOLVED",
+      "closing_commits": ["3c5d4abf"]
+    },
+    {
+      "id": "F-015-V9-0-A",
+      "title": "PlanCandidateSource shared enum (arb CRIT-006)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-0-B",
+      "title": "Event-type + terminal-state whitelist + state precondition + cache deepcopy + assert_never (arb CRIT-002/003 + HIGH-001 + MED-009)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-0-C",
+      "title": "Branch-protection preflight + GitHub-App-scoped PAT + commit signing (sec CRIT-001/002/003/004 + HIGH-001/011 + MED-017 + perf CRIT-003)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-0-D",
+      "title": "implementation_safety.py — 15 hard-fail checks + Bash sandbox + immutable paths + secret-scan (ai CRIT-001/002/004 + HIGH-006 + sec CRIT-001 + HIGH-003/004/005 + perf HIGH-009)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-0-E",
+      "title": "Skill-genesis sandbox + AST allowlist (ai MED-015 + sec CRIT-006)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-0-F",
+      "title": "Knowledge-graph integrity (hash-chain + signature + indexed lookup) (ai MED-014 + sec CRIT-005 + arb HIGH-008)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-1",
+      "title": "aria-implementer runtime agent (Lane-A, Read+Grep+Glob+Edit+Write+Bash, 17 refusal classes, SECURITY CONTRACT)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-2",
+      "title": "state.implementation record + Closes: format reconciliation + IMPLEMENTATION_MERGED transition (arb CRIT-002/003 + HIGH-007/012)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-3",
+      "title": "convergence drainer extension + poll discipline + cross-reviewer identity (arb HIGH-002/003 + perf CRIT-004 + MED-011)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-4",
+      "title": "plan_synthesizer 5 pressure sources + caching + signature + pattern_signature stable normalization (arb CRIT-006/007 + MED-003/004 + ai HIGH-010 + perf HIGH-005/006/008)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-5",
+      "title": "Safety contract registration policy doc",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-6",
+      "title": "Auto-merge runner — sync merge + headRefOid recheck + 5-tuple idempotency + autonomous-profile gate (arb CRIT-004 + HIGH-006 + sec CRIT-003 + HIGH-002 + MED-004 + perf MED-012)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-7",
+      "title": "CLI surface extension — 6 new flags (arb HIGH-010)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V9-8",
+      "title": "V9 invariants (~30)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V10-1",
+      "title": "Knowledge graph policy documentation",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V10-2",
+      "title": "Skill genesis activation — pattern_signature stable + N>=5 threshold + sandbox dispatch + AST allowlist + HUMAN_REQUIRED registration",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V10-3-A",
+      "title": "5-cycle smoke gate (strict profile, dry-run, operator reviews every PR)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V10-4",
+      "title": "Per-pattern cost telemetry (arb MED-008 + perf MED-010)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V10-5",
+      "title": "V10 invariants (~15)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V10-6",
+      "title": "One-way-door risk enumeration doc (arb Theme A)",
+      "status": "OPEN"
+    },
+    {
+      "id": "F-015-V10-3-B",
+      "title": "20-cycle endurance gate (autonomous profile; AFTER 10.3-A clean trace + operator sign-off; arb CRIT-008 + ai HIGH-013 + MED-016 + perf CRIT-001/002/003)",
+      "status": "OPEN"
+    }
+  ],
+  "audit_inputs": [
+    "architectural-arbiter",
+    "ai-safety-auditor",
+    "security-reviewer",
+    "performance-expert"
+  ],
+  "audit_summary_critical_count": 23,
+  "audit_summary_high_count": 30,
+  "audit_summary_underspec_count": 19,
+  "tier_ceiling": "Tier-1 (Make impossible)",
+  "branch": "snowball",
+  "predecessor_findings": ["F-014"]
+}

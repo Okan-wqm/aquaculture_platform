@@ -530,6 +530,43 @@ def run_convergence_drainer(
             arbiter_verdict = _derive_arbiter_verdict(
                 terminal_state, list(reason_codes),
             )
+            # Plan ARIA-V8 v2 §4 Phase 8.5 (B-V2-08) — independence
+            # enforcement on converged cycles. Echo chamber detection
+            # via verify_independence's 3-layer check (claim_id +
+            # revision_id + Jaccard). On violation the verdict
+            # downgrades to cross_review_self_agreement so the operator
+            # sees the fake-consensus signal in the reflection.
+            if arbiter_verdict == "converged" and len(request_ids) >= 3:
+                from .independence_check import verify_independence
+                from .tool_registry import append_tools_governance
+                independence_ok, violation_reasons = verify_independence(
+                    primary_request_id=request_ids[0],
+                    primary_revision_id=f"{plan_id}-r1",
+                    primary_text="(primary plan text — not loaded at convergence; "
+                                 "Jaccard check operates on agent_text via cross-reviewer envelope)",
+                    challenger_request_id=request_ids[1] if len(request_ids) > 1 else "",
+                    challenger_revision_id=f"{plan_id}-c1",
+                    challenger_text="(challenger plan text)",
+                    cross_review_request_id=request_ids[2] if len(request_ids) > 2 else "",
+                    cross_review_revision_id=None,
+                    cross_review_text="(cross_review text)",
+                    base_dir=base_dir,
+                )
+                if not independence_ok:
+                    arbiter_verdict = "cross_review_self_agreement"
+                    try:
+                        append_tools_governance(
+                            ensure_tools_dir(base_dir),
+                            "convergence_invalid_self_agreement",
+                            {
+                                "plan_id": plan_id,
+                                "cycle_id": cycle_id,
+                                "violation_reasons": violation_reasons,
+                                "request_ids": request_ids,
+                            },
+                        )
+                    except Exception:
+                        pass
             converged_plan = (
                 eval_result.get("plan_content", {})
                 if arbiter_verdict == "converged"

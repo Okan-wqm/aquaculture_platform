@@ -151,6 +151,7 @@ export default {
         '<rootDir>/protected-tables-guard.spec.ts',
         '<rootDir>/no-savepoint-in-migrations.spec.ts',
         '<rootDir>/rls-predicate-canonical.spec.ts',
+        '<rootDir>/entity-schema-declaration.spec.ts',
       ],
     },
   ],

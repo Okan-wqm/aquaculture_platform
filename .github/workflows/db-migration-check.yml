@@ -459,6 +459,46 @@ jobs:
         run: npm run gates:migration-deletion-witness
 
   # ===================================================================
+  # entity-diff-witness — Faz 1.3 of day-one baseline reset.
+  #
+  # Catches the silent-regression class where an `@Entity()` file is
+  # edited (column add/drop, type change, nullability flip, FK add,
+  # @Check change) WITHOUT a matching migration landing in the same PR.
+  # This is the upstream gate that prevents the 2026-04 drift archaeology
+  # (14 services' Align*EntitySurface / Heal*Drift / Replay* chains).
+  #
+  # The PR-body waiver `ENTITY-DIFF-OK: <service> — <reason>` is honoured
+  # for genuine no-DDL-impact edits (typing fix, JSDoc, etc.) but the
+  # waiver carries CODEOWNERS review from database-reviewer.
+  # ===================================================================
+  entity-diff-witness:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Need the merge-base for git diff name-status.
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Run entity-diff-witness gate
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: npm run gates:entity-diff-witness -- --diff-base "$BASE_SHA"
+
+  # ===================================================================
   # schema-drift-registration — AST gate.
   #
   # Asserts every canonical service's app.module.ts registers

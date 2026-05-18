@@ -152,6 +152,7 @@ export default {
         '<rootDir>/no-savepoint-in-migrations.spec.ts',
         '<rootDir>/rls-predicate-canonical.spec.ts',
         '<rootDir>/entity-schema-declaration.spec.ts',
+        '<rootDir>/entity-diff-implies-migration.spec.ts',
       ],
     },
   ],

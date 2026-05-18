@@ -76,6 +76,26 @@ run_db_migrate_or_exit() {
   echo "  aqua-db-migrate completed successfully"
 }
 
+run_image_prune_best_effort() {
+  local label="$1"
+  shift
+  local cleanup_timeout="${IMAGE_PRUNE_TIMEOUT_SECONDS:-180}"
+
+  echo "  Pruning ${label} (timeout=${cleanup_timeout}s)..."
+  set +e
+  timeout --kill-after=10s "${cleanup_timeout}s" docker image prune "$@"
+  PRUNE_STATUS=$?
+  set -e
+
+  if [ "${PRUNE_STATUS}" -eq 124 ] || [ "${PRUNE_STATUS}" -eq 137 ]; then
+    echo "::warning::Docker image prune for ${label} exceeded ${cleanup_timeout}s; continuing because cleanup is post-success best effort."
+    docker system df 2>&1 || true
+  elif [ "${PRUNE_STATUS}" -ne 0 ]; then
+    echo "::warning::Docker image prune for ${label} failed with exit ${PRUNE_STATUS}; continuing because cleanup is post-success best effort."
+    docker system df 2>&1 || true
+  fi
+}
+
 # SEC-CI-012: Checkout to the specific SHA that triggered the workflow
 # instead of git pull (prevents TOCTOU race if another commit lands mid-deploy)
 echo "=== Checking out deploy SHA ==="
@@ -602,8 +622,8 @@ if ! COMPOSE_FILE=docker-compose.droplet.yml \
 fi
 
 echo "=== Cleanup old images ==="
-docker image prune -f --filter "dangling=true"
-docker image prune -f --filter "until=24h" --filter "label!=deployed=current"
+run_image_prune_best_effort "dangling images" -f --filter "dangling=true"
+run_image_prune_best_effort "stale images" -f --filter "until=24h" --filter "label!=deployed=current"
 
 echo "=== Container status ==="
 docker compose -f docker-compose.droplet.yml ps

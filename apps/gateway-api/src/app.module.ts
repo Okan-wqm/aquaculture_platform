@@ -1,6 +1,3 @@
-import { RemoteGraphQLDataSource } from '@apollo/gateway';
-import { GatewayGraphQLRequestContext, GatewayGraphQLResponse } from '@apollo/server-gateway-interface';
-import type { ResponsePath } from '@apollo/query-planner';
 import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
@@ -29,13 +26,11 @@ import {
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
-import { generateServiceIdentityHeaders } from '@aquaculture/backend-common/utils';
 import { AuditedOperationModule, AuditLogEntity } from '@aquaculture/backend-common/audit';
-import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
-import { AuthGuard, JwtPayload } from './guards/auth.guard';
+import { AuthGuard } from './guards/auth.guard';
 import { ApiKeyAuthStrategy } from './guards/strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
 import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
@@ -61,214 +56,11 @@ import { WebSocketModule } from './websocket/websocket.module';
 import { createAliasLimitPlugin } from './plugins/graphql-alias-limit.plugin';
 import { AiRoutesModule } from './routes/v2/ai.routes';
 import { TenantLookupService } from './services/tenant-lookup.service';
-
-// JwtPayload is imported from auth.guard.ts for consistency
+import { AuthenticatedDataSource } from './federation/authenticated-data-source';
+import type { GatewayContext, RequestWithUser } from './federation/authenticated-data-source';
 
 // Module-level logger to avoid re-instantiation per GraphQL operation
 const queryComplexityLogger = new Logger('QueryComplexity');
-
-/**
- * Request headers structure
- */
-interface RequestHeaders {
-  authorization?: string;
-  cookie?: string;
-  'x-tenant-id'?: string;
-  'x-correlation-id'?: string;
-  [key: string]: string | undefined;
-}
-
-/**
- * Request with user information attached
- */
-interface RequestWithUser {
-  headers: RequestHeaders;
-  user?: JwtPayload;
-  cookies?: Record<string, string>;
-}
-
-/**
- * Extended context type for Apollo Gateway
- */
-interface GatewayContext {
-  req: RequestWithUser;
-  res: import('express').Response;
-}
-
-/**
- * SECURITY NOTE: JWT decoding moved to guard for proper verification.
- * Context only passes through the original request reference.
- * The guard will verify the JWT and set req.user with validated payload.
- * willSendRequest then forwards the verified user data to subgraphs.
- *
- * DO NOT decode JWT without verification - it creates security risks:
- * 1. Unverified claims could be forwarded to subgraphs
- * 2. Attackers could craft malicious payloads that bypass validation
- */
-
-/**
- * Custom data source that forwards headers to subgraphs
- * Includes error logging for transient failures
- */
-class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
-  private readonly logger = new Logger('AuthenticatedDataSource');
-  private readonly secret?: string;
-
-  constructor(config: { url?: string; secret?: string }) {
-    super({ url: config.url });
-    this.secret = config.secret;
-  }
-
-  override willSendRequest(params: {
-    request: { http?: { headers: { set: (key: string, value: string) => void } } };
-    context?: GatewayContext | Record<string, unknown>;
-  }): void {
-    const { request, context } = params;
-
-    // Handle health checks and schema loading which don't have our GatewayContext
-    if (!context || !('req' in context)) {
-      return;
-    }
-
-    const req = (context as GatewayContext).req;
-    const httpRequest = request.http;
-
-    if (!httpRequest) {
-      return;
-    }
-
-    // Forward authentication header to subgraphs
-    const authorization = req.headers.authorization;
-    if (authorization) {
-      httpRequest.headers.set('authorization', authorization);
-    }
-
-    // SECURITY: Forward cookies to subgraphs (needed for httpOnly refresh token)
-    const cookie = req.headers.cookie;
-    if (cookie) {
-      httpRequest.headers.set('cookie', cookie);
-    }
-
-    // Forward tenant ID - prefer JWT tenantId (trusted), fallback to header
-    // SECURITY: Only forward valid, non-empty UUIDs to prevent subgraphs from
-    // receiving "null", "undefined", empty strings, or array values as tenant ID
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    let resolvedTenantId = req.user?.tenantId;
-    if (!resolvedTenantId) {
-      // Fallback: header (may be string[] if sent multiple times — use first element)
-      const headerVal = req.headers['x-tenant-id'];
-      const candidate = Array.isArray(headerVal) ? headerVal[0] : headerVal;
-      if (typeof candidate === 'string') {
-        resolvedTenantId = candidate.trim();
-      }
-    }
-    if (
-      resolvedTenantId &&
-      typeof resolvedTenantId === 'string' &&
-      resolvedTenantId.length > 0 &&
-      uuidRegex.test(resolvedTenantId)
-    ) {
-      httpRequest.headers.set('x-tenant-id', resolvedTenantId);
-    }
-
-    // Forward correlation ID and trace context for distributed tracing
-    const correlationId = req.headers['x-correlation-id'];
-    if (correlationId) {
-      httpRequest.headers.set('x-correlation-id', correlationId);
-    }
-
-    // Forward W3C Trace Context (traceparent)
-    const traceparent = req.headers['traceparent'];
-    if (traceparent) {
-      httpRequest.headers.set('traceparent', traceparent);
-    }
-
-    // Forward trace/span IDs
-    const traceId = req.headers['x-trace-id'];
-    if (traceId) {
-      httpRequest.headers.set('x-trace-id', traceId);
-    }
-
-    const spanId = req.headers['x-span-id'];
-    if (spanId) {
-      httpRequest.headers.set('x-span-id', spanId);
-    }
-
-    const parentSpanId = req.headers['x-parent-span-id'];
-    if (parentSpanId) {
-      httpRequest.headers.set('x-parent-span-id', parentSpanId);
-    }
-
-    // Forward user info if decoded
-    const user = req.user;
-    if (user) {
-      httpRequest.headers.set('x-user-id', user.sub);
-      httpRequest.headers.set('x-user-roles', JSON.stringify(user.roles ?? []));
-      // Forward full user payload for @CurrentUser() decorator in subgraphs
-      httpRequest.headers.set('x-user-payload', JSON.stringify(user));
-    }
-
-    // SECURITY: sign request for subgraph identity verification AND bind
-    // the resolved tenant + method + path + body into the HMAC. v2 canonical
-    // input prevents cross-endpoint replay (a captured signature for one
-    // subgraph operation cannot be forwarded to another) AND body-tampering
-    // (the receiver re-derives sha256(body) and rejects on mismatch). If
-    // no tenant applies (public / pre-auth paths), tenantId is empty string.
-    //
-    // Closes: SEC-CRITICAL-001 — sender side; subgraph guards already accept v2
-    // via verifyServiceIdentityRequest in libs/backend-common/src/guards.
-    if (this.secret) {
-      const signedTenantId = uuidRegex.test(resolvedTenantId ?? '')
-        ? (resolvedTenantId as string)
-        : '';
-      // Apollo's runtime httpRequest exposes the to-be-sent verb, URL, and
-      // body, but its public type only guarantees the header mutator.
-      // Path is extracted without the query string per v2 contract.
-      const outgoingRequest = httpRequest as typeof httpRequest & {
-        url?: string;
-        method?: string;
-        body?: unknown;
-      };
-      const subgraphUrl = new URL(outgoingRequest.url ?? '/graphql', 'http://subgraph.local');
-      const subgraphPath = subgraphUrl.pathname;
-      const subgraphMethod = outgoingRequest.method ?? 'POST';
-      const subgraphBody =
-        typeof outgoingRequest.body === 'string'
-          ? outgoingRequest.body
-          : JSON.stringify(outgoingRequest.body ?? '');
-      const identityHeaders = buildSignedInternalHeaders({
-        serviceName: 'gateway-api',
-        tenantId: signedTenantId,
-        method: subgraphMethod,
-        path: subgraphPath,
-        body: subgraphBody,
-        secret: this.secret,
-      });
-      for (const [key, value] of Object.entries(identityHeaders)) {
-        httpRequest.headers.set(key, value);
-      }
-    }
-  }
-
-  override didReceiveResponse(
-    requestContext: Required<Pick<GatewayGraphQLRequestContext<GatewayContext>, 'request' | 'response' | 'context'>> & {
-      pathInIncomingRequest?: ResponsePath;
-    },
-  ): GatewayGraphQLResponse {
-    const { response, context } = requestContext;
-    // Forward set-cookie headers from subgraph → browser
-    // Critical for httpOnly refresh token cookie from auth-service
-    if (context && 'res' in context) {
-      const res = (context as GatewayContext).res;
-      const setCookieHeader = response.http?.headers?.get('set-cookie');
-      if (setCookieHeader) {
-        // Append (don't overwrite) — multiple subgraphs may set cookies
-        res.append('set-cookie', setCookieHeader);
-      }
-    }
-    return response;
-  }
-}
 
 @Module({
   imports: [

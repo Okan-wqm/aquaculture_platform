@@ -68,7 +68,8 @@ export interface ModuleSchema {
  * MAINTENANCE CONTRACT:
  * - Every table registered in a NestJS entity (with @Entity decorator) for a module MUST be
  *   listed in the corresponding MODULE_SCHEMAS entry BEFORE the entity is deployed to production.
- * - When adding a new table: add it to the `tables` array of the relevant module here.
+ * - When adding a new per-tenant table: add it to the `tables` array of the relevant module here.
+ * - When adding a source-schema-only owned table: add it to `infrastructureTables` instead.
  * - When removing a table: remove it from both the entity definitions AND this list, then create
  *   a migration to drop the column/table from existing tenant schemas.
  * - Reference data tables (lookup / seed data) must also be listed in `referenceDataTables` so
@@ -171,12 +172,17 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     //   - `farm_outbox`       — Phase D transactional outbox pattern.
     //                           Shared across tenants, partitioned
     //                           internally by tenantId; never copied.
+    //   - `tenant_erasure_audit`
+    //                         — GDPR erasure idempotency ledger. It is a
+    //                           farm-owned source-schema table keyed by
+    //                           tenantId, not a per-tenant table to clone.
     // If the service ever adds another runtime-only infrastructure
     // table (bootstrap tracking, rate-limit counters, etc.), add it
     // here so the strict-ownership enforcement doesn't drop it.
     infrastructureTables: [
       'migrations',
       'farm_outbox',
+      'tenant_erasure_audit',
     ],
     // Reference tables are exempt from SourceSchemaWriteGuardService so that
     // seed services (FarmSeedService) can write global/template rows that

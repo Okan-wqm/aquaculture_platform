@@ -209,6 +209,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   '6228b244', // Faz 1.1 + 1.8 — atomic post-condition probe + FK presence drift class
   '2da8aaa7', // Faz 1.5 — SchemaVersionGate single authoritative runner cutover
   '99d29995', // Faz 2 — edge platform v2 sensor-service per-tenant (ADR-025)
+  '6e9c3c14', // Faz 7 — ADR-030 + authoring runbook + drift-repair naming ban
 ]);
 
 interface Commit {

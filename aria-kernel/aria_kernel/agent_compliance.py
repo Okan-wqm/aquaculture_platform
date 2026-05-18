@@ -99,13 +99,25 @@ SOFT_COMPLIANCE_CHECKS: tuple[str, ...] = (
 )
 ALL_CHECKS: tuple[str, ...] = HARD_REJECT_CHECKS + SOFT_COMPLIANCE_CHECKS
 
-# Reuse the agent_contract evidence-ref regex when present; fall back to a
-# minimal sane pattern (path-with-line-number form) when the import fails
-# (e.g. test fixture isolation).
+# Plan ARIA-V8.16 — single source of truth for the evidence-ref regex.
+# Pre-V8.16 this module tried to import from agent_contract (where
+# the regex never lived) and silently fell back to a path-with-line
+# pattern that REJECTED the V7.9 `path:line:content` triplet form.
+# After V8.14 made plan_synthesizer emit triplet refs from git diff
+# hunks, every agent submission landed `compliance_rejected` with
+# `regex_mismatch` reasons.
+#
+# evidence_validator._AGENT_REF_RE was fixed in V8.6 to accept all
+# three canonical forms (path | path:line | path:line:content) with
+# no ReDoS exposure. Importing from there gives compliance the same
+# acceptance language and keeps the kernel's evidence-ref grammar
+# definition in exactly one place.
 try:
-    from .agent_contract import _AGENT_REF_RE as _EVIDENCE_REF_RE  # noqa: SLF001
+    from .evidence_validator import _AGENT_REF_RE as _EVIDENCE_REF_RE  # noqa: SLF001
 except (ImportError, AttributeError):
-    _EVIDENCE_REF_RE = re.compile(r"^[A-Za-z0-9_./\-:]+(?::\d+(?:-\d+)?)?$")
+    # Last-resort fallback if evidence_validator import fails — mirror
+    # its V8.6 pattern verbatim rather than the looser pre-V8.16 form.
+    _EVIDENCE_REF_RE = re.compile(r"^(?P<path>[^\s:]+)(?::(?P<line>\d+)(?::.*)?)?$")
 
 
 def _ledger_path(tools_root: Path) -> Path:

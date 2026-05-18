@@ -3,10 +3,20 @@
   "id": "F-015",
   "umbrella": true,
   "title": "Plan ARIA-V9 + V10 v3 — Autonomous Implementation + Learning + Endurance (4-validator-audit hardened)",
-  "status": "OPEN",
+  "status": "IN-PROGRESS",
   "opened_at": "2026-05-18T15:00:00Z",
   "resolved_at": null,
-  "closing_commits": [],
+  "closing_commits": [
+    "3c5d4abf",
+    "c9f1b49a",
+    "401ef5be",
+    "0e9d76d8",
+    "26831530",
+    "8356e920",
+    "c05255a8",
+    "7c3b79b7",
+    "fb796bf8"
+  ],
   "plan": "/root/.claude/plans/immutable-sparking-waterfall.md",
   "trigger": "V8 P+C+CR convergence-gate proven (14th live run produced two consecutive CONVERGED cycles T143056Z + T144139Z). V8 delivers logging + autonomy + verdicts but NOT professional implementations (CONVERGED plans never become real code), repo learning (each cycle stateless), real repo pressure (only git diff mined), skill genesis activation (V6.2 dormant), endurance verification (30-cycle gate ungated), or per-pattern cost telemetry. V9+V10 closes that value gap. 4-validator audit (architectural-arbiter + ai-safety-auditor + security-reviewer + performance-expert) on v1 plan returned 23 CRITICAL + 30 HIGH gaps; v3 plan folds every finding inline as Tier-1/Tier-2 anchors.",
   "subfindings": [
@@ -19,47 +29,56 @@
     {
       "id": "F-015-V9-0-A",
       "title": "PlanCandidateSource shared enum (arb CRIT-006)",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "closing_commits": ["c9f1b49a"]
     },
     {
       "id": "F-015-V9-0-B",
       "title": "Event-type + terminal-state whitelist + state precondition + cache deepcopy + assert_never (arb CRIT-002/003 + HIGH-001 + MED-009)",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "closing_commits": ["401ef5be"]
     },
     {
       "id": "F-015-V9-0-C",
       "title": "Branch-protection preflight + GitHub-App-scoped PAT + commit signing (sec CRIT-001/002/003/004 + HIGH-001/011 + MED-017 + perf CRIT-003)",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "closing_commits": ["0e9d76d8"]
     },
     {
       "id": "F-015-V9-0-D",
       "title": "implementation_safety.py — 15 hard-fail checks + Bash sandbox + immutable paths + secret-scan (ai CRIT-001/002/004 + HIGH-006 + sec CRIT-001 + HIGH-003/004/005 + perf HIGH-009)",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "closing_commits": ["26831530"]
     },
     {
       "id": "F-015-V9-0-E",
       "title": "Skill-genesis sandbox + AST allowlist (ai MED-015 + sec CRIT-006)",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "closing_commits": ["8356e920"]
     },
     {
       "id": "F-015-V9-0-F",
       "title": "Knowledge-graph integrity (hash-chain + signature + indexed lookup) (ai MED-014 + sec CRIT-005 + arb HIGH-008)",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "closing_commits": ["8356e920"]
     },
     {
       "id": "F-015-V9-1",
       "title": "aria-implementer runtime agent (Lane-A, Read+Grep+Glob+Edit+Write+Bash, 17 refusal classes, SECURITY CONTRACT)",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "closing_commits": ["c05255a8"]
     },
     {
       "id": "F-015-V9-2",
       "title": "state.implementation record + Closes: format reconciliation + IMPLEMENTATION_MERGED transition (arb CRIT-002/003 + HIGH-007/012)",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "closing_commits": ["7c3b79b7"]
     },
     {
       "id": "F-015-V9-3",
       "title": "convergence drainer extension + poll discipline + cross-reviewer identity (arb HIGH-002/003 + perf CRIT-004 + MED-011)",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "closing_commits": ["fb796bf8"]
     },
     {
       "id": "F-015-V9-4",
@@ -69,7 +88,8 @@
     {
       "id": "F-015-V9-5",
       "title": "Safety contract registration policy doc",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "closing_commits": ["fb796bf8"]
     },
     {
       "id": "F-015-V9-6",
@@ -79,7 +99,8 @@
     {
       "id": "F-015-V9-7",
       "title": "CLI surface extension — 6 new flags (arb HIGH-010)",
-      "status": "OPEN"
+      "status": "RESOLVED",
+      "closing_commits": ["fb796bf8"]
     },
     {
       "id": "F-015-V9-8",

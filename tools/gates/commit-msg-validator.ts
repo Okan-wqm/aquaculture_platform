@@ -211,6 +211,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   '99d29995', // Faz 2 — edge platform v2 sensor-service per-tenant (ADR-025)
   '6e9c3c14', // Faz 7 — ADR-030 + authoring runbook + drift-repair naming ban
   '2620e978', // Faz 3 live exec — 14 service baseline migrations consolidated
+  '0f714656', // Faz 3.5 hand-author additions — RLS + audit immutability + sensor hypertable
 ]);
 
 interface Commit {

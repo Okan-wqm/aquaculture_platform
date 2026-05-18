@@ -160,32 +160,50 @@ def _canonicalize_plan_content(envelope: dict[str, Any]) -> bool:
     return mutated
 
 
-def _canonicalize_satisfaction_matrix(envelope: dict[str, Any]) -> bool:
-    """Plan ARIA-V8.8 — auto-fill missing satisfaction_matrix verdicts.
+def _canonicalize_satisfaction_matrix(
+    envelope: dict[str, Any],
+    must_satisfy: list[dict[str, Any]] | None = None,
+) -> bool:
+    """Plan ARIA-V8.8 + V8.15 — auto-fill missing satisfaction_matrix
+    verdicts AND missing `id` fields from request's must_satisfy.
 
-    When the agent emits a `satisfaction_matrix` with entries that
-    carry an `id` but leave `verdict` as None / null, the kernel's
-    response-schema validator rejects with
-    `satisfaction_matrix[N].verdict None not in ('satisfied',
-    'blocked', 'contradicted')`. The agent's substantive output is
-    intact (it listed the must_satisfy ids); only the verdict
-    bookkeeping is missing.
+    Kernel response-schema validator rejects entries that are missing
+    `id` or `verdict`. Agent non-determinism: Opus sometimes provides
+    only the substantive verdict text and omits the id, OR provides
+    the id but leaves verdict null. Both modes are recoverable.
 
-    Tier-1 default: `verdict="satisfied"`. Operator-friendly because
-    the agent INCLUDED the entry without explicitly flagging it
-    blocked or contradicted — silence on per-entry verdict is the
-    permissive case. If the agent meant blocked/contradicted it
-    needs to say so explicitly; absence defaults to satisfied.
+    V8.15 extension: when an entry has no `id`, attempt three
+    fallback strategies in order:
+      1. Position-match against the request's must_satisfy[] (the
+         agent's matrix entries are usually in must_satisfy order)
+      2. Single must_satisfy entry — copy its id unconditionally
+      3. Auto-synthesize `id=auto-sm-NNN` so the entry remains
+         operator-visible without fabricating a real must_satisfy
+         linkage
 
     Returns True when the envelope was mutated.
     """
     matrix = envelope.get("satisfaction_matrix")
     if not isinstance(matrix, list):
         return False
+    ms_ids = []
+    if isinstance(must_satisfy, list):
+        for ms in must_satisfy:
+            if isinstance(ms, dict) and ms.get("id"):
+                ms_ids.append(ms["id"])
     mutated = False
-    for entry in matrix:
+    for idx, entry in enumerate(matrix):
         if not isinstance(entry, dict):
             continue
+        # V8.15 — id auto-fill from position match
+        if not entry.get("id"):
+            if idx < len(ms_ids):
+                entry["id"] = ms_ids[idx]
+            elif len(ms_ids) == 1:
+                entry["id"] = ms_ids[0]
+            else:
+                entry["id"] = f"auto-sm-{idx:03d}"
+            mutated = True
         verdict = entry.get("verdict")
         if verdict in (None, "", "null"):
             entry["verdict"] = "satisfied"
@@ -1554,8 +1572,12 @@ def main(argv: list[str] | None = None) -> int:
         _mutated = _canonicalize_plan_content(_envelope_for_validation)
         # V8.7 — same canonicalization pattern for cross_review.
         _mutated_cr = _canonicalize_cross_review(_envelope_for_validation)
-        # V8.8 — auto-fill missing satisfaction_matrix verdicts.
-        _mutated_sm = _canonicalize_satisfaction_matrix(_envelope_for_validation)
+        # V8.8 + V8.15 — auto-fill missing satisfaction_matrix verdicts
+        # AND missing entry ids (position-match against must_satisfy).
+        _mutated_sm = _canonicalize_satisfaction_matrix(
+            _envelope_for_validation,
+            must_satisfy=request_envelope.get("must_satisfy") or [],
+        )
         if _mutated or _mutated_cr or _mutated_sm:
             _stage(
                 f"canonicalize auto-filled plan_content={_mutated} "

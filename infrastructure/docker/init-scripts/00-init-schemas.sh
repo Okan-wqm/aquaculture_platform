@@ -69,19 +69,61 @@ done
 psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-postgres}" --dbname "${POSTGRES_DB:-postgres}" <<-EOSQL
 
   -- ========================================================================
-  -- TimescaleDB Extension
-  -- Enables time-series optimization for sensor data
+  -- Platform-level PostgreSQL Extensions
+  --
+  -- These extensions are installed ONCE per database by the superuser at
+  -- bootstrap time. Service-role migrations cannot CREATE EXTENSION (the
+  -- *_service roles do not have superuser privileges) and the install-once
+  -- semantics are best handled here rather than racing inside per-service
+  -- baseline migrations.
+  --
+  -- Migrations may still issue CREATE EXTENSION IF NOT EXISTS defensively
+  -- — it's idempotent and the IF NOT EXISTS arm makes the call cheap.
+  --
+  -- Extension purpose map:
+  --   timescaledb — sensor_readings + readings_aggregates hypertables
+  --                 (apps/sensor-service)
+  --   uuid-ossp   — uuid_generate_v4() in legacy farm migrations
+  --                 (apps/farm-service); newer code uses gen_random_uuid()
+  --                 from pgcrypto
+  --   pg_trgm     — trigram indexes for fuzzy name search
+  --   btree_gist  — temporal-range EXCLUDE constraints (scheduling)
+  --   pgcrypto    — gen_random_uuid() + crypt() (auth password helpers)
+  --   vector      — pgvector embeddings (apps/ai-service + messaging-service AI)
+  --
+  -- Promoted to init script in Faz 1.10 of the day-one baseline reset.
+  -- Previously scattered across:
+  --   - apps/farm-service/src/database/migrations/001_create_extensions.sql
+  --   - apps/hr-service/src/database/migrations/1744200000000-HRMediumFixes.ts
+  --   - apps/messaging-service/src/migrations/1711800000001-CreateAITables.ts
+  --   - apps/farm-service/src/database/migrations/1786900000000-AlignCodeSequencesSchema.ts
   -- ========================================================================
   CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
+  CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+  CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  CREATE EXTENSION IF NOT EXISTS btree_gist;
+  CREATE EXTENSION IF NOT EXISTS pgcrypto;
+  CREATE EXTENSION IF NOT EXISTS vector;
 
-  -- Verify extension is installed
+  -- Verify critical extensions are installed.
+  -- TimescaleDB is the only one that can fail to install (Docker image
+  -- variant) — the others are bundled with every PostgreSQL distribution.
   DO \$\$
+  DECLARE
+      ext_name TEXT;
   BEGIN
       IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
           RAISE NOTICE 'TimescaleDB extension installed successfully';
       ELSE
           RAISE WARNING 'TimescaleDB extension could not be installed';
       END IF;
+
+      FOREACH ext_name IN ARRAY ARRAY['uuid-ossp','pg_trgm','btree_gist','pgcrypto','vector']::text[]
+      LOOP
+          IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = ext_name) THEN
+              RAISE WARNING 'Platform extension % missing — service migrations will fail', ext_name;
+          END IF;
+      END LOOP;
   END
   \$\$;
 

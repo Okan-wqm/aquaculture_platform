@@ -3799,3 +3799,51 @@ V5.1 wired Gate A as Tier-1 architectural required-kwarg. The wiring is correct;
 **Recommended:** Option (b) — at `convergence_drainer.py:280-296` (just before the bridge call), check `bool(plan_content)` and return early with verdict `no_plan_to_converge`. Add a new phase `convergence_no_plan` to `AUTONOMY_PHASES` so the operator sees the cycle's terminal state in autonomy_state.jsonl.
 
 **Status:** RESOLVED at Plan ARIA-V7 v2 CONVERGED (snowball commits 35d985b2 → 38a557c3, F-013 umbrella with 7 subfindings). V7.1 (plan_synthesizer producer that mints valid 7-field plan_content from real git diff) + V7.2 (orchestrator try/except GovernanceError envelope that emits convergence_invalid_plan + governance forensics on validator rejection) jointly close this finding for BOTH the empty-plan_seed sentinel case AND any future malformed-payload edge case. V7.7 cycle deadline watchdog closes the silent-hang risk H-1 identified during V7 v2 audit. 8 commits, 38 V7 invariants (5+5+5+9+5+4+5), 0 patches, 0 banned phrases. POST-V7 30-cycle verification: `aria-kernel autonomy run --max-cycles 30` completes without crashing; every cycle ends with explainable terminal verdict; orphan_convergence_started_count == 0 (V7.8 hard gate H-1 passed).
+
+---
+
+## ORPHAN-HIGH-081 — submit_claim_result CPU loop on challenger_plan submission (V8 post-implementation discovery)
+
+**Discovered:** 2026-05-18 during V8 30-cycle smoke verification (post-C6 commit `4d1d68a8`).
+**Branch:** snowball
+**Severity:** HIGH (blocks V8 end-to-end verification)
+**Owner:** unassigned
+**Deadline:** before any operator-flagged V8 deployment
+
+**Symptom:**
+- Live observation 2026-05-18 05:08-05:14: `aria-kernel agent submit-result` subprocess (challenger_plan role) holds `results.jsonl.lock` while consuming **92.5% CPU** in state R for 3+ minutes.
+- `claude --print` subprocess returns within ~60s (output file 14KB written at 05:10), but the parent `python3 -m aria_kernel agent submit-result` runs CPU-bound for 3+ minutes afterwards.
+- 360s timeout fires + process killed; claim stays in CLAIMED state until lease expiry (30 min).
+- Reproducible across two consecutive runs (cycle 1 envelope `e479ccb8` + cycle 2 envelope `07adc746`).
+
+**Repro:**
+1. Fresh `aria-tools-v8-verify/` directory
+2. `aria-kernel autonomy run --max-cycles 30 --workspace-root . --tools-dir ./aria-tools-v8-verify --cycle-deadline-seconds 1800 --challenger-timeout-seconds 300 --max-rounds 2`
+3. Consumer-loop dispatches challenger_plan envelope; ci_executor invokes claude (~60s); claude returns; ci_executor invokes `submit-result`; submit-result process state=R for 3+ minutes; eventually killed by 360s timeout.
+
+**Direct fold_plan_state benchmark:**
+- Direct `python3 -c "from aria_kernel.plan_convergence import fold_plan_state; fold_plan_state(plan_id=...)"` returns in **0.022s** on the same plan_id + base_dir. So `fold_plan_state` itself is NOT the hot loop.
+
+**Suspected hot path:** The CPU loop is inside `submit_claim_result` between the schema-validation step and the bridge-dispatch step. Candidates (not yet profiled):
+1. `bridge_status_ledger.append_bridge_status` — possibly hash-chain re-derivation iterating events
+2. `judgment_bridge.persist_supporting_payload` for non-judge role (might do quadratic work)
+3. `plan_convergence_bridge.record_plan_result(role=challenger_plan)` → `submit_challenger_plan` → `_mutate` → repeated internal `fold_plan_state` calls under `_plan_lock` (each cache miss recomputes; cache invalidates on every `_append_event` touching events.jsonl size)
+4. `agent_invocations._submit_legacy_invocation_result_internal` validators chain doing repeated full-ledger scans
+5. NEW V8 code: `from .bridge_exceptions import BridgeContractViolation` module-level import side-effect (unlikely — only adds one class)
+6. NEW V8 code: `_PRIMARY_PLAN_STATE_DISPATCH` dict lookup inside `record_plan_result` — only runs for role=primary_plan (not this case, but worth double-check)
+
+**Investigation plan:**
+1. Install `py-spy` or `pyflame` on the dev host to attach to a live CPU-bound `submit-result` PID.
+2. Run minimal repro: synthesize a fixture claim + result + manually invoke `aria-kernel agent submit-result` outside any consumer loop.
+3. Bisect the V8 commits (C0 → C1 → C2 → C3 → C5 → C6) by checking out each individually and running the repro; identify which commit introduces the CPU loop.
+4. Suspect-first: temporarily disable `_FOLD_PLAN_STATE_CACHE` in `plan_convergence.fold_plan_state` (revert to pre-C0 pass-through); re-run smoke. If submit-result completes <1s, the cache write loop (defensive deep-copy of large state dict) is the culprit.
+
+**Workarounds operator can use TODAY:**
+- Smaller challenger_timeout_seconds — irrelevant; problem is in submit, not claude.
+- Larger ci_executor timeout (e.g. 600s) — masks the symptom without fixing the loop; still slow.
+- **Avoid the V8 30-cycle smoke until fix lands.** V8 architectural code (C0-C6) is invariant-green + the producer-consumer parity is verified at the unit/invariant level; the smoke gate is the only thing blocked.
+
+**NOT a regression introduced by V8 v2 *architecturally* — but discovered DURING V8 verification:**
+V5/V6/V7 smoke runs also called submit_claim_result on planner-role submissions; if this CPU loop existed pre-V8, prior smokes hit it too (and timed out the same way, masked as `primary_silent`). The V8 dict-vs-set fix (B-V2-01) finally lets the poll observe state transitions, making submit-result's slowness visible for the first time.
+
+**Status:** OPEN. F-014 (V8 umbrella) marked RESOLVED at C6 for the architectural arc; the smoke gate is documented here as ORPHAN-HIGH-081 (separate investigation track). Operator decision needed: investigate now, or land V9 (which can include profiling tooling) and revisit.

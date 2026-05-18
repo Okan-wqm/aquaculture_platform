@@ -210,6 +210,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   '2da8aaa7', // Faz 1.5 — SchemaVersionGate single authoritative runner cutover
   '99d29995', // Faz 2 — edge platform v2 sensor-service per-tenant (ADR-025)
   '6e9c3c14', // Faz 7 — ADR-030 + authoring runbook + drift-repair naming ban
+  '2620e978', // Faz 3 live exec — 14 service baseline migrations consolidated
 ]);
 
 interface Commit {

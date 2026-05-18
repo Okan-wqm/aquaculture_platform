@@ -83,6 +83,75 @@ def _stage(msg: str) -> None:
     sys.stderr.flush()
 
 
+def _canonicalize_plan_content(envelope: dict[str, Any]) -> bool:
+    """Plan ARIA-V8.4 — auto-fill missing canonical plan_content fields.
+
+    Opus is observed to non-deterministically drop one or two canonical
+    fields (e.g. emits all 6 of {schema_version, title, summary,
+    affected_surfaces, key_changes, validation_commands} but omits
+    `evidence_refs` from plan_content even though the same array
+    exists at the envelope top level). The agent's substantive output
+    is intact; only the bookkeeping field is missing.
+
+    This Tier-1 normalizer auto-fills missing canonical fields from
+    compatible sources WITHIN the envelope itself so the cycle does
+    not bounce on agent non-determinism. Auto-fill is conservative:
+    only fills from values the agent already produced, never
+    fabricates evidence.
+
+    Returns True if the envelope was mutated (changes need to be
+    written back to disk before submit), False if unchanged.
+    """
+    plan_content = envelope.get("plan_content")
+    if not isinstance(plan_content, dict):
+        return False
+    mutated = False
+
+    # evidence_refs: copy from envelope top-level if missing inside
+    # plan_content. The two SHOULD be the same per agent contract; if
+    # the agent only populated the top-level one, mirror it.
+    if "evidence_refs" not in plan_content:
+        top_refs = envelope.get("evidence_refs")
+        if isinstance(top_refs, list):
+            plan_content["evidence_refs"] = list(top_refs)
+            mutated = True
+
+    # schema_version: default 1 (only value the kernel accepts today)
+    if "schema_version" not in plan_content:
+        plan_content["schema_version"] = 1
+        mutated = True
+
+    # affected_surfaces: if it's a flat list of strings (paths), wrap
+    # in the canonical `[{paths: [...]}]` envelope. Some agent outputs
+    # use the simpler shape.
+    surfaces = plan_content.get("affected_surfaces")
+    if isinstance(surfaces, list) and surfaces and all(isinstance(s, str) for s in surfaces):
+        plan_content["affected_surfaces"] = [{"paths": list(surfaces)}]
+        mutated = True
+
+    # validation_commands: each entry MUST be a dict per kernel
+    # _validate_validation_command. Bare strings get auto-wrapped.
+    cmds = plan_content.get("validation_commands")
+    if isinstance(cmds, list):
+        wrapped: list[dict[str, Any]] = []
+        cmd_mutated = False
+        for c in cmds:
+            if isinstance(c, dict):
+                wrapped.append(c)
+            elif isinstance(c, str) and c.strip():
+                wrapped.append({"cmd": c, "expected_exit": 0, "timeout_ms": 60000})
+                cmd_mutated = True
+            else:
+                wrapped.append(c)  # keep as-is; validator will catch
+        if cmd_mutated:
+            plan_content["validation_commands"] = wrapped
+            mutated = True
+
+    if mutated:
+        envelope["plan_content"] = plan_content
+    return mutated
+
+
 def _pre_submit_validate_envelope(envelope: dict[str, Any], role: str) -> list[str]:
     """Plan ARIA-V8.1 Phase 3 — fail-fast canonical schema gate.
 
@@ -1271,6 +1340,23 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, json.JSONDecodeError) as _exc:
         _envelope_for_validation = None
     if isinstance(_envelope_for_validation, dict):
+        # Plan ARIA-V8.4 — auto-fill missing canonical plan_content
+        # fields from compatible sources within the envelope before
+        # validation runs. The agent's substantive output stays
+        # untouched; only bookkeeping fields the agent dropped get
+        # populated (e.g. evidence_refs copied from top-level when
+        # plan_content omitted it). The normalizer never fabricates
+        # evidence — it only mirrors values already present.
+        _mutated = _canonicalize_plan_content(_envelope_for_validation)
+        if _mutated:
+            _stage("canonicalize_plan_content auto-filled missing fields")
+            try:
+                expected_output_path.write_text(
+                    json.dumps(_envelope_for_validation, indent=2),
+                    encoding="utf-8",
+                )
+            except OSError as _exc:
+                _stage(f"canonicalize_plan_content_write_failed: {_exc}")
         validation_errors = _pre_submit_validate_envelope(
             _envelope_for_validation,
             role=str(request_envelope.get("role") or ""),

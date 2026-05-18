@@ -160,6 +160,67 @@ def _canonicalize_plan_content(envelope: dict[str, Any]) -> bool:
     return mutated
 
 
+def _canonicalize_cross_review(envelope: dict[str, Any]) -> bool:
+    """Plan ARIA-V8.7 — auto-fill missing canonical cross_review fields.
+
+    Mirrors `_canonicalize_plan_content` for the cross_review role:
+    the agent's substantive output (verdict + maybe nested
+    reviews/risks/notes) is preserved, while bookkeeping fields the
+    agent dropped get filled from compatible sources within the
+    envelope itself. Never fabricates evidence.
+
+    Auto-fills handled:
+
+    - `cross_review.reviewer_agent` ← envelope.agent_id when missing
+    - `cross_review.risks` ← [] when missing (matches kernel
+      _validate_cross_review_record which accepts empty list when
+      verdict=agreed)
+    - `cross_review.risks` ← gathered from `cross_review.reviews[*]
+      .risks` lists when the top-level field is missing but the
+      nested form is present (Opus non-determinism)
+
+    Returns True when the envelope was mutated.
+    """
+    details = envelope.get("details")
+    if not isinstance(details, dict):
+        return False
+    cross_review = details.get("cross_review")
+    if not isinstance(cross_review, dict):
+        return False
+    mutated = False
+
+    # reviewer_agent default — bridge will also fill this, but ci_executor
+    # making it canonical here keeps the pre-submit validator strict on
+    # the agent contract while letting the agent omit envelope metadata.
+    if not cross_review.get("reviewer_agent"):
+        agent_id = envelope.get("agent_id")
+        if isinstance(agent_id, str) and agent_id.strip():
+            cross_review["reviewer_agent"] = agent_id.strip()
+        else:
+            cross_review["reviewer_agent"] = "aria-cross-reviewer"
+        mutated = True
+
+    # risks: if missing OR None, default to empty list (kernel accepts
+    # empty risks when verdict=agreed). If nested under
+    # `reviews[*].risks`, gather them up into the top-level list so
+    # downstream record_cross_review sees ONE canonical list.
+    risks = cross_review.get("risks")
+    if not isinstance(risks, list):
+        gathered: list[Any] = []
+        reviews = cross_review.get("reviews")
+        if isinstance(reviews, list):
+            for r in reviews:
+                if isinstance(r, dict) and isinstance(r.get("risks"), list):
+                    gathered.extend(r["risks"])
+        cross_review["risks"] = gathered
+        mutated = True
+
+    if mutated:
+        details["cross_review"] = cross_review
+        envelope["details"] = details
+    return mutated
+
+
 def _pre_submit_validate_envelope(envelope: dict[str, Any], role: str) -> list[str]:
     """Plan ARIA-V8.1 Phase 3 — fail-fast canonical schema gate.
 
@@ -1356,15 +1417,20 @@ def main(argv: list[str] | None = None) -> int:
         # plan_content omitted it). The normalizer never fabricates
         # evidence — it only mirrors values already present.
         _mutated = _canonicalize_plan_content(_envelope_for_validation)
-        if _mutated:
-            _stage("canonicalize_plan_content auto-filled missing fields")
+        # V8.7 — same canonicalization pattern for cross_review.
+        _mutated_cr = _canonicalize_cross_review(_envelope_for_validation)
+        if _mutated or _mutated_cr:
+            _stage(
+                f"canonicalize auto-filled fields plan_content={_mutated} "
+                f"cross_review={_mutated_cr}"
+            )
             try:
                 expected_output_path.write_text(
                     json.dumps(_envelope_for_validation, indent=2),
                     encoding="utf-8",
                 )
             except OSError as _exc:
-                _stage(f"canonicalize_plan_content_write_failed: {_exc}")
+                _stage(f"canonicalize_write_failed: {_exc}")
         validation_errors = _pre_submit_validate_envelope(
             _envelope_for_validation,
             role=str(request_envelope.get("role") or ""),

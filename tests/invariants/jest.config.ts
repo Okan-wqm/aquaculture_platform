@@ -154,6 +154,7 @@ export default {
         '<rootDir>/entity-schema-declaration.spec.ts',
         '<rootDir>/entity-diff-implies-migration.spec.ts',
         '<rootDir>/tenant-fanout-entity-parity.spec.ts',
+        '<rootDir>/shared-schema-canonical.spec.ts',
       ],
     },
   ],

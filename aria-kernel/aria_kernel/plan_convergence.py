@@ -570,6 +570,255 @@ def abandon_plan(
         return _event_result(event, idempotent=False)
 
 
+# =============================================================================
+# Plan ARIA-V9.2 — implementation-phase public API
+# =============================================================================
+#
+# Five event writers mirroring the V8 ``start_plan`` /
+# ``submit_challenger_plan`` / ``record_revision`` pattern. Each
+# validator does TWO things:
+#
+#   1. Pre-append state-precondition check via ``_require_state``
+#      — failed precondition raises GovernanceError BEFORE the event
+#      lands on disk. Defense-in-depth complement to the reducer-side
+#      state precondition check in ``_apply_event`` (V9.0-B), which
+#      catches the same violation on the NEXT fold.
+#
+#   2. Payload-shape check — required fields, value ranges. Shape
+#      errors raise GovernanceError; the bad event never appends.
+#
+# These functions are the kernel-side surface invoked by V9.3
+# (convergence_drainer + cross_review_bridge.issue_implementation_envelope)
+# and V9.6 (auto_merge_runner). The aria-implementer agent never calls
+# them directly — the agent submits its response envelope; the kernel's
+# ``record_plan_result`` dispatcher in plan_convergence_bridge.py routes
+# the role="implementation" path through ``record_implementation_outcome``
+# (V9.3 lands the dispatcher arm).
+
+
+def request_implementation(
+    *,
+    plan_id: str,
+    implementer_agent: str,
+    converged_plan_revision_id: str,
+    converged_plan_content_hash: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """V9.2 — emit ``implementation_requested`` event.
+
+    State precondition: CONVERGED (only legal predecessor per V9.0-B
+    reducer). The new event transitions state to
+    IMPLEMENTATION_REQUESTED.
+
+    Idempotent on (plan_id, "request-implementation",
+    {implementer_agent, converged_plan_revision_id,
+     converged_plan_content_hash}) — re-requesting the same
+    implementation on the same plan is a no-op.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(implementer_agent, "implementer_agent")
+    _require_non_empty(converged_plan_revision_id, "converged_plan_revision_id")
+    _require_hash(converged_plan_content_hash, "converged_plan_content_hash")
+    payload = {
+        "implementer_agent": implementer_agent,
+        "converged_plan_revision_id": converged_plan_revision_id,
+        "converged_plan_content_hash": converged_plan_content_hash,
+    }
+    return _mutate(
+        plan_id=plan_id,
+        command_name="request-implementation",
+        canonical_payload=payload,
+        event_type="implementation_requested",
+        payload=payload,
+        base_dir=base_dir,
+        validator=lambda state: _require_state(
+            state, {"CONVERGED"}, "request implementation",
+        ),
+    )
+
+
+def record_implementation_started(
+    *,
+    plan_id: str,
+    claim_id: str,
+    implementer_agent: str,
+    started_at: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """V9.2 — emit ``implementation_started`` event.
+
+    State precondition: IMPLEMENTATION_REQUESTED. Agent has claimed
+    the lease.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(claim_id, "claim_id")
+    _require_non_empty(implementer_agent, "implementer_agent")
+    _require_non_empty(started_at, "started_at")
+    payload = {
+        "claim_id": claim_id,
+        "implementer_agent": implementer_agent,
+        "started_at": started_at,
+    }
+    return _mutate(
+        plan_id=plan_id,
+        command_name="record-implementation-started",
+        canonical_payload=payload,
+        event_type="implementation_started",
+        payload=payload,
+        base_dir=base_dir,
+        validator=lambda state: _require_state(
+            state, {"IMPLEMENTATION_REQUESTED"}, "record implementation started",
+        ),
+    )
+
+
+def record_implementation_outcome(
+    *,
+    plan_id: str,
+    claim_id: str,
+    pr_url: str,
+    diff_hash: str,
+    branch_tip_sha: str,
+    base_branch_sha: str,
+    validation_results: list[dict[str, Any]],
+    signer_key_fp: str,
+    completed_at: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """V9.2 — emit ``implementation_outcome_recorded`` event.
+
+    State precondition: IMPLEMENTATION_IN_FLIGHT. Agent has applied
+    the diff, run validations, opened the PR.
+
+    Validation_results entries are size-capped by V9.0-D
+    ``truncate_validation_result`` (caller-side per
+    MAX_VALIDATION_RESULT_BYTES = 4096). signer_key_fp MUST match the
+    cycle's ephemeral key from V9.0-C ``gh_token_factory.SigningKey``;
+    the kernel-side ``verify_commit_signature`` cross-check happens
+    via implementation_safety, not this validator (we don't want a
+    state-machine validator that requires git access).
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(claim_id, "claim_id")
+    _require_non_empty(pr_url, "pr_url")
+    _require_hash(diff_hash, "diff_hash")
+    _require_non_empty(branch_tip_sha, "branch_tip_sha")
+    _require_non_empty(base_branch_sha, "base_branch_sha")
+    _require_non_empty(signer_key_fp, "signer_key_fp")
+    _require_non_empty(completed_at, "completed_at")
+    if not isinstance(validation_results, list):
+        raise GovernanceError("validation_results must be a list")
+    payload = {
+        "claim_id": claim_id,
+        "pr_url": pr_url,
+        "diff_hash": diff_hash,
+        "branch_tip_sha": branch_tip_sha,
+        "base_branch_sha": base_branch_sha,
+        "validation_results": validation_results,
+        "signer_key_fp": signer_key_fp,
+        "completed_at": completed_at,
+    }
+    return _mutate(
+        plan_id=plan_id,
+        command_name="record-implementation-outcome",
+        canonical_payload=payload,
+        event_type="implementation_outcome_recorded",
+        payload=payload,
+        base_dir=base_dir,
+        validator=lambda state: _require_state(
+            state, {"IMPLEMENTATION_IN_FLIGHT"}, "record implementation outcome",
+        ),
+    )
+
+
+def record_implementation_merged(
+    *,
+    plan_id: str,
+    merge_sha: str,
+    merged_at: str,
+    idempotency_key_hash: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """V9.2 — emit ``implementation_merged`` event (terminal state
+    IMPLEMENTATION_MERGED).
+
+    State precondition: IMPLEMENTATION_RECORDED. CI green + auto-merge
+    succeeded.
+
+    ``idempotency_key_hash`` is sha256 of the V9.6 5-tuple
+    (plan_id, diff_hash, pr_number, base_branch, branch_tip_sha) —
+    re-running the auto-merge daemon against the same merged PR is
+    a no-op.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(merge_sha, "merge_sha")
+    _require_non_empty(merged_at, "merged_at")
+    _require_hash(idempotency_key_hash, "idempotency_key_hash")
+    payload = {
+        "merge_sha": merge_sha,
+        "merged_at": merged_at,
+        "idempotency_key_hash": idempotency_key_hash,
+    }
+    return _mutate(
+        plan_id=plan_id,
+        command_name="record-implementation-merged",
+        canonical_payload=payload,
+        event_type="implementation_merged",
+        payload=payload,
+        base_dir=base_dir,
+        validator=lambda state: _require_state(
+            state, {"IMPLEMENTATION_RECORDED"}, "record implementation merged",
+        ),
+    )
+
+
+def record_implementation_rejected(
+    *,
+    plan_id: str,
+    rejection_class: str,
+    rejected_at: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """V9.2 — emit ``implementation_rejected`` event (terminal state
+    IMPLEMENTATION_REJECTED).
+
+    State precondition: any of IMPLEMENTATION_REQUESTED,
+    IMPLEMENTATION_IN_FLIGHT, IMPLEMENTATION_RECORDED.
+
+    rejection_class MUST be in the V9.0-B canonical set (validated
+    by _validate_event on append; double-checked here for fail-fast).
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(rejection_class, "rejection_class")
+    _require_non_empty(rejected_at, "rejected_at")
+    payload = {
+        "rejection_class": rejection_class,
+        "rejected_at": rejected_at,
+    }
+    return _mutate(
+        plan_id=plan_id,
+        command_name="record-implementation-rejected",
+        canonical_payload=payload,
+        event_type="implementation_rejected",
+        payload=payload,
+        base_dir=base_dir,
+        validator=lambda state: _require_state(
+            state,
+            {
+                "IMPLEMENTATION_REQUESTED",
+                "IMPLEMENTATION_IN_FLIGHT",
+                "IMPLEMENTATION_RECORDED",
+            },
+            "record implementation rejected",
+        ),
+    )
+
+
+# =============================================================================
+# End Plan ARIA-V9.2 implementation-phase public API
+# =============================================================================
+
+
 def plan_status(*, plan_id: str, base_dir: str | Path | None = None) -> dict[str, Any]:
     _validate_id(plan_id, "plan_id")
     return fold_plan_state(plan_id=plan_id, base_dir=base_dir)

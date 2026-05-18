@@ -291,7 +291,12 @@ def submit_cross_review_v8(
         tasks.append({
             "task_id": f"v8-cr-{round_number}-{direction_short}-{target_revision_id[-8:]}",
             "task_packet_hash": packet_hash,
+            # `_validate_task` (legacy critic task contract) reads
+            # `target_agent`; `_validate_cross_review_task` (V8 cross-
+            # review path) reads `reviewer_agent`. Carry both so the
+            # task dict is accepted by either validator path.
             "target_agent": reviewer_agent,
+            "reviewer_agent": reviewer_agent,
             "target_revision_id": target_revision_id,
             "target_plan_content_hash": target_hash,
             "review_direction": direction,

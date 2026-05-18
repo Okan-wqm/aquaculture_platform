@@ -65,7 +65,15 @@ _PLAN_CONTENT_REQUIRED = (
     "schema_version", "title", "summary", "affected_surfaces",
     "key_changes", "validation_commands", "evidence_refs",
 )
-_CROSS_REVIEW_REQUIRED = ("round_number", "verdict", "risks")
+# Plan ARIA-V8.5 R1 — V8 cross_review canonical fields list. Only the
+# agent's SUBSTANTIVE output is required: verdict + risks. Envelope
+# metadata (`round_number`, `target_revision_id`, `task_packet_hash`,
+# etc.) is synthesized by kernel `submit_cross_review_v8` from plan
+# state — the agent does not need to know it. Pre-V8.5 the validator
+# listed `round_number` as required and rejected envelopes where Opus
+# correctly produced verdict + risks but didn't echo back envelope
+# metadata it never authored.
+_CROSS_REVIEW_REQUIRED = ("verdict", "risks")
 
 LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
 OAUTH_TOKEN_ENV_VAR = "CLAUDE_CODE_OAUTH_TOKEN"

@@ -50,7 +50,7 @@ import { HydroponicsConfig } from './setup/entities/hydroponics-config.entity';
 // with apps/db-migrate/src/schema-registry.ts ensures both the
 // container-driven runner and the in-process fallback runner observe
 // the same migration set.
-import { CreateInitialSchema1700000000000 } from './database/migrations/1700000000000-CreateInitialSchema';
+import { Baseline1800000000000 } from './database/migrations/1800000000000-Baseline';
 
 // Per-process cache for GraphQL complexity results keyed by document hash.
 // This avoids recomputing complexity for identical operations on every request.
@@ -73,7 +73,7 @@ const complexityCache = new Map<string, number>();
           serviceName: 'hydroponics',
           schema: 'hydroponics',
           entities: [HydroponicsConfig],
-          migrations: [CreateInitialSchema1700000000000],
+          migrations: [Baseline1800000000000],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
           //   aqua-db-migrate container runs migrations BEFORE service

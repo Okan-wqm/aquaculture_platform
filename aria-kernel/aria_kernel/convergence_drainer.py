@@ -385,6 +385,13 @@ def run_convergence_drainer(
         # blocked: an empty plan body cannot be cross-reviewed.
         challenger_revision_id = f"{plan_id}-c{current_round}"
         challenger_plan_text = ""
+        # Plan ARIA-V8.10 — also enrich primary_plan_text from kernel
+        # state's latest_revision when cycle_runner's plan_seed was
+        # empty (dirty-tree skip leaves plan_seed = {} → primary
+        # serialization is "{}" or "null", cross-reviewer refuses with
+        # evidence_underspecified). Kernel state has the authoritative
+        # primary content (set at start_plan), so the helper fetches
+        # both sides from state.
         try:
             cur = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
             if isinstance(cur, dict):
@@ -402,6 +409,22 @@ def run_convergence_drainer(
                         challenger_plan_text = _json.dumps(
                             plan_content_dict, indent=2, sort_keys=True,
                         )
+                # V8.10 — enrich primary_plan_text from kernel state
+                # when plan_seed-derived text is empty/null/junk. The
+                # plan was already started with plan_seed; kernel state
+                # carries it as latest_revision.content (DRAFT) or as
+                # any subsequent revision content. Either form is
+                # authoritative.
+                if (not primary_plan_text) or primary_plan_text.strip() in {"", "{}", "null"}:
+                    latest = cur.get("latest_revision") or {}
+                    if isinstance(latest, dict):
+                        latest_content = latest.get("content")
+                        if isinstance(latest_content, dict):
+                            primary_plan_text = _json.dumps(
+                                latest_content, indent=2, sort_keys=True,
+                            )
+                        elif isinstance(latest_content, str) and latest_content.strip():
+                            primary_plan_text = latest_content
         except Exception:
             pass
         if not challenger_plan_text:
@@ -412,6 +435,11 @@ def run_convergence_drainer(
             challenger_plan_text = (
                 f"{{\"error\": \"challenger plan_content unavailable in plan state for "
                 f"plan_id={plan_id} revision_id={challenger_revision_id}\"}}"
+            )
+        if (not primary_plan_text) or primary_plan_text.strip() in {"", "{}", "null"}:
+            primary_plan_text = (
+                f"{{\"error\": \"primary plan content unavailable in plan state for "
+                f"plan_id={plan_id} revision_id={primary_revision_id}\"}}"
             )
         # Mint cross_review envelope
         cross_review_request = issue_cross_review_envelope(

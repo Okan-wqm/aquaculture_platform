@@ -16,7 +16,7 @@ import {
 } from '@aquaculture/backend-common/audit';
 import {
   AuditColumnsModule,
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
   RlsModule,
@@ -45,16 +45,23 @@ const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
 
 /**
- * AiMigrationRunnerService — runs pending TypeORM migrations in the ai
- * source schema at OnApplicationBootstrap. Wired in P2d of the 2026-04-14
- * teardown plan to close the RlsSchemaBootstrap docblock gap (lines
- * 14-27).
+ * AiMigrationRunnerService — schema-version gate for the ai source schema
+ * (Faz 1.5 of the day-one baseline reset).
+ *
+ * Was `createMigrationRunnerService('ai')`. Now uses
+ * `createSchemaVersionGate('ai')`:
+ *
+ *   • production (`DB_MIGRATE_AUTHORITATIVE=true`) — read-only ledger
+ *     probe; refuses boot if aqua-db-migrate has not finalised `ai`.
+ *   • development (default)                       — delegates to the
+ *     runner verbatim, preserving dev/test ergonomics.
  *
  * migrations/ starts empty — ai-service currently relies on
- * SourceSchemaBootstrapService + TenantSchemaSyncService. Runner is wired
- * so future migrations can land deterministically.
+ * SourceSchemaBootstrapService + TenantSchemaSyncService. The gate is
+ * wired so future migrations land deterministically through
+ * aqua-db-migrate.
  */
-const AiMigrationRunnerService = createMigrationRunnerService('ai');
+const AiMigrationRunnerService = createSchemaVersionGate('ai');
 import { EventBusModule } from '@platform/event-bus';
 import { HealthModule } from './health/health.module';
 import { ToolRegistryModule } from './tools/tool-registry.module';

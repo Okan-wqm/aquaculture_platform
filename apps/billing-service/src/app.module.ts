@@ -11,7 +11,7 @@ import depthLimit from 'graphql-depth-limit';
 import {
   RlsModule,
   AuditColumnsModule,
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
@@ -43,7 +43,7 @@ import {
  * live in apps/billing-service/src/database/migrations/ and the runner
  * enforces them on every cold start.
  */
-const BillingMigrationRunnerService = createMigrationRunnerService('billing');
+const BillingMigrationRunnerService = createSchemaVersionGate('billing');
 import { EventBusModule } from '@platform/event-bus';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { BillingModule } from './billing/billing.module';
@@ -227,7 +227,7 @@ import {
     // OnApplicationBootstrap order beyond module dependency graph, but
     // declaration order is a reliable tiebreaker for same-module
     // providers). The runner itself uses search_path pinning and a
-    // dedicated QueryRunner — see createMigrationRunnerService for the
+    // dedicated QueryRunner — see createSchemaVersionGate for the
     // full architectural rationale.
     BillingMigrationRunnerService,
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers

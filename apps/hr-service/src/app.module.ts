@@ -21,7 +21,7 @@ import {
 } from '@aquaculture/backend-common/audit';
 import {
   AuditColumnsModule,
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
   SchemaDriftModule,
@@ -53,7 +53,7 @@ import {
  * guards handle re-applications on DBs where they were previously
  * applied via SourceSchemaBootstrap synchronize.
  */
-const HrMigrationRunnerService = createMigrationRunnerService('hr');
+const HrMigrationRunnerService = createSchemaVersionGate('hr');
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hr');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hr');
 import { HRModule } from './hr/hr.module';

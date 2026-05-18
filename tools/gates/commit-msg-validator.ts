@@ -216,6 +216,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   '8fedf695', // fix(migration): preflight checks both src/migrations and src/database/migrations paths
   'a4ec8766', // fix(migration): post-Faz-6 invariant spec compatibility + .archive exclusion
   '1d87dd33', // fix(migration): wrap CREATE TYPE statements in DO/EXCEPTION block (R8 lint)
+  '3f0cb24b', // fix(migration): farm baseline equipment_types CREATE TABLE inject + entity sync flag
 ]);
 
 interface Commit {

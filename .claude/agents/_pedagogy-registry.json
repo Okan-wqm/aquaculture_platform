@@ -94,6 +94,11 @@
       "pedagogy_tier": 2,
       "rationale": "Maintenance-bound genesis drafter. Hybrid form REQUIRED because the agent runs under autonomous profile + writes to disk. Tier-1 safety rules (kernel-immutability, secret-exfiltration, recursive Agent() spawn) MUST stay imperative-only with consequence-leak protections; architectural rules (DraftIntent shape, banned-phrase compliance, evidence-ref allowlist) get narrative bodies."
     },
+    "aria-cross-reviewer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Read-only ARIA-V8 bidirectional plan cross-reviewer. Narrative form lets the agent reason about prompt-injection defense (untrusted-tag DATA discipline) and content-hash verification — both are narrative-extrapolation-friendly. No self-modification surface (tools: Read, Grep, Glob)."
+    },
     "aria-evidence-judge": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 3,

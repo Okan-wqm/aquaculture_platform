@@ -142,6 +142,7 @@ def synthesize_plan_content_from_cycle(
         workspace_root=workspace_root,
         paths=affected_paths,
         limit=_MAX_EVIDENCE_REFS,
+        git_diff_base=git_diff_base,
     )
     if not evidence_refs:
         # _validate_plan_content rejects empty evidence_refs.
@@ -287,15 +288,32 @@ def _collect_evidence_refs(
     workspace_root: Path,
     paths: list[str],
     limit: int,
+    git_diff_base: str = "HEAD~1",
 ) -> list[str]:
-    """Plan ARIA-V7 §2i v2 — extract file:line refs from changed files.
+    """Plan ARIA-V8.14 — extract evidence_refs from the ACTUAL git diff hunks.
 
-    For each affected path (up to limit), pick the first non-blank
-    non-comment line and produce a ref of form ``<path>:<line>:<snippet>``.
+    Pre-V8.14 this function picked the FIRST non-blank non-comment line
+    of each changed file (`path:1:from __future__ import annotations`
+    for Python imports). The aria-challenger-planner agent rightly
+    refused with `reason_class=insufficient_evidence` because a single
+    line-1 ref does not let it independently ground a competing plan.
 
-    Plan ARIA-V7 §2i v2 invariant I-V7.1-05: every ref MUST resolve via
-    ``Path.exists()`` at the workspace root. Refs to deleted paths
+    V8.14 changes the source: for each affected path, query
+    `git diff <base>..HEAD -- <path>` to get the unified diff, parse
+    the hunk headers (`@@ -X,Y +A,B @@`), and emit one ref per
+    representative changed line up to `limit` total. The challenger
+    now sees the SUBSTANTIVE changes (function additions, control-
+    flow edits, schema mutations) and can compose a real competing
+    plan from them.
+
+    Plan ARIA-V7 §2i v2 invariant I-V7.1-05: every ref MUST resolve
+    via Path.exists() at the workspace root. Refs to deleted paths
     (rare; git diff may include deleted files) are skipped.
+
+    Fallback: if git diff fails OR the file has no parseable hunks
+    (binary, deleted, etc.), fall back to the pre-V8.14 first-non-
+    blank-line strategy so the synthesizer never returns an empty
+    evidence list (which would fail `_validate_plan_content`).
     """
     refs: list[str] = []
     for path in paths:
@@ -303,8 +321,23 @@ def _collect_evidence_refs(
             break
         abs_path = workspace_root / path
         if not abs_path.exists() or not abs_path.is_file():
-            # Skip deleted files + non-files (dirs / symlinks dangling).
             continue
+        # Primary path — extract from git diff hunks. Each ref carries a
+        # snippet of the changed line so operators can spot-check intent.
+        hunk_refs = _evidence_refs_from_hunks(
+            workspace_root=workspace_root,
+            path=path,
+            git_diff_base=git_diff_base,
+            remaining=limit - len(refs),
+        )
+        if hunk_refs:
+            refs.extend(hunk_refs)
+            continue
+        # Fallback path — first non-blank non-comment line (pre-V8.14
+        # behaviour). Triggers when the file has no hunks (e.g.
+        # whitespace-only change, binary file) so the synthesizer
+        # still produces a non-empty evidence_refs list to satisfy
+        # _validate_plan_content.
         try:
             text = abs_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -318,4 +351,66 @@ def _collect_evidence_refs(
             snippet = stripped[:_MAX_SNIPPET_CHARS]
             refs.append(f"{path}:{line_no}:{snippet}")
             break
+    return refs
+
+
+_HUNK_HEADER_RE = re.compile(r"^@@\s*-\d+(?:,\d+)?\s*\+(\d+)(?:,(\d+))?\s*@@")
+
+
+def _evidence_refs_from_hunks(
+    *,
+    workspace_root: Path,
+    path: str,
+    git_diff_base: str,
+    remaining: int,
+) -> list[str]:
+    """Parse `git diff` hunks for ``path`` and emit one ref per changed line.
+
+    Returns up to ``remaining`` refs of shape ``path:line:snippet``,
+    where each line is one that was ADDED or CONTEXT in the new file
+    (we skip pure-deletion hunks because the line no longer exists
+    in the working tree — `Path.exists()` would resolve but the
+    line number is meaningless).
+    """
+    if remaining <= 0:
+        return []
+    if not re.fullmatch(r"[A-Za-z0-9_.~^/-]+", git_diff_base or ""):
+        return []
+    try:
+        result = subprocess.run(
+            ["git", "diff", f"{git_diff_base}..HEAD", "--unified=0", "--", path],
+            cwd=workspace_root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0 or not result.stdout:
+        return []
+    refs: list[str] = []
+    current_new_line = 0
+    for diff_line in result.stdout.splitlines():
+        if len(refs) >= remaining:
+            break
+        m = _HUNK_HEADER_RE.match(diff_line)
+        if m:
+            current_new_line = int(m.group(1))
+            continue
+        if not current_new_line:
+            continue
+        if diff_line.startswith("+++") or diff_line.startswith("---"):
+            continue
+        if diff_line.startswith("+"):
+            snippet = diff_line[1:].strip()[:_MAX_SNIPPET_CHARS]
+            if snippet:
+                refs.append(f"{path}:{current_new_line}:{snippet}")
+            current_new_line += 1
+        elif diff_line.startswith("-"):
+            # Deletion — no new-file line consumed.
+            continue
+        else:
+            # Context line (rare under --unified=0 but possible).
+            current_new_line += 1
     return refs

@@ -211,7 +211,10 @@ def _canonicalize_satisfaction_matrix(
     return mutated
 
 
-def _canonicalize_cross_review(envelope: dict[str, Any]) -> bool:
+def _canonicalize_cross_review(
+    envelope: dict[str, Any],
+    request_envelope: dict[str, Any] | None = None,
+) -> bool:
     """Plan ARIA-V8.7 — auto-fill missing canonical cross_review fields.
 
     Mirrors `_canonicalize_plan_content` for the cross_review role:
@@ -240,16 +243,25 @@ def _canonicalize_cross_review(envelope: dict[str, Any]) -> bool:
         return False
     mutated = False
 
-    # reviewer_agent default — bridge will also fill this, but ci_executor
-    # making it canonical here keeps the pre-submit validator strict on
-    # the agent contract while letting the agent omit envelope metadata.
+    # Plan ARIA-V8.19 — reviewer_agent fallback uses the request's
+    # target_agent (kernel-trustworthy "aria-cross-reviewer"), NOT
+    # the envelope's outer agent_id (which is "ci-executor:gha-local"
+    # — the executor identity, not a declared reviewer in
+    # `.claude/agents/`). Pre-V8.19 the normalizer auto-filled with
+    # the executor identity, the bridge's V8.17 fallback never fired
+    # because reviewer_agent was already truthy, and the kernel's
+    # `_validate_cross_review_record` rejected with `unknown reviewer:
+    # ci-executor:gha-local`. The kernel's `reviewer_names()` scans
+    # `.claude/agents/*.md` for valid reviewer identities.
     if not cross_review.get("reviewer_agent"):
-        agent_id = envelope.get("agent_id")
-        if isinstance(agent_id, str) and agent_id.strip():
-            cross_review["reviewer_agent"] = agent_id.strip()
-        else:
+        if isinstance(request_envelope, dict):
+            target_agent = request_envelope.get("target_agent")
+            if isinstance(target_agent, str) and target_agent.strip():
+                cross_review["reviewer_agent"] = target_agent.strip()
+                mutated = True
+        if not cross_review.get("reviewer_agent"):
             cross_review["reviewer_agent"] = "aria-cross-reviewer"
-        mutated = True
+            mutated = True
 
     # risks: if missing OR None, default to empty list (kernel accepts
     # empty risks when verdict=agreed). If nested under
@@ -1570,8 +1582,14 @@ def main(argv: list[str] | None = None) -> int:
         # plan_content omitted it). The normalizer never fabricates
         # evidence — it only mirrors values already present.
         _mutated = _canonicalize_plan_content(_envelope_for_validation)
-        # V8.7 — same canonicalization pattern for cross_review.
-        _mutated_cr = _canonicalize_cross_review(_envelope_for_validation)
+        # V8.7 + V8.19 — same canonicalization pattern for cross_review.
+        # V8.19: pass request_envelope so reviewer_agent fallback uses
+        # request.target_agent (kernel-trustworthy "aria-cross-reviewer")
+        # instead of the outer envelope's executor identity.
+        _mutated_cr = _canonicalize_cross_review(
+            _envelope_for_validation,
+            request_envelope=request_envelope,
+        )
         # V8.8 + V8.15 — auto-fill missing satisfaction_matrix verdicts
         # AND missing entry ids (position-match against must_satisfy).
         _mutated_sm = _canonicalize_satisfaction_matrix(

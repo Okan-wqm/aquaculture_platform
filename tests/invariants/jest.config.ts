@@ -153,6 +153,7 @@ export default {
         '<rootDir>/rls-predicate-canonical.spec.ts',
         '<rootDir>/entity-schema-declaration.spec.ts',
         '<rootDir>/entity-diff-implies-migration.spec.ts',
+        '<rootDir>/tenant-fanout-entity-parity.spec.ts',
       ],
     },
   ],

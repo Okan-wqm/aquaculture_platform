@@ -22,10 +22,15 @@
 #   DEPLOY_SHA        — commit SHA being deployed
 #   GITHUB_ACTOR      — actor username for GHCR login
 #   GHCR_TOKEN        — GITHUB_TOKEN with packages:read scope
+#   IMAGE_PREFIX      — GHCR image prefix (defaults to this repository)
 # =============================================================================
 
 set -e
 cd /var/aqua-saas
+
+IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
+GATEWAY_IMAGE_REF="${IMAGE_PREFIX}/gateway-api:latest"
+APPLICATION_IMAGE_SERVICES="db-migrate gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil"
 
 dump_nonhealthy_container_logs() {
   local label="${1:-snapshot}"
@@ -46,8 +51,14 @@ run_db_migrate_or_exit() {
   echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
   # Pull the migration image separately so its failure does not cascade into
   # service-container pull logic. Compose service name is `db-migrate`; the
-  # container_name is `aqua-db-migrate`.
-  docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
+  # container_name is `aqua-db-migrate`. When db-migrate was built by this
+  # workflow run, pin it to DEPLOY_SHA; otherwise keep the current compatibility
+  # behavior and use the latest migration bundle already published.
+  if [ "${FULL_DEPLOY:-false}" = "true" ] || deploy_includes_service "db-migrate"; then
+    pull_deploy_image_required "db-migrate"
+  else
+    docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
+  fi
 
   DB_MIGRATE_TIMEOUT_SECONDS="${DB_MIGRATE_TIMEOUT_SECONDS:-1200}"
   set +e
@@ -94,6 +105,57 @@ run_image_prune_best_effort() {
     echo "::warning::Docker image prune for ${label} failed with exit ${PRUNE_STATUS}; continuing because cleanup is post-success best effort."
     docker system df 2>&1 || true
   fi
+}
+
+is_application_image_service() {
+  local svc="$1"
+
+  case " ${APPLICATION_IMAGE_SERVICES} " in
+    *" ${svc} "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+deploy_includes_service() {
+  local svc="$1"
+
+  case " ${DEPLOY_SERVICES:-} " in
+    *" ${svc} "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+pull_deploy_image_required() {
+  local svc="$1"
+  local attempts="${DEPLOY_PULL_ATTEMPTS:-4}"
+  local delay="${DEPLOY_PULL_RETRY_SECONDS:-15}"
+  local image="${IMAGE_PREFIX}/${svc}"
+  local immutable_ref="${image}:${DEPLOY_SHA}"
+  local compose_ref="${image}:latest"
+  local attempt
+
+  if [ -z "${DEPLOY_SHA:-}" ]; then
+    echo "::error::DEPLOY_SHA is required for immutable deploy image pulls."
+    return 1
+  fi
+
+  for attempt in $(seq 1 "${attempts}"); do
+    echo "  Pulling ${svc} (${immutable_ref}) [attempt ${attempt}/${attempts}]..."
+    if docker pull "${immutable_ref}" 2>&1; then
+      docker tag "${immutable_ref}" "${compose_ref}"
+      echo "  ${svc}: pinned ${compose_ref} to ${immutable_ref}"
+      return 0
+    fi
+
+    if [ "${attempt}" -lt "${attempts}" ]; then
+      echo "  WARN: ${svc} pull failed; retrying in ${delay}s..."
+      sleep "${delay}"
+    fi
+  done
+
+  echo "::error::Required image pull failed for ${svc} (${immutable_ref}) after ${attempts} attempt(s)."
+  echo "  Aborting BEFORE service restart so the deploy cannot keep running stale images."
+  return 1
 }
 
 # SEC-CI-012: Checkout to the specific SHA that triggered the workflow
@@ -228,7 +290,12 @@ echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" --password-stdin
 
 # ARCH-CI-007: Capture current image digests for rollback before pulling new images
 echo "=== Capturing current image digests for rollback ==="
-PREV_GATEWAY=$(docker inspect --format='{{.Image}}' aqua-saas-gateway-api-1 2>/dev/null || echo "")
+GATEWAY_CONTAINER_ID=$(docker compose -f docker-compose.droplet.yml ps -q gateway-api 2>/dev/null || true)
+if [ -n "${GATEWAY_CONTAINER_ID}" ]; then
+  PREV_GATEWAY=$(docker inspect --format='{{.Image}}' "${GATEWAY_CONTAINER_ID}" 2>/dev/null || echo "")
+else
+  PREV_GATEWAY=$(docker inspect --format='{{.Image}}' aqua-gateway 2>/dev/null || echo "")
+fi
 echo "Previous gateway digest: ${PREV_GATEWAY:-none}"
 
 # Scope boot-signal assertions to this deploy attempt. The asserter falls
@@ -240,10 +307,18 @@ echo "Boot signal log window starts at: ${BOOT_SIGNAL_SINCE}"
 
 if [ "$FULL_DEPLOY" = "true" ]; then
   # ── Full deploy mode (workflow_dispatch "all" or first deploy) ──
-  echo "=== FULL DEPLOY: Pulling images sequentially (avoids disk I/O contention) ==="
+  echo "=== FULL DEPLOY: Pulling infrastructure images sequentially ==="
   for svc in $(docker compose -f docker-compose.droplet.yml config --services); do
+    if is_application_image_service "$svc"; then
+      continue
+    fi
     echo "  Pulling $svc..."
-    docker compose -f docker-compose.droplet.yml pull "$svc" 2>&1 || echo "  WARN: $svc pull failed, continuing..."
+    docker compose -f docker-compose.droplet.yml pull "$svc" 2>&1 || echo "  WARN: infrastructure image pull for $svc failed, continuing with local image if present..."
+  done
+
+  echo "=== FULL DEPLOY: Pulling application images by immutable deploy SHA ==="
+  for svc in ${APPLICATION_IMAGE_SERVICES}; do
+    pull_deploy_image_required "$svc"
   done
 
   echo "=== Stopping all services ==="
@@ -519,12 +594,11 @@ else
 
   echo "=== Pulling affected images sequentially: ${DEPLOY_SERVICES} ==="
   for svc in ${DEPLOY_SERVICES}; do
-    echo "  Pulling $svc..."
-    docker compose -f docker-compose.droplet.yml pull "$svc" 2>&1 || echo "  WARN: $svc pull failed, continuing..."
+    pull_deploy_image_required "$svc"
   done
 
   echo "=== Restarting affected services (no-deps): ${DEPLOY_SERVICES} ==="
-  docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build ${DEPLOY_SERVICES} 2>&1 || true
+  docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate ${DEPLOY_SERVICES} 2>&1 || true
 
   echo "=== Waiting 30s for services to bootstrap ==="
   sleep 30
@@ -578,7 +652,7 @@ if [ "${HEALTH_STATUS}" -eq 1 ]; then
   echo "::error::Critical service health check failed. Initiating rollback."
   if [ -n "$PREV_GATEWAY" ]; then
     echo "Rolling back to previous gateway image: ${PREV_GATEWAY}"
-    docker tag "${PREV_GATEWAY}" $(docker compose -f docker-compose.droplet.yml config | grep 'image:.*gateway-api' | awk '{print $2}' | head -1) 2>/dev/null || true
+    docker tag "${PREV_GATEWAY}" "${GATEWAY_IMAGE_REF}" 2>/dev/null || true
     docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
     echo "Rollback complete. Please investigate the failed deploy."
   else
@@ -612,7 +686,7 @@ if ! COMPOSE_FILE=docker-compose.droplet.yml \
   echo "::error::Boot signal assertion failed. Initiating rollback."
   if [ -n "$PREV_GATEWAY" ]; then
     echo "Rolling back to previous gateway image: ${PREV_GATEWAY}"
-    docker tag "${PREV_GATEWAY}" $(docker compose -f docker-compose.droplet.yml config | grep 'image:.*gateway-api' | awk '{print $2}' | head -1) 2>/dev/null || true
+    docker tag "${PREV_GATEWAY}" "${GATEWAY_IMAGE_REF}" 2>/dev/null || true
     docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
     echo "Rollback complete. Investigate why required signals did not fire."
   else

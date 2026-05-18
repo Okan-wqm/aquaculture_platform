@@ -156,6 +156,7 @@ export default {
         '<rootDir>/tenant-fanout-entity-parity.spec.ts',
         '<rootDir>/shared-schema-canonical.spec.ts',
         '<rootDir>/drift-repair-naming.spec.ts',
+        '<rootDir>/init-scripts-no-schema-ddl.spec.ts',
       ],
     },
   ],

@@ -67,6 +67,10 @@ import {
   type RunSchemaOptions,
   type RunSchemaResult,
 } from './migration-orchestrator';
+import {
+  runPlatformBootstrap,
+  resolvePlatformBootstrapSqlDir,
+} from './platform-bootstrap.service';
 
 /**
  * Resolve the bundle root so migration globs in schema-registry.ts
@@ -205,6 +209,41 @@ async function main(): Promise<number> {
     root,
   });
 
+  // ── Phase 0 — Platform Bootstrap Atom (ADR-031) ─────────────────────────
+  // Idempotent installation of extensions, roles, schemas, grants,
+  // platform functions, and shared-schema tables. Survives postgres
+  // restart + DROP SCHEMA + day-one reset. Replaces the
+  // infrastructure/docker/init-scripts/* DDL contract which only fired
+  // on initdb (empty PGDATA).
+  try {
+    const sqlDir = resolvePlatformBootstrapSqlDir(root);
+    const bootstrap = await runPlatformBootstrap({
+      database,
+      sqlDir,
+      log,
+      ...(process.env['DB_MIGRATE_VERSION']
+        ? { version: process.env['DB_MIGRATE_VERSION'] }
+        : {}),
+    });
+    log({
+      level: 'info',
+      message: 'Phase 0 bootstrap success',
+      schemaCount: bootstrap.schemaCount,
+      functionCount: bootstrap.functionCount,
+      sharedTableCount: bootstrap.sharedTableCount,
+      durationMs: bootstrap.durationMs,
+    });
+  } catch (err: unknown) {
+    log({
+      level: 'error',
+      message: 'Phase 0 platform bootstrap FAILED — aborting before service migrations',
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    return 1;
+  }
+
+  // ── Phase 1 — Per-service migration loop (unchanged contract) ──────────
   const results: RunSchemaResult[] = [];
   for (const entry of SCHEMA_REGISTRY) {
     try {

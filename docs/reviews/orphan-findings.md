@@ -3573,3 +3573,31 @@ Fix (Tier-1 Make-Impossible): REMOVE the sensor-ingestion entry from service-cri
 The retained doc comment block documents the restore path so the entry is not added back accidentally with the wrong level (the previous comment said level: optional which would still fail).
 
 Status: RESOLVED on chore/sensor-ingestion-manifest-cleanup.
+
+## ORPHAN-CRITICAL-075 — postgres docker-entrypoint init-scripts cannot re-evaluate after PGDATA non-empty; restart + DROP SCHEMA wipes platform DDL contract
+
+Severity: CRITICAL. Every postgres container restart with a non-empty PGDATA volume leaves the platform's schemas / roles / functions / shared.* tables in whatever state they were last manipulated, with no automatic recovery path. After any `DROP SCHEMA … CASCADE` operation (day-one reset, schema-recovery hand-run, blue-green migration testing) the postgres container's docker-entrypoint silently SKIPS `/docker-entrypoint-initdb.d/*.{sh,sql}` because PGDATA is detected as pre-initialized — the upstream Postgres image's documented contract is "init-scripts run ONCE on initdb, never again."
+
+Discovered: 2026-05-18, during Faz 6 cutover #1. Operator dropped every per-service schema via psql, restarted postgres, manual init-script re-run partially completed, service boot found `auth` schema present but `farm` schema absent. Vault `pg_dump` rollback path also corrupt (stderr stream contaminated the dump file).
+
+Failure surface includes:
+
+  1. **2026-05-18 Faz 6 cutover #1**: postgres restart wiped the DROP-then-recreate state; init-scripts didn't fire; manual psql re-run was racey + partial; 13 schemas baseline-pending after deploy.
+  2. **2026-04-19 timescaledb-ha image swap (INFRA-CRITICAL-018)**: image-family PGDATA default divergence triggered the same class — new image's docker-entrypoint detected existing volume as pre-initialized, skipped init-scripts, SHARED_SCHEMA_TABLES freshly-added to `10-shared-schema.sql` never landed.
+  3. **2026-04-14 SHARED_SCHEMA_TABLES partial install**: init-scripts ran successfully against empty PGDATA but didn't include `access_logs` in the canonical list at the time. Adding the table later in `10-shared-schema.sql` meant existing environments never picked it up — there was no re-evaluation path.
+
+Root cause: the platform's DDL contract (extensions / roles / schemas / grants / functions / shared.* tables) was placed in `/docker-entrypoint-initdb.d/`, a single-shot mechanism owned by the postgres upstream contract. Mixing one-shot infrastructure (initdb) with restart-survive concerns (the platform DDL) was an architectural type error — the lifetimes were never compatible.
+
+Fix (Tier-1 Make-Impossible): platform DDL is now owned by the **Platform Bootstrap Atom** — Phase 0 of `aqua-db-migrate` (ADR-031). Every aqua-db-migrate container start runs the atom idempotently:
+
+  - 6 extensions (CREATE EXTENSION IF NOT EXISTS)
+  - 15 service roles (env-aware password sync, idempotent CREATE/ALTER ROLE)
+  - 16 schemas (CREATE SCHEMA IF NOT EXISTS + AUTHORIZATION)
+  - schema-level GRANT + ALTER DEFAULT PRIVILEGES (idempotent re-issue)
+  - 4 platform functions (CREATE OR REPLACE FUNCTION public.*)
+  - 5 SHARED_SCHEMA_TABLES + RLS + immutability triggers
+  - `platform.bootstrap_signal` boot-time precondition emitted
+
+`tests/invariants/init-scripts-no-schema-ddl.spec.ts` blocks any future regression — `CREATE SCHEMA / CREATE ROLE / CREATE TABLE / CREATE FUNCTION / CREATE POLICY / GRANT ... ON SCHEMA / ALTER SCHEMA / ALTER DEFAULT PRIVILEGES / ALTER TABLE` anywhere under `infrastructure/docker/init-scripts/*.{sh,sql}` fails CI. `SchemaVersionGate.probePlatformBootstrap()` refuses service boot if the signal row is missing or counts indicate partial-apply state.
+
+Status: RESOLVED on platform-bootstrap-atom branch (this commit).

@@ -169,6 +169,17 @@ export function createSchemaVersionGate(
         );
       }
 
+      // ADR-031 Platform Bootstrap probe — assert that the platform DDL
+      // contract (extensions / roles / schemas / grants / functions /
+      // shared-schema tables) was applied by the aqua-db-migrate Phase 0
+      // atom. The bootstrap atom INSERTs a singleton row into
+      // platform.bootstrap_signal on every successful run — its absence
+      // means the platform DDL contract is not in place and a per-service
+      // ledger probe below would either succeed against half-built state
+      // or fail with a misleading error. Fail fast HERE with a precise
+      // diagnostic before deeper probes.
+      await this.probePlatformBootstrap();
+
       await this.probeSchema(sourceSchema);
 
       if (tenantAware) {
@@ -228,6 +239,82 @@ export function createSchemaVersionGate(
         aquaEnv === 'production' ||
         aquaEnv === 'staging';
       return isProductionLike ? 'gate' : 'runner';
+    }
+
+    /**
+     * Probe platform.bootstrap_signal — the singleton row emitted by the
+     * aqua-db-migrate Phase 0 atom (ADR-031). Service refuses boot if:
+     *   - platform.bootstrap_signal table does not exist (atom never ran)
+     *   - row absent (atom failed before INSERT ON CONFLICT)
+     *   - schema_count diverges from the expected count (DDL contract
+     *     drift since the last bootstrap run)
+     *
+     * Diagnostic is precise enough that an operator can act on it without
+     * reading service logs — point them at the aqua-db-migrate container.
+     */
+    private async probePlatformBootstrap(): Promise<void> {
+      let rows: Array<{
+        last_run_at: Date | null;
+        schema_count: number | null;
+        function_count: number | null;
+        shared_table_count: number | null;
+        bootstrap_version: string | null;
+      }>;
+      try {
+        rows = await this.dataSource.query(
+          `SELECT last_run_at, schema_count, function_count, shared_table_count, bootstrap_version
+             FROM platform.bootstrap_signal
+            WHERE id = 1`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `[SchemaVersionGate:${sourceSchema}] Platform bootstrap probe FAILED: ${msg}. ` +
+            `The platform.bootstrap_signal table is missing or unreachable, which means ` +
+            `aqua-db-migrate Phase 0 (ADR-031 platform bootstrap atom) has not completed ` +
+            `successfully against this database. ` +
+            `Service boot refused — confirm the aqua-db-migrate container exited 0 with ` +
+            `the "Platform bootstrap complete" log line, then retry.`,
+        );
+      }
+
+      const [row] = rows;
+      if (!row) {
+        throw new Error(
+          `[SchemaVersionGate:${sourceSchema}] platform.bootstrap_signal has no row. ` +
+            `The aqua-db-migrate Phase 0 atom did not finalise — service boot refused. ` +
+            `Investigate the aqua-db-migrate container logs for "Platform bootstrap FAILED".`,
+        );
+      }
+
+      // Light sanity check on counts — a fully-applied bootstrap installs
+      // exactly 16 platform schemas, 4 platform functions, and 5 shared
+      // tables. Anything below means partial-apply state.
+      const EXPECTED_SCHEMA_COUNT = 16;
+      const EXPECTED_FUNCTION_COUNT = 4;
+      const EXPECTED_SHARED_TABLE_COUNT = 5;
+      const observedSchema = row.schema_count ?? 0;
+      const observedFn = row.function_count ?? 0;
+      const observedSharedTbl = row.shared_table_count ?? 0;
+      if (
+        observedSchema < EXPECTED_SCHEMA_COUNT ||
+        observedFn < EXPECTED_FUNCTION_COUNT ||
+        observedSharedTbl < EXPECTED_SHARED_TABLE_COUNT
+      ) {
+        throw new Error(
+          `[SchemaVersionGate:${sourceSchema}] platform.bootstrap_signal indicates a partial ` +
+            `bootstrap: schema_count=${observedSchema} (expect ≥${EXPECTED_SCHEMA_COUNT}), ` +
+            `function_count=${observedFn} (expect ≥${EXPECTED_FUNCTION_COUNT}), ` +
+            `shared_table_count=${observedSharedTbl} (expect ≥${EXPECTED_SHARED_TABLE_COUNT}). ` +
+            `Re-run aqua-db-migrate before retrying service boot.`,
+        );
+      }
+
+      this.logger.log(
+        `Platform bootstrap verified: schemas=${observedSchema}, functions=${observedFn}, ` +
+          `sharedTables=${observedSharedTbl}, version=${row.bootstrap_version ?? '(unset)'}, ` +
+          `lastRunAt=${row.last_run_at?.toISOString?.() ?? row.last_run_at}`,
+      );
     }
 
     /**

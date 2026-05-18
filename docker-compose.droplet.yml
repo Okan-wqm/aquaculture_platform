@@ -236,115 +236,16 @@ services:
       retries: 5
 
   # ---------------------------------------------------------------------------
-  # db-init: Idempotent role password sync (initContainer pattern)
+  # db-init: REMOVED 2026-05-18 by ADR-031 (Platform Bootstrap Atom).
   #
-  # Runs ONCE after postgres is healthy, then exits.
-  # Ensures per-service DB roles have the passwords from the current .env,
-  # even when postgres was initialized with randomly-generated passwords.
-  # restart: no — intentional, this is a one-shot init container.
+  # Role create + password sync + schema grant + ownership transfer — every
+  # responsibility this container previously owned is now atomically owned
+  # by aqua-db-migrate Phase 0 (apps/db-migrate/src/platform-bootstrap.service.ts).
+  # Single SSoT, single boot signal (platform.bootstrap_signal), restart-survive.
+  #
+  # Forensic archive of the previous bash-based init flow lives at
+  # docs/runbooks/platform-bootstrap.md + git history.
   # ---------------------------------------------------------------------------
-  db-init:
-    # INFRA-CRITICAL-010: same image as postgres above (single source of truth)
-    image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
-    container_name: aqua-db-init
-    restart: "no"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      PGHOST: postgres
-      PGUSER: ${POSTGRES_USER:-aquaculture}
-      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      PGDATABASE: ${POSTGRES_DB:-aquaculture}
-      AUTH_SERVICE_DB_PASS: ${AUTH_SERVICE_DB_PASS:-}
-      FARM_SERVICE_DB_PASS: ${FARM_SERVICE_DB_PASS:-}
-      SENSOR_SERVICE_DB_PASS: ${SENSOR_SERVICE_DB_PASS:-}
-      BILLING_SERVICE_DB_PASS: ${BILLING_SERVICE_DB_PASS:-}
-      HR_SERVICE_DB_PASS: ${HR_SERVICE_DB_PASS:-}
-      ALERT_SERVICE_DB_PASS: ${ALERT_SERVICE_DB_PASS:-}
-      ADMIN_SERVICE_DB_PASS: ${ADMIN_SERVICE_DB_PASS:-}
-      GATEWAY_SERVICE_DB_PASS: ${GATEWAY_SERVICE_DB_PASS:-}
-      NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
-      HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
-      MESSAGING_SERVICE_DB_PASS: ${MESSAGING_SERVICE_DB_PASS:-}
-    command: >
-      bash -c "
-        ensure_role() {
-          local role=$$1 pass=$$2
-          if [ -z \"$$pass\" ]; then return; fi
-          if psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$$role'\" | grep -q 1; then
-            psql -c \"ALTER ROLE $$role WITH PASSWORD '$$pass'\" 2>/dev/null && echo \"[db-init] $$role password updated\"
-          else
-            psql -c \"CREATE ROLE $$role WITH LOGIN PASSWORD '$$pass'\" 2>/dev/null && echo \"[db-init] $$role role created\"
-          fi
-        }
-        ensure_role auth_service      \"$$AUTH_SERVICE_DB_PASS\"
-        ensure_role farm_service      \"$$FARM_SERVICE_DB_PASS\"
-        ensure_role sensor_service    \"$$SENSOR_SERVICE_DB_PASS\"
-        ensure_role billing_service   \"$$BILLING_SERVICE_DB_PASS\"
-        ensure_role hr_service        \"$$HR_SERVICE_DB_PASS\"
-        ensure_role alert_service     \"$$ALERT_SERVICE_DB_PASS\"
-        ensure_role admin_service     \"$$ADMIN_SERVICE_DB_PASS\"
-        ensure_role gateway_service   \"$$GATEWAY_SERVICE_DB_PASS\"
-        ensure_role notification_service \"$$NOTIFICATION_SERVICE_DB_PASS\"
-        ensure_role hydroponics_service  \"$$HYDROPONICS_SERVICE_DB_PASS\"
-        ensure_role messaging_service    \"$$MESSAGING_SERVICE_DB_PASS\"
-
-        echo '[db-init] Granting schema privileges to per-service roles'
-        for ROLE in auth_service farm_service sensor_service billing_service hr_service alert_service admin_service gateway_service notification_service hydroponics_service messaging_service; do
-          psql -c \"GRANT USAGE, CREATE ON SCHEMA public TO $$ROLE\" 2>/dev/null && echo \"  [db-init] GRANT public -> $$ROLE\" || true
-        done
-
-        echo '[db-init] Granting per-service schema privileges + ownership transfer'
-        grant_service_schema() {
-          local role=$$1 schema=$$2
-          if psql -tAc \"SELECT 1 FROM information_schema.schemata WHERE schema_name='$$schema'\" | grep -q 1; then
-            psql -c \"GRANT ALL ON SCHEMA $$schema TO $$role\" 2>/dev/null
-            psql -c \"GRANT ALL ON ALL TABLES IN SCHEMA $$schema TO $$role\" 2>/dev/null
-            psql -c \"GRANT ALL ON ALL SEQUENCES IN SCHEMA $$schema TO $$role\" 2>/dev/null
-            psql -c \"ALTER DEFAULT PRIVILEGES IN SCHEMA $$schema GRANT ALL ON TABLES TO $$role\" 2>/dev/null
-            psql -c \"ALTER DEFAULT PRIVILEGES IN SCHEMA $$schema GRANT ALL ON SEQUENCES TO $$role\" 2>/dev/null
-            for TBL in $$(psql -tAc \"SELECT tablename FROM pg_tables WHERE schemaname='$$schema'\"); do
-              psql -c \"ALTER TABLE $$schema.$$TBL OWNER TO $$role\" 2>/dev/null
-            done
-            for SEQ in $$(psql -tAc \"SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema='$$schema'\"); do
-              psql -c \"ALTER SEQUENCE $$schema.$$SEQ OWNER TO $$role\" 2>/dev/null
-            done
-            for FUNC in $$(psql -tAc \"SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid WHERE n.nspname='$$schema'\"); do
-              psql -c \"ALTER FUNCTION $$schema.$$FUNC OWNER TO $$role\" 2>/dev/null
-            done
-            echo \"  [db-init] $$schema schema -> $$role (grants + ownership)\"
-          fi
-        }
-        grant_service_schema auth_service      auth
-        grant_service_schema farm_service      farm
-        grant_service_schema sensor_service    sensor
-        grant_service_schema billing_service   billing
-        grant_service_schema hr_service        hr
-        grant_service_schema alert_service     alert
-        grant_service_schema admin_service     admin
-        grant_service_schema gateway_service   gateway
-        grant_service_schema notification_service notification
-        grant_service_schema hydroponics_service  hydroponics
-        grant_service_schema messaging_service    messaging
-
-        echo '[db-init] Granting public schema privileges to all service roles'
-        echo '[db-init] WHY: Services like notification, billing, config use public schema.'
-        echo '[db-init] Shared tables (audit_logs, migrations) stay owned by superuser;'
-        echo '[db-init] per-service roles get ALL PRIVILEGES for DDL+DML operations.'
-        for ROLE in auth_service farm_service sensor_service billing_service hr_service alert_service admin_service gateway_service notification_service hydroponics_service messaging_service; do
-          psql -c \"GRANT ALL ON ALL TABLES IN SCHEMA public TO $$ROLE\" 2>/dev/null
-          psql -c \"GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO $$ROLE\" 2>/dev/null
-          psql -c \"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $$ROLE\" 2>/dev/null
-          psql -c \"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $$ROLE\" 2>/dev/null
-        done
-        echo '  [db-init] public schema -> all service roles (GRANT ALL)'
-
-        echo '[db-init] Done'
-      "
-    networks:
-      - aqua-internal
-
   # ---------------------------------------------------------------------------
   # aqua-db-migrate: One-shot schema migration runner.
   # WS10 / ADR-016 Phase E — Phase 1 (backward-compatible).
@@ -389,14 +290,35 @@ services:
       # DATABASE_MIGRATIONS_RUN defaults to true; set to false in
       # non-production for debugging. Production hard-fails on false.
       DATABASE_MIGRATIONS_RUN: "true"
-      # SSL off on the internal bridge (same as db-init which lives on
-      # the same network and uses local-socket auth semantics).
+      # SSL off on the internal bridge (services live on the same trust
+      # boundary as postgres — TLS is enforced at the host firewall).
       DATABASE_SSL: "false"
+      # Optional bootstrap version label written to platform.bootstrap_signal.
+      # Operator deploys set this to the GHA SHA / image tag for forensics.
+      DB_MIGRATE_VERSION: ${TAG:-latest}
+      # ─── ADR-031: per-service role passwords are owned by the
+      # platform-bootstrap atom (apps/db-migrate/src/platform-bootstrap.service.ts).
+      # The atom CREATE-or-ALTER ROLE ... PASSWORD on every Phase-0 run so
+      # restart and DROP ROLE cycles are non-destructive to login credentials.
+      # Service containers consume the same env vars below — single SSoT.
+      AUTH_SERVICE_DB_PASS:          ${AUTH_SERVICE_DB_PASS:-}
+      FARM_SERVICE_DB_PASS:          ${FARM_SERVICE_DB_PASS:-}
+      SENSOR_SERVICE_DB_PASS:        ${SENSOR_SERVICE_DB_PASS:-}
+      BILLING_SERVICE_DB_PASS:       ${BILLING_SERVICE_DB_PASS:-}
+      HR_SERVICE_DB_PASS:            ${HR_SERVICE_DB_PASS:-}
+      ALERT_SERVICE_DB_PASS:         ${ALERT_SERVICE_DB_PASS:-}
+      ADMIN_SERVICE_DB_PASS:         ${ADMIN_SERVICE_DB_PASS:-}
+      GATEWAY_SERVICE_DB_PASS:       ${GATEWAY_SERVICE_DB_PASS:-}
+      NOTIFICATION_SERVICE_DB_PASS:  ${NOTIFICATION_SERVICE_DB_PASS:-}
+      HYDROPONICS_SERVICE_DB_PASS:   ${HYDROPONICS_SERVICE_DB_PASS:-}
+      AI_SERVICE_DB_PASS:            ${AI_SERVICE_DB_PASS:-}
+      MESSAGING_SERVICE_DB_PASS:     ${MESSAGING_SERVICE_DB_PASS:-}
+      OBSERVABILITY_SERVICE_DB_PASS: ${OBSERVABILITY_SERVICE_DB_PASS:-}
+      EVENT_STORE_SERVICE_DB_PASS:   ${EVENT_STORE_SERVICE_DB_PASS:-}
+      CONFIG_SERVICE_DB_PASS:        ${CONFIG_SERVICE_DB_PASS:-}
     depends_on:
       postgres:
         condition: service_healthy
-      db-init:
-        condition: service_completed_successfully
     networks:
       - aqua-internal
     deploy:

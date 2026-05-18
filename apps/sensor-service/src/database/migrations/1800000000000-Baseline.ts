@@ -251,11 +251,11 @@ export class Baseline1800000000000 implements MigrationInterface {
         // ── Faz 3.5 hand-author addition — audit immutability triggers ──
         await queryRunner.query(`
             CREATE OR REPLACE FUNCTION "sensor".sensor_audit_logs_prevent_update_or_delete()
-            RETURNS trigger AS $
+            RETURNS trigger AS $auditguard$
             BEGIN
               RAISE EXCEPTION 'Audit table "sensor"."sensor_audit_logs" is append-only; UPDATE/DELETE refused (Faz 1.4 protected-tables-guard).';
             END;
-            $ LANGUAGE plpgsql;
+            $auditguard$ LANGUAGE plpgsql;
         `);
         await queryRunner.query(`
             CREATE TRIGGER trg_sensor_audit_logs_prevent_update

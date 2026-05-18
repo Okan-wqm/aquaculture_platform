@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .bridge_exceptions import BridgeContractViolation
 from .file_lock import with_exclusive_lock
 from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl
 from .runtime_profile import enforce_profile_for_action
@@ -1356,6 +1357,16 @@ def submit_claim_result(
                 response=envelope,
                 base_dir=base_dir,
             )
+        except BridgeContractViolation:
+            # Plan ARIA-V8 v2 §4 Phase 8.2 (B-V2-03) — typed contract
+            # violation surfaces operator-visibly. Do NOT swallow into
+            # agent_bridge_warning. Pre-V8 the wrapper swallowed every
+            # GovernanceError subclass into a warning + accepted the
+            # envelope; V8 makes the structural-contract violation a
+            # hard fail that propagates to the caller (convergence
+            # drainer / consumer) so the operator sees the contract
+            # breach in real time.
+            raise
         except GovernanceError as exc:
             bridged["bridge_errors"].append(f"plan_convergence_bridge: {exc}")
             append_tools_governance(

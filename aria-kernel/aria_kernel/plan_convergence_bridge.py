@@ -67,6 +67,26 @@ def _extract_plan_id(request: dict[str, Any], response: dict[str, Any]) -> str |
     return None
 
 
+# Plan ARIA-V8 v2 §4 Phase 8.2 (B-V2-06 + B-V2-09 + architect I1)
+# — declarative state dispatch for primary_plan.
+#
+# WHY a literal dict instead of if/elif: the table is the source of
+# truth + the source-substring invariant pins on `_PRIMARY_PLAN_STATE_DISPATCH`
+# (real load-bearing constant, not invariant theater per architect B-V2-04).
+# Adding a new legal state for primary submission = one table entry.
+# Removing a state = one table entry. Future maintainers cannot drift.
+#
+# Why DRAFT is NOT in the table: V8's cross_review_bridge.issue_primary_envelope
+# (C3) refuses to mint primary envelopes on DRAFT state — the bridge here
+# is defense-in-depth. If somehow an illegal primary envelope reaches the
+# bridge, BridgeContractViolation is raised (caught + re-raised by
+# agent_invocations wrapper, NOT swallowed into agent_bridge_warning).
+_PRIMARY_PLAN_STATE_DISPATCH: dict[str, str] = {
+    "CRITIQUED": "record_revision",
+    "CROSS_REVIEWED": "record_revision",
+}
+
+
 def record_plan_result(
     *,
     role: str | None,
@@ -74,23 +94,28 @@ def record_plan_result(
     response: dict[str, Any],
     base_dir: str | Path | None = None,
 ) -> dict[str, Any] | None:
-    """Plan 026R §C.1 — dispatch an accepted planner-role response to
-    the correct plan_convergence mutation.
+    """Plan 026R §C.1 (V8 v2 §4 Phase 8.2 — state-aware primary dispatch).
 
     Returns:
         ``None`` when ``role`` is not a planner bridge role (no-op for
         judge / supporting flows — judgment_bridge handles those).
         The persisted event dict when the dispatch succeeded.
 
-    Raises ``GovernanceError`` on schema / state errors so the caller
-    can record an ``agent_bridge_warning`` (mirrors judgment_bridge).
+    Raises:
+        ``BridgeContractViolation`` when role=primary_plan arrives on a
+        state outside ``_PRIMARY_PLAN_STATE_DISPATCH``. The caller at
+        ``agent_invocations._submit_legacy_invocation_result_internal``
+        RE-RAISES this subclass (vs the generic GovernanceError path
+        that gets swallowed into agent_bridge_warning).
+        ``GovernanceError`` on other schema / state errors so the
+        caller's agent_bridge_warning path can record them.
     """
     if role not in PLANNER_BRIDGE_ROLES:
         return None
-    # Local imports avoid a kernel cold-start cycle (plan_convergence
-    # imports tool_registry which imports ledger; this module is loaded
-    # only when a planner role lands).
+    # Local imports avoid a kernel cold-start cycle.
+    from .bridge_exceptions import BridgeContractViolation
     from .plan_convergence import (
+        fold_plan_state,
         record_cross_review,
         record_revision,
         submit_challenger_plan,
@@ -109,11 +134,35 @@ def record_plan_result(
         details = {}
 
     if role == "primary_plan":
-        revision_payload = details.get("revision") or details.get("plan") or details
-        return record_revision(
-            plan_id=plan_id,
-            revision=revision_payload,
-            base_dir=base_dir,
+        # Plan ARIA-V8 v2 §4 Phase 8.2 — state-aware dispatch via
+        # _PRIMARY_PLAN_STATE_DISPATCH. Unknown state → BridgeContractViolation.
+        state_dict = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        current_state = state_dict.get("state") if isinstance(state_dict, dict) else None
+        handler_name = _PRIMARY_PLAN_STATE_DISPATCH.get(str(current_state))
+        if handler_name is None:
+            raise BridgeContractViolation(
+                f"primary_plan_invalid_state: state={current_state} "
+                f"plan_id={plan_id} expected one of "
+                f"{sorted(_PRIMARY_PLAN_STATE_DISPATCH)}; convergence "
+                f"pipeline contract broken — round dispatch in "
+                f"convergence_drainer.py minted primary envelope before "
+                f"plan reached CRITIQUED or CROSS_REVIEWED"
+            )
+        if handler_name == "record_revision":
+            revision_payload = details.get("revision") or details.get("plan") or details
+            return record_revision(
+                plan_id=plan_id,
+                revision=revision_payload,
+                base_dir=base_dir,
+            )
+        # Defensive: the literal table only contains "record_revision"
+        # today. Future entries MUST extend this branch — typing.assert_never
+        # would catch a missing handler at mypy time; runtime fallback
+        # raises BridgeContractViolation.
+        raise BridgeContractViolation(
+            f"primary_plan_handler_missing: handler_name={handler_name} "
+            f"present in _PRIMARY_PLAN_STATE_DISPATCH but no dispatch arm; "
+            f"V8 bridge needs extension"
         )
 
     if role == "challenger_plan":

@@ -121,6 +121,26 @@ interface Violation {
   excerpt: string;
 }
 
+/**
+ * Find the start byte of `async down(` in a migration source. Returns
+ * `src.length` (no body match) if the migration carries no down() method
+ * — in that case the whole file body counts as up()/forward content.
+ *
+ * Why this matters: a TypeORM migration's down() is the legitimate
+ * rollback path. `DROP TABLE foo` inside down() is the inverse of the
+ * up() `CREATE TABLE foo` and is structurally correct. The compliance
+ * concern is forward-direction destructive operations (up() body) on
+ * compliance-critical tables, not their rollback counterparts.
+ *
+ * Match heuristic: regex catches `async down(`, `public async down(`,
+ * `down(queryRunner` etc. — anything that starts a TypeORM down() method.
+ */
+function findDownMethodStart(src: string): number {
+  const re = /(^|\n)\s*(public\s+|private\s+|protected\s+)?async\s+down\s*\(/;
+  const m = re.exec(src);
+  return m ? m.index : src.length;
+}
+
 function listMigrationFiles(): string[] {
   let grepOut: string;
   try {
@@ -145,6 +165,23 @@ function lineContext(src: string, matchIndex: number): string {
   const start = src.lastIndexOf('\n', matchIndex) + 1;
   const end = src.indexOf('\n', matchIndex);
   return src.slice(start, end === -1 ? undefined : end).trim();
+}
+
+/**
+ * Heuristic: a line that starts with a comment marker (`*`, `//`, `/*`) is
+ * a docblock or inline comment, NOT executable SQL. Skip such matches.
+ *
+ * This avoids false positives like the sensor-service outbox migration
+ * whose docblock prose includes the literal text `DROP TABLE sensor.event_outbox CASCADE`
+ * as documentation of what NOT to do.
+ */
+function isCommentLine(line: string): boolean {
+  const trimmed = line.trim();
+  return (
+    trimmed.startsWith('*') ||
+    trimmed.startsWith('//') ||
+    trimmed.startsWith('/*')
+  );
 }
 
 function isProtectedTarget(
@@ -187,19 +224,29 @@ describe('INVARIANT — protected-tables-guard (COMPLIANCE-CRITICAL-001)', () =>
         continue;
       }
 
+      // Scope the scan to the up()-direction body. Down() rollback DROPs are
+      // structurally correct (CREATE → DROP inverse) and not the regression
+      // class this guard protects against.
+      const downStart = findDownMethodStart(src);
+      const upBody = src.slice(0, downStart);
+
       for (const { name, re, targetType } of DESTRUCTIVE_PATTERNS) {
         re.lastIndex = 0;
         let match: RegExpExecArray | null;
-        while ((match = re.exec(src)) !== null) {
+        while ((match = re.exec(upBody)) !== null) {
           const target = match[1];
           if (!target) continue;
           if (!isProtectedTarget(targetType, target)) continue;
+
+          const excerpt = lineContext(upBody, match.index);
+          // Skip docblock / comment lines — these are documentation, not executable SQL.
+          if (isCommentLine(excerpt)) continue;
 
           violations.push({
             file: relativePath,
             pattern: name,
             target,
-            excerpt: lineContext(src, match.index),
+            excerpt,
           });
         }
       }

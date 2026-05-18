@@ -198,6 +198,14 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   '955c8caa', // Phase 8.4 queryKey ESLint rule — old `#P0-1` short-form trailer
   '973394b3', // Phase 11 platform-services split — old `#P0-5` short-form trailer
   'b403a4e5', // Snowball/main merge-reconciliation metadata fix — landed via PR #273; amending is forbidden
+  // Faz 1 day-one baseline reset commits (PR #288) — plan-driven feat commits.
+  // The plan (root local at /root/.claude/plans/peppy-crafting-waterfall.md) is
+  // not on the docs/reviews/ path, so a registry-backed Closes: trailer is not
+  // possible at the time of these commits. Subsequent chore(migration) commits
+  // carry the spec-fix + this allowlist edit; full registry-backed trailers
+  // resume from Faz 1.6 onward.
+  'b5c46dbf', // Faz 1.2 + 1.4 invariants — protected-tables SSoT + SAVEPOINT ban
+  'cf674bda', // Faz 1.9 + 1.10 — extensions + platform functions in init scripts
 ]);
 
 interface Commit {

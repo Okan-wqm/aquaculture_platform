@@ -3601,3 +3601,40 @@ Fix (Tier-1 Make-Impossible): platform DDL is now owned by the **Platform Bootst
 `tests/invariants/init-scripts-no-schema-ddl.spec.ts` blocks any future regression — `CREATE SCHEMA / CREATE ROLE / CREATE TABLE / CREATE FUNCTION / CREATE POLICY / GRANT ... ON SCHEMA / ALTER SCHEMA / ALTER DEFAULT PRIVILEGES / ALTER TABLE` anywhere under `infrastructure/docker/init-scripts/*.{sh,sql}` fails CI. `SchemaVersionGate.probePlatformBootstrap()` refuses service boot if the signal row is missing or counts indicate partial-apply state.
 
 Status: RESOLVED on platform-bootstrap-atom branch (this commit).
+
+## ORPHAN-CRITICAL-076 — Phase 0 platform-bootstrap atom silently generates random passwords for missing service-role env vars; downstream services crash-loop with opaque "auth failed"
+
+Severity: CRITICAL. The Phase 0 atom (ADR-031) ships its first prod deploy at run #1113 (SHA `984eb61`) and the aqua-db-migrate container exits non-zero before service containers can start. The droplet log surfaced `aqua-db-migrate failed during full deploy — aborting BEFORE service containers start.` (`scripts/deploy/droplet-up.sh:80–85`). Two architectural gaps surface together:
+
+  1. **Silent random-password fallback.** `apps/db-migrate/src/platform-bootstrap.service.ts:191–207` (pre-fix) caught a missing/empty service-role password env var, generated a random 256-bit password, logged a warning, and continued. Phase 0 reported success but the random secret was NEVER shared with the service container that connects as that role — Phase 1+ services entered `password authentication failed` crash-loop, the criticality-gate dropped them, and the deploy rolled back. The smoking-gun symptom (db-migrate non-zero exit at the next attempt) hides the real cause (missing env var on the host).
+  2. **No early-exit diagnostic at Stage 004 GRANT.** `apps/db-migrate/src/sql/platform-bootstrap/004-schema-grants.sql` carries 45+ bare `GRANT … TO <role>` statements. If Stage 002 silently failed to create one of the 15 roles, Stage 004 surfaced an opaque single-line `role "<x>" does not exist` mid-file with no pointer at the upstream stage.
+
+Discovered: 2026-05-18, after deploy run #1113 (manual `workflow_dispatch` against main HEAD `984eb61`). PR #290's commit body explicitly noted "NOT done in this commit: aqua-db-migrate image rebuild + production deploy (separate ops step)" — this finding is the prod-readiness work that gap implicitly tracks.
+
+Root cause: the atom's password-resolution contract was lax-on-write (random fallback) rather than strict-on-write (fail-fast). A single-shot deploy infrastructure component whose preconditions are silently relaxed produces opaque downstream failures far from the cause. The Stage 004 surface compounded the diagnostic loss.
+
+Fix (Tier-1 Make-Impossible + Tier-3 Make-Detectable):
+
+  1. **`buildRolesSql` collects every missing/empty env and throws** with a structured diagnostic that names every offending env var, points at the host file (`/var/aqua-saas/.env`) and the provisioning script (`scripts/deploy/droplet-up.sh:421–424` for full deploy, `:564–570` for selective). Phase 0 now refuses to ship random passwords that no service can ever know.
+  2. **Stage 004 carries a role-existence pre-check** — a `DO $platform_bootstrap_stage_004_precheck$` block scans `pg_catalog.pg_roles` for every expected service role BEFORE issuing the first GRANT, and `RAISE EXCEPTION` with a structured message identifying the missing role + the upstream stage to inspect. Wrapping each GRANT in `EXECUTE … EXCEPTION WHEN undefined_object` was rejected as 200+ statement EXECUTE bodies break the SQL-level audit shape ADR-011 reviewers expect.
+  3. **Integration spec gains two new contexts:** `platform-bootstrap.integration.spec.ts` now exercises (a) Phase 0 against a database pre-populated with the archived `10-shared-schema.sql` artifacts (the actual prod state at deploy run #1113) and (b) the fail-fast path for missing/empty env vars. The two pre-existing tests had only covered clean apply, idempotent re-run, and `DROP SCHEMA` round-trip.
+
+Status: RESOLVED on `claude/fix-digitalocean-deploy-kL46A` branch (this commit).
+
+## ORPHAN-CRITICAL-077 — `deploy-digitalocean.yml` is a workflow_call subworkflow with no upstream caller; every prod deploy is manual `workflow_dispatch`, breaking the staging-gate audit chain
+
+Severity: CRITICAL. `.github/workflows/deploy-digitalocean.yml`'s `on:` block declares only `workflow_call` + `workflow_dispatch`. The file's header comment (l.27–34) documents the intended trigger model: "invoked from `.github/workflows/ci-affected.yml` as the final job after lint/type-check/test/build all pass on push to main." That invocation never landed in `ci-affected.yml`. The 800-line workflow file has no `deploy:` job, no `uses: ./.github/workflows/deploy-digitalocean.yml` step, and no path that drives the deploy chain on a push event.
+
+Discovered: 2026-05-18, during root-cause investigation of deploy run #1113. The GitHub Actions UI surfaced that EVERY one of the last 10 deploy runs (`#1104` through `#1113`) is tagged "Manually run by Okan-wqm" — the workflow is exclusively operator-triggered. Staging-gate enforcement, the staged-rollout audit trail, and the "main is always deployable" architectural property documented in ADR-016 are all defeated by this gap.
+
+Three concrete consequences:
+
+  1. **Staging-gate by-pass is the default**, not the exception. Operators dispatch prod deploy without waiting for the `deployed/staging-<sha>` tag because there is no automated path that would enforce the gate. The `staging-gate` job's `bypass_staging_gate` input is the safety valve for the rare emergency — without an automated trigger, the safety valve becomes the only path.
+  2. **The 2026-04-14 cascade failure mode is reachable again** even though the workflow's staging-gate job would catch it: a manual operator dispatch on a SHA where staging is broken would route the gate's "skip on Topology B" path (operator forgot to set STAGING_ENABLED) or trip the bypass path (operator paste-types `true` to clear a stuck gate).
+  3. **The deploy-workflow's own change validation is broken.** A workflow author who pushes a fix to `scripts/deploy/droplet-up.sh` or to `deploy-digitalocean.yml` itself cannot exercise the fix through the merge-driven chain — the chain physically does not exist. PR-level CI green is the only signal until an operator manually dispatches the deploy, by which point the broken commit is already on main.
+
+Root cause: the workflow_call invocation was authored as a comment of intent at file creation (commit `4d87539`) but the matching `ci-affected.yml` `deploy:` job that would call it never landed in any subsequent commit. The header comment claim and the actual trigger graph drifted from day one. Subsequent fixes (workflow_run → workflow_call refactor, staging-gate topology, criticality manifest gate) all assumed the chain existed and patched their own corners of it; nobody re-checked the caller side.
+
+Fix (Tier-1 Make-Impossible): `ci-affected.yml` gets a `deploy:` job that invokes `deploy-digitalocean.yml` via `uses: ./.github/workflows/deploy-digitalocean.yml` + `secrets: inherit`, gated on `github.event_name == 'push' && github.ref == 'refs/heads/main'` and on the upstream `detect-changes` + `install` jobs. `lint/type-check/test/build` are PR-side gates (ARCH-CI-009) so they are NOT in the `needs:` list — that is the documented merge-gate architecture, where PR review is the quality gate before main accepts a commit. Operator `workflow_dispatch` paths are unchanged; only the automation gap closes.
+
+Status: RESOLVED on `claude/fix-digitalocean-deploy-kL46A` branch (this commit).

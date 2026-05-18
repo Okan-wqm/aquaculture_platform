@@ -25,6 +25,56 @@
 -- ============================================================================
 
 -- ──────────────────────────────────────────────────────────────────────────
+-- Stage 4 pre-check (Tier-3 Make-Detectable, ADR-031 follow-up).
+--
+-- A bare `GRANT … TO <role>` whose role does not exist surfaces in postgres
+-- logs as a single-line `role "<x>" does not exist` — an opaque mid-file
+-- failure that leaves the operator guessing whether Stage 002 (role
+-- create) actually completed. The pre-check below short-circuits that
+-- failure mode with a structured diagnostic that names the missing role
+-- AND points at the upstream stage to investigate.
+--
+-- Wrapping every individual GRANT in EXECUTE … EXCEPTION WHEN
+-- undefined_object is not viable here: plpgsql does not accept bare DDL
+-- statements outside EXECUTE, and EXECUTE-wrapping 200+ statements would
+-- double the file size while losing the SQL-level audit shape that
+-- IEC 62443 / ADR-011 reviewers expect from this stage.
+-- ──────────────────────────────────────────────────────────────────────────
+DO $platform_bootstrap_stage_004_precheck$
+DECLARE
+  missing_role text;
+  expected_roles text[] := ARRAY[
+    'auth_service',
+    'farm_service',
+    'sensor_service',
+    'hr_service',
+    'messaging_service',
+    'hydroponics_service',
+    'alert_service',
+    'billing_service',
+    'notification_service',
+    'ai_service',
+    'admin_service',
+    'observability_service',
+    'event_store_service',
+    'config_service',
+    'gateway_service'
+  ];
+BEGIN
+  SELECT r INTO missing_role
+  FROM unnest(expected_roles) AS t(r)
+  WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = t.r)
+  LIMIT 1;
+
+  IF missing_role IS NOT NULL THEN
+    RAISE EXCEPTION
+      'Stage 004 abort: service role "%" does not exist. Stage 002 (role create) failed upstream — inspect aqua-db-migrate logs for the "Stage 002: roles" structured log block, and verify the corresponding *_SERVICE_DB_PASS env var is provisioned in /var/aqua-saas/.env.',
+      missing_role;
+  END IF;
+END
+$platform_bootstrap_stage_004_precheck$;
+
+-- ──────────────────────────────────────────────────────────────────────────
 -- Shared POSTGRES_USER access (backward compat — services still connect as
 -- POSTGRES_USER in some paths until full role cutover).
 -- ──────────────────────────────────────────────────────────────────────────

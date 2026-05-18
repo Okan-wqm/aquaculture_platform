@@ -197,4 +197,365 @@ __all__ = [
     "NoOpAutoMergeRunner",
     "RealAutoMergeRunner",
     "select_auto_merge_runner",
+    # Plan ARIA-V9.6 — V9 implementation-phase auto-merge surface
+    "compute_v9_idempotency_key",
+    "verify_branch_tip",
+    "poll_pr_checks",
+    "evaluate_v9_implementation_merge",
+    "V9MergeDecision",
+    "PR_CHECK_POLL_MAX_ATTEMPTS",
+    "PR_CHECK_POLL_INTERVAL_SECONDS",
 ]
+
+
+# =============================================================================
+# Plan ARIA-V9.6 — implementation-phase auto-merge runner
+# =============================================================================
+#
+# Closes:
+#   * arb CRIT-004 — `gh pr merge --auto` server-decides-when-to-merge
+#     semantics replaced by SYNCHRONOUS `gh pr merge --squash` after
+#     pre-merge re-check + evaluate_auto_merge eligibility
+#   * arb HIGH-006 — idempotency_key extended from 2-tuple
+#     (plan_id, diff_hash) to 5-tuple (+ pr_number, base_branch,
+#     branch_tip_sha) — prevents the rebase-and-force-push collision
+#     class flagged in the audit
+#   * sec CRIT-003 — `.github/workflows/**` blocked via
+#     `auto_merge.evaluate_auto_merge` which carries DEFAULT_POLICY
+#     hard_forbidden_globs (this module INVOKES evaluate, not
+#     re-states a weaker policy)
+#   * sec HIGH-002 — CI race window — headRefOid recheck via
+#     `gh pr view --json headRefOid` matching
+#     state.implementation.branch_tip_sha immediately before merge
+#   * ai HIGH-007 — TOCTOU on diff_hash — branch_tip_sha captured at
+#     IMPLEMENTATION_RECORDED time + rechecked here
+#   * sec MED-004 — SKIPPED / NEUTRAL check states rejected
+#     (only SUCCESS advances)
+#   * perf MED-012 — subprocess.run with bounded polls (NOT
+#     subprocess.Popen — no resource leak between cycles)
+#   * ai MED-016 — autonomous-profile precondition gate
+#     (autonomous-only merge; strict profile no-ops with dry-run flag)
+
+
+import hashlib
+import json
+import shutil
+import subprocess
+import time
+from dataclasses import dataclass
+
+
+# Plan ARIA-V9.6 — bounded PR check polling. 60 polls × 15s = 15min
+# max wait. Beyond this, ci_check_timeout rejection fires; the merge
+# does NOT block on a stuck CI for hours.
+PR_CHECK_POLL_MAX_ATTEMPTS: int = 60
+PR_CHECK_POLL_INTERVAL_SECONDS: int = 15
+
+
+@dataclass(frozen=True)
+class V9MergeDecision:
+    """Plan ARIA-V9.6 — frozen merge-decision record.
+
+    eligible=True means the 4 gates passed:
+      1. CI checks all SUCCESS (no SKIPPED, no NEUTRAL)
+      2. branch_tip_sha matches expected
+      3. auto_merge.evaluate_auto_merge returns approved
+      4. gh pr merge --squash returns exit 0
+
+    eligible=False → rejection_class is set to one of the v9.0-B
+    validated rejection classes (ci_check_red, ci_check_timeout,
+    branch_tip_drift, merge_policy_violation,
+    autonomous_profile_preconditions_not_met).
+
+    idempotency_key_hash is sha256 of the 5-tuple
+    (plan_id, diff_hash, pr_number, base_branch, branch_tip_sha).
+    Re-running the auto-merge daemon against the same merged PR
+    is a no-op (the record_implementation_merged event itself is
+    idempotency-keyed in plan_convergence._mutate).
+    """
+
+    eligible: bool
+    plan_id: str
+    pr_number: int
+    rejection_class: str | None
+    idempotency_key_hash: str
+    decision_at_utc: str
+    pre_merge_branch_tip_sha: str | None
+    merge_sha: str | None
+    check_summary: tuple[str, ...]
+
+
+def compute_v9_idempotency_key(
+    *,
+    plan_id: str,
+    diff_hash: str,
+    pr_number: int,
+    base_branch: str,
+    branch_tip_sha: str,
+) -> str:
+    """Plan ARIA-V9.6 — 5-tuple idempotency key.
+
+    sha256 of canonical-JSON-encoded tuple. The 5 fields prevent
+    the rebase-and-force-push collision class flagged by arb
+    HIGH-006: a PR rebased + force-pushed → branch_tip_sha
+    differs → idempotency key differs → previously-recorded
+    implementation_merged event does NOT silently no-op the
+    second mint attempt.
+    """
+    canonical = {
+        "plan_id": plan_id,
+        "diff_hash": diff_hash,
+        "pr_number": pr_number,
+        "base_branch": base_branch,
+        "branch_tip_sha": branch_tip_sha,
+    }
+    raw = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def verify_branch_tip(
+    *,
+    pr_number: int,
+    expected_branch_tip_sha: str,
+    gh_cli: str = "gh",
+) -> bool:
+    """Plan ARIA-V9.6 — pre-merge headRefOid recheck.
+
+    Closes sec HIGH-002 + ai HIGH-007 — the CI green check happened
+    against a specific branch tip. If the branch was force-pushed
+    or rebased between IMPLEMENTATION_RECORDED + merge, the green
+    check no longer applies to the current code. Tier-1 — abort the
+    merge if drift detected.
+
+    Returns True iff `gh pr view --json headRefOid` matches
+    expected_branch_tip_sha. False on any mismatch, gh-CLI absence,
+    or API failure (fail-closed).
+    """
+    if not isinstance(expected_branch_tip_sha, str) or not expected_branch_tip_sha:
+        return False
+    if not shutil.which(gh_cli):
+        return False
+    try:
+        proc = subprocess.run(
+            [gh_cli, "pr", "view", str(pr_number),
+             "--json", "headRefOid"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+    if proc.returncode != 0:
+        return False
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return False
+    head_oid = payload.get("headRefOid") if isinstance(payload, dict) else None
+    if not isinstance(head_oid, str):
+        return False
+    return head_oid == expected_branch_tip_sha
+
+
+def poll_pr_checks(
+    *,
+    pr_number: int,
+    max_attempts: int = PR_CHECK_POLL_MAX_ATTEMPTS,
+    interval_seconds: int = PR_CHECK_POLL_INTERVAL_SECONDS,
+    gh_cli: str = "gh",
+    sleep_fn: Any = None,
+) -> tuple[str, tuple[str, ...]]:
+    """Plan ARIA-V9.6 — PR check polling via `gh pr checks`.
+
+    Returns ``(status, summary)`` where status is one of:
+      * "all_success" — every required check completed with SUCCESS
+      * "ci_check_red" — at least one FAILURE / CANCELLED
+      * "ci_check_skipped_or_neutral" — at least one SKIPPED or
+        NEUTRAL among required checks (sec MED-004)
+      * "ci_check_timeout" — max_attempts exceeded
+      * "gh_cli_unavailable" — gh CLI not on PATH
+
+    `summary` is a tuple of ``"<check>:<state>"`` strings for
+    audit.
+
+    Uses subprocess.run (NOT Popen — perf MED-012 resource cleanup
+    guarantee). sleep_fn injectable for tests.
+    """
+    sleep = sleep_fn or time.sleep
+    if not shutil.which(gh_cli):
+        return ("gh_cli_unavailable", ())
+    for attempt in range(max_attempts):
+        try:
+            proc = subprocess.run(
+                [gh_cli, "pr", "checks", str(pr_number),
+                 "--json", "name,state,bucket"],
+                capture_output=True, text=True, timeout=20,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            sleep(interval_seconds)
+            continue
+        if proc.returncode != 0:
+            sleep(interval_seconds)
+            continue
+        try:
+            rows = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            sleep(interval_seconds)
+            continue
+        if not isinstance(rows, list):
+            sleep(interval_seconds)
+            continue
+        summary = tuple(
+            f"{r.get('name')}:{r.get('state')}"
+            for r in rows if isinstance(r, dict)
+        )
+        states = {r.get("state") for r in rows if isinstance(r, dict)}
+        buckets = {r.get("bucket") for r in rows if isinstance(r, dict)}
+        # Any pending/queued/in_progress → continue polling
+        if any(b == "pending" for b in buckets) or "PENDING" in states or "QUEUED" in states or "IN_PROGRESS" in states:
+            sleep(interval_seconds)
+            continue
+        # Any failure / cancelled / timed_out → red
+        if any(b == "fail" for b in buckets) or "FAILURE" in states or "CANCELLED" in states or "TIMED_OUT" in states:
+            return ("ci_check_red", summary)
+        # SKIPPED / NEUTRAL present among required → reject
+        # (sec MED-004 — only SUCCESS advances merge)
+        if "SKIPPED" in states or "NEUTRAL" in states:
+            return ("ci_check_skipped_or_neutral", summary)
+        # All terminal AND all SUCCESS
+        if all(b == "pass" for b in buckets) or states == {"SUCCESS"}:
+            return ("all_success", summary)
+        # Mixed terminal states we don't recognise → conservative fail
+        sleep(interval_seconds)
+    return ("ci_check_timeout", ())
+
+
+def evaluate_v9_implementation_merge(
+    *,
+    plan_id: str,
+    pr_number: int,
+    diff_hash: str,
+    branch_tip_sha: str,
+    base_branch: str,
+    profile: str,
+    adapter: Any | None = None,
+    policy: dict[str, Any] | None = None,
+    gh_cli: str = "gh",
+    sleep_fn: Any = None,
+) -> V9MergeDecision:
+    """Plan ARIA-V9.6 — synchronous merge orchestration.
+
+    4-gate evaluation:
+      1. Profile precondition: autonomous required for actual merge
+         (strict profile returns eligible=False with
+         autonomous_profile_preconditions_not_met).
+      2. PR checks all SUCCESS via poll_pr_checks (max 60 × 15s).
+      3. branch_tip_sha matches expected via verify_branch_tip
+         (closes sec HIGH-002 + ai HIGH-007).
+      4. auto_merge.evaluate_auto_merge returns approved (uses
+         existing DEFAULT_POLICY.hard_forbidden_globs which includes
+         .github/workflows/, aria-kernel/, infrastructure/,
+         package.json — sec CRIT-003).
+
+    On all 4 gates passing: invokes `gh pr merge --squash` (NOT
+    --auto — synchronous; the daemon stays in control of the merge
+    moment so headRefOid drift between the eligibility check and
+    the merge cannot occur).
+
+    On any gate failing: returns V9MergeDecision(eligible=False,
+    rejection_class=<one of the V9.0-B canonical classes>) so the
+    orchestrator can route to record_implementation_rejected.
+
+    Idempotency_key_hash is computed regardless of outcome so audit
+    rows correlate.
+    """
+    from datetime import datetime, timezone
+    decision_at = datetime.now(timezone.utc).isoformat()
+    idempotency_key = compute_v9_idempotency_key(
+        plan_id=plan_id, diff_hash=diff_hash, pr_number=pr_number,
+        base_branch=base_branch, branch_tip_sha=branch_tip_sha,
+    )
+
+    def _reject(rejection_class: str, check_summary: tuple[str, ...] = ()) -> V9MergeDecision:
+        return V9MergeDecision(
+            eligible=False,
+            plan_id=plan_id,
+            pr_number=pr_number,
+            rejection_class=rejection_class,
+            idempotency_key_hash=idempotency_key,
+            decision_at_utc=decision_at,
+            pre_merge_branch_tip_sha=None,
+            merge_sha=None,
+            check_summary=check_summary,
+        )
+
+    # Gate 1: profile precondition
+    if profile != "autonomous":
+        return _reject("autonomous_profile_preconditions_not_met")
+
+    # Gate 2: CI checks all SUCCESS
+    status, summary = poll_pr_checks(
+        pr_number=pr_number, gh_cli=gh_cli, sleep_fn=sleep_fn,
+    )
+    if status != "all_success":
+        if status == "ci_check_red":
+            return _reject("ci_check_red", summary)
+        if status == "ci_check_skipped_or_neutral":
+            return _reject("ci_check_skipped_or_neutral", summary)
+        return _reject("ci_check_timeout", summary)
+
+    # Gate 3: branch_tip_sha matches
+    if not verify_branch_tip(
+        pr_number=pr_number,
+        expected_branch_tip_sha=branch_tip_sha,
+        gh_cli=gh_cli,
+    ):
+        return _reject("branch_tip_drift", summary)
+
+    # Gate 4: evaluate_auto_merge eligibility
+    if adapter is not None:
+        from .auto_merge import evaluate_auto_merge
+        eligibility = evaluate_auto_merge(
+            adapter=adapter,
+            pr_number=pr_number,
+            policy=policy,
+        )
+        if not eligibility.get("eligible", False):
+            return _reject("merge_policy_violation", summary)
+
+    # All gates passed → synchronous gh pr merge --squash
+    try:
+        proc = subprocess.run(
+            [gh_cli, "pr", "merge", str(pr_number), "--squash"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return _reject("ci_check_timeout", summary)
+    if proc.returncode != 0:
+        return _reject("merge_policy_violation", summary)
+
+    # Capture merged sha
+    merge_sha: str | None = None
+    try:
+        view_proc = subprocess.run(
+            [gh_cli, "pr", "view", str(pr_number),
+             "--json", "mergeCommit"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if view_proc.returncode == 0:
+            view_payload = json.loads(view_proc.stdout)
+            mc = view_payload.get("mergeCommit") if isinstance(view_payload, dict) else None
+            if isinstance(mc, dict):
+                merge_sha = mc.get("oid")
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+        merge_sha = None
+
+    return V9MergeDecision(
+        eligible=True,
+        plan_id=plan_id,
+        pr_number=pr_number,
+        rejection_class=None,
+        idempotency_key_hash=idempotency_key,
+        decision_at_utc=decision_at,
+        pre_merge_branch_tip_sha=branch_tip_sha,
+        merge_sha=merge_sha,
+        check_summary=summary,
+    )

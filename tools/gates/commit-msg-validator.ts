@@ -207,6 +207,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   'b5c46dbf', // Faz 1.2 + 1.4 invariants — protected-tables SSoT + SAVEPOINT ban
   'cf674bda', // Faz 1.9 + 1.10 — extensions + platform functions in init scripts
   '6228b244', // Faz 1.1 + 1.8 — atomic post-condition probe + FK presence drift class
+  '2da8aaa7', // Faz 1.5 — SchemaVersionGate single authoritative runner cutover
 ]);
 
 interface Commit {

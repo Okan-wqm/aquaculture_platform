@@ -25,11 +25,22 @@ from .snapshot import snapshot_allowed_set
 # paths) burns ~120 seconds at 100% CPU — exactly the submit_claim_result
 # hang observed during V8 verification.
 #
-# The replacement below matches THE SAME LANGUAGE (one or more non-whitespace,
-# non-colon characters, optionally followed by `:<digits>`) but with no
-# overlapping quantifiers. Worst-case time is linear in input length, ~10µs
-# for 50-char inputs.
-_AGENT_REF_RE = re.compile(r"^(?P<path>[^\s:]+)(?::(?P<line>\d+))?$")
+# The replacement below matches the canonical evidence-ref languages
+# (path | path:line | path:line:content) with no overlapping
+# quantifiers. Worst-case time stays linear in input length even for
+# pathological inputs that the pre-V8.3 ReDoS pattern hung on.
+#
+# Plan ARIA-V8.6 — accept the third `path:line:content` form. The
+# `plan_synthesizer` (V7.9) emits evidence_refs as
+# `path:line:<excerpt>` triplets so operators can spot-check the
+# claimed line text without opening every file. The pre-V8.6 regex
+# rejected those refs as malformed because it only allowed the
+# 2-part `path:line` form, so the agent's response evidence_refs
+# (which echo the request's refs) hit `agent_evidence_ref_malformed`
+# at the kernel validator. The `(?::.*)?` clause captures the
+# trailing `:<excerpt>` non-greedily without backtracking risk
+# (atomic alternation; the path group is anchored by `[^\s:]+`).
+_AGENT_REF_RE = re.compile(r"^(?P<path>[^\s:]+)(?::(?P<line>\d+)(?::.*)?)?$")
 
 
 def validate_tool_output_evidence(

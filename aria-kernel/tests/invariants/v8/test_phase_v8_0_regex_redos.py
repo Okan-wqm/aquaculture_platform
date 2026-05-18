@@ -66,27 +66,40 @@ class TestRegexNoCatastrophicBacktracking(unittest.TestCase):
 
     def test_i_v8_0_redos_02_pathological_input_completes_under_100ms(self):
         """The pre-fix regex burned ~120s of CPU on plan_synthesizer's
-        `path:line:content` format. Post-fix MUST reject in <100ms even
-        for 80-char paths. Use SIGALRM to enforce the bound under
-        unittest discovery."""
-        pathological = [
+        `path:line:content` format. Post-V8.3 fix MUST complete in
+        <100ms on the same input; post-V8.6 fix also ACCEPTS the
+        triplet form as a valid evidence_ref (path + line) and
+        ignores the trailing :content excerpt. Either outcome
+        (matched OR rejected) MUST be linear time."""
+        triplet_inputs = [
             "x" * 30 + ":1:content here",
             "x" * 50 + ":42:content here that goes on",
             "aria-kernel/aria_kernel/autonomy_orchestrator.py:3:Operator vision center-piece text",
             "aria-kernel/tests/invariants/v8/test_phase_v8_0_plumbing.py:3:Closes ORPHAN-HIGH-082",
+        ]
+        # `a*80::garbage` still has NO digit after the first colon
+        # (the second colon directly follows it), so the line-number
+        # group MUST fail and the whole match MUST reject. The regex
+        # is still bounded.
+        rejected_inputs = [
             "a" * 80 + "::garbage",
         ]
-        for inp in pathological:
-            with self.subTest(inp_len=len(inp)):
+        for inp in triplet_inputs:
+            with self.subTest(inp_len=len(inp), kind="triplet_accepted"):
                 signal.signal(signal.SIGALRM, _alarm)
-                signal.setitimer(signal.ITIMER_REAL, 0.5)  # 500ms safety
+                signal.setitimer(signal.ITIMER_REAL, 0.5)
                 try:
                     t = time.monotonic()
                     result = _AGENT_REF_RE.match(inp)
                     elapsed = time.monotonic() - t
-                    # All these inputs are malformed; result MUST be None
-                    self.assertIsNone(result)
-                    # Performance bound
+                    # V8.6 — path:line:content MUST be accepted; the
+                    # path + line groups carry the canonical pair,
+                    # the trailing :content excerpt is captured and
+                    # discarded by `(?::.*)?`.
+                    self.assertIsNotNone(
+                        result,
+                        f"path:line:content MUST match after V8.6 regex extension: {inp!r}",
+                    )
                     self.assertLess(
                         elapsed, 0.1,
                         f"regex took {elapsed*1000:.1f}ms on len={len(inp)} input — "
@@ -98,6 +111,20 @@ class TestRegexNoCatastrophicBacktracking(unittest.TestCase):
                         "input — catastrophic backtracking regression "
                         "(ORPHAN-HIGH-081 reverted)"
                     )
+                finally:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+        for inp in rejected_inputs:
+            with self.subTest(inp_len=len(inp), kind="malformed_rejected"):
+                signal.signal(signal.SIGALRM, _alarm)
+                signal.setitimer(signal.ITIMER_REAL, 0.5)
+                try:
+                    t = time.monotonic()
+                    result = _AGENT_REF_RE.match(inp)
+                    elapsed = time.monotonic() - t
+                    self.assertIsNone(result)
+                    self.assertLess(elapsed, 0.1)
+                except _AlarmTimeout:
+                    self.fail(f"regex hang on rejected input {inp!r}")
                 finally:
                     signal.setitimer(signal.ITIMER_REAL, 0)
 

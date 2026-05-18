@@ -409,22 +409,31 @@ def run_convergence_drainer(
                         challenger_plan_text = _json.dumps(
                             plan_content_dict, indent=2, sort_keys=True,
                         )
-                # V8.10 — enrich primary_plan_text from kernel state
-                # when plan_seed-derived text is empty/null/junk. The
-                # plan was already started with plan_seed; kernel state
-                # carries it as latest_revision.content (DRAFT) or as
-                # any subsequent revision content. Either form is
-                # authoritative.
+                # V8.10 + V8.11 — enrich primary_plan_text from kernel
+                # state when plan_seed-derived text is empty/null/junk.
+                # The kernel stores primary content in TWO places:
+                #   - DRAFT state: `plan_started.plan_content` (dict)
+                #     carries the initial seed; `latest_revision.content`
+                #     is None at this point (only revision_id + hash).
+                #   - REVISED state: `latest_revision.content` carries
+                #     the post-revision string body.
+                # Check both in order of recency so we always pick the
+                # most-recent primary content the kernel knows about.
                 if (not primary_plan_text) or primary_plan_text.strip() in {"", "{}", "null"}:
                     latest = cur.get("latest_revision") or {}
+                    primary_candidate: object = None
                     if isinstance(latest, dict):
-                        latest_content = latest.get("content")
-                        if isinstance(latest_content, dict):
-                            primary_plan_text = _json.dumps(
-                                latest_content, indent=2, sort_keys=True,
-                            )
-                        elif isinstance(latest_content, str) and latest_content.strip():
-                            primary_plan_text = latest_content
+                        primary_candidate = latest.get("content")
+                    if not primary_candidate:
+                        plan_started = cur.get("plan_started") or {}
+                        if isinstance(plan_started, dict):
+                            primary_candidate = plan_started.get("plan_content")
+                    if isinstance(primary_candidate, dict):
+                        primary_plan_text = _json.dumps(
+                            primary_candidate, indent=2, sort_keys=True,
+                        )
+                    elif isinstance(primary_candidate, str) and primary_candidate.strip():
+                        primary_plan_text = primary_candidate
         except Exception:
             pass
         if not challenger_plan_text:

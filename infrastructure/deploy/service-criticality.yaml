@@ -163,9 +163,12 @@ services:
   # Ignored — these containers either exit by design after their job
   # or have no meaningful readiness check beyond "port open".
   # ------------------------------------------------------------------
-  - name: db-init
-    level: ignored
-    reason: one-shot container that exits 0 when init finishes
+  # db-init: REMOVED 2026-05-18 by ADR-031 (Platform Bootstrap Atom).
+  # The role-create + password-sync + per-service GRANT responsibilities
+  # this one-shot container previously owned are now atomic Phase 0 of
+  # aqua-db-migrate. Compose service definition removed; manifest entry
+  # removed in the same change so validate-criticality-manifest.ts does
+  # not flag a missing-from-compose service.
 
   - name: db-migrate
     level: ignored
@@ -174,8 +177,12 @@ services:
       Compose service `db-migrate` (container_name `aqua-db-migrate`).
       Exits 0 after applying pending migrations; deploy workflow gates on
       the container's exit code directly (service_completed_successfully
-      in backend services' depends_on). Like db-init, there is no runtime
-      healthcheck to poll — the SUCCESS signal is the exit code.
+      in backend services' depends_on). After ADR-031, db-migrate also
+      owns the platform-bootstrap atom (Phase 0 — extensions, roles,
+      schemas, grants, functions, shared-schema tables) so its scope
+      grew but the operator-facing contract (one-shot, exit-code-gated)
+      is unchanged. There is no runtime healthcheck to poll — the
+      SUCCESS signal is the exit code.
 
   - name: mosquitto
     level: ignored

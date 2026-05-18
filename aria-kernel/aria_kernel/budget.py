@@ -320,3 +320,192 @@ def check_remaining_budget(
             except (TypeError, ValueError):
                 continue
     return max(0.0, reserved - reconciled)
+
+
+# =============================================================================
+# Plan ARIA-V10.4 — per-pattern cost attribution
+# =============================================================================
+#
+# Closes:
+#   * arb MED-008 — upstream wire of `invocation_role` field through
+#     llm_bridge + agent_invocations so per-cycle cost rollup
+#     attributes spend correctly (primary vs challenger vs cross_review
+#     vs implementer)
+#   * perf MED-010 — monthly ledger sharding to bound the
+#     `cost-report` scan time as months accumulate (1500 rows/year
+#     under nominal load × 5 years = 7500 rows; sharded by month =
+#     ~125 rows per shard scan)
+
+from datetime import datetime, timezone  # safe-redundant; already imported
+
+
+# Plan ARIA-V10.4 — closed enum of agent roles for cost attribution.
+# Mirrors the V8 + V9 role surface (primary plan + challenger plan +
+# cross_review from V8; implementation from V9). Closed-set membership
+# pinned by I-V10-COST-03 invariant.
+COST_INVOCATION_ROLES: frozenset[str] = frozenset({
+    "primary_plan",
+    "challenger_plan",
+    "cross_review",
+    "implementation",
+    "judgment",        # V8 judgment_bridge role
+    "specialist",      # V6 specialist review role
+})
+
+
+def _cost_attribution_shard(base_dir: str | Path | None) -> Path:
+    """Plan ARIA-V10.4 — monthly shard layout
+    aria-tools/cost-attribution/<YYYY-MM>.jsonl. Cost-report reads
+    only the shards covering the requested time window (perf MED-010).
+    """
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    root = ensure_tools_dir(base_dir)
+    shard_dir = root / "cost-attribution"
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    return shard_dir / f"{month}.jsonl"
+
+
+def record_cost_attribution(
+    *,
+    cycle_id: str,
+    plan_id: str,
+    agent_role: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    estimated_usd: float,
+    pressure_source_type: str | None = None,
+    terminal_state: str | None = None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Plan ARIA-V10.4 — append a per-invocation cost-attribution row.
+
+    Row schema (pinned by I-V10-COST-01 invariant):
+      {recorded_at, cycle_id, plan_id, agent_role, model,
+       input_tokens, output_tokens, estimated_usd,
+       pressure_source_type, terminal_state, schema_version=1}
+
+    agent_role MUST be in COST_INVOCATION_ROLES. Mismatch raises
+    GovernanceError.
+
+    pressure_source_type SHOULD match a PlanCandidateSource enum
+    value (operator_feedback, failing_ci, orphan_finding, f_finding,
+    git_diff) when known; None permitted for legacy V8 cycles
+    pre-V9.4 source attribution.
+
+    terminal_state SHOULD match a TERMINAL_STATES value (CONVERGED,
+    HUMAN_REQUIRED, ABANDONED, IMPLEMENTATION_MERGED,
+    IMPLEMENTATION_REJECTED) when known; None permitted when
+    attribution lands mid-cycle before terminal.
+
+    Returns the appended row dict.
+    """
+    if agent_role not in COST_INVOCATION_ROLES:
+        raise GovernanceError(
+            f"agent_role MUST be in COST_INVOCATION_ROLES "
+            f"({sorted(COST_INVOCATION_ROLES)}); got {agent_role!r}"
+        )
+    if not isinstance(cycle_id, str) or not cycle_id:
+        raise GovernanceError("cycle_id must be a non-empty string")
+    if not isinstance(plan_id, str) or not plan_id:
+        raise GovernanceError("plan_id must be a non-empty string")
+    if not isinstance(model, str) or not model:
+        raise GovernanceError("model must be a non-empty string")
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "plan_id": plan_id,
+        "agent_role": agent_role,
+        "model": model,
+        "input_tokens": _non_negative_int(input_tokens, "input_tokens"),
+        "output_tokens": _non_negative_int(output_tokens, "output_tokens"),
+        "estimated_usd": float(estimated_usd),
+        "pressure_source_type": pressure_source_type,
+        "terminal_state": terminal_state,
+    }
+    return append_jsonl(_cost_attribution_shard(base_dir), row)
+
+
+def read_cost_attribution(
+    *,
+    since_iso: str | None = None,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """Plan ARIA-V10.4 — read cost-attribution rows from monthly shards.
+
+    `since_iso` filters rows by `recorded_at >= since_iso`. None →
+    return all rows from all shards.
+
+    Reads only the shards whose filename month is >= since's month
+    (perf MED-010 — bounds scan time even after 5+ years of history).
+    """
+    root = ensure_tools_dir(base_dir)
+    shard_dir = root / "cost-attribution"
+    if not shard_dir.is_dir():
+        return []
+    if since_iso:
+        since_month = since_iso[:7]  # YYYY-MM
+    else:
+        since_month = ""
+    rows: list[dict[str, Any]] = []
+    for shard in sorted(shard_dir.glob("*.jsonl")):
+        shard_month = shard.stem  # YYYY-MM
+        if shard_month < since_month:
+            continue
+        for row in load_jsonl(shard):
+            if since_iso and str(row.get("recorded_at", "")) < since_iso:
+                continue
+            rows.append(row)
+    return rows
+
+
+def aggregate_cost_attribution(
+    *,
+    since_iso: str | None = None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Plan ARIA-V10.4 — operator-facing cost-report aggregation.
+
+    Returns:
+      {
+        "total_usd": float,
+        "row_count": int,
+        "by_agent_role": {<role>: usd, ...},
+        "by_pressure_source": {<source>: usd, ...},
+        "by_terminal_state": {<state>: usd, ...},
+        "by_model": {<model>: usd, ...},
+        "since_iso": since_iso or None,
+      }
+
+    Used by `aria-kernel autonomy cost-report --since <window>` CLI.
+    """
+    rows = read_cost_attribution(since_iso=since_iso, base_dir=base_dir)
+    summary = {
+        "total_usd": 0.0,
+        "row_count": len(rows),
+        "by_agent_role": {},
+        "by_pressure_source": {},
+        "by_terminal_state": {},
+        "by_model": {},
+        "since_iso": since_iso,
+    }
+    for r in rows:
+        usd = float(r.get("estimated_usd", 0) or 0)
+        summary["total_usd"] += usd
+        role = r.get("agent_role")
+        if role:
+            summary["by_agent_role"][role] = summary["by_agent_role"].get(role, 0.0) + usd
+        src = r.get("pressure_source_type")
+        if src:
+            summary["by_pressure_source"][src] = summary["by_pressure_source"].get(src, 0.0) + usd
+        ts = r.get("terminal_state")
+        if ts:
+            summary["by_terminal_state"][ts] = summary["by_terminal_state"].get(ts, 0.0) + usd
+        m = r.get("model")
+        if m:
+            summary["by_model"][m] = summary["by_model"].get(m, 0.0) + usd
+    summary["total_usd"] = round(summary["total_usd"], 6)
+    for bucket in ("by_agent_role", "by_pressure_source", "by_terminal_state", "by_model"):
+        summary[bucket] = {k: round(v, 6) for k, v in summary[bucket].items()}
+    return summary

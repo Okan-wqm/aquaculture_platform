@@ -1,0 +1,83 @@
+"""Plan ARIA-V10.5 — V10 arc invariant-coverage consolidation.
+
+Pins the V10 phase test files + V10 kernel additions + V10 doc
+artifacts so a refactor that silently drops a V10 phase fails CI
+before merge.
+
+Closes: F-015-V10-5 (V10 invariants ~15).
+"""
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
+
+_V10_INVARIANTS_DIR = Path(__file__).resolve().parents[1] / "v10"
+
+
+CANONICAL_V10_TEST_FILES = frozenset({
+    "test_phase_v10_2_skill_genesis_trigger.py",
+    "test_phase_v10_4_cost_attribution.py",
+    "test_phase_v10_5_v10_arc_completeness.py",  # this file
+})
+
+
+class TestV10ArcCompleteness(unittest.TestCase):
+
+    def test_v10_test_files_present(self):
+        present = {
+            p.name for p in _V10_INVARIANTS_DIR.glob("test_phase_v10_*.py")
+        }
+        missing = CANONICAL_V10_TEST_FILES - present
+        self.assertEqual(
+            missing, set(),
+            f"V10 invariant test files missing: {missing}",
+        )
+
+    def test_v10_no_extra_test_files(self):
+        present = {
+            p.name for p in _V10_INVARIANTS_DIR.glob("test_phase_v10_*.py")
+        }
+        extra = present - CANONICAL_V10_TEST_FILES
+        self.assertEqual(
+            extra, set(),
+            f"unexpected V10 test files: {extra}",
+        )
+
+    def test_v10_1_kg_policy_doc_exists(self):
+        repo = Path(__file__).resolve().parents[4]
+        doc = repo / "docs" / "aria" / "v3-v10-1-knowledge-graph-policy.md"
+        self.assertTrue(doc.exists())
+
+    def test_v10_6_one_way_door_doc_exists(self):
+        repo = Path(__file__).resolve().parents[4]
+        doc = repo / "docs" / "aria" / "v3-one-way-door-decisions.md"
+        self.assertTrue(doc.exists())
+
+    def test_v10_2_kernel_extension_present(self):
+        """V10.2 check_pattern_signature_stability MUST be importable
+        from skill_genesis_drainer."""
+        from aria_kernel import skill_genesis_drainer
+        self.assertTrue(
+            hasattr(skill_genesis_drainer, "check_pattern_signature_stability"),
+        )
+        self.assertTrue(
+            hasattr(skill_genesis_drainer, "PATTERN_SIGNATURE_TRIGGER_MIN_CYCLES"),
+        )
+
+    def test_v10_4_cost_attribution_present(self):
+        """V10.4 record_cost_attribution + read_cost_attribution +
+        aggregate_cost_attribution MUST be importable from budget."""
+        from aria_kernel import budget
+        for fn in ("record_cost_attribution",
+                   "read_cost_attribution",
+                   "aggregate_cost_attribution",
+                   "COST_INVOCATION_ROLES"):
+            self.assertTrue(
+                hasattr(budget, fn),
+                f"budget.{fn} missing — V10.4 surface drift",
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

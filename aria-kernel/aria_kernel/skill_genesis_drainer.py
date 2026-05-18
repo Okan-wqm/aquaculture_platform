@@ -433,3 +433,127 @@ def _drainer_enabled(base_dir: str | Path | None) -> bool:
         # drainer (operator visibility via reflection telemetry
         # surfaces the policy gap).
         return True
+
+
+# =============================================================================
+# Plan ARIA-V10.2 — pattern_signature stability trigger + HUMAN_REQUIRED gate
+# =============================================================================
+#
+# Closes:
+#   * arb CRIT-007 — skill genesis trigger uses stable pattern_signature
+#     (V9.4 compute_pattern_signature) — false-positive prevented by
+#     cardinality guard (MIN_EVIDENCE_REF_CARDINALITY = 5)
+#   * ai MED-015 — N>=5 threshold + 2 distinct pressure_source types +
+#     distinct cross_reviewer_agent_ids prevent supply-chain collusion
+#   * sec CRIT-006 — authored adapter runs under V9.0-E sandbox
+#     (execute_in_sandbox); aria-tools/registry.json write
+#     routes HUMAN_REQUIRED
+
+
+# Plan ARIA-V10.2 — N>=5 consecutive CONVERGED cycles + 2 distinct
+# pressure_source types + 2 distinct cross_reviewer_agent_ids required
+# for skill-genesis trigger (ai MED-015 raised from v1's N=3).
+PATTERN_SIGNATURE_TRIGGER_MIN_CYCLES: int = 5
+PATTERN_SIGNATURE_TRIGGER_MIN_DISTINCT_SOURCES: int = 2
+PATTERN_SIGNATURE_TRIGGER_MIN_DISTINCT_REVIEWERS: int = 2
+
+
+def check_pattern_signature_stability(
+    *,
+    pattern_signature: str,
+    governance_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Plan ARIA-V10.2 — pattern_signature stability check.
+
+    Walks ``governance_rows`` in reverse-chronological order (caller
+    pre-sorts). Returns a dict with:
+      * ``stable: bool``
+      * ``matching_cycles: list[str]``
+      * ``distinct_pressure_source_types: list[str]``
+      * ``distinct_cross_reviewer_agent_ids: list[str]``
+      * ``reason: str``  (when stable=False)
+
+    Stability fires when ALL three thresholds met:
+      * matching_cycles >= PATTERN_SIGNATURE_TRIGGER_MIN_CYCLES (5)
+      * distinct_pressure_source_types >= 2
+      * distinct_cross_reviewer_agent_ids >= 2
+
+    The thresholds prevent:
+      * False positive from a single LLM convergence-by-construction
+        (5 cycles minimum)
+      * Echo-chamber collusion across cycles with same reviewer
+        (distinct reviewers required)
+      * Single-source bias (distinct source types required)
+    """
+    if not isinstance(pattern_signature, str) or not pattern_signature.startswith("sha256:"):
+        return {
+            "stable": False,
+            "reason": "invalid_pattern_signature_format",
+            "matching_cycles": [],
+            "distinct_pressure_source_types": [],
+            "distinct_cross_reviewer_agent_ids": [],
+        }
+
+    matching_cycles: list[str] = []
+    sources: set[str] = set()
+    reviewers: set[str] = set()
+    consecutive_break = False
+
+    for row in governance_rows:
+        if consecutive_break:
+            break
+        terminal = row.get("terminal_state")
+        if terminal != "CONVERGED":
+            # Stop walking on first non-CONVERGED (lookback bounded by
+            # consecutive-streak); skill-genesis triggers only on a
+            # STREAK of converged cycles, not 5 out of any window.
+            consecutive_break = True
+            continue
+        sig = row.get("pattern_signature")
+        if sig != pattern_signature:
+            consecutive_break = True
+            continue
+        cycle_id = row.get("cycle_id")
+        if cycle_id:
+            matching_cycles.append(str(cycle_id))
+        src = row.get("pressure_source_type")
+        if src:
+            sources.add(str(src))
+        rev = row.get("cross_reviewer_agent_id")
+        if rev:
+            reviewers.add(str(rev))
+
+    n_cycles = len(matching_cycles)
+    n_sources = len(sources)
+    n_reviewers = len(reviewers)
+
+    if n_cycles < PATTERN_SIGNATURE_TRIGGER_MIN_CYCLES:
+        return {
+            "stable": False,
+            "reason": f"only_{n_cycles}_matching_cycles_need_{PATTERN_SIGNATURE_TRIGGER_MIN_CYCLES}",
+            "matching_cycles": matching_cycles,
+            "distinct_pressure_source_types": sorted(sources),
+            "distinct_cross_reviewer_agent_ids": sorted(reviewers),
+        }
+    if n_sources < PATTERN_SIGNATURE_TRIGGER_MIN_DISTINCT_SOURCES:
+        return {
+            "stable": False,
+            "reason": f"only_{n_sources}_distinct_pressure_sources_need_{PATTERN_SIGNATURE_TRIGGER_MIN_DISTINCT_SOURCES}",
+            "matching_cycles": matching_cycles,
+            "distinct_pressure_source_types": sorted(sources),
+            "distinct_cross_reviewer_agent_ids": sorted(reviewers),
+        }
+    if n_reviewers < PATTERN_SIGNATURE_TRIGGER_MIN_DISTINCT_REVIEWERS:
+        return {
+            "stable": False,
+            "reason": f"only_{n_reviewers}_distinct_reviewers_need_{PATTERN_SIGNATURE_TRIGGER_MIN_DISTINCT_REVIEWERS}",
+            "matching_cycles": matching_cycles,
+            "distinct_pressure_source_types": sorted(sources),
+            "distinct_cross_reviewer_agent_ids": sorted(reviewers),
+        }
+    return {
+        "stable": True,
+        "matching_cycles": matching_cycles,
+        "distinct_pressure_source_types": sorted(sources),
+        "distinct_cross_reviewer_agent_ids": sorted(reviewers),
+    }

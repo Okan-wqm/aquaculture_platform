@@ -11,10 +11,18 @@
  *     `farm.farm_audit_logs`, `hr.payroll_audit`, `ai.tool_execution_audit`,
  *     `alert.alert_audit_log`. SOC 2 CC4 + SOX § 404 record-integrity require
  *     append-only invariants; trigger-based immutability ENFORCES this.
- *   - **Compliance state** — `shared.legal_holds`, `shared.gdpr_data_requests`,
- *     `shared.user_consents`, `shared.user_permissions`. Legal-hold precedence
+ *   - **Compliance state** — `shared.gdpr_data_requests`, `shared.user_consents`,
+ *     `shared.user_permissions`, `shared.access_logs`. Legal-hold precedence
  *     (FRCP Rule 37(e) / TR CMK delil karartma) forbids destructive ops on
  *     held records.
+ *
+ *     **Legal-hold tables** live OUTSIDE the `shared` schema: per-tenant
+ *     legal holds are stored in `messaging.legal_holds` (per-tenant fan-out),
+ *     and the cross-tenant legal-hold registry is the future
+ *     `compliance.legal_holds` (entity at
+ *     `libs/backend-common/src/compliance/legal-hold/legal-hold.entity.ts`).
+ *     No `shared.legal_holds` table exists or is planned — the prior
+ *     entry was a phantom (ORPHAN-CRITICAL-075-related cleanup).
  *   - **Append-only ledgers** — `hr.leave_ledger_entries` (accrual invariant).
  *   - **Outbox tables** (pattern) — every `*_outbox` table. Destruction =
  *     event loss = downstream projection corruption.
@@ -78,10 +86,14 @@
  * Lowercase canonical form — every comparison MUST lowercase the input.
  */
 export const PROTECTED_TABLES = [
-  // ── Shared schema — cross-tenant compliance state (ADR-011 canonical 5+1) ──
+  // ── Shared schema — cross-tenant compliance state (ADR-011 canonical 5-table set) ──
+  // Aligned with SHARED_SCHEMA_TABLES in scripts/schema-registry/generate-init-schemas.ts
+  // and with the CREATE TABLE statements in
+  // apps/db-migrate/src/sql/platform-bootstrap/006-shared-schema-tables.sql.
+  // tests/invariants/shared-schema-canonical.spec.ts enforces parity between
+  // these three sources on every PR.
   'shared.audit_logs',
   'shared.gdpr_data_requests',
-  'shared.legal_holds',
   'shared.user_consents',
   'shared.user_permissions',
   'shared.access_logs',

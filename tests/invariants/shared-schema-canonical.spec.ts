@@ -4,7 +4,8 @@
  * **The canonical list of `shared` schema tables is the same in ALL
  * three places: `SHARED_SCHEMA_TABLES` in generate-init-schemas.ts,
  * `PROTECTED_TABLES` entries prefixed `shared.` in protected-tables.ts,
- * and the table CREATEs in `10-shared-schema.sql`.**
+ * and the CREATE TABLE statements in the platform-bootstrap atom's
+ * `006-shared-schema-tables.sql` (ADR-031).**
  *
  * # WHY
  *
@@ -16,6 +17,13 @@
  *     admin-api migration 1788400-CreateSharedAccessLogs without
  *     updating the init-script SSoT).
  *   - `libs/backend-common/src/constants/protected-tables.ts` listed 6.
+ *
+ * ADR-031 (2026-05-18) moved the shared-schema CREATE TABLE statements
+ * out of the initdb-only init-script `10-shared-schema.sql` and into the
+ * restart-survive platform-bootstrap atom at
+ * `apps/db-migrate/src/sql/platform-bootstrap/006-shared-schema-tables.sql`.
+ * This spec follows the relocation — every reference below now points
+ * at the live writer, not the archived shell.
  *
  * The drift is silent until the next reset cycle, at which point the
  * mismatch surfaces as either an orphan table (init script does not
@@ -29,11 +37,10 @@
  *    `shared.<table>` entry in PROTECTED_TABLES MUST be declared in
  *    SHARED_SCHEMA_TABLES.
  *
- * 2. The set MUST match the CREATE TABLE list in
- *    `infrastructure/docker/init-scripts/10-shared-schema.sql` —
- *    SQL-text parse is best-effort regex (the script is hand-curated;
- *    the regex catches `CREATE TABLE … shared.<table>` and the
- *    `SET SCHEMA shared` move pattern).
+ * 2. The set MUST match the CREATE TABLE list in the platform-bootstrap
+ *    atom's `006-shared-schema-tables.sql` — SQL-text parse is best-effort
+ *    regex (the file is hand-curated; the regex catches
+ *    `CREATE TABLE … shared.<table>` and the `SET SCHEMA shared` move pattern).
  *
  * 3. Adding a new shared table requires an ADR per ADR-011 §"shared
  *    schema canonical N-table invariant" and CODEOWNERS approval from
@@ -54,12 +61,19 @@ const GENERATE_INIT_PATH = resolve(
   'schema-registry',
   'generate-init-schemas.ts',
 );
+// ADR-031 cutover: SHARED_SCHEMA_TABLES creation moved from the
+// initdb-only init-script `10-shared-schema.sql` to the restart-survive
+// platform-bootstrap atom under apps/db-migrate/src/sql/platform-bootstrap/.
+// This spec repoints to the new path so the SSoT parity invariant
+// observes the live writer, not the archived shell of the previous one.
 const SHARED_SCHEMA_SQL_PATH = resolve(
   REPO_ROOT,
-  'infrastructure',
-  'docker',
-  'init-scripts',
-  '10-shared-schema.sql',
+  'apps',
+  'db-migrate',
+  'src',
+  'sql',
+  'platform-bootstrap',
+  '006-shared-schema-tables.sql',
 );
 
 function readSharedTablesFromGenerateInit(): readonly string[] {

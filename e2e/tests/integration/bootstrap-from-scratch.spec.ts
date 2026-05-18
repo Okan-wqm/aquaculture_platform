@@ -71,6 +71,17 @@ import { readdirSync, statSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { ConfigService } from '@nestjs/config';
 
+// ADR-031 Platform Bootstrap Atom — runs the schema/role/extension/function/
+// shared-table DDL contract that init-scripts USED to own pre-cutover. The
+// init-scripts bind-mount below now contains only `01-init-databases.sql`
+// (initdb-only DB GRANTs). Schemas, roles, functions, and shared.* tables
+// are created by the call to runPlatformBootstrap() below before any
+// per-service migration loop runs.
+import {
+  runPlatformBootstrap,
+  resolvePlatformBootstrapSqlDir,
+} from '../../../apps/db-migrate/src/platform-bootstrap.service';
+
 // Dynamic require to avoid the e2e tsconfig's rootDir guard. Importing
 // schema-drift-validator.service.ts directly via `import { ... }` would
 // pull a file outside the e2e/ rootDir into the type-check graph and
@@ -718,6 +729,29 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
     const host = postgresContainer.getHost();
     const port = postgresContainer.getMappedPort(5432);
     connectionUri = `postgresql://${DATABASE_USER}:${DATABASE_PASSWORD}@${host}:${port}/${DATABASE_NAME}`;
+
+    // -----------------------------------------------------------------
+    // 1.5. Run the ADR-031 platform-bootstrap atom.
+    // -----------------------------------------------------------------
+    // Pre-ADR-031, init-scripts ran the entire platform DDL contract on
+    // initdb. Post-ADR-031, init-scripts hold only DB-level GRANTs;
+    // schemas/roles/extensions/functions/shared.* tables come from this
+    // atom which is identical to what aqua-db-migrate Phase 0 runs in
+    // production. Calling it here from the test keeps the
+    // bootstrap-from-scratch fixture aligned with the live deploy path.
+    await runPlatformBootstrap({
+      database: {
+        host,
+        port,
+        username: DATABASE_USER,
+        password: DATABASE_PASSWORD,
+        database: DATABASE_NAME,
+        ssl: false,
+      },
+      sqlDir: resolvePlatformBootstrapSqlDir(REPO_ROOT),
+      log: () => undefined, // silent — Jest captures stdout per spec
+      lockTimeoutSeconds: 60,
+    });
 
     // -----------------------------------------------------------------
     // 2. Run every service's migration chain in dependency order.

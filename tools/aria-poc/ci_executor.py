@@ -248,6 +248,42 @@ def _canonicalize_cross_review(envelope: dict[str, Any]) -> bool:
         cross_review["risks"] = gathered
         mutated = True
 
+    # Plan ARIA-V8.9 — wrap string-format risks into canonical dicts.
+    # Kernel `_validate_cross_review_risk` requires every risk to be
+    # a dict with risk_id, risk_category, severity, summary,
+    # recommendation, affected_files, evidence_refs. Opus often emits
+    # risks as descriptive strings instead. We wrap each string into
+    # a canonical dict that:
+    #   - preserves the agent's text as `summary`
+    #   - tags `risk_category="agent_uncategorized"` and
+    #     `severity="LOW"` so operator can identify auto-wrapped
+    #     entries vs explicitly-scored ones
+    #   - leaves affected_files + evidence_refs as [] (NEVER
+    #     fabricates ref content)
+    risks_list = cross_review.get("risks")
+    if isinstance(risks_list, list):
+        wrapped_risks: list[dict[str, Any]] = []
+        any_wrapped = False
+        for idx, raw in enumerate(risks_list):
+            if isinstance(raw, dict):
+                wrapped_risks.append(raw)
+            elif isinstance(raw, str) and raw.strip():
+                wrapped_risks.append({
+                    "risk_id": f"cr-auto-{idx:03d}",
+                    "risk_category": "agent_uncategorized",
+                    "severity": "LOW",
+                    "summary": raw.strip(),
+                    "recommendation": "Operator review the agent's string-format risk.",
+                    "affected_files": [],
+                    "evidence_refs": [],
+                })
+                any_wrapped = True
+            else:
+                wrapped_risks.append(raw)
+        if any_wrapped:
+            cross_review["risks"] = wrapped_risks
+            mutated = True
+
     if mutated:
         details["cross_review"] = cross_review
         envelope["details"] = details

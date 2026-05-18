@@ -1,6 +1,64 @@
 import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
+import { DataSource, MigrationExecutor, MigrationInterface, QueryRunner } from 'typeorm';
+
+/**
+ * Optional post-condition probe contract for TypeORM migrations.
+ *
+ * # Why this exists (Faz 1.1 of the day-one baseline reset)
+ *
+ * The 2026-04 HR drift incident (`apps/hr-service/src/database/migrations/
+ * 1786900000000-HealHrEnumTypeDrift.ts:14` — "SAVEPOINT-per-statement
+ * band-aid swallowed the ALTER") demonstrated that TypeORM's
+ * `MigrationExecutor.executeMigration()` will INSERT a row into
+ * `_migrations` (ledger says applied) even when the DDL never actually
+ * landed — most commonly when:
+ *
+ *   - the migration body uses SAVEPOINT/ROLLBACK TO SAVEPOINT internally;
+ *   - a `transaction = false` CONCURRENTLY DDL fails partially after the
+ *     ledger row is already committed in a separate tx;
+ *   - a swallowed-exception PL/pgSQL block silently no-ops.
+ *
+ * The architectural fix is a **post-condition barrier**: every migration
+ * MAY declare `postCondition(qr)` returning a boolean. The runner calls
+ * it AFTER `executeMigration()` returns but BEFORE the wrapper transaction
+ * commits. If the probe returns `false` or throws, the runner rolls back
+ * AND propagates the failure — the ledger row never commits and the
+ * deploy aborts cleanly. The drift cannot enter the ledger silently.
+ *
+ * # Adoption
+ *
+ * The method is OPTIONAL — backwards-compatible with every existing
+ * migration. New migrations that touch high-blast-radius surfaces
+ * (audit immutability triggers, RLS policies, enum type drift, FK
+ * additions, NOT NULL transitions on populated tables) SHOULD declare
+ * a `postCondition` that asserts the DDL really landed via an
+ * `information_schema` lookup.
+ *
+ * Banned-SAVEPOINT invariant (`tests/invariants/no-savepoint-in-migrations.spec.ts`)
+ * already requires an `-- ALLOWS-SAVEPOINT: <reason>` marker to use
+ * SAVEPOINT — reviewers MUST also require a `postCondition` on any such
+ * migration.
+ *
+ * # Contract
+ *
+ *   - Returns `true` / `undefined` / void → success, runner commits.
+ *   - Returns `false` → runner rolls back with a structured error.
+ *   - Throws → runner rolls back and re-throws (error chained via `cause`).
+ *
+ * The probe runs INSIDE the wrapper transaction, so any SELECTs against
+ * the in-flight DDL see the uncommitted state — the standard
+ * `information_schema` lookup against post-DDL shape works without
+ * extra coordination.
+ */
+export interface PostConditionAwareMigration {
+  /**
+   * Optional post-condition probe. Called by `MigrationRunnerService`
+   * after `executeMigration()` returns successfully but before the
+   * wrapper transaction commits. Return `false` or throw to abort.
+   */
+  postCondition?(queryRunner: QueryRunner): Promise<boolean | void>;
+}
 
 /**
  * createMigrationRunnerService
@@ -384,6 +442,22 @@ export function createMigrationRunnerService(
             await queryRunner.startTransaction();
             try {
               await executor.executeMigration(migration);
+
+              // Faz 1.1 — post-condition probe barrier.
+              //
+              // If the migration class declared `postCondition(qr)`, run
+              // it now (inside the wrapper tx, after executeMigration
+              // returned, before commit). A `false` return value or
+              // thrown exception rolls back the wrapper tx so the ledger
+              // row never commits and the silent-applied class
+              // (HR HealHrEnumTypeDrift 1786900 docblock: "SAVEPOINT
+              // band-aid swallowed the ALTER") becomes impossible.
+              await this.runPostConditionProbe(
+                migration,
+                queryRunner,
+                schema,
+              );
+
               await queryRunner.commitTransaction();
               appliedNames.push(migration.name);
               this.logger.log(
@@ -444,6 +518,77 @@ export function createMigrationRunnerService(
         // QueryRunner pins a pool connection forever.
         await queryRunner.release();
       }
+    }
+
+    /**
+     * Faz 1.1 — Post-condition probe barrier.
+     *
+     * Called inside the wrapper transaction after `executeMigration()`
+     * returned successfully, before `commitTransaction()`. A `false` /
+     * throw rolls back the wrapper tx — the migration's ledger row
+     * never commits and the deploy aborts.
+     *
+     * The probe is OPTIONAL: migrations that do not declare
+     * `postCondition` are committed unchanged (backwards-compatible).
+     * The contract is documented on the `PostConditionAwareMigration`
+     * interface near the top of this file.
+     *
+     * Defence-in-depth:
+     *   - We narrow the instance shape locally and detect the method
+     *     via `typeof` — no `any`, no unsafe casts.
+     *   - Probe errors are wrapped with `cause` so the original stack
+     *     remains attached.
+     *   - The probe runs against the SAME `queryRunner` that holds the
+     *     in-flight tx, so any `information_schema` lookup the migration
+     *     wants to perform sees its own uncommitted DDL — no separate
+     *     connection needed.
+     */
+    private async runPostConditionProbe(
+      migration: { name: string; instance?: unknown },
+      queryRunner: QueryRunner,
+      schema: string,
+    ): Promise<void> {
+      const instance = migration.instance;
+      if (instance === null || typeof instance !== 'object') {
+        return;
+      }
+      const candidate = instance as PostConditionAwareMigration &
+        MigrationInterface;
+      if (typeof candidate.postCondition !== 'function') {
+        return; // optional method
+      }
+
+      let result: boolean | void;
+      try {
+        result = await candidate.postCondition(queryRunner);
+      } catch (probeErr) {
+        const msg =
+          probeErr instanceof Error ? probeErr.message : String(probeErr);
+        this.logger.error(
+          `[postCondition] Migration "${migration.name}" probe threw on "${schema}": ${msg}`,
+          probeErr instanceof Error ? probeErr.stack : undefined,
+        );
+        throw new Error(
+          `Migration "${migration.name}" postCondition() threw on "${schema}" — ` +
+            `DDL did not satisfy declared invariant. Rolling back.`,
+          { cause: probeErr },
+        );
+      }
+
+      if (result === false) {
+        this.logger.error(
+          `[postCondition] Migration "${migration.name}" returned false on "${schema}"`,
+        );
+        throw new Error(
+          `Migration "${migration.name}" postCondition() returned false on "${schema}" — ` +
+            `DDL did not satisfy declared invariant. Rolling back.`,
+        );
+      }
+
+      // `undefined` / `void` / `true` all pass — runner proceeds to commit.
+      this.logger.debug?.(
+        `[postCondition] Migration "${migration.name}" passed on "${schema}"`,
+      );
     }
 
     /**

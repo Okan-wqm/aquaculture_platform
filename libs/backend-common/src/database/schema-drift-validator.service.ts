@@ -525,6 +525,29 @@ export function createSchemaDriftValidator(
           );
         }
       }
+
+      // Class K — foreign_key_presence (Faz 1.8 of day-one baseline reset).
+      //
+      // Opt-in via SCHEMA_DRIFT_VALIDATE_FK=true during the Faz 1
+      // rollout window. Default OFF because pre-baseline-reset
+      // services carry known FK gaps (the 3-deploy sensor-service
+      // AlignSensorEntitySurfaceFks chain landed FKs progressively;
+      // toggling default-on before Faz 6 would mass-fail bootstrap).
+      //
+      // Post-Faz-6 baseline reset, every service's FKs ship in the
+      // single Baseline migration and this flag defaults to ON
+      // (handled by the matching update in resolveValidateForeignKeysDefault).
+      const validateForeignKeys =
+        this.configService.get('SCHEMA_DRIFT_VALIDATE_FK', 'false') === 'true';
+      if (validateForeignKeys) {
+        await this.scanForeignKeyDrift(
+          schema,
+          tableName,
+          entity.foreignKeys ?? [],
+          errorViolations,
+          warningViolations,
+        );
+      }
     }
 
     /**
@@ -873,6 +896,73 @@ export function createSchemaDriftValidator(
         this.route(
           'check_constraint',
           `[${schema}.${tableName}] DB has ${dbCount} CHECK constraint(s) but entity declares ${entityCount} @Check() — ${delta} orphaned in DB (db-side: ${dbDefs.join(' ; ')})`,
+          errorViolations,
+          warningViolations,
+        );
+      }
+    }
+
+    /**
+     * Class K — foreign_key_presence (Faz 1.8 day-one baseline reset).
+     *
+     * Count-based detection: queries `pg_constraint` for foreign-key
+     * constraints (contype='f') on the table, compares cardinality
+     * against `entity.foreignKeys.length`. The same coarse-signal
+     * pattern as Class G (check_constraint), chosen because PG canon-
+     * icalizes FK definitions (referential actions, column ordering,
+     * deferrable flag) in ways that defeat string-equality checks at
+     * the validator boundary. Faz 6's baseline migration audit + the
+     * entity-fingerprint manifest cover the per-FK precision case;
+     * here we only need to detect "ledger applied but FK not created"
+     * — the regression class the 3-deploy sensor-service
+     * AlignSensorEntitySurfaceFks chain surfaced.
+     *
+     * Excludes FK constraints generated automatically by the
+     * @JoinTable() many-to-many bridge — those live on the relation
+     * table, not on the owning entity's row in entity.foreignKeys.
+     */
+    private async scanForeignKeyDrift(
+      schema: string,
+      tableName: string,
+      entityForeignKeys: ReadonlyArray<{ name?: string }>,
+      errorViolations: string[],
+      warningViolations: string[],
+    ): Promise<void> {
+      const rows: Array<{ conname: string; definition: string }> =
+        await this.dataSource.query(
+          `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+             FROM pg_constraint c
+             JOIN pg_class t ON t.oid = c.conrelid
+             JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = $1
+              AND t.relname = $2
+              AND c.contype = 'f'`,
+          [schema, tableName],
+        );
+      const dbCount = rows.length;
+      const entityCount = entityForeignKeys.length;
+      if (dbCount === entityCount) return;
+
+      const dbDefs = rows
+        .map((r) => `${r.conname}: ${r.definition}`)
+        .join(' ; ');
+
+      if (entityCount > dbCount) {
+        const delta = entityCount - dbCount;
+        this.route(
+          'foreign_key_presence',
+          `[${schema}.${tableName}] entity declares ${entityCount} FK(s) but DB has ${dbCount} foreign-key constraint(s) — ${delta} missing in DB. ` +
+            `Likely cause: a CREATE-then-ALTER FK migration with the ALTER step swallowed (HR HealHrEnumTypeDrift class) or a FK addition not yet migrated. ` +
+            `DB-side: ${dbDefs}`,
+          errorViolations,
+          warningViolations,
+        );
+      } else {
+        const delta = dbCount - entityCount;
+        this.route(
+          'foreign_key_presence',
+          `[${schema}.${tableName}] DB has ${dbCount} foreign-key constraint(s) but entity declares ${entityCount} FK(s) — ${delta} orphaned in DB. ` +
+            `Likely cause: an FK was dropped from the entity model but the constraint not removed from DB. DB-side: ${dbDefs}`,
           errorViolations,
           warningViolations,
         );

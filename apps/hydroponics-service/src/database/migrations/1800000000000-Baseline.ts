@@ -21,7 +21,6 @@ export class Baseline1800000000000 implements MigrationInterface {
 
         // ── Faz 3.5 hand-author addition — RLS canonical predicate ──
         await applyTenantRlsToSchema(queryRunner, {
-            schema: 'hydroponics',
             tenantIdColumns: ['tenant_id', 'tenantId'],
             excludeTables: [],
         });
@@ -30,7 +29,6 @@ export class Baseline1800000000000 implements MigrationInterface {
     public async down(queryRunner: QueryRunner): Promise<void> {
         // Reverse Faz 3.5 RLS install first (avoids policy-on-missing-table).
         await removeTenantRlsFromSchema(queryRunner, {
-            schema: 'hydroponics',
             tenantIdColumns: ['tenant_id', 'tenantId'],
             excludeTables: [],
         });

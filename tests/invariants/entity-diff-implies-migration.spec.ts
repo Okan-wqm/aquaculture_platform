@@ -43,7 +43,13 @@ describe('INVARIANT — entity-diff-implies-migration (KERNEL-CRITICAL-002)', ()
   // to compare against. Without it the script defaults to `origin/main`,
   // which is correct for local pre-commit runs but redundant for the
   // standard `nx test invariants` invocation on main (no diff = no-op).
-  const baseSha = process.env.BASE_SHA ?? process.env.GITHUB_BASE_REF ?? '';
+  // GHA exports GITHUB_BASE_REF as just `main` (branch name, not ref) —
+  // we prepend `origin/` so the script can resolve it in shallow-fetched
+  // CI clones where the local `main` ref may not exist.
+  const rawBase = process.env.BASE_SHA ?? process.env.GITHUB_BASE_REF ?? '';
+  const baseSha = rawBase && !rawBase.includes('/') && !/^[0-9a-f]{7,40}$/.test(rawBase)
+    ? `origin/${rawBase}`
+    : rawBase;
 
   it('gate script exists and is executable', () => {
     // Just verify the script is on disk and accessible from REPO_ROOT.

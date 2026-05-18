@@ -184,10 +184,17 @@ export function createSchemaVersionGate(
           // during the fan-out itself, and replicating it here turns
           // boot into an O(tenants) operation.
           const probe = tenantSchemas[tenantSchemas.length - 1];
-          this.logger.log(
-            `Smoke-probing tenant schema "${probe}" (1 of ${tenantSchemas.length})`,
-          );
-          await this.probeSchema(probe);
+          if (probe === undefined) {
+            // listTenantSchemas guarantees non-empty here, but the
+            // tuple-element access widens to `string | undefined` under
+            // strict null checks. Guard explicitly.
+            this.logger.log('Tenant schema list empty after listTenantSchemas — skipping probe');
+          } else {
+            this.logger.log(
+              `Smoke-probing tenant schema "${probe}" (1 of ${tenantSchemas.length})`,
+            );
+            await this.probeSchema(probe);
+          }
         }
       }
 

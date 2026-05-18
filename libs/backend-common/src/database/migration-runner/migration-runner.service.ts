@@ -568,11 +568,14 @@ export function createMigrationRunnerService(
           `[postCondition] Migration "${migration.name}" probe threw on "${schema}": ${msg}`,
           probeErr instanceof Error ? probeErr.stack : undefined,
         );
-        throw new Error(
+        const probeErrInstance = new Error(
           `Migration "${migration.name}" postCondition() threw on "${schema}" — ` +
             `DDL did not satisfy declared invariant. Rolling back.`,
-          { cause: probeErr },
         );
+        // Attach cause without depending on Error options (lib.es2022.error.d.ts);
+        // this stays compatible with older TS lib targets while preserving the chain.
+        (probeErrInstance as Error & { cause?: unknown }).cause = probeErr;
+        throw probeErrInstance;
       }
 
       if (result === false) {

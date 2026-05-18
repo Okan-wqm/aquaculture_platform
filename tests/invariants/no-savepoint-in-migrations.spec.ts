@@ -103,6 +103,7 @@ function listMigrationFiles(): string[] {
     .split('\n')
     .filter(Boolean)
     .filter((p) => !p.includes('__tests__'))
+    .filter((p) => !p.includes('.archive/'))
     .filter((p) => !p.endsWith('.spec.ts'))
     .filter((p) => !p.endsWith('.test.ts'));
 }

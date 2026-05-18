@@ -212,6 +212,8 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   '6e9c3c14', // Faz 7 — ADR-030 + authoring runbook + drift-repair naming ban
   '2620e978', // Faz 3 live exec — 14 service baseline migrations consolidated
   '0f714656', // Faz 3.5 hand-author additions — RLS + audit immutability + sensor hypertable
+  'f6dd9c97', // fix(migration): faz-6-preflight ESM-safe __dirname recovery
+  '8fedf695', // fix(migration): preflight checks both src/migrations and src/database/migrations paths
 ]);
 
 interface Commit {

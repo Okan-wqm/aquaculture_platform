@@ -44,21 +44,59 @@ export type GatewaySubgraphRequest = {
   [key: string]: unknown;
 };
 
-const TENANT_UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/**
- * Apollo Gateway serializes the subgraph POST body after willSendRequest()
- * runs, so the body is not available as request.http.body at signing time.
- * This mirrors RemoteGraphQLDataSource.sendRequest(): strip the transport
- * envelope (`http`) and JSON.stringify the remaining GraphQL request.
- */
-export function serializeApolloSubgraphBodyForSigning(
-  request: GatewaySubgraphRequest,
-): string {
-  const { http: _http, ...requestWithoutHttp } = request;
-  void _http;
-  return JSON.stringify(requestWithoutHttp);
+type RemoteFetcher = RemoteGraphQLDataSource<GatewayContext>['fetcher'];
+type FetcherInit = NonNullable<Parameters<RemoteFetcher>[1]>;
+
+function normalizeFetcherHeaders(headers: FetcherInit['headers']): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  if (!headers) {
+    return normalized;
+  }
+  if (Array.isArray(headers)) {
+    for (const [key, value] of headers) {
+      normalized[key] = String(value);
+    }
+    return normalized;
+  }
+  if (typeof (headers as { forEach?: unknown }).forEach === 'function') {
+    (
+      headers as unknown as {
+        forEach: (callback: (value: string, key: string) => void) => void;
+      }
+    ).forEach((value, key) => {
+      normalized[key] = value;
+    });
+    return normalized;
+  }
+  return { ...(headers as Record<string, string>) };
+}
+
+function getHeader(headers: Record<string, string>, name: string): string | undefined {
+  const lower = name.toLowerCase();
+  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === lower);
+  return key ? headers[key] : undefined;
+}
+
+function setHeader(headers: Record<string, string>, name: string, value: string): void {
+  const lower = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === lower) {
+      delete headers[key];
+    }
+  }
+  headers[name] = value;
+}
+
+function bodyForServiceIdentitySigning(body: FetcherInit['body']): string | Buffer {
+  if (body === undefined || body === null) {
+    return '';
+  }
+  if (typeof body === 'string' || Buffer.isBuffer(body)) {
+    return body;
+  }
+  return String(body);
 }
 
 /**
@@ -69,9 +107,37 @@ export function serializeApolloSubgraphBodyForSigning(
 export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
   private readonly secret?: string;
 
-  constructor(config: { url?: string; secret?: string }) {
-    super({ url: config.url });
+  constructor(config: { url?: string; secret?: string; fetcher?: RemoteFetcher }) {
+    super({ url: config.url, fetcher: config.fetcher });
     this.secret = config.secret;
+    this.fetcher = this.withServiceIdentitySigning(this.fetcher);
+  }
+
+  private withServiceIdentitySigning(upstream: RemoteFetcher): RemoteFetcher {
+    // Apollo serializes the final subgraph body after willSendRequest(); sign at
+    // the fetch boundary so the HMAC binds the exact bytes sent on the wire.
+    return async (url, init): ReturnType<RemoteFetcher> => {
+      if (this.secret) {
+        const requestInit = init ?? {};
+        const headers = normalizeFetcherHeaders(requestInit.headers);
+        const tenantId = getHeader(headers, 'x-tenant-id') ?? '';
+        const signedTenantId = TENANT_UUID_RE.test(tenantId) ? tenantId : '';
+        const subgraphUrl = new URL(String(url), 'http://subgraph.local');
+        const identityHeaders = buildSignedInternalHeaders({
+          serviceName: 'gateway-api',
+          tenantId: signedTenantId,
+          method: requestInit.method ?? 'POST',
+          path: subgraphUrl.pathname,
+          body: bodyForServiceIdentitySigning(requestInit.body),
+          secret: this.secret,
+        });
+        for (const [key, value] of Object.entries(identityHeaders)) {
+          setHeader(headers, key, value);
+        }
+        requestInit.headers = headers;
+      }
+      return upstream(url, init);
+    };
   }
 
   override willSendRequest(params: GraphQLDataSourceProcessOptions<GatewayContext>): void {
@@ -146,24 +212,6 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
       httpRequest.headers.set('x-user-id', user.sub);
       httpRequest.headers.set('x-user-roles', JSON.stringify(user.roles ?? []));
       httpRequest.headers.set('x-user-payload', JSON.stringify(user));
-    }
-
-    if (this.secret) {
-      const signedTenantId = TENANT_UUID_RE.test(resolvedTenantId ?? '')
-        ? (resolvedTenantId as string)
-        : '';
-      const subgraphUrl = new URL(httpRequest.url ?? '/graphql', 'http://subgraph.local');
-      const identityHeaders = buildSignedInternalHeaders({
-        serviceName: 'gateway-api',
-        tenantId: signedTenantId,
-        method: httpRequest.method ?? 'POST',
-        path: subgraphUrl.pathname,
-        body: serializeApolloSubgraphBodyForSigning(subgraphRequest),
-        secret: this.secret,
-      });
-      for (const [key, value] of Object.entries(identityHeaders)) {
-        httpRequest.headers.set(key, value);
-      }
     }
   }
 

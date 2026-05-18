@@ -98,34 +98,8 @@ import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 // Migrations — imported as class references so webpack bundles them into main.js.
 // Glob paths ('dist/migrations/*.js') do NOT work with NX webpack builds because
 // all source files are bundled into a single output file.
-import { CreateMessagingTables1711800000000 } from './migrations/1711800000000-CreateMessagingTables';
-import { CreateAITables1711800000001 } from './migrations/1711800000001-CreateAITables';
-import { AddAiPersonaColumns1711800000002 } from './migrations/1711800000002-AddAiPersonaColumns';
-import { CreateComplianceTables1711800000003 } from './migrations/1711800000003-CreateComplianceTables';
-import { ConvertMessagingOutboxToIdentity1781200000000 } from './migrations/1781200000000-ConvertMessagingOutboxToIdentity';
-import { AddCompositeFkIndexesOnMessageChildren1781600000000 } from './migrations/1781600000000-AddCompositeFkIndexesOnMessageChildren';
-// NEW-H1: convert audit columns from TIMESTAMP to TIMESTAMPTZ across the
-// messaging schema. Excludes messaging_outbox to stay in lockstep with the
-// outbox migration's invariants (cross-tenant table read by background
-// workers). Runs after the outbox IDENTITY conversion is complete; the
-// helper is idempotent at the discovery layer so retries are free.
-import { ConvertAuditColumnsToTimestamptz1781900000000 } from './migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
-// Package 21-26: Tenant isolation, message idempotency, outbox dedup, audit immutability
-import { AddTenantIsolationAndAuditImmutability1782000000000 } from './migrations/1782000000000-AddTenantIsolationAndAuditImmutability';
-import { AddMessagingOutboxNotifyTrigger1782100000000 } from './migrations/1782100000000-AddMessagingOutboxNotifyTrigger';
-import { AddMissingOutboxColumns1782200000000 } from './migrations/1782200000000-AddMissingOutboxColumns';
-// P3 of 2026-04-14 messaging-isolation plan — tenantId on 7 child tables;
-// prerequisite for the P4 RLS install.
-import { AddTenantIdToMessageChildren1782300000000 } from './migrations/1782300000000-AddTenantIdToMessageChildren';
-// P4 of 2026-04-14 messaging-isolation plan — canonical tenant_isolation_policy
-// on messaging source schema. Tenant-schema clones receive the same policy
-// via TenantRlsSyncService (wired by RlsModule.forPoolService syncTenantSchemas: true).
-import { EnableRowLevelSecurity1782400000000 } from './migrations/1782400000000-EnableRowLevelSecurity';
-import { AlignMessagingEntityDrift1782600000000 } from './migrations/1782600000000-AlignMessagingEntityDrift';
-import { AlignAiConsentColumns1782700000000 } from './migrations/1782700000000-AlignAiConsentColumns';
-import { AddLegalHoldDualApprover1782700000001 } from './migrations/1782700000001-AddLegalHoldDualApprover';
-import { AddMessageAttachmentIsDeletedIndex1782800000000 } from './migrations/1782800000000-AddMessageAttachmentIsDeletedIndex';
-
+// Baseline1800000000000 — only migration after day-one reset (ADR-030).
+import { Baseline1800000000000 } from './migrations/1800000000000-Baseline';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -195,24 +169,7 @@ const complexityCache = new Map<string, number>();
           ],
           // Class references (NOT glob paths) — webpack bundles all into main.js,
           // so 'dist/migrations/*.js' would match zero files at runtime.
-          migrations: [
-            CreateMessagingTables1711800000000,
-            CreateAITables1711800000001,
-            AddAiPersonaColumns1711800000002,
-            CreateComplianceTables1711800000003,
-            ConvertMessagingOutboxToIdentity1781200000000,
-            AddCompositeFkIndexesOnMessageChildren1781600000000,
-            ConvertAuditColumnsToTimestamptz1781900000000,
-            AddTenantIsolationAndAuditImmutability1782000000000,
-            AddMessagingOutboxNotifyTrigger1782100000000,
-            AddMissingOutboxColumns1782200000000,
-            AddTenantIdToMessageChildren1782300000000,
-            EnableRowLevelSecurity1782400000000,
-            AlignMessagingEntityDrift1782600000000,
-            AlignAiConsentColumns1782700000000,
-            AddLegalHoldDualApprover1782700000001,
-            AddMessageAttachmentIsDeletedIndex1782800000000,
-          ],
+          migrations: [Baseline1800000000000],
         }),
     }),
 

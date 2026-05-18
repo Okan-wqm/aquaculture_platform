@@ -22,28 +22,8 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
 
-import { CreateInitialSchema1780000000000 } from './migrations/1780000000000-CreateInitialSchema';
-import { ConvertTimestampToTimestamptz1781500000000 } from './migrations/1781500000000-ConvertTimestampToTimestamptz';
-import { ConvertAuditColumnsToTimestamptz1781900000000 } from './migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
-import { AuditLogImmutability1782000000000 } from './migrations/1782000000000-AuditLogImmutability';
-import { AddMfaCompletedToImpersonationSessions1782100000000 } from './migrations/1782100000000-AddMfaCompletedToImpersonationSessions';
-import { MoveSharedTablesFromAdminToShared1782200000000 } from './migrations/1782200000000-MoveSharedTablesFromAdminToShared';
-import { MoveUserPermissionsToShared1786900000000 } from './migrations/1786900000000-MoveUserPermissionsToShared';
-import { GrantSharedSchemaPrivileges1787000000000 } from './migrations/1787000000000-GrantSharedSchemaPrivileges';
-import { CreateAdminAuditLogsTable1787100000000 } from './migrations/1787100000000-CreateAdminAuditLogsTable';
-import { RealignSharedAuditLogsSchema1787200000000 } from './migrations/1787200000000-RealignSharedAuditLogsSchema';
-import { CreateIngestBackendPolicyState1787300000000 } from './migrations/1787300000000-CreateIngestBackendPolicyState';
-import { RestoreSharedAuditLogsImmutability1787400000000 } from './migrations/1787400000000-RestoreSharedAuditLogsImmutability';
-import { CreateComplianceLegalHolds1787500000000 } from './migrations/1787500000000-CreateComplianceLegalHolds';
-import { AddGdprDataRequestsCheckConstraints1787600000000 } from './migrations/1787600000000-AddGdprDataRequestsCheckConstraints';
-import { AddUserConsentsNaturalKeyUnique1787700000000 } from './migrations/1787700000000-AddUserConsentsNaturalKeyUnique';
-import { AddAdminAuditLogsImmutability1787800000000 } from './migrations/1787800000000-AddAdminAuditLogsImmutability';
-import { AddUserPermissionsUserFk1787900000000 } from './migrations/1787900000000-AddUserPermissionsUserFk';
-import { ConvertAuditIpColumnsToInet1788000000000 } from './migrations/1788000000000-ConvertAuditIpColumnsToInet';
-import { AddAuditLogShapeExtension1788100000000 } from './migrations/1788100000000-AddAuditLogShapeExtension';
-import { CreateSharedAccessLogs1788400000000 } from './migrations/1788400000000-CreateSharedAccessLogs';
-import { AlignAdminEntitySurface1789000000000 } from './migrations/1789000000000-AlignAdminEntitySurface';
-import { AlignAdminEntitySurfaceExt1789100000000 } from './migrations/1789100000000-AlignAdminEntitySurfaceExt';
+// Baseline1800000000000 — only migration after day-one reset (ADR-030).
+import { Baseline1800000000000 } from './migrations/1800000000000-Baseline';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { AdminApiRetentionBootstrapModule } from './retention/retention-bootstrap.module';
@@ -96,30 +76,7 @@ import { UsersModule } from './users/users.module';
           // traffic. 40 was validated under concurrent superadmin sessions
           // in 2026-Q1. Operators may further raise via DATABASE_POOL_SIZE.
           defaultPoolSize: 40,
-          migrations: [
-            CreateInitialSchema1780000000000,
-            ConvertTimestampToTimestamptz1781500000000,
-            ConvertAuditColumnsToTimestamptz1781900000000,
-            AuditLogImmutability1782000000000,
-            AddMfaCompletedToImpersonationSessions1782100000000,
-            MoveSharedTablesFromAdminToShared1782200000000,
-            MoveUserPermissionsToShared1786900000000,
-            GrantSharedSchemaPrivileges1787000000000,
-            CreateAdminAuditLogsTable1787100000000,
-            RealignSharedAuditLogsSchema1787200000000,
-            CreateIngestBackendPolicyState1787300000000,
-            RestoreSharedAuditLogsImmutability1787400000000,
-            CreateComplianceLegalHolds1787500000000,
-            AddGdprDataRequestsCheckConstraints1787600000000,
-            AddUserConsentsNaturalKeyUnique1787700000000,
-            AddAdminAuditLogsImmutability1787800000000,
-            AddUserPermissionsUserFk1787900000000,
-            ConvertAuditIpColumnsToInet1788000000000,
-            AddAuditLogShapeExtension1788100000000,
-            CreateSharedAccessLogs1788400000000,
-            AlignAdminEntitySurface1789000000000,
-            AlignAdminEntitySurfaceExt1789100000000,
-          ],
+          migrations: [Baseline1800000000000],
           // admin-api opts in to TypeORM's built-in migration runner via the
           // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other
           // services use MigrationRunnerService factory pattern instead.

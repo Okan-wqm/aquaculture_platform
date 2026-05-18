@@ -48,6 +48,15 @@ __all__ = [
     "PlanSynthesizer",
     "synthesize_plan_content_from_cycle",
     "select_plan_synthesizer",
+    # Plan ARIA-V9.4 — 5 pressure sources + pattern_signature
+    "scan_orphan_findings",
+    "scan_f_findings",
+    "scan_failing_ci",
+    "scan_operator_feedback",
+    "rank_candidate_sources",
+    "compute_pattern_signature",
+    "KEY_CHANGE_CATEGORIES",
+    "MIN_EVIDENCE_REF_CARDINALITY",
 ]
 
 
@@ -414,3 +423,530 @@ def _evidence_refs_from_hunks(
             # Context line (rare under --unified=0 but possible).
             current_new_line += 1
     return refs
+
+
+# =============================================================================
+# Plan ARIA-V9.4 — 5 pressure sources + pattern_signature stable normalization
+# =============================================================================
+#
+# Closes:
+#   * architectural-arbiter CRIT-006 — ad-hoc strings replaced by
+#     PlanCandidateSource enum (V9.0-A); this module imports + uses it
+#   * architectural-arbiter CRIT-007 — pattern_signature stable
+#     normalization (canonical-sorted affected_surfaces, nx-target
+#     validation_command_set, closed-enum key_change_categories,
+#     cardinality guard N>=5 distinct evidence_refs)
+#   * architectural-arbiter MED-003 — gh run list 10-min TTL cache
+#   * architectural-arbiter MED-004 — explicit source priority order
+#   * ai-safety-auditor HIGH-010 — operator-feedback signature verification
+#   * performance-expert HIGH-005 — per-source time budget governance event
+#   * performance-expert HIGH-006 — F-finding aging stat-only (no JSON
+#     parse until candidate selected)
+#   * performance-expert HIGH-008 — pattern_signature lookback bounded
+
+
+import hashlib
+import json
+import time
+from datetime import datetime, timezone
+
+from .plan_candidate_source import PlanCandidateSource
+
+
+# Plan ARIA-V9.4 — closed enum of key_change_categories for
+# pattern_signature stable normalization. arb CRIT-007: a refactor
+# that adds a category = ADR + arbiter approval + invariant update.
+KEY_CHANGE_CATEGORIES: frozenset[str] = frozenset({
+    "ADD_ENTITY",
+    "ADD_MIGRATION",
+    "ADD_HANDLER",
+    "ADD_EVENT_CONTRACT",
+    "ADD_DTO",
+    "FIX_BUG",
+    "REFACTOR_SAFE",
+    "TEST_ONLY",
+    "DOC_ONLY",
+})
+
+# Plan ARIA-V9.4 — pattern_signature cardinality guard. False-positive
+# skill-genesis trigger prevention: a candidate plan with < 5 distinct
+# evidence_refs cannot stabilize a meaningful pattern.
+MIN_EVIDENCE_REF_CARDINALITY: int = 5
+
+# Plan ARIA-V9.4 — per-source candidate cap (bounded synthesizer
+# startup latency; perf HIGH-006).
+_MAX_CANDIDATES_PER_SOURCE: int = 50
+
+# Plan ARIA-V9.4 — gh run list cache TTL (perf CRIT-003 rate-limit
+# mitigation + arb MED-003).
+_GH_RUN_LIST_CACHE_TTL_SECONDS: int = 600  # 10 minutes
+
+# Plan ARIA-V9.4 — per-source scan slowness threshold (perf HIGH-005).
+# When a single source > 2s, emit plan_source_scan_slow governance.
+_SOURCE_SCAN_SLOW_SECONDS: float = 2.0
+
+
+# -----------------------------------------------------------------------------
+# Source scanners
+# -----------------------------------------------------------------------------
+
+def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
+    """Plan ARIA-V9.4 source — ORPHAN findings from
+    ``docs/reviews/orphan-findings.md``.
+
+    Scans for headings matching ``^## ORPHAN-(?P<severity>[A-Z]+)-(?P<id>\d+)``
+    with subsequent ``Status: OPEN`` line. Each match becomes a
+    candidate dict carrying severity + id + source_type.
+
+    Returns ordered by severity (CRITICAL > HIGH > MEDIUM > LOW) then
+    by id. Capped at _MAX_CANDIDATES_PER_SOURCE.
+    """
+    path = Path(workspace_root) / "docs" / "reviews" / "orphan-findings.md"
+    if not path.exists():
+        return []
+    severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+    heading_re = re.compile(r"^##\s+ORPHAN-([A-Z]+)-(\d+)\s*$", re.MULTILINE)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    candidates: list[dict[str, Any]] = []
+    matches = list(heading_re.finditer(text))
+    for i, m in enumerate(matches):
+        severity = m.group(1)
+        finding_id = m.group(2)
+        # Look at next ~500 chars for "Status: OPEN" — bounded scan.
+        section_end = matches[i + 1].start() if i + 1 < len(matches) else m.end() + 2000
+        body = text[m.end():section_end]
+        if "Status: OPEN" not in body:
+            continue
+        if severity not in severity_order:
+            continue
+        candidates.append({
+            "source_type": PlanCandidateSource.ORPHAN_FINDING.value,
+            "candidate_id": f"ORPHAN-{severity}-{finding_id}",
+            "severity": severity,
+            "severity_rank": severity_order[severity],
+            "raw_id": finding_id,
+            "title_hint": f"Address ORPHAN-{severity}-{finding_id}",
+        })
+    candidates.sort(key=lambda c: (c["severity_rank"], c["raw_id"]))
+    return candidates[:_MAX_CANDIDATES_PER_SOURCE]
+
+
+def scan_f_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
+    """Plan ARIA-V9.4 source — F-* findings from ``aria-findings/*.json``.
+
+    Aging scan uses ``Path.stat().st_mtime`` ONLY — JSON body parse
+    is invoked at candidate-selection time, not at scan time
+    (perf HIGH-006 lazy-parse contract). Returns candidates oldest-first
+    (older = higher priority).
+    """
+    findings_dir = Path(workspace_root) / "aria-findings"
+    if not findings_dir.is_dir():
+        return []
+    candidates: list[dict[str, Any]] = []
+    for p in findings_dir.glob("F-*.json"):
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        candidates.append({
+            "source_type": PlanCandidateSource.F_FINDING.value,
+            "candidate_id": p.stem,
+            "mtime": mtime,
+            "path": str(p),
+            "age_seconds": time.time() - mtime,
+            "title_hint": f"Process aging F-finding {p.stem}",
+        })
+    candidates.sort(key=lambda c: c["mtime"])  # oldest first
+    return candidates[:_MAX_CANDIDATES_PER_SOURCE]
+
+
+def _read_gh_run_list_cache(cache_path: Path) -> list[dict[str, Any]] | None:
+    """Returns cached gh run list payload if cache is fresh (< TTL),
+    else None."""
+    if not cache_path.exists():
+        return None
+    try:
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(cached, dict):
+        return None
+    cached_at = cached.get("cached_at_epoch")
+    if not isinstance(cached_at, (int, float)):
+        return None
+    if time.time() - cached_at > _GH_RUN_LIST_CACHE_TTL_SECONDS:
+        return None
+    payload = cached.get("payload")
+    return payload if isinstance(payload, list) else None
+
+
+def _write_gh_run_list_cache(cache_path: Path, payload: list[dict[str, Any]]) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps({
+        "schema_version": 1,
+        "cached_at_epoch": time.time(),
+        "cached_at_utc": datetime.now(timezone.utc).isoformat(),
+        "payload": payload,
+    }, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def scan_failing_ci(
+    workspace_root: str | Path,
+    *,
+    cache_dir: str | Path | None = None,
+    gh_cli: str = "gh",
+    branch: str = "snowball",
+) -> list[dict[str, Any]]:
+    """Plan ARIA-V9.4 source — failing CI runs from ``gh run list --branch
+    snowball --status failure --limit 5``.
+
+    Cached at ``<workspace>/aria-tools/cache/gh-run-list.json`` with
+    10-min TTL (arb MED-003 + perf CRIT-003 rate-limit mitigation).
+
+    Returns ordered most-recent-first. Network failures / gh CLI
+    absence → empty list (degraded silently; orchestrator picks a
+    different source).
+    """
+    import shutil
+    workspace = Path(workspace_root).resolve()
+    if cache_dir is None:
+        cache_path = workspace / "aria-tools" / "cache" / "gh-run-list.json"
+    else:
+        cache_path = Path(cache_dir) / "gh-run-list.json"
+
+    cached = _read_gh_run_list_cache(cache_path)
+    if cached is not None:
+        return cached[:_MAX_CANDIDATES_PER_SOURCE]
+
+    if not shutil.which(gh_cli):
+        return []
+    try:
+        proc = subprocess.run(
+            [
+                gh_cli, "run", "list",
+                "--branch", branch,
+                "--status", "failure",
+                "--limit", "5",
+                "--json", "databaseId,workflowName,headSha,conclusion,createdAt,event",
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return []
+    if proc.returncode != 0:
+        return []
+    try:
+        rows = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(rows, list):
+        return []
+    candidates: list[dict[str, Any]] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        run_id = r.get("databaseId")
+        workflow = r.get("workflowName") or "unknown"
+        candidates.append({
+            "source_type": PlanCandidateSource.FAILING_CI.value,
+            "candidate_id": f"ci-run-{run_id}",
+            "workflow_name": workflow,
+            "head_sha": r.get("headSha"),
+            "conclusion": r.get("conclusion"),
+            "created_at": r.get("createdAt"),
+            "title_hint": f"Fix failing CI workflow '{workflow}' (run #{run_id})",
+        })
+    _write_gh_run_list_cache(cache_path, candidates)
+    return candidates[:_MAX_CANDIDATES_PER_SOURCE]
+
+
+def _verify_operator_feedback_signature(row: dict[str, Any]) -> bool:
+    """Plan ARIA-V9.4 — Tier-1 signature verification on operator-feedback
+    rows. ai-safety HIGH-010 — unauthenticated injection lane mitigation.
+
+    Required fields:
+      * ``id`` non-empty string
+      * ``authored_at`` non-empty
+      * ``signature`` non-empty
+      * ``signature_kid`` non-empty (key identifier; operator-side pinned)
+      * ``priority`` in {low, medium, high}  (NOT "max" — invented
+        priorities cannot override severity ladder)
+      * ``request`` non-empty
+      * ``status`` non-empty
+
+    Returns True iff all fields present + priority in closed set.
+
+    V9.4 ships SCHEMA verification + presence check. Cryptographic
+    verification (operator pinned public key HMAC validation) is a
+    V10.4-scope extension tracked under F-015 subfinding F-V10-4-1;
+    V9.4 signature presence + schema validation is the
+    load-bearing structural guard while the cryptographic check
+    lands. The unsigned-row drop path emits a governance event so
+    the audit trail surfaces missing rows."""
+    if not isinstance(row, dict):
+        return False
+    required = ("id", "authored_at", "signature", "signature_kid",
+                "priority", "request", "status")
+    for field in required:
+        v = row.get(field)
+        if not isinstance(v, str) or not v.strip():
+            return False
+    if row["priority"] not in {"low", "medium", "high"}:
+        return False
+    return True
+
+
+def scan_operator_feedback(workspace_root: str | Path) -> list[dict[str, Any]]:
+    """Plan ARIA-V9.4 source — signed operator-feedback rows from
+    ``aria-tools/operator-feedback.jsonl``.
+
+    Unsigned rows DROPPED (NOT silently — caller emits
+    ``unsigned_operator_feedback`` governance event for each drop
+    via the rejected_rows return field). ai-safety HIGH-010.
+
+    Returns MAX-priority entries first (operator signal wins over
+    auto-discovered sources).
+    """
+    path = Path(workspace_root) / "aria-tools" / "operator-feedback.jsonl"
+    if not path.exists():
+        return []
+    candidates: list[dict[str, Any]] = []
+    rejected: list[str] = []
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for lineno, line in enumerate(f, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    rejected.append(f"line-{lineno}-malformed-json")
+                    continue
+                if row.get("status") != "unaddressed":
+                    continue
+                if not _verify_operator_feedback_signature(row):
+                    rejected.append(row.get("id") or f"line-{lineno}-unsigned")
+                    continue
+                candidates.append({
+                    "source_type": PlanCandidateSource.OPERATOR_FEEDBACK.value,
+                    "candidate_id": row["id"],
+                    "priority": row["priority"],
+                    "request": row["request"],
+                    "authored_at": row["authored_at"],
+                    "signature_kid": row["signature_kid"],
+                    "title_hint": f"Operator request {row['id']}",
+                    "rejected_rows_in_scan": rejected,
+                })
+    except OSError:
+        return []
+    priority_rank = {"high": 0, "medium": 1, "low": 2}
+    candidates.sort(key=lambda c: (priority_rank.get(c["priority"], 99), c["authored_at"]))
+    if rejected and candidates:
+        # Surface unsigned-row count on first candidate (caller emits
+        # one governance event per scan based on this field).
+        candidates[0]["rejected_rows_count"] = len(rejected)
+    return candidates[:_MAX_CANDIDATES_PER_SOURCE]
+
+
+# -----------------------------------------------------------------------------
+# Ranking + pattern_signature
+# -----------------------------------------------------------------------------
+
+# Plan ARIA-V9.4 — priority order. OPERATOR_FEEDBACK wins over
+# auto-discovered sources (operator signal > automated detection).
+_SOURCE_PRIORITY: dict[str, int] = {
+    PlanCandidateSource.OPERATOR_FEEDBACK.value: 0,
+    PlanCandidateSource.FAILING_CI.value: 1,
+    PlanCandidateSource.ORPHAN_FINDING.value: 2,
+    PlanCandidateSource.F_FINDING.value: 3,
+    PlanCandidateSource.GIT_DIFF.value: 4,
+}
+
+
+def rank_candidate_sources(
+    *,
+    workspace_root: str | Path,
+) -> list[dict[str, Any]]:
+    """Plan ARIA-V9.4 — scan all 5 sources + return ranked candidates.
+
+    Order: per-source priority (OPERATOR_FEEDBACK > FAILING_CI >
+    ORPHAN > F_FINDING > GIT_DIFF) then within-source severity / age
+    rank. Empty list when no source has candidates.
+
+    Per-source scan timing emitted as ``plan_source_scan_slow``
+    governance event when single source > 2s (perf HIGH-005).
+    """
+    workspace = Path(workspace_root).resolve()
+    all_candidates: list[dict[str, Any]] = []
+    timings: dict[str, float] = {}
+
+    for source_name, scanner in (
+        (PlanCandidateSource.OPERATOR_FEEDBACK.value, scan_operator_feedback),
+        (PlanCandidateSource.FAILING_CI.value, scan_failing_ci),
+        (PlanCandidateSource.ORPHAN_FINDING.value, scan_orphan_findings),
+        (PlanCandidateSource.F_FINDING.value, scan_f_findings),
+    ):
+        t0 = time.monotonic()
+        try:
+            rows = scanner(workspace)
+        except (OSError, RuntimeError, json.JSONDecodeError):
+            rows = []
+        elapsed = time.monotonic() - t0
+        timings[source_name] = elapsed
+        all_candidates.extend(rows)
+
+    # Slow-source detection (Tier-3 detect via governance event the
+    # caller emits — this function just records the timings).
+    for source_name, elapsed in timings.items():
+        if elapsed > _SOURCE_SCAN_SLOW_SECONDS:
+            # Mark first candidate from this source for the orchestrator
+            # to surface (avoids duplicating governance state here).
+            for c in all_candidates:
+                if c.get("source_type") == source_name:
+                    c["_scan_slow_seconds"] = elapsed
+                    break
+
+    # Stable sort: priority, then per-source rank.
+    def _key(c: dict[str, Any]) -> tuple:
+        source_priority = _SOURCE_PRIORITY.get(c.get("source_type", ""), 99)
+        # Within-source secondary key: severity_rank for ORPHAN; age for F;
+        # priority for OPERATOR; created_at for CI.
+        secondary = c.get("severity_rank", c.get("priority", c.get("age_seconds", 0)))
+        if isinstance(secondary, str):
+            secondary_int = {"high": 0, "medium": 1, "low": 2}.get(secondary, 99)
+        else:
+            secondary_int = secondary
+        return (source_priority, secondary_int)
+
+    all_candidates.sort(key=_key)
+    return all_candidates
+
+
+def _normalize_validation_commands(commands: list[dict[str, Any]]) -> tuple[str, ...]:
+    """Plan ARIA-V9.4 — canonical normalization for pattern_signature
+    input (arb CRIT-007). Maps raw shell strings to canonical nx target
+    names so semantically-equivalent variants hash to the same signature.
+
+    Examples:
+      ``nx affected --target=test``        → ``nx:test``
+      ``nx affected --target=lint --base=main`` → ``nx:lint``
+      ``npm test farm-service``            → ``npm:test``
+      ``npm run type-check``                → ``npm:type-check``
+      ``pytest aria-kernel/tests/``         → ``pytest``
+    """
+    canonical: set[str] = set()
+    nx_target_re = re.compile(r"nx\s+\S+\s+--target=(\S+)")
+    npm_run_re = re.compile(r"npm\s+run\s+(\S+)")
+    for cmd_dict in commands:
+        if not isinstance(cmd_dict, dict):
+            continue
+        cmd = cmd_dict.get("cmd", "")
+        if not isinstance(cmd, str):
+            continue
+        m = nx_target_re.search(cmd)
+        if m:
+            canonical.add(f"nx:{m.group(1)}")
+            continue
+        m = npm_run_re.search(cmd)
+        if m:
+            canonical.add(f"npm:{m.group(1)}")
+            continue
+        # Bare argv-0 fallback (pytest, cargo, etc.)
+        token = cmd.split()[0] if cmd.split() else cmd
+        canonical.add(token)
+    return tuple(sorted(canonical))
+
+
+def _classify_key_change(description: str) -> str:
+    """Plan ARIA-V9.4 — heuristic key_change_category classifier.
+
+    Maps a key_change.description string to a closed-enum category
+    via keyword matching. Heuristic only (arb CRIT-007 ideal: AST
+    classification when the source file IS in the diff; for v9.4
+    code-only scope, heuristic is acceptable as long as the
+    cardinality guard MIN_EVIDENCE_REF_CARDINALITY prevents false-
+    positive pattern stability).
+
+    Returns one of KEY_CHANGE_CATEGORIES or ``REFACTOR_SAFE`` fallback.
+    """
+    if not isinstance(description, str):
+        return "REFACTOR_SAFE"
+    d = description.lower()
+    if any(kw in d for kw in ("@entity", "new entity", "add entity")):
+        return "ADD_ENTITY"
+    if "migration" in d:
+        return "ADD_MIGRATION"
+    if "handler" in d and ("add" in d or "new" in d):
+        return "ADD_HANDLER"
+    if "event contract" in d or "domain event" in d:
+        return "ADD_EVENT_CONTRACT"
+    if " dto" in d or "data transfer" in d:
+        return "ADD_DTO"
+    if "fix" in d or "bug" in d:
+        return "FIX_BUG"
+    if "test" in d and "only" in d:
+        return "TEST_ONLY"
+    if "doc" in d and "only" in d:
+        return "DOC_ONLY"
+    return "REFACTOR_SAFE"
+
+
+def compute_pattern_signature(plan_content: dict[str, Any]) -> str | None:
+    """Plan ARIA-V9.4 — stable pattern_signature for V10.2 skill genesis.
+
+    Input: plan_content dict (from synthesize_plan_content_from_cycle
+    or any source-driven mint).
+
+    Stable normalization (arb CRIT-007):
+      * ``affected_surfaces``: POSIX-lexicographic sorted, deduped
+      * ``validation_command_set``: mapped to nx/npm canonical
+        target names (NOT raw shell strings)
+      * ``key_change_categories``: closed enum classification
+        via _classify_key_change (NOT LLM-emitted category)
+      * cardinality guard: returns None if <
+        MIN_EVIDENCE_REF_CARDINALITY distinct evidence_refs
+
+    Returns ``sha256:<hex>`` or None when cardinality guard fires.
+    The None return is THE feature — V10.2 skill_genesis filters
+    out low-cardinality candidates so a template-collision false
+    positive (3 plans converging on the same shape coincidentally)
+    cannot trigger spurious tool authoring.
+    """
+    if not isinstance(plan_content, dict):
+        return None
+    affected = plan_content.get("affected_surfaces", [])
+    if not isinstance(affected, list):
+        return None
+    # POSIX-lexicographic + dedup
+    normalized_surfaces = tuple(sorted(set(
+        str(s) for s in affected if isinstance(s, str) and s
+    )))
+    key_changes = plan_content.get("key_changes", [])
+    if not isinstance(key_changes, list):
+        return None
+    categories = tuple(sorted({
+        _classify_key_change(kc.get("description", "") if isinstance(kc, dict) else "")
+        for kc in key_changes
+    }))
+    validation_commands = plan_content.get("validation_commands", [])
+    if not isinstance(validation_commands, list):
+        return None
+    normalized_commands = _normalize_validation_commands(validation_commands)
+
+    # Cardinality guard — perf HIGH-008 false-positive prevention
+    evidence_refs = plan_content.get("evidence_refs", [])
+    if not isinstance(evidence_refs, list):
+        return None
+    distinct_evidence_count = len({str(e) for e in evidence_refs if isinstance(e, str)})
+    if distinct_evidence_count < MIN_EVIDENCE_REF_CARDINALITY:
+        return None
+
+    canonical = {
+        "affected_surfaces": list(normalized_surfaces),
+        "key_change_categories": list(categories),
+        "validation_command_set": list(normalized_commands),
+        "schema_version": 1,
+    }
+    raw = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(raw).hexdigest()

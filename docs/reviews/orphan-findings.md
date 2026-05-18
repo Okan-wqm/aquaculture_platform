@@ -3846,9 +3846,53 @@ V5.1 wired Gate A as Tier-1 architectural required-kwarg. The wiring is correct;
 **NOT a regression introduced by V8 v2 *architecturally* — but discovered DURING V8 verification:**
 V5/V6/V7 smoke runs also called submit_claim_result on planner-role submissions; if this CPU loop existed pre-V8, prior smokes hit it too (and timed out the same way, masked as `primary_silent`). The V8 dict-vs-set fix (B-V2-01) finally lets the poll observe state transitions, making submit-result's slowness visible for the first time.
 
-**Status:** OPEN. F-014 (V8 umbrella) marked RESOLVED at C6 for the architectural arc; the smoke gate is documented here as ORPHAN-HIGH-081 (separate investigation track). Operator decision needed: investigate now, or land V9 (which can include profiling tooling) and revisit.
+**Status:** RESOLVED 2026-05-18 — root cause identified + Tier-1 fix landed in the same investigation session.
 
-**2026-05-18 update (instrumentation landed):** `tools/aria-poc/ci_executor.py` now carries timestamped stage logs (`[ci-stage t=Xs] ...`) AND a bounded `SUBMIT_RESULT_TIMEOUT_SECONDS=120` survivability timeout on the submit subprocess. On timeout, ci_executor calls `_release_claim(reason="submit_timeout_120s")` so the consumer is never blocked by a leaking claim. The next dispatch event will reveal whether the hang is BEFORE the submit subprocess starts (ci_executor-side) or INSIDE the kernel submit-result (kernel-side), and where exactly in submit-result it lives.
+**2026-05-18 instrumentation:** `tools/aria-poc/ci_executor.py` now carries timestamped stage logs (`[ci-stage t=Xs] ...`) AND a bounded `SUBMIT_RESULT_TIMEOUT_SECONDS=120` survivability timeout on the submit subprocess. On timeout, ci_executor calls `_release_claim(reason="submit_timeout_120s")` so the consumer is never blocked by a leaking claim.
+
+**2026-05-18 root cause — REGEX CATASTROPHIC BACKTRACKING in `_AGENT_REF_RE`:** The second live ARIA run with instrumentation surfaced the exact hang stack via `SIGINT` → `KeyboardInterrupt` traceback:
+
+```
+agent_invocations.py:1210 submit_claim_result
+  → evidence_validator.py:342 validate_agent_response_evidence
+    → evidence_validator.py:193 _parse_agent_ref
+      → _AGENT_REF_RE.match(ref.strip())   ← 80.7% CPU, state=R, wchan=0
+```
+
+The pre-fix regex at `aria-kernel/aria_kernel/evidence_validator.py:16`:
+
+```python
+_AGENT_REF_RE = re.compile(r"^(?P<path>[^\s:][^\s:]*(?:[^\s:][^\s:]*)*?)(?::(?P<line>\d+))?$")
+```
+
+is a textbook catastrophic-backtracking shape — `[^\s:][^\s:]*(?:[^\s:][^\s:]*)*?` reduces to `X+(X+)*?` with the SAME character class repeated in overlapping groups. On any rejected input (e.g. `plan_synthesizer` emits refs in `path:line:content` format with a SECOND colon the regex never expected), the engine explores 2^N partitions of the path before failing.
+
+Benchmarked degradation (file `/tmp/regex_bench.py`):
+
+| input | length | OLD time | NEW time | speedup |
+|---|---|---|---|---|
+| valid `path:line` | 18 | 0.001ms | 0.001ms | 1× |
+| `path:line:content` | 28 | **86ms** | 0.008ms | 11,000× |
+| `path:line:content` | 24 | **416ms** | 0.010ms | 41,600× |
+| `path:line:content` | 29 | **>2000ms (catastrophic)** | 0.008ms | >250,000× |
+| 49-char real envelope path | 70+ | **~120s observed** | ~10µs | ~12M× |
+
+**Tier-1 fix:**
+
+```python
+_AGENT_REF_RE = re.compile(r"^(?P<path>[^\s:]+)(?::(?P<line>\d+))?$")
+```
+
+Same regular language (one or more non-whitespace-non-colon chars, optionally followed by `:<digits>`), no overlapping quantifiers, deterministic linear time.
+
+4 new V8.0 ReDoS regression invariants pinned at `aria-kernel/tests/invariants/v8/test_phase_v8_0_regex_redos.py`:
+
+- I-V8.0-REDOS-01 — semantic equivalence: valid inputs match with identical groups
+- I-V8.0-REDOS-02 — pathological rejected inputs complete in <100ms (SIGALRM-enforced bound)
+- I-V8.0-REDOS-03 — source-substring guard on the compile line: rejects the dangerous `[^\\s:]*(?:[^\\s:]` overlap, requires the safe `[^\\s:]+`
+- I-V8.0-REDOS-04 — boundary inputs (empty / whitespace / colon-only) return None deterministically
+
+**Why the bug stayed hidden until V8 verification:** Pre-V8 the dict-vs-set bug (C0 fix) caused every drainer poll to return None silently, so the request flow never reached `submit_claim_result` on real plan_synthesizer envelopes — those envelopes never had their `path:line:content` evidence_refs validated. After C0, polls observe real state transitions; the first dispatch with rich evidence_refs (post-f96c5249) immediately exposed the regex hang.
 
 ## ORPHAN-HIGH-082 — `--challenger-timeout-seconds` + `--max-rounds` CLI flags never plumbed from argparse to drainer
 

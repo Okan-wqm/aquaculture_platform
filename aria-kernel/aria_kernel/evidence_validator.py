@@ -13,7 +13,23 @@ from .snapshot import snapshot_allowed_set
 # ("apps/foo.ts:42") whereas tool output uses {path, line} dicts. We keep
 # the existing dict-based validator unchanged for backward compatibility
 # and add a string-aware revalidator below.
-_AGENT_REF_RE = re.compile(r"^(?P<path>[^\s:][^\s:]*(?:[^\s:][^\s:]*)*?)(?::(?P<line>\d+))?$")
+#
+# ORPHAN-HIGH-081 (2026-05-18) — the previous pattern
+#     ^(?P<path>[^\s:][^\s:]*(?:[^\s:][^\s:]*)*?)(?::(?P<line>\d+))?$
+# was a textbook catastrophic-backtracking shape: `[^\s:][^\s:]*(?:[^\s:][^\s:]*)*?`
+# reduces to `X+(X+)*?` with the same character class repeated in overlapping
+# groups. On any rejected input (e.g. plan_synthesizer's `path:line:content`
+# format, which adds a SECOND colon the regex never expected), the engine
+# explores 2^N partitions of the path before failing. Benchmarked: a 29-char
+# rejected input exceeds 2 seconds; a 49-char rejected input (typical kernel
+# paths) burns ~120 seconds at 100% CPU — exactly the submit_claim_result
+# hang observed during V8 verification.
+#
+# The replacement below matches THE SAME LANGUAGE (one or more non-whitespace,
+# non-colon characters, optionally followed by `:<digits>`) but with no
+# overlapping quantifiers. Worst-case time is linear in input length, ~10µs
+# for 50-char inputs.
+_AGENT_REF_RE = re.compile(r"^(?P<path>[^\s:]+)(?::(?P<line>\d+))?$")
 
 
 def validate_tool_output_evidence(

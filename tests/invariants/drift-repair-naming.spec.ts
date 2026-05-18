@@ -118,7 +118,10 @@ describe('INVARIANT — drift-repair-naming ban (POST-RESET-CRITICAL-001)', () =
   const files = listMigrationFiles();
 
   it('repository contains migration files to scan', () => {
-    expect(files.length).toBeGreaterThan(20);
+    // Post-ADR-030 (day-one reset) the archived pre-baseline chain is
+    // excluded from this scan. 14 consolidated baselines + post-reset
+    // add-ons remain; >10 is a sanity floor.
+    expect(files.length).toBeGreaterThan(10);
   });
 
   it('no NEW migration filename matches a drift-repair pattern', () => {

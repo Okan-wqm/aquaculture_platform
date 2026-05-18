@@ -25,9 +25,17 @@
 /* eslint-disable no-console */
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = resolve(__dirname, '..', '..');
+// ESM-safe __dirname equivalent. The gates/tsconfig.json compiles
+// modules as ESM; require/__dirname is unavailable. fileURLToPath +
+// dirname recovers the script's directory.
+const SCRIPT_DIR =
+  typeof __dirname === 'string'
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(SCRIPT_DIR, '..', '..');
 
 type CheckResult = { name: string; status: 'PASS' | 'FAIL' | 'WARN'; detail: string };
 const results: CheckResult[] = [];

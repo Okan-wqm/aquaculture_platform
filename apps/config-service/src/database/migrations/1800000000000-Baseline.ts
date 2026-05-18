@@ -4,8 +4,8 @@ export class Baseline1800000000000 implements MigrationInterface {
     name = 'Baseline1800000000000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`CREATE TYPE "config"."configurations_value_type_enum" AS ENUM('string', 'number', 'boolean', 'json', 'secret')`);
-        await queryRunner.query(`CREATE TYPE "config"."configurations_environment_enum" AS ENUM('development', 'staging', 'production', 'all')`);
+        await queryRunner.query(`DO $$ BEGIN CREATE TYPE "config"."configurations_value_type_enum" AS ENUM('string', 'number', 'boolean', 'json', 'secret'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+        await queryRunner.query(`DO $$ BEGIN CREATE TYPE "config"."configurations_environment_enum" AS ENUM('development', 'staging', 'production', 'all'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
         await queryRunner.query(`CREATE TABLE "config"."configurations" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenant_id" uuid NOT NULL, "service" character varying(100) NOT NULL, "key" character varying(255) NOT NULL, "value" text NOT NULL, "value_type" "config"."configurations_value_type_enum" NOT NULL DEFAULT 'string', "environment" "config"."configurations_environment_enum" NOT NULL DEFAULT 'all', "description" character varying(500), "is_secret" boolean NOT NULL DEFAULT false, "is_active" boolean NOT NULL DEFAULT true, "default_value" character varying(255), "validation_rules" jsonb, "category" character varying(50), "tags" text array, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "created_by" character varying(100), "updated_by" character varying(100), "version" integer NOT NULL, CONSTRAINT "UQ_901a57aa24cde3513c40a662a59" UNIQUE ("tenant_id", "service", "key", "environment"), CONSTRAINT "PK_ef9fc29709cc5fc66610fc6a664" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_bf3645260755e9a8e3ab75f2de" ON "config"."configurations" ("tenant_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_6815959c70427c326a013ae02b" ON "config"."configurations" ("service") `);

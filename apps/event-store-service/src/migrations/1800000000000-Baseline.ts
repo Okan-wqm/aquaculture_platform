@@ -4,7 +4,7 @@ export class Baseline1800000000000 implements MigrationInterface {
     name = 'Baseline1800000000000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`CREATE TYPE "event_store"."projection_checkpoints_status_enum" AS ENUM('running', 'paused', 'stopped', 'faulted')`);
+        await queryRunner.query(`DO $$ BEGIN CREATE TYPE "event_store"."projection_checkpoints_status_enum" AS ENUM('running', 'paused', 'stopped', 'faulted'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
         await queryRunner.query(`CREATE TABLE "event_store"."projection_checkpoints" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "projectionName" character varying(255) NOT NULL, "description" character varying(500), "position" bigint NOT NULL DEFAULT '0', "status" "event_store"."projection_checkpoints_status_enum" NOT NULL DEFAULT 'running', "tenantId" uuid NOT NULL, "consumerGroup" character varying(100), "eventTypes" jsonb NOT NULL DEFAULT '[]', "aggregateTypes" jsonb NOT NULL DEFAULT '[]', "eventsProcessed" bigint NOT NULL DEFAULT '0', "eventsFailed" bigint NOT NULL DEFAULT '0', "lastError" text, "lastErrorAt" TIMESTAMP WITH TIME ZONE, "avgProcessingTimeMs" double precision NOT NULL DEFAULT '0', "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "lastProcessedAt" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_70f507452232333f1f0f9043f87" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_79857894fad3b933d4d2ae192a" ON "event_store"."projection_checkpoints" ("status") `);
         await queryRunner.query(`CREATE INDEX "IDX_fcb5ec546dab48a3040b230181" ON "event_store"."projection_checkpoints" ("tenantId") `);

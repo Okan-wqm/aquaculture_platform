@@ -1467,16 +1467,82 @@ def main(argv: list[str] | None = None) -> int:
 
     _stage(f"claude_returned_exit={cli_exit} request_id={request_id} role={request_envelope.get('role')}")
 
-    # Plan ARIA-V8.1 Phase 3 — pre-submit canonical schema validation.
-    # The agent's response envelope MUST satisfy plan_convergence's
-    # required-fields contract before we burn a submit subprocess on it.
-    # On failure we release the claim with a precise reason so operators
-    # see exactly which field the agent emitted incorrectly, instead of
-    # the kernel's generic `plan content must be a JSON object` warning.
+    # Plan ARIA-V8.13 — agent refusal as first-class terminal outcome.
+    # When the agent emits `aria/agent-refusal/v1` (legitimate refusal
+    # for insufficient evidence, scope conflict, content_hash mismatch,
+    # etc.), pre-V8.13 ci_executor treated the refusal envelope as a
+    # normal submit attempt: the canonical schema check failed
+    # (`plan_content:absent_or_not_object`), the consumer requeued,
+    # the agent refused again, and after N retries the request landed
+    # in HUMAN_REQUIRED — burning ~3× $0.35 Opus tokens per refusal.
+    #
+    # V8.13 detects the refusal envelope in agent_text + dispatches
+    # `aria_kernel human-required record` immediately, releases the
+    # claim with `reason=agent_refused:<class>`, and returns 0 so the
+    # consumer does NOT retry. The kernel state machine recognizes
+    # the human_required event as terminal (line 596 of
+    # agent_invocations.py). The drainer's poll observes no state
+    # transition and times out as usual — verdict=challenger_unavailable
+    # — but Opus cost stays at 1× per refusal instead of N×.
     try:
         _envelope_for_validation = json.loads(expected_output_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as _exc:
         _envelope_for_validation = None
+    # Refusal detection: look at the agent's raw text body, NOT the
+    # ci_executor-built outer wrapper. The agent's refusal JSON is
+    # nested inside `details.agent_text`. We parse the embedded JSON
+    # block ourselves to spot the `$schema = aria/agent-refusal/v1`
+    # marker independently of the outer envelope's claimed schema.
+    if isinstance(_envelope_for_validation, dict):
+        _agent_text = (_envelope_for_validation.get("details") or {}).get("agent_text") or ""
+        _inner_refusal = _extract_envelope_json(_agent_text) if isinstance(_agent_text, str) else None
+        if isinstance(_inner_refusal, dict) and (
+            _inner_refusal.get("$schema") == "aria/agent-refusal/v1"
+            or _inner_refusal.get("envelope") == "aria/agent-refusal/v1"
+            or _inner_refusal.get("schema") == "aria/agent-refusal/v1"
+        ):
+            _reason_class = str(_inner_refusal.get("reason_class") or "unspecified")
+            _reason_summary = str(
+                _inner_refusal.get("reason_summary")
+                or _inner_refusal.get("reason")
+                or "agent refused without summary"
+            )[:500]
+            _stage(f"agent_refusal_detected class={_reason_class!r} request_id={request_id}")
+            # Persist HUMAN_REQUIRED via kernel CLI so the operator
+            # sees the structured triage row + the state machine
+            # marks the request terminal.
+            try:
+                _hr_proc = subprocess.run(
+                    [
+                        "python3", "-m", "aria_kernel", "human-required", "record",
+                        "--request-id", request_id,
+                        "--severity", "MEDIUM",
+                        "--reason", f"agent_refused:{_reason_class}: {_reason_summary}",
+                        "--tools-dir", str(tools_dir),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    env={**os.environ, "PYTHONPATH": str(repo / "aria-kernel")},
+                    timeout=30,
+                )
+                if _hr_proc.returncode != 0:
+                    sys.stderr.write(
+                        f"human-required record exit={_hr_proc.returncode} "
+                        f"stderr={_hr_proc.stderr[:200]!r}\n"
+                    )
+            except (subprocess.TimeoutExpired, OSError) as _hr_exc:
+                sys.stderr.write(f"human-required record dispatch failed: {_hr_exc}\n")
+            # Release the claim so downstream observers see the
+            # explicit `agent_refused:<class>` reason rather than the
+            # generic `plan_content_invalid` rejection that pre-V8.13
+            # surfaced. The release_claim helper also takes care of
+            # lease-token discipline + governance attribution.
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason=f"agent_refused:{_reason_class}",
+            )
+            return 0  # refusal is a legitimate terminal — not a build failure
     if isinstance(_envelope_for_validation, dict):
         # Plan ARIA-V8.4 — auto-fill missing canonical plan_content
         # fields from compatible sources within the envelope before

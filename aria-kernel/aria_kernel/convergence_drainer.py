@@ -374,8 +374,17 @@ def run_convergence_drainer(
                 resumed_from_persistence=resumed,
                 convergence_id=convergence_id,
             )
-        # Derive challenger revision_id from the now-CHALLENGER_DRAFTED plan
+        # Derive challenger revision_id + plan content from the now-
+        # CHALLENGER_DRAFTED plan state. Plan ARIA-V8.3 — the cross-
+        # review envelope MUST carry both plans' actual TEXT so the
+        # cross-reviewer can read them via untrusted-delimited prompt
+        # inline. Pre-V8.3 the challenger_plan_text was a stub string
+        # ("(challenger plan loaded by aria-cross-reviewer via Read
+        # tool)") which made the cross-reviewer refuse with
+        # missing_inputs — the agent's independence discipline rightly
+        # blocked: an empty plan body cannot be cross-reviewed.
         challenger_revision_id = f"{plan_id}-c{current_round}"
+        challenger_plan_text = ""
         try:
             cur = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
             if isinstance(cur, dict):
@@ -384,8 +393,26 @@ def run_convergence_drainer(
                     rid = challenger.get("challenger_revision_id")
                     if isinstance(rid, str) and rid:
                         challenger_revision_id = rid
+                    # V8.3 — pull the actual challenger plan_content
+                    # dict from kernel state and serialize it as the
+                    # text body for the <untrusted_challenger_plan>
+                    # delimiters.
+                    plan_content_dict = challenger.get("plan_content")
+                    if isinstance(plan_content_dict, dict):
+                        challenger_plan_text = _json.dumps(
+                            plan_content_dict, indent=2, sort_keys=True,
+                        )
         except Exception:
             pass
+        if not challenger_plan_text:
+            # Fail-fast: if we can't load real challenger content the
+            # cross-reviewer will refuse anyway; surface the operator-
+            # visible signal at mint-time instead of after a wasted
+            # Opus cycle.
+            challenger_plan_text = (
+                f"{{\"error\": \"challenger plan_content unavailable in plan state for "
+                f"plan_id={plan_id} revision_id={challenger_revision_id}\"}}"
+            )
         # Mint cross_review envelope
         cross_review_request = issue_cross_review_envelope(
             plan_id=plan_id,
@@ -393,7 +420,7 @@ def run_convergence_drainer(
             primary_revision_id=primary_revision_id,
             primary_plan_text=primary_plan_text,
             challenger_revision_id=challenger_revision_id,
-            challenger_plan_text="(challenger plan loaded by aria-cross-reviewer via Read tool)",
+            challenger_plan_text=challenger_plan_text,
             must_satisfy=must_satisfy,
             evidence_refs=evidence_refs,
             allowed_scope=allowed_scope,

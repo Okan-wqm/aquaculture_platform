@@ -148,6 +148,8 @@ export default {
         '<rootDir>/farm-service-migration-array-completeness.spec.ts',
         '<rootDir>/farm-live-schema-drift-repair-contract.spec.ts',
         '<rootDir>/three-store-invariants.spec.ts',
+        '<rootDir>/protected-tables-guard.spec.ts',
+        '<rootDir>/no-savepoint-in-migrations.spec.ts',
       ],
     },
   ],

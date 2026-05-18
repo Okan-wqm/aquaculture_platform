@@ -863,14 +863,33 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             "source": "plan_started",
         }
     elif event_type == "challenger_plan_drafted":
+        # Plan ARIA-V8.18 — preserve plan_content in state reduction.
+        # Pre-V8.18 the reduction stored only revision metadata + agent
+        # identity but DISCARDED the actual plan_content dict from the
+        # ledger event. The convergence_drainer V8.3 lookup then read
+        # `state.challenger.plan_content` (also under the canonical
+        # `challenger` key, not the pre-V8.18 `challenger_plan` alias)
+        # to embed the challenger plan body into the cross_review
+        # envelope's `<untrusted_challenger_plan>` delimiter. With
+        # plan_content dropped, the drainer's fail-fast fallback fired
+        # ("challenger plan_content unavailable in plan state"), the
+        # cross-reviewer agent rightly refused with
+        # `evidence_underspecified`, and convergence stalled.
         state["state"] = "CHALLENGER_DRAFTED"
-        state["challenger_plan"] = {
+        challenger_record = {
             "challenger_revision_id": payload["challenger_revision_id"],
             "content_hash": payload["content_hash"],
             "source_revision_id": payload["source_revision_id"],
             "source_plan_content_hash": payload["source_plan_content_hash"],
             "challenger_agent": payload.get("challenger_agent"),
+            "plan_content": payload.get("plan_content"),
         }
+        state["challenger"] = challenger_record
+        # V8.18 — keep the legacy `challenger_plan` alias for any
+        # consumer that already read it pre-V8.18; both keys point at
+        # the same dict instance so a future drop of the legacy alias
+        # is a single-line removal (no parallel data path).
+        state["challenger_plan"] = challenger_record
     elif event_type == "critic_tasks_requested":
         round_number = payload["round_number"]
         state["current_round"] = round_number

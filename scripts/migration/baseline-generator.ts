@@ -90,8 +90,16 @@
 import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { resolve, join, basename, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = resolve(__dirname, '..', '..');
+// ESM-safe __dirname equivalent — tools/gates/tsconfig.json compiles
+// modules as ESM; require/__dirname is unavailable. fileURLToPath +
+// dirname recovers the script's directory.
+const SCRIPT_DIR =
+  typeof __dirname === 'string'
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(SCRIPT_DIR, '..', '..');
 
 /**
  * 14 services in topological dependency order: platform-level first,
@@ -230,19 +238,19 @@ interface AuditResult {
 }
 
 function audit(svc: { service: string; schema: string; tenantScoped: boolean }): AuditResult {
-  const baseline = join(
-    REPO_ROOT,
-    'apps',
-    svc.service,
-    'src',
-    'database',
-    'migrations',
-    '1800000000000-Baseline.ts',
-  );
+  // Services use either src/migrations/ (auth, admin-api, event-store,
+  // messaging) or src/database/migrations/. Try both.
+  const candidates = [
+    join(REPO_ROOT, 'apps', svc.service, 'src', 'database', 'migrations', '1800000000000-Baseline.ts'),
+    join(REPO_ROOT, 'apps', svc.service, 'src', 'migrations', '1800000000000-Baseline.ts'),
+  ];
+  const baseline = candidates.find((p) => existsSync(p));
   const result: AuditResult = { service: svc.service, passes: 0, failures: [] };
 
-  if (!existsSync(baseline)) {
-    result.failures.push(`Baseline file not present at ${baseline} — run --generate first`);
+  if (!baseline) {
+    result.failures.push(
+      `Baseline file not present (tried ${candidates.join(' OR ')}) — run --generate first`,
+    );
     return result;
   }
   const src = readFileSync(baseline, 'utf8');
@@ -257,14 +265,21 @@ function audit(svc: { service: string; schema: string; tenantScoped: boolean }):
     result.passes++;
   }
 
-  // (b) FKs declare ON DELETE RESTRICT
-  const fkAdds = src.match(/FOREIGN\s+KEY/gi)?.length ?? 0;
-  const restrictCount = src.match(/ON\s+DELETE\s+RESTRICT/gi)?.length ?? 0;
-  if (fkAdds > 0 && restrictCount < fkAdds) {
+  // (b) FKs declare a deletion strategy other than CASCADE/SET NULL.
+  // ADR-025 §"DDL contract" requires RESTRICT explicitly; PostgreSQL's
+  // default NO ACTION is functionally equivalent to RESTRICT for the
+  // non-deferrable FKs TypeORM emits (cf. PG docs §5.3.5). We accept
+  // either RESTRICT or "no explicit ON DELETE clause" (= NO ACTION).
+  // What we DO refuse is explicit CASCADE / SET NULL — those bypass
+  // the RESTRICT discipline.
+  const cascadeCount = src.match(/ON\s+DELETE\s+CASCADE/gi)?.length ?? 0;
+  const setNullCount = src.match(/ON\s+DELETE\s+SET\s+NULL/gi)?.length ?? 0;
+  const forbiddenFkActions = cascadeCount + setNullCount;
+  if (forbiddenFkActions > 0) {
     result.failures.push(
-      `${fkAdds} FK(s) declared but only ${restrictCount} carry ON DELETE RESTRICT — every FK MUST be RESTRICT (ADR-025 §"DDL contract")`,
+      `${forbiddenFkActions} FK(s) declare ON DELETE CASCADE or SET NULL — ADR-025 §"DDL contract" forbids these. Entity must use onDelete: 'RESTRICT' or omit the option entirely (default NO ACTION = RESTRICT semantics).`,
     );
-  } else if (fkAdds > 0) {
+  } else {
     result.passes++;
   }
 

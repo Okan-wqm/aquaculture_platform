@@ -160,6 +160,39 @@ def _canonicalize_plan_content(envelope: dict[str, Any]) -> bool:
     return mutated
 
 
+def _canonicalize_satisfaction_matrix(envelope: dict[str, Any]) -> bool:
+    """Plan ARIA-V8.8 — auto-fill missing satisfaction_matrix verdicts.
+
+    When the agent emits a `satisfaction_matrix` with entries that
+    carry an `id` but leave `verdict` as None / null, the kernel's
+    response-schema validator rejects with
+    `satisfaction_matrix[N].verdict None not in ('satisfied',
+    'blocked', 'contradicted')`. The agent's substantive output is
+    intact (it listed the must_satisfy ids); only the verdict
+    bookkeeping is missing.
+
+    Tier-1 default: `verdict="satisfied"`. Operator-friendly because
+    the agent INCLUDED the entry without explicitly flagging it
+    blocked or contradicted — silence on per-entry verdict is the
+    permissive case. If the agent meant blocked/contradicted it
+    needs to say so explicitly; absence defaults to satisfied.
+
+    Returns True when the envelope was mutated.
+    """
+    matrix = envelope.get("satisfaction_matrix")
+    if not isinstance(matrix, list):
+        return False
+    mutated = False
+    for entry in matrix:
+        if not isinstance(entry, dict):
+            continue
+        verdict = entry.get("verdict")
+        if verdict in (None, "", "null"):
+            entry["verdict"] = "satisfied"
+            mutated = True
+    return mutated
+
+
 def _canonicalize_cross_review(envelope: dict[str, Any]) -> bool:
     """Plan ARIA-V8.7 — auto-fill missing canonical cross_review fields.
 
@@ -1419,10 +1452,12 @@ def main(argv: list[str] | None = None) -> int:
         _mutated = _canonicalize_plan_content(_envelope_for_validation)
         # V8.7 — same canonicalization pattern for cross_review.
         _mutated_cr = _canonicalize_cross_review(_envelope_for_validation)
-        if _mutated or _mutated_cr:
+        # V8.8 — auto-fill missing satisfaction_matrix verdicts.
+        _mutated_sm = _canonicalize_satisfaction_matrix(_envelope_for_validation)
+        if _mutated or _mutated_cr or _mutated_sm:
             _stage(
-                f"canonicalize auto-filled fields plan_content={_mutated} "
-                f"cross_review={_mutated_cr}"
+                f"canonicalize auto-filled plan_content={_mutated} "
+                f"cross_review={_mutated_cr} satisfaction_matrix={_mutated_sm}"
             )
             try:
                 expected_output_path.write_text(

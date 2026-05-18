@@ -189,9 +189,22 @@ def record_plan_result(
         )
 
     # role == "cross_review"
+    # Plan ARIA-V8.2 — single-step V8 P+C+CR transition.
+    # The V8 architecture mints ONE aria-cross-reviewer envelope per
+    # round that bidirectionally compares primary↔challenger. The
+    # legacy 3-event kernel flow (request_cross_review → record per
+    # task × 2 → CROSS_REVIEWED) is wrapped by submit_cross_review_v8
+    # into a single kernel call that synthesizes task metadata from
+    # state. Bridge dispatches to it instead of raw record_cross_review.
+    from .plan_convergence import submit_cross_review_v8
+
     review_payload = details.get("review") or details.get("cross_review") or details
     workspace_root = request.get("workspace_root") or response.get("workspace_root") or "."
-    return record_cross_review(
+    # Carry the reviewer_agent into the V8 payload — bridge knows the
+    # agent_id from response while record-shaped review may omit it.
+    if isinstance(review_payload, dict) and not review_payload.get("reviewer_agent"):
+        review_payload = {**review_payload, "reviewer_agent": response.get("agent_id") or "aria-cross-reviewer"}
+    return submit_cross_review_v8(
         plan_id=plan_id,
         review=review_payload,
         workspace_root=workspace_root,

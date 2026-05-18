@@ -163,7 +163,12 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
         self.assertTrue(challenger["challenger_revision_id"].startswith("chal-plan-c1-"))
         self.assertEqual(result["event_type"], "challenger_plan_drafted")
 
-    def test_cross_review_routes_to_record_cross_review(self) -> None:
+    def test_cross_review_routes_to_submit_cross_review_v8(self) -> None:
+        """Plan ARIA-V8.2 — bridge dispatches role=cross_review to
+        submit_cross_review_v8 (NOT raw record_cross_review). The V8
+        wrapper synthesizes task metadata + state transitions from
+        kernel state so the agent's bidirectional review envelope
+        translates to the 3-event kernel ledger flow atomically."""
         request = {
             "plan_id": "plan-cr1",
             "role": "cross_review",
@@ -171,27 +176,31 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
         }
         response = {
             "role": "cross_review",
+            "agent_id": "aria-cross-reviewer",
             "details": {
-                "review": {
-                    "task_id": "cr-task-1",
-                    "verdict": "agree",
+                "cross_review": {
+                    "verdict": "agreed",
+                    "risks": [],
                 },
             },
         }
         with patch(
-            "aria_kernel.plan_convergence.record_cross_review",
-            return_value={"event_id": "ev-cr-1", "event_type": "cross_review_recorded"},
-        ) as mock_cr:
+            "aria_kernel.plan_convergence.submit_cross_review_v8",
+            return_value={"event_id": "ev-cr-v8-1", "event_type": "cross_review_recorded"},
+        ) as mock_v8:
             result = record_plan_result(
                 role="cross_review",
                 request=request,
                 response=response,
                 base_dir=None,
             )
-        mock_cr.assert_called_once()
-        kwargs = mock_cr.call_args.kwargs
+        mock_v8.assert_called_once()
+        kwargs = mock_v8.call_args.kwargs
         self.assertEqual(kwargs["plan_id"], "plan-cr1")
-        self.assertEqual(kwargs["review"]["task_id"], "cr-task-1")
+        # Bridge enriches the review payload with reviewer_agent from
+        # response.agent_id when the agent's payload omitted it.
+        self.assertEqual(kwargs["review"]["reviewer_agent"], "aria-cross-reviewer")
+        self.assertEqual(kwargs["review"]["verdict"], "agreed")
         self.assertEqual(kwargs["workspace_root"], "/tmp/workspace")
         self.assertEqual(result["event_type"], "cross_review_recorded")
 

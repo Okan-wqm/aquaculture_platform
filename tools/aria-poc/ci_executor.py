@@ -131,7 +131,19 @@ def _pre_submit_validate_envelope(envelope: dict[str, Any], role: str) -> list[s
         ):
             errors.append("plan_content.evidence_refs:not_list")
     elif role == "cross_review":
-        cross_review = envelope.get("cross_review")
+        # Plan ARIA-V8.1 — accept cross_review at top-level OR inside
+        # details.cross_review OR details.review. The aria-cross-reviewer
+        # agent prompt documents `details.cross_review` as canonical; the
+        # bridge looks in the same fallback chain (`details.review ||
+        # details.cross_review || details`). Match the bridge's
+        # extraction order so we reject only what the bridge would
+        # reject — false positives waste the cycle without cause.
+        details = envelope.get("details") if isinstance(envelope.get("details"), dict) else {}
+        cross_review = (
+            envelope.get("cross_review")
+            or (details.get("cross_review") if isinstance(details, dict) else None)
+            or (details.get("review") if isinstance(details, dict) else None)
+        )
         if not isinstance(cross_review, dict):
             return ["cross_review:absent_or_not_object"]
         missing = [f for f in _CROSS_REVIEW_REQUIRED if f not in cross_review]

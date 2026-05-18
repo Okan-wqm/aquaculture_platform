@@ -7,7 +7,7 @@ import re
 import time
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -185,6 +185,159 @@ def record_critique(
         base_dir=base_dir,
         validator=lambda state, payload: _validate_critique(state, payload, workspace_root),
     )
+
+
+def submit_cross_review_v8(
+    *,
+    plan_id: str,
+    review: dict[str, Any],
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Plan ARIA-V8.2 — single-step V8 P+C+CR cross-review state transition.
+
+    The V8 P+C+CR architecture mints ONE aria-cross-reviewer envelope
+    per round that bidirectionally compares primary↔challenger plans.
+    The legacy 3-event kernel flow requires:
+
+        CHALLENGER_DRAFTED
+            ── request_cross_review(tasks=[per direction]) ──>
+        CROSS_REVIEW_REQUESTED
+            ── record_cross_review(per task) × 2 ──>
+        CROSS_REVIEWED
+
+    Until V8.2 the drainer minted only the envelope; the bridge had no
+    way to take the agent's single response through both transitions,
+    so every cross_review submission landed `cannot record cross-review
+    from state CHALLENGER_DRAFTED`. V8.2 wraps the 3 events into one
+    atomic kernel call:
+
+      1. Read latest_revision + current_round from plan state.
+      2. Synthesize deterministic task_packet_hash per
+         REQUIRED_CROSS_REVIEW_DIRECTIONS (both directions).
+      3. Call request_cross_review with both synthetic tasks
+         (CHALLENGER_DRAFTED → CROSS_REVIEW_REQUESTED).
+      4. Call record_cross_review per direction with the agent's
+         risks shared across both directions
+         (CROSS_REVIEW_REQUESTED → CROSS_REVIEWED after both ANSWERED).
+
+    The agent does NOT need to know about task_packet_hash or
+    direction — it produces verdict + risks. The kernel-side function
+    here owns the metadata synthesis (Tier-1: V8 simplification lives
+    in the kernel boundary, not in the agent prompt).
+
+    Args:
+        plan_id: target plan id (in CHALLENGER_DRAFTED state)
+        review: dict with at minimum `reviewer_agent` + `risks`.
+            Optional `verdict` is recorded as governance hint.
+        workspace_root: passed through to record_cross_review for
+            reviewer_names() validation.
+        base_dir: aria-tools root override.
+
+    Returns:
+        The final record_cross_review event (state CROSS_REVIEWED).
+
+    Raises:
+        GovernanceError if state ≠ CHALLENGER_DRAFTED, or if review
+        is malformed.
+    """
+    _validate_id(plan_id, "plan_id")
+    if not isinstance(review, dict):
+        raise GovernanceError("V8 cross-review must be a JSON object")
+
+    root = ensure_tools_dir(base_dir)
+    state = fold_plan_state(plan_id=plan_id, base_dir=root)
+    _require_state(state, {"CHALLENGER_DRAFTED"}, "submit V8 cross-review")
+
+    reviewer_agent = _require_non_empty(
+        review.get("reviewer_agent") or "aria-cross-reviewer",
+        "reviewer_agent",
+    )
+    risks = review.get("risks", [])
+    if not isinstance(risks, list):
+        raise GovernanceError("V8 cross-review risks must be a list")
+
+    latest_rev = state.get("latest_revision") or {}
+    target_revision_id = latest_rev.get("revision_id")
+    target_hash = latest_rev.get("content_hash")
+    if not target_revision_id or not target_hash:
+        raise GovernanceError(
+            f"V8 cross-review requires CHALLENGER_DRAFTED state with "
+            f"complete latest_revision metadata; got "
+            f"revision_id={target_revision_id!r} content_hash={target_hash!r}"
+        )
+
+    # Round-number: V8 cycle is the next round after the latest. Use
+    # current_round if known, otherwise infer from cross_reviews count + 1.
+    round_number = state.get("current_round")
+    if not isinstance(round_number, int) or round_number <= 0:
+        round_number = max(1, len(state.get("cross_reviews") or {}) + 1)
+
+    # Deterministic review_content_hash from canonical risk list.
+    review_content_hash = "sha256:" + hashlib.sha256(
+        _canonical_json({"risks": risks, "reviewer_agent": reviewer_agent}).encode("utf-8")
+    ).hexdigest()
+
+    sla_deadline = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+
+    # Synthesize one task per required cross-review direction.
+    # Direction list is sorted deterministically for reproducibility.
+    directions = sorted(REQUIRED_CROSS_REVIEW_DIRECTIONS)
+    tasks: list[dict[str, Any]] = []
+    for direction in directions:
+        packet_seed = f"{plan_id}|{target_revision_id}|{target_hash}|round={round_number}|dir={direction}"
+        packet_hash = "sha256:" + hashlib.sha256(packet_seed.encode("utf-8")).hexdigest()
+        direction_short = "p2c" if direction == "primary_to_challenger" else "c2p"
+        tasks.append({
+            "task_id": f"v8-cr-{round_number}-{direction_short}-{target_revision_id[-8:]}",
+            "task_packet_hash": packet_hash,
+            "target_agent": reviewer_agent,
+            "target_revision_id": target_revision_id,
+            "target_plan_content_hash": target_hash,
+            "review_direction": direction,
+            "sla_deadline": sla_deadline,
+            "status_after": "PENDING",
+        })
+
+    # Phase 1 — request_cross_review transitions CHALLENGER_DRAFTED
+    # → CROSS_REVIEW_REQUESTED + persists both tasks.
+    request_cross_review(
+        plan_id=plan_id,
+        request={
+            "round_number": round_number,
+            "target_revision_id": target_revision_id,
+            "target_plan_content_hash": target_hash,
+            "tasks": tasks,
+        },
+        base_dir=root,
+    )
+
+    # Phase 2 — record_cross_review per task. After both directions
+    # answer, the state machine resolves to CROSS_REVIEWED.
+    last_event: dict[str, Any] = {}
+    for task in tasks:
+        last_event = record_cross_review(
+            plan_id=plan_id,
+            review={
+                "task_packet_hash": task["task_packet_hash"],
+                "target_revision_id": target_revision_id,
+                "target_plan_content_hash": target_hash,
+                "reviewer_agent": reviewer_agent,
+                "review_direction": task["review_direction"],
+                "review_content_hash": review_content_hash,
+                "status_after": "ANSWERED",
+                "risks": risks,
+                # agent_invocation_request_id intentionally omitted —
+                # V8 bypasses the per-task content-hash mismatch check
+                # because the agent submitted ONE envelope covering both
+                # directions; the legacy mismatch check was scoped to
+                # per-task envelopes.
+            },
+            workspace_root=workspace_root,
+            base_dir=root,
+        )
+
+    return last_event
 
 
 def reap_stale_tasks(

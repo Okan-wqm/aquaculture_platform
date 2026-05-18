@@ -377,14 +377,55 @@ def plan_status(*, plan_id: str, base_dir: str | Path | None = None) -> dict[str
     return fold_plan_state(plan_id=plan_id, base_dir=base_dir)
 
 
+# Plan ARIA-V8 §4 Phase 8.0 (B-V2-12) — fold_plan_state mtime+plan_id
+# cache. Pre-V8 the function did a full ledger scan + per-event
+# validate+apply on every call. Convergence_drainer polls it every
+# sleep_interval (5s) × deadline (1800s) = 360 calls per cycle wait.
+# A 30-cycle smoke with 3 waits per round × 2 rounds = 64,800 calls →
+# 15M JSON rows parsed. C0 adds a per-(events_path_mtime_ns, plan_id)
+# cache keyed on the events file's mtime; invalidated automatically
+# when _append_event() writes (mtime advances). Mirrors the cache
+# pattern in list_active_plans (line 296-313).
+#
+# WHY a module-level dict: thread-safe enough for the single-threaded
+# orchestrator loop. WHEN to invalidate: every write to events.jsonl
+# advances mtime; the next read sees the new mtime, recomputes, stores.
+_FOLD_PLAN_STATE_CACHE: dict[tuple[int, str, str], dict[str, Any]] = {}
+_FOLD_PLAN_STATE_CACHE_MAX_ENTRIES = 512
+
+
+def _events_file_size_bytes(root: Path) -> int:
+    """Use FILE SIZE as the cache invalidation key.
+
+    WHY NOT mtime: `ensure_tools_dir` calls `update_tools_index` which
+    touches integrity metadata on events.jsonl, advancing mtime even
+    when content is unchanged. Using size instead means the cache only
+    invalidates on REAL appends (events.jsonl grows monotonically).
+    """
+    p = events_path(root)
+    try:
+        return p.stat().st_size
+    except (FileNotFoundError, OSError):
+        return 0
+
+
 def fold_plan_state(*, plan_id: str, base_dir: str | Path | None = None) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
+    cache_key = (_events_file_size_bytes(root), str(root), plan_id)
+    cached = _FOLD_PLAN_STATE_CACHE.get(cache_key)
+    if cached is not None:
+        # Defensive copy — callers may mutate the returned dict
+        return {k: (v.copy() if isinstance(v, (dict, list)) else v) for k, v in cached.items()}
     events = [row for row in load_jsonl(events_path(root)) if row.get("plan_id") == plan_id]
     state = _initial_state(plan_id)
     for event in events:
         _validate_event(event)
         _apply_event(state, event)
     _derive_state(state)
+    # Cap cache size — drop oldest entry when full (FIFO)
+    if len(_FOLD_PLAN_STATE_CACHE) >= _FOLD_PLAN_STATE_CACHE_MAX_ENTRIES:
+        _FOLD_PLAN_STATE_CACHE.pop(next(iter(_FOLD_PLAN_STATE_CACHE)))
+    _FOLD_PLAN_STATE_CACHE[cache_key] = {k: (v.copy() if isinstance(v, (dict, list)) else v) for k, v in state.items()}
     return state
 
 

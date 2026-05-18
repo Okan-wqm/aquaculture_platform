@@ -192,16 +192,26 @@ def _poll_for_state(
     one of ``target_states`` is observed OR ``deadline`` expires OR
     ARIA_STOP is written. Returns the observed state or None on
     timeout / interrupt.
+
+    Plan ARIA-V8 §4 Phase 8.0 (B-V2-01) — fold_plan_state returns
+    ``dict[str, Any]``; the comparison ``current in target_states``
+    where ``target_states: set[str]`` is structurally always False on
+    a dict. EVERY ``primary_silent`` verdict since V5.1 traces to this
+    silent bug — the poll always times out, never observes the real
+    state transition. Fix: extract the state STRING via .get("state")
+    before comparing to the set[str] of target states; return the
+    extracted string (callers expect a state name, not a dict).
     """
     while time.monotonic() < deadline:
         if _check_aria_stop(aria_stop_root):
             return None
         try:
-            current = fold_plan_state(plan_id, base_dir=base_dir)
+            current_dict = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+            current_state: str | None = current_dict.get("state") if isinstance(current_dict, dict) else None
         except Exception:
-            current = None
-        if current in target_states:
-            return current
+            current_state = None
+        if current_state is not None and current_state in target_states:
+            return current_state
         time.sleep(sleep_interval)
     return None
 

@@ -1263,6 +1263,31 @@ def _main(argv: list[str] | None = None) -> int:
              "Set lower (e.g. 60) to verify the V7 phase progression "
              "quickly without polling for Gate A/B/C consumer envelopes.",
     )
+    # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — challenger-timeout + max-rounds
+    # + max-budget-usd-per-run exposed for operator tuning. Default
+    # numerics come from convergence_drainer.run_convergence_drainer
+    # signature + budget.DEFAULT_MAX_BUDGET_USD_PER_RUN.
+    auto_run.add_argument(
+        "--challenger-timeout-seconds", type=float, default=300.0,
+        help="Per-poll budget for state-machine waits inside "
+             "convergence_drainer (default 300s). Used by round-1 "
+             "challenger + cross_review polls and round-2+ revision "
+             "polls. Lower for fast smoke; raise for slow LLMs.",
+    )
+    auto_run.add_argument(
+        "--max-rounds", type=int, default=2,
+        help="Max convergence rounds per plan (default 2 for "
+             "autonomous cycles). Reduced from V5.1 default 4 because "
+             "V8 P+C+CR multiplies LLM cost per round.",
+    )
+    auto_run.add_argument(
+        "--max-budget-usd-per-run", type=float, default=20.00,
+        help="Per-run LLM budget cap in USD (default $20.00). "
+             "convergence_drainer reserves per-cycle estimate before "
+             "minting envelopes; ci_executor reconciles actual cost "
+             "from response usage block. Cap exhausted mid-cycle "
+             "emits budget_exhausted arbiter_verdict.",
+    )
     auto_status = add_subparser(
         autonomy_sub, "status",
         help="Print the canonical AutonomyState derived from autonomy_state.jsonl.",
@@ -3388,6 +3413,29 @@ def _main(argv: list[str] | None = None) -> int:
             base_dir=args.tools_dir,
             cwd=str(args.workspace_root),
         )
+        # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — fail-fast validation:
+        # cycle_deadline must accommodate at least 3 envelope-mint
+        # waits × max_rounds × challenger_timeout. Otherwise the
+        # watchdog kills cycles before they can converge — silent
+        # primary_silent regression. The lower bound is computed
+        # against the round-2+ worst case (3 envelopes per round).
+        _v8_min_cycle_deadline = (
+            args.max_rounds * 3 * args.challenger_timeout_seconds
+        )
+        if args.cycle_deadline_seconds < _v8_min_cycle_deadline:
+            print(
+                f"error: --cycle-deadline-seconds {args.cycle_deadline_seconds} "
+                f"< max_rounds × 3 envelopes × challenger_timeout "
+                f"({args.max_rounds} × 3 × {args.challenger_timeout_seconds} "
+                f"= {_v8_min_cycle_deadline}). Increase deadline OR "
+                f"decrease max_rounds OR decrease challenger_timeout.",
+                file=sys.stderr,
+            )
+            return 2
+        # Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — surface the per-run
+        # budget cap to the orchestrator environment so child ci_executor
+        # subprocesses read it via MAX_BUDGET_USD_PER_RUN env var.
+        os.environ["MAX_BUDGET_USD_PER_RUN"] = str(args.max_budget_usd_per_run)
         convergence_runner = select_convergence_runner(profile=profile)
         review_runner = select_review_runner(profile=profile)
         specialist_review_runner = select_specialist_review_runner(profile=profile)

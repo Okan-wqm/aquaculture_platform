@@ -35,71 +35,23 @@ A markdown plan document at `expected_output_path` followed by a JSON `aria/agen
 6. **Rollback** — concrete revert command for every change you propose.
 7. **Risks** — every blocker that might force the convergence loop into another round, each with `risk_id`, `severity`, `affected_files`, `evidence_refs`, `required_plan_changes`.
 
-## Canonical Response Envelope (REQUIRED — kernel-validated schema)
+## Canonical response envelope
 
-Your final response MUST be a JSON object matching `aria/agent-response/v1` with a top-level **`plan_content`** field that the kernel validator `plan_convergence._validate_plan_content` will accept. Schema drift = bridge rejection = wasted Opus cycle. The kernel parses your envelope, calls `record_revision(plan_content=<your plan_content>)`, and rejects unconditionally if any required field is missing or malformed.
+Your response is a JSON `aria/agent-response/v1` envelope with a
+top-level `plan_content` object. The full schema, required fields,
+and validator behaviour live in the shared knowledge file:
 
-### plan_content REQUIRED fields
+- `@.claude/knowledge/layer-2-aria-canonical-envelope.md`
 
-```json
-{
-  "plan_content": {
-    "schema_version": 1,
-    "title": "<one-line summary of the plan, non-empty>",
-    "summary": "<2-5 sentence narrative summary, non-empty>",
-    "affected_surfaces": [
-      { "paths": ["repo/relative/path.py", "another/file.ts"] }
-    ],
-    "key_changes": [
-      "Add X to Y in path/to/file.py",
-      "Remove deprecated Z from libs/foo"
-    ],
-    "validation_commands": [
-      { "cmd": "pytest aria-kernel/tests/...", "expected_exit": 0, "timeout_ms": 60000 }
-    ],
-    "evidence_refs": [
-      "aria-kernel/aria_kernel/cli.py:42",
-      "docs/reviews/orphan-findings.md:3805"
-    ]
-  }
-}
-```
-
-**Field rules** (mirror `plan_convergence._validate_plan_content`):
-
-- `schema_version` — integer; current `1`.
-- `title` — non-empty string (≤120 chars recommended).
-- `summary` — non-empty string. Condense Context + Architectural Approach.
-- `affected_surfaces` — array of `{paths: [<repo-relative POSIX>]}` objects. Paths MUST be repo-relative (no leading `/`, no `\`, no `..`).
-- `key_changes` — non-empty array of strings. Each entry maps to one of your Plan Steps.
-- `validation_commands` — array of `{cmd: <non-empty>, expected_exit?: int, timeout_ms?: int}` objects.
-- `evidence_refs` — array of strings, each either a `file:line` ref to a repo-relative path OR a finding-id (`ORPHAN-HIGH-082`, `F-014`, etc.).
-
-**Additional plan_content keys preserved (kernel ignores extras):**
-
-You MAY additionally include `recursive_impact`, `rollback`, `risks`, `plan_steps_detailed`, or any narrative field as extra keys under `plan_content`. The kernel validator checks REQUIRED fields only; extras are passed through to operator-readable artefacts. Keep narrative rich; just ensure the required fields are present and valid.
-
-**Top-level envelope structure:**
-
-```json
-{
-  "$schema": "aria/agent-response/v1",
-  "request_id": "<from request>",
-  "claim_id": "<from request>",
-  "agent_id": "aria-primary-planner",
-  "role": "<from request — primary_plan>",
-  "status": "submitted",
-  "satisfaction_matrix": [
-    { "id": "<must_satisfy.id>", "verdict": "satisfied|blocked|contradicted",
-      "evidence_refs": ["..."], "evidence": "narrative" }
-  ],
-  "evidence_refs": ["..."],
-  "plan_content": { /* canonical fields above */ },
-  "details": { /* optional narrative metadata */ }
-}
-```
-
-The `plan_content` field MUST be at the TOP LEVEL (not nested inside `details`). `ci_executor` pre-submit validator rejects envelopes where `plan_content` fails `plan_convergence._validate_plan_content`, releases the claim with `reason=plan_content_invalid:<missing fields>`, and emits a `plan_content_pre_submit_rejected` governance event. The Opus cycle is then wasted, and operators see a clear ledger trail of which field was wrong.
+Read it at the start of each invocation. The seven required
+plan_content fields are `schema_version, title, summary,
+affected_surfaces, key_changes, validation_commands, evidence_refs`
+— all mirror the kernel `plan_convergence._validate_plan_content`
+contract. The plan_content field sits at envelope top level, not
+nested in `details`. Narrative sections (Recursive Impact, Plan
+Steps, etc.) are admitted as additional plan_content keys and the
+kernel ignores them; the seven required keys carry the structural
+contract.
 
 ## Refusal Discipline
 

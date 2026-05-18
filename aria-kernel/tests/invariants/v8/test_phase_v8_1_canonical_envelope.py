@@ -79,23 +79,42 @@ class TestCanonicalEnvelopePipeline(unittest.TestCase):
             "aria-challenger-planner.md must be promoted to runtime, not duplicated in _maintenance/",
         )
 
-    def test_i_v8_1_02_agent_prompts_contain_canonical_schema(self):
-        """Both planner agent prompts MUST contain the canonical
-        plan_content required-fields list so Opus is structurally
-        guided to produce the kernel-acceptable schema. Source-
-        substring check on each field name in the prompt body."""
+    def test_i_v8_1_02_agent_prompts_reference_canonical_knowledge(self):
+        """Plan ARIA-V8.5 — the canonical plan_content schema lives in
+        a shared knowledge file (single source of truth, DDD anti-
+        corruption layer pattern). Agent prompts reference the
+        knowledge file; the canonical seven fields are listed there.
+
+        This invariant verifies BOTH halves of the V8.5 architecture:
+        - Agent prompts MUST point at the knowledge file
+        - Knowledge file MUST contain the canonical seven fields +
+          plan_content top-level naming
+        """
+        knowledge_file = REPO_ROOT / ".claude" / "knowledge" / "layer-2-aria-canonical-envelope.md"
+        self.assertTrue(
+            knowledge_file.exists(),
+            f"shared canonical envelope knowledge file missing at {knowledge_file}",
+        )
+        knowledge_content = knowledge_file.read_text(encoding="utf-8")
+        for field in CANONICAL_FIELDS:
+            self.assertIn(
+                field, knowledge_content,
+                f"knowledge file MUST list canonical field {field!r}",
+            )
+        self.assertIn("plan_content", knowledge_content)
+
+        # Each planner agent prompt references the knowledge file +
+        # mentions plan_content as the relevant top-level key
         for agent_name in ("aria-primary-planner.md", "aria-challenger-planner.md"):
             with self.subTest(agent=agent_name):
                 content = (AGENTS_DIR / agent_name).read_text(encoding="utf-8")
-                for field in CANONICAL_FIELDS:
-                    self.assertIn(
-                        field, content,
-                        f"{agent_name} MUST mention canonical field {field!r} in prompt",
-                    )
-                # Must also reference plan_content as the top-level key
+                self.assertIn(
+                    "layer-2-aria-canonical-envelope.md", content,
+                    f"{agent_name} prompt must reference the shared canonical envelope knowledge file",
+                )
                 self.assertIn(
                     "plan_content", content,
-                    f"{agent_name} MUST reference plan_content as the top-level field name",
+                    f"{agent_name} prompt must reference plan_content top-level key",
                 )
 
     def test_i_v8_1_03_bridge_has_canonicalize_helper(self):

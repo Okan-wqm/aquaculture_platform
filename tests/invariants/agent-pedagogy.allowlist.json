@@ -2,20 +2,20 @@
   "$schema": "aria/pedagogy-allowlist/v1",
   "comment": "30-day grandfather entries for V5.3 C4 landing. C4 ships the pedagogy-lint infrastructure + tier frontmatter; actual narrative content for the 72 agents below lands in subsequent commits. As narrative is written for an agent, REMOVE its entry from this allowlist. Entries expire 30 days after added_at; after expiry the lint goes red regardless of allowlist (R-P4 force-clear).",
   "entries": {
-    ".claude/agents/_maintenance/aria-challenger-planner.md": {
-      "added_at": "2026-05-16T20:08:32.043595Z",
+    ".claude/agents/aria-challenger-planner.md": {
+      "added_at": "2026-05-18T10:00:00.000000Z",
       "file_mtime_at_entry": 1778904591.633526,
-      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
+      "reason": "Plan ARIA-V8.1 promoted this file from `_maintenance/aria-challenger-planner.md` to runtime location for V8 P+C+CR convergent gate dispatch (drainer mints challenger envelopes targeting this agent). V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant and accepted by NARRATIVE_RX, but the V4 prose pattern places the imperative INSIDE `**The correct path.**` block with narrative ABOVE rather than V5 imperative-then-narrative-below shape \u2014 lint flags imperatives at the closing-block boundary. Canonical schema documentation already extracted to `.claude/knowledge/layer-2-aria-canonical-envelope.md` per V8.5 to keep prompt narrative under the V4 budget. Remove this entry when V4 prohibition prose is rewritten to V5 shape."
     },
     ".claude/agents/_maintenance/aria-drafter.md": {
       "added_at": "2026-05-16T20:08:32.043595Z",
       "file_mtime_at_entry": 1778904638.8231335,
       "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
     },
-    ".claude/agents/_maintenance/aria-primary-planner.md": {
-      "added_at": "2026-05-16T20:08:32.043595Z",
+    ".claude/agents/aria-primary-planner.md": {
+      "added_at": "2026-05-18T10:00:00.000000Z",
       "file_mtime_at_entry": 1778904554.0080411,
-      "reason": "Plan ARIA-V5 \u00a73e v2 R1 \u2014 V4 ARIA agent. V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant but V5 strict-mode requires the **Example:** marker for Tier-3 agents (operator 'orneklerle' plural-mandatory). V4-to-V5 narrative alignment is follow-up editorial work; allowlist deferral preserves V4 CONVERGED state. Remove this entry when V5 Example section is added."
+      "reason": "Plan ARIA-V8.1 promoted this file from `_maintenance/aria-primary-planner.md` to runtime location for V8 P+C+CR convergent gate dispatch (drainer mints primary revision envelopes targeting this agent on round-2+). V4 narrative structure (`**Rule.** / **The temptation.** / **Why it looks correct.** / **The downstream consequence.** / **The correct path.**`) is architecturally V4-compliant and accepted by NARRATIVE_RX, but the V4 prose pattern places the imperative INSIDE `**The correct path.**` block with narrative ABOVE rather than V5 imperative-then-narrative-below shape \u2014 lint flags imperatives at the closing-block boundary. Canonical schema documentation already extracted to `.claude/knowledge/layer-2-aria-canonical-envelope.md` per V8.5 to keep prompt narrative under the V4 budget. Remove this entry when V4 prohibition prose is rewritten to V5 shape."
     },
     ".claude/agents/_maintenance/aria-prompt-writer.md": {
       "added_at": "2026-05-16T20:08:32.043595Z",

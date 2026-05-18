@@ -1,18 +1,22 @@
-"""Tests asserting the ARIA maintenance agent files match Plan 016 contract.
+"""Tests asserting the ARIA opus-tier agent files match the kernel contract.
 
-Plan 016 Faz C3 ships three maintenance agents under
-`.claude/agents/_maintenance/`. They are dispatchable only via the kernel
-async queue; the runtime domain dispatcher must never resolve them. This
-test asserts:
+Plan 016 Faz C3 originally shipped three agents under
+`.claude/agents/_maintenance/` (`aria-prompt-writer`,
+`aria-primary-planner`, `aria-challenger-planner`). Plan ARIA-V8.1
+promoted the two planner agents to runtime (`.claude/agents/`)
+because the V8 P+C+CR convergent gate dispatches them per cycle —
+they are no longer maintenance-bound; the V8.1 invariants at
+`tests/invariants/v8/test_phase_v8_1_canonical_envelope.py`
+(I-V8.1-01) pin the new runtime locations.
 
-- the three files exist;
-- each frontmatter declares `model: opus`, `effort: xhigh`, and
-  `tools: Read, Grep, Glob`;
+This test asserts the SHARED contract across all three opus-tier
+agents (regardless of physical location):
+
+- the three files exist at their post-V8.1 canonical locations;
+- each frontmatter declares `model: opus` and `tools: Read, Grep, Glob`;
 - each `name` field matches the ARIA whitelist in agent_contract.py;
 - the body cites the kernel-issued envelope as the only invocation path;
-- existing TS maintenance-isolation invariant covers their absence from
-  orchestrator.md's Runtime Review Roster (this Python test does not
-  duplicate that logic).
+- the body forbids self-modification outside the Plan 009 PR lane.
 """
 from __future__ import annotations
 
@@ -24,11 +28,17 @@ from aria_kernel.agent_contract import DEFAULT_TARGET_AGENT_WHITELIST
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MAINTENANCE_DIR = REPO_ROOT / ".claude" / "agents" / "_maintenance"
-EXPECTED_FILES = (
-    "aria-prompt-writer.md",
-    "aria-primary-planner.md",
-    "aria-challenger-planner.md",
+AGENTS_DIR = REPO_ROOT / ".claude" / "agents"
+MAINTENANCE_DIR = AGENTS_DIR / "_maintenance"
+
+# V8.1 promoted the two planner agents to runtime; aria-prompt-writer
+# stays maintenance-bound. Map each opus-tier ARIA agent to its
+# canonical post-V8.1 file path so this invariant test reflects the
+# architecture truth.
+EXPECTED_LOCATIONS: tuple[tuple[str, Path], ...] = (
+    ("aria-prompt-writer.md", MAINTENANCE_DIR / "aria-prompt-writer.md"),
+    ("aria-primary-planner.md", AGENTS_DIR / "aria-primary-planner.md"),
+    ("aria-challenger-planner.md", AGENTS_DIR / "aria-challenger-planner.md"),
 )
 FRONTMATTER_RE = re.compile(
     r"\A---\n(.*?)\n---\n",
@@ -51,7 +61,7 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
 
 class MaintenanceAgentInvariantTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.files = {name: MAINTENANCE_DIR / name for name in EXPECTED_FILES}
+        self.files = {name: path for name, path in EXPECTED_LOCATIONS}
 
     def test_all_three_files_exist(self) -> None:
         for name, path in self.files.items():

@@ -753,6 +753,7 @@ jobs:
       - name: Run sensor enterprise gate fixtures
         run: >
           npx jest --config apps/sensor-service/jest.config.ts --runInBand
+          --forceExit
           apps/sensor-service/src/edge-device/__tests__/agent-io-config-v2.spec.ts
           apps/sensor-service/src/edge-device/__tests__/edge-device.resolver.permissions.spec.ts
           apps/sensor-service/src/ingestion/__tests__/mqtt-listener.service.spec.ts

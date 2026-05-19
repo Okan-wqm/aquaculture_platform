@@ -53,7 +53,7 @@ export class Shift {
   id!: string;
 
   @Field()
-  @Column()
+  @Column({ type: 'uuid' })
   @Index()
   tenantId!: string;
 

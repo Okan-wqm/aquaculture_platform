@@ -18,6 +18,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
+      "@aquaculture/shared-ui": ["../../shared-ui/src"],
       "@aquaculture/farm-shared": ["../../../libs/farm-shared/src"]
     },
     "types": []

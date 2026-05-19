@@ -74,7 +74,9 @@ jobs:
           echo "head=$HEAD" >> "$GITHUB_OUTPUT"
 
       - name: Build
-        run: npm run build -- --base="${{ steps.nx-refs.outputs.base }}" --head="${{ steps.nx-refs.outputs.head }}"
+        run: |
+          npm run build -- --base="${{ steps.nx-refs.outputs.base }}" --head="${{ steps.nx-refs.outputs.head }}"
+          npx nx run shell:build
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'

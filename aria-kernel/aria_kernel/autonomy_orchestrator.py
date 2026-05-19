@@ -515,6 +515,86 @@ def run_autonomy_orchestrator(
                     },
                 )
 
+            # Plan ARIA-V3.1-B3 — orphan-implementation-request reaper
+            # (closes 6-validator H-12). Crash paths in a prior
+            # orchestrator process or aria-implementer that bypass
+            # try/finally cleanup leave plans stuck in
+            # IMPLEMENTATION_REQUESTED OR IMPLEMENTATION_IN_FLIGHT.
+            # The next orchestrator startup enumerates them via
+            # scan_orphan_implementation_requests + transitions each
+            # to IMPLEMENTATION_REJECTED with the canonical
+            # `orchestrator_restart_reaped_orphan` rejection_class.
+            # Per-orphan + summary governance events surface the
+            # reaping in the audit trail.
+            #
+            # bypass_profile_gate=True on the summary event ensures
+            # the reaper's audit row reaches the ledger even under
+            # frozen/observe profiles (the reaping itself goes
+            # through record_implementation_rejected which respects
+            # profile gating). When no orphans are found the
+            # summary event is suppressed (zero-noise floor).
+            if profile_announce_allowed:
+                try:
+                    from .plan_convergence import (
+                        scan_orphan_implementation_requests,
+                        record_implementation_rejected,
+                    )
+                    _orphans = scan_orphan_implementation_requests(base_dir=root)
+                except (ImportError, Exception) as _orphan_scan_exc:
+                    _orphans = []
+                    append_tools_governance(
+                        root, "implementation_orphan_scan_failed",
+                        {
+                            "error_class": type(_orphan_scan_exc).__name__,
+                            "error_message": str(_orphan_scan_exc)[:500],
+                        },
+                        bypass_profile_gate=True,
+                    )
+                _reaped: list[dict[str, Any]] = []
+                for _orphan in _orphans:
+                    _orphan_plan_id = _orphan.get("plan_id")
+                    if not isinstance(_orphan_plan_id, str) or not _orphan_plan_id:
+                        continue
+                    try:
+                        record_implementation_rejected(
+                            plan_id=_orphan_plan_id,
+                            rejection_class="orchestrator_restart_reaped_orphan",
+                            rejected_at=_iso_now(),
+                            base_dir=root,
+                        )
+                        _reaped.append(_orphan)
+                        append_tools_governance(
+                            root, "implementation_orphan_reaped",
+                            {
+                                "plan_id": _orphan_plan_id,
+                                "prior_state": _orphan.get("state"),
+                                "last_event_at": _orphan.get("last_event_at"),
+                            },
+                            bypass_profile_gate=True,
+                        )
+                    except Exception as _reap_exc:
+                        # Best-effort — surface the failure but do not
+                        # abort orchestrator startup over a single
+                        # un-reapable orphan.
+                        append_tools_governance(
+                            root, "implementation_orphan_reap_failed",
+                            {
+                                "plan_id": _orphan_plan_id,
+                                "error_class": type(_reap_exc).__name__,
+                                "error_message": str(_reap_exc)[:500],
+                            },
+                            bypass_profile_gate=True,
+                        )
+                if _reaped:
+                    append_tools_governance(
+                        root, "implementation_orphans_reaped_summary",
+                        {
+                            "reaped_count": len(_reaped),
+                            "scanned_count": len(_orphans),
+                        },
+                        bypass_profile_gate=True,
+                    )
+
             for cycle_n in range(max_cycles):
                 # Plan ARIA-V7 §3 V7.7 — per-cycle watchdog.
                 # ``_cycle_started_at`` captures monotonic time at

@@ -1986,6 +1986,20 @@ def _validate_event(event: dict[str, Any]) -> None:
             "cycle_budget_exhausted",
             "gh_api_scope_violation",
             "autonomous_profile_preconditions_not_met",
+            # Plan ARIA-V3.1-B3 — orphan reaper rejection class.
+            # The orchestrator startup hook transitions a plan stuck
+            # in IMPLEMENTATION_REQUESTED or IMPLEMENTATION_IN_FLIGHT
+            # to IMPLEMENTATION_REJECTED with this class so the audit
+            # trail distinguishes crash-recovery reaping from real
+            # implementation failures (closes H-12).
+            "orchestrator_restart_reaped_orphan",
+            # Plan ARIA-V3.1-B-5 — commit signature verify mismatch
+            # raised by plan_convergence_bridge._dispatch_implementation
+            # BEFORE record_implementation_outcome would accept the row.
+            # The IMPL row never lands; if the agent's claim was
+            # IMPLEMENTATION_IN_FLIGHT, the orchestrator can reap
+            # with this canonical class.
+            "commit_signature_unverified",
         })
         if payload.get("rejection_class") not in valid_rejection_classes:
             raise GovernanceError(

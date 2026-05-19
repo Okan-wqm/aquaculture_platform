@@ -181,6 +181,8 @@ export class ToggleLegalHoldInput {
    * release was the audit gap.
    */
   @Field(() => String, { nullable: true, description: 'Required when releasing. ID of the second SUPER_ADMIN countersigning (dual-approver protocol).' })
+  @IsOptional()
+  @IsUUID('4')
   approverId: string | null;
 
   /**
@@ -188,6 +190,9 @@ export class ToggleLegalHoldInput {
    * row's `releaseReason` column for audit.
    */
   @Field(() => String, { nullable: true, description: 'Required when releasing. Free-text justification (≥ 50 chars).' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
   releaseReason: string | null;
 }
 

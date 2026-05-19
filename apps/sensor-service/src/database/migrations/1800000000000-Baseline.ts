@@ -267,8 +267,21 @@ export class Baseline1800000000000 implements MigrationInterface {
         `);
 
         // ── Faz 3.5 hand-author addition — TimescaleDB hypertables + CAGGs ──
-        await queryRunner.query(`SELECT create_hypertable('sensor.sensor_readings', 'time', if_not_exists => true);`);
-        await queryRunner.query(`SELECT create_hypertable('sensor.sensor_metrics', 'time', if_not_exists => true);`);
+        //
+        // Column SSoT (mirrored from CREATE TABLE statements above):
+        //   sensor.sensor_readings → time-partition column is "timestamp"
+        //     (entity: apps/sensor-service/src/entities/sensor-reading.entity.ts;
+        //      not "time" — that was a 2026-05-18 cutover bug that blocked
+        //      Phase 1 of the platform-bootstrap deploy)
+        //   sensor.sensor_metrics  → time-partition column is "time"
+        //     (entity: apps/sensor-service/src/entities/sensor-metric.entity.ts;
+        //      PK includes "time", canonical TimescaleDB convention)
+        //
+        // create_hypertable expects an EXISTING column on the target table.
+        // Drift between baseline DDL and this call surfaces as
+        // "column \"<name>\" does not exist" — fail-fast and unambiguous.
+        await queryRunner.query(`SELECT create_hypertable('sensor.sensor_readings', 'timestamp', if_not_exists => true);`);
+        await queryRunner.query(`SELECT create_hypertable('sensor.sensor_metrics',  'time',      if_not_exists => true);`);
         // CAGG policies are appended post-cutover via separate runbook step
         // (sensor_metrics 1min/1hour/1day rollups require parametric add_continuous_aggregate_policy
         // calls that depend on the view definitions; tracked as OPEN-ADR-030-CAGG).

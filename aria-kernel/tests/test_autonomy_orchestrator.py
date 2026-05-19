@@ -274,6 +274,12 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             # (V7.4 Tier-1, no default). Happy-path fake returns
             # aggregate_verdict="no_requests" so cycle proceeds.
             skill_genesis_drainer=_fake_skill_genesis_drainer,
+            # Plan ARIA-V3.1-E — `profile` is REQUIRED (no default).
+            # Tests default to "standard" so preflight is skipped +
+            # the action-permission set permits agent_claim +
+            # change_committed + change_validated (pr_open is strict-
+            # only — V3-era tests don't exercise PR open).
+            profile="standard",
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)
@@ -315,7 +321,12 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             operator_approval_ref="ops-approved",
             base_dir=self.base,
         )
-        result = self._run(max_cycles=3)
+        # Plan ARIA-V3.1-E — profile kwarg is the SSoT; the CLI
+        # surface routes through set_profile() so kwarg == persisted
+        # in production. Match the persisted "frozen" via the
+        # operator-intent kwarg so the test exercises the frozen-
+        # profile_frozen exit path under the V3.1-E contract.
+        result = self._run(max_cycles=3, profile="frozen")
         self.assertEqual(result["exit_reason"], "profile_frozen")
         self.assertEqual(result["cycles_completed"], 0)
 

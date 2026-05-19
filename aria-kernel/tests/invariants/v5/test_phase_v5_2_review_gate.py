@@ -197,6 +197,9 @@ class PhaseV5_2ReviewGate(unittest.TestCase):
             plan_synthesizer=_plan_synthesizer_fake,
             # Plan ARIA-V7 §2h v2 — V7.4 skill_genesis_drainer REQUIRED.
             skill_genesis_drainer=_skill_genesis_drainer_fake,
+            # Plan ARIA-V3.1-E — REQUIRED profile kwarg; standard
+            # for V5.2 review-gate tests.
+            profile="standard",
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

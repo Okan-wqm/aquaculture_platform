@@ -270,6 +270,9 @@ class PhaseV3_3ReflectionOrdering(unittest.TestCase):
             specialist_review_runner=_v6_fake_specialist_review_runner,
             plan_synthesizer=_v7_fake_plan_synthesizer,
             skill_genesis_drainer=_v7_fake_skill_genesis_drainer,
+            # Plan ARIA-V3.1-E — REQUIRED profile kwarg; standard
+            # for V3.3 reflection-ordering tests.
+            profile="standard",
         )
 
     def _read_governance(self) -> list[dict]:

@@ -210,6 +210,10 @@ class PhaseV5_1ConvergenceGate(unittest.TestCase):
             # Plan ARIA-V7 §2h v2 — V7.4 makes skill_genesis_drainer
             # REQUIRED; happy-path fake returns no_requests.
             skill_genesis_drainer=_skill_genesis_drainer_fake,
+            # Plan ARIA-V3.1-E — `profile` REQUIRED kwarg; V5.1 tests
+            # exercise the convergence gate under default standard
+            # profile (preflight skipped, agent_claim permitted).
+            profile="standard",
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

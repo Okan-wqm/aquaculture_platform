@@ -164,6 +164,9 @@ class PhaseV7_2OrchestratorTryExcept(unittest.TestCase):
             specialist_review_runner=_specialists_no_gaps,
             plan_synthesizer=_v7_fake_plan_synthesizer_valid,
             skill_genesis_drainer=_skill_genesis_drainer_fake,
+            # Plan ARIA-V3.1-E — REQUIRED profile kwarg; standard
+            # for V7.2 try/except envelope tests.
+            profile="standard",
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

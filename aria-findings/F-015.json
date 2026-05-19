@@ -188,8 +188,8 @@
     {
       "id": "F-015-V31-E",
       "title": "Plan v3.1-E — Profile + preflight + budget SSoT (CLI argparse + set_profile SOC2 audit + ProfileGate.evaluate wire)",
-      "status": "OPEN",
-      "note": "Closes C-2 (operator_approval_ref SOC2), H-9 (caller migration), H-13 (poll-budget distinct)."
+      "status": "RESOLVED",
+      "note": "CLI --profile expanded to all 5 PROFILES; --operator-approval-ref REQUIRED when --profile=autonomous (argparse-level rejection); --implementer-poll-seconds distinct from challenger_timeout_seconds (closes H-13). CLI flag != persisted profile routes through set_profile() so every transition writes a `runtime_profile_changed` audit row (closes C-2 SOC2 gap). run_autonomy_orchestrator.profile is REQUIRED kwarg (no default); orchestrator body has ZERO direct get_profile() calls — the kwarg is the cycle-execution SSoT (I-V31-E-04). 6 test callers migrated to inject profile='standard'. Preflight gate inside orchestrator: autonomous → fail-fast via GovernanceError + `autonomy_orchestrator_refused` event; strict → soft-warn via `preflight_strict_warnings` event. 6 V3.1-E invariants GREEN."
     },
     {
       "id": "F-015-V31-A",

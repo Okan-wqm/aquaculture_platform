@@ -286,14 +286,20 @@ def run_autonomy_orchestrator(
     memory_hook: "MemoryHook | None" = None,
     cost_telemetry_hook: "CostTelemetryHook | None" = None,
     profile_gate: "ProfileGate | None" = None,
-    # Plan ARIA-V3.1-E will make this REQUIRED + drop the orchestrator
-    # body's get_profile() call. V3.1-0 ships it optional so the
-    # existing caller migration can land in V3.1-E without breaking
-    # the V8 surface (closes H-9 staging).
-    profile: str | None = None,
-    # Plan ARIA-V3.1-B-9 — distinct poll budget for the V9
+    # Plan ARIA-V3.1-E — profile is REQUIRED (no default). Closes
+    # H-9 caller migration + H-15 Tier-1 honesty. The orchestrator
+    # body uses this kwarg as the SSoT; the legacy
+    # `get_profile(base_dir=root)` call has been removed (I-V31-E-04).
+    # CLI surface mints the value via argparse + records audit-trail
+    # row via set_profile() when the operator overrides via flag
+    # (closes C-2 SOC2 gap).
+    profile: str,
+    # Plan ARIA-V3.1-E + B-9 — distinct poll budget for the V9
     # implementation phase (HIGH-13). Default 1800s (30 min)
-    # matches the CONVERGED-to-PR-merge wall-clock target.
+    # matches the CONVERGED-to-PR-merge wall-clock target. Distinct
+    # from `challenger_timeout_seconds` (which gates the inner
+    # convergence_drainer round-poll) — the V9 implementer pipeline
+    # has its own wall-clock budget.
     implementer_poll_seconds: float = 1800.0,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3a v2 — ``convergence_runner`` is REQUIRED with NO
@@ -322,7 +328,13 @@ def run_autonomy_orchestrator(
     * ``max_cycles`` — reached the cycle cap
     * ``daemon_already_running`` — single-instance lock contended
     """
-    from .runtime_profile import enforce_profile_for_action, get_profile
+    # Plan ARIA-V3.1-E — drop `get_profile` import; the orchestrator
+    # body uses the explicit `profile` kwarg as SSoT.
+    # `enforce_profile_for_action` still resolves the active profile
+    # internally via runtime_profile.get_profile_with_diagnostic,
+    # which is the correct boundary for action-level gating (it
+    # captures the CLI override + audit row in the same read).
+    from .runtime_profile import enforce_profile_for_action
     from .tool_registry import (
         GovernanceError,
         append_tools_governance,
@@ -379,7 +391,97 @@ def run_autonomy_orchestrator(
     auto_merges_total = 0
     exit_reason = "max_cycles"
     per_cycle_results: list[dict[str, Any]] = []
-    profile_snapshot = get_profile(base_dir=root)
+    # Plan ARIA-V3.1-E — explicit kwarg SSoT (closes I-V31-E-04).
+    # Pre-V3.1-E the orchestrator body re-resolved via
+    # `get_profile(base_dir=root)`, which let a CLI override that
+    # bypassed `set_profile()` race the runtime read. V3.1-E
+    # collapses the surface: the operator-supplied `profile` IS the
+    # cycle's profile; the CLI is responsible for recording the
+    # override via set_profile() BEFORE entering the orchestrator
+    # so the runtime-profile-history.jsonl audit row exists.
+    profile_snapshot = profile
+
+    # Plan ARIA-V3.1-E (E4) — preflight gate.
+    #
+    # Profile-conditional behavior:
+    #   * autonomous → fail-fast. verify_preflight checks branch
+    #     protection + signing key + ALLOWED_BASH_COMMANDS + GH_TOKEN +
+    #     IMMUTABLE_PATHS; any failure raises GovernanceError so the
+    #     autonomy run never enters its cycle loop on a misconfigured
+    #     host (closes ai-safety CRIT-004).
+    #   * strict   → soft-warn. preflight runs; failures emit a
+    #     `preflight_strict_warnings` governance event but the cycle
+    #     proceeds. Operator-driven dry-run cycles should still run on
+    #     hosts missing GH App config.
+    #   * standard / observe / frozen → preflight skipped (the actions
+    #     these profiles permit don't require the preflight surface).
+    #
+    # `bypass_profile_gate=True` ensures the governance event reaches
+    # the audit ledger even under frozen/observe (which would
+    # otherwise block tool_governance writes via Plan 026R §A.4
+    # surface enforcement).
+    if profile in ("autonomous", "strict"):
+        try:
+            from . import preflight as _preflight_mod
+            # skip_remote=True under autonomous when GH_TOKEN unset
+            # would defeat the autonomous gate (the gh api call IS
+            # the verification surface). Under strict, skip_remote
+            # honors the token-presence signal so operator dry-runs
+            # do not require GitHub auth.
+            _skip_remote = (
+                profile == "strict"
+                and not bool(os.environ.get("GH_TOKEN"))
+            )
+            verdict = _preflight_mod.verify_preflight(
+                profile=profile,
+                workspace_root=str(workspace_root) if workspace_root else str(root),
+                skip_remote=_skip_remote,
+            )
+        except ImportError:
+            # `preflight` module absent — strict can proceed (no-op),
+            # autonomous must fail-fast (defense-in-depth: a kernel
+            # missing preflight cannot be the autonomous-mode host).
+            verdict = None
+            if profile == "autonomous":
+                append_tools_governance(
+                    root, "autonomy_orchestrator_refused",
+                    {
+                        "reason": "autonomous_profile_preconditions_not_met",
+                        "failure_classes": ["preflight_module_unavailable"],
+                        "reasons": ["preflight module not importable"],
+                    },
+                    bypass_profile_gate=True,
+                )
+                raise GovernanceError(
+                    "autonomous_profile_preconditions_not_met: "
+                    "preflight module not importable"
+                )
+        if verdict is not None and not getattr(verdict, "valid", True):
+            failure_classes = tuple(getattr(verdict, "failure_classes", ()) or ())
+            reasons = tuple(getattr(verdict, "reasons", ()) or ())
+            if profile == "autonomous":
+                append_tools_governance(
+                    root, "autonomy_orchestrator_refused",
+                    {
+                        "reason": "autonomous_profile_preconditions_not_met",
+                        "failure_classes": list(failure_classes),
+                        "reasons": list(reasons),
+                    },
+                    bypass_profile_gate=True,
+                )
+                raise GovernanceError(
+                    "autonomous_profile_preconditions_not_met: "
+                    + "; ".join(reasons)
+                )
+            # strict — soft-warn.
+            append_tools_governance(
+                root, "preflight_strict_warnings",
+                {
+                    "failure_classes": list(failure_classes),
+                    "reasons": list(reasons),
+                },
+                bypass_profile_gate=True,
+            )
 
     try:
         with with_exclusive_lock(

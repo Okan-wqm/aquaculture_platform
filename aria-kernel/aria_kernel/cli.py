@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -1306,23 +1307,62 @@ def _main(argv: list[str] | None = None) -> int:
              "run that accumulates over many small cycles. Closes "
              "ai-safety HIGH-013 + perf CRIT-001.",
     )
-    # Plan ARIA-V9.7 — autonomous-profile precondition gate
-    # (ai MED-016). Profile=autonomous routes through
-    # preflight.verify_preflight; profile=strict is the safe default
-    # for dry-run operator-driven cycles.
+    # Plan ARIA-V9.7 + V3.1-E — autonomous-profile precondition gate
+    # (ai MED-016 + 6-validator audit C-2 SOC2). All 5 PROFILES are
+    # available as choices; the CLI delegates the actual SOC2 audit
+    # row to `set_profile()` so every `--profile` override that
+    # differs from the persisted active profile produces a
+    # `runtime_profile_changed` governance event.
+    #
+    # default=None routes to the persisted profile resolved via
+    # `get_profile(base_dir=args.tools_dir)`. The CLI sets profile
+    # explicitly only when the operator passes the flag — this
+    # preserves V8 behavior (no flag → respect persisted state)
+    # while keeping the V3.1-E SSoT semantics (the orchestrator
+    # body receives a non-None value either way).
     auto_run.add_argument(
-        "--profile", choices=("strict", "autonomous"),
-        default="strict",
-        help="Autonomy profile (default: strict). 'strict' permits "
-             "dry-run + operator-review cycles regardless of preflight; "
-             "'autonomous' requires preflight.verify_preflight to "
-             "return valid=True (GH_TOKEN present, signing key dir, "
-             "IMMUTABLE_PATHS non-empty, ALLOWED_BASH_COMMANDS "
-             "non-empty, branch protection rules in place). "
-             "Mismatch under autonomous → "
-             "autonomous_profile_preconditions_not_met rejection. "
-             "Operator runbook docs/runbooks/aria-github-app-setup.md "
-             "documents Mode A setup for autonomous profile.",
+        "--profile", choices=list(PROFILES),
+        default=None,
+        help="Autonomy profile (default: strict). 'autonomous' "
+             "REQUIRES `--operator-approval-ref <ref>` and triggers "
+             "preflight.verify_preflight fail-fast on any failure "
+             "class. 'strict' soft-warns on preflight failure. "
+             "'standard'/'observe'/'frozen' skip preflight + run the "
+             "cycle under the profile's action-permission set. The "
+             "CLI flag itself overrides the persisted profile via "
+             "set_profile() so the runtime-profile-history.jsonl "
+             "audit row records the operator gesture (closes "
+             "6-validator audit C-2 SOC2 gap). Operator runbook "
+             "docs/runbooks/aria-github-app-setup.md documents Mode A "
+             "setup for the autonomous profile.",
+    )
+    # Plan ARIA-V3.1-E (E1) — required operator-approval-ref when the
+    # CLI override transitions TO `autonomous`. argparse rejects
+    # `--profile autonomous` without this flag.
+    auto_run.add_argument(
+        "--operator-approval-ref", default=None,
+        help="Operator approval reference recorded in runtime-profile-"
+             "history.jsonl when the CLI flag overrides the persisted "
+             "profile. REQUIRED when `--profile autonomous` is "
+             "specified — argparse fails fast on omission. For other "
+             "profiles, defaults to `cli-flag:<runid>` so every CLI "
+             "transition still produces an audit row (closes C-2 "
+             "SOC2 gap; matches set_profile() control-plane contract).",
+    )
+    # Plan ARIA-V3.1-E (E1) + B-9 — distinct V9 implementer poll
+    # budget. Separate from --challenger-timeout-seconds (which
+    # gates the convergence_drainer round-poll wait); the V9
+    # implementation phase has its own wall-clock budget
+    # (CONVERGED → PR-merge typically <30min).
+    auto_run.add_argument(
+        "--implementer-poll-seconds", type=float, default=1800.0,
+        help="V9 implementer phase wall-clock budget in seconds "
+             "(default 1800s = 30 min). Distinct from "
+             "--challenger-timeout-seconds (which gates the inner "
+             "convergence_drainer round-poll). Used by the V3.1-B "
+             "AutonomousV9ImplementationRunner to bound the "
+             "CONVERGED→PR-merge polling window. Closes HIGH-13 "
+             "poll-budget conflation.",
     )
     auto_status = add_subparser(
         autonomy_sub, "status",
@@ -3440,9 +3480,44 @@ def _main(argv: list[str] | None = None) -> int:
         # from skill-genesis/requests.jsonl + invokes V6.2
         # run_convergent_authoring per request.
         from .skill_genesis_drainer import select_skill_genesis_drainer
-        # Plan ARIA-V3.1 §2a — ``get_profile`` already imported
-        # at module level (line 105); nested re-import removed.
-        profile = get_profile(base_dir=args.tools_dir)
+        # Plan ARIA-V3.1-E (E1+E2) — CLI flag is the SSoT for the
+        # cycle's profile when the operator passes it. Otherwise
+        # fall back to the persisted profile (V8 backward-compat).
+        # When the flag differs from the persisted active profile,
+        # route the transition through set_profile() so the SOC2
+        # audit row lands in runtime-profile-history.jsonl (closes
+        # 6-validator audit C-2). argparse already validated
+        # --operator-approval-ref is present when --profile=autonomous.
+        # `set_profile` + `get_profile` come from the module-level
+        # import at line 104 — no nested re-import (closes the v3_1
+        # nested-reimport-shadowing invariant).
+        _persisted_profile = get_profile(base_dir=args.tools_dir)
+        if args.profile == "autonomous" and not (args.operator_approval_ref or "").strip():
+            print(
+                "error: --profile autonomous requires --operator-approval-ref "
+                "(signed-ref string identifying the operator gesture).",
+                file=sys.stderr,
+            )
+            return 2
+        if args.profile is None:
+            # No explicit override — use persisted state as profile SSoT.
+            profile = _persisted_profile
+        else:
+            # Explicit override — record the SOC2 audit row when it
+            # differs from persisted, then use the operator-supplied
+            # value as profile SSoT for the orchestrator body.
+            if args.profile != _persisted_profile:
+                _approval_ref = (
+                    args.operator_approval_ref
+                    or f"cli-flag:{args.daemon_id}:{int(time.time())}"
+                )
+                set_profile(
+                    args.profile,
+                    operator_approval_ref=_approval_ref,
+                    base_dir=args.tools_dir,
+                    set_by="autonomy-cli",
+                )
+            profile = args.profile
         auto_merge_runner = select_auto_merge_runner(profile=profile)
         github_adapter = select_github_adapter(
             profile=profile,
@@ -3501,6 +3576,10 @@ def _main(argv: list[str] | None = None) -> int:
             daemon_id=args.daemon_id,
             cycle_deadline_seconds=args.cycle_deadline_seconds,
             challenger_timeout_seconds=args.challenger_timeout_seconds,
+            # Plan ARIA-V3.1-E — explicit profile + distinct
+            # implementer poll budget threaded to the orchestrator.
+            profile=profile,
+            implementer_poll_seconds=args.implementer_poll_seconds,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         # Exit non-zero only when the orchestrator could not start

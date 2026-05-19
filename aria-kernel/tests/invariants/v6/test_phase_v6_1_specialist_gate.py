@@ -241,6 +241,10 @@ class PhaseV6_1SpecialistGate(unittest.TestCase):
             plan_synthesizer=_plan_synthesizer_fake_runner,
             # Plan ARIA-V7 §2h v2 — V7.4 skill_genesis_drainer REQUIRED.
             skill_genesis_drainer=_skill_genesis_drainer_fake_runner,
+            # Plan ARIA-V3.1-E — REQUIRED profile kwarg; standard
+            # default for the V6.1 specialist gate; individual tests
+            # that need profile="strict" override via overrides.
+            profile="standard",
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)

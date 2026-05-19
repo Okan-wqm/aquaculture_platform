@@ -551,6 +551,25 @@ def check_pattern_signature_stability(
             "distinct_pressure_source_types": sorted(sources),
             "distinct_cross_reviewer_agent_ids": sorted(reviewers),
         }
+    # Plan ARIA-V3.1-C-4 — OPERATOR_FEEDBACK ∈ distinct sources guard
+    # (closes 6-validator audit MEDIUM-011 + ai-safety HIGH-005 on
+    # skill-genesis activation). Stability fires only when at least
+    # ONE of the recurring cycles was driven by signed operator
+    # feedback — the operator is the trust anchor that validates the
+    # convergent pattern. Combined with V3.1-A-2 sanitize_untrusted_text
+    # + V9.4 signature verification on operator-feedback rows, this
+    # raises the adversarial-collusion bar significantly: a malicious
+    # planner that fakes 5 CONVERGED cycles with the same
+    # pattern_signature still cannot trigger skill genesis without
+    # operator feedback signed by the pinned operator key.
+    if "operator_feedback" not in sources:
+        return {
+            "stable": False,
+            "reason": "operator_feedback_source_required_for_skill_genesis_stability",
+            "matching_cycles": matching_cycles,
+            "distinct_pressure_source_types": sorted(sources),
+            "distinct_cross_reviewer_agent_ids": sorted(reviewers),
+        }
     return {
         "stable": True,
         "matching_cycles": matching_cycles,

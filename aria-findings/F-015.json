@@ -211,9 +211,15 @@
     },
     {
       "id": "F-015-V31-C",
-      "title": "Plan v3.1-C — KG + skill genesis wire (bounded governance reader + OPERATOR_FEEDBACK stability gate + HUMAN_REQUIRED adapter registration)",
+      "title": "Plan v3.1-C — KG + skill genesis wire (bounded governance reader + OPERATOR_FEEDBACK stability gate)",
+      "status": "RESOLVED",
+      "note": "C-1 governance_reader.read_governance_rows_reverse adds Tier-1 bounded seek-to-end reader (64KB chunks, scales with limit not ledger size; closes 6-validator audit C-12 performance). C-4 check_pattern_signature_stability now requires OPERATOR_FEEDBACK ∈ distinct_pressure_source_types — adversarial pattern_signature collusion across 5+ auto-discovered cycles cannot trigger skill genesis without the operator's signed trust anchor (closes MEDIUM-011 + ai-safety HIGH-005). V10.2 test amendment: stability test now injects operator_feedback as one of the 5 sources. 6 V3.1-C invariants GREEN. Subfinding F-015-V31-C2 tracks the MemoryHook orchestrator wire (read_governance_rows_reverse → stability check → record_convention → verify_chain_or_quarantine) + HUMAN_REQUIRED skill genesis adapter registration; the primitives are wired but the per-cycle MemoryHook.record() call from the orchestrator body lands in V3.1-C2 follow-up."
+    },
+    {
+      "id": "F-015-V31-C2",
+      "title": "Plan v3.1-C2 — Memory hook orchestrator wire (MemoryHook.record + record_convention ordering + verify_chain_or_quarantine post-record + HUMAN_REQUIRED skill genesis registration)",
       "status": "OPEN",
-      "note": "Closes C-12 (bounded reader), HIGH-005 (stability order swap), MEDIUM-011 (OPERATOR_FEEDBACK requirement), MEDIUM-012 (post-record verify chain)."
+      "note": "Architectural anchors from V3.1-C that need orchestrator-side wiring: (1) cycle_phases.memory.MemoryHookImpl concrete variant that calls read_governance_rows_reverse → check_pattern_signature_stability → record_convention → verify_chain_or_quarantine in the correct order (C2 + C3); (2) orchestrator post-CONVERGED phase invokes memory_hook.record(); (3) skill genesis stable=True dispatches request_human_required (NOT direct registry.json write — closes ai-safety HIGH-005). Tier-1 — to land in V3.1-C2 follow-up commit before V3.1-F live smoke."
     },
     {
       "id": "F-015-V31-D",

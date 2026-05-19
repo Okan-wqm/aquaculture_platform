@@ -75,9 +75,19 @@ class TestV10PatternSignatureStability(unittest.TestCase):
         self.assertIn("only_1_distinct_reviewers", result["reason"])
 
     def test_stable_when_all_thresholds_met(self):
+        """Plan ARIA-V10.2 + V3.1-C-4 — stability fires when the 3
+        thresholds + OPERATOR_FEEDBACK gate are met.
+
+        V3.1-C-4 amendment: at least ONE row must carry
+        `pressure_source_type=operator_feedback` so an adversarial
+        planner that fakes 5 CONVERGED cycles with auto-discovered
+        sources alone (orphan_finding / failing_ci / f_finding /
+        git_diff) cannot trigger skill genesis without the operator's
+        signed trust anchor (closes MEDIUM-011 + ai-safety HIGH-005).
+        """
         rows = [
             {"terminal_state": "CONVERGED", "pattern_signature": SIG_A,
-             "cycle_id": "c0", "pressure_source_type": "orphan_finding",
+             "cycle_id": "c0", "pressure_source_type": "operator_feedback",
              "cross_reviewer_agent_id": "rev-A"},
             {"terminal_state": "CONVERGED", "pattern_signature": SIG_A,
              "cycle_id": "c1", "pressure_source_type": "failing_ci",
@@ -97,8 +107,11 @@ class TestV10PatternSignatureStability(unittest.TestCase):
         )
         self.assertTrue(result["stable"], f"reason={result.get('reason')}")
         self.assertEqual(len(result["matching_cycles"]), 5)
-        self.assertEqual(len(result["distinct_pressure_source_types"]), 3)
+        self.assertEqual(len(result["distinct_pressure_source_types"]), 4)
         self.assertEqual(len(result["distinct_cross_reviewer_agent_ids"]), 3)
+        # V3.1-C-4 — operator_feedback MUST be in the distinct sources.
+        self.assertIn("operator_feedback",
+                      result["distinct_pressure_source_types"])
 
     def test_non_converged_breaks_streak(self):
         """Non-CONVERGED row in the lookback breaks the streak —

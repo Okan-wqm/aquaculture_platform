@@ -785,11 +785,51 @@ def run_autonomy_orchestrator(
                 # + skip Gate A + Gate C + worker + Gate B +
                 # auto_merge for this cycle. Reflection still runs
                 # (V3.3 §2b preservation).
-                _v7_plan_content = plan_synthesizer(
+                #
+                # Plan ARIA-V3.1-A — plan_content_provider Protocol
+                # gets first call. The V9PressureSourceProvider iterates
+                # the 5-source ranked candidate list AND falls through
+                # to V7 git_diff internally; the NoOp variant returns
+                # None and the orchestrator continues to the legacy
+                # plan_synthesizer kwarg (V8 backward compat for tests
+                # that haven't installed a Protocol).
+                #
+                # The envelope's `content` field IS the plan_content
+                # dict the legacy code path expected; the `metadata`
+                # field carries `_pressure_source_type` for downstream
+                # cost-attribution (V3.1-D consumes via
+                # cost_telemetry_hook).
+                _v7_plan_envelope = plan_content_provider.synthesize(
                     cycle_id=cycle_id,
                     workspace_root=Path(workspace_root) if workspace_root else root,
                     base_dir=root,
+                    profile=profile,
                 )
+                _v7_plan_content: dict[str, Any] | None
+                _v7_pressure_source_type: str
+                if _v7_plan_envelope is not None:
+                    _v7_plan_content = _v7_plan_envelope.content
+                    _v7_pressure_source_type = str(
+                        _v7_plan_envelope.metadata.get(
+                            "_pressure_source_type", "git_diff",
+                        )
+                    )
+                else:
+                    # Plan ARIA-V3.1-A — Protocol returned None
+                    # (NoOp default OR V9 provider with empty results).
+                    # Fall through to the legacy plan_synthesizer kwarg
+                    # (V8 backward compat path; tests don't install a
+                    # Protocol).
+                    _v7_plan_content = plan_synthesizer(
+                        cycle_id=cycle_id,
+                        workspace_root=Path(workspace_root) if workspace_root else root,
+                        base_dir=root,
+                    )
+                    _v7_pressure_source_type = "git_diff"
+                # Surface the resolved pressure source on the cycle
+                # summary so V10.4 cost-attribution rollup attributes
+                # correctly even when the legacy fallback path fired.
+                cycle_summary["_pressure_source_type"] = _v7_pressure_source_type
                 if _v7_plan_content is None:
                     AutonomyStateReducer.transition(
                         root,

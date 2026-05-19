@@ -53,6 +53,8 @@ from .plan_source import (
     CyclePlanEnvelope,
     NoOpPlanContentProvider,
     PlanContentProvider,
+    V7GitDiffProvider,
+    V9PressureSourceProvider,
 )
 from .profile_gate import NoOpProfileGate, ProfileGate
 
@@ -68,6 +70,8 @@ __all__ = [
     "NoOpV9ImplementationRunner",
     "PlanContentProvider",
     "ProfileGate",
+    "V7GitDiffProvider",
     "V9ImplementationResult",
     "V9ImplementationRunner",
+    "V9PressureSourceProvider",
 ]

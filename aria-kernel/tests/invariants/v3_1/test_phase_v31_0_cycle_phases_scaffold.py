@@ -65,8 +65,13 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
             "NoOpV9ImplementationRunner",
             "PlanContentProvider",
             "ProfileGate",
+            # Plan ARIA-V3.1-A — concrete PlanContentProvider variants
+            # (V9PressureSourceProvider for 5-source mining;
+            # V7GitDiffProvider for fallback).
+            "V7GitDiffProvider",
             "V9ImplementationResult",
             "V9ImplementationRunner",
+            "V9PressureSourceProvider",
         }
         actual = set(getattr(module, "__all__", ()))
         self.assertEqual(

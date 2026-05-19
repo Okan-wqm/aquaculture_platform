@@ -41,7 +41,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 
 __all__ = [
@@ -57,6 +57,9 @@ __all__ = [
     "compute_pattern_signature",
     "KEY_CHANGE_CATEGORIES",
     "MIN_EVIDENCE_REF_CARDINALITY",
+    # Plan ARIA-V3.1-A — candidate-to-envelope conversion (consumed
+    # by V9PressureSourceProvider in cycle_phases/plan_source.py).
+    "convert_candidate_to_plan_content",
 ]
 
 
@@ -821,6 +824,153 @@ def rank_candidate_sources(
 
     all_candidates.sort(key=_key)
     return all_candidates
+
+
+def convert_candidate_to_plan_content(
+    candidate: Mapping[str, Any],
+) -> "CyclePlanEnvelope | None":
+    """Plan ARIA-V3.1-A — convert one ranked candidate into a
+    CyclePlanEnvelope (closes 6-validator audit C-5 + H-2 + H-8).
+
+    Returns None when the candidate cannot be converted (caller
+    iterates to the next ranked candidate per V3.1-A-3 iterative
+    fallback). Returns CyclePlanEnvelope on success.
+
+    Tier-1 anchors:
+
+    * Envelope/content split: `_pressure_source_type` lives ONLY
+      in envelope.metadata; plan_content stays canonical 7-field
+      (closes H-8 — content_hash collisions cannot occur because
+      pressure_source_type does not enter the content dict).
+    * Every external-source string runs through
+      `text_safety.sanitize_untrusted_text` BEFORE it lands in
+      plan_content (closes C-5 — operator-prose + LLM-authored
+      strings cannot smuggle delimiter / bidi / control-char
+      payloads into the convergence prompt).
+
+    Tier-3 (Detect):
+
+    * Returns None on missing/empty required fields rather than
+      raising. The caller emits a `plan_candidate_conversion_skipped`
+      governance event so the audit trail captures the skip without
+      blocking iterative fallback.
+
+    Candidate shapes (per source_type):
+
+    * `operator_feedback` — { candidate_id, priority, request,
+      authored_at, signature_kid, title_hint }
+    * `failing_ci` — { candidate_id, workflow_name, head_sha,
+      conclusion, created_at, title_hint }
+    * `orphan_finding` — { candidate_id, severity, raw_id,
+      title_hint }
+    * `f_finding` — { candidate_id, mtime, path, age_seconds,
+      title_hint }
+    * `git_diff` — synthesized by V7GitDiffProvider, not by this
+      function.
+    """
+    if not isinstance(candidate, Mapping):
+        return None
+    source_type = candidate.get("source_type")
+    candidate_id = candidate.get("candidate_id")
+    if not isinstance(source_type, str) or not isinstance(candidate_id, str):
+        return None
+    if source_type not in {
+        PlanCandidateSource.OPERATOR_FEEDBACK.value,
+        PlanCandidateSource.FAILING_CI.value,
+        PlanCandidateSource.ORPHAN_FINDING.value,
+        PlanCandidateSource.F_FINDING.value,
+    }:
+        # GIT_DIFF goes through V7GitDiffProvider; unknown source
+        # types skipped + caller falls back.
+        return None
+    # Lazy imports — CyclePlanEnvelope + sanitizer live in modules
+    # that import this module's helpers; avoid circular import at
+    # module load.
+    from .cycle_phases.plan_source import CyclePlanEnvelope
+    from .text_safety import sanitize_untrusted_text
+    title_hint = sanitize_untrusted_text(
+        candidate.get("title_hint") or f"Address {candidate_id}",
+        max_len=200,
+    )
+    # Per-source content authoring. Each branch builds the same
+    # canonical 7-field plan_content; only the textual hints differ.
+    if source_type == PlanCandidateSource.OPERATOR_FEEDBACK.value:
+        request = sanitize_untrusted_text(candidate.get("request") or "", max_len=1024)
+        if not request:
+            return None
+        summary = f"Operator-feedback request: {request}"
+        evidence_refs = [f"aria-tools/operator-feedback.jsonl:{candidate_id}"]
+        affected_surfaces = ["aria-tools/operator-feedback.jsonl"]
+    elif source_type == PlanCandidateSource.FAILING_CI.value:
+        workflow = sanitize_untrusted_text(
+            candidate.get("workflow_name") or "unknown", max_len=200,
+        )
+        head_sha = sanitize_untrusted_text(
+            candidate.get("head_sha") or "", max_len=64,
+        )
+        summary = (
+            f"Failing CI workflow '{workflow}' on head {head_sha or 'unknown'}; "
+            "diagnose root cause + land architectural fix."
+        )
+        evidence_refs = [f"gh-run-list:{candidate_id}"]
+        affected_surfaces = [".github/workflows/"]
+    elif source_type == PlanCandidateSource.ORPHAN_FINDING.value:
+        severity = sanitize_untrusted_text(
+            candidate.get("severity") or "MEDIUM", max_len=16,
+        )
+        raw_id = sanitize_untrusted_text(
+            candidate.get("raw_id") or "000", max_len=16,
+        )
+        summary = (
+            f"Address ORPHAN-{severity}-{raw_id} from "
+            "docs/reviews/orphan-findings.md (architectural root-cause fix)."
+        )
+        evidence_refs = [
+            f"docs/reviews/orphan-findings.md#ORPHAN-{severity}-{raw_id}",
+        ]
+        affected_surfaces = ["docs/reviews/orphan-findings.md"]
+    else:  # F_FINDING
+        path = sanitize_untrusted_text(
+            candidate.get("path") or "", max_len=256,
+        )
+        summary = (
+            f"Process aging F-finding {candidate_id}; verify status + "
+            "land remediation if OPEN."
+        )
+        evidence_refs = [f"aria-findings/{candidate_id}.json"]
+        affected_surfaces = [f"aria-findings/{candidate_id}.json"]
+
+    content: dict[str, Any] = {
+        "schema_version": 1,
+        "title": title_hint,
+        "summary": summary,
+        "affected_surfaces": affected_surfaces,
+        "key_changes": [
+            {
+                "id": f"{candidate_id}-key-change-001",
+                "description": summary,
+                "paths": affected_surfaces,
+            },
+        ],
+        "validation_commands": [
+            {
+                "cmd": "nx affected --target=lint",
+                "timeout_ms": 600_000,
+                "expected_exit": 0,
+            },
+            {
+                "cmd": "nx affected --target=test",
+                "timeout_ms": 1_800_000,
+                "expected_exit": 0,
+            },
+        ],
+        "evidence_refs": evidence_refs,
+    }
+    metadata: dict[str, Any] = {
+        "_pressure_source_type": source_type,
+        "_candidate_id": candidate_id,
+    }
+    return CyclePlanEnvelope(content=content, metadata=metadata)
 
 
 def _normalize_validation_commands(commands: list[dict[str, Any]]) -> tuple[str, ...]:

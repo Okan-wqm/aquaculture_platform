@@ -95,6 +95,128 @@ class NoOpPlanContentProvider:
         return None
 
 
+class V7GitDiffProvider:
+    """Plan ARIA-V3.1-A — fallback provider. Wraps the legacy V7
+    `synthesize_plan_content_from_cycle` and lifts its return value
+    into a CyclePlanEnvelope with `_pressure_source_type=git_diff`
+    metadata (closes I-V31-A-07 — V7 fallback path attributes its
+    pressure source correctly so V10.4 cost-attribution rollup
+    receives the right rollup key).
+    """
+
+    def synthesize(
+        self,
+        *,
+        cycle_id: str,
+        workspace_root: Path,
+        base_dir: Path,
+        profile: str,
+    ) -> CyclePlanEnvelope | None:
+        from ..plan_synthesizer import synthesize_plan_content_from_cycle
+        content = synthesize_plan_content_from_cycle(
+            cycle_id=cycle_id,
+            workspace_root=workspace_root,
+            base_dir=base_dir,
+        )
+        if content is None:
+            return None
+        return CyclePlanEnvelope(
+            content=dict(content),
+            metadata={"_pressure_source_type": "git_diff"},
+        )
+
+
+class V9PressureSourceProvider:
+    """Plan ARIA-V3.1-A — production provider. Iterates the V9.4
+    5-source ranked candidate list (OPERATOR_FEEDBACK > FAILING_CI
+    > ORPHAN_FINDING > F_FINDING > GIT_DIFF) and converts the first
+    successfully-yielding candidate to a CyclePlanEnvelope.
+
+    Iterative fallback (closes H-2): if `convert_candidate_to_plan_content`
+    returns None for the first candidate, the provider continues
+    through ALL ranked candidates before delegating to the V7
+    git_diff fallback. Pre-V3.1-A, the synthesizer fell back to V7
+    immediately on the first None — operator feedback was silently
+    bypassed when ORPHAN/F-finding ranking pulled it down + the
+    operator's high-priority row missed a content field.
+
+    Profile-aware fail-fast (closes H-14): under `profile ==
+    "autonomous"` the provider raises GovernanceError when ALL V9.4
+    candidates fail conversion. The autonomous gate is operator-
+    explicit; a silent V7 fallback would mask the V9.4 surface
+    incompletely shipped. Under strict/standard/observe/frozen the
+    provider falls through to the V7 git_diff fallback.
+
+    Tier-1 anchor: the per-candidate `plan_candidate_conversion_skipped`
+    governance event lands EVERY skip, so the operator audit trail
+    captures the iteration history.
+    """
+
+    def __init__(self, *, fallback: "PlanContentProvider | None" = None) -> None:
+        self._fallback = fallback or V7GitDiffProvider()
+
+    def synthesize(
+        self,
+        *,
+        cycle_id: str,
+        workspace_root: Path,
+        base_dir: Path,
+        profile: str,
+    ) -> CyclePlanEnvelope | None:
+        from ..plan_synthesizer import (
+            convert_candidate_to_plan_content,
+            rank_candidate_sources,
+        )
+        from ..tool_registry import (
+            GovernanceError, append_tools_governance,
+        )
+        candidates = rank_candidate_sources(workspace_root=workspace_root)
+        attempted = 0
+        for candidate in candidates:
+            envelope = convert_candidate_to_plan_content(candidate)
+            attempted += 1
+            if envelope is not None:
+                append_tools_governance(
+                    base_dir, "plan_candidate_source_selected",
+                    {
+                        "cycle_id": cycle_id,
+                        "candidate_id": envelope.metadata.get("_candidate_id"),
+                        "source_type": envelope.metadata.get("_pressure_source_type"),
+                        "attempted": attempted,
+                    },
+                )
+                return envelope
+            append_tools_governance(
+                base_dir, "plan_candidate_conversion_skipped",
+                {
+                    "cycle_id": cycle_id,
+                    "candidate_id": candidate.get("candidate_id"),
+                    "source_type": candidate.get("source_type"),
+                },
+            )
+        # All V9.4 candidates failed conversion.
+        if profile == "autonomous":
+            append_tools_governance(
+                base_dir, "autonomy_orchestrator_refused",
+                {
+                    "reason": "v9_4_source_conversion_failed_for_all_candidates",
+                    "attempted": attempted,
+                },
+                bypass_profile_gate=True,
+            )
+            raise GovernanceError(
+                f"v9_4_source_conversion_failed_for_all_candidates: "
+                f"{attempted} attempted"
+            )
+        # Non-autonomous: soft-fall to V7 git_diff (preserves V8 behavior).
+        return self._fallback.synthesize(
+            cycle_id=cycle_id,
+            workspace_root=workspace_root,
+            base_dir=base_dir,
+            profile=profile,
+        )
+
+
 def envelope_from_plan_content(
     plan_content: Mapping[str, Any] | None,
     *,
@@ -121,5 +243,7 @@ __all__ = [
     "CyclePlanEnvelope",
     "NoOpPlanContentProvider",
     "PlanContentProvider",
+    "V7GitDiffProvider",
+    "V9PressureSourceProvider",
     "envelope_from_plan_content",
 ]

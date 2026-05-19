@@ -194,8 +194,8 @@
     {
       "id": "F-015-V31-A",
       "title": "Plan v3.1-A — Plan source mining wire (envelope/content split + iterative fallback + sanitize_untrusted_text)",
-      "status": "OPEN",
-      "note": "Closes C-5 (ORPHAN body injection), H-2 (iterative fallback), H-8 (envelope/content split), H-14 (fail-fast under autonomous)."
+      "status": "RESOLVED",
+      "note": "plan_synthesizer.convert_candidate_to_plan_content converts 4 non-git_diff candidate shapes into CyclePlanEnvelope (content/metadata split closes H-8). Every external-source string runs through text_safety.sanitize_untrusted_text (closes C-5). V9PressureSourceProvider iterates ALL ranked candidates before V7 fallback (closes H-2). Under profile=autonomous, V9 conversion failure raises GovernanceError + emits autonomy_orchestrator_refused event (closes H-14). V7GitDiffProvider sets metadata['_pressure_source_type']='git_diff'. Orchestrator wires plan_content_provider.synthesize() with legacy plan_synthesizer kwarg fallback (V8 backward-compat). 9 V3.1-A invariants GREEN."
     },
     {
       "id": "F-015-V31-B",

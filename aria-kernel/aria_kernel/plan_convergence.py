@@ -894,6 +894,67 @@ def fold_plan_state(*, plan_id: str, base_dir: str | Path | None = None) -> dict
     return state
 
 
+_ORPHAN_PENDING_STATES: frozenset[str] = frozenset({
+    "IMPLEMENTATION_REQUESTED",
+    "IMPLEMENTATION_IN_FLIGHT",
+})
+
+
+def scan_orphan_implementation_requests(
+    *,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """Plan ARIA-V3.1-B2 — find plans stuck in pre-terminal implementation
+    states (closes 6-validator H-12 orphan reaper).
+
+    A plan is "orphan" when its folded state is one of
+    `_ORPHAN_PENDING_STATES` (`IMPLEMENTATION_REQUESTED` —
+    request was minted but agent never claimed; or
+    `IMPLEMENTATION_IN_FLIGHT` — agent claimed but never returned).
+    Crash paths in the orchestrator OR the aria-implementer that
+    bypass try/finally cleanup leave plans in these states; the
+    next orchestrator startup uses this scanner to enumerate them
+    + transitions each to IMPLEMENTATION_REJECTED via
+    record_implementation_rejected("orchestrator_restart_reaped_orphan").
+
+    Returns list of dicts shaped:
+        {"plan_id": str, "state": str, "last_event_at": str | None}
+
+    Scans `plans/events.jsonl` exactly once + folds state per
+    distinct plan_id (O(N events + K plans × cached fold)).
+    """
+    root = ensure_tools_dir(base_dir)
+    events_file = root / "plans" / "events.jsonl"
+    if not events_file.exists():
+        return []
+    # Enumerate distinct plan_ids + track last_event_at per plan.
+    plan_ids: dict[str, str | None] = {}
+    for event in load_jsonl(events_file):
+        pid = event.get("plan_id")
+        if isinstance(pid, str) and pid:
+            ts = event.get("ts") or event.get("created_at")
+            if isinstance(ts, str):
+                plan_ids[pid] = ts
+            else:
+                plan_ids.setdefault(pid, None)
+    orphans: list[dict[str, Any]] = []
+    for plan_id, last_ts in plan_ids.items():
+        try:
+            state = fold_plan_state(plan_id=plan_id, base_dir=root)
+        except Exception:
+            # Bad row / unknown event_type — skip; the row-level
+            # integrity gate runs elsewhere.
+            continue
+        s = state.get("state") if isinstance(state, dict) else None
+        if isinstance(s, str) and s in _ORPHAN_PENDING_STATES:
+            orphans.append({
+                "plan_id": plan_id,
+                "state": s,
+                "last_event_at": last_ts,
+            })
+    return orphans
+
+
 def content_hash(payload: Any) -> str:
     return "sha256:" + hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
 

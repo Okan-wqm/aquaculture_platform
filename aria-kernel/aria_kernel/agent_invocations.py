@@ -94,6 +94,15 @@ def create_agent_invocation_request(
     context_window_tokens_override: int | None = None,
     role_cap_override: dict[str, float] | None = None,
     plan_revision_hash: str | None = None,
+    # Plan ARIA-V3.1-B2 — V9 cycle + plan-source provenance threading.
+    # Additive optional fields (no schema_version bump needed; legacy
+    # readers ignore unknown keys, new readers see None for old rows).
+    # The V3.1-A pressure_source_type flows from CyclePlanEnvelope.metadata
+    # through the orchestrator into every agent invocation; cycle_id
+    # binds the request to its originating autonomy cycle for V10.4
+    # cost-attribution + V10.3-B endurance audit.
+    cycle_id: str | None = None,
+    pressure_source_type: str | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -198,6 +207,14 @@ def create_agent_invocation_request(
         # callers (the request_state_legacy_unmigrated reject still
         # fires for legacy fields, not for this new optional field).
         "plan_revision_hash": plan_revision_hash,
+        # Plan ARIA-V3.1-B2 — additive provenance fields. cycle_id
+        # binds the request to its originating autonomy cycle;
+        # pressure_source_type carries the V9.4 pressure ranking
+        # source (operator_feedback / failing_ci / orphan_finding /
+        # f_finding / git_diff) from CyclePlanEnvelope.metadata.
+        # Legacy rows return None on read — no upcaster needed.
+        "cycle_id": cycle_id,
+        "pressure_source_type": pressure_source_type,
     }
     # Plan 024 §B-2 — when the caller opted out of strict enforcement,
     # emit a governance event capturing target_agent + role + missing

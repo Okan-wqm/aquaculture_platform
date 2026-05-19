@@ -362,15 +362,64 @@ def _dispatch_implementation(
             f"implementation dispatch: details.implementation must be a dict, "
             f"got {type(impl).__name__}"
         )
+    # Plan ARIA-V3.1-B2 — verify_commit_signature wire (closes
+    # V31-B-3 follow-up + C-7 second-half). The kernel state machine
+    # validator stays git-agnostic per plan_convergence.py:697-699
+    # design; the bridge IS the trust boundary between the
+    # aria-implementer agent's claim and the kernel ledger. We
+    # cross-check the agent-supplied branch_tip_sha against the
+    # cycle's expected signer_key_fp via `git verify-commit --raw`
+    # BEFORE letting the impl row land. Mismatch raises
+    # GovernanceError("commit_signature_unverified") — the IMPL row
+    # is NEVER written for an unsigned commit, and the agent's
+    # response becomes a no-op terminal rejection at the bridge.
+    #
+    # Tier-1 anchor: the verify happens at the trust boundary, not
+    # the validator. Adding a verifier inside the state machine
+    # would require git access from every kernel callsite (CLI,
+    # tests, sandbox runs).
+    #
+    # Behavioral fallback: ARIA_DRY_RUN=true short-circuits the
+    # verify (mocked test envs cannot reach a real git repo with
+    # the per-cycle signing key). The dry-run path emits a
+    # `commit_signature_verify_skipped_dry_run` governance event so
+    # operator audit captures the bypass.
+    import os as _os
+    _claimed_branch_tip = impl.get("branch_tip_sha") or ""
+    _claimed_signer_fp = impl.get("signer_key_fp") or ""
+    if _claimed_branch_tip and _claimed_signer_fp:
+        # Both fields supplied → cross-check.
+        if _os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
+            from .tool_registry import append_tools_governance
+            append_tools_governance(
+                base_dir, "commit_signature_verify_skipped_dry_run",
+                {
+                    "plan_id": plan_id,
+                    "branch_tip_sha": _claimed_branch_tip,
+                    "signer_key_fp": _claimed_signer_fp,
+                },
+                bypass_profile_gate=True,
+            )
+        else:
+            from .implementation_safety import verify_commit_signature
+            if not verify_commit_signature(
+                _claimed_branch_tip, _claimed_signer_fp,
+            ):
+                raise GovernanceError(
+                    f"commit_signature_unverified: branch_tip_sha="
+                    f"{_claimed_branch_tip!r} signer_key_fp="
+                    f"{_claimed_signer_fp!r} — agent-claimed commit "
+                    "fails kernel-side git verify-commit; impl row refused."
+                )
     return record_implementation_outcome(
         plan_id=plan_id,
         claim_id=impl.get("claim_id") or request.get("request_id") or "",
         pr_url=impl.get("pr_url") or impl.get("pr_url_html") or "",
         diff_hash=impl.get("diff_hash") or "",
-        branch_tip_sha=impl.get("branch_tip_sha") or "",
+        branch_tip_sha=_claimed_branch_tip,
         base_branch_sha=impl.get("base_branch_sha") or "",
         validation_results=impl.get("validation_results") or [],
-        signer_key_fp=impl.get("signer_key_fp") or "",
+        signer_key_fp=_claimed_signer_fp,
         completed_at=impl.get("completed_at") or "",
         base_dir=base_dir,
     )

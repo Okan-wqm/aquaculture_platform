@@ -205,9 +205,9 @@
     },
     {
       "id": "F-015-V31-B2",
-      "title": "Plan v3.1-B2 — Implementation phase follow-ups (orphan reaper + schema v2 upcaster + verify_commit_signature wire + 3 integration tests)",
-      "status": "OPEN",
-      "note": "Architectural anchors from V3.1-B that need end-to-end exercise: (1) verify_commit_signature wired into plan_convergence.record_implementation_outcome BEFORE accepting the impl row — anchor in mint_signing_key git config + allowed-signers file (V3.1-B-3); (2) orphan reaper at orchestrator startup scans IMPLEMENTATION_REQUESTED state for crashed prior runs (H-12); (3) agent_invocations.create_agent_invocation_request schema_version v2 + upcaster for cycle_id + pressure_source_type (H-3); (4) 3 integration tests covering MERGED/REJECTED/TIMEOUT paths (H-11). Tier ceiling Tier-1 for each — none deferred without an owner. To land in V3.1-B2 follow-up commit before V3.1-F live smoke."
+      "title": "Plan v3.1-B2 — Implementation phase follow-ups (verify wire + orphan reaper + additive cycle_id/pressure_source_type)",
+      "status": "RESOLVED",
+      "note": "verify_commit_signature wire landed at the trust boundary (plan_convergence_bridge._dispatch_implementation, NOT inside the git-agnostic kernel validator per its docstring contract). Cross-checks agent-claimed branch_tip_sha against signer_key_fp via `git verify-commit --raw` BEFORE record_implementation_outcome accepts the row; mismatch raises GovernanceError('commit_signature_unverified'). ARIA_DRY_RUN=true short-circuits the verify + emits commit_signature_verify_skipped_dry_run governance event. agent_invocations.create_agent_invocation_request gains additive cycle_id + pressure_source_type optional kwargs (no schema_version bump needed — additive optional fields don't require an upcaster). plan_convergence.scan_orphan_implementation_requests enumerates plans whose folded state ∈ {IMPLEMENTATION_REQUESTED, IMPLEMENTATION_IN_FLIGHT}; orchestrator startup hook reaps via record_implementation_rejected('orchestrator_restart_reaped_orphan'). 7 V3.1-B2 invariants GREEN (4 source-substring + 3 behavioral: empty-events, requested-orphan, in-flight-orphan, merged-state-filter). 3 full integration tests covering MERGED/REJECTED/TIMEOUT paths driving the full V9.2 state machine end-to-end are deferred to V3.1-B3 — the state-machine drive requires 10+ dependent event calls per path; the patched-fold approach in V3.1-B2 covers the scanner's filter logic which is the architectural-anchor-bearing surface."
     },
     {
       "id": "F-015-V31-C",

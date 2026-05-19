@@ -16,7 +16,7 @@ import { VfdAuditAction } from '../../vfd/entities/vfd.enums';
  * No UpdateDateColumn — records are never modified after creation.
  */
 @ObjectType({ description: 'Immutable VFD parameter change audit log' })
-@Entity('vfd_parameter_audit_logs', { schema: 'sensor' })
+@Entity('vfd_parameter_audit_logs')
 @Index(['tenantId', 'vfdDeviceId', 'timestamp'])
 @Index(['changeSetId'])
 export class VfdParameterAuditLog {

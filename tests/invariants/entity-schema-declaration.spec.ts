@@ -134,6 +134,13 @@ const CROSS_TENANT_FILENAME_PATTERNS: readonly RegExp[] = [
   /embeddings-metadata\.entity\.ts$/i,
 ];
 
+const TENANT_OWNED_FILENAME_OVERRIDES = new Set<string>([
+  'apps/messaging-service/src/compliance/entities/compliance-audit-log.entity.ts',
+  'apps/messaging-service/src/compliance/entities/legal-hold.entity.ts',
+  'apps/messaging-service/src/compliance/entities/retention-policy.entity.ts',
+  'apps/sensor-service/src/vfd-programming/entities/vfd-parameter-audit-log.entity.ts',
+]);
+
 interface Violation {
   file: string;
   reason: string;
@@ -162,6 +169,7 @@ function getServiceFromPath(relativePath: string): string | null {
 }
 
 function isCrossTenantFilename(relativePath: string): boolean {
+  if (TENANT_OWNED_FILENAME_OVERRIDES.has(relativePath)) return false;
   const base = basename(relativePath);
   return CROSS_TENANT_FILENAME_PATTERNS.some((re) => re.test(base));
 }

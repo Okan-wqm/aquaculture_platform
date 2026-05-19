@@ -89,7 +89,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     infrastructureTables: [
       'migrations',
       'sensor_audit_logs',
-      'vfd_parameter_audit_logs',
     ],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
@@ -109,6 +108,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'vfd_change_sets',
       'vfd_change_set_items',
       'vfd_automation_rules',
+      'vfd_parameter_audit_logs',
 
       // Dashboard & Edge devices
       'dashboard_layouts',
@@ -474,9 +474,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'migrations',
       'messaging_outbox',
       'embeddings_metadata',
-      'retention_policies',
-      'legal_holds',
-      'compliance_audit_log',
     ],
     referenceDataTables: [],
     tables: [
@@ -493,6 +490,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'message_entity_references',
       'knowledge_entries',
       // Compliance tables (migration 1711800000003)
+      'retention_policies',
+      'legal_holds',
+      'compliance_audit_log',
       'tenant_ai_settings',
       'user_ai_consents',
     ],

@@ -38,7 +38,13 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_0f886866b8ffc4d4a9bce2ad15" ON "sensor"."sensors" ("tenant_id", "site_id") `);
         await queryRunner.query(`CREATE UNIQUE INDEX "IDX_sensors_serial_number" ON "sensor"."sensors" ("serial_number") `);
         await queryRunner.query(`CREATE INDEX "IDX_0565c3267d3cb4204a1757c1b7" ON "sensor"."sensors" ("tenant_id", "status") `);
-        await queryRunner.query(`CREATE TABLE "sensor"."sensor_readings" ("id" uuid NOT NULL, "sensor_id" character varying NOT NULL, "tenant_id" uuid NOT NULL, "timestamp" TIMESTAMP WITH TIME ZONE NOT NULL, "readings" jsonb NOT NULL, "pond_id" character varying, "farm_id" character varying, "quality" numeric(10,2), "source" character varying, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_ae97fcc8df9e5662d9d007d102b" PRIMARY KEY ("id"))`);
+        // PK is composite (id, timestamp) — TimescaleDB hypertable contract
+        // requires the partition column ("timestamp") to be in every
+        // UNIQUE INDEX on the table. The entity at
+        // apps/sensor-service/src/database/entities/sensor-reading.entity.ts
+        // mirrors this composite PK via two @PrimaryColumn decorators.
+        // See the entity docblock for the federation + query-by-id rationale.
+        await queryRunner.query(`CREATE TABLE "sensor"."sensor_readings" ("id" uuid NOT NULL, "sensor_id" character varying NOT NULL, "tenant_id" uuid NOT NULL, "timestamp" TIMESTAMP WITH TIME ZONE NOT NULL, "readings" jsonb NOT NULL, "pond_id" character varying, "farm_id" character varying, "quality" numeric(10,2), "source" character varying, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_ae97fcc8df9e5662d9d007d102b" PRIMARY KEY ("id", "timestamp"))`);
         await queryRunner.query(`CREATE INDEX "IDX_d1df5a824e4467f5a645d7b362" ON "sensor"."sensor_readings" ("sensor_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_9417244ed127d5ef9f2b46750a" ON "sensor"."sensor_readings" ("tenant_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_09d7dd109cd8f0f1a59aaac78a" ON "sensor"."sensor_readings" ("timestamp") `);

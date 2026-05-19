@@ -158,7 +158,9 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
     originalUrl?: string;
     url?: string;
   }): string {
-    const raw = req.path ?? req.originalUrl ?? req.url ?? '/';
+    // Use the full wire path when Express has mounted a route and `path`
+    // becomes mount-relative. This must match ServiceIdentityGuard.
+    const raw = req.originalUrl ?? req.url ?? req.path ?? '/';
     const qIdx = raw.indexOf('?');
     return qIdx === -1 ? raw : raw.slice(0, qIdx);
   }

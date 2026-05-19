@@ -20,7 +20,10 @@ import * as crypto from 'crypto';
 import supertest from 'supertest';
 import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import {
+  getTenantSchemaName,
+  tenantMigrationLedgerTable,
+} from '@aquaculture/backend-common/database';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
 import { generateServiceIdentityHeadersV2 } from '@aquaculture/backend-common/utils';
 import { NatsEventBus } from '@platform/event-bus';
@@ -380,6 +383,8 @@ export async function setupTenantSchemas(
       }
     }
 
+    await backfillTenantMigrationLedger(dataSource, sourceSchema, schemaName);
+
     // Partitions for `messages` / `message_receipts` are created by
     // PartitionManagerService.onApplicationBootstrap (the runtime SSoT).
     // Per INFRA-CRITICAL-012, the test fixture must NOT create its own
@@ -389,6 +394,43 @@ export async function setupTenantSchemas(
     // PartitionManagerService runs at app bootstrap inside the test's
     // createE2eTestApp() flow and ensures current + next 2 months exist.
   }
+}
+
+async function backfillTenantMigrationLedger(
+  dataSource: DataSource,
+  sourceSchema: string,
+  tenantSchema: string,
+): Promise<void> {
+  const ledgerTable = tenantMigrationLedgerTable(sourceSchema);
+  const [sourceLedger] = await dataSource.query(
+    `SELECT to_regclass($1) AS regclass`,
+    [`${sourceSchema}.migrations`],
+  );
+
+  if (!sourceLedger?.regclass) {
+    return;
+  }
+
+  await dataSource.query(`
+    CREATE TABLE IF NOT EXISTS "${tenantSchema}"."${ledgerTable}" (
+      "id" SERIAL PRIMARY KEY,
+      "timestamp" BIGINT NOT NULL,
+      "name" CHARACTER VARYING NOT NULL
+    )
+  `);
+
+  await dataSource.query(`
+    INSERT INTO "${tenantSchema}"."${ledgerTable}" ("timestamp", "name")
+    SELECT source."timestamp", source."name"
+    FROM "${sourceSchema}"."migrations" source
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM "${tenantSchema}"."${ledgerTable}" tenant
+      WHERE tenant."timestamp" = source."timestamp"
+        AND tenant."name" = source."name"
+    )
+    ORDER BY source."id"
+  `);
 }
 
 /**

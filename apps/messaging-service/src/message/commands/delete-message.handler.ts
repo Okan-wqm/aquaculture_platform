@@ -58,7 +58,11 @@ export class DeleteMessageHandler implements ICommandHandler<DeleteMessageComman
       }
 
       // 3. Legal hold check — must precede any state change.
-      const isHeld = await this.legalHoldService.isUnderLegalHold(tenantId, message.channelId);
+      const isHeld = await this.legalHoldService.isUnderLegalHold(
+        tenantId,
+        message.channelId,
+        manager,
+      );
       if (isHeld) {
         throw new ForbiddenException(
           `Message ${messageId} cannot be deleted: channel is under an active legal hold. ` +

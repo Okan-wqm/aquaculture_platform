@@ -257,6 +257,8 @@ describe('Compliance (E2E)', () => {
             legalMatterDescription: null,
             requestedBy: null,
             expiresAt: null,
+            approverId: USER_A2,
+            releaseReason: 'Legal matter closed by counsel and preservation hold can be released safely.',
           },
         })
         .expect(200);

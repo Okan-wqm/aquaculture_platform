@@ -182,8 +182,8 @@
     {
       "id": "F-015-V31-P",
       "title": "Plan v3.1-P — Preconditions (READONLY_PATHS extension + KG lock + text_safety helpers + signing-key lifecycle)",
-      "status": "OPEN",
-      "note": "Closes C-1 (autonomous profile already in PROFILES; ADR-016 needed), C-6 (READONLY paths broader), C-9 (knowledge_graph._append_row lock-safe), C-11 (signing-key revoke + 24h pruning)."
+      "status": "RESOLVED",
+      "note": "READONLY_PATHS extended (+ tools/aria-poc, tools/aria-adapters, .git, aria-debts, aria-kernel/tests). knowledge_graph._append_row routes through with_exclusive_lock (C-9 closed; concurrent CONVERGED race impossible at syscall level). text_safety.py ships sanitize_untrusted_text + encode_untrusted_delimited_payload (Mode B base64 — Tier-1 anchor for C-4 delimiter smuggling, C-5 ORPHAN injection precondition). gh_token_factory adds revoke_signing_key + prune_stale_signing_keys (C-11 closed — keys cleaned try/finally + 24h orphan reaper). autonomous profile already in PROFILES (V9.0-C wire-up; no ADR-016 needed — semantic baked in code + invariant pin). 14 V3.1-P invariants GREEN."
     },
     {
       "id": "F-015-V31-E",

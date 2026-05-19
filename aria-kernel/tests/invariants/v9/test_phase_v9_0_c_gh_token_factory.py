@@ -190,7 +190,18 @@ class TestV9InstallationTokenFactory(unittest.TestCase):
 class TestV9TokenFactoryPublicApi(unittest.TestCase):
 
     def test_i_v9_token_factory_all_exports(self):
-        """__all__ MUST contain the 5 canonical symbols."""
+        """__all__ MUST contain the 7 canonical symbols.
+
+        Plan ARIA-V9.0-C baseline pinned 5 symbols
+        (SigningKey, InstallationTokenLease, mint_signing_key,
+        mint_installation_token, revoke_installation_token).
+
+        Plan ARIA-V3.1-P-6 (closes 6-validator audit C-11 R-V31-4)
+        extends the surface by 2 — revoke_signing_key (per-cycle
+        keypair cleanup) + prune_stale_signing_keys (orchestrator
+        startup orphan reaper). The V3.1-P-extended contract is the
+        new SSoT.
+        """
         self.assertEqual(
             set(_tf.__all__),
             {
@@ -198,7 +209,9 @@ class TestV9TokenFactoryPublicApi(unittest.TestCase):
                 "InstallationTokenLease",
                 "mint_signing_key",
                 "mint_installation_token",
+                "prune_stale_signing_keys",
                 "revoke_installation_token",
+                "revoke_signing_key",
             },
             "gh_token_factory.__all__ drifted",
         )

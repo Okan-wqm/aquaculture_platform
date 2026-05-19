@@ -68,6 +68,15 @@ READONLY_PATHS: tuple[str, ...] = (
     "aria-kernel/tests/invariants/",  # invariant test self-mod
     ".gitignore",               # gitignore self-edit (operator-only)
     "tools/gates/",             # commit-msg validator self-mod
+    # Plan ARIA-V3.1-P-1 — extended trust boundary (closes 6-validator
+    # audit C-6). Every entry below is reachable from aria-implementer
+    # Bash dispatch unless explicitly blocked by the bwrap --ro-bind
+    # mount layer (wrap_bash_in_sandbox iterates READONLY_PATHS).
+    "tools/aria-poc/",          # ci_executor + canonical envelopes
+    "tools/aria-adapters/",     # adapter trust boundary
+    ".git/",                    # git plumbing self-mod (refs, objects, hooks)
+    "aria-debts/",              # signing keys + installation tokens
+    "aria-kernel/tests/",       # broaden from invariants/ — kernel tests read-only
 )
 
 # Plan ARIA-V9.0-D — ALLOWED_BASH_COMMANDS regex allowlist (NOT

@@ -212,19 +212,40 @@ def _quarantine(path: Path, *, reason: str) -> None:
 
 def _append_row(path: Path, row: dict[str, Any]) -> None:
     """Append a single row to ``path``, computing prev_row_hash from
-    the existing tail (or GENESIS_PREV_HASH on empty)."""
-    if path.exists() and path.stat().st_size > 0:
-        # Find the last non-empty line + compute its hash
-        last_row: dict[str, Any] | None = None
-        for parsed in _read_jsonl_strict(path):
-            last_row = parsed
-        prev = _row_hash(last_row) if last_row else GENESIS_PREV_HASH
-    else:
-        prev = GENESIS_PREV_HASH
-    row_with_chain = {**row, "prev_row_hash": prev}
+    the existing tail (or GENESIS_PREV_HASH on empty).
+
+    Plan ARIA-V3.1-P-3 (closes 6-validator audit C-9): the read-tail-
+    then-append sequence is wrapped in ``with_exclusive_lock(path)``
+    so two concurrent CONVERGED cycles cannot both compute prev_row_
+    hash against the same tail then race to append; the lock
+    serialises the read+write window. The hash-chain logic is
+    unchanged — the lock just makes the chain construction race-free
+    at the syscall level (Tier-1 anchor).
+
+    The lock is acquired AGAINST the target file's side-car
+    `<path>.lock`; verify_chain_or_quarantine is the Tier-3 detect
+    primitive called by the consumption side (NOT here) so a
+    concurrent reader sees a complete row OR an empty file, never a
+    partial tail.
+    """
+    # Plan ARIA-V3.1-P-3 — lazy import keeps this module
+    # cold-startable under hermetic env (the `file_lock` module
+    # imports fcntl which is POSIX-only; macOS/Linux dev hosts
+    # only).
+    from .file_lock import with_exclusive_lock
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(row_with_chain, sort_keys=True, separators=(",", ":")) + "\n")
+    with with_exclusive_lock(path):
+        if path.exists() and path.stat().st_size > 0:
+            # Find the last non-empty line + compute its hash
+            last_row: dict[str, Any] | None = None
+            for parsed in _read_jsonl_strict(path):
+                last_row = parsed
+            prev = _row_hash(last_row) if last_row else GENESIS_PREV_HASH
+        else:
+            prev = GENESIS_PREV_HASH
+        row_with_chain = {**row, "prev_row_hash": prev}
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row_with_chain, sort_keys=True, separators=(",", ":")) + "\n")
 
 
 # ============================================================================

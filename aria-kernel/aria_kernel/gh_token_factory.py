@@ -307,6 +307,100 @@ def mint_installation_token(
     )
 
 
+def revoke_signing_key(
+    *,
+    cycle_id: str,
+    workspace_root: str | Path,
+) -> dict[str, Any]:
+    """Plan ARIA-V3.1-P-6 — per-cycle signing-key revocation.
+
+    Closes 6-validator audit C-11 (R-V31-4): ed25519 keypairs minted
+    by `mint_signing_key` persisted to `aria-debts/keys/<cycle_id>`
+    indefinitely. The V3.1-B AutonomousV9ImplementationRunner calls
+    this helper inside a `try/finally` so the keypair lifetime equals
+    the implementation phase wall-clock (typically <30min), not
+    "until disk fills".
+
+    Files removed (idempotent, best-effort):
+      * `aria-debts/keys/<cycle_id>` — private key (mode 0600)
+      * `aria-debts/keys/<cycle_id>.pub` — public key
+      * `aria-debts/keys/<cycle_id>.token` — co-located installation
+        token if revoke_installation_token wasn't called explicitly
+
+    Returns a summary dict shaped for cycle_summary inclusion:
+      ``{"removed": [...], "missing": [...]}``.
+
+    Tier-1 (Make impossible — once try/finally is wired, key cannot
+    outlive the cycle). Tier-3 (Detect — `prune_stale_signing_keys`
+    catches orphans missed by try/finally crash paths).
+    """
+    _validate_cycle_id(cycle_id)
+    keys_dir = _keys_dir(workspace_root)
+    targets = (
+        keys_dir / cycle_id,
+        keys_dir / f"{cycle_id}.pub",
+        keys_dir / f"{cycle_id}.token",
+    )
+    removed: list[str] = []
+    missing: list[str] = []
+    for target in targets:
+        try:
+            target.unlink()
+            removed.append(target.name)
+        except FileNotFoundError:
+            missing.append(target.name)
+        except OSError:
+            # Permission / immutable bit — best-effort, surface to
+            # caller via missing list so cycle_summary captures the
+            # operator-attention case.
+            missing.append(target.name)
+    return {"removed": removed, "missing": missing}
+
+
+def prune_stale_signing_keys(
+    *,
+    workspace_root: str | Path,
+    max_age_seconds: float = 24 * 3600.0,
+) -> dict[str, Any]:
+    """Plan ARIA-V3.1-P-6 — orchestrator-startup pass for orphan keys.
+
+    Closes 6-validator audit C-11 (R-V31-4) the orphan path: if a
+    prior orchestrator process crashed BEFORE revoke_signing_key
+    fired, the keypair remains on disk. The orchestrator's startup
+    hook calls this helper with the default 24h grace window; entries
+    older than the cutoff are unlinked + counted in the returned
+    summary (caller emits `keys_pruned` governance event with the
+    count).
+
+    Returns ``{"scanned": N, "pruned": [filenames], "errors": [...]}``.
+
+    Best-effort: filesystem errors (permission, immutable) are
+    accumulated in the `errors` list rather than raised, so a
+    misconfigured workspace cannot block orchestrator startup.
+    """
+    keys_dir = Path(workspace_root) / "aria-debts" / "keys"
+    if not keys_dir.exists():
+        return {"scanned": 0, "pruned": [], "errors": []}
+    import time as _time
+    now = _time.time()
+    pruned: list[str] = []
+    errors: list[dict[str, str]] = []
+    scanned = 0
+    for entry in keys_dir.iterdir():
+        if not entry.is_file():
+            continue
+        scanned += 1
+        try:
+            mtime = entry.stat().st_mtime
+            if now - mtime < max_age_seconds:
+                continue
+            entry.unlink()
+            pruned.append(entry.name)
+        except OSError as exc:
+            errors.append({"name": entry.name, "error": str(exc)[:200]})
+    return {"scanned": scanned, "pruned": pruned, "errors": errors}
+
+
 def revoke_installation_token(*, lease: InstallationTokenLease) -> None:
     """Best-effort revocation of a per-cycle installation token.
 
@@ -338,5 +432,7 @@ __all__ = (
     "InstallationTokenLease",
     "mint_signing_key",
     "mint_installation_token",
+    "prune_stale_signing_keys",
     "revoke_installation_token",
+    "revoke_signing_key",
 )

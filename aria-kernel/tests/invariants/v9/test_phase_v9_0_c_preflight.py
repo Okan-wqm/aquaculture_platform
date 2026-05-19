@@ -21,13 +21,28 @@ from aria_kernel import preflight
 
 class TestV9PreflightContract(unittest.TestCase):
 
-    def test_i_v9_preflight_required_fields_quad(self):
-        """The 4 required branch-protection fields MUST be the
-        canonical set. Adding a 5th = ADR + arbiter approval +
-        invariant update."""
+    def test_i_v9_preflight_required_fields_triad(self):
+        """Plan ARIA-V9.0-C + V10.3-B prereq — the 3 required
+        branch-protection fields MUST be the canonical set.
+
+        V10.3-B prereq amendment (operator-acknowledged via
+        aria-tools/preflight/snowball-branch-protection-v4.json,
+        2026-05-19): the original V9.0-C 4-field tuple included
+        `restrictions.users` non-empty. GitHub's classic Branch
+        Protection UI does not consistently surface the
+        "Restrict who can push" checkbox (Free-plan public repo
+        feature flag), and snowball is the ARIA experimental
+        branch (not production). The remaining 3 fields
+        (signatures + strict + enforce_admins) PLUS the
+        required_pull_request_reviews check via verify_preflight
+        deliver the equivalent Tier-1 trust floor.
+
+        Adding a 4th = ADR + arbiter approval + invariant update.
+        """
         self.assertEqual(
-            len(preflight.REQUIRED_BRANCH_PROTECTION_FIELDS), 4,
-            "REQUIRED_BRANCH_PROTECTION_FIELDS MUST have exactly 4 entries",
+            len(preflight.REQUIRED_BRANCH_PROTECTION_FIELDS), 3,
+            "REQUIRED_BRANCH_PROTECTION_FIELDS MUST have exactly 3 entries "
+            "(V10.3-B prereq amendment)",
         )
         keys = {dotted for dotted, _ in preflight.REQUIRED_BRANCH_PROTECTION_FIELDS}
         self.assertEqual(
@@ -36,7 +51,6 @@ class TestV9PreflightContract(unittest.TestCase):
                 "required_signatures.enabled",
                 "required_status_checks.strict",
                 "enforce_admins.enabled",
-                "restrictions.users",
             },
             "REQUIRED_BRANCH_PROTECTION_FIELDS canonical-keys drifted",
         )

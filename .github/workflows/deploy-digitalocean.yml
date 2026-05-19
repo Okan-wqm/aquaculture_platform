@@ -832,7 +832,16 @@ jobs:
             SERVICE_NAME=${{ matrix.service }}
           # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main-v2
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main-v2,mode=max
+          # ORPHAN-HIGH-079 — GHCR cache-write transient class.
+          # `cache-to: type=registry` writes a buildcache manifest to GHCR
+          # after every successful build. A transient GHCR 502/network blip
+          # on the manifest HEAD/PUT aborts the entire matrix shard AFTER
+          # the image itself built + pushed successfully — pure waste.
+          # `ignore-error=true` (docker/build-push-action v6 supported)
+          # downgrades cache-write failures to a warning: image is still
+          # pushed; next build runs with one less cached layer. The cache
+          # class is an optimization, not a correctness gate.
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main-v2,mode=max,ignore-error=true
 
   # ===========================================================================
   # Build Frontend Docker Images (dynamic matrix — affected only)
@@ -930,7 +939,8 @@ jobs:
             MODULE_PATH=${{ matrix.module_path }}
           # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2,mode=max
+          # ORPHAN-HIGH-079 — same cache-write transient class as backend matrix above.
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2,mode=max,ignore-error=true
 
   # ===========================================================================
   # Deploy to DigitalOcean Droplet (selective — affected services only)

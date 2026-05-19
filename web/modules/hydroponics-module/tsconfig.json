@@ -18,7 +18,8 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@aquaculture/shared-ui": ["../../shared-ui/src"]
     }
   },
   "include": ["src"],

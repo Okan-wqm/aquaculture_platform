@@ -875,6 +875,33 @@ jobs:
   # which override this caller's contents:read constraint.
   # ---------------------------------------------------------------------------
   deploy:
+    # ARCH-CI-016 — reusable-workflow caller permission elevation.
+    #
+    # The called workflow `deploy-digitalocean.yml` declares
+    #   contents: write   (push deployed/production tag)
+    #   packages: write   (push GHCR images)
+    #   id-token: write   (OIDC auth)
+    # GitHub Actions inherits permissions FROM the caller into the called
+    # workflow; a called workflow can LOWER but never RAISE the caller's
+    # permission scope. This workflow's top-level `permissions: contents: read`
+    # is therefore too narrow — every push-to-main run since PR #293's
+    # deploy-chain restoration aborts BEFORE the deploy job starts with
+    # `startup_failure` and no surfaced log (the validation phase rejects
+    # the call before any job container boots).
+    #
+    # The job-level permissions block below is the architecturally correct
+    # fix: scope the elevation to JUST this one job (deploy), keep the
+    # top-level read-only posture for every other job, and make the
+    # caller→called permission relationship a static, reviewable contract.
+    #
+    # SSoT pair invariant: adding/removing a permission to
+    # deploy-digitalocean.yml's top-level permissions block MUST be
+    # mirrored here in the same PR — otherwise the next push-to-main
+    # reintroduces startup_failure on the new permission delta.
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
     needs: [detect-changes, install]
     if: |
       github.event_name == 'push' &&

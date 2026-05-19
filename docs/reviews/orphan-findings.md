@@ -3662,3 +3662,26 @@ Fix (Tier 1 Make-Automatic):
 Status: RESOLVED — `.github/workflows/deploy-digitalocean.yml` now wraps `docker login` in a 3-attempt shell retry loop with 5s/10s/15s backoff. The third-party `docker/login-action` dependency was removed in the same change; the supply-chain surface narrowed by one action. Tier 1 property: single-flake transient is absorbed inside the build step; sustained outage still fails loud with the rc of the third attempt.
 
 Numbering note: this entry was authored as ORPHAN-HIGH-076 on the `fix/ghcr-login-retry` branch before PR #293 introduced ORPHAN-CRITICAL-076 + ORPHAN-CRITICAL-077 on the same numbering line. Renumbered to 078 at rebase time to preserve the monotonic registry contract.
+
+## ORPHAN-HIGH-079 — `cache-to: type=registry` aborts entire build matrix on transient GHCR cache-write 5xx
+
+Severity: HIGH. Deploy run 26084727277 (2026-05-19 main HEAD `f20465b9`) failed at `build-backend-images (billing-service)` with:
+
+```
+#20 ERROR: error writing manifest blob: failed to open writer: unexpected status from
+HEAD request to https://ghcr.io/v2/okan-wqm/aquaculture_platform/billing-service/manifests/buildcache-main-v2: 502 Bad Gateway
+ERROR: failed to build: failed to solve: error writing manifest blob: ...
+buildx failed with: ERROR: ...
+```
+
+The image had already built + pushed successfully (`docker/build-push-action`'s `--push true` step completed). The error was raised AFTER push, during the `cache-to: type=registry,ref=…:buildcache-main-v2,mode=max` post-build cache-write step. A single GHCR 5xx on a manifest HEAD/PUT during cache write aborted the entire matrix shard and dragged the deploy down.
+
+ORPHAN-HIGH-078's GHCR-login retry wrapper does NOT cover this surface — the login step succeeded; the failure is inside `docker/build-push-action`'s buildkit cache-write phase, which is internal to the action and not externally wrappable with a shell retry.
+
+Root cause: `cache-to: type=registry,...,mode=max` treats cache-write as a build correctness gate. It is not — the buildcache layer is an optimization that accelerates subsequent builds with shared layers. A failed cache-write means the next build runs with one less cached layer (slower); it does NOT mean the current build is invalid (the image is already pushed). Coupling the two surfaces conflates an optimization-class failure with a correctness-class failure.
+
+Fix (Tier 1 Make-Automatic): append `,ignore-error=true` to every `cache-to: type=registry,...` invocation. The flag is supported by `docker/build-push-action` v6 (current SHA `471d1dc4e07e5cdedd4c2171150001c434f0b7a4`) and downgrades cache-write transients from build-fatal to warning. Image push succeeds, matrix shard succeeds, deploy proceeds.
+
+Two call sites in `.github/workflows/deploy-digitalocean.yml`: `build-backend-images` (line 835) + `build-frontend-images` (line ~933). Both updated in the same commit.
+
+Status: RESOLVED on `fix/ghcr-cache-write-ignore-error` branch.

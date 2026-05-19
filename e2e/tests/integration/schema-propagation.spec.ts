@@ -10,7 +10,7 @@
  * existing tenants, which is exactly the architectural gap closed by:
  *
  *   - WP3 (libs/backend-common MigrationRunnerService tenant fan-out)
- *   - WP4 (SchemaManagerService typeorm_migrations history seed)
+ *   - WP4 (SchemaManagerService migrations history seed)
  *   - WP5 (apps/db-migrate orchestrator tenant fan-out)
  *
  * # What this test catches
@@ -46,7 +46,11 @@
 
 import { TestDatabase } from '../../helpers/db.helper';
 
-import { TENANT_AWARE_SCHEMAS, TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE } from '@aquaculture/backend-common/database';
+import {
+  MIGRATION_LEDGER_TABLE,
+  TENANT_AWARE_SCHEMAS,
+  TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
+} from '@aquaculture/backend-common/database';
 
 const TENANT_AWARE_SOURCE_SCHEMAS = [...TENANT_AWARE_SCHEMAS] as const;
 
@@ -73,8 +77,9 @@ async function fetchSchemaColumns(
         -- TypeORM's own migration-history table is not a domain table;
         -- its row shape is identical everywhere so drift comparison is
         -- noise. Exclude.
-        AND table_name NOT IN ('typeorm_migrations')`,
-    [schema],
+        AND table_name <> $2
+        AND table_name !~ '^migrations_'`,
+    [schema, MIGRATION_LEDGER_TABLE],
   );
   const byTable = new Map<string, Set<string>>();
   for (const row of result.rows) {

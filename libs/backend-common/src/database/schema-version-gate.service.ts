@@ -11,6 +11,10 @@ import {
   createMigrationRunnerService,
   type MigrationRunnerOptions,
 } from './migration-runner';
+import {
+  MIGRATION_LEDGER_TABLE,
+  tenantMigrationLedgerTable,
+} from './migration-ledger';
 import { TENANT_AWARE_SCHEMAS } from './tenant-aware-schemas';
 
 /**
@@ -23,13 +27,13 @@ import { TENANT_AWARE_SCHEMAS } from './tenant-aware-schemas';
  *   • `DB_MIGRATE_AUTHORITATIVE=true`  (production / staging)
  *     ──────────────────────────────────────────────────────
  *     READ-ONLY mode. The provider does NOT run migrations. Instead it
- *     queries `<schema>.typeorm_migrations` to assert the ledger is at
+ *     queries `<schema>.migrations` to assert the ledger is at
  *     or past the build-time expected head. If the ledger is behind, it
  *     refuses service boot with a deterministic error pointing operators
  *     at the `aqua-db-migrate` container.
  *
- *     Rationale (Faz 1.5 of day-one baseline reset + ADR-021):
- *     two writer paths for `_migrations` is the architectural source of
+ *     Rationale (Faz 1.5 of day-one baseline reset + ADR-033):
+ *     two writer paths for migration ledgers is the architectural source of
  *     the 2026-04 HR "applied-but-not-applied" drift. By collapsing to a
  *     single writer (`aqua-db-migrate`) + N read-only gates, the silent-
  *     applied class becomes structurally impossible: no service can
@@ -63,28 +67,22 @@ import { TENANT_AWARE_SCHEMAS } from './tenant-aware-schemas';
  * The probe issues a SINGLE query:
  *
  * ```sql
- * SELECT MAX(timestamp) AS last_ts FROM <schema>.typeorm_migrations
+ * SELECT MAX(timestamp) AS last_ts FROM <schema>.migrations
  * ```
  *
  * If the result is `null` (no rows), the schema has never been
  * migrated — the container is starting against a fresh database and
  * MUST refuse boot until `aqua-db-migrate` has finalised the baseline.
  *
- * The probe deliberately does NOT compare against a baked-in expected
- * head value. The reason: baking the build-time expected head into every
- * service container creates a deployment-ordering trap (the head must
- * be updated in every consumer when a new migration lands). Instead, we
- * trust the orchestrator's exit code via the deploy pipeline — the
- * `aqua-db-migrate` container's success signal (`db_migrate_complete`,
- * see `required-signals.yaml`) is the cross-service synchronisation
- * point. The schema-version-gate's job is only to refuse boot when the
- * ledger is entirely empty (the deterministic precondition for a clean
- * deploy).
+ * The probe compares each `<schema>.migrations` head with the expected
+ * head recorded by `aqua-db-migrate` in `platform.release_ledger`. The
+ * expected head lives in the release ledger instead of in each service image
+ * so the orchestrator remains the single source of truth for the release.
  *
- * For tenant-aware services we also probe the most recent tenant schema
+ * For tenant-aware services we also probe every existing tenant schema
  * to catch the case where `db-migrate` migrated the source schema but
  * failed mid-fan-out. This is opt-in via `tenantAware: true` (auto-
- * detected from `TENANT_AWARE_SCHEMAS` for the standard 7 services).
+ * detected from `TENANT_AWARE_SCHEMAS` for the standard services).
  *
  * # SECURITY INVARIANT (carried forward)
  *
@@ -164,7 +162,7 @@ export function createSchemaVersionGate(
           `SECURITY: DATABASE_MIGRATIONS_RUN=true is incompatible with ` +
             `DB_MIGRATE_AUTHORITATIVE=true on schema "${sourceSchema}". ` +
             `In gate mode, the per-service runner MUST NOT write to ` +
-            `<schema>.typeorm_migrations — aqua-db-migrate owns the ledger. ` +
+            `<schema>.${MIGRATION_LEDGER_TABLE} — aqua-db-migrate owns the ledger. ` +
             `Set DATABASE_MIGRATIONS_RUN=false or revert to legacy mode.`,
         );
       }
@@ -180,7 +178,7 @@ export function createSchemaVersionGate(
       // diagnostic before deeper probes.
       await this.probePlatformBootstrap();
 
-      await this.probeSchema(sourceSchema);
+      await this.probeSchema(sourceSchema, MIGRATION_LEDGER_TABLE);
 
       if (tenantAware) {
         const tenantSchemas = await this.listTenantSchemas();
@@ -189,22 +187,14 @@ export function createSchemaVersionGate(
             `No tenant schemas present — source schema probe is sufficient`,
           );
         } else {
-          // Probe ONE tenant schema (the alphabetically last — a tenant
-          // created after the deploy's fan-out window) as a smoke test.
-          // We do not probe every tenant: that's the orchestrator's job
-          // during the fan-out itself, and replicating it here turns
-          // boot into an O(tenants) operation.
-          const probe = tenantSchemas[tenantSchemas.length - 1];
-          if (probe === undefined) {
-            // listTenantSchemas guarantees non-empty here, but the
-            // tuple-element access widens to `string | undefined` under
-            // strict null checks. Guard explicitly.
-            this.logger.log('Tenant schema list empty after listTenantSchemas — skipping probe');
-          } else {
-            this.logger.log(
-              `Smoke-probing tenant schema "${probe}" (1 of ${tenantSchemas.length})`,
+          this.logger.log(
+            `Probing ${tenantSchemas.length} tenant schema ledger(s)`,
+          );
+          for (const tenantSchema of tenantSchemas) {
+            await this.probeSchema(
+              tenantSchema,
+              tenantMigrationLedgerTable(sourceSchema),
             );
-            await this.probeSchema(probe);
           }
         }
       }
@@ -318,10 +308,13 @@ export function createSchemaVersionGate(
     }
 
     /**
-     * Probe a single schema's typeorm_migrations ledger. Throws if the
+     * Probe a single schema's migrations ledger. Throws if the
      * ledger is empty, the table doesn't exist, or the query fails.
      */
-    private async probeSchema(schema: string): Promise<void> {
+    private async probeSchema(
+      schema: string,
+      ledgerTable: string,
+    ): Promise<void> {
       // Schema identifier already validated at factory level OR
       // produced from tenant-schema regex match below. Re-asserting
       // the regex here defends against future code paths that might
@@ -331,20 +324,32 @@ export function createSchemaVersionGate(
           `[SchemaVersionGate:${sourceSchema}] Refusing unsafe schema name "${schema}"`,
         );
       }
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(ledgerTable)) {
+        throw new Error(
+          `[SchemaVersionGate:${sourceSchema}] Refusing unsafe ledger table "${ledgerTable}"`,
+        );
+      }
 
-      let rows: Array<{ last_ts: string | null; row_count: string }>;
+      let rows: Array<{
+        last_ts: string | null;
+        last_name: string | null;
+        row_count: string;
+      }>;
       try {
         rows = await this.dataSource.query(
-          `SELECT MAX(timestamp)::text AS last_ts,
-                  COUNT(*)::text AS row_count
-             FROM "${schema}".typeorm_migrations`,
+          `SELECT "timestamp"::text AS last_ts,
+                  "name" AS last_name,
+                  COUNT(*) OVER ()::text AS row_count
+             FROM "${schema}"."${ledgerTable}"
+            ORDER BY "timestamp" DESC, "id" DESC
+            LIMIT 1`,
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         throw new Error(
           `[SchemaVersionGate:${sourceSchema}] Ledger probe FAILED on "${schema}": ${msg}. ` +
             `Likely cause: aqua-db-migrate has not run yet, or the ` +
-            `"${schema}".typeorm_migrations table does not exist. ` +
+            `"${schema}".${ledgerTable} table does not exist. ` +
             `Confirm the orchestrator container completed (boot signal "db_migrate_complete") ` +
             `before this service starts. Service boot refused.`,
         );
@@ -352,19 +357,67 @@ export function createSchemaVersionGate(
 
       const [row] = rows;
       const lastTs = row?.last_ts ?? null;
+      const lastName = row?.last_name ?? null;
       const rowCount = parseInt(row?.row_count ?? '0', 10);
 
-      if (lastTs === null || rowCount === 0) {
+      if (lastTs === null || lastName === null || rowCount === 0) {
         throw new Error(
-          `[SchemaVersionGate:${sourceSchema}] Ledger is EMPTY on "${schema}" (rows=${rowCount}). ` +
+          `[SchemaVersionGate:${sourceSchema}] Ledger "${schema}"."${ledgerTable}" is EMPTY (rows=${rowCount}). ` +
             `aqua-db-migrate has not finalised the baseline. Service boot refused — ` +
             `wait for the orchestrator's "db_migrate_complete" signal before retrying.`,
         );
       }
 
+      await this.probeReleaseLedgerExpectedHead(schema, {
+        timestamp: lastTs,
+        name: lastName,
+      });
+
       this.logger.log(
-        `Ledger probe on "${schema}": ${rowCount} migration(s) applied, last_ts=${lastTs}`,
+        `Ledger probe on "${schema}"."${ledgerTable}": ${rowCount} migration(s) applied, last=${lastName}@${lastTs}`,
       );
+    }
+
+    private async probeReleaseLedgerExpectedHead(
+      schema: string,
+      actual: { timestamp: string; name: string },
+    ): Promise<void> {
+      const rows: Array<{
+        release_id: string;
+        expected_ts: string | null;
+        expected_name: string | null;
+      }> = await this.dataSource.query(
+        `SELECT release_id,
+                expected_heads #>> ARRAY['schemas', $1, 'timestamp'] AS expected_ts,
+                expected_heads #>> ARRAY['schemas', $1, 'name'] AS expected_name
+           FROM platform.release_ledger
+          WHERE status IN ('db_complete', 'apps_restarting', 'promoted')
+          ORDER BY updated_at DESC, started_at DESC
+          LIMIT 1`,
+        [sourceSchema],
+      );
+      const row = rows[0];
+      if (!row) {
+        throw new Error(
+          `[SchemaVersionGate:${sourceSchema}] No release ledger row with migration heads exists. ` +
+            `Service boot refused because platform.release_ledger is the deployment SSoT. ` +
+            `Run aqua-db-migrate for this release before starting services.`,
+        );
+      }
+      if (!row.expected_ts || !row.expected_name) {
+        throw new Error(
+          `[SchemaVersionGate:${sourceSchema}] Release ${row.release_id} does not declare an expected ` +
+            `head for source schema "${sourceSchema}". Service boot refused.`,
+        );
+      }
+      if (row.expected_ts !== actual.timestamp || row.expected_name !== actual.name) {
+        throw new Error(
+          `[SchemaVersionGate:${sourceSchema}] Ledger head mismatch on "${schema}". ` +
+            `release=${row.release_id} expected=${row.expected_name}@${row.expected_ts} ` +
+            `actual=${actual.name}@${actual.timestamp}. ` +
+            `aqua-db-migrate did not apply the expected release head to this schema.`,
+        );
+      }
     }
 
     /**

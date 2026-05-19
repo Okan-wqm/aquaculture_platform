@@ -35,7 +35,7 @@ export class AlertHistory {
   ruleName!: string;
 
   @Field()
-  @Column({ name: 'tenant_id' })
+  @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   tenantId!: string;
 

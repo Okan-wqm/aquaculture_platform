@@ -243,7 +243,7 @@ jobs:
           # Mirrors the FULL_DEPLOY=true path of prod so staging == prod compiler
           # output for the commit being promoted.
           npx nx run-many -t build \
-            --projects=gateway-api,auth-service,farm-service,sensor-service,admin-api-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service,observability-service,config-service,messaging-service \
+            --projects=db-migrate,gateway-api,auth-service,farm-service,sensor-service,admin-api-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service,observability-service,config-service,messaging-service \
             --parallel=3
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
@@ -365,6 +365,7 @@ jobs:
       max-parallel: 6
       matrix:
         service:
+          - db-migrate
           - gateway-api
           - auth-service
           - farm-service
@@ -406,7 +407,7 @@ jobs:
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
-          file: infrastructure/docker/Dockerfile.backend.simple
+          file: ${{ matrix.service == 'db-migrate' && 'infrastructure/docker/Dockerfile.db-migrate' || 'infrastructure/docker/Dockerfile.backend.simple' }}
           push: true
           tags: |
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:${{ needs.prepare.outputs.image_tag }}
@@ -606,7 +607,7 @@ jobs:
 
             # Pull new images using merged compose
             echo "=== Pulling staging images ==="
-            docker compose $COMPOSE_ARGS pull || true
+            docker compose $COMPOSE_ARGS pull
 
             # Up with no rebuild (images pulled from GHCR)
             echo "=== Starting staging stack ==="

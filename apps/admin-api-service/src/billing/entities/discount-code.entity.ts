@@ -150,7 +150,7 @@ export class DiscountRedemption {
   @Column('uuid')
   discountCodeId!: string;
 
-  @Column()
+  @Column({ type: 'uuid' })
   tenantId!: string;
 
   @Column({ nullable: true })

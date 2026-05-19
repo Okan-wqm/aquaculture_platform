@@ -1,4 +1,5 @@
 import { Baseline1800000000000 } from './1800000000000-Baseline';
+import { BackfillTenantFarmOperationalTables1800100000000 } from './1800100000000-BackfillTenantFarmOperationalTables';
 
 /**
  * Canonical farm-service migration class list.
@@ -8,4 +9,7 @@ import { Baseline1800000000000 } from './1800000000000-Baseline';
  * represents the complete farm schema. Forward-only migration discipline
  * resumes from this point.
  */
-export const FARM_MIGRATIONS = [Baseline1800000000000] as const;
+export const FARM_MIGRATIONS = [
+  Baseline1800000000000,
+  BackfillTenantFarmOperationalTables1800100000000,
+] as const;

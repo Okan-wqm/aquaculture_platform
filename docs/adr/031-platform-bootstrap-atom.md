@@ -49,7 +49,7 @@ aqua-db-migrate (one-shot)
    app services
        │
        ├─ probe platform.bootstrap_signal  ← refuse boot if missing
-       ├─ probe <schema>.typeorm_migrations ← refuse boot if empty
+       ├─ probe <schema>.migrations ← refuse boot if empty
        └─ start
 ```
 

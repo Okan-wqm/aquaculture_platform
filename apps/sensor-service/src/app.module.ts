@@ -57,6 +57,7 @@ import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
 import {
   createTenantConnectionBootstrap,
+  createSchemaVersionGate,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
   SchemaDriftModule,
@@ -64,6 +65,7 @@ import {
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
+const SensorSchemaVersionGate = createSchemaVersionGate('sensor');
 import { Process } from './process/entities/process.entity';
 import { ScadaPackage } from './process/entities/scada-package.entity';
 import { UnifiedTag } from './process/entities/unified-tag.entity';
@@ -194,9 +196,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
           // AddSensorMetricsCompositeIndex, CreateScadaTables) — schema
           // state lagged the entity declarations on every fresh deploy.
           migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
-          // When sync is on (initial deploy), skip migrations to avoid index conflicts.
-          // When sync is off (production), run migrations for structural changes.
-          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_SYNC', 'false') !== 'true',
+          // Single-writer deploy contract: aqua-db-migrate owns production
+          // migrations. Local/E2E can still opt in explicitly.
+          migrationsRunFromEnv: (cfg) =>
+            cfg.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
 
@@ -382,6 +385,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     SchemaDriftModule.forRoot({ serviceName: 'sensor' }),
   ],
   providers: [
+    SensorSchemaVersionGate,
     // Global exception filter
     {
       provide: APP_FILTER,

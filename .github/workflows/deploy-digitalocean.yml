@@ -35,10 +35,10 @@ on:
   workflow_call:
     inputs:
       services:
-        description: 'Services to deploy (comma-separated, or "all")'
+        description: 'Services to deploy (comma-separated, "all", or "auto")'
         required: false
         type: string
-        default: 'all'
+        default: 'auto'
       bypass_staging_gate:
         description: 'EMERGENCY ONLY — bypass the staging-success gate.'
         required: false
@@ -81,7 +81,7 @@ on:
 # push images and tags. The called workflow's permissions OVERRIDE the
 # caller's when declared at this top level.
 permissions:
-  contents: write # push the deployed/production tag after success
+  contents: write # push deployed/production after successful full deploys
   packages: write # push container images to GHCR
   id-token: write # OIDC for GHCR auth where used
 
@@ -94,7 +94,7 @@ env:
 # trigger is never cancelled by an automated CI-triggered deploy.
 concurrency:
   group: deploy-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   # ===========================================================================
@@ -134,27 +134,14 @@ jobs:
       # WS9 / ADR-016 Phase D — topology-aware enablement gate.
       #
       # Two architecturally-valid topologies are supported. The gate
-      # auto-bypasses on EITHER signal of an unconfigured staging:
+      # auto-bypasses on the explicit repo variable:
       #
       #   1. `vars.STAGING_ENABLED` repo variable not set to 'true' (the
       #      operator's explicit opt-in flag).
-      #   2. `secrets.STAGING_DROPLET_HOST` is empty (the structural truth:
-      #      no host = no possible staging deploy = nothing for the gate
-      #      to wait on).
       #
-      # The two checks together are belt-and-braces:
-      #   - If the operator sets STAGING_ENABLED=true but forgets to add
-      #     the secrets, signal 2 catches it (Tier-1 Make-Impossible:
-      #     gate cannot wait for a deploy that physically cannot run).
-      #   - If the operator adds the secrets but forgets the variable,
-      #     signal 1 still requires the explicit opt-in (the operator
-      #     gets the multi-droplet topology only after consciously
-      #     enabling it; prevents accidental gating mid-rollout).
-      #
-      # Both must resolve to "configured" for the gate to enforce. The
-      # secret-presence signal is the same one deploy-staging.yml uses
-      # in its `staging-configured` job — both workflows share the
-      # discriminator so they cannot drift relative to each other.
+      # Prod never reads staging environment-scoped secrets. When
+      # STAGING_ENABLED=true, the only accepted proof is the
+      # deployed/staging-<sha> tag emitted by deploy-staging.yml.
       #
       # Operator workflow (Topology A — multi-droplet, gate enforces):
       #   1. terraform apply infrastructure/terraform/modules/staging-droplet/
@@ -171,12 +158,6 @@ jobs:
       # ────────────────────────────────────────────────────────────────────
       - name: Check staging enablement (topology detection)
         id: enablement
-        # STAGING_HOST is read into env (NOT interpolated into the script
-        # body) — same pattern as deploy-staging.yml `staging-configured`
-        # job. Bash `-n` test discriminates configured/unconfigured cleanly
-        # without leaking the secret value into logs.
-        env:
-          STAGING_HOST: ${{ secrets.STAGING_DROPLET_HOST }}
         run: |
           set -euo pipefail
           ENABLED='${{ vars.STAGING_ENABLED }}'
@@ -186,20 +167,6 @@ jobs:
             echo "::notice::STAGING_ENABLED repo variable is not 'true' (Topology B: single-droplet)."
             echo "::notice::Skipping staging-gate — staging environment not opted-in."
             echo "::notice::See docs/runbooks/staging-environment.md to enable Topology A."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Signal 2 — secret presence (structural truth)
-          # Even if STAGING_ENABLED=true, an empty STAGING_DROPLET_HOST
-          # means deploy-staging.yml's staging-configured job emitted
-          # configured=false and skipped — the deployed/staging-<sha>
-          # tag will never arrive. Skip the gate to avoid a 55-minute
-          # timeout that prod cannot recover from.
-          if [ -z "${STAGING_HOST}" ]; then
-            echo "::warning::STAGING_ENABLED=true but STAGING_DROPLET_HOST secret is empty."
-            echo "::warning::This is a configuration drift — staging cannot physically deploy."
-            echo "::warning::Bypassing staging-gate to avoid a 55-min timeout. Fix the staging Environment secrets."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -288,8 +255,7 @@ jobs:
         run: |
           if [ "${{ steps.enablement.outputs.skip }}" = "true" ]; then
             echo "Staging gate: SKIPPED (Topology B: single-droplet, or staging not yet provisioned)."
-            echo "  Either STAGING_ENABLED is not 'true' or STAGING_DROPLET_HOST is empty."
-            echo "  This is the expected state until the staging droplet is provisioned + opted-in."
+            echo "  STAGING_ENABLED is not 'true'; bypass is explicit and logged."
           elif [ "${{ steps.bypass.outputs.bypass }}" = "true" ]; then
             echo "Staging gate: BYPASSED (emergency — see earlier warning)."
           else
@@ -297,20 +263,20 @@ jobs:
           fi
 
   # ===========================================================================
-  # Deploy manifest gates
+  # Release verification gates
   #
-  # Manual deploys must run the same SSoT checks as PR/merge CI before touching
-  # the droplet. This catches criticality/signals/compose drift before the
-  # SSH deploy script stops live containers.
+  # Manual and push-to-main deploys must prove the same release contracts before
+  # touching the droplet. This catches type/spec drift, migration-runner drift,
+  # manifest drift, and compose drift before SSH can mutate live containers.
   # ===========================================================================
-  deploy-manifest-gates:
+  release-verification:
     needs: [staging-gate]
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -327,16 +293,41 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit
 
-      - name: Run deploy manifest gates
+      - name: Install Linux platform binaries
+        uses: ./.github/actions/install-platform-binaries
+
+      - name: Run release verification gates
         run: |
+          npm run type-check
+          npm run gates:type-check-spec
+          npm run invariants:fast
+          npm run gates:schema-drift-registration
           npm run gates:criticality-manifest
           npm run gates:signals-manifest
+          npx nx test db-migrate
+
+      - name: Compose preflight (droplet + staging overlay)
+        run: |
+          set -euo pipefail
+          ENV_FILE="$(mktemp)"
+          perl -ne 'while (/\$\{([A-Z0-9_]+):\?[^}]+\}/g) { print "$1\n" }' \
+            docker-compose.droplet.yml docker-compose.staging.yml | sort -u | while read -r key; do
+            [ -n "$key" ] || continue
+            printf '%s=%s\n' "$key" "ci-preflight-${key,,}" >> "$ENV_FILE"
+          done
+          {
+            echo "TAG=${{ github.sha }}"
+            echo "IMAGE_TAG=staging-${{ github.sha }}"
+            echo "COMPOSE_PROFILES="
+          } >> "$ENV_FILE"
+          docker compose --env-file "$ENV_FILE" -f docker-compose.droplet.yml config --quiet
+          docker compose --env-file "$ENV_FILE" -f docker-compose.droplet.yml -f docker-compose.staging.yml config --quiet
 
   # ===========================================================================
   # Prepare - Detect affected services & build dynamic matrices
   # ===========================================================================
   prepare:
-    needs: [staging-gate, deploy-manifest-gates]
+    needs: [staging-gate, release-verification]
     # CI-success precondition is now implicit: workflow_call is only
     # invoked from ci-affected.yml's final `deploy` job after all other
     # jobs are green. workflow_dispatch is operator-initiated.
@@ -356,6 +347,7 @@ jobs:
       non_nx_frontend_csv: ${{ steps.detect.outputs.non_nx_frontend_csv }}
       deploy_services: ${{ steps.detect.outputs.deploy_services }}
       full_deploy: ${{ steps.detect.outputs.full_deploy }}
+      deploy_mode: ${{ steps.detect.outputs.deploy_mode }}
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -388,11 +380,14 @@ jobs:
           AFFECTED_BACKEND=()
           AFFECTED_FRONTEND=()
           FULL_DEPLOY=false
+          DEPLOY_MODE="auto_selective"
+          REQUESTED_SERVICES="${{ inputs.services || github.event.inputs.services || 'all' }}"
+          REQUESTED_SERVICES="$(echo "${REQUESTED_SERVICES}" | xargs)"
 
-          # ── Case 1: workflow_dispatch with specific services ──
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.services }}" != "all" ] && [ -n "${{ github.event.inputs.services }}" ]; then
-            echo "Mode: workflow_dispatch with specific services"
-            IFS=',' read -ra SPECIFIED <<< "${{ github.event.inputs.services }}"
+          # ── Case 1: workflow_dispatch/workflow_call with specific services ──
+          if [ "${REQUESTED_SERVICES}" != "all" ] && [ "${REQUESTED_SERVICES}" != "auto" ] && [ -n "${REQUESTED_SERVICES}" ]; then
+            echo "Mode: specific services (${REQUESTED_SERVICES})"
+            IFS=',' read -ra SPECIFIED <<< "${REQUESTED_SERVICES}"
             for svc in "${SPECIFIED[@]}"; do
               svc=$(echo "$svc" | xargs)
               for b in "${ALL_BACKEND[@]}"; do
@@ -403,12 +398,13 @@ jobs:
               done
             done
 
-          # ── Case 2: workflow_dispatch with "all" ──
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.services }}" = "all" ]; then
-            echo "Mode: workflow_dispatch ALL"
+          # ── Case 2: explicit "all" from workflow_dispatch or workflow_call ──
+          elif [ "${REQUESTED_SERVICES}" = "all" ]; then
+            echo "Mode: ALL"
             AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
             AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
             FULL_DEPLOY=true
+            DEPLOY_MODE="full"
 
           # ── Case 3: workflow_call (push from CI) or other — detect from
           #   the deployed/production tag. Computes the diff against the
@@ -422,6 +418,7 @@ jobs:
               AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
               AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
               FULL_DEPLOY=true
+              DEPLOY_MODE="full"
             else
               echo "  Baseline: ${DEPLOY_BASE} (deployed/production)"
               echo "  Head:     ${{ github.sha }}"
@@ -432,17 +429,20 @@ jobs:
                 AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
                 AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
                 FULL_DEPLOY=true
+                DEPLOY_MODE="full"
               else
                 echo "  Changed files: $(echo "$CHANGED" | wc -l)"
 
                 # Shared deps / infra → rebuild everything
-                if echo "$CHANGED" | grep -qE "^(libs/|platform/|\.github/|infrastructure/|docker-compose|nx\.json$)" || \
+                if echo "$CHANGED" | grep -qE "^(libs/|platform/|\.github/|infrastructure/|scripts/deploy/|docker-compose|nx\.json$)" || \
                    echo "$CHANGED" | grep -qE "^package(-lock)?\.json$" || \
-                   echo "$CHANGED" | grep -qE "^tsconfig"; then
-                  echo "  Shared/infra change detected — full deploy"
+                   echo "$CHANGED" | grep -qE "^tsconfig" || \
+                   echo "$CHANGED" | grep -qE "^apps/[^/]+/src/(database/)?migrations/"; then
+                  echo "  Schema/shared/infra/workflow/package change detected — full deploy"
                   AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
                   AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
                   FULL_DEPLOY=true
+                  DEPLOY_MODE="full"
                 else
                   # Detect individual backend services
                   for svc in "${ALL_BACKEND[@]}"; do
@@ -490,6 +490,16 @@ jobs:
                 fi
               fi
             fi
+          fi
+
+          # db-migrate is the release's schema-writer image. Build and deploy
+          # it for every deploy, including frontend-only selective deploys, so
+          # the droplet never falls back to a mutable `latest` migration bundle.
+          if [ "$FULL_DEPLOY" != "true" ] && { [ ${#AFFECTED_BACKEND[@]} -gt 0 ] || [ ${#AFFECTED_FRONTEND[@]} -gt 0 ]; }; then
+            case " ${AFFECTED_BACKEND[*]} " in
+              *" db-migrate "*) ;;
+              *) AFFECTED_BACKEND=("db-migrate" "${AFFECTED_BACKEND[@]}") ;;
+            esac
           fi
 
           # ── Generate outputs ──
@@ -549,6 +559,7 @@ jobs:
           echo "  Backend (${#AFFECTED_BACKEND[@]}): ${AFFECTED_BACKEND[*]:-none}"
           echo "  Frontend (${#AFFECTED_FRONTEND[@]}): ${AFFECTED_FRONTEND[*]:-none}"
           echo "  Full deploy: ${FULL_DEPLOY}"
+          echo "  Deploy mode: ${DEPLOY_MODE}"
           echo "  Deploy services: ${DEPLOY_SERVICES:-none}"
 
           # Write outputs
@@ -561,6 +572,7 @@ jobs:
           echo "non_nx_frontend_csv=${NON_NX_FE_CSV}" >> $GITHUB_OUTPUT
           echo "deploy_services=${DEPLOY_SERVICES}" >> $GITHUB_OUTPUT
           echo "full_deploy=${FULL_DEPLOY}" >> $GITHUB_OUTPUT
+          echo "deploy_mode=${DEPLOY_MODE}" >> $GITHUB_OUTPUT
 
   # ===========================================================================
   # Build backend artifacts (affected only)
@@ -988,6 +1000,7 @@ jobs:
           # 2c055125 + ancestors). See scripts/deploy/droplet-up.sh header.
           DEPLOY_SERVICES: ${{ needs.prepare.outputs.deploy_services }}
           FULL_DEPLOY: ${{ needs.prepare.outputs.full_deploy }}
+          DEPLOY_MODE: ${{ needs.prepare.outputs.deploy_mode }}
           DEPLOY_SHA: ${{ github.sha }}
           IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1001,7 +1014,7 @@ jobs:
           command_timeout: 75m # Sequential pulls on slow disk + service bootstrap for 22+ Docker images
           # envs: forwards these env vars from the GitHub runner into the
           # remote bash session on the droplet.
-          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_SHA,IMAGE_PREFIX,GHCR_TOKEN,GHCR_ACTOR
+          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_MODE,DEPLOY_SHA,IMAGE_PREFIX,GHCR_TOKEN,GHCR_ACTOR
           script: |
             # Pull the exact commit being deployed so scripts/deploy/droplet-up.sh
             # is loaded from the deploy's own source. Everything else is
@@ -1042,3 +1055,4 @@ jobs:
           echo "Commit: ${{ github.sha }}"
           echo "Services deployed: ${{ needs.prepare.outputs.deploy_services }}"
           echo "Full deploy: ${{ needs.prepare.outputs.full_deploy }}"
+          echo "Deploy mode: ${{ needs.prepare.outputs.deploy_mode }}"

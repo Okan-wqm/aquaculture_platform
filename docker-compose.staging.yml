@@ -66,8 +66,9 @@ services:
           memory: 768M
           cpus: '0.5'
 
-  db-init:
-    container_name: aqua-db-init-staging
+  db-migrate:
+    image: ghcr.io/okan-wqm/aquaculture_platform/db-migrate:${IMAGE_TAG:-staging}
+    container_name: aqua-db-migrate-staging
 
   redis:
     container_name: aqua-redis-staging

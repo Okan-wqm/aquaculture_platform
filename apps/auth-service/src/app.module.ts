@@ -11,6 +11,7 @@ import depthLimit from 'graphql-depth-limit';
 import {
   RlsModule,
   SchemaDriftModule,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
@@ -42,6 +43,8 @@ import { SupportModule } from './modules/support/support.module';
 import { SystemModule } from './modules/system-module/system-module.module';
 import { TenantModule } from './modules/tenant/tenant.module';
 
+const AuthMigrationRunnerService = createSchemaVersionGate('auth');
+
 @Module({
   imports: [
     // Global configuration
@@ -72,13 +75,10 @@ import { TenantModule } from './modules/tenant/tenant.module';
         createServiceTypeOrmConfig(configService, {
           serviceName: 'auth',
           schema: 'auth',
-          // Enterprise: TypeORM's built-in migrationsRun is idempotent and
-          // safe for multi-replica because the `migrations` table acts as a
-          // distributed lock via row-level uniqueness on `name`. auth-service
-          // is the ONLY service still on this path; every other service uses
-          // the MigrationRunnerService factory which adds search_path
-          // invariants and production hard-fail semantics.
-          migrationsRun: true,
+          // Single-writer deploy contract: aqua-db-migrate owns production
+          // migrations. Local/E2E can still opt in explicitly.
+          migrationsRunFromEnv: (cfg) =>
+            cfg.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
           migrations: [__dirname + '/migrations/[0-9]*{.ts,.js}'],
         }),
     }),
@@ -336,6 +336,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
     SchemaDriftModule.forRoot({ serviceName: 'auth' }),
   ],
   providers: [
+    AuthMigrationRunnerService,
     // WHY: All guards use useFactory to bypass reflect-metadata resolution which fails
     // in Docker Alpine production (design:paramtypes resolves to [null,...]).
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers

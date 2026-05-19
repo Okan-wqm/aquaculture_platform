@@ -10,5 +10,11 @@
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
     "src/**/*.d.ts"
+  ],
+  "exclude": [
+    // Day-one baseline reset folded historical 178xxx migration behaviour
+    // into 1800000000000-Baseline; old migration-class specs intentionally
+    // no longer have source files to compile against.
+    "src/migrations/__tests__/**/*.spec.ts"
   ]
 }

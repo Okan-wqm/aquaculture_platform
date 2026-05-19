@@ -6,10 +6,10 @@
 
 ## TL;DR
 
-The bootstrap atom is Phase 0 of `aqua-db-migrate`. It runs on every invocation. It is idempotent. If it fails, every service refuses to start with a precise error. To re-run, restart `aqua-db-migrate`:
+The bootstrap atom is Phase 0 of `aqua-db-migrate`. It runs on every invocation. It is idempotent. If it fails, every service refuses to start with a precise error. To re-run, restart the compose service `db-migrate`:
 
 ```bash
-docker compose -f docker-compose.droplet.yml up -d aqua-db-migrate
+docker compose -f docker-compose.droplet.yml up --abort-on-container-exit --exit-code-from db-migrate db-migrate
 docker logs -f aqua-db-migrate
 ```
 
@@ -20,7 +20,7 @@ Success looks like one JSON log line with `"message":"Platform bootstrap complet
 | Stage | File | Purpose |
 |-------|------|---------|
 | 001 | `001-extensions.sql` | `CREATE EXTENSION IF NOT EXISTS` × 6 (timescaledb, uuid-ossp, pg_trgm, btree_gist, pgcrypto, vector) |
-| 002 | (synthesised) | `CREATE/ALTER ROLE … PASSWORD` × 15 service roles. Passwords from env vars or random fallback. |
+| 002 | (synthesised) | `CREATE/ALTER ROLE … PASSWORD` × 15 service roles. Passwords from `*_SERVICE_DB_PASS` env vars. Missing or empty values are a hard stop. |
 | 003 | `003-schemas.sql` | `CREATE SCHEMA IF NOT EXISTS` × 16 + idempotent ownership transfer |
 | 004 | `004-schema-grants.sql` | GRANT + ALTER DEFAULT PRIVILEGES, idempotent re-issue every run |
 | 005 | `005-platform-functions.sql` | `CREATE OR REPLACE FUNCTION` × 4 (`current_tenant_id`, `set_tenant_id`, `update_updated_at_column`, `audit_immutability_guard`) |
@@ -70,7 +70,7 @@ Any of:
 ### Re-run the bootstrap (no deploy required)
 
 ```bash
-docker compose -f docker-compose.droplet.yml up -d aqua-db-migrate
+docker compose -f docker-compose.droplet.yml up --abort-on-container-exit --exit-code-from db-migrate db-migrate
 docker logs -f aqua-db-migrate
 # Wait for: "Platform bootstrap complete"
 docker logs -f aqua-db-migrate 2>&1 | grep "Platform bootstrap complete"
@@ -137,6 +137,19 @@ Workflow:
 3. Inspect the specific stage's SQL: `apps/db-migrate/src/sql/platform-bootstrap/00X-*.sql`.
 4. Common cause: a missing privilege. Check the connecting user is the cluster superuser (`POSTGRES_USER` env in `docker-compose.droplet.yml` should be `aquaculture`, NOT a `*_service` role).
 5. Re-run aqua-db-migrate after correcting the privilege grant.
+
+### Missing `*_SERVICE_DB_PASS`
+
+`db-migrate` exits non-zero with a message like:
+
+```
+[platform-bootstrap] Phase 0 abort: N/15 service-role password env vars are missing or empty
+```
+
+This is intentional. The bootstrap atom no longer generates random passwords
+that services cannot know. Seed the missing values in `/var/aqua-saas/.env`
+using `scripts/deploy/droplet-bootstrap-env.sh` or the deploy workflow, then
+re-run the `db-migrate` compose service.
 
 ### Advisory lock contention
 

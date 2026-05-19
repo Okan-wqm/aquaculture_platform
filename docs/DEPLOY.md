@@ -78,45 +78,58 @@ docker-compose -f docker-compose.dev.yml down
 
 ## 3. Production Deployment (Digital Ocean)
 
+Production deploys are controlled by ADR-033. The supported path is the
+`Deploy to DigitalOcean` GitHub Actions workflow, which calls
+`scripts/deploy/droplet-up.sh` on the droplet.
+
 ### Automatic Deployment via GitHub Actions
 
-1. **Push to main branch**
+1. **Push to main branch or dispatch the workflow**
    ```bash
    git push origin main
    ```
 
 2. **GitHub Actions automatically:**
-   - Runs tests and linting (~2-3 min)
-   - Builds Docker images in parallel (~10 min)
-   - Pushes to GitHub Container Registry
-   - SSHs to Digital Ocean droplet
-   - Pulls new images and restarts services
+   - Runs gates and selected tests.
+   - Builds SHA-tagged Docker images, including `db-migrate` for every
+     backend-capable deploy.
+   - Pushes images to GitHub Container Registry.
+   - SSHs to the Digital Ocean droplet.
+   - Captures a release-wide rollback manifest.
+   - Pulls exact SHA-tagged images.
+   - Runs `aqua-db-migrate` as the only production schema writer.
+   - Restarts affected services only after migrations pass.
+   - Checks critical health and required boot signals.
 
 3. **Monitor deployment:**
    - Go to: https://github.com/Okan-wqm/aquaculture_platform/actions
    - Check "Deploy to DigitalOcean" workflow
 
-### Manual Deployment (On Server)
+### Manual Recovery (On Server)
 
-SSH into your Digital Ocean droplet:
+Manual raw compose deploys are not supported in production because they bypass
+rollback capture, migration ordering, critical health checks, boot-signal
+assertions, and release ledger writes.
+
+Use server access only for diagnosis or a controlled rerun of the deploy script:
 
 ```bash
 ssh root@your-droplet-ip
 cd /var/aqua-saas
 
-# Login to GitHub Container Registry
-echo "YOUR_GITHUB_TOKEN" | docker login ghcr.io -u YOUR_USERNAME --password-stdin
+# Diagnose current state
+docker compose -f docker-compose.droplet.yml ps
+docker logs aqua-db-migrate --tail=300
+docker logs aqua-gateway --tail=300
 
-# Pull latest images (NO rebuild!)
-docker-compose -f docker-compose.prod.yml pull
-
-# Deploy with zero downtime
-docker-compose -f docker-compose.prod.yml up -d --no-build --remove-orphans
-
-# Verify
-docker-compose -f docker-compose.prod.yml ps
-curl http://localhost:3000/health
+# Controlled rerun. The workflow normally sets these.
+export DEPLOY_SHA=<git-sha>
+export DEPLOY_SERVICES=all
+./scripts/deploy/droplet-up.sh
 ```
+
+Set `ALLOW_JETSTREAM_PURGE=true` only during an explicit maintenance window.
+The deploy script refuses implicit JetStream deletion.
 
 ---
 
@@ -154,7 +167,8 @@ Set these in GitHub Repository Settings > Secrets:
 | `docker-compose.yml` | Full development (builds everything) |
 | `docker-compose.dev.yml` | Uses pre-built artifacts (faster) |
 | `docker-compose.infra.yml` | Infrastructure only (DB, Redis, etc.) |
-| `docker-compose.prod.yml` | Production (pulls from registry) |
+| `docker-compose.droplet.yml` | DigitalOcean production runtime, driven by the deploy workflow |
+| `docker-compose.prod.yml` | Legacy production compose file; do not use for droplet deploys |
 | `docker-compose.watch.yml` | Hot-reload development |
 
 ---

@@ -2,7 +2,7 @@
  * Schema ordering manifest for the aqua-db-migrate container.
  * ============================================================================
  *
- * WS10 / ADR-016 Phase E — Phase 1 (backward-compatible).
+ * ADR-033 — authoritative production schema order.
  *
  * Declares the deterministic order in which schema migrations are applied
  * by the one-shot migration container that runs BEFORE service containers
@@ -46,21 +46,13 @@
  *      utility schemas. No cross-schema dependencies; ordered last so
  *      their migrations never see a half-migrated domain schema.
  *
- * # Phase 1 scope (this file)
+ * # Production scope
  *
- * Phase 1 is BACKWARD-COMPATIBLE: this container runs migrations once
- * before service containers start, but each service's existing
- * `createMigrationRunnerService` remains registered in its AppModule.
- * When a service boots after this container completes, its runner
- * observes "all migrations applied" and exits quickly. Phase 1 is a
- * safety net — if this container fails, a service's own runner is
- * still the authoritative fallback.
- *
- * Phase 2 (tracked as TRACKED-DEPLOY-003 — staging-first validation
- * required) removes the per-service runners and replaces them with a
- * schema-version gate that refuses boot when the container hasn't run.
- * That flip requires WS9 (staging environment) first so the rollback
- * drill can be exercised without touching production.
+ * This container is the single production schema writer. Application
+ * services use schema-version gates in production: they may refuse boot
+ * if this container did not complete, but they do not advance migration
+ * ledgers. The registry therefore has release semantics, not just local
+ * migration-runner ordering semantics.
  *
  * # Why a static registry instead of auto-discovery
  *

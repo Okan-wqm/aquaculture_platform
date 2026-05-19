@@ -52,7 +52,6 @@
  *   - `*audit*.entity.ts` (broader audit pattern)
  *   - `*retention*.entity.ts` — retention policy bookkeeping
  *   - `*compliance*.entity.ts` — compliance state (legal-hold, etc.)
- *   - `code-sequences.entity.ts` — sequence generator state
  *   - `tenant-erasure-audit.entity.ts` — GDPR cascade audit
  *
  * Adding a new cross-tenant entity to a tenant-scoped service requires
@@ -104,6 +103,15 @@ const SERVICE_SCHEMA_MAP: Record<string, string> = {
 };
 
 /**
+ * Platform services may intentionally declare read/write entities outside
+ * their primary schema only when another invariant owns that contract. Today
+ * admin-api is the only service with this shape: it owns admin writes, may
+ * write auth/shared operational rows, and may read other schemas only through
+ * `synchronize: false` read models (covered by admin-api-schema-boundaries).
+ */
+const ADMIN_API_WRITE_ALLOWED_SCHEMAS = new Set(['admin', 'auth', 'shared']);
+
+/**
  * Filename glob patterns that mark an entity as cross-tenant within a
  * tenant-scoped service. Match is done against the basename (no path).
  */
@@ -119,13 +127,11 @@ const CROSS_TENANT_FILENAME_PATTERNS: readonly RegExp[] = [
   /compliance.*\.entity\.ts$/i,
   /-legal-hold\.entity\.ts$/i,
   /legal-hold\.entity\.ts$/i,
-  /code-sequences?\.entity\.ts$/i,
   /tenant-erasure-audit\.entity\.ts$/i,
   /tool-execution-audit\.entity\.ts$/i,
   /stripe-webhook-event\.entity\.ts$/i,
-  // Reference / catalog tables (cross-tenant SaaS catalog)
-  /equipment-type\.entity\.ts$/i,
-  /-type\.entity\.ts$/i,
+  /audit-entry\.entity\.ts$/i,
+  /embeddings-metadata\.entity\.ts$/i,
 ];
 
 interface Violation {
@@ -269,6 +275,14 @@ describe('INVARIANT — entity-schema-declaration (ADR-011)', () => {
             excerpt: args.slice(0, 100),
           });
           continue;
+        }
+
+        if (shouldDeclareSchema && declaredSchema !== null) {
+          const adminApiAllowed =
+            service === 'admin-api-service' &&
+            (ADMIN_API_WRITE_ALLOWED_SCHEMAS.has(declaredSchema) ||
+              /\bsynchronize\s*:\s*false\b/.test(args));
+          if (adminApiAllowed) continue;
         }
 
         if (

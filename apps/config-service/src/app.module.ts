@@ -32,7 +32,7 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
  * `'public'` to the runner factory tells the runner to advisory-lock and
  * pin `search_path` against `public` while the DDL targets `config` — an
  * incoherent state where the runner attempts to maintain the migration
- * ledger (`typeorm_migrations`) in `public`, requiring CREATE privilege
+ * ledger in `public`, requiring CREATE privilege
  * on `public` that the per-service DB role does not have. Production
  * cold-boot crashed with:
  *
@@ -46,8 +46,8 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
  * already applies config migrations against `config`; this restores the
  * per-service runner to the same target so the orchestrator and
  * per-service runner stay aligned (idempotent — the runner skips
- * already-applied migrations via the per-schema `typeorm_migrations`
- * ledger via `MigrationExecutor.getPendingMigrations()`).
+ * already-applied migrations via the per-schema `migrations` ledger via
+ * `MigrationExecutor.getPendingMigrations()`).
  *
  * Closes: docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-069
  */
@@ -71,7 +71,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     // `@Entity('<table>', { schema: 'config' })` and every migration body
     // is schema-qualified to `config.<table>`. The TypeORM factory pins
     // `search_path` to `config,public` so unqualified reads land in the
-    // owned schema and the runner ledger lives where the role has CREATE.
+    // owned schema and the runner ledger lives in `config.migrations`,
+    // where the role has CREATE.
     // ConfigMigrationRunnerService (provider above) executes migrations
     // at OnApplicationBootstrap against the same `config` schema;
     // factory's migrationsRun:false default keeps TypeORM out of that

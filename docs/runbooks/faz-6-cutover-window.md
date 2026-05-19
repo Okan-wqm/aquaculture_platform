@@ -217,20 +217,20 @@ Verify ledger state:
 
 ```bash
 PGPASSWORD="$POSTGRES_PASSWORD" psql -h postgres -U postgres -d aquaculture <<'SQL'
-SELECT 'auth' AS schema, MAX(timestamp) FROM auth.typeorm_migrations
-UNION ALL SELECT 'billing', MAX(timestamp) FROM billing.typeorm_migrations
-UNION ALL SELECT 'admin', MAX(timestamp) FROM admin.typeorm_migrations
-UNION ALL SELECT 'notification', MAX(timestamp) FROM notification.typeorm_migrations
-UNION ALL SELECT 'event_store', MAX(timestamp) FROM event_store.typeorm_migrations
-UNION ALL SELECT 'observability', MAX(timestamp) FROM observability.typeorm_migrations
-UNION ALL SELECT 'config', MAX(timestamp) FROM config.typeorm_migrations
-UNION ALL SELECT 'farm', MAX(timestamp) FROM farm.typeorm_migrations
-UNION ALL SELECT 'sensor', MAX(timestamp) FROM sensor.typeorm_migrations
-UNION ALL SELECT 'hr', MAX(timestamp) FROM hr.typeorm_migrations
-UNION ALL SELECT 'messaging', MAX(timestamp) FROM messaging.typeorm_migrations
-UNION ALL SELECT 'hydroponics', MAX(timestamp) FROM hydroponics.typeorm_migrations
-UNION ALL SELECT 'ai', MAX(timestamp) FROM ai.typeorm_migrations
-UNION ALL SELECT 'alert', MAX(timestamp) FROM alert.typeorm_migrations;
+SELECT 'auth' AS schema, MAX(timestamp) FROM auth.migrations
+UNION ALL SELECT 'billing', MAX(timestamp) FROM billing.migrations
+UNION ALL SELECT 'admin', MAX(timestamp) FROM admin.migrations
+UNION ALL SELECT 'notification', MAX(timestamp) FROM notification.migrations
+UNION ALL SELECT 'event_store', MAX(timestamp) FROM event_store.migrations
+UNION ALL SELECT 'observability', MAX(timestamp) FROM observability.migrations
+UNION ALL SELECT 'config', MAX(timestamp) FROM config.migrations
+UNION ALL SELECT 'farm', MAX(timestamp) FROM farm.migrations
+UNION ALL SELECT 'sensor', MAX(timestamp) FROM sensor.migrations
+UNION ALL SELECT 'hr', MAX(timestamp) FROM hr.migrations
+UNION ALL SELECT 'messaging', MAX(timestamp) FROM messaging.migrations
+UNION ALL SELECT 'hydroponics', MAX(timestamp) FROM hydroponics.migrations
+UNION ALL SELECT 'ai', MAX(timestamp) FROM ai.migrations
+UNION ALL SELECT 'alert', MAX(timestamp) FROM alert.migrations;
 SQL
 ```
 

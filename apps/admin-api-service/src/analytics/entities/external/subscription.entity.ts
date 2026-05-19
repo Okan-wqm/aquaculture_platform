@@ -46,7 +46,7 @@ export class SubscriptionReadOnly {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'tenant_id' })
+  @Column({ type: 'uuid', name: 'tenant_id' })
   tenantId!: string;
 
   @Column({ name: 'plan_tier', type: 'enum', enum: PlanTier })

@@ -138,7 +138,7 @@ export interface BiomassReportPayload {
 // ============================================================================
 
 @ObjectType()
-@Entity('biomass_reports', { schema: 'farm' })
+@Entity('biomass_reports')
 @Unique('UQ_biomass_report_period', [
   'tenantId',
   'siteId',

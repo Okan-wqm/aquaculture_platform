@@ -917,4 +917,4 @@ jobs:
     # bool/string parser ambiguity for the literal 'false', and emergency
     # bypass remains operator-initiated via workflow_dispatch.
     with:
-      services: 'all'
+      services: 'auto'

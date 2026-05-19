@@ -2,6 +2,7 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import {
   AdminBypassRlsInterceptor,
   buildDatabaseSslConfig,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
   RlsModule,
   SchemaDriftModule,
@@ -22,8 +23,6 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
 
-// Baseline1800000000000 — only migration after day-one reset (ADR-030).
-import { Baseline1800000000000 } from './migrations/1800000000000-Baseline';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { AdminApiRetentionBootstrapModule } from './retention/retention-bootstrap.module';
@@ -49,6 +48,8 @@ import { SystemManagementModule } from './system-management/system-management.mo
 import { TenantManagementModule } from './tenant/tenant.module';
 import { MessagingAdminModule } from './messaging/messaging-admin.module';
 import { UsersModule } from './users/users.module';
+
+const AdminSchemaVersionGate = createSchemaVersionGate('admin');
 
 @Module({
   imports: [
@@ -76,12 +77,11 @@ import { UsersModule } from './users/users.module';
           // traffic. 40 was validated under concurrent superadmin sessions
           // in 2026-Q1. Operators may further raise via DATABASE_POOL_SIZE.
           defaultPoolSize: 40,
-          migrations: [Baseline1800000000000],
-          // admin-api opts in to TypeORM's built-in migration runner via the
-          // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other
-          // services use MigrationRunnerService factory pattern instead.
+          migrations: [__dirname + '/migrations/[0-9]*{.ts,.js}'],
+          // Single-writer deploy contract: aqua-db-migrate owns production
+          // migrations. Local/E2E can still opt in explicitly.
           migrationsRunFromEnv: (cfg) =>
-            cfg.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
+            cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     /**
@@ -219,6 +219,7 @@ import { UsersModule } from './users/users.module';
     SchemaDriftModule.forRoot({ serviceName: 'admin-api' }),
   ],
   providers: [
+    AdminSchemaVersionGate,
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,

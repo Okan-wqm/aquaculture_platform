@@ -42,7 +42,7 @@ export interface AuditMetadata {
   source?: string; // API, SYSTEM, MIGRATION, etc.
 }
 
-@Entity('farm_audit_logs')
+@Entity('farm_audit_logs', { schema: 'farm' })
 @Index('IDX_farm_audit_tenant_entity', ['tenantId', 'entityType', 'entityId'])
 @Index('IDX_farm_audit_tenant_created', ['tenantId', 'createdAt'])
 @Index('IDX_farm_audit_created', ['createdAt']) // Retention policy için

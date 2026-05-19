@@ -173,6 +173,22 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
     }
   }
 
+  async function releaseLedgerColumns(): Promise<string[]> {
+    const qr = ctx.dataSource.createQueryRunner();
+    try {
+      const rows: Array<{ column_name: string }> = await qr.query(
+        `SELECT column_name
+           FROM information_schema.columns
+          WHERE table_schema = 'platform'
+            AND table_name = 'release_ledger'
+          ORDER BY ordinal_position`,
+      );
+      return rows.map((row) => row.column_name);
+    } finally {
+      await qr.release();
+    }
+  }
+
   it('applies cleanly against an empty database', async () => {
     const result = await runPlatformBootstrap({
       database: ctx.connectionOptions,
@@ -194,6 +210,21 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
     expect(signal?.schemaCount).toBe(PLATFORM_SCHEMAS.length);
     expect(signal?.functionCount).toBe(PLATFORM_FUNCTIONS.length);
     expect(signal?.sharedTableCount).toBe(SHARED_SCHEMA_TABLES.length);
+
+    expect(await releaseLedgerColumns()).toEqual(
+      expect.arrayContaining([
+        'release_id',
+        'git_sha',
+        'expected_heads',
+        'applied_heads',
+        'tenant_schema_set',
+        'tenant_fanout',
+        'rollback_attempted',
+        'rollback_verified',
+        'rollback_failed',
+        'status',
+      ]),
+    );
   }, 90_000);
 
   it('second invocation is idempotent — no error, same final counts', async () => {

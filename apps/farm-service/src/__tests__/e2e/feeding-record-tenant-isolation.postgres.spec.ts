@@ -139,6 +139,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     );
 
     const outboxPublisher = new OutboxPublisher(FarmOutbox);
+    const backdatePolicy = { validate: jest.fn() };
     createFeedingRecord = new CreateFeedingRecordHandler(
       feedingRecordRepository,
       batchRepository,
@@ -146,6 +147,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       inventoryRepository,
       dataSource,
       outboxPublisher,
+      backdatePolicy as never,
     );
     getFeedingRecords = new GetFeedingRecordsHandler(feedingRecordRepository);
     getFeedingSummary = new GetFeedingSummaryHandler(

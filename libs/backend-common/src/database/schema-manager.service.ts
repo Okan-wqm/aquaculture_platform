@@ -11,6 +11,11 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as crypto from 'crypto';
 
+import {
+  MIGRATION_LEDGER_TABLE,
+  tenantMigrationLedgerTable,
+} from './migration-ledger';
+
 /**
  * Module schema definitions - tables for each module
  */
@@ -81,6 +86,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'sensor',
     sourceSchema: 'sensor', // Tables are in sensor schema, will be copied to tenant schema
+    infrastructureTables: [
+      'migrations',
+      'sensor_audit_logs',
+      'vfd_parameter_audit_logs',
+    ],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
@@ -95,6 +105,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'vfd_devices',
       'vfd_readings',
       'vfd_register_mappings',
+      'vfd_parameter_definitions',
+      'vfd_change_sets',
+      'vfd_change_set_items',
+      'vfd_automation_rules',
 
       // Dashboard & Edge devices
       'dashboard_layouts',
@@ -145,8 +159,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'witnesses',
       'audit_archive_v1',
 
-      // Audit
-      'sensor_audit_logs',
     ],
   },
   {
@@ -183,6 +195,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'migrations',
       'farm_outbox',
       'tenant_erasure_audit',
+      'farm_audit_logs',
     ],
     // Reference tables are exempt from SourceSchemaWriteGuardService so that
     // seed services (FarmSeedService) can write global/template rows that
@@ -206,6 +219,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     tables: [
       // Core entities
       'farms',
+      'code_sequences',
       'sites',
       'departments',
       'ponds',
@@ -280,10 +294,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'supplier_sites',
       'site_contacts',
 
-      // Supporting tables
-      'code_sequences',
-      'farm_audit_logs',
-
       // Storage & Stock Management
       'storage_locations',
       'consumables',
@@ -331,6 +341,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     infrastructureTables: [
       'migrations',
       'hr_outbox',
+      'payroll_audit',
     ],
     referenceDataTables: ['leave_types', 'certification_types', 'shifts'],
     tables: [
@@ -400,13 +411,16 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'alert',
     sourceSchema: 'alert',
+    infrastructureTables: [
+      'migrations',
+      'alert_audit_log',
+    ],
     referenceDataTables: [],
     tables: [
       'alert_rules',
       'alert_incidents',
       'escalation_policies',
       'alert_history',
-      'alert_audit_log',
     ],
   },
   {
@@ -456,6 +470,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'messaging',
     sourceSchema: 'messaging',
+    infrastructureTables: [
+      'migrations',
+      'messaging_outbox',
+      'embeddings_metadata',
+      'retention_policies',
+      'legal_holds',
+      'compliance_audit_log',
+    ],
     referenceDataTables: [],
     tables: [
       // Core messaging tables (migration 1711800000000)
@@ -466,16 +488,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'message_receipts',
       'message_reactions',
       'pinned_messages',
-      'messaging_outbox',
       // AI tables (migration 1711800000001)
       'message_analysis',
       'message_entity_references',
       'knowledge_entries',
-      'embeddings_metadata',
       // Compliance tables (migration 1711800000003)
-      'retention_policies',
-      'legal_holds',
-      'compliance_audit_log',
       'tenant_ai_settings',
       'user_ai_consents',
     ],
@@ -740,6 +757,33 @@ export class SchemaManagerService {
       };
     }
 
+    if (modules.length === 0) {
+      return {
+        success: false,
+        status: ProvisioningStatus.FAILED,
+        schemaName,
+        tablesCreated: [],
+        referenceDataCopied: [],
+        errors: ['No tenant modules requested for schema provisioning'],
+        duration: Date.now() - startTime,
+      };
+    }
+
+    const unknownModules = modules.filter(
+      (moduleName) => !MODULE_SCHEMAS.some((m) => m.moduleName === moduleName),
+    );
+    if (unknownModules.length > 0) {
+      return {
+        success: false,
+        status: ProvisioningStatus.FAILED,
+        schemaName,
+        tablesCreated: [],
+        referenceDataCopied: [],
+        errors: [`Unknown tenant module(s): ${unknownModules.join(', ')}`],
+        duration: Date.now() - startTime,
+      };
+    }
+
     this.logger.log(`Acquiring advisory lock for tenant ${tenantId} (key: ${lockKey})`);
 
     // Acquire advisory lock - blocks if another process is creating same schema
@@ -749,7 +793,26 @@ export class SchemaManagerService {
       // Check if schema already exists (idempotent operation)
       const exists = await this.schemaExistsNoCache(schemaName);
       if (exists) {
-        this.logger.log(`Schema ${schemaName} already exists, skipping creation`);
+        this.logger.log(`Schema ${schemaName} already exists, verifying completeness`);
+        const completenessErrors = await this.validateTenantSchemaComplete(
+          schemaName,
+          modules,
+        );
+        if (completenessErrors.length > 0) {
+          this.schemaCache.invalidate(schemaName);
+          return {
+            success: false,
+            status: ProvisioningStatus.PARTIAL,
+            schemaName,
+            tablesCreated: [],
+            referenceDataCopied: [],
+            errors: completenessErrors,
+            duration: Date.now() - startTime,
+            alreadyExists: true,
+            partialSuccess: true,
+          };
+        }
+
         this.schemaCache.set(schemaName, true);
         return {
           success: true,
@@ -822,6 +885,10 @@ export class SchemaManagerService {
         }
       }
 
+      if (errors.length > 0) {
+        throw new Error(errors.join('; '));
+      }
+
       // 3. Copy reference data for requested modules
       for (const moduleName of modules) {
         const refTables = REFERENCE_DATA_TABLES[moduleName];
@@ -864,11 +931,11 @@ export class SchemaManagerService {
         GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA "${schemaName}" TO ${appRole}
       `);
 
-      // 5. Seed typeorm_migrations history from each module's source schema.
+      // 5. Seed migration-ledger history from each module's source schema.
       //
       // Without this, a schema-per-tenant service's MigrationRunnerService on
       // its next boot (see libs/backend-common migration-runner tenant fan-out)
-      // would see tenant_<uuid>.typeorm_migrations as empty and try to re-apply
+      // would see tenant_<uuid>.migrations as empty and try to re-apply
       // every migration against the new tenant schema. Those migrations would
       // then collide with the tables just cloned via `CREATE TABLE LIKE
       // INCLUDING ALL` above — "relation already exists" errors block boot.
@@ -902,10 +969,16 @@ export class SchemaManagerService {
       );
 
       const hasErrors = errors.length > 0;
-      const isPartial = hasErrors && tablesCreated.length > 0;
+      if (!hasErrors) {
+        errors.push(
+          ...(await this.validateTenantSchemaComplete(schemaName, modules)),
+        );
+      }
+      const hasPostValidationErrors = errors.length > 0;
+      const isPartial = hasPostValidationErrors && tablesCreated.length > 0;
       return {
-        success: !hasErrors,
-        status: hasErrors ? ProvisioningStatus.PARTIAL : ProvisioningStatus.COMPLETE,
+        success: !hasPostValidationErrors,
+        status: hasPostValidationErrors ? ProvisioningStatus.PARTIAL : ProvisioningStatus.COMPLETE,
         schemaName,
         tablesCreated,
         referenceDataCopied,
@@ -944,7 +1017,7 @@ export class SchemaManagerService {
   }
 
   /**
-   * Seed the new tenant schema's `typeorm_migrations` history from the
+   * Seed the new tenant schema's migration-ledger history from the
    * source schema's history. Called once at tenant-schema creation so
    * the tenant starts in the "every existing migration already applied"
    * state, matching the table shape that `CREATE TABLE LIKE INCLUDING ALL`
@@ -966,26 +1039,27 @@ export class SchemaManagerService {
   ): Promise<void> {
     const safeTarget = validateSqlIdentifier(targetSchema, 'schema');
     const safeSource = validateSqlIdentifier(sourceSchema, 'schema');
+    const tenantLedger = tenantMigrationLedgerTable(safeSource);
 
     const sourceHasHistory = await this.tableExists(
       safeSource,
-      'typeorm_migrations',
+      MIGRATION_LEDGER_TABLE,
     );
     if (!sourceHasHistory) {
       // Source hasn't run any migrations yet — no history to seed.
       this.logger.debug(
-        `Source schema ${safeSource} has no typeorm_migrations table; nothing to seed.`,
+        `Source schema ${safeSource} has no ${MIGRATION_LEDGER_TABLE} table; nothing to seed.`,
       );
       return;
     }
 
     // Create the tenant's history table with TypeORM's exact shape. We
-    // don't use `CREATE TABLE LIKE source.typeorm_migrations INCLUDING ALL`
+    // don't use `CREATE TABLE LIKE source.migrations INCLUDING ALL`
     // because LIKE pulls in the source's PRIMARY KEY constraint name and
     // `id` sequence — both are global objects that would collide if the
     // constraint is dropped/recreated later.
     await this.dataSource.query(`
-      CREATE TABLE IF NOT EXISTS "${safeTarget}"."typeorm_migrations" (
+      CREATE TABLE IF NOT EXISTS "${safeTarget}"."${tenantLedger}" (
         "id" SERIAL PRIMARY KEY,
         "timestamp" bigint NOT NULL,
         "name" varchar NOT NULL
@@ -994,26 +1068,87 @@ export class SchemaManagerService {
 
     // Skip the copy if the tenant already has rows (idempotent re-invocation).
     const existing: Array<{ count: string }> = await this.dataSource.query(
-      `SELECT COUNT(*)::text AS count FROM "${safeTarget}"."typeorm_migrations"`,
+      `SELECT COUNT(*)::text AS count FROM "${safeTarget}"."${tenantLedger}"`,
     );
     if (parseInt(existing[0]?.count ?? '0', 10) > 0) {
       this.logger.debug(
-        `Tenant ${safeTarget} already has typeorm_migrations rows; not re-seeding.`,
+        `Tenant ${safeTarget} already has ${tenantLedger} rows; not re-seeding.`,
       );
       return;
     }
 
     await this.dataSource.query(`
-      INSERT INTO "${safeTarget}"."typeorm_migrations" ("timestamp", "name")
-      SELECT "timestamp", "name" FROM "${safeSource}"."typeorm_migrations"
+      INSERT INTO "${safeTarget}"."${tenantLedger}" ("timestamp", "name")
+      SELECT "timestamp", "name" FROM "${safeSource}"."${MIGRATION_LEDGER_TABLE}"
     `);
 
     const sync: Array<{ count: string }> = await this.dataSource.query(
-      `SELECT COUNT(*)::text AS count FROM "${safeTarget}"."typeorm_migrations"`,
+      `SELECT COUNT(*)::text AS count FROM "${safeTarget}"."${tenantLedger}"`,
     );
     this.logger.log(
       `Seeded ${sync[0]?.count ?? '0'} migration-history row(s) into ${safeTarget} from ${safeSource}`,
     );
+  }
+
+  private async validateTenantSchemaComplete(
+    schemaName: string,
+    modules: string[],
+  ): Promise<string[]> {
+    const errors: string[] = [];
+    const safeSchema = validateSqlIdentifier(schemaName, 'schema');
+    const seenSourceSchemas = new Set<string>();
+
+    for (const moduleName of modules) {
+      const moduleSchema = MODULE_SCHEMAS.find((m) => m.moduleName === moduleName);
+      if (!moduleSchema) {
+        errors.push(`Unknown module ${moduleName}; cannot validate tenant schema completeness`);
+        continue;
+      }
+
+      for (const tableName of moduleSchema.tables) {
+        const sourceExists = await this.tableExists(
+          moduleSchema.sourceSchema,
+          tableName,
+        );
+        if (!sourceExists) continue;
+
+        const targetExists = await this.tableExists(safeSchema, tableName);
+        if (!targetExists) {
+          errors.push(`Tenant schema ${safeSchema} missing table ${tableName}`);
+        }
+      }
+
+      if (seenSourceSchemas.has(moduleSchema.sourceSchema)) continue;
+      seenSourceSchemas.add(moduleSchema.sourceSchema);
+      const safeSource = validateSqlIdentifier(moduleSchema.sourceSchema, 'schema');
+      const sourceHasLedger = await this.tableExists(
+        safeSource,
+        MIGRATION_LEDGER_TABLE,
+      );
+      if (!sourceHasLedger) continue;
+
+      const sourceRows: Array<{ count: string }> = await this.dataSource.query(
+        `SELECT COUNT(*)::text AS count
+           FROM "${safeSource}"."${MIGRATION_LEDGER_TABLE}"`,
+      );
+      if (parseInt(sourceRows[0]?.count ?? '0', 10) === 0) continue;
+
+      const tenantLedger = tenantMigrationLedgerTable(safeSource);
+      const tenantHasLedger = await this.tableExists(safeSchema, tenantLedger);
+      if (!tenantHasLedger) {
+        errors.push(`Tenant schema ${safeSchema} missing ledger ${tenantLedger}`);
+        continue;
+      }
+
+      const tenantRows: Array<{ count: string }> = await this.dataSource.query(
+        `SELECT COUNT(*)::text AS count FROM "${safeSchema}"."${tenantLedger}"`,
+      );
+      if (parseInt(tenantRows[0]?.count ?? '0', 10) === 0) {
+        errors.push(`Tenant schema ${safeSchema} has empty ledger ${tenantLedger}`);
+      }
+    }
+
+    return errors;
   }
 
   /**
@@ -1446,7 +1581,15 @@ export class SchemaManagerService {
           WHERE tenant_id = $1
           ON CONFLICT DO NOTHING
         `, [tenantId]);
-      } catch {
+      } catch (insertError) {
+        const err = insertError as Error & { code?: string };
+        const message = err.message ?? '';
+        if (
+          err.code !== '42703' &&
+          !message.includes('column "tenant_id" does not exist')
+        ) {
+          throw insertError;
+        }
         await this.dataSource.query(`
           INSERT INTO "${safeSchemaName}"."${safeTableName}"
           SELECT * FROM "${safeSourceSchema}"."${safeTableName}"

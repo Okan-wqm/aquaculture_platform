@@ -3,9 +3,10 @@
 #
 # All services enabled. Total memory budget: ~7GB
 #
-# Usage:
-#   docker compose -f docker-compose.droplet.yml pull
-#   docker compose -f docker-compose.droplet.yml up -d
+# Production usage:
+#   GitHub Actions "Deploy to DigitalOcean" invokes scripts/deploy/droplet-up.sh.
+#   Raw pull/up bypasses rollback capture, db-migrate ordering, health gates,
+#   boot-signal assertions, and the release ledger (ADR-033).
 # =============================================================================
 
 # SEC-013: Trust boundary — all inter-service traffic (AUTH headers, GraphQL queries,
@@ -287,8 +288,7 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      # DATABASE_MIGRATIONS_RUN defaults to true; set to false in
-      # non-production for debugging. Production hard-fails on false.
+      # db-migrate is the only production schema writer.
       DATABASE_MIGRATIONS_RUN: "true"
       # SSL off on the internal bridge (services live on the same trust
       # boundary as postgres — TLS is enforced at the host firewall).
@@ -296,6 +296,8 @@ services:
       # Optional bootstrap version label written to platform.bootstrap_signal.
       # Operator deploys set this to the GHA SHA / image tag for forensics.
       DB_MIGRATE_VERSION: ${TAG:-latest}
+      DEPLOY_SHA: ${DEPLOY_SHA:-}
+      DEPLOY_RELEASE_ID: ${DEPLOY_RELEASE_ID:-}
       # ─── ADR-031: per-service role passwords are owned by the
       # platform-bootstrap atom (apps/db-migrate/src/platform-bootstrap.service.ts).
       # The atom CREATE-or-ALTER ROLE ... PASSWORD on every Phase-0 run so
@@ -1309,7 +1311,7 @@ services:
       # 175 + 193 + 460-469). Connecting as `config_service` gives the runtime
       # service and its OnApplicationBootstrap MigrationRunnerService CREATE
       # privilege on `config` — required to maintain the migration ledger
-      # (`config.typeorm_migrations`) and apply any pending DDL. The
+      # (`config.migrations`) and apply any pending DDL. The
       # `gateway_service` role has no grants on `config` (only on `gateway`)
       # so the previous wiring crashed cold-boot with "permission denied
       # for database aquaculture" once the first config-schema migration
@@ -1370,7 +1372,7 @@ services:
       DATABASE_PASSWORD: ${MESSAGING_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: 'false'
-      DATABASE_MIGRATIONS_RUN: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}

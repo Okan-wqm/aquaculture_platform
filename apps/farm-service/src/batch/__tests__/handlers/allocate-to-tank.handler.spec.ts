@@ -14,6 +14,7 @@ describe('AllocateToTankHandler', () => {
   let handler: AllocateToTankHandler;
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+  const mockAuditLogService = { logWithManager: jest.fn().mockResolvedValue(undefined) };
   const mockTankCapacityService = {
     enforce: jest.fn().mockReturnValue({
       tankVolumeM3: 100,
@@ -22,6 +23,24 @@ describe('AllocateToTankHandler', () => {
       isOverCapacity: false,
     }),
   };
+
+  const okCapacity = (
+    overrides: Partial<ReturnType<typeof mockTankCapacityService.enforce>> = {},
+  ) => ({
+    tankVolumeM3: 100,
+    maxBiomassKg: 10000,
+    maxDensityKgM3: 30,
+    currentBiomassKg: 0,
+    projectedBiomassKg: 100,
+    projectedDensityKgM3: 1,
+    utilizationPercent: 10,
+    isOverDensity: false,
+    isOverBiomass: false,
+    isStatusBlocked: false,
+    isOverCapacity: false,
+    primaryBlockReason: null,
+    ...overrides,
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();

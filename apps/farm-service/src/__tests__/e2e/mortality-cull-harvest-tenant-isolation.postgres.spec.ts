@@ -178,6 +178,16 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     );
 
     const outboxPublisher = new OutboxPublisher(FarmOutbox);
+    const backdatePolicy = { validate: jest.fn() };
+    const harvestEligibility = {
+      checkEligibility: jest.fn().mockResolvedValue({
+        eligible: true,
+        blockingEvents: [],
+      }),
+    };
+    const harvestPolicy = {
+      evaluate: jest.fn().mockResolvedValue(undefined),
+    };
     recordMortality = new RecordMortalityHandler(
       dataSource,
       batchRepository,
@@ -188,6 +198,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       tankRepository,
       equipmentTypeRepository,
       outboxPublisher,
+      backdatePolicy as never,
     );
     recordCull = new RecordCullHandler(
       dataSource,
@@ -200,6 +211,9 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     createHarvest = new CreateHarvestRecordHandler(
       dataSource,
       outboxPublisher,
+      harvestEligibility as never,
+      backdatePolicy as never,
+      harvestPolicy as never,
       harvestRepository,
       batchRepository,
       operationRepository,
@@ -212,6 +226,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       tankBatchRepository,
       tankRepository,
       dataSource,
+      outboxPublisher,
     );
     listHarvests = new ListHarvestsHandler(harvestRepository);
   });

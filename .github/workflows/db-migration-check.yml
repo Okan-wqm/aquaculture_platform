@@ -164,7 +164,7 @@ jobs:
               echo "::error file=$file::Class name mismatch — expected 'export class ${expected_class}' based on filename '$base'"
               INVALID=1
             fi
-          done < <(find apps -type f -name '[0-9]*-*.ts' -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' 2>/dev/null | sort)
+          done < <(find apps -type f -name '[0-9]*-*.ts' -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' -not -path '*/.archive/*' 2>/dev/null | sort)
 
           if [ "$INVALID" -eq 1 ]; then
             exit 1
@@ -195,14 +195,23 @@ jobs:
           set -euo pipefail
           FAILED=0
           # Derive the list of services that actually own migrations.
+          # ADR-030 day-one reset archived the pre-baseline chain into
+          # apps/<svc>/src/(database/)migrations/.archive/<timestamp>/.
+          # Those files share the 1800000000000-Baseline.ts timestamp by
+          # design (the consolidated baseline collapsed them into a
+          # single id) but are NEVER loaded by any DataSource's
+          # `migrations: [...]` array. Excluding `.archive/` from this
+          # scan is the structurally correct shape: TypeORM duplicate-
+          # timestamp ordering hazard only matters for files the runner
+          # actually loads.
           services=$(
-            find apps -type f -name '[0-9]*-*.ts' -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' \
+            find apps -type f -name '[0-9]*-*.ts' -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' -not -path '*/.archive/*' \
               | sed -E 's|^apps/([^/]+)/.*|\1|' \
               | sort -u
           )
           for svc in $services; do
             dupes=$(
-              find "apps/${svc}" -type f -name '[0-9]*-*.ts' -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' \
+              find "apps/${svc}" -type f -name '[0-9]*-*.ts' -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' -not -path '*/.archive/*' \
                 -exec basename {} \; \
                 | cut -d- -f1 \
                 | sort \
@@ -212,7 +221,7 @@ jobs:
               echo "::error::Duplicate migration timestamps detected within service '$svc':"
               for ts in $dupes; do
                 echo "  $ts is used by:"
-                find "apps/${svc}" -type f -name "${ts}-*.ts" -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' | sed 's/^/    /'
+                find "apps/${svc}" -type f -name "${ts}-*.ts" -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' -not -path '*/.archive/*' | sed 's/^/    /'
               done
               FAILED=1
             fi

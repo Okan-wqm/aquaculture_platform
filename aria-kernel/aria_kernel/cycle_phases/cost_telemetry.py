@@ -96,8 +96,89 @@ class NoOpCostTelemetryHook:
         return None
 
 
+class CostTelemetryHookImpl:
+    """Plan ARIA-V3.1-D2 — production cost-telemetry variant.
+
+    Thin wrapper around `aria_kernel.budget.record_cost_attribution`
+    that writes a per-LLM-call attribution row carrying:
+
+      * cycle_id + plan_id (cycle/plan provenance)
+      * agent_role (invocation_role from V3.1-D CostAttributionEnvelope)
+      * model + input_tokens + output_tokens + estimated_usd
+      * pressure_source_type (threaded from CyclePlanEnvelope.metadata)
+      * signer_key_fp (cycle's ephemeral key from V9.0-C SigningKey)
+      * drift_flag (set by record_cost_attribution when usage drift
+        detection fires — V3.1-D-3)
+
+    Tier-2 anchor: correct behavior is the zero-effort default; every
+    cycle that has a CostTelemetryHookImpl injected gets per-LLM cost
+    rows without per-callsite manual recording. The orchestrator
+    selects this impl for standard/strict/autonomous; observe/frozen
+    profiles get NoOp.
+
+    The hook silently swallows record_cost_attribution exceptions
+    (returning None) so a cost-row write failure cannot block the
+    cycle's main LLM call. Operator audit captures the failure via
+    `cost_attribution_record_failed` governance event.
+    """
+
+    def record(
+        self,
+        *,
+        cycle_id: str,
+        plan_id: str,
+        base_dir: Path,
+        envelope: CostAttributionEnvelope,
+    ) -> Path | None:
+        from ..budget import record_cost_attribution
+        from ..tool_registry import append_tools_governance
+        try:
+            row = record_cost_attribution(
+                cycle_id=cycle_id,
+                plan_id=plan_id,
+                agent_role=envelope.invocation_role,
+                model=envelope.model,
+                input_tokens=envelope.input_tokens,
+                output_tokens=envelope.output_tokens,
+                estimated_usd=envelope.estimated_usd,
+                pressure_source_type=envelope.pressure_source_type,
+                signer_key_fp=envelope.signer_key_fp,
+                base_dir=base_dir,
+            )
+            return Path(row.get("path") or base_dir / "cost-attribution")
+        except Exception as exc:
+            try:
+                append_tools_governance(
+                    base_dir, "cost_attribution_record_failed",
+                    {
+                        "cycle_id": cycle_id, "plan_id": plan_id,
+                        "agent_role": envelope.invocation_role,
+                        "error_class": type(exc).__name__,
+                        "error_message": str(exc)[:500],
+                    },
+                    bypass_profile_gate=True,
+                )
+            except Exception:
+                pass
+            return None
+
+
+def select_cost_telemetry_hook(*, profile: str) -> CostTelemetryHook:
+    """Plan ARIA-V3.1-D2 — profile-derived CostTelemetryHook factory.
+
+    Mirrors select_memory_hook + select_v9_implementation_runner
+    contract. observe/frozen get NoOp (cost attribution depends on
+    real LLM call events which those profiles do not generate).
+    """
+    if profile in ("observe", "frozen"):
+        return NoOpCostTelemetryHook()
+    return CostTelemetryHookImpl()
+
+
 __all__ = [
     "CostAttributionEnvelope",
     "CostTelemetryHook",
+    "CostTelemetryHookImpl",
     "NoOpCostTelemetryHook",
+    "select_cost_telemetry_hook",
 ]

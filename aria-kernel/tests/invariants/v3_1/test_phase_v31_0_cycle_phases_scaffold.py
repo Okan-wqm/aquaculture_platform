@@ -59,6 +59,9 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
             "AutonomousV9ImplementationRunner",
             "CostAttributionEnvelope",
             "CostTelemetryHook",
+            # Plan ARIA-V3.1-D2 — production CostTelemetryHookImpl
+            # variant (delegates to budget.record_cost_attribution).
+            "CostTelemetryHookImpl",
             "CyclePlanEnvelope",
             "MemoryHook",
             # Plan ARIA-V3.1-C2 — production MemoryHookImpl variant
@@ -80,6 +83,7 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
             "V9ImplementationResult",
             "V9ImplementationRunner",
             "V9PressureSourceProvider",
+            "select_cost_telemetry_hook",
             "select_memory_hook",
             "select_v9_implementation_runner",
         }

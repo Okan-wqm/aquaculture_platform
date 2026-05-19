@@ -613,6 +613,19 @@ def _is_mock_mode() -> bool:
     return _parse_bool_env(MOCK_MODE_ENV_VAR, default="0")
 
 
+# Plan ARIA-V3.1-D2 — frozen mock-mode sentinel. main() sets this at
+# entry exactly once; cost-attribution callers gate on this value
+# rather than re-reading the live env, so a mid-run env mutation
+# (e.g. a subprocess that exports CLAUDE_CODE_MOCK=1) cannot flip the
+# mock decision between mint + record sites. Closes ai-safety
+# HIGH-007 (mock-mode race window).
+#
+# Pre-main() default is None — code paths that read this BEFORE
+# main() captured the sentinel are operator-error (the frozen
+# sentinel exists for the cycle's lifetime, not at module load).
+_MOCK_MODE_AT_ENTRY: bool | None = None
+
+
 def _validate_cost_cap(*, request: dict[str, Any]) -> None:
     """Reject requests whose budget shape exceeds the configured cap.
 
@@ -1230,6 +1243,21 @@ def main(argv: list[str] | None = None) -> int:
     if len(args) < 1:
         print("usage: ci_executor.py <request_id> [subagent_type]", file=sys.stderr)
         return 2
+
+    # Plan ARIA-V3.1-D2 — frozen mock-mode sentinel at main() entry
+    # (closes ai-safety HIGH-007). Pre-V3.1-D2 every cost-attribution
+    # callsite re-read `os.environ.get(MOCK_MODE_ENV_VAR)` so a
+    # mid-run env mutation by a downstream subprocess could flip the
+    # mock decision between mint + record. The sentinel captures the
+    # mock state ONCE at entry; every subsequent cost-attribution
+    # call gates on this frozen value, NOT the live env.
+    #
+    # Tier-1 anchor: the variable is computed exactly once and never
+    # re-read. The sentinel is intentionally module-attached (NOT a
+    # function-local) so cost-attribution callers in nested helper
+    # frames can read the same frozen decision.
+    global _MOCK_MODE_AT_ENTRY
+    _MOCK_MODE_AT_ENTRY = _is_mock_mode()
 
     request_id = args[0]
     subagent_type = args[1] if len(args) > 1 else "aria-evidence-judge"

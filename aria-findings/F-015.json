@@ -235,9 +235,15 @@
     },
     {
       "id": "F-015-V31-D2",
-      "title": "Plan v3.1-D2 — Cost telemetry hook orchestrator wire + ci_executor frozen mock sentinel",
+      "title": "Plan v3.1-D2 — CostTelemetryHookImpl + select_cost_telemetry_hook factory + CLI memory+cost wire + ci_executor frozen mock sentinel",
+      "status": "RESOLVED",
+      "note": "CostTelemetryHookImpl wraps budget.record_cost_attribution + threads envelope.invocation_role / model / tokens / pressure_source_type / signer_key_fp through to the cost-row write. Exception path swallows + emits cost_attribution_record_failed governance event so cycle main LLM call cannot be blocked by cost-row failures. select_cost_telemetry_hook factory matches V3.1-C2 dispatch (observe/frozen → NoOp; standard/strict/autonomous → Impl). CLI (cli.py autonomy run path) imports + invokes both select_memory_hook + select_cost_telemetry_hook + passes results via memory_hook= + cost_telemetry_hook= kwargs to run_autonomy_orchestrator — production V10 memory pillar + per-LLM cost attribution now activated by default for the 3 production profiles. ci_executor.py adds module-level _MOCK_MODE_AT_ENTRY sentinel (default None); main() entry captures the value ONCE via _is_mock_mode() so mid-run env mutation cannot flip mock decision between mint + record sites (closes ai-safety HIGH-007). 5 V3.1-D2 invariants GREEN. Subfinding F-015-V31-D3 tracks the per-LLM-call ci_executor.record_cost_attribution callsite wire after the claude CLI usage block parse — the architectural seam is wired but the actual usage extraction depends on the claude CLI response shape parsing which is operator-side observable + tracked separately."
+    },
+    {
+      "id": "F-015-V31-D3",
+      "title": "Plan v3.1-D3 — ci_executor LLM-call cost_telemetry_hook record + 5-site orchestrator call",
       "status": "OPEN",
-      "note": "Architectural anchors from V3.1-D that need orchestrator-side wiring: (1) cycle_phases.cost_telemetry.CostTelemetryHookImpl that threads CyclePlanEnvelope.metadata to record_cost_attribution; (2) orchestrator calls cost_telemetry_hook.record() after each LLM invocation (Primary Plan / Challenger Plan / Cross-Review / Implementation / Specialist Review — 5 call sites); (3) ci_executor _MOCK_MODE_AT_ENTRY frozen sentinel + record_cost_attribution call gated on `_MOCK_MODE_AT_ENTRY is False`; (4) autonomous profile mints READ_ACTIONS_ONLY scoped installation token + passes to scan_failing_ci. Tier-1 — to land in V3.1-D2 follow-up commit before V3.1-F live smoke."
+      "note": "Architectural seams from V3.1-D2 that need per-LLM-call invocation: (1) ci_executor.main() AFTER successful claude CLI invocation: parse usage block (input_tokens, output_tokens) + call record_cost_attribution when _MOCK_MODE_AT_ENTRY is False; (2) orchestrator can call cost_telemetry_hook.record() at the 5 LLM invocation boundaries (Primary Plan / Challenger Plan / Cross-Review / Implementation / Specialist Review) once token usage is observable per-call. Both depend on the claude CLI response shape — operator-side observable + safer to land after V10.3-B 20-cycle endurance smoke confirms the cost-row volume is bounded."
     },
     {
       "id": "F-015-V31-F",

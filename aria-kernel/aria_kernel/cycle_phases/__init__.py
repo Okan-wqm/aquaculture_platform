@@ -41,7 +41,9 @@ from __future__ import annotations
 from .cost_telemetry import (
     CostAttributionEnvelope,
     CostTelemetryHook,
+    CostTelemetryHookImpl,
     NoOpCostTelemetryHook,
+    select_cost_telemetry_hook,
 )
 from .implementer import (
     AutonomousV9ImplementationRunner,
@@ -70,6 +72,7 @@ __all__ = [
     "AutonomousV9ImplementationRunner",
     "CostAttributionEnvelope",
     "CostTelemetryHook",
+    "CostTelemetryHookImpl",
     "CyclePlanEnvelope",
     "MemoryHook",
     "MemoryHookImpl",
@@ -85,6 +88,7 @@ __all__ = [
     "V9ImplementationResult",
     "V9ImplementationRunner",
     "V9PressureSourceProvider",
+    "select_cost_telemetry_hook",
     "select_memory_hook",
     "select_v9_implementation_runner",
 ]

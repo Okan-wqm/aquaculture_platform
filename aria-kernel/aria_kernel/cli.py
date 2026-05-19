@@ -3480,6 +3480,15 @@ def _main(argv: list[str] | None = None) -> int:
         # from skill-genesis/requests.jsonl + invokes V6.2
         # run_convergent_authoring per request.
         from .skill_genesis_drainer import select_skill_genesis_drainer
+        # Plan ARIA-V3.1-D2 — factory wire for MemoryHook + CostTelemetryHook.
+        # The orchestrator's optional kwargs default to NoOp (V3.1-0
+        # scaffold); the CLI surface explicitly selects the production
+        # variant per profile so standard/strict/autonomous get the
+        # full V10 memory + cost-attribution pillar activation.
+        from .cycle_phases import (
+            select_cost_telemetry_hook,
+            select_memory_hook,
+        )
         # Plan ARIA-V3.1-E (E1+E2) — CLI flag is the SSoT for the
         # cycle's profile when the operator passes it. Otherwise
         # fall back to the persisted profile (V8 backward-compat).
@@ -3580,6 +3589,12 @@ def _main(argv: list[str] | None = None) -> int:
             # implementer poll budget threaded to the orchestrator.
             profile=profile,
             implementer_poll_seconds=args.implementer_poll_seconds,
+            # Plan ARIA-V3.1-D2 — production MemoryHook +
+            # CostTelemetryHook factories. observe/frozen profiles
+            # get NoOp variants; standard/strict/autonomous get the
+            # V10 memory pillar + per-LLM cost-attribution activated.
+            memory_hook=select_memory_hook(profile=profile),
+            cost_telemetry_hook=select_cost_telemetry_hook(profile=profile),
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         # Exit non-zero only when the orchestrator could not start

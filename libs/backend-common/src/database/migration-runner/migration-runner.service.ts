@@ -426,7 +426,25 @@ export function createMigrationRunnerService(
           const executor = (() => {
             dataSourceOptions.migrationsTableName = migrationsTableName;
             try {
-              return new MigrationExecutor(this.dataSource, queryRunner);
+              const migrationExecutor = new MigrationExecutor(
+                this.dataSource,
+                queryRunner,
+              );
+              const schemaScopedExecutor = migrationExecutor as unknown as {
+                migrationsSchema?: string;
+                migrationsTable: string;
+              };
+              // TypeORM caches the driver default schema from the first
+              // connection's search_path. Tenant fan-out must not let that
+              // default point every ledger probe at the source schema; make
+              // the ledger table explicit for this schema instead.
+              schemaScopedExecutor.migrationsSchema = schema;
+              schemaScopedExecutor.migrationsTable =
+                this.dataSource.driver.buildTableName(
+                  migrationsTableName,
+                  schema,
+                );
+              return migrationExecutor;
             } finally {
               dataSourceOptions.migrationsTableName = previousMigrationsTableName;
             }

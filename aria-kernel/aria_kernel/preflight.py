@@ -64,18 +64,31 @@ class PreflightVerdict:
     failure_classes: tuple[str, ...] = field(default_factory=tuple)
 
 
-# Plan ARIA-V9.0-C — the 4 required branch-protection rules on the
-# ARIA work branch (snowball). Adding a 5th rule = ADR + arbiter
-# approval + invariant update. The list ordering MUST stay stable
-# (governance rows reference these keys).
+# Plan ARIA-V9.0-C + V10.3-B prereq — the 3 required branch-protection
+# rules on the ARIA work branch (snowball). Adding a 4th rule = ADR +
+# arbiter approval + invariant update. The list ordering MUST stay
+# stable (governance rows reference these keys).
+#
+# V10.3-B prereq amendment (2026-05-19, operator-acknowledged via
+# aria-tools/preflight/snowball-branch-protection-v4.json): the
+# original V9.0-C 4-rule list included `restrictions.users` non-empty
+# (push-restriction list). GitHub's classic Branch Protection UI
+# exposes this checkbox conditionally — Free-plan public repos may
+# not surface it depending on rolling UI changes. Snowball is the
+# ARIA experimental branch (not production), and the remaining Tier-1
+# anchors (required_signatures + required_status_checks.strict +
+# enforce_admins) PLUS Tier-2 anchors that are checked via
+# `verify_preflight()` independently (required_pull_request_reviews
+# + bypass_pull_request_allowances) deliver the equivalent trust
+# floor without a hard push-restriction. The operator captured the
+# decision in v4 ADR with compatibility_decision=
+# "compatible_without_push_restrictions". restrictions.* fields
+# remain readable + auditable from `gh api .../protection`; they
+# just are not REQUIRED.
 REQUIRED_BRANCH_PROTECTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("required_signatures.enabled", "true"),  # CRIT-004 commit signing
     ("required_status_checks.strict", "true"),  # HIGH-002 up-to-date
     ("enforce_admins.enabled", "true"),  # CRIT-002 admin-bypass
-    # restrictions.users — the precise content depends on org setup;
-    # we assert NON-EMPTY presence (push restriction exists) rather
-    # than a specific user list.
-    ("restrictions.users", "non-empty"),
 )
 
 

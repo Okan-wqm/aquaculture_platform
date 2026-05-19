@@ -166,6 +166,60 @@
       "title": "20-cycle endurance gate (autonomous profile; AFTER 10.3-A clean trace + operator sign-off; arb CRIT-008 + ai HIGH-013 + MED-016 + perf CRIT-001/002/003)",
       "status": "OPEN",
       "note": "Live-run gate, not code commit; operator-executed AFTER V10.3-A clean trace + GitHub App Mode A setup (docs/runbooks/aria-github-app-setup.md)."
+    },
+    {
+      "id": "F-015-V31-G",
+      "title": "Plan v3.1 CI baseline gate (test_main_skips_claim + branch-protection preflight)",
+      "status": "RESOLVED",
+      "note": "Pre-condition gate for V3.1 wire-up phases. Test_main_skips_claim_when_metadata_env_present already green at beeea74a; branch-protection preflight JSON restored from git (working-tree dirty-state cleanup)."
+    },
+    {
+      "id": "F-015-V31-0",
+      "title": "Plan v3.1-0 — orchestrator extraction (CyclePipeline scaffold + 5 cycle_phases Protocol modules)",
+      "status": "IN-PROGRESS",
+      "note": "5 cycle_phases modules + Protocol-typed DI seam + NoOp default variants + 7 new optional orchestrator kwargs (plan_content_provider, v9_implementation_runner, memory_hook, cost_telemetry_hook, profile_gate, profile, implementer_poll_seconds). Behavior-neutral scaffold; V3.1-A..E install real implementations. Closes H-1 (god-function seam), H-10 (cold-start hermetic), H-15 (Tier-1 Protocol honesty). 6 invariants green."
+    },
+    {
+      "id": "F-015-V31-P",
+      "title": "Plan v3.1-P — Preconditions (READONLY_PATHS extension + KG lock + text_safety helpers + signing-key lifecycle)",
+      "status": "OPEN",
+      "note": "Closes C-1 (autonomous profile already in PROFILES; ADR-016 needed), C-6 (READONLY paths broader), C-9 (knowledge_graph._append_row lock-safe), C-11 (signing-key revoke + 24h pruning)."
+    },
+    {
+      "id": "F-015-V31-E",
+      "title": "Plan v3.1-E — Profile + preflight + budget SSoT (CLI argparse + set_profile SOC2 audit + ProfileGate.evaluate wire)",
+      "status": "OPEN",
+      "note": "Closes C-2 (operator_approval_ref SOC2), H-9 (caller migration), H-13 (poll-budget distinct)."
+    },
+    {
+      "id": "F-015-V31-A",
+      "title": "Plan v3.1-A — Plan source mining wire (envelope/content split + iterative fallback + sanitize_untrusted_text)",
+      "status": "OPEN",
+      "note": "Closes C-5 (ORPHAN body injection), H-2 (iterative fallback), H-8 (envelope/content split), H-14 (fail-fast under autonomous)."
+    },
+    {
+      "id": "F-015-V31-B",
+      "title": "Plan v3.1-B — Implementation phase wire (base64 delimiters + signed commits + secret-scan-before-commit + 3 integration tests)",
+      "status": "OPEN",
+      "note": "Closes C-3 (specialist_review ordering), C-4 (delimiter smuggling), C-7 (commit signing), C-10 (Exception specificity), H-3 (envelope schema bump), H-4 (token lifecycle), H-7 (secret-scan-before-commit), H-11 (integration tests), H-12 (orphan reaper)."
+    },
+    {
+      "id": "F-015-V31-C",
+      "title": "Plan v3.1-C — KG + skill genesis wire (bounded governance reader + OPERATOR_FEEDBACK stability gate + HUMAN_REQUIRED adapter registration)",
+      "status": "OPEN",
+      "note": "Closes C-12 (bounded reader), HIGH-005 (stability order swap), MEDIUM-011 (OPERATOR_FEEDBACK requirement), MEDIUM-012 (post-record verify chain)."
+    },
+    {
+      "id": "F-015-V31-D",
+      "title": "Plan v3.1-D — Cost attribution wire (schema_version bump + signed rows + scoped READ_ACTIONS_ONLY token + drift detection)",
+      "status": "OPEN",
+      "note": "Closes H-3 partial (envelope schema reader), H-5 (cost ledger forgery), H-6 (scan_failing_ci token scope)."
+    },
+    {
+      "id": "F-015-V31-F",
+      "title": "Plan v3.1-F — Live wired smoke (network-isolated sandbox + ARIA_DRY_RUN gate + autonomous-preflight test)",
+      "status": "OPEN",
+      "note": "Closes C-8 (smoke sandbox + dry-run network gate). Final acceptance test for v3.1 wire-up. Pre-V10.3-B endurance gate."
     }
   ],
   "audit_inputs": [

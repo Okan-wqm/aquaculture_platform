@@ -70,6 +70,17 @@ from .next_cycle_queue import mark_consumed, read_pending
 from .reflection import run_reflection
 
 if TYPE_CHECKING:
+    # Plan ARIA-V3.1-0 — cycle_phases Protocol typing for the 5 new
+    # phase concerns. Type-only imports preserve cold-start hermetic
+    # discipline (I-V31-0-01); concrete NoOp variants are loaded
+    # lazily inside the body when injection kwargs are None.
+    from .cycle_phases import (
+        CostTelemetryHook,
+        MemoryHook,
+        PlanContentProvider,
+        ProfileGate,
+        V9ImplementationRunner,
+    )
     # Plan ARIA-V3 §A1 — typed-only import keeps the annotation
     # load-bearing without a runtime cycle (auto_merge_runners
     # imports from auto_merge which imports from this module's
@@ -263,6 +274,27 @@ def run_autonomy_orchestrator(
     planner_drainer: Callable[..., dict[str, Any]] | None = None,
     worker_drainer: Callable[..., dict[str, Any]] | None = None,
     bridge_drainer: Callable[..., dict[str, Any]] | None = None,
+    # Plan ARIA-V3.1-0 — cycle_phases Protocol-based DI seam (5 hooks).
+    # NoOp defaults preserve V3 baseline behavior; V3.1-A..E install
+    # real implementations.  Callers stay binary-compatible — every
+    # new kwarg is keyword-only optional with a None sentinel that
+    # resolves to its NoOp variant inside the body (lazy-imported to
+    # keep `import aria_kernel.autonomy_orchestrator` hermetic per
+    # I-V31-0-05).
+    plan_content_provider: "PlanContentProvider | None" = None,
+    v9_implementation_runner: "V9ImplementationRunner | None" = None,
+    memory_hook: "MemoryHook | None" = None,
+    cost_telemetry_hook: "CostTelemetryHook | None" = None,
+    profile_gate: "ProfileGate | None" = None,
+    # Plan ARIA-V3.1-E will make this REQUIRED + drop the orchestrator
+    # body's get_profile() call. V3.1-0 ships it optional so the
+    # existing caller migration can land in V3.1-E without breaking
+    # the V8 surface (closes H-9 staging).
+    profile: str | None = None,
+    # Plan ARIA-V3.1-B-9 — distinct poll budget for the V9
+    # implementation phase (HIGH-13). Default 1800s (30 min)
+    # matches the CONVERGED-to-PR-merge wall-clock target.
+    implementer_poll_seconds: float = 1800.0,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3a v2 — ``convergence_runner`` is REQUIRED with NO
     # default (Tier-1 "Make impossible"). The kwarg mirrors the V3 §A1
@@ -312,6 +344,27 @@ def run_autonomy_orchestrator(
         worker_drainer = run_worker_scheduler_daemon
     if bridge_drainer is None:
         bridge_drainer = _default_bridge_drainer
+    # Plan ARIA-V3.1-0 — lazy-resolve NoOp defaults for the 5 phase
+    # hooks. Cold-start discipline: each `from .cycle_phases.X import
+    # NoOp*` happens ONLY when the caller did not inject a concrete
+    # runner, so a hermetic `import aria_kernel.autonomy_orchestrator`
+    # never touches the phase modules' transitive dependencies
+    # (closes I-V31-0-05).
+    if plan_content_provider is None:
+        from .cycle_phases.plan_source import NoOpPlanContentProvider
+        plan_content_provider = NoOpPlanContentProvider()
+    if v9_implementation_runner is None:
+        from .cycle_phases.implementer import NoOpV9ImplementationRunner
+        v9_implementation_runner = NoOpV9ImplementationRunner()
+    if memory_hook is None:
+        from .cycle_phases.memory import NoOpMemoryHook
+        memory_hook = NoOpMemoryHook()
+    if cost_telemetry_hook is None:
+        from .cycle_phases.cost_telemetry import NoOpCostTelemetryHook
+        cost_telemetry_hook = NoOpCostTelemetryHook()
+    if profile_gate is None:
+        from .cycle_phases.profile_gate import NoOpProfileGate
+        profile_gate = NoOpProfileGate()
 
     root = ensure_tools_dir(base_dir)
     daemons_dir = root / "daemons"

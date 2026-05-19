@@ -344,42 +344,100 @@ def mint_installation_token(
     installation_id = os.environ.get("ARIA_GH_APP_INSTALLATION_ID")
 
     if installation_id:
-        # Mode A — proper scoped installation token. ``gh api`` is
-        # the canonical mint path; the request emits an ephemeral
-        # JWT signed by the GH App's private key (env var
-        # ``ARIA_GH_APP_PRIVATE_KEY_PATH``). gh CLI handles the
-        # JWT mint internally when ``GH_APP_*`` env is configured.
-        if shutil.which("gh") is None:
-            raise RuntimeError(
-                "gh CLI not on PATH; cannot mint installation token"
-            )
-        proc = subprocess.run(
-            [
-                "gh", "api",
-                f"/app/installations/{installation_id}/access_tokens",
-                "-X", "POST",
-                "-f", "permissions[pull_requests]=write",
-                "-f", "permissions[contents]=write",
-            ],
-            capture_output=True, text=True, timeout=15,
+        # Mode A — proper scoped installation token via direct GitHub
+        # API call (V10.3-B prereq fix). The original V9.0-C code
+        # assumed `gh` CLI 2.x would auto-mint a JWT from `GH_APP_*`
+        # env vars; verified-by-runbook-execution 2026-05-19 that
+        # `gh 2.65.0` does NOT honor that contract (HTTP 401
+        # "JSON web token could not be decoded"). The Mode A path now
+        # mints the JWT directly via PyJWT + cryptography (Tier-1
+        # anchor: kernel owns the auth flow, no opaque CLI dependency).
+        #
+        # Closes audit findings:
+        #   * INFRA-CRIT-002 (gh CLI uses `GH_APP_*` not ARIA_GH_APP_*)
+        #   * SEC-HIGH-006 (same gh CLI env mapping gap)
+        #   * SEC-CRIT-003 (silent Mode B fallback — now structurally
+        #     prevented when ARIA_REQUIRE_MODE_A=true sees env)
+        app_id = os.environ.get("ARIA_GH_APP_ID")
+        private_key_path = os.environ.get(
+            "ARIA_GH_APP_PRIVATE_KEY_PATH",
+            "/root/.config/aria/gh-app-private-key.pem",
         )
-        if proc.returncode != 0:
+        if not app_id:
             raise RuntimeError(
-                f"gh api access_tokens failed: {proc.stderr.strip()[:200]}"
+                "mint_installation_token Mode A requires ARIA_GH_APP_ID "
+                "env var (paired with ARIA_GH_APP_INSTALLATION_ID). "
+                "Set via runbook docs/runbooks/aria-github-app-setup.md."
             )
-        # parse {"token": "ghs_...", "expires_at": "..."} payload
-        import json as _json
         try:
-            data = _json.loads(proc.stdout)
-            token = data["token"]
-        except (KeyError, _json.JSONDecodeError) as exc:
+            private_pem = Path(private_key_path).read_text(encoding="utf-8")
+        except OSError as exc:
             raise RuntimeError(
-                f"installation_token mint response unparseable: {exc!r}"
+                f"mint_installation_token Mode A: private key unreadable "
+                f"at {private_key_path!r}: {exc!s}"
+            )
+        # Lazy import — keeps the factory import-cheap when Mode A
+        # is not used (Mode B fallback path doesn't need PyJWT).
+        try:
+            import jwt as _jwt
+        except ImportError as exc:
+            raise RuntimeError(
+                "mint_installation_token Mode A requires PyJWT "
+                "(pip install PyJWT[crypto]); not installed."
+            ) from exc
+        import json as _json
+        import time as _time
+        import urllib.error as _urllib_error
+        import urllib.request as _urllib_request
+
+        # JWT — 9-minute exp window per GitHub App auth contract.
+        now = int(_time.time())
+        payload = {"iat": now - 60, "exp": now + 540, "iss": app_id}
+        jwt_token = _jwt.encode(payload, private_pem, algorithm="RS256")
+
+        # POST /app/installations/<id>/access_tokens
+        req = _urllib_request.Request(
+            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {jwt_token}",
+                "Accept": "application/vnd.github+json",
+                "Content-Type": "application/json",
+            },
+            data=_json.dumps({
+                "permissions": {
+                    "pull_requests": "write",
+                    "contents": "write",
+                },
+            }).encode("utf-8"),
+        )
+        try:
+            with _urllib_request.urlopen(req, timeout=ttl_seconds) as resp:
+                data = _json.loads(resp.read())
+        except _urllib_error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")[:300]
+            raise RuntimeError(
+                f"mint_installation_token Mode A HTTP {exc.code}: {body}"
+            ) from exc
+        token = data.get("token")
+        if not isinstance(token, str) or not token.strip():
+            raise RuntimeError(
+                "mint_installation_token Mode A: API response missing 'token'"
             )
         token_path.write_text(token)
         token_path.chmod(0o600)
         fallback_active = False
     else:
+        # Plan ARIA-V10.3-B prereq — ARIA_REQUIRE_MODE_A hard-fail gate
+        # (closes audit SEC-CRIT-003). When the operator has declared
+        # Mode A required for this host (via the runbook), refuse
+        # falling back to operator-PAT scope.
+        if os.environ.get("ARIA_REQUIRE_MODE_A", "").lower() in ("true", "1", "yes"):
+            raise RuntimeError(
+                "ARIA_REQUIRE_MODE_A=true but ARIA_GH_APP_INSTALLATION_ID "
+                "is unset; Mode B fallback FORBIDDEN. Configure Mode A "
+                "via docs/runbooks/aria-github-app-setup.md."
+            )
         # Mode B — operator-PAT fallback shim. Governance event
         # emission is the CALLER's responsibility; this function
         # ships the InstallationTokenLease with fallback_active=True

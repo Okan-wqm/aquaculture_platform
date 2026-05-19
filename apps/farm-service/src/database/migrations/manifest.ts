@@ -1,5 +1,6 @@
 import { Baseline1800000000000 } from './1800000000000-Baseline';
 import { BackfillTenantFarmOperationalTables1800100000000 } from './1800100000000-BackfillTenantFarmOperationalTables';
+import { CreateFarmOutboxTable1800200000000 } from './1800200000000-CreateFarmOutboxTable';
 
 /**
  * Canonical farm-service migration class list.
@@ -12,4 +13,5 @@ import { BackfillTenantFarmOperationalTables1800100000000 } from './180010000000
 export const FARM_MIGRATIONS = [
   Baseline1800000000000,
   BackfillTenantFarmOperationalTables1800100000000,
+  CreateFarmOutboxTable1800200000000,
 ] as const;

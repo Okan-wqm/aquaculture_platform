@@ -215,8 +215,14 @@ export function createMigrationRunnerService(
     ) {}
 
     async onApplicationBootstrap(): Promise<void> {
+      const runnerEnabledOverride = this.configService.get<string>(
+        'MIGRATION_RUNNER_ENABLED',
+      );
       const enabled =
-        this.configService.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true';
+        runnerEnabledOverride !== undefined
+          ? runnerEnabledOverride === 'true'
+          : this.configService.get('DATABASE_MIGRATIONS_RUN', 'true') ===
+            'true';
       const isProduction = this.configService.get('NODE_ENV') === 'production';
 
       if (!enabled && isProduction) {
@@ -229,7 +235,8 @@ export function createMigrationRunnerService(
 
       if (!enabled) {
         this.logger.warn(
-          'Skipping migrations because DATABASE_MIGRATIONS_RUN=false (non-production only)',
+          'Skipping migrations because MIGRATION_RUNNER_ENABLED=false or ' +
+            'DATABASE_MIGRATIONS_RUN=false (non-production only)',
         );
         return;
       }

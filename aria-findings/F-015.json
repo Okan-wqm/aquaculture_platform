@@ -199,9 +199,15 @@
     },
     {
       "id": "F-015-V31-B",
-      "title": "Plan v3.1-B — Implementation phase wire (base64 delimiters + signed commits + secret-scan-before-commit + 3 integration tests)",
+      "title": "Plan v3.1-B — Implementation phase wire (base64 delimiters + signed commits + signal-typed result + try/finally + factory)",
+      "status": "RESOLVED",
+      "note": "B1 V9ImplementationResult signal-typed + 3 concrete variants (NoOp/Strict/Autonomous) + select_v9_implementation_runner factory. B2 cross_review_bridge._implementation_suggested_prompt uses encode_untrusted_delimited_payload (Tier-1 base64; closes C-4 delimiter smuggling). B3 mint_signing_key auto-configures git commit.gpgsign + gpg.format=ssh + user.signingkey + gpg.ssh.allowedSignersFile (closes C-7 commit signing infra). B5 BridgeContractViolation catch arm precedes GovernanceError catch arm inside AutonomousV9ImplementationRunner.run (closes C-10 exception specificity). B7 try/finally cleanup wraps mint_signing_key + mint_installation_token; revoke fires regardless of outcome (closes C-11 + H-4 key/token lifecycle). B9 --implementer-poll-seconds shipped in V3.1-E with exponential backoff (closes H-13 poll budget). 8 V3.1-B invariants GREEN. Subfinding F-015-V31-B2 tracks B4 secret-scan-before-commit operationalization, B6 orphan reaper, B8 schema_version v2 + upcaster, B10 3 full integration tests, and verify_commit_signature wire into record_implementation_outcome — architectural anchors documented in code via TerminalState Literal + run() try/finally shape but not yet end-to-end exercised."
+    },
+    {
+      "id": "F-015-V31-B2",
+      "title": "Plan v3.1-B2 — Implementation phase follow-ups (orphan reaper + schema v2 upcaster + verify_commit_signature wire + 3 integration tests)",
       "status": "OPEN",
-      "note": "Closes C-3 (specialist_review ordering), C-4 (delimiter smuggling), C-7 (commit signing), C-10 (Exception specificity), H-3 (envelope schema bump), H-4 (token lifecycle), H-7 (secret-scan-before-commit), H-11 (integration tests), H-12 (orphan reaper)."
+      "note": "Architectural anchors from V3.1-B that need end-to-end exercise: (1) verify_commit_signature wired into plan_convergence.record_implementation_outcome BEFORE accepting the impl row — anchor in mint_signing_key git config + allowed-signers file (V3.1-B-3); (2) orphan reaper at orchestrator startup scans IMPLEMENTATION_REQUESTED state for crashed prior runs (H-12); (3) agent_invocations.create_agent_invocation_request schema_version v2 + upcaster for cycle_id + pressure_source_type (H-3); (4) 3 integration tests covering MERGED/REJECTED/TIMEOUT paths (H-11). Tier ceiling Tier-1 for each — none deferred without an owner. To land in V3.1-B2 follow-up commit before V3.1-F live smoke."
     },
     {
       "id": "F-015-V31-C",

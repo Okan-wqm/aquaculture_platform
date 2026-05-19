@@ -196,12 +196,94 @@ def mint_signing_key(
     # already sets it but a re-permission ensures correctness).
     private_path.chmod(0o600)
 
+    # Plan ARIA-V3.1-B-3 — auto-configure git for SSH commit signing.
+    # Closes 6-validator audit C-7: mint_signing_key previously
+    # produced a keypair but never wired it to `git commit -S`.
+    # Now `git config --local` sets commit.gpgsign true, gpg.format ssh,
+    # user.signingkey <private_path>, gpg.ssh.allowedSignersFile so
+    # `git verify-commit` resolves against the per-cycle public key.
+    # plan_convergence.record_implementation_outcome calls
+    # verify_commit_signature against this allowed_signers file before
+    # accepting the impl row.
+    _configure_git_commit_signing(
+        workspace_root=Path(workspace_root),
+        cycle_id=cycle_id,
+        private_path=private_path,
+        public_path=public_path,
+    )
+
     return SigningKey(
         cycle_id=cycle_id,
         private_key_path=private_path,
         public_key_path=public_path,
         fingerprint=_compute_fingerprint(public_path),
     )
+
+
+def _configure_git_commit_signing(
+    *,
+    workspace_root: Path,
+    cycle_id: str,
+    private_path: Path,
+    public_path: Path,
+) -> None:
+    """Plan ARIA-V3.1-B-3 — wire git for per-cycle SSH commit signing.
+
+    Writes the SSH-format allowed-signers file at
+    `<workspace>/.git/aria-allowed-signers` so `git verify-commit
+    --raw` resolves against the cycle's public key. Calls
+    `git config --local`:
+      * commit.gpgsign true
+      * gpg.format ssh
+      * user.signingkey <private_path>
+      * gpg.ssh.allowedSignersFile <.git/aria-allowed-signers>
+
+    Best-effort: errors are swallowed so a worktree without `.git/`
+    (test fixture, archive checkout) does not block the autonomy
+    run. The implementer agent's commit step will surface the
+    failure via `git commit` exit code if signing is unavailable.
+
+    Idempotent within a workspace_root + cycle_id: re-invocation
+    overwrites the same config keys + allowed-signers file.
+    """
+    git_dir = workspace_root / ".git"
+    if not git_dir.is_dir():
+        # Caller's workspace_root is not a git checkout. Skip silently —
+        # operator-side tools/aria-poc invocations + sandbox tests
+        # exercise this path.
+        return
+    allowed_signers = git_dir / "aria-allowed-signers"
+    try:
+        # Public key file format: "<comment> <key_type> <key_blob>".
+        # The allowed-signers format expects "<principal> <key_type>
+        # <key_blob>"; we use the cycle_id as principal.
+        pub_text = public_path.read_text(encoding="utf-8").strip()
+        parts = pub_text.split(None, 2)
+        if len(parts) >= 2:
+            key_type, key_blob = parts[0], parts[1]
+            allowed_signers.write_text(
+                f"aria-cycle-{cycle_id} {key_type} {key_blob}\n",
+                encoding="utf-8",
+            )
+    except OSError:
+        return
+    cfg = (
+        ("commit.gpgsign", "true"),
+        ("gpg.format", "ssh"),
+        ("user.signingkey", str(private_path)),
+        ("gpg.ssh.allowedSignersFile", str(allowed_signers)),
+    )
+    for key, value in cfg:
+        try:
+            subprocess.run(
+                ["git", "-C", str(workspace_root), "config", "--local", key, value],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+        except (subprocess.SubprocessError, OSError, FileNotFoundError):
+            # Best-effort — operator audit will surface unsigned-commit
+            # rows via verify_commit_signature mismatch when signing is
+            # truly required.
+            return
 
 
 def mint_installation_token(

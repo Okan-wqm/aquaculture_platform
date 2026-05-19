@@ -44,9 +44,12 @@ from .cost_telemetry import (
     NoOpCostTelemetryHook,
 )
 from .implementer import (
+    AutonomousV9ImplementationRunner,
     NoOpV9ImplementationRunner,
+    StrictV9ImplementationRunner,
     V9ImplementationResult,
     V9ImplementationRunner,
+    select_v9_implementation_runner,
 )
 from .memory import MemoryHook, NoOpMemoryHook
 from .plan_source import (
@@ -59,6 +62,7 @@ from .plan_source import (
 from .profile_gate import NoOpProfileGate, ProfileGate
 
 __all__ = [
+    "AutonomousV9ImplementationRunner",
     "CostAttributionEnvelope",
     "CostTelemetryHook",
     "CyclePlanEnvelope",
@@ -70,8 +74,10 @@ __all__ = [
     "NoOpV9ImplementationRunner",
     "PlanContentProvider",
     "ProfileGate",
+    "StrictV9ImplementationRunner",
     "V7GitDiffProvider",
     "V9ImplementationResult",
     "V9ImplementationRunner",
     "V9PressureSourceProvider",
+    "select_v9_implementation_runner",
 ]

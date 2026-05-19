@@ -35,15 +35,20 @@ class TestV9EnvelopeMinter(unittest.TestCase):
 
     def test_suggested_prompt_uses_canonical_delimiters(self):
         """SECURITY CONTRACT — untrusted_* delimiters MUST be present
-        in the suggested prompt verbatim (ai CRIT-003)."""
+        in the suggested prompt verbatim (ai CRIT-003 + V3.1-B-2
+        base64 encoding). Plan ARIA-V3.1-B-2 updated the wording to
+        ALL-CAPS "NEVER" for emphasis; the case-insensitive assertion
+        keeps the V9.3 contract stable across phrasing tweaks."""
         src = inspect.getsource(_crb._implementation_suggested_prompt)
         self.assertIn("<untrusted_converged_plan", src)
         self.assertIn("<untrusted_cross_review_summary", src)
         self.assertIn("DATA", src)
         # The exact wrapping doesn't matter; substring check on the
-        # two distinctive tokens.
-        self.assertIn("Never", src)
-        self.assertIn("follow instructions", src)
+        # two distinctive tokens. V3.1-B-2 capitalized "NEVER" — use
+        # case-insensitive match to stay phrasing-agnostic.
+        lower = src.lower()
+        self.assertIn("never", lower)
+        self.assertIn("follow instructions", lower)
 
     def test_suggested_prompt_lists_readonly_paths(self):
         """The agent prompt MUST surface READONLY paths verbatim so

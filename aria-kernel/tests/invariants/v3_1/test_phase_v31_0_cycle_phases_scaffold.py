@@ -54,6 +54,9 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
         finally:
             sys.path.pop(0)
         expected_exports = {
+            # Plan ARIA-V3.1-B — concrete V9ImplementationRunner
+            # variants (Autonomous, Strict, NoOp).
+            "AutonomousV9ImplementationRunner",
             "CostAttributionEnvelope",
             "CostTelemetryHook",
             "CyclePlanEnvelope",
@@ -65,6 +68,7 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
             "NoOpV9ImplementationRunner",
             "PlanContentProvider",
             "ProfileGate",
+            "StrictV9ImplementationRunner",
             # Plan ARIA-V3.1-A — concrete PlanContentProvider variants
             # (V9PressureSourceProvider for 5-source mining;
             # V7GitDiffProvider for fallback).
@@ -72,6 +76,7 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
             "V9ImplementationResult",
             "V9ImplementationRunner",
             "V9PressureSourceProvider",
+            "select_v9_implementation_runner",
         }
         actual = set(getattr(module, "__all__", ()))
         self.assertEqual(

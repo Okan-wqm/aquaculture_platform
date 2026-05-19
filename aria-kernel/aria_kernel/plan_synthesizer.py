@@ -599,17 +599,31 @@ def scan_failing_ci(
     cache_dir: str | Path | None = None,
     gh_cli: str = "gh",
     branch: str = "snowball",
+    gh_token: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Plan ARIA-V9.4 source — failing CI runs from ``gh run list --branch
-    snowball --status failure --limit 5``.
+    """Plan ARIA-V9.4 + V3.1-D-4 source — failing CI runs from
+    ``gh run list --branch snowball --status failure --limit 5``.
 
     Cached at ``<workspace>/aria-tools/cache/gh-run-list.json`` with
     10-min TTL (arb MED-003 + perf CRIT-003 rate-limit mitigation).
+
+    Plan ARIA-V3.1-D-4 (closes 6-validator audit H-6 token scope):
+    `gh_token` kwarg accepts a scoped READ_ACTIONS_ONLY installation
+    token (5-min TTL, `actions:read` scope only). When supplied, the
+    subprocess.run uses an explicit `env={"GH_TOKEN": gh_token, "PATH":
+    os.environ["PATH"]}` so the gh CLI cannot inherit the operator's
+    full-scope PAT from the orchestrator's parent environment. Under
+    profile=autonomous the orchestrator MUST mint + pass this scoped
+    token; under strict/standard the function falls back to the
+    operator PAT in the inherited env (legacy V9.4 behavior + a
+    `gh_token_fallback_to_operator_pat` governance event is emitted by
+    the caller).
 
     Returns ordered most-recent-first. Network failures / gh CLI
     absence → empty list (degraded silently; orchestrator picks a
     different source).
     """
+    import os as _os
     import shutil
     workspace = Path(workspace_root).resolve()
     if cache_dir is None:
@@ -623,6 +637,15 @@ def scan_failing_ci(
 
     if not shutil.which(gh_cli):
         return []
+    # Plan ARIA-V3.1-D-4 — explicit env when scoped token supplied.
+    # When gh_token is None, fall through to subprocess's default
+    # parent-env inheritance (V8 backward-compat).
+    subprocess_env: dict[str, str] | None = None
+    if gh_token is not None:
+        subprocess_env = {
+            "GH_TOKEN": gh_token,
+            "PATH": _os.environ.get("PATH", "/usr/bin:/bin"),
+        }
     try:
         proc = subprocess.run(
             [
@@ -633,6 +656,7 @@ def scan_failing_ci(
                 "--json", "databaseId,workflowName,headSha,conclusion,createdAt,event",
             ],
             capture_output=True, text=True, timeout=15,
+            env=subprocess_env,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return []

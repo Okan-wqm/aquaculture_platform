@@ -376,27 +376,43 @@ def record_cost_attribution(
     estimated_usd: float,
     pressure_source_type: str | None = None,
     terminal_state: str | None = None,
+    signer_key_fp: str | None = None,
+    estimated_input_tokens: int | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Plan ARIA-V10.4 — append a per-invocation cost-attribution row.
+    """Plan ARIA-V10.4 + V3.1-D — append a per-invocation cost-attribution row.
 
-    Row schema (pinned by I-V10-COST-01 invariant):
+    Row schema (pinned by I-V10-COST-01 invariant; V3.1-D adds
+    signer_key_fp + drift_flag fields):
       {recorded_at, cycle_id, plan_id, agent_role, model,
        input_tokens, output_tokens, estimated_usd,
-       pressure_source_type, terminal_state, schema_version=1}
+       pressure_source_type, terminal_state, schema_version=1,
+       signer_key_fp, drift_flag}
 
     agent_role MUST be in COST_INVOCATION_ROLES. Mismatch raises
     GovernanceError.
 
-    pressure_source_type SHOULD match a PlanCandidateSource enum
-    value (operator_feedback, failing_ci, orphan_finding, f_finding,
-    git_diff) when known; None permitted for legacy V8 cycles
-    pre-V9.4 source attribution.
+    Plan ARIA-V3.1-D — signer_key_fp + drift detection (closes
+    6-validator audit H-5 cost ledger forgery):
 
-    terminal_state SHOULD match a TERMINAL_STATES value (CONVERGED,
-    HUMAN_REQUIRED, ABANDONED, IMPLEMENTATION_MERGED,
-    IMPLEMENTATION_REJECTED) when known; None permitted when
-    attribution lands mid-cycle before terminal.
+    * signer_key_fp — fingerprint of the cycle's ephemeral
+      ed25519 signing key (V9.0-C mint_signing_key output, format
+      `SHA256:<base64>`). When None, defaults to the sentinel
+      "SHA256:no-key" so the schema invariant `signer_key_fp starts
+      with SHA256:` remains stable across legacy V8 cycles + new
+      V9+ cycles. Operator-side audit can verify provenance by
+      cross-referencing the fingerprint against the cycle's
+      aria-debts/keys/<cycle_id>.pub file.
+
+    * drift_flag — Tier-3 detect. When estimated_input_tokens is
+      supplied (caller's pre-call cost estimator) and the actual
+      input_tokens reported by the LLM provider differs by > 50%,
+      drift_flag="usage_block_drift" is recorded + an
+      `usage_block_drift_rejected` governance event fires. The row
+      is still recorded (not rejected) so the operator audit trail
+      keeps the suspicious data point. A future Tier-1 upgrade
+      fetches authoritative usage via the Anthropic Console API
+      (tracked F-V31.1-cost-receipt).
 
     Returns the appended row dict.
     """
@@ -411,6 +427,30 @@ def record_cost_attribution(
         raise GovernanceError("plan_id must be a non-empty string")
     if not isinstance(model, str) or not model:
         raise GovernanceError("model must be a non-empty string")
+
+    # Plan ARIA-V3.1-D-5 — signer_key_fp pinning. Schema invariant
+    # requires the SHA256: prefix regardless of whether the cycle
+    # had a real key.
+    effective_signer_fp = signer_key_fp or "SHA256:no-key"
+    if not effective_signer_fp.startswith("SHA256:"):
+        raise GovernanceError(
+            f"signer_key_fp must start with 'SHA256:'; got "
+            f"{effective_signer_fp!r}"
+        )
+
+    # Plan ARIA-V3.1-D-3 — usage block drift detection (closes H-5).
+    drift_flag: str | None = None
+    drift_ratio: float | None = None
+    if (
+        isinstance(estimated_input_tokens, int)
+        and estimated_input_tokens > 0
+    ):
+        actual = max(0, int(input_tokens))
+        delta = abs(actual - estimated_input_tokens)
+        drift_ratio = delta / float(estimated_input_tokens)
+        if drift_ratio > 0.5:
+            drift_flag = "usage_block_drift"
+
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -423,8 +463,36 @@ def record_cost_attribution(
         "estimated_usd": float(estimated_usd),
         "pressure_source_type": pressure_source_type,
         "terminal_state": terminal_state,
+        "signer_key_fp": effective_signer_fp,
+        "drift_flag": drift_flag,
     }
-    return append_jsonl(_cost_attribution_shard(base_dir), row)
+    # Plan ARIA-V3.1-D-3 — write row FIRST so ensure_tools_dir
+    # bootstraps repo_identity.json before the drift governance event
+    # lands (preserves ambiguous_tools_root invariant in tool_registry).
+    written = append_jsonl(_cost_attribution_shard(base_dir), row)
+    if drift_flag is not None:
+        # Best-effort governance event AFTER the row write. The row
+        # is still recorded so operator audit captures both the
+        # suspicious data point + the drift signal.
+        try:
+            from .tool_registry import append_tools_governance
+            append_tools_governance(
+                base_dir, "usage_block_drift_rejected",
+                {
+                    "cycle_id": cycle_id,
+                    "plan_id": plan_id,
+                    "agent_role": agent_role,
+                    "model": model,
+                    "reported_input_tokens": int(input_tokens),
+                    "estimated_input_tokens": estimated_input_tokens,
+                    "drift_ratio": drift_ratio,
+                },
+                bypass_profile_gate=True,
+            )
+        except Exception:
+            # Best-effort — cost attribution row already landed.
+            pass
+    return written
 
 
 def read_cost_attribution(

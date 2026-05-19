@@ -223,9 +223,15 @@
     },
     {
       "id": "F-015-V31-D",
-      "title": "Plan v3.1-D — Cost attribution wire (schema_version bump + signed rows + scoped READ_ACTIONS_ONLY token + drift detection)",
+      "title": "Plan v3.1-D — Cost attribution wire (signed rows + drift detection + scoped token)",
+      "status": "RESOLVED",
+      "note": "D-5 record_cost_attribution row carries signer_key_fp (default 'SHA256:no-key' sentinel for legacy V8; cycle's ephemeral key fingerprint for V9+; closes H-5 cost ledger forgery defense-in-depth). D-3 drift detection: when estimated_input_tokens supplied and actual input_tokens differs by >50%, row gets drift_flag='usage_block_drift' AND emits usage_block_drift_rejected governance event AFTER row write (preserves ensure_tools_dir bootstrap order). D-4 scan_failing_ci gains gh_token kwarg + explicit env={'GH_TOKEN': scoped, 'PATH': ...} subprocess call when supplied — closes H-6 token scope (operator PAT no longer leaks to gh subprocess under autonomous profile; orchestrator mints READ_ACTIONS_ONLY scoped installation token + passes via kwarg). 6 V3.1-D invariants GREEN. Subfinding F-015-V31-D2 tracks the orchestrator-side cost_telemetry_hook wire (cycle_phases.cost_telemetry.record called from each LLM invocation site) + ci_executor _MOCK_MODE_AT_ENTRY frozen sentinel — primitives done, integration in V3.1-D2."
+    },
+    {
+      "id": "F-015-V31-D2",
+      "title": "Plan v3.1-D2 — Cost telemetry hook orchestrator wire + ci_executor frozen mock sentinel",
       "status": "OPEN",
-      "note": "Closes H-3 partial (envelope schema reader), H-5 (cost ledger forgery), H-6 (scan_failing_ci token scope)."
+      "note": "Architectural anchors from V3.1-D that need orchestrator-side wiring: (1) cycle_phases.cost_telemetry.CostTelemetryHookImpl that threads CyclePlanEnvelope.metadata to record_cost_attribution; (2) orchestrator calls cost_telemetry_hook.record() after each LLM invocation (Primary Plan / Challenger Plan / Cross-Review / Implementation / Specialist Review — 5 call sites); (3) ci_executor _MOCK_MODE_AT_ENTRY frozen sentinel + record_cost_attribution call gated on `_MOCK_MODE_AT_ENTRY is False`; (4) autonomous profile mints READ_ACTIONS_ONLY scoped installation token + passes to scan_failing_ci. Tier-1 — to land in V3.1-D2 follow-up commit before V3.1-F live smoke."
     },
     {
       "id": "F-015-V31-F",

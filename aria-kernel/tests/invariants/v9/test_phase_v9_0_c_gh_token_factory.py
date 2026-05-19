@@ -119,7 +119,14 @@ class TestV9InstallationTokenFactory(unittest.TestCase):
         """InstallationTokenLease is frozen."""
         with tempfile.TemporaryDirectory() as workspace:
             with mock.patch.dict(os.environ, {"GH_TOKEN": "ghp_test_token_for_fallback"}):
+                # V10.3-B prereq — Mode B tests MUST scrub the Mode A
+                # enforcement gate so the test exercises the fallback
+                # branch (not the new ARIA_REQUIRE_MODE_A hard-fail).
+                # Operator's /root/.config/gh/environment.sh exports
+                # ARIA_REQUIRE_MODE_A=true; that leaks into test env
+                # unless explicitly popped.
                 os.environ.pop("ARIA_GH_APP_INSTALLATION_ID", None)
+                os.environ.pop("ARIA_REQUIRE_MODE_A", None)
                 lease = _tf.mint_installation_token(
                     cycle_id="lease-test-001",
                     workspace_root=workspace,
@@ -133,6 +140,7 @@ class TestV9InstallationTokenFactory(unittest.TestCase):
         with tempfile.TemporaryDirectory() as workspace:
             with mock.patch.dict(os.environ, {"GH_TOKEN": "ghp_test_fallback"}):
                 os.environ.pop("ARIA_GH_APP_INSTALLATION_ID", None)
+                os.environ.pop("ARIA_REQUIRE_MODE_A", None)
                 lease = _tf.mint_installation_token(
                     cycle_id="fallback-001",
                     workspace_root=workspace,
@@ -154,6 +162,7 @@ class TestV9InstallationTokenFactory(unittest.TestCase):
             sentinel = "ghp_sentinel_value_for_verification"
             with mock.patch.dict(os.environ, {"GH_TOKEN": sentinel}):
                 os.environ.pop("ARIA_GH_APP_INSTALLATION_ID", None)
+                os.environ.pop("ARIA_REQUIRE_MODE_A", None)
                 lease = _tf.mint_installation_token(
                     cycle_id="fallback-002",
                     workspace_root=workspace,
@@ -161,23 +170,35 @@ class TestV9InstallationTokenFactory(unittest.TestCase):
                 self.assertEqual(lease.token_file.read_text(), sentinel)
 
     def test_i_v9_token_factory_no_token_no_app_raises(self):
-        """Neither GH App nor PAT → mint MUST raise RuntimeError."""
+        """Neither GH App nor PAT → mint MUST raise RuntimeError.
+
+        Scrubs ARIA_REQUIRE_MODE_A so the assertion exercises the
+        actual "no token AND no app" branch (not the Mode A gate).
+        """
         with tempfile.TemporaryDirectory() as workspace:
             with mock.patch.dict(os.environ, {}, clear=False):
                 os.environ.pop("GH_TOKEN", None)
                 os.environ.pop("GITHUB_TOKEN", None)
                 os.environ.pop("ARIA_GH_APP_INSTALLATION_ID", None)
-                with self.assertRaises(RuntimeError):
+                os.environ.pop("ARIA_REQUIRE_MODE_A", None)
+                with self.assertRaises(RuntimeError) as ctx:
                     _tf.mint_installation_token(
                         cycle_id="should-fail-001",
                         workspace_root=workspace,
                     )
+                self.assertIn(
+                    "No GH App installation AND no operator PAT",
+                    str(ctx.exception),
+                    "RuntimeError MUST come from the no-credentials branch, "
+                    "not the Mode A enforcement gate",
+                )
 
     def test_i_v9_token_factory_revoke_cleans_file(self):
         """revoke_installation_token deletes the token file."""
         with tempfile.TemporaryDirectory() as workspace:
             with mock.patch.dict(os.environ, {"GH_TOKEN": "ghp_revoke_test"}):
                 os.environ.pop("ARIA_GH_APP_INSTALLATION_ID", None)
+                os.environ.pop("ARIA_REQUIRE_MODE_A", None)
                 lease = _tf.mint_installation_token(
                     cycle_id="revoke-test-001",
                     workspace_root=workspace,
@@ -185,6 +206,38 @@ class TestV9InstallationTokenFactory(unittest.TestCase):
                 self.assertTrue(lease.token_file.exists())
                 _tf.revoke_installation_token(lease=lease)
                 self.assertFalse(lease.token_file.exists())
+
+    def test_i_v9_token_factory_require_mode_a_blocks_fallback(self):
+        """Plan ARIA-V10.3-B prereq — ARIA_REQUIRE_MODE_A=true MUST
+        hard-fail when ARIA_GH_APP_INSTALLATION_ID is unset.
+
+        Positive coverage for the SEC-CRIT-003 gate at
+        gh_token_factory.py line ~436. Without this test the gate
+        could regress silently — the previous V9.0-C tests only
+        cover the Mode B happy path.
+        """
+        with tempfile.TemporaryDirectory() as workspace:
+            with mock.patch.dict(os.environ, {
+                "GH_TOKEN": "ghp_should_be_refused",
+                "ARIA_REQUIRE_MODE_A": "true",
+            }):
+                os.environ.pop("ARIA_GH_APP_INSTALLATION_ID", None)
+                with self.assertRaises(RuntimeError) as ctx:
+                    _tf.mint_installation_token(
+                        cycle_id="mode-a-required-001",
+                        workspace_root=workspace,
+                    )
+                msg = str(ctx.exception)
+                self.assertIn(
+                    "ARIA_REQUIRE_MODE_A=true",
+                    msg,
+                    "error MUST identify the Mode A enforcement gate",
+                )
+                self.assertIn(
+                    "Mode B fallback FORBIDDEN",
+                    msg,
+                    "error MUST name what is forbidden",
+                )
 
 
 class TestV9TokenFactoryPublicApi(unittest.TestCase):

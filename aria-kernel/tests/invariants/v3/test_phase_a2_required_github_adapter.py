@@ -219,6 +219,117 @@ class PhaseA2RequiredGithubAdapter(unittest.TestCase):
         self.assertIn("aria-tools/budget/", text)
         self.assertIn("aria-tools/locks/", text)
 
+    # ----------------------------------------------------------------
+    # Plan ARIA-V3.1-F2 — ARIA_DRY_RUN structural gate
+    # ----------------------------------------------------------------
+
+    def test_i_v3_f2_dry_run_overrides_strict_to_recording(self) -> None:
+        """Plan ARIA-V3.1-F2 fix — ARIA_DRY_RUN=true forces
+        RecordingGitHubAdapter even for the ``strict`` profile.
+
+        Without this gate the smoke runbook's ``unshare --net``
+        isolation collides with ``GhCliGitHubAdapter.__init__``'s
+        eager ``gh repo view`` call. Tier-1: code structurally
+        prevents network access under dry-run, not operator
+        hygiene.
+        """
+        import os as _os
+        from unittest import mock
+        from aria_kernel.github_adapters import (
+            RecordingGitHubAdapter,
+            select_github_adapter,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="aria-i-v3-f2-strict-") as tmp:
+            with mock.patch.dict(_os.environ, {"ARIA_DRY_RUN": "true"}):
+                adapter = select_github_adapter(
+                    profile="strict", base_dir=tmp, cwd=tmp,
+                )
+                self.assertIsInstance(
+                    adapter, RecordingGitHubAdapter,
+                    "ARIA_DRY_RUN=true MUST force RecordingGitHubAdapter "
+                    "for strict profile (closes V3.1-F2 smoke-runbook regression)",
+                )
+
+    def test_i_v3_f2_dry_run_overrides_autonomous_to_recording(self) -> None:
+        """ARIA_DRY_RUN=true MUST also override the autonomous profile.
+
+        Endurance smoke variants may exercise autonomous-profile
+        dry-runs; the gate must hold there too.
+        """
+        import os as _os
+        from unittest import mock
+        from aria_kernel.github_adapters import (
+            RecordingGitHubAdapter,
+            select_github_adapter,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="aria-i-v3-f2-auto-") as tmp:
+            with mock.patch.dict(_os.environ, {"ARIA_DRY_RUN": "1"}):
+                adapter = select_github_adapter(
+                    profile="autonomous", base_dir=tmp, cwd=tmp,
+                )
+                self.assertIsInstance(adapter, RecordingGitHubAdapter)
+
+    def test_i_v3_f2_dry_run_unset_keeps_real_adapter(self) -> None:
+        """Negative coverage — without ARIA_DRY_RUN, the existing
+        profile → adapter mapping holds. Prevents the gate from
+        regressing into a permanent override.
+        """
+        import os as _os
+        from unittest import mock
+        from aria_kernel.github_adapters import (
+            GhCliGitHubAdapter,
+            select_github_adapter,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="aria-i-v3-f2-prod-") as tmp:
+            with mock.patch.dict(_os.environ, {}, clear=False):
+                _os.environ.pop("ARIA_DRY_RUN", None)
+                # Skip if gh CLI cannot reach the network here; the
+                # contract under test is the BRANCH choice (real vs
+                # recording), not the gh subprocess result. Patch the
+                # GhCliGitHubAdapter.__init__ to no-op so we can assert
+                # the routing.
+                with mock.patch.object(
+                    GhCliGitHubAdapter, "__init__",
+                    lambda self, cwd=".": None,
+                ):
+                    adapter = select_github_adapter(
+                        profile="strict", base_dir=tmp, cwd=tmp,
+                    )
+                    self.assertIsInstance(
+                        adapter, GhCliGitHubAdapter,
+                        "Without ARIA_DRY_RUN, strict MUST still route to real adapter",
+                    )
+
+    def test_i_v3_f2_dry_run_truthy_values(self) -> None:
+        """ARIA_DRY_RUN parses ``true`` / ``1`` / ``yes`` (case- and
+        whitespace-tolerant). Falsy variants do NOT trip the gate.
+        """
+        import os as _os
+        from unittest import mock
+        from aria_kernel.github_adapters import (
+            GhCliGitHubAdapter,
+            RecordingGitHubAdapter,
+            select_github_adapter,
+            _aria_dry_run_active,
+        )
+
+        for val in ("true", "TRUE", "True", "1", "yes", "  true  "):
+            with mock.patch.dict(_os.environ, {"ARIA_DRY_RUN": val}):
+                self.assertTrue(
+                    _aria_dry_run_active(),
+                    f"truthy value {val!r} MUST trip the gate",
+                )
+
+        for val in ("false", "0", "no", "", "  "):
+            with mock.patch.dict(_os.environ, {"ARIA_DRY_RUN": val}):
+                self.assertFalse(
+                    _aria_dry_run_active(),
+                    f"falsy value {val!r} MUST NOT trip the gate",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,7 +24,18 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE TABLE "messaging"."message_reactions" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "messageId" uuid NOT NULL, "messageCreatedAt" TIMESTAMP WITH TIME ZONE NOT NULL, "userId" uuid NOT NULL, "emoji" character varying(32) NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "uq_reaction_message_user_emoji" UNIQUE ("messageId", "userId", "emoji"), CONSTRAINT "PK_654a9f0059ff93a8f156be66a5b" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "idx_reactions_tenant" ON "messaging"."message_reactions" ("tenantId") `);
         await queryRunner.query(`CREATE INDEX "idx_reactions_message" ON "messaging"."message_reactions" ("messageId") `);
-        await queryRunner.query(`CREATE TABLE "messaging"."messages" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "tenantId" uuid NOT NULL, "channelId" uuid NOT NULL, "senderId" uuid NOT NULL, "content" text, "contentType" character varying(20) NOT NULL DEFAULT 'text', "parentId" uuid, "forwardedFrom" uuid, "idempotencyKey" uuid NOT NULL, "isDeleted" boolean NOT NULL DEFAULT false, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "editedAt" TIMESTAMP WITH TIME ZONE, "updatedBy" uuid, "isAiGenerated" boolean NOT NULL DEFAULT false, "metadata" jsonb, CONSTRAINT "CHK_860d0b704cc2f0938b989e0131" CHECK ("contentType" IN ('text', 'image', 'file', 'voice', 'system')), CONSTRAINT "PK_18325f38ae6de43878487eff986" PRIMARY KEY ("id"))`);
+        // PK is composite (id, createdAt) to match the entity's two @PrimaryColumn
+        // decorators in apps/messaging-service/src/message/entities/message.entity.ts.
+        // 6 child tables (message_attachments, message_receipts, message_reactions,
+        // pinned_messages, message_entity_references, message_analysis) carry FK
+        // constraints `REFERENCES messaging.messages(id, createdAt)` — PostgreSQL
+        // requires the referenced columns to participate in PRIMARY KEY or a
+        // UNIQUE INDEX, so a single-column PK on "id" alone makes every FK
+        // constraint creation fail with "no unique constraint matching given keys".
+        // The composite shape is also the standard TimescaleDB hypertable contract
+        // (partition column included in PK) — keeping the door open for a future
+        // hypertable on createdAt without another PK migration.
+        await queryRunner.query(`CREATE TABLE "messaging"."messages" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "tenantId" uuid NOT NULL, "channelId" uuid NOT NULL, "senderId" uuid NOT NULL, "content" text, "contentType" character varying(20) NOT NULL DEFAULT 'text', "parentId" uuid, "forwardedFrom" uuid, "idempotencyKey" uuid NOT NULL, "isDeleted" boolean NOT NULL DEFAULT false, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "editedAt" TIMESTAMP WITH TIME ZONE, "updatedBy" uuid, "isAiGenerated" boolean NOT NULL DEFAULT false, "metadata" jsonb, CONSTRAINT "CHK_860d0b704cc2f0938b989e0131" CHECK ("contentType" IN ('text', 'image', 'file', 'voice', 'system')), CONSTRAINT "PK_18325f38ae6de43878487eff986" PRIMARY KEY ("id", "createdAt"))`);
         await queryRunner.query(`CREATE UNIQUE INDEX "idx_messages_idempotency" ON "messaging"."messages" ("idempotencyKey") `);
         await queryRunner.query(`CREATE INDEX "idx_messages_tenant" ON "messaging"."messages" ("tenantId") `);
         await queryRunner.query(`CREATE INDEX "idx_messages_sender" ON "messaging"."messages" ("senderId", "createdAt") `);

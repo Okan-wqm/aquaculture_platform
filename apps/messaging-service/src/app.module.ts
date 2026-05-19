@@ -101,6 +101,7 @@ import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 // Baseline1800000000000 plus forward repair migrations after day-one reset (ADR-030).
 import { Baseline1800000000000 } from './migrations/1800000000000-Baseline';
 import { CreateMessagingOutboxTable1800200000000 } from './migrations/1800200000000-CreateMessagingOutboxTable';
+import { AddUserAiConsentTenantUserUnique1800300000000 } from './migrations/1800300000000-AddUserAiConsentTenantUserUnique';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -172,6 +173,7 @@ const complexityCache = new Map<string, number>();
           migrations: [
             Baseline1800000000000,
             CreateMessagingOutboxTable1800200000000,
+            AddUserAiConsentTenantUserUnique1800300000000,
           ],
         }),
     }),

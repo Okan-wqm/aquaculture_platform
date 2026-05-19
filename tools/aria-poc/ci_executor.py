@@ -838,6 +838,37 @@ def invoke_claude_code(
     ]
     prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Plan ARIA-V10.4 Phase 1 instrumentation — subprocess env audit.
+    # AISAFETY-HIGH-001 hypothesis: outer Claude Code session leaks
+    # CLAUDE_CODE_SESSION_ID + CLAUDECODE into spawned `claude` child →
+    # shared per-OAuth-token rate-limit pool exhausts on revision rounds.
+    # The hypothesis is UNVERIFIED until we observe the actual env keys
+    # the child inherits at run time. Audit emits one governance row
+    # per spawn naming exactly which CLAUDE_*-prefixed keys the child
+    # sees. Tier-3 detectable, no behavior change.
+    if tools_dir is not None:
+        try:
+            _env_audit_keys = sorted([
+                k for k in os.environ.keys()
+                if k.startswith(("CLAUDE_", "CLAUDECODE")) or k in ("HOME", "USER")
+            ])
+            # Mask values to prevent token leak in audit log. We only
+            # care about WHICH keys are present, not their contents.
+            _env_audit_payload = {
+                "subagent_type": subagent_type,
+                "request_id": request_id,
+                "claude_prefixed_keys_present": _env_audit_keys,
+                "claude_code_session_id_present": "CLAUDE_CODE_SESSION_ID" in os.environ,
+                "claudecode_marker_present": os.environ.get("CLAUDECODE") == "1",
+            }
+            from aria_kernel.tool_registry import (
+                append_tools_governance as _at_gov,
+                ensure_tools_dir as _ens_tools,
+            )
+            _at_gov(_ens_tools(tools_dir), "subprocess_env_audit", _env_audit_payload)
+        except Exception:
+            # Audit must NEVER block the subprocess spawn.
+            pass
     completed = subprocess.run(
         argv,
         input=prompt_text,

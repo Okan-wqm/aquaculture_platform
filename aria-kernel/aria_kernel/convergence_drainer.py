@@ -53,7 +53,7 @@ from .cross_review_bridge import (
     issue_primary_envelope,
 )
 from .plan_convergence import TERMINAL_STATES, evaluate_plan, fold_plan_state
-from .tool_registry import ensure_tools_dir
+from .tool_registry import append_tools_governance, ensure_tools_dir
 
 
 # Plan ARIA-V8 v2 §4 Phase 8.6 (B-V2-04) — round-envelope sequence
@@ -174,27 +174,60 @@ def _derive_arbiter_verdict(
     ``plan_convergence.py`` only require an entry here.
     """
     reasons = set(reason_codes or [])
+    # Plan ARIA-V10.4 Phase 1 instrumentation — verdict provenance.
+    # Each verdict branch returns a 2-tuple-like decision below; the
+    # provenance tag names WHICH branch fired so the operator can
+    # triage which condition produced "split" vs "challenger_unavailable"
+    # vs the others without grepping the source. Tier-3 detectable.
+    # The verdict string is unchanged; only the audit log entry is added.
     if terminal_state == "CONVERGED":
-        return "converged"
-    if terminal_state == "ABANDONED" and _REASON_ARIA_STOP in reasons:
-        return "aria_stop_interrupted"
-    if terminal_state == "HUMAN_REQUIRED":
-        if _REASON_MAX_ROUNDS in reasons:
-            return "max_rounds"
-        if any(r.startswith(_REASON_NEW_RISK_PREFIX) for r in reasons):
-            return "split"
-        if _REASON_MATERIAL_RISK in reasons:
-            return "scope_abort"
+        _verdict, _branch = "converged", "terminal_state=CONVERGED"
+    elif terminal_state == "ABANDONED" and _REASON_ARIA_STOP in reasons:
+        _verdict, _branch = "aria_stop_interrupted", "ABANDONED+aria_stop"
+    elif terminal_state == "HUMAN_REQUIRED" and _REASON_MAX_ROUNDS in reasons:
+        _verdict, _branch = "max_rounds", "HUMAN_REQUIRED+max_rounds"
+    elif terminal_state == "HUMAN_REQUIRED" and any(
+        r.startswith(_REASON_NEW_RISK_PREFIX) for r in reasons
+    ):
+        _verdict, _branch = "split", "HUMAN_REQUIRED+new_risk_prefix"
+    elif terminal_state == "HUMAN_REQUIRED" and _REASON_MATERIAL_RISK in reasons:
+        _verdict, _branch = "scope_abort", "HUMAN_REQUIRED+material_risk"
+    elif terminal_state == "HUMAN_REQUIRED" and _REASON_PARTIAL in reasons:
         # Plan ARIA-V8 v2 §4 Phase 8.1 (B-V2-02) — V8 obsoletes
         # primary_silent (primary IS cycle_runner's plan_content).
         # _REASON_PARTIAL now maps to cross_review_unavailable since
         # partial coverage in V8 P+C+CR means the cross-reviewer
         # couldn't fully verify both sides.
-        if _REASON_PARTIAL in reasons:
-            return "cross_review_unavailable"
-        if _REASON_PENDING in reasons:
-            return "challenger_unavailable"
-    return "split"
+        _verdict, _branch = "cross_review_unavailable", "HUMAN_REQUIRED+partial"
+    elif terminal_state == "HUMAN_REQUIRED" and _REASON_PENDING in reasons:
+        _verdict, _branch = "challenger_unavailable", "HUMAN_REQUIRED+pending"
+    else:
+        _verdict, _branch = "split", "defensive_default"
+    # Plan ARIA-V10.4 Phase 1 — branch name is now structurally tied
+    # to verdict via the elif-cascade above. Callers that want the
+    # provenance read `_VERDICT_PROVENANCE` snapshot below. Keeping
+    # the verdict return contract unchanged preserves the V5.1
+    # ConvergenceResult type pin.
+    _LAST_VERDICT_PROVENANCE["terminal_state"] = terminal_state
+    _LAST_VERDICT_PROVENANCE["reasons"] = sorted(reasons)
+    _LAST_VERDICT_PROVENANCE["branch"] = _branch
+    _LAST_VERDICT_PROVENANCE["verdict"] = _verdict
+    return _verdict
+
+
+# Plan ARIA-V10.4 Phase 1 instrumentation — single-cell verdict
+# provenance shared across the kernel. NOT thread-safe; convergence
+# runs strictly per-cycle so single-cell is correct. The orchestrator
+# reads this AFTER calling _derive_arbiter_verdict and emits the
+# `verdict_provenance` governance event with the branch tag. This
+# avoids changing the function signature (which would ripple through
+# the V5.1 invariant test).
+_LAST_VERDICT_PROVENANCE: dict[str, Any] = {
+    "terminal_state": None,
+    "reasons": [],
+    "branch": None,
+    "verdict": None,
+}
 
 
 def _persistence_path(root: Path, cycle_id: str) -> Path:
@@ -363,6 +396,55 @@ def run_convergence_drainer(
         if _check_aria_stop(root):
             return None, _aria_stop_return()
         if challenger_state is None:
+            # Plan ARIA-V10.4 Phase 1 instrumentation — capture the
+            # CURRENT plan state when CHALLENGER_DRAFTED poll times out.
+            # V10.3-B endurance showed all 3 cycles fail at this exact
+            # timeout despite real Claude returning a 23KB plan response.
+            # The kernel state must reveal whether (a) state never
+            # transitioned past DRAFT, (b) bridge silently failed to
+            # ingest the agent result, or (c) some other state machine
+            # path is firing. Tier-3: detectable at runtime, no behavior
+            # change to the surrounding cycle flow.
+            try:
+                _diag_state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+                _diag_state_summary = {
+                    "current_state": _diag_state.get("current_state") if isinstance(_diag_state, dict) else None,
+                    "has_challenger_field": bool(_diag_state.get("challenger")) if isinstance(_diag_state, dict) else False,
+                    "challenger_revision_id": (
+                        _diag_state.get("challenger", {}).get("challenger_revision_id")
+                        if isinstance(_diag_state, dict) and isinstance(_diag_state.get("challenger"), dict)
+                        else None
+                    ),
+                    "challenger_has_plan_content": (
+                        isinstance(_diag_state.get("challenger", {}).get("plan_content"), dict)
+                        if isinstance(_diag_state, dict) and isinstance(_diag_state.get("challenger"), dict)
+                        else False
+                    ),
+                    "latest_revision_id": (
+                        _diag_state.get("latest_revision", {}).get("revision_id")
+                        if isinstance(_diag_state, dict) and isinstance(_diag_state.get("latest_revision"), dict)
+                        else None
+                    ),
+                    "round_index": (
+                        _diag_state.get("round_index")
+                        if isinstance(_diag_state, dict)
+                        else None
+                    ),
+                }
+            except Exception as _diag_exc:
+                _diag_state_summary = {"fold_plan_state_failed": str(_diag_exc)[:200]}
+            append_tools_governance(
+                ensure_tools_dir(base_dir),
+                "challenger_drafted_poll_timeout",
+                {
+                    "plan_id": plan_id,
+                    "round_number": current_round,
+                    "challenger_request_id": challenger_request_id,
+                    "primary_revision_id": primary_revision_id,
+                    "challenger_timeout_seconds": challenger_timeout_seconds,
+                    "plan_state_at_timeout": _diag_state_summary,
+                },
+            )
             return None, ConvergenceResult(
                 plan_id=plan_id,
                 converged_plan={},
@@ -450,19 +532,44 @@ def run_convergence_drainer(
                 f"{{\"error\": \"primary plan content unavailable in plan state for "
                 f"plan_id={plan_id} revision_id={primary_revision_id}\"}}"
             )
-        # Mint cross_review envelope
-        cross_review_request = issue_cross_review_envelope(
-            plan_id=plan_id,
-            round_number=current_round,
-            primary_revision_id=primary_revision_id,
-            primary_plan_text=primary_plan_text,
-            challenger_revision_id=challenger_revision_id,
-            challenger_plan_text=challenger_plan_text,
-            must_satisfy=must_satisfy,
-            evidence_refs=evidence_refs,
-            allowed_scope=allowed_scope,
-            base_dir=base_dir,
-        )
+        # Mint cross_review envelope.
+        #
+        # Plan ARIA-V10.4 Phase 1 instrumentation — defensive try/except
+        # around the mint call. Pre-V10.4 the call was unwrapped: any
+        # exception (BridgeContractViolation from the inner mint path,
+        # validation failure, kernel-state read race) would propagate
+        # uncaught and the caller would see no governance event naming
+        # the failure layer. The new wrapper emits
+        # cross_review_mint_failed with exception class + truncated
+        # message + cycle context. Re-raise after logging so behavior
+        # is unchanged. Tier-3: detectable, NOT a fix.
+        try:
+            cross_review_request = issue_cross_review_envelope(
+                plan_id=plan_id,
+                round_number=current_round,
+                primary_revision_id=primary_revision_id,
+                primary_plan_text=primary_plan_text,
+                challenger_revision_id=challenger_revision_id,
+                challenger_plan_text=challenger_plan_text,
+                must_satisfy=must_satisfy,
+                evidence_refs=evidence_refs,
+                allowed_scope=allowed_scope,
+                base_dir=base_dir,
+            )
+        except Exception as _mint_exc:
+            append_tools_governance(
+                ensure_tools_dir(base_dir),
+                "cross_review_mint_failed",
+                {
+                    "plan_id": plan_id,
+                    "round_number": current_round,
+                    "primary_revision_id": primary_revision_id,
+                    "challenger_revision_id": challenger_revision_id,
+                    "exception_class": type(_mint_exc).__name__,
+                    "exception_message": str(_mint_exc)[:500],
+                },
+            )
+            raise
         cross_review_request_id = cross_review_request.get("request_id")
         if cross_review_request_id:
             request_ids.append(cross_review_request_id)
@@ -477,6 +584,32 @@ def run_convergence_drainer(
         if _check_aria_stop(root):
             return None, _aria_stop_return()
         if cross_review_state is None:
+            # Plan ARIA-V10.4 Phase 1 — mirror the CHALLENGER_DRAFTED
+            # timeout diagnostic for CROSS_REVIEWED. Same rationale:
+            # capture state at timeout to reveal which bridge layer
+            # failed to advance the plan state.
+            try:
+                _xr_state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+                _xr_state_summary = {
+                    "current_state": _xr_state.get("current_state") if isinstance(_xr_state, dict) else None,
+                    "has_cross_review": bool(_xr_state.get("cross_review")) if isinstance(_xr_state, dict) else False,
+                    "round_index": (
+                        _xr_state.get("round_index") if isinstance(_xr_state, dict) else None
+                    ),
+                }
+            except Exception as _xr_exc:
+                _xr_state_summary = {"fold_plan_state_failed": str(_xr_exc)[:200]}
+            append_tools_governance(
+                ensure_tools_dir(base_dir),
+                "cross_review_poll_timeout",
+                {
+                    "plan_id": plan_id,
+                    "round_number": current_round,
+                    "cross_review_request_id": cross_review_request_id,
+                    "challenger_timeout_seconds": challenger_timeout_seconds,
+                    "plan_state_at_timeout": _xr_state_summary,
+                },
+            )
             return None, ConvergenceResult(
                 plan_id=plan_id,
                 converged_plan={},
@@ -594,6 +727,26 @@ def run_convergence_drainer(
             arbiter_verdict = _derive_arbiter_verdict(
                 terminal_state, list(reason_codes),
             )
+            # Plan ARIA-V10.4 Phase 1 — emit verdict provenance so
+            # operators can triage WHICH branch of the mapping fired.
+            # Pre-V10.4 the verdict string alone collapsed multiple
+            # distinct (terminal_state, reasons) combinations into one
+            # label.
+            try:
+                append_tools_governance(
+                    ensure_tools_dir(base_dir),
+                    "verdict_provenance",
+                    {
+                        "plan_id": plan_id,
+                        "round_number": round_n,
+                        "terminal_state": _LAST_VERDICT_PROVENANCE.get("terminal_state"),
+                        "reasons": _LAST_VERDICT_PROVENANCE.get("reasons"),
+                        "branch": _LAST_VERDICT_PROVENANCE.get("branch"),
+                        "verdict": _LAST_VERDICT_PROVENANCE.get("verdict"),
+                    },
+                )
+            except Exception:
+                pass
             # Plan ARIA-V8 v2 §4 Phase 8.5 (B-V2-08) — independence
             # enforcement on converged cycles. Echo chamber detection
             # via verify_independence's 3-layer check (claim_id +

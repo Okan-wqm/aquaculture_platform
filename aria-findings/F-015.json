@@ -241,9 +241,9 @@
     },
     {
       "id": "F-015-V31-D3",
-      "title": "Plan v3.1-D3 — ci_executor LLM-call cost_telemetry_hook record + 5-site orchestrator call",
-      "status": "OPEN",
-      "note": "Architectural seams from V3.1-D2 that need per-LLM-call invocation: (1) ci_executor.main() AFTER successful claude CLI invocation: parse usage block (input_tokens, output_tokens) + call record_cost_attribution when _MOCK_MODE_AT_ENTRY is False; (2) orchestrator can call cost_telemetry_hook.record() at the 5 LLM invocation boundaries (Primary Plan / Challenger Plan / Cross-Review / Implementation / Specialist Review) once token usage is observable per-call. Both depend on the claude CLI response shape — operator-side observable + safer to land after V10.3-B 20-cycle endurance smoke confirms the cost-row volume is bounded."
+      "title": "Plan v3.1-D3 — ci_executor per-LLM-call cost attribution record (claude CLI usage block parse + V3.1-D2 frozen sentinel gate)",
+      "status": "RESOLVED",
+      "note": "_record_claude_cli_cost helper added to tools/aria-poc/ci_executor.py. Parses Anthropic claude CLI's `--output-format json` wrapper (usage.input_tokens, usage.output_tokens, total_cost_usd, model) + threads cycle_id + pressure_source_type from the request_envelope (V3.1-B2 additive fields) + reads ARIA_CYCLE_SIGNER_KEY_FP env (default SHA256:no-key sentinel for non-autonomous cycles). invoke_claude_code signature gains request_envelope + tools_dir optional kwargs (V8 backward-compat: None defaults skip the cost record). main() callsite threads both kwargs to wire the real-path cost row. Gate uses _MOCK_MODE_AT_ENTRY is False (NOT _is_mock_mode() direct read) — V3.1-D2 frozen-sentinel anchor for ai-safety HIGH-007 race window. Best-effort failure path: parse errors / record_cost_attribution exceptions silently swallowed; the cycle's main LLM-call success is the load-bearing path. 8 V3.1-D3 invariants GREEN (4 source-substring + 1 sentinel + 1 signer env + 2 behavioral — wrapper-without-usage skip + well-formed wrapper threading). 5-site orchestrator-level cost_telemetry_hook.record() invocation deferred — ci_executor IS the canonical per-LLM cost record site (the orchestrator dispatches to runners which subprocess to ci_executor); no additional orchestrator-side call needed for the cost coverage target."
     },
     {
       "id": "F-015-V31-F",

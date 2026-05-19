@@ -701,6 +701,13 @@ def invoke_claude_code(
     agent_id: str | None = None,
     role: str,
     must_satisfy: list[dict[str, Any]] | None = None,
+    # Plan ARIA-V3.1-D3 — request envelope + tools_dir threading for
+    # per-LLM-call cost attribution. When supplied (real path), the
+    # post-subprocess success branch records a cost_attribution row
+    # via record_cost_attribution. When None (legacy / mock-only call
+    # sites), no row is written — V8 backward-compat preserved.
+    request_envelope: dict[str, Any] | None = None,
+    tools_dir: Path | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -877,7 +884,154 @@ def invoke_claude_code(
             json.dumps(envelope, indent=2),
             encoding="utf-8",
         )
+        # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution. Gated on
+        # _MOCK_MODE_AT_ENTRY frozen sentinel (V3.1-D2) so a mid-run
+        # CLAUDE_CODE_MOCK flip cannot rewrite mock-mode classification
+        # between mint + record sites. request_envelope + tools_dir
+        # MUST both be supplied for the record to fire — None defaults
+        # preserve V8 backward-compat for callers that haven't migrated.
+        if (
+            completed.returncode == 0
+            and _MOCK_MODE_AT_ENTRY is False
+            and request_envelope is not None
+            and tools_dir is not None
+        ):
+            _record_claude_cli_cost(
+                raw_stdout=completed.stdout,
+                request_envelope=request_envelope,
+                tools_dir=tools_dir,
+                role=role,
+                request_id=request_id,
+            )
     return completed.returncode
+
+
+def _record_claude_cli_cost(
+    *,
+    raw_stdout: str,
+    request_envelope: dict[str, Any],
+    tools_dir: Path,
+    role: str,
+    request_id: str,
+) -> None:
+    """Plan ARIA-V3.1-D3 — extract Anthropic claude CLI usage block +
+    persist a V10.4 cost_attribution row.
+
+    Claude CLI's `--output-format json` wrapper carries (per the
+    Anthropic CLI 2.1.140 contract documented at
+    tools/aria-poc/ci_executor_contract_proven.md):
+
+      * `total_cost_usd` — float; the CLI's own pricing computation
+        (treated as authoritative for the cost-attribution row's
+        `estimated_usd` field).
+      * `duration_ms`, `num_turns` — operator-facing diagnostics.
+      * `usage` (nested) — { input_tokens, output_tokens, ... } per
+        the Anthropic SDK shape.
+
+    Threading sources:
+
+      * cycle_id — `request_envelope["cycle_id"]` (V3.1-B2 additive
+        field). When None, attribution row carries cycle_id=
+        "cyc-no-id-<request_id_short>" sentinel so the schema-required
+        non-empty constraint holds.
+      * plan_id — `request_envelope["convergence_id"]` is the closest
+        proxy (V9.3 envelope dispatch threads convergence_id ==
+        plan_id at every site). Fallback "plan-<request_id_short>".
+      * pressure_source_type — `request_envelope["pressure_source_type"]`
+        (V3.1-B2 additive field; None permitted).
+      * signer_key_fp — `os.environ["ARIA_CYCLE_SIGNER_KEY_FP"]` (set
+        by AutonomousV9ImplementationRunner before the cycle invokes
+        consumers). Defaults to "SHA256:no-key" sentinel when absent
+        so cost rows for non-autonomous cycles still pass the
+        V3.1-D-1 signer_key_fp schema check.
+
+    Best-effort: parse failures, role-mapping failures, and
+    record_cost_attribution exceptions are swallowed silently. The
+    cycle's main LLM call already succeeded; cost-row recording is a
+    follow-up audit. Failure governance event lands via the
+    cost_telemetry_hook's own failure path when the orchestrator-side
+    hook is wired (V3.1-D2), independent of this CLI-side recorder.
+    """
+    try:
+        wrapper = json.loads(raw_stdout)
+    except json.JSONDecodeError:
+        return
+    if not isinstance(wrapper, dict):
+        return
+    usage = wrapper.get("usage")
+    if not isinstance(usage, dict):
+        # No usage block — older claude CLI versions OR mocked
+        # wrapper. Skip silently; budget.reconcile_envelope_cost
+        # handles total_cost_usd-only reconciliation independently.
+        return
+    input_tokens = usage.get("input_tokens") or 0
+    output_tokens = usage.get("output_tokens") or 0
+    try:
+        input_tokens = int(input_tokens)
+        output_tokens = int(output_tokens)
+    except (TypeError, ValueError):
+        return
+    total_cost_usd = wrapper.get("total_cost_usd")
+    try:
+        estimated_usd = float(total_cost_usd) if total_cost_usd is not None else 0.0
+    except (TypeError, ValueError):
+        estimated_usd = 0.0
+    model = wrapper.get("model") or "claude-cli-unknown"
+    if not isinstance(model, str):
+        model = "claude-cli-unknown"
+
+    # Plan ARIA-V3.1-D3 — role → agent_role mapping. The kernel's
+    # COST_INVOCATION_ROLES enumeration uses canonical short names;
+    # the agent_invocations envelope uses the same role values so
+    # the kwarg passes through directly. _record_cost_attribution
+    # raises GovernanceError on unknown agent_role — we treat that as
+    # a no-op (best-effort) instead of bubbling up to the LLM call.
+    if not isinstance(role, str) or not role.strip():
+        return
+
+    short_rid = (request_id or "")[-12:] or "unknown"
+    cycle_id = request_envelope.get("cycle_id") or f"cyc-no-id-{short_rid}"
+    plan_id = (
+        request_envelope.get("convergence_id")
+        or request_envelope.get("plan_id")
+        or f"plan-{short_rid}"
+    )
+    if not isinstance(cycle_id, str) or not cycle_id:
+        cycle_id = f"cyc-no-id-{short_rid}"
+    if not isinstance(plan_id, str) or not plan_id:
+        plan_id = f"plan-{short_rid}"
+
+    pressure_source_type = request_envelope.get("pressure_source_type")
+    if not isinstance(pressure_source_type, str):
+        pressure_source_type = None
+
+    signer_key_fp = os.environ.get("ARIA_CYCLE_SIGNER_KEY_FP")
+    if not isinstance(signer_key_fp, str) or not signer_key_fp.startswith("SHA256:"):
+        signer_key_fp = "SHA256:no-key"
+
+    try:
+        # Lazy import keeps the cost-record dependency out of the
+        # ci_executor hot path until the real-mode branch fires.
+        from aria_kernel.budget import record_cost_attribution
+        record_cost_attribution(
+            cycle_id=cycle_id,
+            plan_id=plan_id,
+            agent_role=role,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_usd=estimated_usd,
+            pressure_source_type=pressure_source_type,
+            signer_key_fp=signer_key_fp,
+            base_dir=tools_dir,
+        )
+    except Exception:
+        # Best-effort — cost-row failure cannot block the cycle's
+        # main LLM-call success path. V3.1-D's drift detection +
+        # cost_attribution_record_failed governance event (when
+        # the orchestrator-side cost_telemetry_hook is consulted)
+        # handle the audit trail.
+        return
 
 
 # Regex tuned for ```json ... ``` fenced blocks anywhere in the agent
@@ -1503,6 +1657,13 @@ def main(argv: list[str] | None = None) -> int:
             # KeyError if a future regression skips the validation.
             role=request_envelope["role"],
             must_satisfy=request_envelope.get("must_satisfy") or [],
+            # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution wire.
+            # Pass the request_envelope (provides cycle_id +
+            # pressure_source_type + convergence_id) + tools_dir so
+            # invoke_claude_code can mint a V10.4 cost row gated on
+            # the V3.1-D2 _MOCK_MODE_AT_ENTRY frozen sentinel.
+            request_envelope=request_envelope,
+            tools_dir=tools_dir,
         )
     except ClaudeCodeUnavailable as exc:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")

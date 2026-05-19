@@ -235,9 +235,9 @@
     },
     {
       "id": "F-015-V31-F",
-      "title": "Plan v3.1-F — Live wired smoke (network-isolated sandbox + ARIA_DRY_RUN gate + autonomous-preflight test)",
-      "status": "OPEN",
-      "note": "Closes C-8 (smoke sandbox + dry-run network gate). Final acceptance test for v3.1 wire-up. Pre-V10.3-B endurance gate."
+      "title": "Plan v3.1-F — ARIA_DRY_RUN gate + autonomous-preflight test (code anchors); operator-side live smoke pending",
+      "status": "RESOLVED",
+      "note": "F-2 ARIA_DRY_RUN system-wide gate wired at scan_failing_ci (short-circuit to [] before gh subprocess) + gh_token_factory.mint_installation_token (sentinel lease with fallback_active=True). The operator-side F-1+F-4 live smoke (fresh-clone sandbox + 5-cycle strict-profile run with unshare --net) is operator-executed before V10.3-B endurance — the code anchors close C-8 (smoke can no longer fire real gh CLI under ARIA_DRY_RUN=true regardless of network-namespace isolation). F-3 autonomous-mode preflight failure test already covered by V3.1-E I-V31-E-03. 3 V3.1-F invariants GREEN. Operator runbook for F-1+F-4 execution lands in docs/runbooks/aria-v3-1-smoke.md (V3.1-F2 follow-up)."
     }
   ],
   "audit_inputs": [

@@ -322,6 +322,25 @@ def mint_installation_token(
     keys_dir = _keys_dir(workspace_root)
     token_path = keys_dir / f"{cycle_id}.token"
 
+    # Plan ARIA-V3.1-F-2 — ARIA_DRY_RUN system-wide gate (closes C-8).
+    # When set, mint a sentinel mock token without touching the real
+    # GitHub installation API or the operator PAT. The token file is
+    # still written so callers expecting the InstallationTokenLease
+    # contract get a consistent shape; the lease's fallback_active
+    # field is True so downstream paths treat it as non-authoritative.
+    if os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
+        token_path.write_text("aria-dry-run-sentinel")
+        token_path.chmod(0o600)
+        from datetime import datetime, timezone
+        return InstallationTokenLease(
+            cycle_id=cycle_id,
+            token_file=token_path,
+            ttl_seconds=ttl_seconds,
+            gh_app_installation_id=None,
+            fallback_active=True,
+            minted_at_utc=datetime.now(timezone.utc).isoformat(),
+        )
+
     installation_id = os.environ.get("ARIA_GH_APP_INSTALLATION_ID")
 
     if installation_id:

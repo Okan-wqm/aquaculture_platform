@@ -635,6 +635,15 @@ def scan_failing_ci(
     if cached is not None:
         return cached[:_MAX_CANDIDATES_PER_SOURCE]
 
+    # Plan ARIA-V3.1-F-2 — ARIA_DRY_RUN system-wide gate (closes C-8).
+    # When set, short-circuit BEFORE the `gh run list` subprocess.
+    # Used by the V3.1-F smoke to exercise the autonomous cycle path
+    # without touching the real GitHub API. The autonomous profile's
+    # preflight gate (V3.1-E) catches misconfigured hosts; this gate
+    # is the per-call defense-in-depth.
+    if _os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
+        return []
+
     if not shutil.which(gh_cli):
         return []
     # Plan ARIA-V3.1-D-4 — explicit env when scoped token supplied.

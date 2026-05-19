@@ -183,6 +183,14 @@ export interface MigrationRunnerOptions {
   eventSink?: MigrationEventSink;
 }
 
+const migrationRunnerCompletions = new Map<string, Promise<void>>();
+
+export function getMigrationRunnerCompletion(
+  sourceSchema: string,
+): Promise<void> | undefined {
+  return migrationRunnerCompletions.get(sourceSchema);
+}
+
 export function createMigrationRunnerService(
   sourceSchema: string,
   options?: MigrationRunnerOptions,
@@ -215,6 +223,12 @@ export function createMigrationRunnerService(
     ) {}
 
     async onApplicationBootstrap(): Promise<void> {
+      const completion = this.runMigrations();
+      migrationRunnerCompletions.set(sourceSchema, completion);
+      await completion;
+    }
+
+    private async runMigrations(): Promise<void> {
       const runnerEnabledOverride = this.configService.get<string>(
         'MIGRATION_RUNNER_ENABLED',
       );

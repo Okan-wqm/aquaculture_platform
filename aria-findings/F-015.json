@@ -223,9 +223,9 @@
     },
     {
       "id": "F-015-V31-C2",
-      "title": "Plan v3.1-C2 — Memory hook orchestrator wire (MemoryHook.record + record_convention ordering + verify_chain_or_quarantine post-record + HUMAN_REQUIRED skill genesis registration)",
-      "status": "OPEN",
-      "note": "Architectural anchors from V3.1-C that need orchestrator-side wiring: (1) cycle_phases.memory.MemoryHookImpl concrete variant that calls read_governance_rows_reverse → check_pattern_signature_stability → record_convention → verify_chain_or_quarantine in the correct order (C2 + C3); (2) orchestrator post-CONVERGED phase invokes memory_hook.record(); (3) skill genesis stable=True dispatches request_human_required (NOT direct registry.json write — closes ai-safety HIGH-005). Tier-1 — to land in V3.1-C2 follow-up commit before V3.1-F live smoke."
+      "title": "Plan v3.1-C2 — Memory hook orchestrator wire (MemoryHookImpl + record_convention ordering + verify_chain post-record + HUMAN_REQUIRED skill genesis)",
+      "status": "RESOLVED",
+      "note": "MemoryHookImpl production variant chains read_governance_rows_reverse(limit=200, kind_filter=convergence_resolved+pattern_signature_observed) → check_pattern_signature_stability → record_convention (if signer_key_fp valid) → verify_chain_or_quarantine → record_human_required(reason=skill_genesis_adapter_authoring) when stable=True. Order is Tier-1 anchored (V3.1-C HIGH-005: stability check BEFORE record, cycle's own row excluded from its own check; MEDIUM-012: verify AFTER record). Skill-genesis dispatch goes through HUMAN_REQUIRED (NOT direct registry.json write) so the operator reviews the adapter PR before activation (ai-safety HIGH-005). select_memory_hook factory dispatches observe/frozen → NoOp, standard/strict/autonomous → MemoryHookImpl. Orchestrator post-CONVERGED body (autonomy_orchestrator.py BEFORE specialist_review_started) invokes memory_hook.record() inside try/except so V10 memory pillar failure cannot block specialist_review + worker + auto_merge. memory_hook_recorded AutonomyState transition + memory_hook_failed governance event on exception. 7 V3.1-C2 invariants GREEN (4 source-ordering + 3 behavioral with patched primitives)."
     },
     {
       "id": "F-015-V31-D",

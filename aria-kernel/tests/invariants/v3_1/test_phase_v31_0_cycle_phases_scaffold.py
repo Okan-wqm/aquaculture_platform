@@ -61,6 +61,10 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
             "CostTelemetryHook",
             "CyclePlanEnvelope",
             "MemoryHook",
+            # Plan ARIA-V3.1-C2 — production MemoryHookImpl variant
+            # (bounded reader + stability check + record_convention +
+            # verify_chain + skill_genesis HUMAN_REQUIRED dispatch).
+            "MemoryHookImpl",
             "NoOpCostTelemetryHook",
             "NoOpMemoryHook",
             "NoOpPlanContentProvider",
@@ -76,6 +80,7 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
             "V9ImplementationResult",
             "V9ImplementationRunner",
             "V9PressureSourceProvider",
+            "select_memory_hook",
             "select_v9_implementation_runner",
         }
         actual = set(getattr(module, "__all__", ()))

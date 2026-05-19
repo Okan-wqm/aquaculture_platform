@@ -51,7 +51,12 @@ from .implementer import (
     V9ImplementationRunner,
     select_v9_implementation_runner,
 )
-from .memory import MemoryHook, NoOpMemoryHook
+from .memory import (
+    MemoryHook,
+    MemoryHookImpl,
+    NoOpMemoryHook,
+    select_memory_hook,
+)
 from .plan_source import (
     CyclePlanEnvelope,
     NoOpPlanContentProvider,
@@ -67,6 +72,7 @@ __all__ = [
     "CostTelemetryHook",
     "CyclePlanEnvelope",
     "MemoryHook",
+    "MemoryHookImpl",
     "NoOpCostTelemetryHook",
     "NoOpMemoryHook",
     "NoOpPlanContentProvider",
@@ -79,5 +85,6 @@ __all__ = [
     "V9ImplementationResult",
     "V9ImplementationRunner",
     "V9PressureSourceProvider",
+    "select_memory_hook",
     "select_v9_implementation_runner",
 ]

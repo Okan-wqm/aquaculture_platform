@@ -1137,6 +1137,65 @@ def run_autonomy_orchestrator(
                     per_cycle_results.append(cycle_summary)
                     continue
 
+                # Plan ARIA-V3.1-C2 — post-CONVERGED MemoryHook wire.
+                # Fires the bounded governance read → stability check
+                # → record_convention → verify_chain_or_quarantine →
+                # skill_genesis_human_required_dispatch pipeline.
+                # NoOp variant (default) preserves V8 behavior; the
+                # MemoryHookImpl production variant activates the V10
+                # memory pillar per cycle (closes V31-C2 follow-up).
+                #
+                # Placed BEFORE specialist_review_started so the V10
+                # memory contribution lands per CONVERGED cycle even
+                # when specialist_review rejects. The MemoryHook is
+                # idempotent for crash recovery — the convention row
+                # is keyed by pattern_signature.
+                try:
+                    _v31c2_memory_result = memory_hook.record(
+                        cycle_id=cycle_id,
+                        plan_id=convergence_result.get("plan_id") or f"plan-{cycle_id}",
+                        workspace_root=Path(workspace_root) if workspace_root else root,
+                        base_dir=root,
+                        converged_plan=convergence_result.get("converged_plan", {}) or {},
+                        plan_envelope_metadata={
+                            "_pressure_source_type": cycle_summary.get(
+                                "_pressure_source_type", "git_diff",
+                            ),
+                        },
+                        profile=str(profile_snapshot or "standard"),
+                        signer_key_fp=None,  # V31-D2 will thread the cycle key fp here
+                    )
+                    cycle_summary["memory_hook"] = _v31c2_memory_result
+                    AutonomyStateReducer.transition(
+                        root, cycle_id=cycle_id,
+                        phase="memory_hook_recorded",
+                        status=str(_v31c2_memory_result.get("status") or "ok"),
+                        profile=profile_snapshot,
+                        details={
+                            "convention_recorded": _v31c2_memory_result.get("convention_recorded"),
+                            "stability_fired": _v31c2_memory_result.get(
+                                "stability_result", {},
+                            ).get("stable"),
+                            "skill_genesis_dispatched": _v31c2_memory_result.get(
+                                "skill_genesis_dispatched",
+                            ),
+                        },
+                    )
+                except Exception as _v31c2_exc:
+                    # Best-effort — V10 memory pillar failure must not
+                    # block specialist_review + worker_drainer +
+                    # auto_merge. The exception is surfaced via
+                    # governance event for operator visibility.
+                    append_tools_governance(
+                        root, "memory_hook_failed",
+                        {
+                            "cycle_id": cycle_id,
+                            "error_class": type(_v31c2_exc).__name__,
+                            "error_message": str(_v31c2_exc)[:500],
+                        },
+                        bypass_profile_gate=True,
+                    )
+
                 # Plan ARIA-V6 §2c V6.1 Phase 6.1 — Gate C Lane-A
                 # specialist dispatch. Inserted between Gate A's
                 # converged-verdict check and worker_drainer. The

@@ -766,12 +766,45 @@ jobs:
       # SEC-CI-002: pinned to SHA
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      # SEC-CI-002: pinned to SHA
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # ORPHAN-HIGH-076 — GHCR login retry on transient network failure.
+      #
+      # The previous `docker/login-action@<SHA>` had no retries; a single
+      # net/http timeout between the GHA runner and ghcr.io aborted the
+      # matrix shard and dragged the whole deploy down (2026-05-18 deploy
+      # run 26081565625, tenant-admin shard). The native action has no
+      # retry knob and `fail-fast: false` on the matrix only avoids
+      # cancelling SIBLING shards — the failing shard itself still
+      # produces a missing image that breaks `docker compose pull` on
+      # the droplet.
+      #
+      # This shell loop replaces the third-party action with an explicit
+      # `docker login` retry: 3 attempts, exponential-ish backoff (5s, 10s,
+      # 15s). No third-party SHA-pin churn; the supply-chain surface
+      # narrows by one action. `--password-stdin` keeps the token off the
+      # process table even on retry. Final attempt failure exits non-zero
+      # so the shard fails loud — same observable contract as the action,
+      # plus transient-resilience.
+      - name: Login to GHCR (3-attempt retry — ORPHAN-HIGH-076)
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          for attempt in 1 2 3; do
+            echo "[ghcr-login] attempt ${attempt}/3"
+            echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" \
+              -u "${GHCR_USERNAME}" --password-stdin
+            rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "[ghcr-login] success on attempt ${attempt}"
+              exit 0
+            fi
+            backoff=$((attempt * 5))
+            echo "[ghcr-login] attempt ${attempt} failed (rc=${rc}); sleeping ${backoff}s"
+            sleep "${backoff}"
+          done
+          echo "[ghcr-login] 3 attempts exhausted; aborting build."
+          exit 1
 
       # WS10: pick the right Dockerfile per service. db-migrate uses its
       # own Dockerfile (no HEALTHCHECK, one-shot CMD) while every other
@@ -843,12 +876,45 @@ jobs:
       # SEC-CI-002: pinned to SHA
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      # SEC-CI-002: pinned to SHA
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # ORPHAN-HIGH-076 — GHCR login retry on transient network failure.
+      #
+      # The previous `docker/login-action@<SHA>` had no retries; a single
+      # net/http timeout between the GHA runner and ghcr.io aborted the
+      # matrix shard and dragged the whole deploy down (2026-05-18 deploy
+      # run 26081565625, tenant-admin shard). The native action has no
+      # retry knob and `fail-fast: false` on the matrix only avoids
+      # cancelling SIBLING shards — the failing shard itself still
+      # produces a missing image that breaks `docker compose pull` on
+      # the droplet.
+      #
+      # This shell loop replaces the third-party action with an explicit
+      # `docker login` retry: 3 attempts, exponential-ish backoff (5s, 10s,
+      # 15s). No third-party SHA-pin churn; the supply-chain surface
+      # narrows by one action. `--password-stdin` keeps the token off the
+      # process table even on retry. Final attempt failure exits non-zero
+      # so the shard fails loud — same observable contract as the action,
+      # plus transient-resilience.
+      - name: Login to GHCR (3-attempt retry — ORPHAN-HIGH-076)
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          for attempt in 1 2 3; do
+            echo "[ghcr-login] attempt ${attempt}/3"
+            echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" \
+              -u "${GHCR_USERNAME}" --password-stdin
+            rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "[ghcr-login] success on attempt ${attempt}"
+              exit 0
+            fi
+            backoff=$((attempt * 5))
+            echo "[ghcr-login] attempt ${attempt} failed (rc=${rc}); sleeping ${backoff}s"
+            sleep "${backoff}"
+          done
+          echo "[ghcr-login] 3 attempts exhausted; aborting build."
+          exit 1
 
       - name: Build and push ${{ matrix.module }}
         # SEC-CI-002: pinned to SHA

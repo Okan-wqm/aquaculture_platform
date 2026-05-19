@@ -3601,3 +3601,24 @@ Fix (Tier-1 Make-Impossible): platform DDL is now owned by the **Platform Bootst
 `tests/invariants/init-scripts-no-schema-ddl.spec.ts` blocks any future regression — `CREATE SCHEMA / CREATE ROLE / CREATE TABLE / CREATE FUNCTION / CREATE POLICY / GRANT ... ON SCHEMA / ALTER SCHEMA / ALTER DEFAULT PRIVILEGES / ALTER TABLE` anywhere under `infrastructure/docker/init-scripts/*.{sh,sql}` fails CI. `SchemaVersionGate.probePlatformBootstrap()` refuses service boot if the signal row is missing or counts indicate partial-apply state.
 
 Status: RESOLVED on platform-bootstrap-atom branch (this commit).
+
+## ORPHAN-HIGH-076 — `.github/workflows/deploy-digitalocean.yml` has no retry policy on `docker/login-action`; single GHCR network flake aborts the entire deploy matrix
+
+Severity: HIGH. A transient timeout between the GitHub Actions runner and `ghcr.io` during the `docker/login-action` step causes whichever matrix shard hit the flake to fail outright, and because `build-{backend,frontend}-images` runs as a matrix, even a single shard failure blocks the downstream `deploy` job. Two production deploys in the 2026-05-18 → 2026-05-19 window aborted at exactly this point — both with the same root error:
+
+```
+Error response from daemon: Get "https://ghcr.io/v2/": ... net/http: request canceled
+(Client.Timeout exceeded while awaiting headers)
+```
+
+Both attempts had successfully built and pushed every OTHER matrix shard (14 backend + 7 of 8 frontend images); only one frontend image build (`tenant-admin` on 2026-05-18, deploy run 26081565625) hit the GHCR rate limiter or transient TCP-reset and dragged the whole deploy down. Operator workaround was identical both times: re-trigger `deploy-digitalocean.yml --ref main` from a fresh dispatch.
+
+Root cause: `docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772` is invoked with no `retries` parameter and no surrounding retry wrapper. The action's default behavior on TCP/HTTP timeout is a single attempt → exit non-zero → step fails. GHA `jobs.<name>.continue-on-error: true` is also absent so the failing matrix shard cancels its peers (`fail-fast` defaults to true). Two control surfaces (`fail-fast: false` + retry-on-transient-class) are both missing.
+
+Fix (Tier 1 Make-Automatic):
+
+  1. Set `strategy.fail-fast: false` on `build-backend-images` + `build-frontend-images` so a single shard's transient failure does NOT abort the entire matrix. (The matrix already has `max-parallel: 6`; fail-fast is the orthogonal toggle.) Already present on `build-backend-images` per the source — verify presence on the frontend matrix.
+  2. Wrap the `docker/login-action` invocation in a retry loop or step-level retry. Easiest implementation: use `nick-fields/retry@*` SHA-pinned (already used elsewhere in the workflow per the SHA-pinning audit) with `max_attempts: 3` and `retry_on: error` against the login step. GHA does not have a native step-retry primitive yet (only job-retry via `continue-on-error`), so a wrapper action is the load-bearing path.
+  3. Optional Tier-2 add-on: alert on consecutive GHCR-login failures so operators see the class is escalating before it blocks a real deploy.
+
+Status: OPEN — flagged 2026-05-19, before scope commit on PR #292 + sensor-baseline fix. Cure is mechanical (workflow YAML edit + SHA-pinned action). Tracked for the next operator window after Faz 6 cutover smoke completes.

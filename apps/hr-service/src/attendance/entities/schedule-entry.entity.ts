@@ -34,7 +34,7 @@ export class ScheduleEntry {
   id!: string;
 
   @Field()
-  @Column()
+  @Column({ type: 'uuid' })
   @Index()
   tenantId!: string;
 

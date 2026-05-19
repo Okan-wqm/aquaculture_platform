@@ -167,7 +167,7 @@ export class Employee {
   // that start with tenantId (idx_employee_email_tenant, idx_employee_status_tenant, etc.).
   // @see DB-MEDIUM-002
   @Field()
-  @Column()
+  @Column({ type: 'uuid' })
   tenantId!: string;
 
   @Field()

@@ -32,6 +32,31 @@ IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
 GATEWAY_IMAGE_REF="${IMAGE_PREFIX}/gateway-api:latest"
 APPLICATION_IMAGE_SERVICES="db-migrate gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil"
 
+# ──────────────────────────────────────────────────────────────────────────
+# ADR-031 — Service DB-role password SSoT
+#
+# The platform-bootstrap atom
+# (apps/db-migrate/src/platform-bootstrap.service.ts) fails loud at Phase 0
+# if any *_SERVICE_DB_PASS env var is missing or empty. THIS script's
+# generate_credential loop is the source-of-truth that provisions those
+# passwords; the list below MUST stay aligned with the atom's
+# SERVICE_ROLES constant.
+#
+# Adding a new service-role: append here AND in
+# apps/db-migrate/src/platform-bootstrap.service.ts SERVICE_ROLES.
+#
+# 2026-05-19: AI, OBSERVABILITY, EVENT_STORE, CONFIG appended after the
+# 2026-05-18 cutover deploy 26082203809 aborted at:
+#   [platform-bootstrap] Phase 0 abort: 4/15 service-role password env
+#   vars are missing or empty: AI_SERVICE_DB_PASS, OBSERVABILITY_SERVICE_DB_PASS,
+#   EVENT_STORE_SERVICE_DB_PASS, CONFIG_SERVICE_DB_PASS.
+#
+# Two duplicate for-loops in the full-deploy and selective-deploy paths
+# consume this constant — a single SSoT prevents the kind of drift that
+# produced the 11-vs-15 mismatch above.
+# ──────────────────────────────────────────────────────────────────────────
+SERVICE_DB_ROLES="AUTH FARM SENSOR BILLING HR ALERT ADMIN GATEWAY NOTIFICATION HYDROPONICS MESSAGING AI OBSERVABILITY EVENT_STORE CONFIG"
+
 dump_nonhealthy_container_logs() {
   local label="${1:-snapshot}"
   echo "=== Logs from non-healthy/restarting containers (${label}) ==="
@@ -419,7 +444,8 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   done
 
   # PostgreSQL per-service role passwords
-  for SVC in AUTH FARM SENSOR BILLING HR ALERT ADMIN GATEWAY NOTIFICATION HYDROPONICS MESSAGING; do
+  # SSoT: SERVICE_DB_ROLES declared at the top of this script (ADR-031).
+  for SVC in ${SERVICE_DB_ROLES}; do
     generate_credential "${SVC}_SERVICE_DB_PASS"
   done
 
@@ -565,7 +591,8 @@ else
     generate_credential "NATS_${SVC}_SVC_USER"
     generate_credential "NATS_${SVC}_SVC_PASS"
   done
-  for SVC in AUTH FARM SENSOR BILLING HR ALERT ADMIN GATEWAY NOTIFICATION HYDROPONICS MESSAGING; do
+  # SSoT: SERVICE_DB_ROLES declared at the top of this script (ADR-031).
+  for SVC in ${SERVICE_DB_ROLES}; do
     generate_credential "${SVC}_SERVICE_DB_PASS"
   done
 

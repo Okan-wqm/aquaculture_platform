@@ -244,14 +244,16 @@ export function gqlRequest(
     query: (gql: string, variables?: Record<string, unknown>) => {
       const body =
         variables === undefined ? { query: gql } : { query: gql, variables };
-      const serviceHeaders = generateServiceIdentityHeadersV2({
-        serviceName: 'gateway-api',
-        secret: getE2eInternalServiceSecret(),
-        tenantId,
-        method: 'POST',
-        path: '/graphql',
-        body: JSON.stringify(body),
-      });
+      const serviceHeaders: Record<string, string> = {
+        ...generateServiceIdentityHeadersV2({
+          serviceName: 'gateway-api',
+          secret: getE2eInternalServiceSecret(),
+          tenantId,
+          method: 'POST',
+          path: '/graphql',
+          body: JSON.stringify(body),
+        }),
+      };
       return supertest(httpServer)
         .post('/graphql')
         .set(serviceHeaders)

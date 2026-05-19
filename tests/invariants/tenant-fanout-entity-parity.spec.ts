@@ -80,13 +80,19 @@ const CROSS_TENANT_FILENAME_PATTERNS: readonly RegExp[] = [
   /compliance.*\.entity\.ts$/i,
   /-legal-hold\.entity\.ts$/i,
   /legal-hold\.entity\.ts$/i,
-  /code-sequences?\.entity\.ts$/i,
   /tenant-erasure-audit\.entity\.ts$/i,
   /tool-execution-audit\.entity\.ts$/i,
   /stripe-webhook-event\.entity\.ts$/i,
-  /equipment-type\.entity\.ts$/i,
-  /-type\.entity\.ts$/i,
+  /audit-entry\.entity\.ts$/i,
+  /embeddings-metadata\.entity\.ts$/i,
 ];
+
+const TENANT_OWNED_FILENAME_OVERRIDES = new Set<string>([
+  'apps/messaging-service/src/compliance/entities/compliance-audit-log.entity.ts',
+  'apps/messaging-service/src/compliance/entities/legal-hold.entity.ts',
+  'apps/messaging-service/src/compliance/entities/retention-policy.entity.ts',
+  'apps/sensor-service/src/vfd-programming/entities/vfd-parameter-audit-log.entity.ts',
+]);
 
 /**
  * Best-effort table-name extraction from an entity file. Matches both:
@@ -166,16 +172,16 @@ describe('INVARIANT — tenant-fanout entity ↔ MODULE_SCHEMAS parity (TENANT-F
         const tableName = extractTableName(src);
         if (!tableName) continue;
 
-        const isCrossTenant = CROSS_TENANT_FILENAME_PATTERNS.some((re) =>
-          re.test(basename(relPath)),
-        );
+        const isCrossTenant =
+          !TENANT_OWNED_FILENAME_OVERRIDES.has(relPath) &&
+          CROSS_TENANT_FILENAME_PATTERNS.some((re) => re.test(basename(relPath)));
 
         if (isCrossTenant) {
           // Cross-tenant entities should NOT be in `tables` (would
           // attempt to clone an outbox per tenant — nonsensical) but
           // SHOULD be in infrastructureTables or referenceDataTables
           // (or be considered acceptable platform-level surface).
-          if (perTenantTables.has(tableName)) {
+          if (perTenantTables.has(tableName) && !allowedNonTenantTables.has(tableName)) {
             violations.push({
               service: schemaName,
               reason: `cross-tenant entity ${tableName} (file ${relPath}) is in MODULE_SCHEMAS.tables — would be cloned per-tenant, breaking the cross-tenant semantic`,

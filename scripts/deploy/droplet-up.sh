@@ -25,12 +25,25 @@
 #   IMAGE_PREFIX      — GHCR image prefix (defaults to this repository)
 # =============================================================================
 
-set -e
+set -euo pipefail
 cd /var/aqua-saas
 
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
 GATEWAY_IMAGE_REF="${IMAGE_PREFIX}/gateway-api:latest"
 APPLICATION_IMAGE_SERVICES="db-migrate gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil"
+ROLLBACK_MANIFEST="${ROLLBACK_MANIFEST:-/tmp/aqua-deploy-rollback-images.tsv}"
+
+ACTIVE_COMPOSE_PROFILES="${COMPOSE_PROFILES:-}"
+if [ -z "${ACTIVE_COMPOSE_PROFILES}" ] && [ -f /var/aqua-saas/.env ]; then
+  ACTIVE_COMPOSE_PROFILES="$(grep -E '^COMPOSE_PROFILES=' /var/aqua-saas/.env 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+fi
+case ",${ACTIVE_COMPOSE_PROFILES// /,}," in
+  *",rust-sidecar,"*)
+    echo "::error::COMPOSE_PROFILES includes rust-sidecar, but sensor-ingestion is not in the production immutable image matrix."
+    echo "  Refusing production deploy. Add sensor-ingestion to APPLICATION_IMAGE_SERVICES and the deploy image matrix before enabling this profile."
+    exit 1
+    ;;
+esac
 
 # ──────────────────────────────────────────────────────────────────────────
 # ADR-031 — Service DB-role password SSoT
@@ -74,16 +87,10 @@ run_db_migrate_or_exit() {
   local deploy_mode="${1:-deploy}"
 
   echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
-  # Pull the migration image separately so its failure does not cascade into
-  # service-container pull logic. Compose service name is `db-migrate`; the
-  # container_name is `aqua-db-migrate`. When db-migrate was built by this
-  # workflow run, pin it to DEPLOY_SHA; otherwise keep the current compatibility
-  # behavior and use the latest migration bundle already published.
-  if [ "${FULL_DEPLOY:-false}" = "true" ] || deploy_includes_service "db-migrate"; then
-    pull_deploy_image_required "db-migrate"
-  else
-    docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
-  fi
+  # db-migrate is the only schema writer. It must always be the immutable
+  # image built for DEPLOY_SHA; pulling compose `latest` can reuse a failed
+  # prior migration bundle and advance schema from the wrong release.
+  pull_deploy_image_required "db-migrate"
 
   DB_MIGRATE_TIMEOUT_SECONDS="${DB_MIGRATE_TIMEOUT_SECONDS:-1200}"
   set +e
@@ -101,11 +108,13 @@ run_db_migrate_or_exit() {
     echo "--- db-migrate/postgres status ---"
     docker compose -f docker-compose.droplet.yml ps db-migrate postgres 2>&1 || true
     docker compose -f docker-compose.droplet.yml stop db-migrate 2>&1 || true
+    record_release_ledger "failed" "db_migrate_timeout"
     exit 1
   elif [ "${DB_MIGRATE_STATUS}" -ne 0 ]; then
     echo "::error::aqua-db-migrate failed during ${deploy_mode} — aborting BEFORE service containers start."
     echo "--- aqua-db-migrate logs (last 500 lines) ---"
     docker logs aqua-db-migrate --tail=500 2>&1 || true
+    record_release_ledger "failed" "db_migrate"
     exit 1
   fi
 
@@ -139,6 +148,11 @@ is_application_image_service() {
     *" ${svc} "*) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+image_ref_for_service() {
+  local svc="$1"
+  echo "${IMAGE_PREFIX}/${svc}:latest"
 }
 
 deploy_includes_service() {
@@ -181,6 +195,355 @@ pull_deploy_image_required() {
   echo "::error::Required image pull failed for ${svc} (${immutable_ref}) after ${attempts} attempt(s)."
   echo "  Aborting BEFORE service restart so the deploy cannot keep running stale images."
   return 1
+}
+
+capture_rollback_manifest() {
+  echo "=== Capturing current application image digests for rollback ==="
+  : > "${ROLLBACK_MANIFEST}"
+
+  local svc
+  local container_id
+  local image_id
+  for svc in ${APPLICATION_IMAGE_SERVICES}; do
+    [ "$svc" = "db-migrate" ] && continue
+    container_id=$(docker compose -f docker-compose.droplet.yml ps -q "$svc" 2>/dev/null || true)
+    if [ -z "${container_id}" ]; then
+      continue
+    fi
+    image_id=$(docker inspect --format='{{.Image}}' "${container_id}" 2>/dev/null || true)
+    if [ -n "${image_id}" ]; then
+      printf '%s\t%s\n' "$svc" "$image_id" >> "${ROLLBACK_MANIFEST}"
+    fi
+  done
+
+  local captured
+  captured=$(wc -l < "${ROLLBACK_MANIFEST}" 2>/dev/null || echo 0)
+  echo "  Captured ${captured} service image(s) in ${ROLLBACK_MANIFEST}"
+}
+
+rollback_deployed_services() {
+  local reason="${1:-deploy failure}"
+
+  echo "=== Rolling back application images (${reason}) ==="
+  if [ ! -s "${ROLLBACK_MANIFEST}" ]; then
+    echo "::error::No rollback manifest available; manual intervention required."
+    return 1
+  fi
+
+  local svc
+  local image_id
+  while IFS="$(printf '\t')" read -r svc image_id; do
+    if [ -z "${svc}" ] || [ -z "${image_id}" ]; then
+      continue
+    fi
+    echo "  ${svc}: restoring $(image_ref_for_service "$svc") -> ${image_id}"
+    docker tag "${image_id}" "$(image_ref_for_service "$svc")" 2>/dev/null || true
+  done < "${ROLLBACK_MANIFEST}"
+
+  docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
+}
+
+restartable_deploy_services() {
+  local svc
+  for svc in ${DEPLOY_SERVICES}; do
+    [ "$svc" = "db-migrate" ] && continue
+    echo "$svc"
+  done
+}
+
+migration_manifest_hash() {
+  local files
+  files=$(git ls-files 'apps/*/src/**/migrations/[0-9]*.ts' \
+    'apps/*/src/migrations/[0-9]*.ts' \
+    'apps/*/src/database/migrations/[0-9]*.ts' \
+    'apps/db-migrate/src/schema-registry.ts' 2>/dev/null | sort || true)
+
+  if [ -z "${files}" ]; then
+    echo ""
+    return 0
+  fi
+
+  printf '%s\n' "${files}" | xargs sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
+}
+
+current_image_digest_json() {
+  local json="{"
+  local sep=""
+  local svc
+  local image_id
+
+  for svc in ${APPLICATION_IMAGE_SERVICES}; do
+    image_id=$(docker image inspect --format='{{.Id}}' "$(image_ref_for_service "$svc")" 2>/dev/null || true)
+    if [ -z "${image_id}" ]; then
+      continue
+    fi
+    json="${json}${sep}\"${svc}\":\"${image_id}\""
+    sep=","
+  done
+
+  json="${json}}"
+  echo "${json}"
+}
+
+record_release_ledger() {
+  local status="$1"
+  local failure_phase="${2:-}"
+  local db_name="${POSTGRES_DB:-aquaculture}"
+  local operator="${GHCR_ACTOR:-${GITHUB_ACTOR:-unknown}}"
+  local image_digests
+  local db_migrate_image
+  local manifest_hash
+
+  if ! docker ps --format '{{.Names}}' | grep -qx 'aqua-postgres'; then
+    echo "::warning::Cannot record release ledger status=${status}: aqua-postgres is not running."
+    case "${status}" in
+      db_complete|apps_restarting|promoted|rollback_attempted|rollback_verified|rollback_failed|rolled_back)
+        return 1
+        ;;
+      *)
+        return 0
+        ;;
+    esac
+  fi
+
+  image_digests="$(current_image_digest_json)"
+  db_migrate_image=$(docker image inspect --format='{{.Id}}' "$(image_ref_for_service db-migrate)" 2>/dev/null || true)
+  manifest_hash="$(migration_manifest_hash || true)"
+
+  set +e
+  docker exec -i aqua-postgres psql \
+    -U "${POSTGRES_USER:-aquaculture}" \
+    -d "${db_name}" \
+    -v ON_ERROR_STOP=1 \
+    -v release_id="${DEPLOY_RELEASE_ID:-${DEPLOY_SHA:-unknown}}" \
+    -v git_sha="${DEPLOY_SHA:-unknown}" \
+    -v db_migrate_image="${db_migrate_image}" \
+    -v migration_manifest_hash="${manifest_hash}" \
+    -v image_digests="${image_digests}" \
+    -v status="${status}" \
+    -v failure_phase="${failure_phase}" \
+    -v operator="${operator}" <<'SQL'
+INSERT INTO platform.release_ledger (
+  release_id,
+  git_sha,
+  db_migrate_image,
+  migration_manifest_hash,
+  expected_heads,
+  applied_heads,
+  tenant_schema_set,
+  tenant_fanout,
+  image_digests,
+  status,
+  failure_phase,
+  rollback_attempted,
+  rollback_verified,
+  rollback_failed,
+  operator,
+  completed_at
+) VALUES (
+  :'release_id',
+  :'git_sha',
+  NULLIF(:'db_migrate_image', ''),
+  NULLIF(:'migration_manifest_hash', ''),
+  '{}'::jsonb,
+  '{}'::jsonb,
+  '[]'::jsonb,
+  '{}'::jsonb,
+  COALESCE(NULLIF(:'image_digests', '')::jsonb, '{}'::jsonb),
+  :'status',
+  NULLIF(:'failure_phase', ''),
+  :'status' IN ('rollback_attempted', 'rollback_verified', 'rollback_failed', 'rolled_back'),
+  :'status' IN ('rollback_verified', 'rolled_back'),
+  :'status' = 'rollback_failed',
+  NULLIF(:'operator', ''),
+  CASE WHEN :'status' IN ('promoted', 'failed', 'rollback_verified', 'rollback_failed', 'rolled_back') THEN NOW() ELSE NULL END
+)
+ON CONFLICT (release_id) DO UPDATE SET
+  git_sha = EXCLUDED.git_sha,
+  db_migrate_image = EXCLUDED.db_migrate_image,
+  migration_manifest_hash = EXCLUDED.migration_manifest_hash,
+  expected_heads = CASE
+    WHEN EXCLUDED.expected_heads = '{}'::jsonb THEN platform.release_ledger.expected_heads
+    ELSE EXCLUDED.expected_heads
+  END,
+  applied_heads = CASE
+    WHEN EXCLUDED.applied_heads = '{}'::jsonb THEN platform.release_ledger.applied_heads
+    ELSE EXCLUDED.applied_heads
+  END,
+  tenant_schema_set = CASE
+    WHEN EXCLUDED.tenant_schema_set = '[]'::jsonb THEN platform.release_ledger.tenant_schema_set
+    ELSE EXCLUDED.tenant_schema_set
+  END,
+  tenant_fanout = CASE
+    WHEN EXCLUDED.tenant_fanout = '{}'::jsonb THEN platform.release_ledger.tenant_fanout
+    ELSE EXCLUDED.tenant_fanout
+  END,
+  image_digests = EXCLUDED.image_digests,
+  status = EXCLUDED.status,
+  failure_phase = EXCLUDED.failure_phase,
+  rollback_attempted = platform.release_ledger.rollback_attempted OR EXCLUDED.rollback_attempted,
+  rollback_verified = platform.release_ledger.rollback_verified OR EXCLUDED.rollback_verified,
+  rollback_failed = platform.release_ledger.rollback_failed OR EXCLUDED.rollback_failed,
+  operator = EXCLUDED.operator,
+  completed_at = EXCLUDED.completed_at,
+  updated_at = NOW();
+SQL
+  local rc=$?
+  set -e
+
+  if [ "${rc}" -ne 0 ]; then
+    echo "::warning::Failed to record platform.release_ledger status=${status}."
+    case "${status}" in
+      db_complete|apps_restarting|promoted|rollback_attempted|rollback_verified|rollback_failed|rolled_back)
+        echo "::error::Release ledger write is mandatory after platform bootstrap; aborting."
+        return 1
+        ;;
+      *)
+        echo "::warning::Continuing because this is a pre-bootstrap/failure audit write."
+        return 0
+        ;;
+    esac
+  else
+    echo "  Release ledger recorded: ${DEPLOY_RELEASE_ID:-${DEPLOY_SHA:-unknown}} status=${status}${failure_phase:+ phase=${failure_phase}}"
+  fi
+}
+
+verify_rollback_images() {
+  if [ ! -s "${ROLLBACK_MANIFEST}" ]; then
+    echo "::error::Rollback manifest missing; cannot verify rollback image IDs."
+    return 1
+  fi
+
+  local svc
+  local expected_image
+  local container_id
+  local actual_image
+  local mismatches=0
+
+  while IFS="$(printf '\t')" read -r svc expected_image; do
+    [ -n "${svc}" ] || continue
+    container_id=$(docker compose -f docker-compose.droplet.yml ps -q "$svc" 2>/dev/null || true)
+    if [ -z "${container_id}" ]; then
+      echo "::error::Rollback verification: ${svc} container not found."
+      mismatches=$((mismatches + 1))
+      continue
+    fi
+    actual_image=$(docker inspect --format='{{.Image}}' "${container_id}" 2>/dev/null || true)
+    if [ "${actual_image}" != "${expected_image}" ]; then
+      echo "::error::Rollback verification: ${svc} image mismatch expected=${expected_image} actual=${actual_image}"
+      mismatches=$((mismatches + 1))
+    fi
+  done < "${ROLLBACK_MANIFEST}"
+
+  [ "${mismatches}" -eq 0 ]
+}
+
+rollback_and_record() {
+  local reason="$1"
+
+  record_release_ledger "rollback_attempted" "${reason}" || true
+  if ! rollback_deployed_services "${reason}"; then
+    record_release_ledger "rollback_failed" "${reason}" || true
+    return 1
+  fi
+
+  sleep "${ROLLBACK_HEALTH_SETTLE_SECONDS:-30}"
+  if verify_rollback_images && \
+     COMPOSE_FILE=docker-compose.droplet.yml \
+     MANIFEST=infrastructure/deploy/service-criticality.yaml \
+     POLL_INTERVAL=10 \
+     node scripts/deploy/check-service-health.ts; then
+    record_release_ledger "rolled_back" "${reason}" || true
+    return 0
+  fi
+
+  record_release_ledger "rollback_failed" "${reason}" || true
+  return 1
+}
+
+check_ready_endpoint() {
+  local svc="$1"
+  local port="$2"
+  local container_id
+
+  container_id=$(docker compose -f docker-compose.droplet.yml ps -q "$svc" 2>/dev/null || true)
+  if [ -z "${container_id}" ]; then
+    echo "::error::Readiness sweep: ${svc} container not found."
+    return 1
+  fi
+
+  docker exec "${container_id}" curl -sf "http://localhost:${port}/health/ready" >/dev/null
+}
+
+run_readiness_sweep() {
+  echo "=== /health/ready sweep for critical services ==="
+  local failures=0
+
+  for spec in \
+    "gateway-api:3000" \
+    "auth-service:3000" \
+    "farm-service:3000" \
+    "sensor-service:3000"; do
+    local svc="${spec%%:*}"
+    local port="${spec##*:}"
+    if check_ready_endpoint "${svc}" "${port}"; then
+      echo "  ${svc}: ready"
+    else
+      echo "::error::${svc}: /health/ready failed"
+      failures=$((failures + 1))
+    fi
+  done
+
+  [ "${failures}" -eq 0 ]
+}
+
+verify_release_ledger_sql() {
+  local db_name="${POSTGRES_DB:-aquaculture}"
+  local release_id="${DEPLOY_RELEASE_ID:-${DEPLOY_SHA:-unknown}}"
+
+  echo "=== SQL release verification ==="
+  docker exec -i aqua-postgres psql \
+    -U "${POSTGRES_USER:-aquaculture}" \
+    -d "${db_name}" \
+    -v ON_ERROR_STOP=1 \
+    -v release_id="${release_id}" \
+    -v git_sha="${DEPLOY_SHA:-unknown}" <<'SQL'
+SELECT set_config('aqua.deploy_release_id', :'release_id', false);
+SELECT set_config('aqua.deploy_git_sha', :'git_sha', false);
+
+DO $$
+DECLARE
+  rel platform.release_ledger%ROWTYPE;
+  expected_release_id text := current_setting('aqua.deploy_release_id');
+  expected_git_sha text := current_setting('aqua.deploy_git_sha');
+BEGIN
+  SELECT *
+    INTO rel
+    FROM platform.release_ledger
+   WHERE release_id = expected_release_id
+     AND git_sha = expected_git_sha
+   ORDER BY updated_at DESC
+   LIMIT 1;
+
+  IF rel.release_id IS NULL THEN
+    RAISE EXCEPTION 'release ledger row missing for release_id=%', expected_release_id;
+  END IF;
+
+  IF rel.expected_heads = '{}'::jsonb
+     OR rel.applied_heads = '{}'::jsonb
+     OR rel.expected_heads <> rel.applied_heads THEN
+    RAISE EXCEPTION 'release ledger expected/applied heads missing or mismatched for release_id=%', expected_release_id;
+  END IF;
+
+  IF rel.status NOT IN ('db_complete', 'apps_restarting', 'promoted') THEN
+    RAISE EXCEPTION 'release ledger status is not deploy-progress/promotable for release_id=% status=%',
+      expected_release_id,
+      rel.status;
+  END IF;
+END
+$$;
+SELECT 'ok' AS release_verification;
+SQL
 }
 
 # SEC-CI-012: Checkout to the specific SHA that triggered the workflow
@@ -311,24 +674,34 @@ echo "  OK: ${#REQUIRED_ENV_SECRETS[@]} required secrets present"
 # SEC-CI-001: GITHUB_TOKEN (packages:read) is substituted at template time by the
 # GitHub Actions runner and masked as *** in all logs. Short-lived, run-scoped only.
 echo "=== Logging into GHCR ==="
-echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" --password-stdin
+GHCR_LOGIN_ATTEMPTS="${GHCR_LOGIN_ATTEMPTS:-3}"
+for attempt in $(seq 1 "${GHCR_LOGIN_ATTEMPTS}"); do
+  echo "  GHCR login attempt ${attempt}/${GHCR_LOGIN_ATTEMPTS}"
+  if echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" --password-stdin; then
+    echo "  GHCR login succeeded"
+    break
+  fi
+  if [ "${attempt}" -eq "${GHCR_LOGIN_ATTEMPTS}" ]; then
+    echo "::error::GHCR login failed after ${GHCR_LOGIN_ATTEMPTS} attempt(s)."
+    exit 1
+  fi
+  sleep $((attempt * 5))
+done
 
-# ARCH-CI-007: Capture current image digests for rollback before pulling new images
-echo "=== Capturing current image digests for rollback ==="
-GATEWAY_CONTAINER_ID=$(docker compose -f docker-compose.droplet.yml ps -q gateway-api 2>/dev/null || true)
-if [ -n "${GATEWAY_CONTAINER_ID}" ]; then
-  PREV_GATEWAY=$(docker inspect --format='{{.Image}}' "${GATEWAY_CONTAINER_ID}" 2>/dev/null || echo "")
-else
-  PREV_GATEWAY=$(docker inspect --format='{{.Image}}' aqua-gateway 2>/dev/null || echo "")
-fi
-echo "Previous gateway digest: ${PREV_GATEWAY:-none}"
+# ARCH-CI-007: Capture current image digests for rollback before pulling new images.
+# This is stack-wide, not gateway-only: a failed auth/farm/sensor rollout must
+# restore the exact service image that changed.
+capture_rollback_manifest
 
 # Scope boot-signal assertions to this deploy attempt. The asserter falls
 # back to per-container StartedAt if this is absent, but an explicit since
 # marker makes full and selective deploy log windows obvious in output.
 export BOOT_SIGNAL_SINCE
 BOOT_SIGNAL_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+DEPLOY_RELEASE_ID="${DEPLOY_RELEASE_ID:-${DEPLOY_SHA:-unknown}-$(date -u +%Y%m%dT%H%M%SZ)}"
+export DEPLOY_RELEASE_ID
 echo "Boot signal log window starts at: ${BOOT_SIGNAL_SINCE}"
+echo "Deploy release id: ${DEPLOY_RELEASE_ID}"
 
 if [ "$FULL_DEPLOY" = "true" ]; then
   # ── Full deploy mode (workflow_dispatch "all" or first deploy) ──
@@ -378,9 +751,15 @@ if [ "$FULL_DEPLOY" = "true" ]; then
     JS_SIZE=$(du -sm "$NATS_DATA_DIR" 2>/dev/null | awk '{print $1}')
     echo "JetStream storage usage: ${JS_SIZE:-0}MB / 2048MB limit"
     if [ "${JS_SIZE:-0}" -gt 1800 ]; then
-      echo "⚠️  JetStream storage near limit (${JS_SIZE}MB > 1800MB). Purging old data..."
-      rm -rf "$NATS_DATA_DIR"
-      echo "JetStream data purged. Streams will be recreated on startup."
+      if [ "${ALLOW_JETSTREAM_PURGE:-false}" = "true" ]; then
+        echo "JetStream storage near limit (${JS_SIZE}MB > 1800MB). Purging because ALLOW_JETSTREAM_PURGE=true..."
+        rm -rf "$NATS_DATA_DIR"
+        echo "JetStream data purged. Streams will be recreated on startup."
+      else
+        echo "::error::JetStream storage near limit (${JS_SIZE}MB > 1800MB)."
+        echo "  Refusing implicit data purge. Run the JetStream recovery runbook or set ALLOW_JETSTREAM_PURGE=true during a maintenance window."
+        exit 1
+      fi
     fi
   else
     echo "No existing JetStream data directory found (first deploy or volume not mounted)"
@@ -477,7 +856,7 @@ if [ "$FULL_DEPLOY" = "true" ]; then
 
   echo "=== Ensuring infrastructure databases exist ==="
   # Start only postgres first to create additional databases
-  docker compose -f docker-compose.droplet.yml up -d --no-build postgres 2>&1 || true
+  docker compose -f docker-compose.droplet.yml up -d --no-build postgres 2>&1
   sleep 10
 
   # DB-PWD-SYNC: Verify POSTGRES_PASSWORD matches what's in the data volume.
@@ -495,15 +874,16 @@ if [ "$FULL_DEPLOY" = "true" ]; then
       echo "  PostgreSQL superuser password reset to match .env"
     fi
   else
-    echo "  ERROR: Cannot connect to PostgreSQL via local auth — manual intervention required"
+    echo "::error::Cannot connect to PostgreSQL via local auth — aborting before migrations."
+    exit 1
   fi
 
   # Create observability database if it doesn't exist (postgres init scripts only run on first start)
   docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -tc "SELECT 1 FROM pg_database WHERE datname = 'aquaculture_observability'" | grep -q 1 || \
-    docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -c "CREATE DATABASE aquaculture_observability" 2>&1 || true
+    docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -c "CREATE DATABASE aquaculture_observability" 2>&1
 
   # ─────────────────────────────────────────────────────────────
-  # WS10 / ADR-016 Phase E — one-shot schema migration container.
+  # ADR-033 — one-shot authoritative schema migration container.
   #
   # Run aqua-db-migrate BEFORE service containers so schema state
   # is at the known-good version when gateway-api / auth-service
@@ -518,16 +898,16 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   # the operator a clear failure signal without compose's
   # more verbose error output).
   #
-  # Phase 1 backward-compat: if the migration container fails
-  # (exit code != 0), the deploy aborts. Services' own
-  # createMigrationRunnerService is still in place as a
-  # safety-net, but operators MUST fix the upstream issue
-  # rather than relying on the fallback.
+  # If the migration container fails (exit code != 0), the deploy aborts.
+  # Production services use schema-version gates; they do not act as a
+  # fallback schema writer.
   # ─────────────────────────────────────────────────────────────
   run_db_migrate_or_exit "full deploy"
+  record_release_ledger "db_complete" ""
 
   echo "=== Starting all services ==="
-  docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1 || true
+  record_release_ledger "apps_restarting" ""
+  docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1
 
   echo "=== Waiting 90s for services to bootstrap ==="
   sleep 90
@@ -535,7 +915,7 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   # ARCH-NM-DNS: Graceful nginx reload after full deploy to ensure
   # all upstream hostnames are resolved to current container IPs.
   echo "=== Reloading nginx to pick up new container IPs ==="
-  docker exec aqua-nginx nginx -s reload 2>&1 || true
+  docker exec aqua-nginx nginx -s reload 2>&1
   sleep 2
 
   # ARCH-GW-006: Force Apollo Gateway to recompose supergraph schema.
@@ -545,7 +925,7 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   # that window frontend queries for new fields return 400.
   # Restarting the gateway forces immediate schema introspection.
   echo "=== Restarting gateway for schema recomposition ==="
-  docker compose -f docker-compose.droplet.yml restart gateway-api 2>&1 || true
+  docker compose -f docker-compose.droplet.yml restart gateway-api 2>&1
   sleep 15
 
 else
@@ -559,10 +939,16 @@ else
     JS_SIZE=$(du -sm "$NATS_DATA_DIR" 2>/dev/null | awk '{print $1}')
     echo "JetStream storage usage: ${JS_SIZE:-0}MB / 2048MB limit"
     if [ "${JS_SIZE:-0}" -gt 1800 ]; then
-      echo "⚠️  JetStream storage near limit (${JS_SIZE}MB > 1800MB). Purging old data..."
-      docker stop aqua-nats 2>/dev/null || true
-      rm -rf "$NATS_DATA_DIR"
-      echo "JetStream data purged. Streams will be recreated on startup."
+      if [ "${ALLOW_JETSTREAM_PURGE:-false}" = "true" ]; then
+        echo "JetStream storage near limit (${JS_SIZE}MB > 1800MB). Purging because ALLOW_JETSTREAM_PURGE=true..."
+        docker stop aqua-nats 2>/dev/null || true
+        rm -rf "$NATS_DATA_DIR"
+        echo "JetStream data purged. Streams will be recreated on startup."
+      else
+        echo "::error::JetStream storage near limit (${JS_SIZE}MB > 1800MB)."
+        echo "  Refusing implicit data purge. Run the JetStream recovery runbook or set ALLOW_JETSTREAM_PURGE=true during a maintenance window."
+        exit 1
+      fi
     fi
   else
     echo "No existing JetStream data directory found"
@@ -599,33 +985,35 @@ else
   # Application secrets
   generate_credential "WEBHOOK_ENCRYPTION_KEY"
 
-  # Ensure infrastructure services are running (no-op if already up)
-  echo "=== Ensuring infrastructure is running ==="
-  docker compose -f docker-compose.droplet.yml up -d --no-build postgres redis nats mosquitto minio nginx 2>&1 || true
+  # Ensure infrastructure services required for migrations are running.
+  # nginx starts/reloads only after db-migrate and app restarts succeed.
+  echo "=== Ensuring migration infrastructure is running ==="
+  docker compose -f docker-compose.droplet.yml up -d --no-build postgres redis nats mosquitto minio 2>&1
   sleep 5
-
-  # ─────────────────────────────────────────────────────────────
-  # WS10 / ADR-016 Phase E — one-shot schema migration container.
-  #
-  # Even on a selective deploy, run aqua-db-migrate before the
-  # affected services restart. Pending migrations only land on
-  # services that were changed, but the migration SET typically
-  # spans schemas a service change did not touch (e.g. a shared
-  # auth-schema tenant_id column rename lands in auth-service's
-  # own migration but other services' RLS policies depend on
-  # the new column name). Running the full migration pass keeps
-  # schema state coherent regardless of which services this
-  # deploy restarts.
-  # ─────────────────────────────────────────────────────────────
-  run_db_migrate_or_exit "selective deploy"
 
   echo "=== Pulling affected images sequentially: ${DEPLOY_SERVICES} ==="
   for svc in ${DEPLOY_SERVICES}; do
     pull_deploy_image_required "$svc"
   done
 
-  echo "=== Restarting affected services (no-deps): ${DEPLOY_SERVICES} ==="
-  docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate ${DEPLOY_SERVICES} 2>&1 || true
+  # ─────────────────────────────────────────────────────────────
+  # ADR-033 — one-shot authoritative schema migration container.
+  #
+  # Selective deploys must prove every requested image is pullable BEFORE
+  # db-migrate advances schema. Otherwise a later image-pull failure leaves
+  # production running old app code against new DB state.
+  # ─────────────────────────────────────────────────────────────
+  run_db_migrate_or_exit "selective deploy"
+  record_release_ledger "db_complete" ""
+
+  RESTART_SERVICES=$(restartable_deploy_services | xargs)
+  if [ -n "${RESTART_SERVICES}" ]; then
+    echo "=== Restarting affected services (no-deps): ${RESTART_SERVICES} ==="
+    record_release_ledger "apps_restarting" ""
+    docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate ${RESTART_SERVICES} 2>&1
+  else
+    echo "=== No long-running services requested; db-migrate-only deploy complete ==="
+  fi
 
   echo "=== Waiting 30s for services to bootstrap ==="
   sleep 30
@@ -635,7 +1023,7 @@ else
   # for dynamic DNS, but a reload ensures immediate resolution of new IPs
   # without waiting for the resolver TTL to expire.
   echo "=== Reloading nginx to pick up new container IPs ==="
-  docker exec aqua-nginx nginx -s reload 2>&1 || docker compose -f docker-compose.droplet.yml restart nginx 2>&1 || true
+  docker exec aqua-nginx nginx -s reload 2>&1 || docker compose -f docker-compose.droplet.yml restart nginx 2>&1
   sleep 2
 
   # ARCH-GW-006: Force gateway schema recomposition when backend services change.
@@ -644,7 +1032,7 @@ else
   BACKEND_PATTERN="gateway-api|auth-service|farm-service|sensor-service|alert-engine|billing-service|hr-service|hydroponics-service|notification-service|config-service|messaging-service"
   if echo "${DEPLOY_SERVICES}" | grep -qE "${BACKEND_PATTERN}"; then
     echo "=== Backend subgraph changed — restarting gateway for schema recomposition ==="
-    docker compose -f docker-compose.droplet.yml restart gateway-api 2>&1 || true
+    docker compose -f docker-compose.droplet.yml restart gateway-api 2>&1
     sleep 15
   fi
 fi
@@ -677,24 +1065,22 @@ if [ "${HEALTH_STATUS}" -eq 1 ]; then
   docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true
   dump_nonhealthy_container_logs "post-health-gate-failure"
   echo "::error::Critical service health check failed. Initiating rollback."
-  if [ -n "$PREV_GATEWAY" ]; then
-    echo "Rolling back to previous gateway image: ${PREV_GATEWAY}"
-    docker tag "${PREV_GATEWAY}" "${GATEWAY_IMAGE_REF}" 2>/dev/null || true
-    docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
-    echo "Rollback complete. Please investigate the failed deploy."
-  else
-    echo "No previous image digest available; manual intervention required."
-  fi
+  record_release_ledger "failed" "critical_health"
+  rollback_and_record "critical_health" || true
+  echo "Rollback attempted. If db-migrate already applied DDL, follow the database recovery runbook before retrying."
   exit 1
 elif [ "${HEALTH_STATUS}" -eq 3 ]; then
   docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true
   dump_nonhealthy_container_logs "post-required-health-failure"
-  echo "::error::Required service health check failed. Deploy failed without rollback."
+  echo "::error::Required service health check failed. Initiating rollback."
+  record_release_ledger "failed" "required_health"
+  rollback_and_record "required_health" || true
   exit 1
 elif [ "${HEALTH_STATUS}" -ne 0 ]; then
   docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true
   dump_nonhealthy_container_logs "post-health-invocation-failure"
   echo "::error::Service health check could not run (exit ${HEALTH_STATUS}). Deploy failed without rollback."
+  record_release_ledger "failed" "health_gate_invocation"
   exit 1
 fi
 
@@ -711,16 +1097,27 @@ if ! COMPOSE_FILE=docker-compose.droplet.yml \
      POLL_INTERVAL=10 \
      node scripts/deploy/assert-service-signals.ts; then
   echo "::error::Boot signal assertion failed. Initiating rollback."
-  if [ -n "$PREV_GATEWAY" ]; then
-    echo "Rolling back to previous gateway image: ${PREV_GATEWAY}"
-    docker tag "${PREV_GATEWAY}" "${GATEWAY_IMAGE_REF}" 2>/dev/null || true
-    docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
-    echo "Rollback complete. Investigate why required signals did not fire."
-  else
-    echo "No previous image digest available; manual intervention required."
-  fi
+  record_release_ledger "failed" "boot_signal"
+  rollback_and_record "boot_signal" || true
+  echo "Rollback attempted. If db-migrate already applied DDL, follow the database recovery runbook before retrying."
   exit 1
 fi
+
+if ! run_readiness_sweep; then
+  echo "::error::Readiness sweep failed. Initiating rollback."
+  record_release_ledger "failed" "readiness"
+  rollback_and_record "readiness" || true
+  exit 1
+fi
+
+if ! verify_release_ledger_sql; then
+  echo "::error::Release SQL verification failed. Initiating rollback."
+  record_release_ledger "failed" "release_sql"
+  rollback_and_record "release_sql" || true
+  exit 1
+fi
+
+record_release_ledger "promoted" ""
 
 echo "=== Cleanup old images ==="
 run_image_prune_best_effort "dangling images" -f --filter "dangling=true"

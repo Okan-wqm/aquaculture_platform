@@ -101,8 +101,10 @@ export interface PostConditionAwareMigration {
  *
  * This runner closes the gap architecturally: after the source schema is
  * migrated, it lists every `tenant_*` schema and runs the same migration
- * set against each. The per-tenant `typeorm_migrations` table makes the
- * fan-out idempotent — already-applied migrations on a tenant are skipped
+ * set against each. Source schemas use the canonical `migrations` ledger;
+ * tenant schemas use `migrations_<sourceSchema>` so multiple tenant-aware
+ * services can each record `Baseline1800000000000` without colliding. The
+ * fan-out is idempotent — already-applied migrations on a tenant are skipped
  * by `MigrationExecutor.getPendingMigrations()` on the next boot, so the
  * cost is near-zero after the first deploy.
  *
@@ -150,6 +152,10 @@ import {
   TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
 } from '../tenant-aware-schemas';
 import {
+  MIGRATION_LEDGER_TABLE,
+  tenantMigrationLedgerTable,
+} from '../migration-ledger';
+import {
   NoopMigrationEventSink,
   type MigrationEventSink,
   type MigrationSinkEventType,
@@ -175,6 +181,14 @@ export interface MigrationRunnerOptions {
    * fire-and-forget contract.
    */
   eventSink?: MigrationEventSink;
+}
+
+const migrationRunnerCompletions = new Map<string, Promise<void>>();
+
+export function getMigrationRunnerCompletion(
+  sourceSchema: string,
+): Promise<void> | undefined {
+  return migrationRunnerCompletions.get(sourceSchema);
 }
 
 export function createMigrationRunnerService(
@@ -209,8 +223,20 @@ export function createMigrationRunnerService(
     ) {}
 
     async onApplicationBootstrap(): Promise<void> {
+      const completion = this.runMigrations();
+      migrationRunnerCompletions.set(sourceSchema, completion);
+      await completion;
+    }
+
+    private async runMigrations(): Promise<void> {
+      const runnerEnabledOverride = this.configService.get<string>(
+        'MIGRATION_RUNNER_ENABLED',
+      );
       const enabled =
-        this.configService.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true';
+        runnerEnabledOverride !== undefined
+          ? runnerEnabledOverride === 'true'
+          : this.configService.get('DATABASE_MIGRATIONS_RUN', 'true') ===
+            'true';
       const isProduction = this.configService.get('NODE_ENV') === 'production';
 
       if (!enabled && isProduction) {
@@ -223,7 +249,8 @@ export function createMigrationRunnerService(
 
       if (!enabled) {
         this.logger.warn(
-          'Skipping migrations because DATABASE_MIGRATIONS_RUN=false (non-production only)',
+          'Skipping migrations because MIGRATION_RUNNER_ENABLED=false or ' +
+            'DATABASE_MIGRATIONS_RUN=false (non-production only)',
         );
         return;
       }
@@ -232,7 +259,7 @@ export function createMigrationRunnerService(
       this.logger.log(
         `Phase 1: migrating source schema "${sourceSchema}" (tenantAware=${tenantAware})`,
       );
-      await this.runForSchema(sourceSchema);
+      await this.runForSchema(sourceSchema, MIGRATION_LEDGER_TABLE);
 
       // ── Phase 2 — tenant schemas (only for tenant-aware services) ──
       let tenantCount = 0;
@@ -256,7 +283,10 @@ export function createMigrationRunnerService(
                   `schema name "${tenantSchema}" — expected /${TENANT_SCHEMA_RE.source}/.`,
               );
             }
-            await this.runForSchema(tenantSchema);
+            await this.runForSchema(
+              tenantSchema,
+              tenantMigrationLedgerTable(sourceSchema),
+            );
           }
         }
       }
@@ -331,7 +361,10 @@ export function createMigrationRunnerService(
      * keeping connection pressure bounded — matches the per-schema
      * isolation pattern used by aqua-db-migrate's orchestrator.
      */
-    private async runForSchema(schema: string): Promise<void> {
+    private async runForSchema(
+      schema: string,
+      migrationsTableName: string,
+    ): Promise<void> {
       const queryRunner = this.dataSource.createQueryRunner();
       try {
         await queryRunner.connect();
@@ -386,10 +419,36 @@ export function createMigrationRunnerService(
             `QueryRunner pinned on "${schema}" (current_schema() verified)`,
           );
 
-          const executor = new MigrationExecutor(
-            this.dataSource,
-            queryRunner,
-          );
+          const dataSourceOptions = this.dataSource.options as {
+            migrationsTableName?: string;
+          };
+          const previousMigrationsTableName = dataSourceOptions.migrationsTableName;
+          const executor = (() => {
+            dataSourceOptions.migrationsTableName = migrationsTableName;
+            try {
+              const migrationExecutor = new MigrationExecutor(
+                this.dataSource,
+                queryRunner,
+              );
+              const schemaScopedExecutor = migrationExecutor as unknown as {
+                migrationsSchema?: string;
+                migrationsTable: string;
+              };
+              // TypeORM caches the driver default schema from the first
+              // connection's search_path. Tenant fan-out must not let that
+              // default point every ledger probe at the source schema; make
+              // the ledger table explicit for this schema instead.
+              schemaScopedExecutor.migrationsSchema = schema;
+              schemaScopedExecutor.migrationsTable =
+                this.dataSource.driver.buildTableName(
+                  migrationsTableName,
+                  schema,
+                );
+              return migrationExecutor;
+            } finally {
+              dataSourceOptions.migrationsTableName = previousMigrationsTableName;
+            }
+          })();
           executor.transaction = 'each';
 
           const pending = await executor.getPendingMigrations();

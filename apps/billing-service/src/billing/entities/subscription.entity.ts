@@ -91,17 +91,17 @@ export class PlanPricing {
 @ObjectType()
 @Entity('subscriptions', { schema: 'billing' })
 // DBR-HIGH-001 cure: full-unique on tenantId collides with the
-// documented soft-delete pattern (isDeleted + deletedAt) — re-subscription
+// documented soft-delete pattern (is_deleted + deleted_at) — re-subscription
 // after a tenant cancels would fail because the soft-deleted row still
 // occupies the unique slot. The partial unique index restricts uniqueness
-// to ACTIVE rows (isDeleted = false), letting historical canceled
+// to ACTIVE rows (is_deleted = false), letting historical canceled
 // subscriptions co-exist with the current active subscription per tenant.
 // The bare @Index entry below registers the supporting non-unique
 // index for tenantId-only lookups.
 @Index('IDX_subscriptions_tenantId', ['tenantId'])
 @Index('UQ_subscriptions_tenantId_active', ['tenantId'], {
   unique: true,
-  where: '"isDeleted" = false',
+  where: '"is_deleted" = false',
 })
 @Index(['status'])
 @Index(['currentPeriodEnd'])

@@ -1,6 +1,6 @@
 # ADR-030: Day-One Baseline Reset — Architectural Reset of Migration State + Drift Validator Posture
 
-**Status:** Proposed (2026-05-18)
+**Status:** Accepted for baseline reset; deploy execution superseded by ADR-033 (2026-05-19)
 **Date:** 2026-05-18
 **Deciders:** Okan (platform owner) + data-expert + database-reviewer + platform-kernel-expert + infra-expert + multi-tenant-saas-expert + architectural-arbiter
 **Owner:** Okan

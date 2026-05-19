@@ -80,10 +80,11 @@ export class ToggleLegalHoldHandler
       }
     }
 
-    // Wrap hold + audit + outbox in a single transaction.
+    // Wrap hold + audit + outbox in a single tenant-pinned transaction.
     //
-    // LEGAL-MEDIUM-004 cure (TOCTOU): the FIRST statement inside the
-    // transaction is `pg_advisory_xact_lock(tenantHash)`. The retention
+    // LEGAL-MEDIUM-004 cure (TOCTOU): after the transaction-local
+    // search_path pin, the first domain statement is
+    // `pg_advisory_xact_lock(tenantHash)`. The retention
     // path (`RetentionPolicyService.dropChunksForTenantUnderLock`) takes
     // the SAME advisory key; the two paths therefore serialize. If a
     // retention sweep is mid-flight against this tenant, our activate
@@ -91,7 +92,8 @@ export class ToggleLegalHoldHandler
     // visible before the hold lands). If WE win the race, the retention
     // sweep waits for our COMMIT; on its lock acquisition it re-reads
     // the registry and sees the new hold, aborting the destructive op.
-    return this.dataSource.transaction(async (manager) => {
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
       const lockKey = tenantAdvisoryLockKey(tenantId);
       await manager.query(`SELECT pg_advisory_xact_lock($1::bigint)`, [
         lockKey.toString(),

@@ -98,8 +98,10 @@ import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 // Migrations — imported as class references so webpack bundles them into main.js.
 // Glob paths ('dist/migrations/*.js') do NOT work with NX webpack builds because
 // all source files are bundled into a single output file.
-// Baseline1800000000000 — only migration after day-one reset (ADR-030).
+// Baseline1800000000000 plus forward repair migrations after day-one reset (ADR-030).
 import { Baseline1800000000000 } from './migrations/1800000000000-Baseline';
+import { CreateMessagingOutboxTable1800200000000 } from './migrations/1800200000000-CreateMessagingOutboxTable';
+import { AddUserAiConsentTenantUserUnique1800300000000 } from './migrations/1800300000000-AddUserAiConsentTenantUserUnique';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -140,12 +142,11 @@ const complexityCache = new Map<string, number>();
         createServiceTypeOrmConfig(configService, {
           serviceName: 'messaging',
           schema: 'messaging',
-          // INFRA-CRITICAL-020: env-aware migrationsRun timing.
-          // Test E2E (DATABASE_MIGRATIONS_RUN=true) → TypeORM applies
-          // migrations at DataSource init, BEFORE NestJS lifecycle hooks
-          // fire → SourceSchemaBootstrapService finds tables → no false-fail.
-          // Production (DATABASE_MIGRATIONS_RUN=false) → unchanged; aqua-db-migrate
-          // runs as a separate container BEFORE service containers start.
+          // INFRA-CRITICAL-020: keep TypeORM's built-in runner behind an
+          // explicit env switch. Messaging E2E leaves this false and enables
+          // the platform migration runner via MIGRATION_RUNNER_ENABLED=true
+          // so transaction='none' migrations keep their custom-runner
+          // semantics.
           migrationsRunFromEnv: (cs) =>
             cs.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
           entities: [
@@ -169,7 +170,11 @@ const complexityCache = new Map<string, number>();
           ],
           // Class references (NOT glob paths) — webpack bundles all into main.js,
           // so 'dist/migrations/*.js' would match zero files at runtime.
-          migrations: [Baseline1800000000000],
+          migrations: [
+            Baseline1800000000000,
+            CreateMessagingOutboxTable1800200000000,
+            AddUserAiConsentTenantUserUnique1800300000000,
+          ],
         }),
     }),
 
@@ -336,14 +341,10 @@ const complexityCache = new Map<string, number>();
     // source schema at OnApplicationBootstrap with search_path pinning.
     // See docblock on MessagingMigrationRunnerService above.
     //
-    // ORDER MATTERS: NestJS calls onApplicationBootstrap in provider
-    // registration order. The migration runner MUST appear BEFORE
-    // SourceSchemaBootstrapService so the source-schema invariant check
-    // (which hard-fails on empty tables, INFRA-CRITICAL-009) sees a
-    // populated schema. Production previously masked this ordering
-    // requirement because aqua-db-migrate populated the schema before
-    // service containers started; in E2E (DATABASE_MIGRATIONS_RUN=false
-    // converged path) the runner is the SSoT for migration execution.
+    // SourceSchemaBootstrapService waits on the migration runner's in-process
+    // completion promise before checking the source schema. Production still
+    // relies on aqua-db-migrate before service containers start; in E2E the
+    // runner is the SSoT for migration execution.
     MessagingMigrationRunnerService,
 
     // Tenant infrastructure providers (all 5 required — see ADR-012 section 6.1)

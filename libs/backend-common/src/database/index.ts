@@ -29,6 +29,13 @@ export * from './tenant-schema.utils';
 // Migration Logger (structured logging for TypeORM migrations outside DI)
 export { MigrationLogger } from './migration-logger';
 
+// Migration ledger SSoT. Keep every runner/gate/tenant seeding path on the
+// same TypeORM ledger table name.
+export {
+  MIGRATION_LEDGER_TABLE,
+  tenantMigrationLedgerTable,
+} from './migration-ledger';
+
 // Migration helpers — column/table existence guards. Shared across all
 // services for migrations that reference state created by squashed
 // earlier migrations. See migration-helpers.ts docblock for rationale.

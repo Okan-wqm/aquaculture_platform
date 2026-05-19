@@ -5,8 +5,9 @@ import {
   NestInterceptor,
   Logger,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Observable, from } from 'rxjs';
-import { switchMap } from 'rxjs/operators';
+import { IS_PUBLIC_KEY } from '../../decorators/roles.decorator';
 import { BypassRlsService } from './bypass-rls.service';
 
 /**
@@ -83,7 +84,10 @@ import { BypassRlsService } from './bypass-rls.service';
 export class AdminBypassRlsInterceptor implements NestInterceptor {
   private readonly logger = new Logger(AdminBypassRlsInterceptor.name);
 
-  constructor(private readonly bypassRls: BypassRlsService) {}
+  constructor(
+    private readonly bypassRls: BypassRlsService,
+    private readonly reflector: Reflector,
+  ) {}
 
   intercept(
     context: ExecutionContext,
@@ -93,8 +97,20 @@ export class AdminBypassRlsInterceptor implements NestInterceptor {
     // ('http' | 'graphql' | 'rpc') so non-HTTP transports get a sane label
     // too — admin-api is HTTP-only today but the interceptor should not
     // assume that.
-    const contextType = context.getType();
+    const contextType = String(context.getType());
     const label = this.buildAuditLabel(context, contextType);
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (isPublic === true) {
+      this.logger.warn(
+        `RLS BYPASS SKIPPED [${label}] because route is @Public(). ` +
+          `Public admin-api routes must never receive cross-tenant DB bypass.`,
+      );
+      return next.handle();
+    }
 
     // Convert the bypass-wrapped Promise into an Observable so the
     // interceptor contract (`Observable<unknown>` return) is honoured.

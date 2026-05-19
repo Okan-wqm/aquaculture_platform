@@ -153,6 +153,7 @@ export default {
         '<rootDir>/entity-schema-declaration.spec.ts',
         '<rootDir>/entity-diff-implies-migration.spec.ts',
         '<rootDir>/tenant-fanout-entity-parity.spec.ts',
+        '<rootDir>/tenant-aware-migration-ddl-guard.spec.ts',
         '<rootDir>/shared-schema-canonical.spec.ts',
         '<rootDir>/drift-repair-naming.spec.ts',
         '<rootDir>/init-scripts-no-schema-ddl.spec.ts',

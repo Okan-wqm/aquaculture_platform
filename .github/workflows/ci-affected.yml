@@ -192,15 +192,7 @@ jobs:
       - name: Run linter (affected only)
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          AFFECTED_FILES="$(git diff --name-only "$BASE_REF"...HEAD | grep -Ev '^(\.npmrc|package(-lock)?\.json)$' || true)"
-
-          if [ -z "$AFFECTED_FILES" ]; then
-            echo "No source files affected beyond root package metadata; skipping lint."
-            exit 0
-          fi
-
-          FILES_ARG="$(printf '%s\n' "$AFFECTED_FILES" | paste -sd, -)"
-          npx nx affected -t lint --files="$FILES_ARG" --parallel=2
+          bash scripts/ci/affected-target-policy.sh --target lint --base "$BASE_REF" --parallel 2
         timeout-minutes: 35
         env:
           NX_DAEMON: 'false'
@@ -336,15 +328,7 @@ jobs:
       - name: Run tests (affected only)
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          AFFECTED_FILES="$(git diff --name-only "$BASE_REF"...HEAD | grep -Ev '^(\.npmrc|package(-lock)?\.json)$' || true)"
-
-          if [ -z "$AFFECTED_FILES" ]; then
-            echo "No source files affected beyond root package metadata; skipping tests."
-            exit 0
-          fi
-
-          FILES_ARG="$(printf '%s\n' "$AFFECTED_FILES" | paste -sd, -)"
-          npx nx affected -t test --files="$FILES_ARG" --parallel=2 --exclude=migration-harness
+          bash scripts/ci/affected-target-policy.sh --target test --base "$BASE_REF" --parallel 2 --exclude migration-harness
         timeout-minutes: 35
         env:
           NX_DAEMON: 'false'
@@ -753,6 +737,7 @@ jobs:
       - name: Run sensor enterprise gate fixtures
         run: >
           npx jest --config apps/sensor-service/jest.config.ts --runInBand
+          --forceExit
           apps/sensor-service/src/edge-device/__tests__/agent-io-config-v2.spec.ts
           apps/sensor-service/src/edge-device/__tests__/edge-device.resolver.permissions.spec.ts
           apps/sensor-service/src/ingestion/__tests__/mqtt-listener.service.spec.ts
@@ -917,4 +902,4 @@ jobs:
     # bool/string parser ambiguity for the literal 'false', and emergency
     # bypass remains operator-initiated via workflow_dispatch.
     with:
-      services: 'all'
+      services: 'auto'

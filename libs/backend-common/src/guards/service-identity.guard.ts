@@ -164,7 +164,9 @@ export class ServiceIdentityGuard implements CanActivate {
    * originalUrl carries query params.
    */
   private canonicalisePath(req: { path?: string; originalUrl?: string; url?: string }): string {
-    const raw = req.path ?? req.originalUrl ?? req.url ?? '/';
+    // GraphQL guards can see a mount-relative `path` such as `/`; the signed
+    // gateway request binds the full wire path, so prefer originalUrl.
+    const raw = req.originalUrl ?? req.url ?? req.path ?? '/';
     const qIdx = raw.indexOf('?');
     return qIdx === -1 ? raw : raw.slice(0, qIdx);
   }

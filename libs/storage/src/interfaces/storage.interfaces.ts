@@ -3,6 +3,7 @@
  * @module Storage/Interfaces
  */
 import type { ModuleMetadata, InjectionToken } from '@nestjs/common';
+import type { UploadPolicy } from '../file-upload-security.service';
 
 /**
  * Configuration for MinIO storage connection
@@ -89,4 +90,6 @@ export interface StorageModuleAsyncOptions extends Pick<ModuleMetadata, 'imports
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   useFactory: (...args: any[]) => Promise<StorageConfig> | StorageConfig;
   inject?: InjectionToken[];
+  /** Optional upload-policy override. Omitted means the platform default registry. */
+  uploadPolicies?: readonly UploadPolicy[];
 }

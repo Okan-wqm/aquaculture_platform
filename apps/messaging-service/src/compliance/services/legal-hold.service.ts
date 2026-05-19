@@ -7,7 +7,13 @@ import {
   Optional,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository, IsNull, EntityManager } from 'typeorm';
+import {
+  DataSource,
+  Repository,
+  IsNull,
+  EntityManager,
+  FindOptionsWhere,
+} from 'typeorm';
 import Redis from 'ioredis';
 
 import {
@@ -334,6 +340,7 @@ export class LegalHoldService {
   async isUnderLegalHold(
     tenantId: string,
     channelId: string | null,
+    manager?: EntityManager,
   ): Promise<boolean> {
     const deadline = <T>(p: Promise<T>): Promise<T> => {
       let timer: NodeJS.Timeout | undefined;
@@ -355,13 +362,23 @@ export class LegalHoldService {
       });
     };
 
+    const findHold = (where: FindOptionsWhere<LegalHold>): Promise<LegalHold | null> => {
+      if (manager) {
+        return tenantManagerRepo(manager, LegalHold, tenantId).findOne({ where });
+      }
+      if (this.dataSource) {
+        return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+          tenantManagerRepo(queryRunner.manager, LegalHold, tenantId).findOne({ where }),
+        );
+      }
+      return this.holdRepo.findOne({ where });
+    };
+
     // Check tenant-wide hold first
     let tenantHold: LegalHold | null;
     try {
       tenantHold = await deadline(
-        this.holdRepo.findOne({
-          where: { tenantId, channelId: IsNull(), isActive: true },
-        }),
+        findHold({ tenantId, channelId: IsNull(), isActive: true }),
       );
     } catch (err: unknown) {
       if (err instanceof LegalHoldCheckUnavailable) throw err;
@@ -380,9 +397,7 @@ export class LegalHoldService {
       let channelHold: LegalHold | null;
       try {
         channelHold = await deadline(
-          this.holdRepo.findOne({
-            where: { tenantId, channelId, isActive: true },
-          }),
+          findHold({ tenantId, channelId, isActive: true }),
         );
       } catch (err: unknown) {
         if (err instanceof LegalHoldCheckUnavailable) throw err;

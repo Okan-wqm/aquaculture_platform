@@ -11,6 +11,7 @@ import { randomBytes } from 'crypto';
 
 import { createTenantConnectionBootstrap, getTenantSchemaName, withTenantContext } from '@aquaculture/backend-common';
 import { bootPostgresContainer, HarnessContext, shutdownHarness } from '@platform/migration-harness';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, ObjectLiteral, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 
@@ -19,6 +20,7 @@ import { AdjustFeedInventoryCommand, AdjustmentType } from '../../feeding/comman
 import { FeedInventory, InventoryStatus } from '../../feeding/entities/feed-inventory.entity';
 import { AddFeedInventoryHandler } from '../../feeding/handlers/add-feed-inventory.handler';
 import { AdjustFeedInventoryHandler } from '../../feeding/handlers/adjust-feed-inventory.handler';
+import { FarmOutbox } from '../../outbox/farm-outbox.entity';
 import { GetFeedInventoryHandler } from '../../feeding/query-handlers/get-feed-inventory.handler';
 import { GetFeedInventoryQuery } from '../../feeding/queries/get-feed-inventory.query';
 import { CreateFeedCommand } from '../../feed/commands/create-feed.command';
@@ -364,8 +366,18 @@ describe('Site tenant isolation on real Postgres', () => {
       listFeeds: new ListFeedsHandler(feedRepository),
       updateFeed: new UpdateFeedHandler(feedRepository, unusedRepository<Supplier>()),
       deleteFeed: new DeleteFeedHandler(feedRepository),
-      addFeedInventory: new AddFeedInventoryHandler(inventoryRepository, feedRepository, siteRepository),
-      adjustFeedInventory: new AdjustFeedInventoryHandler(inventoryRepository),
+      addFeedInventory: new AddFeedInventoryHandler(
+        inventoryRepository,
+        feedRepository,
+        siteRepository,
+        dataSource,
+        new OutboxPublisher(FarmOutbox),
+      ),
+      adjustFeedInventory: new AdjustFeedInventoryHandler(
+        inventoryRepository,
+        dataSource,
+        new OutboxPublisher(FarmOutbox),
+      ),
       getFeedInventory: new GetFeedInventoryHandler(inventoryRepository),
       parameterConfigCache,
       createParameterConfig: new CreateParameterConfigHandler(parameterConfigRepository, parameterConfigCache),

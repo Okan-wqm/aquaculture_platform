@@ -29,6 +29,12 @@
           "apps/db-migrate/**/*.{ts,tsx}"
         ]
       }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "jest --config apps/db-migrate/jest.config.cts --runInBand"
+      }
     }
   }
 }

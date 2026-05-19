@@ -20,8 +20,12 @@ import * as crypto from 'crypto';
 import supertest from 'supertest';
 import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import {
+  getTenantSchemaName,
+  tenantMigrationLedgerTable,
+} from '@aquaculture/backend-common/database';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
+import { generateServiceIdentityHeadersV2 } from '@aquaculture/backend-common/utils';
 import { NatsEventBus } from '@platform/event-bus';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
 import { STORAGE_OBJECT_VERIFIER } from '../src/message/services/storage-object-verifier.port';
@@ -38,6 +42,16 @@ export const ADMIN_A = '33333333-3333-4333-8333-333333333333';
 export const USER_B1 = '44444444-4444-4444-8444-444444444444';
 export const USER_B2 = '55555555-5555-4555-8555-555555555555';
 
+function getE2eInternalServiceSecret(): string {
+  const existing = process.env['INTERNAL_SERVICE_SECRET'];
+  if (existing) {
+    return existing;
+  }
+  const generated = crypto.randomBytes(32).toString('hex');
+  process.env['INTERNAL_SERVICE_SECRET'] = generated;
+  return generated;
+}
+
 // ── App Bootstrap ───────────────────────────────────────────────────────────
 
 export interface E2eTestContext {
@@ -51,9 +65,8 @@ export interface E2eTestContext {
  * Bootstrap the full NestJS application with selective guard overrides.
  *
  * WHY we don't mock guards broadly: TenantGuard and RolesGuard must stay active
- * to prove that tenant isolation and role-based access actually work through
- * the real middleware+guard chain. Only ServiceIdentityGuard (inter-service HMAC)
- * is bypassed because no gateway signs requests in test.
+ * to prove that tenant isolation, role-based access, and service-identity
+ * signatures actually work through the real middleware+guard chain.
  *
  * @param options.enableRateLimiting - Keep ThrottlerGuard active (default: false)
  */
@@ -62,11 +75,10 @@ export async function createE2eTestApp(
 ): Promise<E2eTestContext> {
   // ── Environment setup for production-safe app bootstrap ──
 
-  // SECURITY: ServiceIdentityGuard validates HMAC signature of inter-service
-  // requests. Tests hit /graphql directly without signatures, so the guard
-  // must be bypassed. Clear INTERNAL_SERVICE_SECRET to force dev-mode
-  // behavior (guard allows all requests when secret is unset).
-  delete process.env['INTERNAL_SERVICE_SECRET'];
+  // SECURITY: E2E requests simulate gateway-to-subgraph traffic, including
+  // service-identity signatures. This keeps StripInternalHeadersMiddleware
+  // active while still allowing the forwarded user/tenant context headers.
+  process.env['INTERNAL_SERVICE_SECRET'] = getE2eInternalServiceSecret();
 
   // ThrottlerGuard reads THROTTLE_ENABLED from ConfigService.
   // Disable unless explicitly testing rate limits.
@@ -232,12 +244,26 @@ export function gqlRequest(
   });
 
   return {
-    query: (gql: string, variables?: Record<string, unknown>) =>
-      supertest(httpServer)
+    query: (gql: string, variables?: Record<string, unknown>) => {
+      const body =
+        variables === undefined ? { query: gql } : { query: gql, variables };
+      const serviceHeaders: Record<string, string> = {
+        ...generateServiceIdentityHeadersV2({
+          serviceName: 'gateway-api',
+          secret: getE2eInternalServiceSecret(),
+          tenantId,
+          method: 'POST',
+          path: '/graphql',
+          body: JSON.stringify(body),
+        }),
+      };
+      return supertest(httpServer)
         .post('/graphql')
+        .set(serviceHeaders)
         .set('x-user-payload', userPayload)
         .set('x-tenant-id', tenantId)
-        .send({ query: gql, variables }),
+        .send(body);
+    },
   };
 }
 
@@ -357,6 +383,8 @@ export async function setupTenantSchemas(
       }
     }
 
+    await backfillTenantMigrationLedger(dataSource, sourceSchema, schemaName);
+
     // Partitions for `messages` / `message_receipts` are created by
     // PartitionManagerService.onApplicationBootstrap (the runtime SSoT).
     // Per INFRA-CRITICAL-012, the test fixture must NOT create its own
@@ -366,6 +394,43 @@ export async function setupTenantSchemas(
     // PartitionManagerService runs at app bootstrap inside the test's
     // createE2eTestApp() flow and ensures current + next 2 months exist.
   }
+}
+
+async function backfillTenantMigrationLedger(
+  dataSource: DataSource,
+  sourceSchema: string,
+  tenantSchema: string,
+): Promise<void> {
+  const ledgerTable = tenantMigrationLedgerTable(sourceSchema);
+  const [sourceLedger] = await dataSource.query(
+    `SELECT to_regclass($1) AS regclass`,
+    [`${sourceSchema}.migrations`],
+  );
+
+  if (!sourceLedger?.regclass) {
+    return;
+  }
+
+  await dataSource.query(`
+    CREATE TABLE IF NOT EXISTS "${tenantSchema}"."${ledgerTable}" (
+      "id" SERIAL PRIMARY KEY,
+      "timestamp" BIGINT NOT NULL,
+      "name" CHARACTER VARYING NOT NULL
+    )
+  `);
+
+  await dataSource.query(`
+    INSERT INTO "${tenantSchema}"."${ledgerTable}" ("timestamp", "name")
+    SELECT source."timestamp", source."name"
+    FROM "${sourceSchema}"."migrations" source
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM "${tenantSchema}"."${ledgerTable}" tenant
+      WHERE tenant."timestamp" = source."timestamp"
+        AND tenant."name" = source."name"
+    )
+    ORDER BY source."id"
+  `);
 }
 
 /**

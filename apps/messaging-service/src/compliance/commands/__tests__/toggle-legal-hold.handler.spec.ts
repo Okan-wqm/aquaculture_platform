@@ -13,9 +13,9 @@ import {
   fakeUuid,
   resetUuidCounter,
   MockQueryRunner,
-  TENANT_A,
 } from '../../../__tests__/test-helpers';
 
+const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LONG_REASON =
   'Regulatory investigation under SEC matter 24-C-19821 ' +
   'concerning historical messaging records preservation';
@@ -112,7 +112,7 @@ describe('ToggleLegalHoldHandler — LEGAL-MEDIUM-002 boundary checks', () => {
   // -----------------------------------------------------------------------
   // LEGAL-MEDIUM-004 — advisory lock acquisition inside the transaction
   // -----------------------------------------------------------------------
-  it('activate acquires pg_advisory_xact_lock as the first transactional statement', async () => {
+  it('activate pins the tenant transaction before acquiring the advisory lock', async () => {
     legalHoldService.activate.mockResolvedValue({
       id: fakeUuid('lh'),
       tenantId: TENANT_A,
@@ -132,10 +132,13 @@ describe('ToggleLegalHoldHandler — LEGAL-MEDIUM-002 boundary checks', () => {
 
     await handler.execute(cmd);
 
-    // The transaction's manager should have run pg_advisory_xact_lock
-    // BEFORE legalHoldService.activate fired. The mock transaction
-    // callback receives queryRunner.manager — that's where the
-    // advisory-lock SELECT lands.
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      expect.stringContaining(`set_config('search_path'`),
+      [expect.stringContaining('"tenant_aaaaaaaaaaaa4aaa"')],
+    );
+    // The transaction's manager should have run pg_advisory_xact_lock before
+    // legalHoldService.activate fired. The mock callback receives
+    // queryRunner.manager — that's where the advisory-lock SELECT lands.
     const lockCalls = queryRunner.manager.query.mock.calls.filter(
       (call: unknown[]) =>
         typeof call[0] === 'string' &&

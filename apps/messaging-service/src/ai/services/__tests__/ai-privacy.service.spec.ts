@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import type { Repository } from 'typeorm';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { REDIS_CLIENT } from '../../../shared/redis.provider';

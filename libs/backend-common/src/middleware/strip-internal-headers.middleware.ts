@@ -55,6 +55,7 @@ import { Injectable, NestMiddleware, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response, NextFunction } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
+import { verifyServiceIdentityRequest } from '../utils/service-identity.util';
 
 /**
  * The four request headers we treat as INTERNAL trust anchors. Any of
@@ -77,7 +78,8 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
   ) {
-    this.serviceSecret = this.configService.get<string>('INTERNAL_SERVICE_SECRET');
+    this.serviceSecret =
+      this.configService.get<string>('INTERNAL_SERVICE_SECRET');
   }
 
   use(req: Request, _res: Response, next: NextFunction): void {
@@ -101,18 +103,16 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
    * # Contract
    *
    * Requires both `x-service-identity` and `x-service-signature` headers.
-   * The signature MUST be `HMAC-SHA256(identity, INTERNAL_SERVICE_SECRET)`.
+   * v2 requests use the canonical service-identity verifier; legacy
+   * requests use `HMAC-SHA256(identity, INTERNAL_SERVICE_SECRET)`.
    *
-   * # Why this is a NARROWER check than the W0.A v2 service-identity
+   * # Why this accepts both v2 and the legacy narrow proof
    *
-   * The full v2 signature contract (libs/.../service-identity.util.ts)
-   * binds method + path + body + tenantId. THIS middleware uses a
-   * lighter `HMAC(identity)` because it runs on EVERY request — the
-   * additional verification cost would dominate hot-path latency. Its
-   * job is the strip-or-trust decision, not full request authentication.
-   * The full v2 verification still fires AFTER this middleware in the
-   * `ServiceIdentityGuard` (or each service's equivalent) before any
-   * privileged action is taken.
+   * Current callers should send the full v2 service-identity signature
+   * (method + path + body + tenant binding). The legacy HMAC(identity)
+   * proof remains accepted for the rolling window because this middleware's
+   * job is the strip-or-trust decision; full request authentication still
+   * fires afterward in ServiceIdentityGuard.
    */
   private isValidInternalRequest(req: Request): boolean {
     if (!this.serviceSecret) return false;
@@ -121,12 +121,47 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
     const signature = req.headers['x-service-signature'];
     if (typeof identity !== 'string' || typeof signature !== 'string') return false;
 
+    if (req.headers['x-service-sig-version'] === 'v2') {
+      const tenantHeader =
+        (req.headers['x-tenant-id'] as string | undefined) ?? '';
+      const outcome = verifyServiceIdentityRequest({
+        headers: req.headers as Record<string, string | string[] | undefined>,
+        observedMethod: req.method ?? 'GET',
+        observedPath: this.canonicalisePath(req),
+        observedBody: this.serializeBodyForHash(req.body),
+        secret: this.serviceSecret,
+        expectedTenantId: tenantHeader,
+      });
+      return outcome.valid;
+    }
+
     try {
-      const expected = createHmac('sha256', this.serviceSecret).update(identity).digest('hex');
+      const expected = createHmac('sha256', this.serviceSecret)
+        .update(identity)
+        .digest('hex');
       if (expected.length !== signature.length) return false;
       return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
     } catch {
       return false;
     }
+  }
+
+  private serializeBodyForHash(body: unknown): string | Buffer {
+    if (body === undefined || body === null) return '';
+    if (typeof body === 'string') return body;
+    if (Buffer.isBuffer(body)) return body;
+    return JSON.stringify(body);
+  }
+
+  private canonicalisePath(req: {
+    path?: string;
+    originalUrl?: string;
+    url?: string;
+  }): string {
+    // Use the full wire path when Express has mounted a route and `path`
+    // becomes mount-relative. This must match ServiceIdentityGuard.
+    const raw = req.originalUrl ?? req.url ?? req.path ?? '/';
+    const qIdx = raw.indexOf('?');
+    return qIdx === -1 ? raw : raw.slice(0, qIdx);
   }
 }

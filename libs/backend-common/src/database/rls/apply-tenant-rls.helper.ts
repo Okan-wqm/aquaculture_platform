@@ -261,9 +261,13 @@ async function discoverTenantScopedTables(
   // columns. We filter on table_type = 'BASE TABLE' to skip views and
   // partitions, and on table_schema = $1 so the helper is schema-scoped (one
   // helper invocation never touches another schema).
-  const rows: Array<{ table_name: string; column_name: string }> = await qr.query(
+  const rows: Array<{
+    table_name: string;
+    column_name: string;
+    udt_name: string;
+  }> = await qr.query(
     `
-      SELECT c.table_name, c.column_name
+      SELECT c.table_name, c.column_name, c.udt_name
       FROM information_schema.columns c
       JOIN information_schema.tables t
         ON t.table_schema = c.table_schema
@@ -299,6 +303,16 @@ async function discoverTenantScopedTables(
           `identity lookup (see DEFAULT_IDENTITY_TABLES docblock). Defense-in-depth ` +
           `for this table must be enforced via schema-role isolation + application-` +
           `layer tenant scoping.`,
+      );
+      continue;
+    }
+    if (row.udt_name !== 'uuid') {
+      logger.warn(
+        `[apply-tenant-rls] Skipping "${schema}"."${row.table_name}" because ` +
+          `"${row.column_name}" is ${row.udt_name}, not uuid. Canonical tenant ` +
+          `RLS casts ${RLS_TENANT_GUC} to uuid; text tenant labels must be ` +
+          `declared in an explicit service-owned policy instead of discovered ` +
+          `by column name.`,
       );
       continue;
     }

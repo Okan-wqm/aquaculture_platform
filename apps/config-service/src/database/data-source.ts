@@ -16,7 +16,7 @@ loadEnv({ path: ['.env.local', '.env'] });
  * every migration body is schema-qualified to `config.<table>`. This CLI
  * DataSource targets `schema: 'config'` so `migration:show` /
  * `migration:revert` and the runtime runner (app.module.ts) read the
- * same `config.typeorm_migrations` ledger.
+ * same `config.migrations` ledger.
  *
  * Closes: docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-069
  */

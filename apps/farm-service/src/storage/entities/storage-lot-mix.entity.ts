@@ -41,7 +41,7 @@ export interface LotContribution {
 }
 
 @ObjectType()
-@Entity('storage_lot_mixes', { schema: 'farm' })
+@Entity('storage_lot_mixes')
 @Index(['tenantId', 'storageLocationId'])
 @Index(['tenantId', 'itemId'])
 @Index(['tenantId', 'effectiveLotNumber'])

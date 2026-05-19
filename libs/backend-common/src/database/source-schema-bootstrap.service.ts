@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { getMigrationRunnerCompletion } from './migration-runner';
 
 /**
  * Bootstraps source schema tables on service startup.
@@ -17,13 +18,11 @@ import { DataSource } from 'typeorm';
  *
  * # Lifecycle ordering
  *
- * Hook: `onApplicationBootstrap` (NOT `onModuleInit`). The bootstrap hook fires
- * AFTER all `onModuleInit` callbacks have completed, which is where service-side
- * `MigrationRunnerService` instances live. Combined with provider-array ordering
- * that declares migration runners BEFORE this service, migrations land first;
- * by the time this service runs, every declared table MUST already exist in the
- * source schema. If any do not, this is a configuration error — not a recoverable
- * condition — and we fail loudly with a remediation message.
+ * Hook: `onApplicationBootstrap` (NOT `onModuleInit`). NestJS may invoke
+ * bootstrap hooks concurrently, so this verifier waits on the in-process
+ * `MigrationRunnerService` completion promise when the service-side runner is
+ * active. In production-like gate mode the external `aqua-db-migrate` container
+ * has already populated the schema before service boot.
  *
  * # Why no synchronize() fallback
  *
@@ -93,6 +92,15 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
 
     const sourceSchema = schemas[0] as string;
     this.logger.log(`Verifying source schema "${sourceSchema}" post-migration state...`);
+
+    const migrationRunnerCompletion =
+      getMigrationRunnerCompletion(sourceSchema);
+    if (migrationRunnerCompletion) {
+      this.logger.log(
+        `Waiting for MigrationRunnerService[${sourceSchema}] before source schema verification...`,
+      );
+      await migrationRunnerCompletion;
+    }
 
     // ── Phase 14: strict module ownership enforcement ──────────────────
     // Before any sync, drop any table in this source schema that is

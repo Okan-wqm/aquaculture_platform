@@ -21,6 +21,10 @@ import {
   TestDatabase,
 } from '../../helpers/db.helper';
 import { MODULE_SCHEMAS } from '../../../libs/backend-common/src/database/schema-manager.service';
+import {
+  MIGRATION_LEDGER_TABLE,
+  tenantMigrationLedgerTable,
+} from '@aquaculture/backend-common/database';
 
 /**
  * Minimum expected tables in a tenant schema.
@@ -102,16 +106,17 @@ describe('Schema Provisioning', () => {
 
     const tables = await getTenantSchemaTables(tenant.id);
     const missingTables = [...DEFAULT_MODULE_TABLES].filter((table) => !tables.includes(table));
-    const clonedInfrastructureTables = [...SOURCE_ONLY_INFRASTRUCTURE_TABLES].filter((table) =>
-      tables.includes(table),
-    );
+    const clonedInfrastructureTables = [...SOURCE_ONLY_INFRASTRUCTURE_TABLES]
+      .filter((table) => table !== MIGRATION_LEDGER_TABLE)
+      .filter((table) => tables.includes(table));
 
     expect(missingTables).toEqual([]);
     expect(clonedInfrastructureTables).toEqual([]);
-    expect(tables).toContain('typeorm_migrations');
+    expect(tables).toContain(tenantMigrationLedgerTable('farm'));
     expect(tables).not.toContain('farm_outbox');
     expect(tables).not.toContain('hr_outbox');
-    expect(tables).not.toContain('migrations');
+    expect(tables).not.toContain(MIGRATION_LEDGER_TABLE);
+    expect(tables).not.toContain('typeorm_migrations');
   });
 
   it('should keep source schemas free of tenant business rows after provisioning', async () => {

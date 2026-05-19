@@ -55,3 +55,77 @@ GRANT SELECT ON platform.bootstrap_signal TO PUBLIC;
 
 COMMENT ON TABLE platform.bootstrap_signal IS
   'Single-row record of last successful aqua-db-migrate Phase 0 run. Services gate boot on its presence + schema_count match. ADR-031.';
+
+CREATE TABLE IF NOT EXISTS platform.release_ledger (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  release_id            VARCHAR(120) NOT NULL,
+  git_sha               VARCHAR(80)  NOT NULL,
+  db_migrate_image      TEXT,
+  migration_manifest_hash TEXT,
+  expected_heads        JSONB        NOT NULL DEFAULT '{}'::jsonb,
+  applied_heads         JSONB        NOT NULL DEFAULT '{}'::jsonb,
+  tenant_schema_set     JSONB        NOT NULL DEFAULT '[]'::jsonb,
+  tenant_fanout         JSONB        NOT NULL DEFAULT '{}'::jsonb,
+  image_digests         JSONB        NOT NULL DEFAULT '{}'::jsonb,
+  status                VARCHAR(40)  NOT NULL,
+  failure_phase         VARCHAR(120),
+  rollback_attempted    BOOLEAN      NOT NULL DEFAULT false,
+  rollback_verified     BOOLEAN      NOT NULL DEFAULT false,
+  rollback_failed       BOOLEAN      NOT NULL DEFAULT false,
+  operator              VARCHAR(120),
+  started_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  completed_at          TIMESTAMPTZ,
+  created_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  CONSTRAINT release_ledger_status_chk CHECK (
+    status IN (
+      'prepared',
+      'migrating',
+      'db_complete',
+      'apps_restarting',
+      'promoted',
+      'failed',
+      'rollback_attempted',
+      'rollback_verified',
+      'rollback_failed',
+      'rolled_back'
+    )
+  )
+);
+
+ALTER TABLE platform.release_ledger
+  ADD COLUMN IF NOT EXISTS applied_heads JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS tenant_schema_set JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS tenant_fanout JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS rollback_attempted BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS rollback_verified BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS rollback_failed BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE platform.release_ledger
+  DROP CONSTRAINT IF EXISTS release_ledger_status_chk;
+
+ALTER TABLE platform.release_ledger
+  ADD CONSTRAINT release_ledger_status_chk CHECK (
+    status IN (
+      'prepared',
+      'migrating',
+      'db_complete',
+      'apps_restarting',
+      'promoted',
+      'failed',
+      'rollback_attempted',
+      'rollback_verified',
+      'rollback_failed',
+      'rolled_back'
+    )
+  );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_release_ledger_release_id
+  ON platform.release_ledger (release_id);
+CREATE INDEX IF NOT EXISTS idx_release_ledger_status_started
+  ON platform.release_ledger (status, started_at DESC);
+
+GRANT SELECT ON platform.release_ledger TO PUBLIC;
+
+COMMENT ON TABLE platform.release_ledger IS
+  'Canonical deploy record: git SHA, image digests, migration manifest hash, expected/applied heads, tenant fan-out, rollback verification state, status, failure phase, and operator. Supersedes deployed/production as release truth.';

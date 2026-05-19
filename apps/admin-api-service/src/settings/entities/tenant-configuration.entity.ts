@@ -17,7 +17,7 @@ export class TenantConfiguration {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ unique: true })
+  @Column({ type: 'uuid', unique: true })
   tenantId!: string;
 
   // ============================================================================

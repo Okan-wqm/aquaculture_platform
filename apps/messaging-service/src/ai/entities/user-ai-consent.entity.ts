@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  Index,
   UpdateDateColumn,
 } from 'typeorm';
 
@@ -11,6 +12,7 @@ import {
  * GDPR-compliant: no AI processing unless both tenant enabled AND user consented.
  */
 @Entity('user_ai_consents')
+@Index('uq_user_ai_consent_tenant_user', ['tenantId', 'userId'], { unique: true })
 export class UserAiConsent {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import type { EntitySchema, MixedList } from 'typeorm';
 
+import { MIGRATION_LEDGER_TABLE } from './migration-ledger';
 import { buildDatabaseSslConfig } from './ssl-config';
 
 /**
@@ -270,6 +271,7 @@ export function createServiceTypeOrmConfig(
     synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
     migrationsRun,
     migrations: opts.migrations,
+    migrationsTableName: MIGRATION_LEDGER_TABLE,
     logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
     ssl: buildDatabaseSslConfig(configService),
     extra: {

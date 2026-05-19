@@ -71,6 +71,11 @@ describe('DeleteMessageHandler', () => {
     const result = await handler.execute(cmd);
 
     expect(result).toBe(true);
+    expect(legalHoldService.isUnderLegalHold).toHaveBeenCalledWith(
+      tenantId,
+      channelId,
+      queryRunner.manager,
+    );
     // Verify isDeleted set to true in the save call
     const saveCalls = queryRunner.manager.save.mock.calls.filter((c) => c[0] === Message);
     expect(saveCalls.length).toBeGreaterThan(0);

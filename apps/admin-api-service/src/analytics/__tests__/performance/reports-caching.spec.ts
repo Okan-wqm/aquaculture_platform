@@ -1,7 +1,8 @@
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { RedisService } from '@aquaculture/backend-common/redis';
+import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit.service';
 import {
@@ -75,6 +76,17 @@ const mockAuditLogService = {
   }),
 };
 
+const createMockDataSource = (): Partial<DataSource> => ({
+  query: jest.fn().mockResolvedValue([]),
+});
+
+const redisMock = <T extends (...args: never[]) => unknown>(
+  fn: T | undefined,
+): jest.MockedFunction<T> => {
+  if (!fn) throw new Error('Redis mock method is missing');
+  return fn as jest.MockedFunction<T>;
+};
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -87,6 +99,7 @@ describe('ReportsService - Caching', () => {
 
   beforeEach(async () => {
     mockRedis = createMockRedisService();
+    const mockDataSource = createMockDataSource();
 
     mockTenantRepo = {
       find: jest.fn().mockResolvedValue([
@@ -122,6 +135,7 @@ describe('ReportsService - Caching', () => {
         { provide: getRepositoryToken(ReportExecution), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn() } },
         { provide: AnalyticsService, useValue: mockAnalyticsService },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        { provide: DataSource, useValue: mockDataSource },
         { provide: RedisService, useValue: mockRedis },
       ],
     }).compile();
@@ -135,7 +149,7 @@ describe('ReportsService - Caching', () => {
 
   describe('report caching via getCachedOrCompute', () => {
     it('should cache tenant_overview report on first request', async () => {
-      (mockRedis.getJson as jest.Mock).mockResolvedValue(null);
+      redisMock(mockRedis.getJson).mockResolvedValue(null);
 
       const result = await service.generateReport({
         type: 'tenant_overview',
@@ -159,7 +173,7 @@ describe('ReportsService - Caching', () => {
         data: [{ id: 'tenant-1', name: 'Cached Tenant' }],
         summary: { totalTenants: 1 },
       };
-      (mockRedis.getJson as jest.Mock).mockResolvedValue(cachedData);
+      redisMock(mockRedis.getJson).mockResolvedValue(cachedData);
 
       const result = await service.generateReport({
         type: 'tenant_overview',
@@ -174,7 +188,7 @@ describe('ReportsService - Caching', () => {
     });
 
     it('should use 4 hour (14400s) TTL for report cache', async () => {
-      (mockRedis.getJson as jest.Mock).mockResolvedValue(null);
+      redisMock(mockRedis.getJson).mockResolvedValue(null);
 
       await service.generateReport({
         type: 'tenant_churn',
@@ -197,7 +211,7 @@ describe('ReportsService - Caching', () => {
 
   describe('cache key generation', () => {
     it('should include report type in cache key', async () => {
-      (mockRedis.getJson as jest.Mock).mockResolvedValue(null);
+      redisMock(mockRedis.getJson).mockResolvedValue(null);
 
       await service.generateReport({
         type: 'tenant_overview',
@@ -212,7 +226,7 @@ describe('ReportsService - Caching', () => {
     });
 
     it('should include date range in cache key', async () => {
-      (mockRedis.getJson as jest.Mock).mockResolvedValue(null);
+      redisMock(mockRedis.getJson).mockResolvedValue(null);
       const startDate = new Date('2024-06-01');
       const endDate = new Date('2024-06-30');
 
@@ -229,7 +243,8 @@ describe('ReportsService - Caching', () => {
     });
 
     it('should generate different cache keys for different date ranges', async () => {
-      (mockRedis.getJson as jest.Mock).mockResolvedValue(null);
+      const getJsonMock = redisMock(mockRedis.getJson);
+      getJsonMock.mockResolvedValue(null);
 
       await service.generateReport({
         type: 'tenant_overview',
@@ -238,7 +253,7 @@ describe('ReportsService - Caching', () => {
         endDate: new Date('2024-06-30'),
       });
 
-      const firstKey = (mockRedis.getJson as jest.Mock).mock.calls[0][0];
+      const firstKey = (getJsonMock.mock.calls as Array<[string]>)[0]?.[0];
 
       await service.generateReport({
         type: 'tenant_overview',
@@ -247,7 +262,7 @@ describe('ReportsService - Caching', () => {
         endDate: new Date('2024-12-31'),
       });
 
-      const secondKey = (mockRedis.getJson as jest.Mock).mock.calls[1][0];
+      const secondKey = (getJsonMock.mock.calls as Array<[string]>)[1]?.[0];
 
       expect(firstKey).not.toEqual(secondKey);
     });
@@ -259,7 +274,7 @@ describe('ReportsService - Caching', () => {
 
   describe('cache error resilience', () => {
     it('should fall back to computation when cache read fails', async () => {
-      (mockRedis.getJson as jest.Mock).mockRejectedValue(new Error('Redis down'));
+      redisMock(mockRedis.getJson).mockRejectedValue(new Error('Redis down'));
 
       const result = await service.generateReport({
         type: 'tenant_overview',
@@ -273,8 +288,8 @@ describe('ReportsService - Caching', () => {
     });
 
     it('should not throw when cache write fails after computation', async () => {
-      (mockRedis.getJson as jest.Mock).mockResolvedValue(null);
-      (mockRedis.setJson as jest.Mock).mockRejectedValue(new Error('Redis write error'));
+      redisMock(mockRedis.getJson).mockResolvedValue(null);
+      redisMock(mockRedis.setJson).mockRejectedValue(new Error('Redis write error'));
 
       const result = await service.generateReport({
         type: 'tenant_overview',
@@ -303,6 +318,7 @@ describe('ReportsService - Caching', () => {
           { provide: getRepositoryToken(ReportExecution), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn() } },
           { provide: AnalyticsService, useValue: mockAnalyticsService },
           { provide: AuditLogService, useValue: mockAuditLogService },
+          { provide: DataSource, useValue: createMockDataSource() },
           // No RedisService provided
         ],
       }).compile();
@@ -326,7 +342,7 @@ describe('ReportsService - Caching', () => {
 
   describe('cached vs uncached report types', () => {
     it('should cache tenant_overview reports', async () => {
-      (mockRedis.getJson as jest.Mock).mockResolvedValue(null);
+      redisMock(mockRedis.getJson).mockResolvedValue(null);
 
       await service.generateReport({
         type: 'tenant_overview',
@@ -339,7 +355,7 @@ describe('ReportsService - Caching', () => {
     });
 
     it('should cache tenant_churn reports', async () => {
-      (mockRedis.getJson as jest.Mock).mockResolvedValue(null);
+      redisMock(mockRedis.getJson).mockResolvedValue(null);
 
       await service.generateReport({
         type: 'tenant_churn',
@@ -352,7 +368,7 @@ describe('ReportsService - Caching', () => {
     });
 
     it('should cache system_performance reports', async () => {
-      (mockRedis.getJson as jest.Mock).mockResolvedValue(null);
+      redisMock(mockRedis.getJson).mockResolvedValue(null);
 
       await service.generateReport({
         type: 'system_performance',
@@ -365,13 +381,15 @@ describe('ReportsService - Caching', () => {
     });
 
     it('should throw BadRequestException for unknown report type', async () => {
+      const invalidRequest = {
+        type: 'nonexistent_report',
+        format: 'json',
+        startDate: new Date('2024-01-01'),
+        endDate: new Date('2024-12-31'),
+      } as unknown as Parameters<ReportsService['generateReport']>[0];
+
       await expect(
-        service.generateReport({
-          type: 'nonexistent_report' as any,
-          format: 'json',
-          startDate: new Date('2024-01-01'),
-          endDate: new Date('2024-12-31'),
-        }),
+        service.generateReport(invalidRequest),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -411,6 +429,7 @@ describe('ReportsService - Caching', () => {
           { provide: getRepositoryToken(ReportExecution), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn() } },
           { provide: AnalyticsService, useValue: mockAnalyticsService },
           { provide: AuditLogService, useValue: mockAuditLogService },
+          { provide: DataSource, useValue: createMockDataSource() },
           { provide: RedisService, useValue: mockRedis },
         ],
       }).compile();
@@ -433,7 +452,7 @@ describe('ReportsService - Caching', () => {
     });
 
     it('should filter by status', async () => {
-      await service.getDefinitions({ status: 'active' as any });
+      await service.getDefinitions({ status: 'active' });
 
       expect(mockDefQueryBuilder['andWhere']).toHaveBeenCalledWith(
         'def.status = :status',
@@ -442,7 +461,7 @@ describe('ReportsService - Caching', () => {
     });
 
     it('should filter by type', async () => {
-      await service.getDefinitions({ type: 'tenant_overview' as any });
+      await service.getDefinitions({ type: 'tenant_overview' });
 
       expect(mockDefQueryBuilder['andWhere']).toHaveBeenCalledWith(
         'def.type = :type',

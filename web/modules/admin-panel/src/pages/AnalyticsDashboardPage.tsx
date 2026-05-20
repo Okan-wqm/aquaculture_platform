@@ -6,9 +6,11 @@
  * Connected to real backend API endpoints.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import { Card, Button } from '@aquaculture/shared-ui';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+
+import { adminRoutes } from '../routes/adminRoutes';
 import { analyticsApi, systemApi } from '../services/adminApi';
 
 // ============================================================================
@@ -90,20 +92,16 @@ interface DashboardSummary {
   system: SystemMetrics;
   usage: UsageMetrics;
   generatedAt: string;
-}
-
-interface KpiComparison {
-  current: number;
-  previous: number;
-  change: number;
-  changePercent: number;
-  trend: 'up' | 'down' | 'stable';
+  unavailable?: string[];
 }
 
 interface TimeSeriesPoint {
   date: string;
   value: number;
 }
+
+type AnalyticsRange = '7d' | '30d' | '90d' | '1y';
+type AnalyticsGranularity = 'day' | 'week' | 'month';
 
 // ============================================================================
 // Default Data Structure
@@ -205,13 +203,13 @@ const KpiCard: React.FC<KpiCardProps> = ({
     indigo: 'bg-indigo-50 text-indigo-600',
   };
 
-  const getTrendColor = () => {
+  const getTrendColor = (): string => {
     if (trend === 'up') return 'text-green-600';
     if (trend === 'down') return 'text-red-600';
     return 'text-gray-500';
   };
 
-  const getTrendIcon = () => {
+  const getTrendIcon = (): string => {
     if (trend === 'up') return '↑';
     if (trend === 'down') return '↓';
     return '→';
@@ -257,9 +255,10 @@ const MiniChart: React.FC<MiniChartProps> = ({ data, height = 60, color = '#3B82
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
+  const denominator = Math.max(data.length - 1, 1);
 
   const points = data.map((d, i) => {
-    const x = (i / (data.length - 1)) * 100;
+    const x = (i / denominator) * 100;
     const y = height - ((d.value - min) / range) * height;
     return `${x},${y}`;
   }).join(' ');
@@ -384,7 +383,7 @@ const DonutChart: React.FC<DonutChartProps> = ({
 const AnalyticsDashboardPage: React.FC = () => {
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedPeriod, setSelectedPeriod] = useState<'7d' | '30d' | '90d' | '1y'>('30d');
+  const [selectedPeriod, setSelectedPeriod] = useState<AnalyticsRange>('30d');
   const [tenantTrend, setTenantTrend] = useState<TimeSeriesPoint[]>([]);
   const [revenueTrend, setRevenueTrend] = useState<TimeSeriesPoint[]>([]);
   const [userTrend, setUserTrend] = useState<TimeSeriesPoint[]>([]);
@@ -392,15 +391,15 @@ const AnalyticsDashboardPage: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // Calculate data points based on period
-      const dataPoints = selectedPeriod === '7d' ? 7 : selectedPeriod === '30d' ? 30 : selectedPeriod === '90d' ? 90 : 365;
+      const granularity: AnalyticsGranularity = selectedPeriod === '1y' ? 'month' : selectedPeriod === '90d' ? 'week' : 'day';
 
       // Try to fetch from real API endpoints
-      const [dashboardResponse, systemHealthResponse, tenantTrendResponse, revenueTrendResponse] = await Promise.allSettled([
+      const [dashboardResponse, systemHealthResponse, tenantTrendResponse, revenueTrendResponse, userActivityResponse] = await Promise.allSettled([
         analyticsApi.getDashboardSummary(),
         systemApi.getServicesHealth(),
-        analyticsApi.getTenantGrowthTrend(selectedPeriod, Math.min(dataPoints, 30)),
-        analyticsApi.getRevenueTrend(selectedPeriod),
+        analyticsApi.getTenantGrowthTrend(selectedPeriod, granularity),
+        analyticsApi.getRevenueTrend(selectedPeriod, granularity),
+        analyticsApi.getUserActivity(selectedPeriod, granularity),
       ]);
 
       // Process dashboard data
@@ -413,9 +412,6 @@ const AnalyticsDashboardPage: React.FC = () => {
           ...apiData,
           generatedAt: new Date().toISOString(),
         };
-      } else {
-        // API unavailable, keep default empty data
-        console.error('Analytics API unavailable');
       }
 
       // Enhance with system health data if available
@@ -433,50 +429,25 @@ const AnalyticsDashboardPage: React.FC = () => {
       // Process tenant growth trend
       if (tenantTrendResponse.status === 'fulfilled' && tenantTrendResponse.value) {
         const responseData = tenantTrendResponse.value;
-        // Backend returns { label, data: [{date, value}], color } or array of GrowthTrend
-        const items = Array.isArray(responseData)
-          ? responseData
-          : (responseData as { data?: unknown[] }).data;
-        if (Array.isArray(items)) {
-          const trendData = (items as Record<string, unknown>[]).map((item) => ({
-            date: (item.period || item.date || '') as string,
-            value: (item.tenants ?? item.value ?? 0) as number,
-          }));
-          setTenantTrend(trendData);
-          // TODO: Wire userTrend to real user activity endpoint: GET /analytics/users/activity
-          // Previously this fabricated DAU by multiplying tenant counts by avgUsersPerTenant.
-          // Keeping userTrend empty until the real endpoint is connected.
-          setUserTrend([]);
-        } else {
-          setTenantTrend([]);
-          setUserTrend([]);
-        }
+        setTenantTrend(Array.isArray(responseData.data) ? responseData.data : []);
       } else {
         setTenantTrend([]);
-        setUserTrend([]);
       }
 
       // Process revenue trend
       if (revenueTrendResponse.status === 'fulfilled' && revenueTrendResponse.value) {
         const responseData = revenueTrendResponse.value;
-        // Backend returns { period, data: [{date, revenue, growth}], summary } or array
-        const items = Array.isArray(responseData)
-          ? responseData
-          : (responseData as { data?: unknown[] }).data;
-        if (Array.isArray(items)) {
-          const revenueData = (items as Record<string, unknown>[]).map((item) => ({
-            date: (item.period || item.date || '') as string,
-            value: (item.revenue ?? item.value ?? 0) as number,
-          }));
-          setRevenueTrend(revenueData);
-        } else {
-          setRevenueTrend([]);
-        }
+        setRevenueTrend(Array.isArray(responseData.data) ? responseData.data : []);
       } else {
         setRevenueTrend([]);
       }
-    } catch (error) {
-      console.error('Failed to load analytics data:', error);
+
+      if (userActivityResponse.status === 'fulfilled' && userActivityResponse.value) {
+        setUserTrend(Array.isArray(userActivityResponse.value.data) ? userActivityResponse.value.data : []);
+      } else {
+        setUserTrend([]);
+      }
+    } catch {
       // Set default empty data on error
       setData(getDefaultData());
       setTenantTrend([]);
@@ -488,10 +459,10 @@ const AnalyticsDashboardPage: React.FC = () => {
   }, [selectedPeriod]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
-  const formatCurrency = (value: number) => {
+  const formatCurrency = (value: number): string => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
@@ -500,11 +471,11 @@ const AnalyticsDashboardPage: React.FC = () => {
     }).format(value);
   };
 
-  const formatNumber = (value: number) => {
+  const formatNumber = (value: number): string => {
     return new Intl.NumberFormat('en-US').format(value);
   };
 
-  const formatBytes = (bytes: number) => {
+  const formatBytes = (bytes: number): string => {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let unitIndex = 0;
     let value = bytes;
@@ -547,14 +518,22 @@ const AnalyticsDashboardPage: React.FC = () => {
               </button>
             ))}
           </div>
-          <Button variant="secondary" onClick={loadData}>
+          <Button variant="secondary" onClick={() => {
+            void loadData();
+          }}>
             Refresh
           </Button>
-          <Link to="/admin/reports">
+          <Link to={adminRoutes.analyticsReports}>
             <Button variant="primary">Reports</Button>
           </Link>
         </div>
       </div>
+
+      {data.unavailable && data.unavailable.length > 0 && (
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+          Partial analytics data: {data.unavailable.join(', ')}
+        </div>
+      )}
 
       {/* Main KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -695,8 +674,6 @@ const AnalyticsDashboardPage: React.FC = () => {
           </div>
         </Card>
 
-        {/* Daily Active Users Chart */}
-        {/* TODO: Wire to real user activity endpoint: GET /analytics/users/activity */}
         <Card title="Daily Active Users">
           <div className="h-32 mb-4 relative">
             <MiniChart data={userTrend} height={100} color="#10B981" />
@@ -707,7 +684,7 @@ const AnalyticsDashboardPage: React.FC = () => {
             )}
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-400">Awaiting real activity data</span>
+            <span className="text-gray-500">DAU: {formatNumber(data.users.activeLastDay)}</span>
           </div>
         </Card>
       </div>

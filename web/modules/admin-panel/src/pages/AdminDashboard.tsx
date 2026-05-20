@@ -4,13 +4,14 @@
  * SUPER_ADMIN paneli ana sayfası - Sistem metrikleri ve hızlı erişim.
  */
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { Alert, Badge, Card, MetricCard } from '@aquaculture/shared-ui';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Card, MetricCard, formatNumber, Alert, Badge } from '@aquaculture/shared-ui';
+
+import { adminRoutes } from '../routes/adminRoutes';
 import {
   systemApi,
   usersApi,
-  tenantsApi,
   auditApi,
   debugApi,
   type SystemMetrics,
@@ -52,8 +53,11 @@ const quickLinks = [
   { id: 'users', label: 'User Management', path: '/admin/users', icon: '👥', description: 'Manage all users' },
   { id: 'modules', label: 'Module Management', path: '/admin/modules', icon: '📦', description: 'Manage system modules' },
   { id: 'settings', label: 'System Settings', path: '/admin/settings', icon: '⚙️', description: 'Platform settings' },
-  { id: 'audit', label: 'Audit Logs', path: '/admin/audit-log', icon: '📋', description: 'System activities' },
+  { id: 'audit', label: 'Audit Logs', path: adminRoutes.audit, icon: '📋', description: 'System activities' },
 ];
+
+const formatMetricNumber = (value: number): string =>
+  new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 }).format(value);
 
 // ============================================================================
 // Service Status Component
@@ -151,7 +155,7 @@ const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefi
 // ============================================================================
 
 const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
-  const getSeverityColor = (severity: string) => {
+  const getSeverityColor = (severity: string): 'error' | 'warning' | 'info' | 'default' => {
     switch (severity) {
       case 'critical':
         return 'error';
@@ -164,7 +168,7 @@ const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
     }
   };
 
-  const formatTime = (dateStr: string) => {
+  const formatTime = (dateStr: string): string => {
     const date = new Date(dateStr);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
@@ -181,7 +185,7 @@ const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
     <Card>
       <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
-        <Link to="/admin/audit-log" className="text-sm text-primary-600 hover:text-primary-700">
+        <Link to={adminRoutes.audit} className="text-sm text-primary-600 hover:text-primary-700">
           View All
         </Link>
       </div>
@@ -235,7 +239,7 @@ const CircuitBreakerCard: React.FC<{
   const entries = Object.entries(circuitBreakers);
   if (entries.length === 0) return null;
 
-  const formatTime = (timestamp: number) => {
+  const formatTime = (timestamp: number): string => {
     if (!timestamp) return '-';
     const date = new Date(timestamp);
     const now = new Date();
@@ -332,7 +336,7 @@ const CacheStatsCard: React.FC<{
           <div>
             <p className="text-xs text-gray-500">Total Entries</p>
             <p className="text-lg font-semibold text-gray-900">
-              {cacheStats ? formatNumber(cacheStats.totalEntries) : '-'}
+              {cacheStats ? formatMetricNumber(cacheStats.totalEntries) : '-'}
             </p>
           </div>
           <div>
@@ -445,16 +449,18 @@ const AdminDashboard: React.FC = () => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    const scheduleFetch = async () => {
+    const scheduleFetch = async (): Promise<void> => {
       await fetchDashboardData();
 
       // Only schedule next refresh if the effect has not been cleaned up
       if (!controller.signal.aborted) {
-        refreshTimeoutRef.current = setTimeout(scheduleFetch, 30000);
+        refreshTimeoutRef.current = setTimeout(() => {
+          void scheduleFetch();
+        }, 30000);
       }
     };
 
-    scheduleFetch();
+    void scheduleFetch();
 
     return () => {
       controller.abort();
@@ -502,7 +508,9 @@ const AdminDashboard: React.FC = () => {
           <p className="mt-1 text-sm text-gray-500">System management and monitoring</p>
         </div>
         <button
-          onClick={fetchDashboardData}
+          onClick={() => {
+            void fetchDashboardData();
+          }}
           disabled={loading}
           className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
         >
@@ -533,7 +541,7 @@ const AdminDashboard: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Total Users"
-          value={formatNumber(userStats?.totalUsers || platformMetrics.totalUsers)}
+          value={formatMetricNumber(userStats?.totalUsers || platformMetrics.totalUsers)}
           change={userStats?.newUsersLast30Days ? ((userStats.newUsersLast30Days / (userStats.totalUsers || 1)) * 100) : 0}
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -556,7 +564,7 @@ const AdminDashboard: React.FC = () => {
         />
         <MetricCard
           title="Logins (Last 24h)"
-          value={formatNumber(userStats?.loginsLast24Hours || 0)}
+          value={formatMetricNumber(userStats?.loginsLast24Hours || 0)}
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
@@ -565,7 +573,7 @@ const AdminDashboard: React.FC = () => {
         />
         <MetricCard
           title="API Calls (24h)"
-          value={formatNumber(platformMetrics.apiCallsLast24h)}
+          value={formatMetricNumber(platformMetrics.apiCallsLast24h)}
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -595,12 +603,22 @@ const AdminDashboard: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
           <ServiceStatusCard services={services} />
           <DatabaseStatsCard database={metrics?.database} />
-          {cacheStats && <CacheStatsCard cacheStats={cacheStats} onClearCache={handleClearCache} clearing={clearingCache} />}
+          {cacheStats && (
+            <CacheStatsCard
+              cacheStats={cacheStats}
+              onClearCache={() => {
+                void handleClearCache();
+              }}
+              clearing={clearingCache}
+            />
+          )}
         </div>
         <div className="space-y-6">
           <CircuitBreakerCard
             circuitBreakers={circuitBreakers}
-            onReset={handleResetCircuitBreaker}
+            onReset={(name) => {
+              void handleResetCircuitBreaker(name);
+            }}
             resetting={resettingBreaker}
           />
           <RecentActivityCard logs={recentLogs} />

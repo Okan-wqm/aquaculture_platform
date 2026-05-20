@@ -9,26 +9,18 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
 import { AuditLogModule } from '../audit/audit.module';
 
 import { AnalyticsController } from './controllers/analytics.controller';
 import { ReportsController } from './controllers/reports.controller';
 import { AnalyticsSnapshot, ReportDefinition, ReportExecution } from './entities/analytics-snapshot.entity';
-
-// External Entities (read-only references to other services' data)
 import { InvoiceReadOnly } from './entities/external/invoice.entity';
 import { SubscriptionReadOnly } from './entities/external/subscription.entity';
 import { TenantReadOnly } from './entities/external/tenant.entity';
 import { UserReadOnly } from './entities/external/user.entity';
-
-// Services
+import { AnalyticsSnapshotScheduler } from './services/analytics-snapshot.scheduler';
 import { AnalyticsService } from './services/analytics.service';
 import { ReportsService } from './services/reports.service';
-
-// Controllers
-
-// Audit Module for activity heatmap
 
 @Module({
   imports: [
@@ -47,7 +39,9 @@ import { ReportsService } from './services/reports.service';
     AuditLogModule,
   ],
   controllers: [AnalyticsController, ReportsController],
-  providers: [AnalyticsService, ReportsService],
+  providers: [AnalyticsService, ReportsService, AnalyticsSnapshotScheduler],
   exports: [AnalyticsService, ReportsService],
 })
-export class AnalyticsModule {}
+export class AnalyticsModule {
+  readonly moduleName = AnalyticsModule.name;
+}

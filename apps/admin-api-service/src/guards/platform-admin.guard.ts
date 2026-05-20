@@ -1,18 +1,24 @@
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { requestContextStorage } from '@aquaculture/backend-common/logging';
 import {
-  Injectable,
-  Inject,
   CanActivate,
   ExecutionContext,
-  UnauthorizedException,
   ForbiddenException,
+  Inject,
+  Injectable,
   Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
-// WHY: Explicit @Inject() required — useClass + APP_GUARD relies on design:paramtypes
-// metadata which may not survive all build/runtime environments (Alpine musl, prod-only deps).
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
+import type { Request } from 'express';
+import * as jwt from 'jsonwebtoken';
 
+import { ROLES_KEY } from '../decorators/roles.decorator';
+
+// WHY: Explicit @Inject() required — useClass + APP_GUARD relies on design:paramtypes
+// metadata which may not survive all build/runtime environments (Alpine musl, prod-only deps).
 // getJwtVerifyOptions: centralised JWT verification options (RS256 public
 // key, issuer, audience).
 // BEFORE: guard used `import * as jwt from 'jsonwebtoken'` with jwt.verify() —
@@ -22,9 +28,6 @@ import { JwtService } from '@nestjs/jwt';
 // private key, every consumer verifies with the public key), issuer + audience
 // enforced at library level. jsonwebtoken still imported for error
 // type-checking in the catch block.
-import * as jwt from 'jsonwebtoken';
-import { getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
-import { ROLES_KEY } from '../decorators/roles.decorator';
 
 /**
  * JWT payload structure for admin-api guard.
@@ -40,14 +43,27 @@ export interface JwtPayload {
   role?: string;
   roles?: string[];
   tenantId?: string;
+  type?: string;
+  jti?: string;
   iat: number;
   exp: number;
 }
 
 export const IS_PUBLIC_KEY = 'isPublic';
 
-// Default roles when no @Roles() decorator is present
-const DEFAULT_ADMIN_ROLES = ['SUPER_ADMIN', 'PLATFORM_ADMIN', 'super_admin', 'platform_admin'];
+// Product language calls this actor "platform admin"; the auth domain
+// represents that platform-level operator with the existing SUPER_ADMIN role.
+const DEFAULT_ADMIN_ROLES = ['SUPER_ADMIN', 'super_admin'];
+
+interface AdminRequest extends Request {
+  user?: {
+    id: string;
+    email?: string;
+    roles: string[];
+    role?: string;
+    tenantId?: string;
+  };
+}
 
 @Injectable()
 export class PlatformAdminGuard implements CanActivate {
@@ -77,7 +93,7 @@ export class PlatformAdminGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest<AdminRequest>();
     const authHeader = request.headers.authorization;
 
     if (!authHeader) {
@@ -104,6 +120,11 @@ export class PlatformAdminGuard implements CanActivate {
         token,
         getJwtVerifyOptions(this.configService),
       );
+      enforceAccessTokenType(
+        payload,
+        this.logger,
+        this.configService.get<string>('NODE_ENV') === 'production',
+      );
 
       // Normalize user roles - tekil role varsa array'e çevir
       const userRoles = payload.roles || (payload.role ? [payload.role] : []);
@@ -117,12 +138,24 @@ export class PlatformAdminGuard implements CanActivate {
         tenantId: payload.tenantId,
       };
 
-      // Check for required roles from @Roles() decorator
-      // If no decorator, use default admin roles (backward compatible)
-      const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+      const requestContext = requestContextStorage.getStore();
+      if (requestContext) {
+        requestContext.userId = payload.sub;
+        requestContext.tenantId = payload.tenantId;
+      }
+
+      // Admin API is a platform-admin boundary. In the current auth model that
+      // platform actor is encoded as SUPER_ADMIN; decorators may narrow to that
+      // role, but must never widen admin-api access to tenant/module roles.
+      const decoratedRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
         context.getHandler(),
         context.getClass(),
-      ]) || DEFAULT_ADMIN_ROLES;
+      ]);
+      const requiredRoles = (decoratedRoles || DEFAULT_ADMIN_ROLES)
+        .filter((role) => role.toUpperCase() === 'SUPER_ADMIN');
+      if (requiredRoles.length === 0) {
+        requiredRoles.push('SUPER_ADMIN');
+      }
 
       // Case-insensitive role check
       const hasRequiredRole = userRoles.some((userRole) =>
@@ -144,7 +177,7 @@ export class PlatformAdminGuard implements CanActivate {
 
       return true;
     } catch (error) {
-      if (error instanceof ForbiddenException) {
+      if (error instanceof ForbiddenException || error instanceof UnauthorizedException) {
         throw error;
       }
 

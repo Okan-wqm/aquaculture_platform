@@ -12,12 +12,24 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import {
+  AnalyticsGranularity,
+  AnalyticsRange,
+  TimeSeriesData,
+  TimeSeriesPoint,
+  TimeSeriesResponse,
+} from '../entities/analytics-snapshot.entity';
 import { AnalyticsService } from '../services/analytics.service';
 
 // INPUT VALIDATION: Constants for parameter limits
 const MIN_DATA_POINTS = 1;
 const MAX_DATA_POINTS = 365;
 const VALID_PERIODS = ['day', 'week', 'month', 'year'] as const;
+const VALID_RANGES = ['7d', '30d', '90d', '1y'] as const;
+const VALID_GRANULARITIES = ['day', 'week', 'month'] as const;
+
+type AnalyticsTrendResponse = TimeSeriesData | TimeSeriesResponse;
+type RevenueTrendAnalyticsResponse = Awaited<ReturnType<AnalyticsService['getRevenueTrendAnalytics']>>;
 
 /**
  * Validate and sanitize dataPoints parameter
@@ -72,16 +84,83 @@ function parsePeriodParameter(value: string, defaultDataPoints: number): { perio
   );
 }
 
-/**
- * Validate period parameter (strict mode - only accepts standard formats)
- */
-function validatePeriod(value: string): 'day' | 'week' | 'month' | 'year' {
-  if (!VALID_PERIODS.includes(value as typeof VALID_PERIODS[number])) {
-    throw new BadRequestException(
-      `period must be one of: ${VALID_PERIODS.join(', ')}`,
-    );
+function parseRangeParameter(
+  range: string,
+  granularity?: string,
+): { range: AnalyticsRange; granularity: AnalyticsGranularity; period: 'day'; dataPoints: number } {
+  if (!VALID_RANGES.includes(range as AnalyticsRange)) {
+    throw new BadRequestException(`range must be one of: ${VALID_RANGES.join(', ')}`);
   }
-  return value as 'day' | 'week' | 'month' | 'year';
+
+  const typedRange = range as AnalyticsRange;
+  const defaultGranularity: Record<AnalyticsRange, AnalyticsGranularity> = {
+    '7d': 'day',
+    '30d': 'day',
+    '90d': 'week',
+    '1y': 'month',
+  };
+
+  const typedGranularity = granularity
+    ? granularity as AnalyticsGranularity
+    : defaultGranularity[typedRange];
+
+  if (!VALID_GRANULARITIES.includes(typedGranularity)) {
+    throw new BadRequestException(`granularity must be one of: ${VALID_GRANULARITIES.join(', ')}`);
+  }
+
+  const dataPointsByRange: Record<AnalyticsRange, number> = {
+    '7d': 7,
+    '30d': 30,
+    '90d': 90,
+    '1y': 365,
+  };
+
+  return {
+    range: typedRange,
+    granularity: typedGranularity,
+    period: 'day',
+    dataPoints: dataPointsByRange[typedRange],
+  };
+}
+
+function toTimeSeriesResponse(
+  timeSeries: TimeSeriesData,
+  range: AnalyticsRange,
+  granularity: AnalyticsGranularity,
+  source: string,
+): TimeSeriesResponse {
+  return {
+    range,
+    granularity,
+    data: aggregateTimeSeriesPoints(timeSeries.data, granularity),
+    source,
+    asOf: new Date().toISOString(),
+  };
+}
+
+function aggregateTimeSeriesPoints(
+  points: TimeSeriesPoint[],
+  granularity: AnalyticsGranularity,
+): TimeSeriesPoint[] {
+  if (granularity === 'day') return points;
+
+  const buckets = new Map<string, TimeSeriesPoint>();
+  for (const point of points) {
+    const date = new Date(point.date);
+    if (isNaN(date.getTime())) continue;
+
+    if (granularity === 'week') {
+      const day = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() - day + 1);
+    } else {
+      date.setUTCDate(1);
+    }
+
+    const bucketDate = date.toISOString().slice(0, 10);
+    buckets.set(bucketDate, { date: bucketDate, value: point.value });
+  }
+
+  return Array.from(buckets.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // ============================================================================
@@ -98,12 +177,12 @@ export class AnalyticsController {
   // ============================================================================
 
   @Get('dashboard')
-  async getDashboardSummary() {
+  getDashboardSummary(): ReturnType<AnalyticsService['getDashboardSummary']> {
     return this.analyticsService.getDashboardSummary();
   }
 
   @Get('kpi-comparisons')
-  async getKpiComparisons() {
+  getKpiComparisons(): ReturnType<AnalyticsService['getKpiComparisons']> {
     return this.analyticsService.getKpiComparisons();
   }
 
@@ -112,15 +191,26 @@ export class AnalyticsController {
   // ============================================================================
 
   @Get('tenants')
-  async getTenantMetrics() {
+  getTenantMetrics(): ReturnType<AnalyticsService['getTenantMetrics']> {
     return this.analyticsService.getTenantMetrics();
   }
 
   @Get('tenants/growth')
   async getTenantGrowthTrend(
+    @Query('range') range?: string,
+    @Query('granularity') granularity?: string,
     @Query('period') period = 'month',
     @Query('dataPoints') dataPoints: unknown = 12,
-  ) {
+  ): Promise<AnalyticsTrendResponse> {
+    if (range) {
+      const parsedRange = parseRangeParameter(range, granularity);
+      const trend = await this.analyticsService.getTenantGrowthTrend({
+        period: parsedRange.period,
+        dataPoints: parsedRange.dataPoints,
+      });
+      return toTimeSeriesResponse(trend, parsedRange.range, parsedRange.granularity, 'admin.analytics_snapshots');
+    }
+
     // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
     // If dataPoints is provided explicitly, use it; otherwise extract from period shorthand
     const parsedPeriod = parsePeriodParameter(period, 12);
@@ -135,10 +225,10 @@ export class AnalyticsController {
   }
 
   @Get('tenants/churn')
-  async getChurnRateTrend(
+  getChurnRateTrend(
     @Query('period') period = 'month',
     @Query('dataPoints') dataPoints: unknown = 12,
-  ) {
+  ): ReturnType<AnalyticsService['getChurnRateTrend']> {
     // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
     const parsedPeriod = parsePeriodParameter(period, 12);
     const explicitDataPoints = dataPoints !== 12 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
@@ -154,15 +244,26 @@ export class AnalyticsController {
   // ============================================================================
 
   @Get('users')
-  async getUserMetrics() {
+  getUserMetrics(): ReturnType<AnalyticsService['getUserMetrics']> {
     return this.analyticsService.getUserMetrics();
   }
 
   @Get('users/activity')
   async getUserActivityTrend(
+    @Query('range') range?: string,
+    @Query('granularity') granularity?: string,
     @Query('period') period = 'day',
     @Query('dataPoints') dataPoints: unknown = 30,
-  ) {
+  ): Promise<AnalyticsTrendResponse> {
+    if (range) {
+      const parsedRange = parseRangeParameter(range, granularity);
+      const trend = await this.analyticsService.getUserActivityTrend({
+        period: parsedRange.period,
+        dataPoints: parsedRange.dataPoints,
+      });
+      return toTimeSeriesResponse(trend, parsedRange.range, parsedRange.granularity, 'admin.analytics_snapshots');
+    }
+
     // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
     const parsedPeriod = parsePeriodParameter(period, 30);
     const explicitDataPoints = dataPoints !== 30 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
@@ -174,7 +275,7 @@ export class AnalyticsController {
   }
 
   @Get('users/heatmap')
-  async getUserActivityHeatmap() {
+  getUserActivityHeatmap(): ReturnType<AnalyticsService['getUserActivityHeatmap']> {
     return this.analyticsService.getUserActivityHeatmap();
   }
 
@@ -183,15 +284,15 @@ export class AnalyticsController {
   // ============================================================================
 
   @Get('financial')
-  async getFinancialMetrics() {
+  getFinancialMetrics(): ReturnType<AnalyticsService['getFinancialMetrics']> {
     return this.analyticsService.getFinancialMetrics();
   }
 
   @Get('financial/revenue')
-  async getRevenueTrend(
+  getRevenueTrend(
     @Query('period') period = 'month',
     @Query('dataPoints') dataPoints: unknown = 12,
-  ) {
+  ): ReturnType<AnalyticsService['getRevenueTrend']> {
     // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
     const parsedPeriod = parsePeriodParameter(period, 12);
     const explicitDataPoints = dataPoints !== 12 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
@@ -203,7 +304,7 @@ export class AnalyticsController {
   }
 
   @Get('financial/by-plan')
-  async getRevenueByPlan() {
+  getRevenueByPlan(): ReturnType<AnalyticsService['getRevenueByPlanChart']> {
     return this.analyticsService.getRevenueByPlanChart();
   }
 
@@ -215,19 +316,30 @@ export class AnalyticsController {
    * Get revenue analytics - matches frontend RevenueAnalytics interface
    */
   @Get('revenue')
-  async getRevenueAnalytics() {
+  getRevenueAnalytics(): ReturnType<AnalyticsService['getRevenueAnalytics']> {
     return this.analyticsService.getRevenueAnalytics();
   }
 
   @Get('revenue/by-plan')
-  async getRevenueAnalyticsByPlan() {
+  getRevenueAnalyticsByPlan(): ReturnType<AnalyticsService['getRevenueByPlanAnalytics']> {
     return this.analyticsService.getRevenueByPlanAnalytics();
   }
 
   @Get('revenue/trend')
   async getRevenueAnalyticsTrend(
+    @Query('range') range?: string,
+    @Query('granularity') granularity?: string,
     @Query('period') period = '12m',
-  ) {
+  ): Promise<TimeSeriesResponse | RevenueTrendAnalyticsResponse> {
+    if (range) {
+      const parsedRange = parseRangeParameter(range, granularity);
+      const trend = await this.analyticsService.getRevenueTrend({
+        period: parsedRange.period,
+        dataPoints: parsedRange.dataPoints,
+      });
+      return toTimeSeriesResponse(trend, parsedRange.range, parsedRange.granularity, 'admin.analytics_snapshots');
+    }
+
     return this.analyticsService.getRevenueTrendAnalytics(period);
   }
 
@@ -236,23 +348,23 @@ export class AnalyticsController {
   // ============================================================================
 
   @Get('system')
-  async getSystemMetrics() {
+  getSystemMetrics(): ReturnType<AnalyticsService['getSystemMetrics']> {
     return this.analyticsService.getSystemMetrics();
   }
 
   @Get('system/api-calls')
-  async getApiCallsTrend(
+  getApiCallsTrend(
     @Query('period') period: 'day' | 'week' | 'month' | 'year' = 'day',
     @Query('dataPoints') dataPoints = 30,
-  ) {
+  ): ReturnType<AnalyticsService['getApiCallsTrend']> {
     return this.analyticsService.getApiCallsTrend({ period, dataPoints });
   }
 
   @Get('system/errors')
-  async getErrorRateTrend(
+  getErrorRateTrend(
     @Query('period') period: 'day' | 'week' | 'month' | 'year' = 'day',
     @Query('dataPoints') dataPoints = 30,
-  ) {
+  ): ReturnType<AnalyticsService['getErrorRateTrend']> {
     return this.analyticsService.getErrorRateTrend({ period, dataPoints });
   }
 
@@ -261,17 +373,17 @@ export class AnalyticsController {
   // ============================================================================
 
   @Get('usage')
-  async getUsageMetrics() {
+  getUsageMetrics(): ReturnType<AnalyticsService['getUsageMetrics']> {
     return this.analyticsService.getUsageMetrics();
   }
 
   @Get('usage/modules')
-  async getModuleUsageChart() {
+  getModuleUsageChart(): ReturnType<AnalyticsService['getModuleUsageChart']> {
     return this.analyticsService.getModuleUsageChart();
   }
 
   @Get('usage/features')
-  async getFeatureAdoptionChart() {
+  getFeatureAdoptionChart(): ReturnType<AnalyticsService['getFeatureAdoptionChart']> {
     return this.analyticsService.getFeatureAdoptionChart();
   }
 
@@ -285,7 +397,7 @@ export class AnalyticsController {
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
     @Query('snapshotType') snapshotType?: 'daily' | 'weekly' | 'monthly' | 'yearly',
-  ) {
+  ): ReturnType<AnalyticsService['getSnapshots']> {
     // BUG-023 fix: validate date strings before constructing Date objects.
     // new Date('invalid') silently produces Invalid Date which causes DB query errors.
     const parsedStart = new Date(startDate);

@@ -2,8 +2,7 @@
 // @ts-check
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const repoRoot = resolve(process.cwd());
@@ -160,8 +159,11 @@ for (const [tsconfig, files] of tsconfigs.entries()) {
   for (const file of files) console.log(`    - ${file}`);
 }
 
+const tempRoot = join(repoRoot, '.aria-ci');
+mkdirSync(tempRoot, { recursive: true });
+
 for (const tsconfig of tsconfigs.keys()) {
-  const tempDir = mkdtempSync(join(tmpdir(), 'aqua-changed-tsc-'));
+  const tempDir = mkdtempSync(join(tempRoot, 'aqua-changed-tsc-'));
   const tempConfig = join(tempDir, 'tsconfig.json');
   const files = tsconfigs.get(tsconfig) ?? [];
   writeFileSync(
@@ -171,7 +173,6 @@ for (const tsconfig of tsconfigs.keys()) {
         extends: join(repoRoot, tsconfig),
         compilerOptions: {
           noEmit: true,
-          typeRoots: [join(repoRoot, 'node_modules/@types')],
         },
         files: files.map((file) => join(repoRoot, file)),
         include: [],

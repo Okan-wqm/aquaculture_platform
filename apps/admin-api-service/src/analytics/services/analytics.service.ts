@@ -7,11 +7,10 @@
  * NO MOCK DATA - All metrics are calculated from database queries.
  */
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, In, DataSource } from 'typeorm';
-import { InjectDataSource } from '@nestjs/typeorm';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, LessThanOrEqual, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
 import {
@@ -28,7 +27,7 @@ import {
   ChartData,
 } from '../entities/analytics-snapshot.entity';
 import { InvoiceReadOnly } from '../entities/external/invoice.entity';
-import { SubscriptionReadOnly, SubscriptionStatus } from '../entities/external/subscription.entity';
+import { BillingCycle, SubscriptionReadOnly, SubscriptionStatus } from '../entities/external/subscription.entity';
 import { TenantReadOnly } from '../entities/external/tenant.entity';
 import { UserReadOnly } from '../entities/external/user.entity';
 
@@ -52,6 +51,59 @@ export interface ComparisonDto {
   change: number;
   changePercent: number;
   trend: 'up' | 'down' | 'stable';
+}
+
+type DbNumeric = number | string | null | undefined;
+
+interface CountRow {
+  cnt: DbNumeric;
+}
+
+interface TenantAggregateRow {
+  total: DbNumeric;
+  active: DbNumeric;
+  suspended: DbNumeric;
+  inactive: DbNumeric;
+  trial: DbNumeric;
+  starter: DbNumeric;
+  professional: DbNumeric;
+  enterprise: DbNumeric;
+  new_this_month: DbNumeric;
+  churned_this_month: DbNumeric;
+}
+
+interface UserAggregateRow {
+  total: DbNumeric;
+  active: DbNumeric;
+  inactive: DbNumeric;
+  new_this_month: DbNumeric;
+  active_last_day: DbNumeric;
+  active_last_week: DbNumeric;
+  active_last_month: DbNumeric;
+  admin_count: DbNumeric;
+  manager_count: DbNumeric;
+  operator_count: DbNumeric;
+}
+
+interface InvoiceAggregateRow {
+  total_revenue: DbNumeric;
+  revenue_this_month: DbNumeric;
+  pending_payments: DbNumeric;
+  overdue_payments: DbNumeric;
+  refunds: DbNumeric;
+}
+
+interface MonthRevenueRow {
+  month: Date | string;
+  avg_mrr: DbNumeric;
+}
+
+function parseDbInt(value: DbNumeric): number {
+  return Number.parseInt(String(value ?? '0'), 10);
+}
+
+function parseDbNumber(value: DbNumeric): number {
+  return Number(value ?? 0);
 }
 
 // ============================================================================
@@ -180,8 +232,9 @@ export class AnalyticsService {
       ...(unavailable.length > 0 ? { unavailable } : {}),
     };
 
-    // Write back to cache (fire-and-forget)
-    if (this.redisService) {
+    // Cache only complete snapshots. Degraded summaries must stay live so
+    // recovered sources become visible on the next request.
+    if (this.redisService && unavailable.length === 0) {
       this.redisService
         .setJson(AnalyticsService.DASHBOARD_CACHE_KEY, summary, AnalyticsService.DASHBOARD_CACHE_TTL)
         .catch((err: Error) =>
@@ -203,17 +256,17 @@ export class AnalyticsService {
   async getTenantMetrics(): Promise<TenantMetrics> {
     this.logger.debug('Calculating tenant metrics from database...');
 
-    const rows = await this.dataSource.query(`
+    const rows = await this.dataSource.query<TenantAggregateRow[]>(`
       SELECT
         COUNT(*)                                                                          AS total,
         COUNT(*) FILTER (WHERE status = 'ACTIVE')                                        AS active,
         COUNT(*) FILTER (WHERE status = 'SUSPENDED')                                     AS suspended,
         COUNT(*) FILTER (WHERE status = 'PENDING')                                       AS pending,
         COUNT(*) FILTER (WHERE status IN ('SUSPENDED','CANCELLED'))                      AS inactive,
-        COUNT(*) FILTER (WHERE plan = 'TRIAL')                                           AS trial,
-        COUNT(*) FILTER (WHERE plan = 'STARTER')                                         AS starter,
-        COUNT(*) FILTER (WHERE plan = 'PROFESSIONAL')                                    AS professional,
-        COUNT(*) FILTER (WHERE plan = 'ENTERPRISE')                                      AS enterprise,
+        COUNT(*) FILTER (WHERE LOWER(plan) = 'trial')                                    AS trial,
+        COUNT(*) FILTER (WHERE LOWER(plan) = 'starter')                                  AS starter,
+        COUNT(*) FILTER (WHERE LOWER(plan) = 'professional')                             AS professional,
+        COUNT(*) FILTER (WHERE LOWER(plan) = 'enterprise')                               AS enterprise,
         COUNT(*) FILTER (WHERE "createdAt" >= date_trunc('month', NOW()))                AS new_this_month,
         COUNT(*) FILTER (
           WHERE status IN ('CANCELLED','SUSPENDED')
@@ -222,17 +275,17 @@ export class AnalyticsService {
       FROM auth.tenants
     `);
 
-    const r = rows[0] || {};
-    const total            = parseInt(r.total             || '0', 10);
-    const active           = parseInt(r.active            || '0', 10);
-    const suspended        = parseInt(r.suspended         || '0', 10);
-    const inactive         = parseInt(r.inactive          || '0', 10);
-    const trial            = parseInt(r.trial             || '0', 10);
-    const starter          = parseInt(r.starter           || '0', 10);
-    const professional     = parseInt(r.professional      || '0', 10);
-    const enterprise       = parseInt(r.enterprise        || '0', 10);
-    const newThisMonth     = parseInt(r.new_this_month    || '0', 10);
-    const churnedThisMonth = parseInt(r.churned_this_month || '0', 10);
+    const r = rows[0];
+    const total = parseDbInt(r?.total);
+    const active = parseDbInt(r?.active);
+    const suspended = parseDbInt(r?.suspended);
+    const inactive = parseDbInt(r?.inactive);
+    const trial = parseDbInt(r?.trial);
+    const starter = parseDbInt(r?.starter);
+    const professional = parseDbInt(r?.professional);
+    const enterprise = parseDbInt(r?.enterprise);
+    const newThisMonth = parseDbInt(r?.new_this_month);
+    const churnedThisMonth = parseDbInt(r?.churned_this_month);
 
     const churnRate  = total > 0 ? Number(((churnedThisMonth / total) * 100).toFixed(2)) : 0;
     const growthRate = total > 0 ? Number((((newThisMonth - churnedThisMonth) / total) * 100).toFixed(2)) : 0;
@@ -292,7 +345,7 @@ export class AnalyticsService {
     this.logger.debug('Calculating user metrics from database...');
 
     const [rows, tenantCount] = await Promise.all([
-      this.dataSource.query(`
+      this.dataSource.query<UserAggregateRow[]>(`
         SELECT
           COUNT(*)                                                                           AS total,
           COUNT(*) FILTER (WHERE "isActive" = true)                                         AS active,
@@ -306,23 +359,23 @@ export class AnalyticsService {
           COUNT(*) FILTER (WHERE role = 'MODULE_USER')                                     AS operator_count
         FROM auth.users
       `),
-      this.dataSource.query(`SELECT COUNT(*) AS cnt FROM auth.tenants`),
+      this.dataSource.query<CountRow[]>(`SELECT COUNT(*) AS cnt FROM auth.tenants`),
     ]);
 
-    const r = rows[0] || {};
-    const total          = parseInt(r.total           || '0', 10);
-    const active         = parseInt(r.active          || '0', 10);
-    const inactive       = parseInt(r.inactive        || '0', 10);
-    const newThisMonth   = parseInt(r.new_this_month  || '0', 10);
-    const activeLastDay  = parseInt(r.active_last_day || '0', 10);
-    const activeLastWeek = parseInt(r.active_last_week || '0', 10);
-    const activeLastMonth = parseInt(r.active_last_month || '0', 10);
-    const adminCount     = parseInt(r.admin_count     || '0', 10);
-    const managerCount   = parseInt(r.manager_count   || '0', 10);
-    const operatorCount  = parseInt(r.operator_count  || '0', 10);
+    const r = rows[0];
+    const total = parseDbInt(r?.total);
+    const active = parseDbInt(r?.active);
+    const inactive = parseDbInt(r?.inactive);
+    const newThisMonth = parseDbInt(r?.new_this_month);
+    const activeLastDay = parseDbInt(r?.active_last_day);
+    const activeLastWeek = parseDbInt(r?.active_last_week);
+    const activeLastMonth = parseDbInt(r?.active_last_month);
+    const adminCount = parseDbInt(r?.admin_count);
+    const managerCount = parseDbInt(r?.manager_count);
+    const operatorCount = parseDbInt(r?.operator_count);
 
     const growthRate = total > 0 ? Number(((newThisMonth / total) * 100).toFixed(2)) : 0;
-    const tenantCnt = parseInt(tenantCount[0]?.cnt || '0', 10);
+    const tenantCnt = parseDbInt(tenantCount[0]?.cnt);
     const avgUsersPerTenant = tenantCnt > 0 ? Number((total / tenantCnt).toFixed(1)) : 0;
 
     this.logger.debug(`User metrics: total=${total}, active=${active}, new=${newThisMonth}`);
@@ -370,7 +423,7 @@ export class AnalyticsService {
     const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`);
 
     // Initialize heatmap data: 7 days x 24 hours
-    const heatmapData: number[][] = days.map(() => new Array(24).fill(0));
+    const heatmapData: number[][] = days.map(() => Array.from({ length: 24 }, () => 0));
 
     try {
       // Single aggregation query — no row fetch into Node.js memory
@@ -387,10 +440,10 @@ export class AnalyticsService {
         `);
 
       for (const row of rows) {
-        const dayIndex = parseInt(row.dow,  10);
-        const hour     = parseInt(row.hour, 10);
-        const count    = parseInt(row.cnt,  10);
-        const dayData  = heatmapData[dayIndex];
+        const dayIndex = parseInt(row.dow, 10);
+        const hour = parseInt(row.hour, 10);
+        const count = parseInt(row.cnt, 10);
+        const dayData = heatmapData[dayIndex];
         if (dayData && dayData[hour] !== undefined) {
           dayData[hour] = count;
         }
@@ -407,7 +460,7 @@ export class AnalyticsService {
       labels: hours,
       datasets: days.map((day, index) => ({
         label: day,
-        data: heatmapData[index] || new Array(24).fill(0),
+        data: heatmapData[index] ?? Array.from({ length: 24 }, () => 0),
         backgroundColor: '#3B82F6',
       })),
     };
@@ -422,9 +475,6 @@ export class AnalyticsService {
    */
   async getFinancialMetrics(): Promise<FinancialMetrics> {
     this.logger.debug('Calculating financial metrics from database...');
-
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     // Get active subscriptions
     const activeSubscriptions = await this.subscriptionRepository.find({
@@ -457,7 +507,7 @@ export class AnalyticsService {
     // CRITICAL-003 fix: replace 4 separate invoice queries with one conditional aggregation.
     // BUG-044 fix: use lowercase enum values to match billing.invoices_status_enum,
     // and snake_case column names to match the actual database schema.
-    const invoiceRows = await this.dataSource.query(`
+    const invoiceRows = await this.dataSource.query<InvoiceAggregateRow[]>(`
       SELECT
         COALESCE(SUM(total)       FILTER (WHERE status = 'paid'),                            0) AS total_revenue,
         COALESCE(SUM(total)       FILTER (WHERE status = 'paid'
@@ -467,12 +517,12 @@ export class AnalyticsService {
         COALESCE(SUM(total)       FILTER (WHERE status = 'refunded'),                        0) AS refunds
       FROM billing.invoices
     `);
-    const ir = invoiceRows[0] || {};
-    const totalRevenue     = Number(ir.total_revenue     || 0);
-    const revenueThisMonth = Number(ir.revenue_this_month || 0);
-    const pendingPayments  = Number(ir.pending_payments  || 0);
-    const overduePayments  = Number(ir.overdue_payments  || 0);
-    const refunds          = Number(ir.refunds           || 0);
+    const ir = invoiceRows[0];
+    const totalRevenue = parseDbNumber(ir?.total_revenue);
+    const revenueThisMonth = parseDbNumber(ir?.revenue_this_month);
+    const pendingPayments = parseDbNumber(ir?.pending_payments);
+    const overduePayments = parseDbNumber(ir?.overdue_payments);
+    const refunds = parseDbNumber(ir?.refunds);
 
     // Calculate ARPU and LTV
     const payingTenants = activeSubscriptions.filter(s => s.status === SubscriptionStatus.ACTIVE).length;
@@ -516,13 +566,13 @@ export class AnalyticsService {
     const basePrice = subscription.pricing?.basePrice || 0;
 
     switch (subscription.billingCycle) {
-      case 'monthly':
+      case BillingCycle.MONTHLY:
         return basePrice;
-      case 'quarterly':
+      case BillingCycle.QUARTERLY:
         return basePrice / 3;
-      case 'semi_annual':
+      case BillingCycle.SEMI_ANNUAL:
         return basePrice / 6;
-      case 'annual':
+      case BillingCycle.ANNUAL:
         return basePrice / 12;
       default:
         return basePrice;
@@ -613,27 +663,27 @@ export class AnalyticsService {
   /**
    * Get API calls trend
    */
-  async getApiCallsTrend(params: TrendDataDto): Promise<TimeSeriesData> {
+  getApiCallsTrend(_params: TrendDataDto): Promise<TimeSeriesData> {
     // Requires API gateway metrics
     this.logger.warn('API calls trend requires API gateway integration');
-    return {
+    return Promise.resolve({
       label: 'API Calls',
       data: [],
       color: '#F59E0B',
-    };
+    });
   }
 
   /**
    * Get error rate trend
    */
-  async getErrorRateTrend(params: TrendDataDto): Promise<TimeSeriesData> {
+  getErrorRateTrend(_params: TrendDataDto): Promise<TimeSeriesData> {
     // Requires error tracking integration
     this.logger.warn('Error rate trend requires error tracking integration');
-    return {
+    return Promise.resolve({
       label: 'Error Rate (%)',
       data: [],
       color: '#EF4444',
-    };
+    });
   }
 
   // ============================================================================
@@ -651,13 +701,13 @@ export class AnalyticsService {
     // Single COUNT query — avoids loading all users just for this one field
     let activeLastDay = 0;
     try {
-      const rows = await this.dataSource.query(`
+      const rows = await this.dataSource.query<CountRow[]>(`
         SELECT COUNT(*) AS cnt
         FROM auth.users
         WHERE "isActive" = true
           AND "lastLoginAt" >= NOW() - INTERVAL '24 hours'
       `);
-      activeLastDay = parseInt(rows[0]?.cnt || '0', 10);
+      activeLastDay = parseDbInt(rows[0]?.cnt);
     } catch {
       // Non-critical — leave as 0
     }
@@ -693,9 +743,9 @@ export class AnalyticsService {
   /**
    * Get module usage chart data
    */
-  async getModuleUsageChart(): Promise<ChartData> {
+  getModuleUsageChart(): Promise<ChartData> {
     this.logger.warn('Module usage chart requires audit log analysis');
-    return {
+    return Promise.resolve({
       labels: ['Dashboard', 'Farm Management', 'Sensor Monitoring', 'Alerts', 'Reports', 'HR', 'Billing'],
       datasets: [{
         label: 'Active Users',
@@ -704,15 +754,15 @@ export class AnalyticsService {
           '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'
         ],
       }],
-    };
+    });
   }
 
   /**
    * Get feature adoption chart data
    */
-  async getFeatureAdoptionChart(): Promise<ChartData> {
+  getFeatureAdoptionChart(): Promise<ChartData> {
     this.logger.warn('Feature adoption chart requires audit log analysis');
-    return {
+    return Promise.resolve({
       labels: ['Real-time Alerts', 'Mobile App', 'Automated Reports', 'Custom Dashboards', 'API Integration', 'Bulk Operations'],
       datasets: [{
         label: 'Adoption Rate (%)',
@@ -720,7 +770,7 @@ export class AnalyticsService {
         backgroundColor: '#3B82F6',
         borderColor: '#2563EB',
       }],
-    };
+    });
   }
 
   // ============================================================================
@@ -816,11 +866,29 @@ export class AnalyticsService {
     snapshotType: SnapshotType,
     category: MetricCategory,
     metrics: TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics,
+    snapshotDate: Date = new Date(),
   ): Promise<AnalyticsSnapshot> {
+    const snapshotDateKey = snapshotDate.toISOString().slice(0, 10);
+    const existing = await this.snapshotRepository
+      .createQueryBuilder('snapshot')
+      .where('snapshot.snapshotType = :snapshotType', { snapshotType })
+      .andWhere('snapshot.category = :category', { category })
+      .andWhere('snapshot.snapshotDate = :snapshotDate', { snapshotDate: snapshotDateKey })
+      .getOne();
+
+    if (existing) {
+      existing.metrics = metrics;
+      existing.metadata = {
+        ...(existing.metadata || {}),
+        reaggregatedAt: new Date().toISOString(),
+      };
+      return this.snapshotRepository.save(existing);
+    }
+
     const snapshot = this.snapshotRepository.create({
       snapshotType,
       category,
-      snapshotDate: new Date(),
+      snapshotDate: new Date(`${snapshotDateKey}T00:00:00.000Z`),
       metrics,
     });
 
@@ -850,24 +918,38 @@ export class AnalyticsService {
   /**
    * Create daily snapshot for all metrics
    */
-  async createDailySnapshot(): Promise<void> {
+  async createDailySnapshot(snapshotDate: Date = new Date()): Promise<void> {
     this.logger.log('Creating daily analytics snapshot...');
 
-    const [tenants, users, financial, system, usage] = await Promise.all([
-      this.getTenantMetrics(),
-      this.getUserMetrics(),
-      this.getFinancialMetrics(),
-      this.getSystemMetrics(),
-      this.getUsageMetrics(),
-    ]);
+    const tasks: Array<{
+      category: MetricCategory;
+      load: () => Promise<TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics>;
+    }> = [
+      { category: 'tenant', load: () => this.getTenantMetrics() },
+      { category: 'user', load: () => this.getUserMetrics() },
+      { category: 'financial', load: () => this.getFinancialMetrics() },
+      { category: 'system', load: () => this.getSystemMetrics() },
+      { category: 'usage', load: () => this.getUsageMetrics() },
+    ];
 
-    await Promise.all([
-      this.saveSnapshot('daily', 'tenant', tenants),
-      this.saveSnapshot('daily', 'user', users),
-      this.saveSnapshot('daily', 'financial', financial),
-      this.saveSnapshot('daily', 'system', system),
-      this.saveSnapshot('daily', 'usage', usage),
-    ]);
+    const results = await Promise.allSettled(tasks.map(async (task) => {
+      const metrics = await task.load();
+      return this.saveSnapshot('daily', task.category, metrics, snapshotDate);
+    }));
+
+    const failures = results
+      .map((result, index) => ({ result, category: tasks[index]?.category }))
+      .filter((entry): entry is { result: PromiseRejectedResult; category: MetricCategory } => entry.result.status === 'rejected' && !!entry.category);
+
+    for (const failure of failures) {
+      this.logger.error(
+        `Failed to create daily analytics snapshot for ${failure.category}: ${failure.result.reason instanceof Error ? failure.result.reason.message : String(failure.result.reason)}`,
+      );
+    }
+
+    if (failures.length === tasks.length) {
+      throw new Error('Daily analytics snapshot failed for all categories');
+    }
 
     this.logger.log('Daily analytics snapshot created successfully');
   }
@@ -1081,8 +1163,7 @@ export class AnalyticsService {
 
     // MEDIUM-009 fix: push monthly grouping to the database instead of loading
     // up to 365 daily snapshot rows into Node.js memory and grouping in JS.
-    const monthlyRows: Array<{ month: Date; avg_mrr: string }> =
-      await this.dataSource.query(`
+    const monthlyRows = await this.dataSource.query<MonthRevenueRow[]>(`
         SELECT
           date_trunc('month', "snapshotDate")                        AS month,
           AVG((metrics->>'mrr')::numeric)                            AS avg_mrr
@@ -1095,17 +1176,17 @@ export class AnalyticsService {
 
     const revenueByMonth = monthlyRows.map(r => ({
       month: new Date(r.month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-      revenue: Number(Number(r.avg_mrr || 0).toFixed(2)),
+      revenue: Number(parseDbNumber(r.avg_mrr).toFixed(2)),
     }));
 
     // BUG-010 fix: exclude trial tenants from ARPT denominator (they don't pay)
     // MEDIUM-004 companion: use a targeted COUNT query instead of loading all active tenants
-    const payingCountRows = await this.dataSource.query(`
+    const payingCountRows = await this.dataSource.query<CountRow[]>(`
       SELECT COUNT(*) AS cnt
       FROM auth.tenants
-      WHERE status = 'ACTIVE' AND plan != 'TRIAL'
+      WHERE status = 'ACTIVE' AND LOWER(plan) <> 'trial'
     `);
-    const payingTenantCount = parseInt(payingCountRows[0]?.cnt || '0', 10);
+    const payingTenantCount = parseDbInt(payingCountRows[0]?.cnt);
     const averageRevenuePerTenant = payingTenantCount > 0 ? Number((financialMetrics.mrr / payingTenantCount).toFixed(2)) : 0;
 
     return {
@@ -1134,14 +1215,14 @@ export class AnalyticsService {
 
     // Single aggregation query for plan counts — no full table scan
     const planCountRows: Array<{ plan: string; cnt: string }> = await this.dataSource.query(`
-      SELECT plan, COUNT(*) AS cnt
+      SELECT LOWER(plan) AS plan, COUNT(*) AS cnt
       FROM auth.tenants
-      GROUP BY plan
+      GROUP BY LOWER(plan)
     `);
     const planCountMap = new Map(planCountRows.map(r => [r.plan, parseInt(r.cnt, 10)]));
-    const starterCount      = planCountMap.get('STARTER')      || 0;
-    const professionalCount = planCountMap.get('PROFESSIONAL') || 0;
-    const enterpriseCount   = planCountMap.get('ENTERPRISE')   || 0;
+    const starterCount      = planCountMap.get('starter')      || 0;
+    const professionalCount = planCountMap.get('professional') || 0;
+    const enterpriseCount   = planCountMap.get('enterprise')   || 0;
 
     const starterRev = financialMetrics.byPlan['starter'] ?? 0;
     const professionalRev = financialMetrics.byPlan['professional'] ?? 0;

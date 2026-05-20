@@ -112,6 +112,30 @@ reject envelopes that drift):
    hint; `reviewer_agent` defaults to `"aria-cross-reviewer"` when
    omitted. The legacy V7 shape `details.cross_review.reviews[]` is
    NOT accepted — risks live at a single top-level array.
+
+   Each `risks[]` entry MUST carry every field below — the kernel's
+   `_validate_cross_review_risk` (plan_convergence.py:1784) rejects
+   the entry on any missing field. Authoritative example:
+
+   ```json
+   {
+     "risk_id": "CR-001",
+     "risk_category": "scope_drift",
+     "severity": "blocking",
+     "summary": "Primary plan adds a new public API surface not declared in must_satisfy.",
+     "recommendation": "Drop the new endpoint or extend must_satisfy with an API-stability id.",
+     "affected_files": ["apps/auth-service/src/auth.controller.ts"],
+     "evidence_refs": ["apps/auth-service/src/auth.controller.ts:42"]
+   }
+   ```
+
+   Required fields (non-empty): `risk_id`, `risk_category`, `severity`,
+   `summary`, `recommendation`, `affected_files`, `evidence_refs`. Use
+   `severity ∈ {"blocking", "material", "nice_to_have"}` OR the canonical
+   `{"HIGH", "MEDIUM", "LOW"}` (both accepted). Do NOT emit alternate
+   field names like `description` (use `summary`), `applies_to` (drop or
+   fold into `summary`), or `category` (use `risk_category`) — the
+   kernel reads ONLY the seven names above.
 3. `satisfaction_matrix[]` carries one entry per `must_satisfy[]` id
    with canonical fields `{id, verdict, evidence_refs?, evidence?}`.
    Use `verdict ∈ {"satisfied", "blocked", "contradicted"}`. Do not

@@ -89,18 +89,28 @@ two-task state machine flow from a single agent submission.
       "risks": [
         {
           "risk_id": "CR-001",
-          "risk_category": "scope_drift | test_gap | ...",
-          "severity": "HIGH | MEDIUM | LOW",
-          "summary": "<one line>",
-          "recommendation": "<concrete action>",
-          "affected_files": ["..."],
-          "evidence_refs": ["..."]
+          "risk_category": "scope_drift",
+          "severity": "blocking",
+          "summary": "<one line — concise problem statement>",
+          "recommendation": "<concrete action the plan author should take>",
+          "affected_files": ["apps/path/to/file.ts"],
+          "evidence_refs": ["apps/path/to/file.ts:42"]
         }
       ]
     }
   }
 }
 ```
+
+Each `risks[]` entry is structurally validated by
+`plan_convergence._validate_cross_review_risk` (line 1784). Every
+field above is REQUIRED and non-empty; the validator rejects any
+risk entry with a missing or empty value. Allowed
+`severity` values: `{"blocking", "material", "nice_to_have"}` OR
+the canonical `KNOWN_SEVERITIES` set `{"HIGH", "MEDIUM", "LOW"}`.
+`risk_category` is a free-text classifier — common values include
+`scope_drift`, `test_gap`, `architectural_violation`,
+`security_regression`, `performance_regression`, `contract_break`.
 
 ## V8.4 normalizer (ci_executor) — what gets auto-filled
 

@@ -1329,6 +1329,23 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             "source": "revision_recorded",
             "round": payload["round"],
         }
+        # Plan ARIA-V10.4 Phase 3.H.11 (F-022) — advance current_round.
+        # Pre-fix the reducer set the new latest_revision but left
+        # current_round untouched at the round that PRODUCED the
+        # revision. The next P+C+CR cycle's submit_cross_review_v8 then
+        # read state["current_round"] = N and tried to register cross-
+        # review tasks for round N, which already existed in
+        # state["cross_reviews"][N] from the previous P+C+CR. The
+        # validator at _validate_cross_review_task_payload (line 1623)
+        # raised "round has already requested cross-review" and the
+        # bridge fold fired agent_bridge_warning — cycle 1 (cyc-
+        # 20260520T141138Z-auto) stalled at CHALLENGER_DRAFTED after
+        # F-021 finally let the revision land. Tier-1 architectural
+        # fix: revision_recorded is the natural state-machine seam
+        # where "next round begins" — advance current_round to
+        # payload["round"] + 1 so the next cross_review targets a
+        # fresh round number.
+        state["current_round"] = payload["round"] + 1
         resolved = set(state.get("resolved_review_risk_ids", []))
         resolved.update(str(item) for item in payload.get("addresses_review_risk_ids", []) if isinstance(item, str) and item)
         state["resolved_review_risk_ids"] = sorted(resolved)

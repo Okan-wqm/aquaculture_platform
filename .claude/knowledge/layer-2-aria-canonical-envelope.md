@@ -26,7 +26,7 @@ The kernel requires seven fields with the rules below.
 | `affected_surfaces` | array | Each entry is `{paths: [<repo-relative POSIX>...]}` — no leading `/`, no `\`, no `..` |
 | `key_changes` | array | Non-empty list of strings; each maps to one numbered plan step |
 | `validation_commands` | array | Each entry is `{cmd: <non-empty string>, expected_exit?: int, timeout_ms?: int}` |
-| `evidence_refs` | array | Each entry is `<repo-relative path>:<line>` OR a finding-id (`ORPHAN-HIGH-082`, `F-014`) |
+| `evidence_refs` | array | Each entry MUST be `<repo-relative path>[:<line>]` resolvable to an existing file at the workspace SHA. To cite a finding as evidence, use the path form `aria-findings/F-NNN.json[:<line>]` — bare finding ids (`F-019`) are rejected by `evidence_validator._check_agent_ref` because they do not resolve to a file. |
 
 Extra plan_content keys are passed through and ignored by the kernel
 validator (operator-readable narrative survives). Recommended extras

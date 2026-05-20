@@ -39,6 +39,7 @@ mock fakes covering all V5.1 verdict paths.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
@@ -53,7 +54,26 @@ from .cross_review_bridge import (
     issue_primary_envelope,
 )
 from .plan_convergence import TERMINAL_STATES, evaluate_plan, fold_plan_state
+from .planner_dispatch_hook import dispatch_one_pending_planner_request
 from .tool_registry import append_tools_governance, ensure_tools_dir
+
+# Plan ARIA-V10.4 Phase 3.H.2 — the convergence drainer mints
+# envelopes for FOUR roles across its rounds (primary_plan revisions,
+# challenger_plan, cross_review, and implementation). The default
+# ``DEFAULT_PLANNER_ROLES`` tuple in planner_dispatch_hook only
+# enumerates ``primary_plan + challenger_plan`` because it was sized
+# for the standalone autonomous planner-dispatch daemon's narrow
+# scope. The convergence drainer owns dispatch of its OWN envelopes
+# (Phase 3.H), so the inline call below MUST claim every role it
+# mints — otherwise cross_review envelopes orphan in requests.jsonl
+# (the exact regression diagnostic v3 surfaced as
+# ``cross_review_poll_timeout`` at 08:13).
+_CONVERGENCE_INLINE_DISPATCH_ROLES: tuple[str, ...] = (
+    "primary_plan",
+    "challenger_plan",
+    "cross_review",
+    "implementation",
+)
 
 
 # Plan ARIA-V8 v2 §4 Phase 8.6 (B-V2-04) — round-envelope sequence
@@ -261,7 +281,51 @@ def _poll_for_state(
     state transition. Fix: extract the state STRING via .get("state")
     before comparing to the set[str] of target states; return the
     extracted string (callers expect a state name, not a dict).
+
+    Plan ARIA-V10.4 Phase 3.H (F-016 root-cause fix) — INLINE planner
+    dispatch. Pre-V10.4 the convergence_drainer minted challenger /
+    cross_review envelopes and POLLED for plan_state transitions,
+    while assuming an EXTERNAL ``run_planner_dispatch_daemon`` was
+    claiming + processing the envelopes. The orchestrator's daemon is
+    bounded to ``max_iterations_per_phase=10`` per cycle and runs
+    BEFORE ``convergence_runner`` mints its envelopes — by the time
+    the convergence envelope hits ``requests.jsonl``, the planner
+    daemon has already exited.
+
+    F-016 evidence (cyc-20260520T065441Z): challenger envelope
+    ``AIR-aria-challenger-planner-241eadf5`` created at 07:04:35,
+    plan state never transitioned because no daemon was running to
+    claim it; ``challenger_drafted_poll_timeout`` fired at 07:08:07
+    with ``has_challenger_field=false`` (the smoking gun).
+
+    Tier-1 fix: ``_poll_for_state`` runs ONE
+    ``dispatch_one_pending_planner_request`` tick per poll iteration.
+    Each poll: check ARIA_STOP → check state → DISPATCH one pending
+    request → sleep → repeat. Convergence now OWNS dispatch of its
+    own envelopes — no dependency on the outer daemon's iteration
+    budget. The hook returns quickly when there are no pending
+    requests (``status=no_pending``) and blocks on real Claude
+    subprocess (~90-180s) when there is one; either way, the next
+    iteration sees the resulting state transition.
+
+    Concurrency note: ``dispatch_one_pending_planner_request`` does
+    not acquire the daemon-level lock. The underlying
+    ``claim_request`` / ``submit_claim_result`` carry their own §A.1
+    / §H-1 locks, so concurrent dispatch from the convergence_drainer
+    + a separately-running orchestrator daemon are mutually safe
+    (only one can claim any given request).
     """
+    # Plan ARIA-V10.4 Phase 3.H.2 — `dispatch_one_pending_planner_request`
+    # promoted to a module-level import (line ~57). ARIA's diagnostic
+    # v3 challenger plan (req=AIR-aria-cross-reviewer-a2876b40)
+    # surfaced two architectural-quality gaps in the original Phase
+    # 3.H landing: (a) the local import paid a module-lookup cost on
+    # every hot-loop iteration, (b) the bare ``except Exception:
+    # pass`` made dispatch-hook regressions invisible. Both gaps are
+    # now closed below — promotion to module scope + Tier-3
+    # detectable governance event.
+    inline_agent_id = f"convergence:{os.getpid()}"
+
     while time.monotonic() < deadline:
         if _check_aria_stop(aria_stop_root):
             return None
@@ -272,6 +336,43 @@ def _poll_for_state(
             current_state = None
         if current_state is not None and current_state in target_states:
             return current_state
+        # Plan ARIA-V10.4 Phase 3.H + 3.H.2 — inline dispatch tick.
+        # `planner_roles` MUST enumerate every role the convergence
+        # drainer mints (primary_plan revisions, challenger_plan,
+        # cross_review, implementation). Pre-3.H.2 the call relied on
+        # ``DEFAULT_PLANNER_ROLES = (primary_plan, challenger_plan)``,
+        # so cross_review envelopes orphaned and convergence stalled
+        # at ``cross_review_poll_timeout`` — surfaced by diagnostic v3
+        # cycle cyc-20260520T074642Z-auto.
+        #
+        # Phase 3.H.2 also hardens the previous silent-swallow into a
+        # Tier-3 detectable governance event so the next regression
+        # surfaces operator-visibly within one poll cycle instead of
+        # waiting ``challenger_timeout_seconds`` (10-30 min) for the
+        # downstream timeout to fire.
+        try:
+            dispatch_one_pending_planner_request(
+                base_dir=base_dir,
+                agent_id=inline_agent_id,
+                planner_roles=_CONVERGENCE_INLINE_DISPATCH_ROLES,
+            )
+        except Exception as _disp_exc:
+            try:
+                append_tools_governance(
+                    ensure_tools_dir(base_dir),
+                    "inline_dispatch_tick_failed",
+                    {
+                        "plan_id": plan_id,
+                        "agent_id": inline_agent_id,
+                        "exception_class": type(_disp_exc).__name__,
+                        "exception_message": str(_disp_exc)[:500],
+                    },
+                )
+            except Exception:
+                # Best-effort: do not let governance-emission failure
+                # abort the poll loop. The V5 contract (return only on
+                # state-match / deadline / ARIA_STOP) is preserved.
+                pass
         time.sleep(sleep_interval)
     return None
 

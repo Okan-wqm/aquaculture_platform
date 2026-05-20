@@ -2,8 +2,9 @@
 
 Single source of truth for the agent response envelope shape that the
 ARIA kernel state machine + plan_convergence bridge accept. Referenced
-by `aria-primary-planner` and `aria-challenger-planner` agent prompts;
-both produce envelopes that conform to the schema defined here.
+by `aria-primary-planner`, `aria-challenger-planner`, AND
+`aria-cross-reviewer` agent prompts; all three produce envelopes that
+conform to the schema defined here.
 
 The kernel validators that enforce this shape:
 

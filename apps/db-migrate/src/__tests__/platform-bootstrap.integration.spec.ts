@@ -189,6 +189,68 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
     }
   }
 
+  async function auditLogColumns(): Promise<
+    Record<string, { dataType: string; udtName: string; isNullable: string }>
+  > {
+    const qr = ctx.dataSource.createQueryRunner();
+    try {
+      const rows: Array<{
+        column_name: string;
+        data_type: string;
+        udt_name: string;
+        is_nullable: string;
+      }> = await qr.query(
+        `SELECT column_name, data_type, udt_name, is_nullable
+           FROM information_schema.columns
+          WHERE table_schema = 'shared'
+            AND table_name = 'audit_logs'`,
+      );
+      return Object.fromEntries(
+        rows.map((row) => [
+          row.column_name,
+          {
+            dataType: row.data_type,
+            udtName: row.udt_name,
+            isNullable: row.is_nullable,
+          },
+        ]),
+      );
+    } finally {
+      await qr.release();
+    }
+  }
+
+  async function auditLogConstraintNames(): Promise<string[]> {
+    const qr = ctx.dataSource.createQueryRunner();
+    try {
+      const rows: Array<{ conname: string }> = await qr.query(
+        `SELECT conname
+           FROM pg_constraint
+          WHERE conrelid = 'shared.audit_logs'::regclass
+          ORDER BY conname`,
+      );
+      return rows.map((row) => row.conname);
+    } finally {
+      await qr.release();
+    }
+  }
+
+  async function auditLogIndexNames(): Promise<string[]> {
+    const qr = ctx.dataSource.createQueryRunner();
+    try {
+      const rows: Array<{ indexname: string }> = await qr.query(
+        `SELECT indexname
+           FROM pg_indexes
+          WHERE schemaname = 'shared'
+            AND tablename = 'audit_logs'
+          ORDER BY indexname`,
+      );
+      return rows.map((row) => row.indexname);
+    } finally {
+      await qr.release();
+    }
+  }
+
   it('applies cleanly against an empty database', async () => {
     const result = await runPlatformBootstrap({
       database: ctx.connectionOptions,
@@ -226,6 +288,69 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
       ]),
     );
   }, 90_000);
+
+  it('installs the canonical shared.audit_logs shape required by runtime schema drift gates', async () => {
+    const columns = await auditLogColumns();
+
+    expect(Object.keys(columns)).toEqual(
+      expect.arrayContaining([
+        'id',
+        'action',
+        'resource',
+        'resourceId',
+        'userId',
+        'userEmail',
+        'tenantId',
+        'schemaName',
+        'metadata',
+        'ip',
+        'userAgent',
+        'severity',
+        'correlationId',
+        'createdAt',
+        'legalHold',
+        'actorHomeTenantId',
+        'actedOnTenantId',
+        'method',
+        'mfaVerified',
+        'result',
+        'preStateHash',
+        'postStateHash',
+        'justification',
+        'relatedAuditIds',
+      ]),
+    );
+    expect(columns.tenantId).toMatchObject({ dataType: 'uuid' });
+    expect(columns.ip).toMatchObject({ dataType: 'inet' });
+    expect(columns.legalHold).toMatchObject({
+      dataType: 'boolean',
+      isNullable: 'NO',
+    });
+    expect(columns.mfaVerified).toMatchObject({
+      dataType: 'boolean',
+      isNullable: 'NO',
+    });
+    expect(columns.relatedAuditIds).toMatchObject({
+      dataType: 'ARRAY',
+      udtName: '_uuid',
+    });
+
+    expect(await auditLogConstraintNames()).toEqual(
+      expect.arrayContaining([
+        'chk_audit_logs_method',
+        'chk_audit_logs_post_state_hash',
+        'chk_audit_logs_pre_state_hash',
+        'chk_audit_logs_result',
+      ]),
+    );
+    expect(await auditLogIndexNames()).toEqual(
+      expect.arrayContaining([
+        'idx_audit_logs_actor_home_tenant_created',
+        'idx_audit_logs_acted_on_tenant_created',
+        'idx_audit_logs_mfa_verified_created',
+      ]),
+    );
+  }, 30_000);
 
   it('second invocation is idempotent — no error, same final counts', async () => {
     // First run was applied in the previous test against the same ctx

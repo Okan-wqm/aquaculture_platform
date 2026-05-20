@@ -18,6 +18,8 @@ _V10_INVARIANTS_DIR = Path(__file__).resolve().parents[1] / "v10"
 CANONICAL_V10_TEST_FILES = frozenset({
     "test_phase_v10_2_skill_genesis_trigger.py",
     "test_phase_v10_4_cost_attribution.py",
+    "test_phase_v10_4_phase_3_h_6_cross_reviewer_ssot.py",  # F-018 closure
+    "test_phase_v10_4_phase_3_h_7_cross_review_risk_schema.py",  # F-019 closure
     "test_phase_v10_5_v10_arc_completeness.py",  # this file
 })
 

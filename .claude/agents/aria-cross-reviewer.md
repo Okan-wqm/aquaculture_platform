@@ -103,9 +103,10 @@ reject envelopes that drift):
 
 1. Top-level `status` MUST be one of the canonical
    `RESPONSE_STATUSES = ("submitted", "accepted", "rejected", "partial")`.
-   Emit `"status": "submitted"` for a successful cross-review delivery.
-   Any other value (e.g. `"ok"`, `"done"`, `"complete"`) is rejected
-   structurally by `agent_contract.validate_response`.
+   **Example**: emit `"status": "submitted"` for a successful
+   cross-review delivery. Other values (`"ok"`, `"done"`,
+   `"complete"`) are rejected by `agent_contract.validate_response`.
+
 2. `details.cross_review` carries `{reviewer_agent, verdict, risks[]}`
    per the SSoT. `submit_cross_review_v8` reads `risks[]` to drive the
    per-direction state transitions; `verdict` is recorded as governance
@@ -113,9 +114,11 @@ reject envelopes that drift):
    omitted. The legacy V7 shape `details.cross_review.reviews[]` is
    NOT accepted — risks live at a single top-level array.
 
-   Each `risks[]` entry MUST carry every field below — the kernel's
+   Each `risks[]` entry MUST carry every field below.
+   **Example**: the authoritative JSON below shows every required
+   field with a concrete value. The kernel's
    `_validate_cross_review_risk` (plan_convergence.py:1784) rejects
-   the entry on any missing field. Authoritative example:
+   the entry on any missing or empty field.
 
    ```json
    {

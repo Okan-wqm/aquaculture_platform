@@ -70,6 +70,17 @@ esac
 # ──────────────────────────────────────────────────────────────────────────
 SERVICE_DB_ROLES="AUTH FARM SENSOR BILLING HR ALERT ADMIN GATEWAY NOTIFICATION HYDROPONICS MESSAGING AI OBSERVABILITY EVENT_STORE CONFIG"
 
+read_env_file_value() {
+  local name="$1"
+  local file="${2:-/var/aqua-saas/.env}"
+
+  if [ ! -r "$file" ]; then
+    return 0
+  fi
+
+  grep -E "^${name}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- || true
+}
+
 dump_nonhealthy_container_logs() {
   local label="${1:-snapshot}"
   echo "=== Logs from non-healthy/restarting containers (${label}) ==="
@@ -868,13 +879,23 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   # db-init and all services will fail to authenticate. Fix by resetting the
   # password via local trust auth (docker exec uses Unix socket, not TCP).
   echo "=== Verifying PostgreSQL superuser password ==="
-  if docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -c "SELECT 1" >/dev/null 2>&1; then
-    if docker exec aqua-postgres bash -c "PGPASSWORD='${POSTGRES_PASSWORD}' psql -h 127.0.0.1 -U '${POSTGRES_USER:-aquaculture}' -c 'SELECT 1'" >/dev/null 2>&1; then
+  POSTGRES_EFFECTIVE_USER="${POSTGRES_USER:-$(read_env_file_value POSTGRES_USER "$ENV_FILE")}"
+  POSTGRES_EFFECTIVE_USER="${POSTGRES_EFFECTIVE_USER:-aquaculture}"
+  POSTGRES_EFFECTIVE_PASSWORD="${POSTGRES_PASSWORD:-$(read_env_file_value POSTGRES_PASSWORD "$ENV_FILE")}"
+  if [ -z "$POSTGRES_EFFECTIVE_PASSWORD" ]; then
+    echo "::error::POSTGRES_PASSWORD is missing from shell env and ${ENV_FILE}; aborting before migrations."
+    exit 1
+  fi
+
+  if docker exec aqua-postgres psql -U "${POSTGRES_EFFECTIVE_USER}" -c "SELECT 1" >/dev/null 2>&1; then
+    if docker exec -e PGPASSWORD="${POSTGRES_EFFECTIVE_PASSWORD}" aqua-postgres \
+      psql -h 127.0.0.1 -U "${POSTGRES_EFFECTIVE_USER}" -c "SELECT 1" >/dev/null 2>&1; then
       echo "  PostgreSQL superuser password matches .env"
     else
       echo "  WARNING: PostgreSQL superuser password mismatch — resetting via local auth"
-      docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" \
-        -c "ALTER USER \"${POSTGRES_USER:-aquaculture}\" WITH PASSWORD '${POSTGRES_PASSWORD}'"
+      docker exec aqua-postgres psql -U "${POSTGRES_EFFECTIVE_USER}" \
+        -v postgres_password="${POSTGRES_EFFECTIVE_PASSWORD}" \
+        -c "ALTER USER \"${POSTGRES_EFFECTIVE_USER}\" WITH PASSWORD :'postgres_password'"
       echo "  PostgreSQL superuser password reset to match .env"
     fi
   else
@@ -883,8 +904,8 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   fi
 
   # Create observability database if it doesn't exist (postgres init scripts only run on first start)
-  docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -tc "SELECT 1 FROM pg_database WHERE datname = 'aquaculture_observability'" | grep -q 1 || \
-    docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -c "CREATE DATABASE aquaculture_observability" 2>&1
+  docker exec aqua-postgres psql -U "${POSTGRES_EFFECTIVE_USER}" -tc "SELECT 1 FROM pg_database WHERE datname = 'aquaculture_observability'" | grep -q 1 || \
+    docker exec aqua-postgres psql -U "${POSTGRES_EFFECTIVE_USER}" -c "CREATE DATABASE aquaculture_observability" 2>&1
 
   # ─────────────────────────────────────────────────────────────
   # ADR-033 — one-shot authoritative schema migration container.

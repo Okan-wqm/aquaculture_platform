@@ -11,9 +11,11 @@ import type {
   KpiComparison,
   TenantMetrics,
   GrowthTrend,
+  AnalyticsGranularity,
+  AnalyticsRange,
+  TimeSeriesResponse,
   RevenueAnalytics,
   UsageAnalytics,
-  EngagementMetrics,
 } from '../types';
 
 export const analyticsApi = {
@@ -25,16 +27,16 @@ export const analyticsApi = {
   // Tenant Metrics
   getTenantMetrics: (params?: PaginationParams & { sortBy?: string; order?: 'asc' | 'desc' }) =>
     apiFetch<PaginatedResult<TenantMetrics>>(`/analytics/tenants?${buildQueryString(params || {})}`),
-  getTenantGrowthTrend: (period: string = '30d', dataPoints: number = 30) =>
-    apiFetch<GrowthTrend[]>(`/analytics/tenants/growth?period=${period}&dataPoints=${dataPoints}`),
+  getTenantGrowthTrend: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
+    apiFetch<TimeSeriesResponse>(`/analytics/tenants/growth?${buildQueryString({ range, granularity })}`),
 
   // Revenue Analytics
   getRevenueAnalytics: (params?: DateRangeParams) =>
     apiFetch<RevenueAnalytics>(`/analytics/revenue?${buildQueryString(params || {})}`),
   getRevenueByPlan: (params?: DateRangeParams) =>
     apiFetch<Array<{ plan: string; revenue: number; tenantCount: number }>>(`/analytics/revenue/by-plan?${buildQueryString(params || {})}`),
-  getRevenueTrend: (period: string = '12m') =>
-    apiFetch<Array<{ period: string; revenue: number; growth: number }>>(`/analytics/revenue/trend?period=${period}`),
+  getRevenueTrend: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
+    apiFetch<TimeSeriesResponse>(`/analytics/revenue/trend?${buildQueryString({ range, granularity })}`),
 
   // Usage Analytics
   getUsageAnalytics: (params?: DateRangeParams) =>
@@ -59,14 +61,14 @@ export const analyticsApi = {
   },
 
   // Churn Analytics
-  getTenantChurn: (period: string = '30d') =>
+  getTenantChurn: (period = '30d') =>
     apiFetch<GrowthTrend[]>(`/analytics/tenants/churn?period=${period}`),
 
   // User Metrics
   getUserMetrics: (params?: DateRangeParams) =>
     apiFetch<{ totalUsers: number; activeUsers: number; newUsers: number; churnedUsers: number }>(`/analytics/users?${buildQueryString(params || {})}`),
-  getUserActivity: (period: string = '30d') =>
-    apiFetch<Array<{ date: string; activeUsers: number; sessions: number }>>(`/analytics/users/activity?period=${period}`),
+  getUserActivity: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
+    apiFetch<TimeSeriesResponse>(`/analytics/users/activity?${buildQueryString({ range, granularity })}`),
   // Fix: backend GET /analytics/users/heatmap takes no query params
   getUserHeatmap: (_params?: DateRangeParams) =>
     apiFetch<Array<{ hour: number; day: number; count: number }>>('/analytics/users/heatmap'),
@@ -80,7 +82,7 @@ export const analyticsApi = {
   // Financial Metrics
   getFinancialMetrics: (params?: DateRangeParams) =>
     apiFetch<{ mrr: number; arr: number; ltv: number; cac: number; churnRate: number }>(`/analytics/financial?${buildQueryString(params || {})}`),
-  getFinancialRevenue: (period: string = '12m') =>
+  getFinancialRevenue: (period = '12m') =>
     apiFetch<Array<{ period: string; revenue: number }>>(`/analytics/financial/revenue?period=${period}`),
   getFinancialByPlan: () =>
     apiFetch<Array<{ plan: string; revenue: number; percentage: number }>>('/analytics/financial/by-plan'),
@@ -88,9 +90,9 @@ export const analyticsApi = {
   // System Metrics (Analytics)
   getSystemAnalytics: () =>
     apiFetch<{ cpuUsage: number; memoryUsage: number; diskUsage: number; uptime: number }>('/analytics/system'),
-  getSystemApiCallsTrend: (period: string = '24h') =>
+  getSystemApiCallsTrend: (period = '24h') =>
     apiFetch<Array<{ timestamp: string; count: number }>>(`/analytics/system/api-calls?period=${period}`),
-  getSystemErrorsTrend: (period: string = '24h') =>
+  getSystemErrorsTrend: (period = '24h') =>
     apiFetch<Array<{ timestamp: string; count: number; rate: number }>>(`/analytics/system/errors?period=${period}`),
 
   // Snapshots - backend requires mandatory 'category' param plus startDate/endDate

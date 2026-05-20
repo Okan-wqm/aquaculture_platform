@@ -3,14 +3,71 @@
  */
 
 export interface DashboardSummary {
-  totalTenants: number;
-  activeTenants: number;
-  totalUsers: number;
-  activeUsers: number;
-  totalRevenue: number;
-  mrr: number;
-  growthRate: number;
-  churnRate: number;
+  tenants: {
+    total: number;
+    active: number;
+    inactive: number;
+    trial: number;
+    suspended: number;
+    newThisMonth: number;
+    churnedThisMonth: number;
+    churnRate: number;
+    growthRate: number;
+    byPlan: Record<string, number>;
+    byRegion: Record<string, number>;
+  };
+  users: {
+    total: number;
+    active: number;
+    inactive: number;
+    newThisMonth: number;
+    activeLastDay: number;
+    activeLastWeek: number;
+    activeLastMonth: number;
+    growthRate: number;
+    avgUsersPerTenant: number;
+    byRole: Record<string, number>;
+  };
+  financial: {
+    mrr: number;
+    arr: number;
+    arpu: number;
+    arppu: number;
+    ltv: number;
+    totalRevenue: number;
+    revenueThisMonth: number;
+    revenueGrowthRate: number;
+    pendingPayments: number;
+    overduePayments: number;
+    refunds: number;
+    byPlan: Record<string, number>;
+    byCurrency: Record<string, number>;
+  };
+  system: {
+    totalStorageBytes: number;
+    usedStorageBytes: number;
+    storageUtilization: number;
+    apiCallsToday: number;
+    apiCallsThisMonth: number;
+    avgResponseTimeMs: number;
+    errorRate: number;
+    uptimePercent: number;
+    activeConnections: number;
+    queuedJobs: number;
+  };
+  usage: {
+    moduleUsage: Record<string, {
+      activeUsers: number;
+      totalSessions: number;
+      avgSessionDuration: number;
+    }>;
+    featureAdoption: Record<string, number>;
+    topFeatures: Array<{ feature: string; usage: number }>;
+    peakHours: number[];
+    avgDailyActiveUsers: number;
+  };
+  generatedAt: string;
+  unavailable?: string[];
 }
 
 export interface KpiComparison {
@@ -40,6 +97,22 @@ export interface GrowthTrend {
   users: number;
   revenue: number;
   churn: number;
+}
+
+export type AnalyticsRange = '7d' | '30d' | '90d' | '1y';
+export type AnalyticsGranularity = 'day' | 'week' | 'month';
+
+export interface TimeSeriesPoint {
+  date: string;
+  value: number;
+}
+
+export interface TimeSeriesResponse {
+  range: AnalyticsRange;
+  granularity: AnalyticsGranularity;
+  data: TimeSeriesPoint[];
+  source: string;
+  asOf: string;
 }
 
 export interface RevenueAnalytics {

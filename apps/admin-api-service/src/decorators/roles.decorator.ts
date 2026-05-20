@@ -3,7 +3,7 @@
  * Role-based access control için decorator'lar
  */
 
-import { SetMetadata } from '@nestjs/common';
+import { SetMetadata, type CustomDecorator } from '@nestjs/common';
 
 export const ROLES_KEY = 'roles';
 
@@ -11,24 +11,24 @@ export const ROLES_KEY = 'roles';
  * Endpoint'e erişebilecek rolleri belirler
  * @param roles - İzin verilen roller
  */
-export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
+export const Roles = (...roles: string[]): CustomDecorator<string> => SetMetadata(ROLES_KEY, roles);
 
 /**
- * TENANT_ADMIN, SUPER_ADMIN ve PLATFORM_ADMIN rollerine izin verir
- * Tenant-facing endpoint'ler için kullanılır
+ * Admin API platform-admin boundary'dir. Auth domain'de bu platform rolu
+ * SUPER_ADMIN olarak saklanir; tenant-facing yetki genisletmesi burada yoktur.
  */
-export const AllowTenantAdmin = () =>
-  Roles('TENANT_ADMIN', 'SUPER_ADMIN', 'PLATFORM_ADMIN');
+export const AllowTenantAdmin = (): CustomDecorator<string> =>
+  Roles('SUPER_ADMIN');
 
 /**
- * Sadece SUPER_ADMIN ve PLATFORM_ADMIN rollerine izin verir
+ * Sadece platform admin operatorune izin verir (auth role: SUPER_ADMIN)
  * Admin-only endpoint'ler için kullanılır
  */
-export const PlatformAdminOnly = () => Roles('SUPER_ADMIN', 'PLATFORM_ADMIN');
+export const PlatformAdminOnly = (): CustomDecorator<string> => Roles('SUPER_ADMIN');
 
 /**
- * Tüm authenticated kullanıcılara izin verir
- * MODULE_USER dahil tüm roller erişebilir
+ * Admin API'de authenticated genisletmesi kullanilmaz; bu boundary platform
+ * admin ile sabitlenir.
  */
-export const AllowAuthenticated = () =>
-  Roles('SUPER_ADMIN', 'PLATFORM_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER', 'MODULE_USER');
+export const AllowAuthenticated = (): CustomDecorator<string> =>
+  Roles('SUPER_ADMIN');

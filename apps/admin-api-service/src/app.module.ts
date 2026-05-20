@@ -11,7 +11,7 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { ThrottlerModule } from '@aquaculture/backend-common/security';
-import { Module, Logger } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { CqrsModule } from '@nestjs/cqrs';
@@ -22,10 +22,10 @@ import { JwtService } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
+import { StorageModule } from '@platform/storage';
 
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
-import { AdminApiRetentionBootstrapModule } from './retention/retention-bootstrap.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { BillingModule } from './billing/billing.module';
 import { DatabaseManagementModule } from './database-management/database-management.module';
@@ -37,16 +37,17 @@ import { PlatformAdminGuard } from './guards/platform-admin.guard';
 import { HealthModule } from './health/health.module';
 import { ImpersonationModule } from './impersonation/impersonation.module';
 import { GracefulShutdownService } from './lifecycle/graceful-shutdown.service';
-import { ResponseInterceptor } from './shared/response.interceptor';
+import { MessagingAdminModule } from './messaging/messaging-admin.module';
 import { SystemMetricsModule } from './metrics/system-metrics.module';
 import { SystemModulesModule } from './modules/modules.module';
-import { SecurityModule } from './security/security.module';
 import { IngestBackendPolicyModule } from './policy/policy.module';
+import { AdminApiRetentionBootstrapModule } from './retention/retention-bootstrap.module';
+import { SecurityModule } from './security/security.module';
 import { SettingsModule } from './settings/settings.module';
+import { ResponseInterceptor } from './shared/response.interceptor';
 import { SupportModule } from './support/support.module';
 import { SystemManagementModule } from './system-management/system-management.module';
 import { TenantManagementModule } from './tenant/tenant.module';
-import { MessagingAdminModule } from './messaging/messaging-admin.module';
 import { UsersModule } from './users/users.module';
 
 const AdminSchemaVersionGate = createSchemaVersionGate('admin');
@@ -162,6 +163,19 @@ const AdminSchemaVersionGate = createSchemaVersionGate('admin');
         keyPrefix: 'admin:',
       }),
     }),
+    StorageModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        endpoint: configService.get<string>('MINIO_ENDPOINT', 'localhost'),
+        port: parseInt(configService.get<string>('MINIO_PORT', '9000'), 10),
+        useSSL: configService.get<string>('MINIO_USE_SSL', 'false') === 'true',
+        accessKey: configService.get<string>('MINIO_ACCESS_KEY', 'minioadmin'),
+        secretKey: configService.get<string>('MINIO_SECRET_KEY', 'minioadmin'),
+        bucket: configService.get<string>('MINIO_BUCKET', 'aquaculture'),
+        region: configService.get<string>('MINIO_REGION', 'us-east-1'),
+      }),
+    }),
     TenantManagementModule,
     AuditLogModule,
     // COMPLIANCE-MEDIUM-001 cure: register retention policies for
@@ -259,4 +273,6 @@ const AdminSchemaVersionGate = createSchemaVersionGate('admin');
     GracefulShutdownService,
   ],
 })
-export class AppModule {}
+export class AppModule {
+  readonly moduleName = AppModule.name;
+}

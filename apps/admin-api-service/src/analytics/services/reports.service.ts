@@ -9,11 +9,20 @@
 
 import * as crypto from 'crypto';
 
-import { Injectable, Logger, BadRequestException, NotFoundException, NotImplementedException, Optional } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import {
+  BadRequestException,
+  GoneException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { MinioClientService } from '@platform/storage';
 import PDFDocument from 'pdfkit';
-import { Repository, DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
 import {
@@ -33,8 +42,6 @@ import { TenantReadOnly, TenantStatus, TenantPlan } from '../entities/external/t
 import { UserReadOnly } from '../entities/external/user.entity';
 
 import { AnalyticsService } from './analytics.service';
-
-
 
 // ============================================================================
 // Report Data Types
@@ -136,6 +143,8 @@ export class ReportsService {
     private readonly dataSource: DataSource,
     @Optional()
     private readonly redisService?: RedisService,
+    @Optional()
+    private readonly storageService?: MinioClientService,
   ) {}
 
   /**
@@ -261,7 +270,7 @@ export class ReportsService {
       }
 
       default:
-        throw new BadRequestException(`Unknown report type: ${request.type}`);
+        throw new BadRequestException('Unknown report type');
     }
 
     // Format data based on requested format
@@ -279,7 +288,7 @@ export class ReportsService {
     };
 
     // For file formats, generate download URL
-    if (['csv', 'excel', 'pdf'].includes(request.format)) {
+    if (['csv', 'pdf'].includes(request.format)) {
       result.downloadUrl = `/api/reports/download/${result.id}`;
     }
 
@@ -290,7 +299,7 @@ export class ReportsService {
   // Tenant Reports
   // ============================================================================
 
-  private async generateTenantOverviewReport(request: ReportRequest): Promise<{
+  private async generateTenantOverviewReport(_request: ReportRequest): Promise<{
     data: TenantReportRow[];
     summary: Record<string, unknown>;
   }> {
@@ -306,9 +315,9 @@ export class ReportsService {
       .addSelect('COUNT(*)', 'count')
       .where('user.tenantId IS NOT NULL')
       .groupBy('user.tenantId')
-      .getRawMany();
+      .getRawMany<{ tenantId: string; count: string }>();
 
-    const userCountMap = new Map(userCounts.map(u => [u.tenantId, parseInt(u.count)]));
+    const userCountMap = new Map(userCounts.map(u => [u.tenantId, parseInt(u.count, 10)]));
 
     // HIGH-002 fix: replaced N+1 per-tenant getStatistics() calls with a single
     // GROUP BY aggregation over all tenants at once.
@@ -379,7 +388,7 @@ export class ReportsService {
     };
   }
 
-  private async generateChurnReport(request: ReportRequest): Promise<{
+  private async generateChurnReport(_request: ReportRequest): Promise<{
     data: ChurnReportRow[];
     summary: Record<string, unknown>;
   }> {
@@ -547,7 +556,7 @@ export class ReportsService {
     }
   }
 
-  private async generatePaymentsReport(request: ReportRequest): Promise<{
+  private async generatePaymentsReport(_request: ReportRequest): Promise<{
     data: PaymentReportRow[];
     summary: Record<string, unknown>;
   }> {
@@ -645,7 +654,7 @@ export class ReportsService {
   // Usage Reports
   // ============================================================================
 
-  private async generateModuleUsageReport(request: ReportRequest): Promise<{
+  private async generateModuleUsageReport(_request: ReportRequest): Promise<{
     data: ModuleUsageReportRow[];
     summary: Record<string, unknown>;
   }> {
@@ -675,7 +684,7 @@ export class ReportsService {
     };
   }
 
-  private async generateFeatureUsageReport(request: ReportRequest): Promise<{
+  private async generateFeatureUsageReport(_request: ReportRequest): Promise<{
     data: FeatureUsageReportRow[];
     summary: Record<string, unknown>;
   }> {
@@ -864,24 +873,11 @@ export class ReportsService {
       case 'csv':
         return this.convertToCsv(data as Record<string, unknown>[]);
 
-      case 'excel':
-        // In production, use a library like exceljs
-        return {
-          format: 'excel',
-          data,
-          message: 'Excel file generation requires server-side processing',
-        };
-
       case 'pdf':
-        // In production, use a library like pdfkit or puppeteer
-        return {
-          format: 'pdf',
-          data,
-          message: 'PDF file generation requires server-side processing',
-        };
+        return data;
 
       default:
-        return data;
+        throw new BadRequestException(`Unsupported report format: ${String(format)}`);
     }
   }
 
@@ -892,22 +888,43 @@ export class ReportsService {
     if (!firstRow) return '';
 
     const headers = Object.keys(firstRow);
-    const csvRows = [headers.join(',')];
+    const csvRows = [headers.map(header => this.escapeCsvValue(header)).join(',')];
 
     for (const row of data) {
       const values = headers.map(header => {
         const value = row[header];
-        // Escape commas and quotes
-        const strValue = String(value ?? '');
-        if (strValue.includes(',') || strValue.includes('"')) {
-          return `"${strValue.replace(/"/g, '""')}"`;
-        }
-        return strValue;
+        return this.escapeCsvValue(value);
       });
       csvRows.push(values.join(','));
     }
 
     return csvRows.join('\n');
+  }
+
+  private escapeCsvValue(value: unknown): string {
+    let strValue = this.formatUnknownValue(value);
+
+    if (/^[=+\-@\t\r]/.test(strValue)) {
+      strValue = `'${strValue}`;
+    }
+
+    return `"${strValue.replace(/"/g, '""')}"`;
+  }
+
+  private formatUnknownValue(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+      return String(value);
+    }
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'symbol') return value.description ?? 'Symbol()';
+    if (typeof value === 'function') return '[function]';
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[unserializable]';
+    }
   }
 
   // ============================================================================
@@ -1006,7 +1023,7 @@ export class ReportsService {
     doc.fontSize(10).font('Helvetica');
     for (const [key, value] of Object.entries(summary)) {
       const formattedKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
-      doc.text(`${formattedKey}: ${value}`, { indent: 20 });
+      doc.text(`${formattedKey}: ${this.formatUnknownValue(value)}`, { indent: 20 });
     }
   }
 
@@ -1042,7 +1059,7 @@ export class ReportsService {
       xPos = 50;
       const yPos = doc.y;
       headers.slice(0, 5).forEach(header => {
-        const value = String(row[header] ?? '').slice(0, 20);
+        const value = this.formatUnknownValue(row[header]).slice(0, 20);
         doc.text(value, xPos, yPos, { width: colWidth });
         xPos += colWidth;
       });
@@ -1285,34 +1302,37 @@ export class ReportsService {
 
       const reportResult = await this.generateReport({
         type: reportType,
-        format: params.format,
+        format: 'json',
         startDate: startDateObj,
         endDate: endDateObj,
         filters: params.filters || definition?.defaultFilters,
         includeCharts: definition?.includeCharts,
       });
 
+      const artifact = await this.createReportArtifact({
+        executionId: execution.id,
+        reportName: execution.reportName,
+        reportType,
+        format: params.format,
+        data: reportResult.data,
+        summary: reportResult.summary,
+        generatedAt: reportResult.generatedAt,
+      });
+
       // Update execution with results
       execution.status = 'completed';
       execution.summary = reportResult.summary;
       execution.rowCount = Array.isArray(reportResult.data) ? reportResult.data.length : 1;
+      execution.fileSizeBytes = artifact.size;
+      execution.artifactObjectKey = artifact.objectKey;
+      execution.artifactSha256 = artifact.sha256;
+      execution.artifactContentType = artifact.contentType;
       execution.downloadUrl = `/api/reports/executions/${execution.id}/download`;
-      execution.downloadExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+      execution.downloadExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       execution.durationMs = Date.now() - startTime;
       execution.completedAt = new Date();
 
       await this.executionRepository.save(execution);
-
-      // LOW-002 fix: cache the generated report payload in Redis so that
-      // getExecutionDownload() can serve it without re-running all queries.
-      if (this.redisService) {
-        const downloadCacheKey = `report:download:${execution.id}`;
-        this.redisService
-          .setJson(downloadCacheKey, reportResult.data, 24 * 60 * 60) // 24h TTL
-          .catch((err: Error) =>
-            this.logger.warn(`Failed to cache report download ${execution.id}: ${err.message}`),
-          );
-      }
 
       // Update definition run count if applicable
       if (definition) {
@@ -1335,12 +1355,91 @@ export class ReportsService {
     }
   }
 
+  private async createReportArtifact(params: {
+    executionId: string;
+    reportName: string;
+    reportType: ReportType;
+    format: ReportFormat;
+    data: unknown;
+    summary?: Record<string, unknown>;
+    generatedAt: Date;
+  }): Promise<{ objectKey: string; sha256: string; contentType: string; size: number }> {
+    if (!this.storageService) {
+      throw new InternalServerErrorException('Report artifact storage is not configured');
+    }
+
+    const contentType = this.getContentType(params.format);
+    const extension = this.getExtension(params.format);
+    const filename = `${params.reportName.replace(/\s+/g, '_')}_${params.executionId}.${extension}`;
+    let buffer: Buffer;
+
+    if (params.format === 'json') {
+      buffer = Buffer.from(JSON.stringify({
+        data: params.data,
+        summary: params.summary || {},
+        metadata: {
+          generatedAt: params.generatedAt.toISOString(),
+          reportType: params.reportType,
+          format: params.format,
+        },
+      }));
+    } else if (params.format === 'csv') {
+      buffer = Buffer.from(this.convertToCsv(Array.isArray(params.data) ? params.data as Record<string, unknown>[] : []));
+    } else {
+      buffer = await this.generatePdfBuffer(params.reportType, {
+        data: params.data,
+        summary: params.summary || {},
+      });
+    }
+
+    const upload = await this.storageService.uploadFile(
+      'platform-admin',
+      'report-executions',
+      params.executionId,
+      filename,
+      buffer,
+      {
+        contentType,
+        metadata: {
+          reportType: params.reportType,
+          reportFormat: params.format,
+          sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+        },
+      },
+    );
+
+    return {
+      objectKey: upload.path,
+      sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+      contentType,
+      size: buffer.length,
+    };
+  }
+
+  private getContentType(format: ReportFormat): string {
+    const contentTypes: Record<ReportFormat, string> = {
+      json: 'application/json',
+      csv: 'text/csv',
+      pdf: 'application/pdf',
+    };
+    return contentTypes[format];
+  }
+
+  private getExtension(format: ReportFormat): string {
+    const extensions: Record<ReportFormat, string> = {
+      json: 'json',
+      csv: 'csv',
+      pdf: 'pdf',
+    };
+    return extensions[format];
+  }
+
   /**
    * Get execution download data
    */
   async getExecutionDownload(id: string): Promise<{
     execution: ReportExecution;
-    data: unknown;
+    data: Buffer;
     contentType: string;
     filename: string;
   }> {
@@ -1351,55 +1450,29 @@ export class ReportsService {
     }
 
     if (execution.downloadExpiresAt && new Date() > execution.downloadExpiresAt) {
-      throw new BadRequestException('Download link has expired');
+      throw new GoneException('Download link has expired');
     }
 
-    // LOW-002 fix: serve from Redis cache when available to avoid re-running
-    // all data-fetch queries for every download request.
-    let reportData: unknown | null = null;
-    const downloadCacheKey = `report:download:${execution.id}`;
-
-    if (this.redisService) {
-      try {
-        reportData = await this.redisService.getJson<unknown>(downloadCacheKey);
-      } catch {
-        // Cache miss — fall through to regeneration
-      }
+    if (!execution.artifactObjectKey) {
+      throw new GoneException('Report artifact is unavailable');
     }
 
-    if (reportData === null) {
-      const startDate = execution.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const endDate = execution.endDate || new Date();
-
-      const reportResult = await this.generateReport({
-        type: execution.reportType,
-        format: execution.format,
-        startDate,
-        endDate,
-        filters: execution.filters,
-      });
-      reportData = reportResult.data;
+    if (!this.storageService) {
+      throw new InternalServerErrorException('Report artifact storage is not configured');
     }
 
-    const contentTypes: Record<ReportFormat, string> = {
-      json: 'application/json',
-      csv: 'text/csv',
-      excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      pdf: 'application/pdf',
-    };
-
-    const extensions: Record<ReportFormat, string> = {
-      json: 'json',
-      csv: 'csv',
-      excel: 'xlsx',
-      pdf: 'pdf',
-    };
+    const reportData = await this.storageService.downloadFile(execution.artifactObjectKey);
+    const sha256 = crypto.createHash('sha256').update(reportData).digest('hex');
+    if (execution.artifactSha256 && execution.artifactSha256 !== sha256) {
+      this.logger.error(`Report artifact checksum mismatch for execution ${execution.id}`);
+      throw new InternalServerErrorException('Report artifact integrity check failed');
+    }
 
     return {
       execution,
       data: reportData,
-      contentType: contentTypes[execution.format],
-      filename: `${execution.reportName.replace(/\s+/g, '_')}_${execution.id}.${extensions[execution.format]}`,
+      contentType: execution.artifactContentType || this.getContentType(execution.format),
+      filename: `${execution.reportName.replace(/\s+/g, '_')}_${execution.id}.${this.getExtension(execution.format)}`,
     };
   }
 

@@ -728,6 +728,24 @@ def _main(argv: list[str] | None = None) -> int:
     wd_run.add_argument("--max-workers", type=int, default=1)
     wd_run.add_argument("--lease-seconds", type=int, default=1800)
 
+    # V10.5 Phase 1 (per ADR-0002) — ARIA-Watchdog read-only observer daemon.
+    # Mirror of planner-dispatch/worker-dispatch shape (fcntl lock, ARIA_STOP,
+    # max_iterations, exit_reason taxonomy). Per-tick: read governance.jsonl +
+    # autonomy_state.jsonl, run 2 MVP detectors (stall + bridge_warning_repeat),
+    # emit sanitized findings via finding.emit_finding through the
+    # ORIGINATING_SKILL_ALLOWLIST gate. NO state mutation.
+    watchdog_parser = add_subparser(scheduler_sub, "watchdog")
+    watch_sub = watchdog_parser.add_subparsers(
+        dest="watchdog_command", required=True,
+    )
+    watch_run = add_subparser(watch_sub, "run")
+    add_workspace_args(watch_run)
+    watch_run.add_argument("--max-iterations", type=int, default=None)
+    watch_run.add_argument(
+        "--poll-interval-seconds", type=float, default=60.0,
+    )
+    watch_run.add_argument("--daemon-id", default="aria-watchdog")
+
     worktree_prune_parser = add_subparser(sub, "worktree-prune")
     add_workspace_args(worktree_prune_parser)
     worktree_prune_parser.add_argument("--acknowledge", action="store_true")
@@ -2293,6 +2311,33 @@ def _main(argv: list[str] | None = None) -> int:
             daemon_id=args.daemon_id,
             max_workers=args.max_workers,
             lease_seconds=args.lease_seconds,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("exits_clean") else 1
+
+    if (
+        args.command == "scheduler"
+        and args.scheduler_command == "watchdog"
+        and args.watchdog_command == "run"
+    ):
+        # V10.5 Phase 1 (per ADR-0002) — ARIA-Watchdog read-only observer
+        # daemon entry. Mirror of planner-dispatch/worker-dispatch shape
+        # (fcntl lock, ARIA_STOP, max_iterations, exit_reason taxonomy).
+        # Per-tick: read governance.jsonl + autonomy_state.jsonl, run
+        # 2 MVP detectors (stall + bridge_warning_repeat), emit sanitized
+        # findings via finding.emit_finding through ORIGINATING_SKILL_ALLOWLIST
+        # gate. NO state mutation; observer-only.
+        from .aria_watchdog import run_aria_watchdog_daemon
+        workspace = (
+            paths.repo_root if paths is not None
+            else Path(args.workspace_root).resolve()
+        )
+        result = run_aria_watchdog_daemon(
+            workspace_root=workspace,
+            tools_dir=args.tools_dir,
+            max_iterations=args.max_iterations,
+            poll_interval_seconds=args.poll_interval_seconds,
+            daemon_id=args.daemon_id,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("exits_clean") else 1

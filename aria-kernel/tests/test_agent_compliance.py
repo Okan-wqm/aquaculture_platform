@@ -255,10 +255,12 @@ class LifecyclePreservationTests(unittest.TestCase):
         # ``rejection_reason``, no 11th state added). Plan 026R §C.5
         # expanded the list with bridge-aware acceptance states
         # (ACCEPTED_PENDING_BRIDGE + ACCEPTED_PENDING_BRIDGE_PERMANENT_
-        # FAIL); count is now 12.
+        # FAIL). V10.5 Phase 3 (per ADR-0001) added EXTERNAL_OUTAGE
+        # for Anthropic API 529 transient outage handling; count is now 13.
         self.assertNotIn("COMPLIANCE_REJECTED", DERIVED_STATES)
         self.assertIn("REJECTED", DERIVED_STATES)
-        self.assertEqual(len(DERIVED_STATES), 12)
+        self.assertEqual(len(DERIVED_STATES), 13)
+        self.assertIn("EXTERNAL_OUTAGE", DERIVED_STATES)
 
 
 class PersistenceTests(unittest.TestCase):

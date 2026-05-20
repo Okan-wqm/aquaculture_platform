@@ -1,6 +1,5 @@
-import { MigrationInterface, QueryRunner } from "typeorm";
-
 import { applyTenantRlsToSchema, removeTenantRlsFromSchema } from '@aquaculture/backend-common/database'; // Faz 3.5 RLS additions: import block
+import { MigrationInterface, QueryRunner } from "typeorm";
 export class Baseline1800000000000 implements MigrationInterface {
     name = 'Baseline1800000000000'
 
@@ -460,10 +459,10 @@ export class Baseline1800000000000 implements MigrationInterface {
         // 006_create_equipment_types_table.sql + 007_seed_equipment_types.sql.
         // Manual inject restores the FK target before spare_parts.equipmentTypeId
         // ALTER TABLE ADD CONSTRAINT later in this baseline.) ──
-        await queryRunner.query(`DO $$ BEGIN CREATE TYPE "farm"."equipment_category" AS ENUM ('tank','pump','aeration','filtration','heating_cooling','feeding','monitoring','water_treatment','harvesting','transport','electrical','plumbing','safety','other'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
-        await queryRunner.query(`CREATE TABLE IF NOT EXISTS "farm"."equipment_types" ("id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(), "name" varchar(100) NOT NULL, "code" varchar(50) NOT NULL UNIQUE, "description" text, "category" "farm"."equipment_category" NOT NULL DEFAULT 'other', "icon" varchar(50), "specification_schema" jsonb NOT NULL DEFAULT '{"fields": []}', "allowed_sub_equipment_types" text[], "is_active" boolean NOT NULL DEFAULT true, "is_system" boolean NOT NULL DEFAULT false, "sort_order" integer NOT NULL DEFAULT 0, "created_at" timestamptz NOT NULL DEFAULT NOW(), "updated_at" timestamptz NOT NULL DEFAULT NOW())`);
+        await queryRunner.query(`DO $$ BEGIN CREATE TYPE "farm"."equipment_category" AS ENUM ('tank','pond','cage','pump','aeration','filtration','heating_cooling','feeding','monitoring','water_treatment','harvesting','transport','electrical','plumbing','safety','other'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+        await queryRunner.query(`CREATE TABLE IF NOT EXISTS "farm"."equipment_types" ("id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(), "name" varchar(100) NOT NULL, "code" varchar(50) NOT NULL UNIQUE, "description" text, "category" "farm"."equipment_category" NOT NULL DEFAULT 'other', "icon" varchar(50), "specificationSchema" jsonb NOT NULL DEFAULT '{"fields":[]}'::jsonb, "allowedSubEquipmentTypes" text[], "isActive" boolean NOT NULL DEFAULT true, "isSystem" boolean NOT NULL DEFAULT false, "sortOrder" integer NOT NULL DEFAULT 0, "createdAt" timestamptz NOT NULL DEFAULT NOW(), "updatedAt" timestamptz NOT NULL DEFAULT NOW())`);
         await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_farm_equipment_types_category" ON "farm"."equipment_types" ("category")`);
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_farm_equipment_types_is_active" ON "farm"."equipment_types" ("is_active")`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_farm_equipment_types_isActive" ON "farm"."equipment_types" ("isActive")`);
         await queryRunner.query(`CREATE TABLE "farm"."sub_equipment_types" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying(100) NOT NULL, "code" character varying(50) NOT NULL, "description" text, "icon" character varying(50), "compatibleEquipmentTypes" text NOT NULL, "specificationSchema" jsonb NOT NULL, "isActive" boolean NOT NULL DEFAULT true, "isSystem" boolean NOT NULL DEFAULT false, "sortOrder" integer NOT NULL DEFAULT '0', "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "UQ_c91f2c0b25d46e5bb1ad7fddc24" UNIQUE ("code"), CONSTRAINT "PK_3f7898f71e59efc70d069229448" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_7f52d6d13f88a173fb34771d0d" ON "farm"."sub_equipment_types" ("isActive") `);
         await queryRunner.query(`CREATE UNIQUE INDEX "IDX_c91f2c0b25d46e5bb1ad7fddc2" ON "farm"."sub_equipment_types" ("code") `);

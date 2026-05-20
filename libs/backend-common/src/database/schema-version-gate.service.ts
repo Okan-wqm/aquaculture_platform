@@ -8,14 +8,34 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 
 import {
-  createMigrationRunnerService,
-  type MigrationRunnerOptions,
-} from './migration-runner';
-import {
   MIGRATION_LEDGER_TABLE,
   tenantMigrationLedgerTable,
 } from './migration-ledger';
+import {
+  createMigrationRunnerService,
+  type MigrationRunnerOptions,
+} from './migration-runner';
 import { TENANT_AWARE_SCHEMAS } from './tenant-aware-schemas';
+
+/**
+ * Release-ledger statuses that prove the release reached the point where
+ * expected migration heads were written by aqua-db-migrate.
+ *
+ * A failed app health gate or failed image rollback must not erase that DB
+ * truth from service boot checks. Restarting services still need to compare
+ * their read-only ledger head against the last DB-complete release; the head
+ * comparison below remains the fail-closed guard.
+ */
+const RELEASE_LEDGER_DB_COMPLETE_STATUSES = [
+  'db_complete',
+  'apps_restarting',
+  'promoted',
+  'failed',
+  'rollback_attempted',
+  'rollback_verified',
+  'rollback_failed',
+  'rolled_back',
+] as const;
 
 /**
  * createSchemaVersionGate
@@ -153,7 +173,7 @@ export function createSchemaVersionGate(
           `aqua-db-migrate is the authoritative writer; this service only verifies.`,
       );
 
-      const migrationsRun = this.configService.get(
+      const migrationsRun = this.configService.get<string>(
         'DATABASE_MIGRATIONS_RUN',
         'false',
       );
@@ -300,10 +320,15 @@ export function createSchemaVersionGate(
         );
       }
 
+      const bootstrapLastRunAt =
+        row.last_run_at instanceof Date
+          ? row.last_run_at.toISOString()
+          : String(row.last_run_at ?? '(unset)');
+
       this.logger.log(
         `Platform bootstrap verified: schemas=${observedSchema}, functions=${observedFn}, ` +
           `sharedTables=${observedSharedTbl}, version=${row.bootstrap_version ?? '(unset)'}, ` +
-          `lastRunAt=${row.last_run_at?.toISOString?.() ?? row.last_run_at}`,
+          `lastRunAt=${bootstrapLastRunAt}`,
       );
     }
 
@@ -391,10 +416,11 @@ export function createSchemaVersionGate(
                 expected_heads #>> ARRAY['schemas', $1, 'timestamp'] AS expected_ts,
                 expected_heads #>> ARRAY['schemas', $1, 'name'] AS expected_name
            FROM platform.release_ledger
-          WHERE status IN ('db_complete', 'apps_restarting', 'promoted')
+          WHERE status = ANY($2::text[])
+            AND expected_heads ? 'schemas'
           ORDER BY updated_at DESC, started_at DESC
           LIMIT 1`,
-        [sourceSchema],
+        [sourceSchema, RELEASE_LEDGER_DB_COMPLETE_STATUSES],
       );
       const row = rows[0];
       if (!row) {

@@ -1,4 +1,16 @@
-import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
+import { AuditedOperationModule, AuditLogEntity } from '@aquaculture/backend-common/audit';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
+import {
+  CorrelationIdMiddleware,
+  RequestLoggingMiddleware,
+  StripInternalHeadersMiddleware,
+  TenantContextMiddleware,
+  UserContextMiddleware,
+} from '@aquaculture/backend-common/middleware';
+import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -9,38 +21,22 @@ import { GraphQLModule } from '@nestjs/graphql';
 // JwtModule), so we still need the named-type import here for DI metadata.
 import { JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { StorageModule, StorageConfig } from '@platform/storage';
+import type { DocumentNode, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import {
   getComplexity,
   simpleEstimator,
   fieldExtensionsEstimator,
 } from 'graphql-query-complexity';
-import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
-import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
-import {
-  CorrelationIdMiddleware,
-  RequestLoggingMiddleware,
-  TenantContextMiddleware,
-  UserContextMiddleware,
-} from '@aquaculture/backend-common/middleware';
-import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
-import { AuditedOperationModule, AuditLogEntity } from '@aquaculture/backend-common/audit';
-import { StorageModule, StorageConfig } from '@platform/storage';
 
+import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
+import { AuthenticatedDataSource } from './federation/authenticated-data-source';
+import type { GatewayContext, RequestWithUser } from './federation/authenticated-data-source';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { AuthGuard } from './guards/auth.guard';
-import { ApiKeyAuthStrategy } from './guards/strategies/api-key-auth.strategy';
-import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
-import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
-import { JwtMiddleware } from './middleware/jwt.middleware';
-import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
-import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
-import { CsrfMiddleware } from './middleware/csrf.middleware';
-import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
-import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
 import { MutationRateLimitGuard } from './guards/mutation-rate-limit.guard';
+import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
 import { RedisRateLimitStore } from './guards/redis-rate-limit.store';
 import {
   TokenBlacklistStore,
@@ -48,19 +44,43 @@ import {
   RedisTokenBlacklistStore,
   InMemoryTokenBlacklistStore,
 } from './guards/redis-token-blacklist.store';
+import { ApiKeyAuthStrategy } from './guards/strategies/api-key-auth.strategy';
+import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
+import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
 import { HealthModule } from './health/health.module';
 import { RequestLoggingInterceptor } from './interceptors/request-logging.interceptor';
 import { GatewayMetricsModule } from './metrics/metrics.module';
-import { UploadModule } from './upload/upload.module';
-import { WebSocketModule } from './websocket/websocket.module';
+import { CsrfMiddleware } from './middleware/csrf.middleware';
+import { JwtMiddleware } from './middleware/jwt.middleware';
+import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
+import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
 import { createAliasLimitPlugin } from './plugins/graphql-alias-limit.plugin';
 import { AiRoutesModule } from './routes/v2/ai.routes';
 import { TenantLookupService } from './services/tenant-lookup.service';
-import { AuthenticatedDataSource } from './federation/authenticated-data-source';
-import type { GatewayContext, RequestWithUser } from './federation/authenticated-data-source';
+import { UploadModule } from './upload/upload.module';
+import { WebSocketModule } from './websocket/websocket.module';
 
 // Module-level logger to avoid re-instantiation per GraphQL operation
 const queryComplexityLogger = new Logger('QueryComplexity');
+
+interface QueryComplexityOperationContext {
+  request: {
+    operationName?: string | null;
+    variables?: Record<string, unknown> | null;
+  };
+  document: DocumentNode;
+  schema: GraphQLSchema;
+}
+
+function positiveIntConfig(
+  configService: ConfigService,
+  key: string,
+  fallback: number,
+): number {
+  const raw = configService.get<string | number>(key, fallback);
+  const parsed = typeof raw === 'number' ? raw : Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 @Module({
   imports: [
@@ -268,6 +288,16 @@ const queryComplexityLogger = new Logger('QueryComplexity');
               },
             ],
             pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
+            maxRetries: positiveIntConfig(
+              configService,
+              'GATEWAY_COMPOSITION_MAX_RETRIES',
+              24,
+            ),
+            retryDelayMs: positiveIntConfig(
+              configService,
+              'GATEWAY_COMPOSITION_RETRY_DELAY_MS',
+              3000,
+            ),
           }),
           buildService({ url }) {
             return new AuthenticatedDataSource({ url, secret: internalServiceSecret });
@@ -310,8 +340,12 @@ const queryComplexityLogger = new Logger('QueryComplexity');
             createAliasLimitPlugin(),
             {
               // Hoist Logger out of per-request closure to avoid re-instantiation per operation
-              requestDidStart: async () => ({
-                async didResolveOperation({ request, document, schema }) {
+              requestDidStart: () => Promise.resolve({
+                didResolveOperation({
+                  request,
+                  document,
+                  schema,
+                }: QueryComplexityOperationContext): Promise<void> {
                   const logger = queryComplexityLogger;
                   const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
@@ -345,8 +379,10 @@ const queryComplexityLogger = new Logger('QueryComplexity');
                     }
                     // Log but don't fail on complexity calculation errors
                     // (e.g., schema not available during startup)
-                    logger.warn(`Could not calculate query complexity: ${error}`);
+                    const message = error instanceof Error ? error.message : String(error);
+                    logger.warn(`Could not calculate query complexity: ${message}`);
                   }
+                  return Promise.resolve();
                 },
               }),
             },

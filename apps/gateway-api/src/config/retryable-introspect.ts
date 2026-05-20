@@ -1,4 +1,5 @@
 import { IntrospectAndCompose, ServiceEndpointDefinition } from '@apollo/gateway';
+import type { SupergraphSdlHookOptions } from '@apollo/gateway/dist/config';
 import { Logger } from '@nestjs/common';
 
 /**
@@ -6,7 +7,7 @@ import { Logger } from '@nestjs/common';
  *
  * @property subgraphs - List of federated subgraph endpoints to introspect
  * @property pollIntervalInMs - Interval between schema polling cycles (default: 300000ms = 5min)
- * @property maxRetries - Maximum composition retry attempts before failing (default: 12)
+ * @property maxRetries - Maximum composition retry attempts before failing (default: 24)
  * @property retryDelayMs - Base delay between retries in milliseconds (default: 3000)
  */
 interface RetryableIntrospectOptions {
@@ -36,7 +37,8 @@ interface RetryableIntrospectOptions {
  * Docker will mark the gateway as unhealthy and restart it mid-retry.
  *
  * Budget calculation (defaults):
- *   12 retries x ~3.45s avg (3s base + 15% jitter) = ~41s worst case
+ *   24 retries x ~3.45s avg (3s base + 15% jitter) = ~83s average,
+ *   ~94s with max jitter
  *   Gateway Docker start_period = 120s (ample headroom)
  *   Deploy script health loop = 30 x 10s = 300s
  */
@@ -48,7 +50,7 @@ export class RetryableIntrospectAndCompose extends IntrospectAndCompose {
   constructor(options: RetryableIntrospectOptions) {
     super(options);
     /**
-     * ARCH-GW-002: 12 retries x 3s = 36-42s total retry budget.
+     * ARCH-GW-002: 24 retries x 3s = 72-94s total retry budget.
      * This is intentionally shorter than the gateway's Docker start_period (120s)
      * so that if all retries are exhausted, Docker can restart the container
      * and attempt a fresh composition cycle.
@@ -56,7 +58,7 @@ export class RetryableIntrospectAndCompose extends IntrospectAndCompose {
      * Previous values (30 x 5s = 150s) exceeded the start_period and raced
      * with the deploy script's 300s health check window.
      */
-    this.maxRetries = options.maxRetries ?? 12;
+    this.maxRetries = options.maxRetries ?? 24;
     this.retryDelayMs = options.retryDelayMs ?? 3000;
   }
 
@@ -71,8 +73,9 @@ export class RetryableIntrospectAndCompose extends IntrospectAndCompose {
    * @returns Composed supergraph SDL and cleanup function
    * @throws Error when all retry attempts are exhausted
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  public override async initialize(args: any): Promise<{ supergraphSdl: string; cleanup: () => Promise<void> }> {
+  public override async initialize(
+    args: SupergraphSdlHookOptions,
+  ): Promise<{ supergraphSdl: string; cleanup: () => Promise<void> }> {
     let lastError: Error | undefined;
     const totalBudgetMs = this.maxRetries * this.retryDelayMs;
 

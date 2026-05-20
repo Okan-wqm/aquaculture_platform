@@ -3920,3 +3920,33 @@ Same regular language (one or more non-whitespace-non-colon chars, optionally fo
     * I-V8.0-10 — defaults align across CLI → orchestrator → drainer + Protocol
 
 **Why filed as ORPHAN**: discovered during step-by-step ARIA observation (not via specialist agent review); operator's standing rule mandates documenting plan-independent visible problems with root-cause + tier-1 fix. Severity HIGH because CLI flags advertised as functional were silently dead — operator-induced timing knobs had zero effect on runtime behavior, completely defeating the V8 cycle-deadline guard rails.
+
+## ORPHAN-MEDIUM-083 — V3.1-F mock-mode smoke stalls after cycle 1 completion
+
+**Severity**: MEDIUM (smoke-mode-only; real-mode V10.3-A 5-cycle smoke completed cleanly per task #113)
+**Discovered**: 2026-05-19 during V10.3-B prereq follow-up smoke verification (after V3.1-F2 adapter fix at commit `76455a8a` unblocked adapter init).
+**Status**: OPEN (separate from V3.1-F2 fix scope)
+
+**Symptom**: Under `ARIA_DRY_RUN=true CLAUDE_CODE_MOCK=true unshare --net -- python3 -m aria_kernel autonomy run --max-cycles 5 --profile strict` the orchestrator completes cycle 1 (`cycle_started → next_cycle_queued → cycle_completed`) then idles for 25+ minutes without starting cycle 2. `planner_dispatch_iteration_started`/`_completed` events continue ~once/second (mock-mode planner spinning) but `autonomy_state.jsonl` records exactly 1 unique `cycle_id`. The cycle deadline (1800s per cycle × 5 = 9000s max) never elapses because individual cycles complete fast — the orchestrator just doesn't auto-advance.
+
+**Evidence at termination (sandbox `/tmp/aria-smoke-20260519-185437`)**:
+- `autonomy_state.jsonl`: 3 entries, all for `cyc-20260519T185510Z-auto` (started/queued/completed).
+- `governance.jsonl`: 179 events, 18 kinds. 1 × `autonomy_orchestrator_started` for the new run + 1 × `autonomy_orchestrator_exit` from the PRIOR May-18 run (no new exit fired).
+- `next_cycle_queued` event implies cycle 2 should be next, but no new `cycle_started` follows.
+- 57 × `planner_dispatch_iteration_started` paired with 57 × `_completed` over the stall — planner daemon healthy, just no work.
+- 1 × `planner_dispatch_executor_exit_1` (a planner executor exited code 1 — possibly correlated; no traceback visible).
+
+**Hypothesis**: the orchestrator's cycle-2 trigger depends on either (a) a pressure-source signal that mock-mode never produces, or (b) a planner_dispatch follow-up event that exit_1 short-circuits. The runbook documents `cycle_runner_no_pressure` as the expected dry-run idle signal, but THAT event never fires either — the cycle progression event taxonomy may have drifted since V3.1-F was originally written.
+
+**Why filed as ORPHAN and NOT a V3.1-F2 follow-up commit**:
+- Cycle 1 completing end-to-end is sufficient verification that the V3.1-F2 adapter fix works architecturally (was the gate before).
+- V10.3-A task #113 already validated 5-cycle smoke under real LLM (strict profile); the regression appears mock-mode-specific.
+- V10.3-B endurance runs REAL Claude + REAL gh API; it bypasses the mock-mode stall path entirely.
+- Tracing the stall requires reading the entire cycle-progression state machine (CyclePipeline + 5 phase modules per V3.1-0) — multi-hour investigation outside the V10.3-B prereq scope.
+
+**Suggested investigation when prioritized**:
+1. Add `cycle_runner_iteration_started` + `_completed` envelope events at the top of `aria_kernel/cycle_pipeline.py` so the next attempt at this smoke shows WHICH phase is stuck.
+2. Read `planner_dispatch_executor_exit_1` event payload (currently invisible — likely a process state issue under `CLAUDE_CODE_MOCK=true`).
+3. Compare the cycle-progression event taxonomy in `aria_kernel/autonomy_orchestrator.py:run_autonomy_orchestrator()` against the F-5 acceptance script's expected events (`plan_candidate_source_selected`, `cycle_runner_no_pressure`) — those names may have been renamed during V3.1-0 extraction.
+
+**Workaround for V10.3-B unblocking**: V10.3-B endurance runs autonomous profile with real Claude API (no mock-mode), so this orphan does NOT block endurance launch. The fix is needed eventually to make V3.1-F a useful pre-flight smoke, but post-V10.3-B is acceptable.

@@ -169,6 +169,16 @@ class RecordingGitHubAdapter:
         }
 
 
+def _aria_dry_run_active() -> bool:
+    """Plan ARIA-V3.1-F2 fix — canonical ARIA_DRY_RUN env-var read.
+
+    Centralized truthy parser matching ARIA_REQUIRE_MODE_A in
+    gh_token_factory.py. Returns True for "true" / "1" / "yes"
+    (case-insensitive, whitespace-tolerant).
+    """
+    return os.environ.get("ARIA_DRY_RUN", "").strip().lower() in ("true", "1", "yes")
+
+
 def select_github_adapter(
     *,
     profile: str,
@@ -180,7 +190,18 @@ def select_github_adapter(
     Adding a new profile requires updating the two constants at the
     top of this module AND a matching V3 invariant test. Unknown
     profile raises ``ValueError`` — no silent default.
+
+    Plan ARIA-V3.1-F2 fix: ARIA_DRY_RUN=true structurally prevents
+    real GitHub adapter selection regardless of profile. Closes the
+    smoke-runbook regression where ``profile=strict`` +
+    ``unshare --net`` collided with ``GhCliGitHubAdapter.__init__``'s
+    eager ``gh repo view`` call. The dry-run gate is Tier-1: the
+    network-isolation invariant becomes a code guarantee, not just
+    operator hygiene. RecordingGitHubAdapter still writes every
+    intended call to the audit log so the override is observable.
     """
+    if _aria_dry_run_active() and profile in _REAL_ADAPTER_PROFILES:
+        return RecordingGitHubAdapter(base_dir=base_dir, profile=profile)
     if profile in _REAL_ADAPTER_PROFILES:
         return GhCliGitHubAdapter(cwd=cwd)
     if profile in _RECORDING_ADAPTER_PROFILES:

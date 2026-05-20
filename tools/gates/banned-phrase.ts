@@ -187,6 +187,12 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   // the doc IS the meta-text describing the discipline.
   /^docs\/aria\/reviews\//,
   /^docs\/aria\/plans\//,
+  // ARIA closure reports (post-sprint architectural records) legitimately
+  // discuss tracked deferrals with owner+deadline+finding-ID context and
+  // self-audit the banned-phrase discipline. Same meta-text exemption
+  // rationale as reviews/plans above. Pattern matches v{major}-{minor}-
+  // closure-report.md and architectural arc summaries.
+  /^docs\/aria\/v\d+-\d+-closure-report\.md$/,
   /^CHANGELOG\.md$/,
   /^\.claude\/agents\.legacy\//,
   /^\.claude\/agents\//,

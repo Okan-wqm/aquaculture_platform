@@ -755,7 +755,16 @@ def run_convergence_drainer(
             # sees the fake-consensus signal in the reflection.
             if arbiter_verdict == "converged" and len(request_ids) >= 3:
                 from .independence_check import verify_independence
-                from .tool_registry import append_tools_governance
+                # Plan ARIA-V10.4 Phase 1.1 hotfix — local
+                # `append_tools_governance` import REMOVED; module-level
+                # import at line 56 is the SSoT. The local re-import
+                # was making Python's compiler classify
+                # `append_tools_governance` as a local variable of
+                # run_convergence_drainer, which leaked into the closure
+                # `_run_challenge_and_cross_review_phase` and caused a
+                # NameError when V10.4 Phase 1 instrumentation tried to
+                # call it from inside the closure before this code path
+                # executed.
                 independence_ok, violation_reasons = verify_independence(
                     primary_request_id=request_ids[0],
                     primary_revision_id=f"{plan_id}-r1",

@@ -95,15 +95,15 @@ BEGIN
        WHERE table_schema = 'shared' AND table_name = 'audit_logs' AND column_name = 'resource'
      )
   THEN
-    DROP TABLE shared.audit_logs CASCADE;
+    DROP TABLE IF EXISTS shared.audit_logs CASCADE;
   END IF;
 END
 $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname IN ('public','shared') AND tablename = 'audit_logs') THEN
-    CREATE TABLE shared.audit_logs (
+  IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = 'audit_logs') THEN
+    CREATE TABLE IF NOT EXISTS shared.audit_logs (
       id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
       action        VARCHAR(100) NOT NULL,
       resource      VARCHAR(100) NOT NULL,
@@ -113,11 +113,21 @@ BEGIN
       "tenantId"    UUID,
       "schemaName"  VARCHAR(100),
       metadata      JSONB,
-      ip            VARCHAR(45),
+      ip            INET,
       "userAgent"   VARCHAR(500),
       severity      VARCHAR(20)  NOT NULL DEFAULT 'info',
       "correlationId" VARCHAR(100),
-      "createdAt"   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      "createdAt"   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      "legalHold"   BOOLEAN      NOT NULL DEFAULT false,
+      "actorHomeTenantId" UUID,
+      "actedOnTenantId"   UUID,
+      method        VARCHAR(16),
+      "mfaVerified" BOOLEAN      NOT NULL DEFAULT false,
+      result        VARCHAR(16),
+      "preStateHash"  VARCHAR(64),
+      "postStateHash" VARCHAR(64),
+      justification TEXT,
+      "relatedAuditIds" UUID[]
     );
     CREATE INDEX "IDX_audit_log_tenant_created" ON shared.audit_logs ("tenantId", "createdAt");
     CREATE INDEX "IDX_audit_log_user_tenant"    ON shared.audit_logs ("userId", "tenantId");
@@ -127,6 +137,109 @@ BEGIN
 END
 $$;
 
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = 'audit_logs') THEN
+    ALTER TABLE shared.audit_logs
+      ADD COLUMN IF NOT EXISTS "legalHold" BOOLEAN NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS "actorHomeTenantId" UUID,
+      ADD COLUMN IF NOT EXISTS "actedOnTenantId" UUID,
+      ADD COLUMN IF NOT EXISTS method VARCHAR(16),
+      ADD COLUMN IF NOT EXISTS "mfaVerified" BOOLEAN NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS result VARCHAR(16),
+      ADD COLUMN IF NOT EXISTS "preStateHash" VARCHAR(64),
+      ADD COLUMN IF NOT EXISTS "postStateHash" VARCHAR(64),
+      ADD COLUMN IF NOT EXISTS justification TEXT,
+      ADD COLUMN IF NOT EXISTS "relatedAuditIds" UUID[];
+
+    IF EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'shared'
+        AND table_name = 'audit_logs'
+        AND column_name = 'ip'
+        AND data_type <> 'inet'
+    ) THEN
+      ALTER TABLE shared.audit_logs
+        ALTER COLUMN ip TYPE INET USING NULLIF(ip::text, '')::inet;
+    END IF;
+
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = 'audit_logs')
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'shared.audit_logs'::regclass
+         AND conname = 'chk_audit_logs_method'
+     )
+  THEN
+    ALTER TABLE shared.audit_logs
+      ADD CONSTRAINT chk_audit_logs_method
+      CHECK (method IS NULL OR method IN ('HTTP', 'GRAPHQL', 'NATS', 'CRON', 'CLI'));
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = 'audit_logs')
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'shared.audit_logs'::regclass
+         AND conname = 'chk_audit_logs_result'
+     )
+  THEN
+    ALTER TABLE shared.audit_logs
+      ADD CONSTRAINT chk_audit_logs_result
+      CHECK (result IS NULL OR result IN ('SUCCESS', 'DENIED', 'FAILED'));
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = 'audit_logs')
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'shared.audit_logs'::regclass
+         AND conname = 'chk_audit_logs_pre_state_hash'
+     )
+  THEN
+    ALTER TABLE shared.audit_logs
+      ADD CONSTRAINT chk_audit_logs_pre_state_hash
+      CHECK ("preStateHash" IS NULL OR "preStateHash" ~ '^[0-9a-fA-F]{64}$');
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = 'audit_logs')
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid = 'shared.audit_logs'::regclass
+         AND conname = 'chk_audit_logs_post_state_hash'
+     )
+  THEN
+    ALTER TABLE shared.audit_logs
+      ADD CONSTRAINT chk_audit_logs_post_state_hash
+      CHECK ("postStateHash" IS NULL OR "postStateHash" ~ '^[0-9a-fA-F]{64}$');
+  END IF;
+END
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_home_tenant_created
+  ON shared.audit_logs ("actorHomeTenantId", "createdAt");
+CREATE INDEX IF NOT EXISTS idx_audit_logs_acted_on_tenant_created
+  ON shared.audit_logs ("actedOnTenantId", "createdAt");
+CREATE INDEX IF NOT EXISTS idx_audit_logs_mfa_verified_created
+  ON shared.audit_logs ("createdAt")
+  WHERE "mfaVerified" = true;
+
 -- ──────────────────────────────────────────────────────────────────────────
 -- shared.gdpr_data_requests
 -- Mirrors libs/backend-common/src/security/gdpr/entities/data-request.entity.ts
@@ -134,7 +247,7 @@ $$;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname IN ('public','shared') AND tablename = 'gdpr_data_requests') THEN
-    CREATE TABLE shared.gdpr_data_requests (
+    CREATE TABLE IF NOT EXISTS shared.gdpr_data_requests (
       id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       "userId"          UUID         NOT NULL,
       "tenantId"        UUID,
@@ -169,7 +282,7 @@ $$;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname IN ('public','shared') AND tablename = 'user_consents') THEN
-    CREATE TABLE shared.user_consents (
+    CREATE TABLE IF NOT EXISTS shared.user_consents (
       id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       "userId"          UUID         NOT NULL,
       "tenantId"        UUID,
@@ -198,7 +311,7 @@ $$;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname IN ('public','shared') AND tablename = 'user_permissions') THEN
-    CREATE TABLE shared.user_permissions (
+    CREATE TABLE IF NOT EXISTS shared.user_permissions (
       id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       "userId"     UUID         NOT NULL,
       "tenantId"   UUID         NOT NULL,
@@ -222,7 +335,7 @@ $$;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname IN ('public','shared') AND tablename = 'access_logs') THEN
-    CREATE TABLE shared.access_logs (
+    CREATE TABLE IF NOT EXISTS shared.access_logs (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       method          VARCHAR(8)    NOT NULL,
       path            VARCHAR(2048) NOT NULL,

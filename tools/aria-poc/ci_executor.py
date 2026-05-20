@@ -869,12 +869,24 @@ def invoke_claude_code(
         except Exception:
             # Audit must NEVER block the subprocess spawn.
             pass
-    completed = subprocess.run(
-        argv,
-        input=prompt_text,
-        capture_output=True,
-        text=True,
-        timeout=timeout_seconds + 30,
+    # V10.5 Phase 3 (F-023) — wrap LLM subprocess in retry-after-aware
+    # backoff. Primary 529 source; default disabled via ARIA_API_BACKOFF
+    # env flag. When disabled, with_api_backoff is a passthrough to a
+    # single subprocess.run call (byte-identical V10.4 behavior).
+    from api_backoff import with_api_backoff
+    def _run_claude_subprocess():
+        return subprocess.run(
+            argv,
+            input=prompt_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds + 30,
+        )
+    completed = with_api_backoff(
+        _run_claude_subprocess,
+        request_id=request_id,
+        role=subagent_type or "unknown",
+        tools_dir=Path(tools_dir),
     )
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #

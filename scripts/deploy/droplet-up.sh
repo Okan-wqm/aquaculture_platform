@@ -723,10 +723,14 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   docker compose -f docker-compose.droplet.yml down --remove-orphans --timeout 30 2>&1 || true
   # Force-remove ALL aqua containers (including ones compose couldn't remove)
   echo "Force-removing any remaining aqua containers..."
-  docker ps -a --format '{{.Names}}' | grep -E 'aqua-' | while read -r name; do
-    echo "  Removing $name..."
-    docker rm -f "$name" 2>&1 || true
-  done
+  REMAINING_BEFORE_CLEANUP=$(docker ps -a --format '{{.Names}}' | grep -E 'aqua-' || true)
+  if [ -n "$REMAINING_BEFORE_CLEANUP" ]; then
+    while IFS= read -r name; do
+      [ -z "$name" ] && continue
+      echo "  Removing $name..."
+      docker rm -f "$name" 2>&1 || true
+    done <<< "$REMAINING_BEFORE_CLEANUP"
+  fi
   sleep 5
   # Verify clean slate
   REMAINING=$(docker ps -a --format '{{.Names}}' | grep -E 'aqua-' || true)

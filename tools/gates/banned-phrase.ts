@@ -193,6 +193,16 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   // rationale as reviews/plans above. Pattern matches v{major}-{minor}-
   // closure-report.md and architectural arc summaries.
   /^docs\/aria\/v\d+-\d+-closure-report\.md$/,
+  // Architectural-arbiter recommendations (ADRs) legitimately discuss
+  // tracked deferrals with owner+deadline+finding-ID context per
+  // CLAUDE.md §Architectural Approach. Same exemption rationale as
+  // docs/adr/ above.
+  /^docs\/recommendations\//,
+  // Finding artifacts (aria-findings/F-*.json) legitimately use the
+  // word "deferred" in the title/scope of V10.6 tracked-deferral
+  // findings. The finding JSON itself IS the structured form of the
+  // owner+deadline+finding-ID compliance.
+  /^aria-findings\/F-AUTO-V\d+-/,
   /^CHANGELOG\.md$/,
   /^\.claude\/agents\.legacy\//,
   /^\.claude\/agents\//,

@@ -99,16 +99,29 @@ const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-|feat)/;
  * never fakes-validates an ARIA ID against the registry or vice versa.
  */
 const CLOSES_TRAILER_REGEX =
-  /^Closes:\s+(\S+?)#([A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}|F-\d{3}|DEBT-\d{4}-\d{2}-\d{2}-\d{3})\s*$/;
+  /^Closes:\s+(\S+?)#([A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}|F-\d{3}|F-AUTO-V\d+\.\d+(?:-[A-Z0-9-]+)+|DEBT-\d{4}-\d{2}-\d{2}-\d{3})\s*$/;
 
 /** True when the path points at an ARIA-owned artifact (finding or debt). */
 function isAriaArtifactPath(path: string): boolean {
   return path.startsWith('aria-findings/') || path.startsWith('aria-debts/');
 }
 
-/** True when the finding ID is an ARIA-owned ID (F-NNN or DEBT-YYYY-MM-DD-NNN). */
+/** True when the finding ID is an ARIA-owned ID.
+ *
+ * Accepted forms:
+ *   - F-\d{3}  — canonical sequential allocator (e.g. F-018, F-022)
+ *   - F-AUTO-V\d+\.\d+-{TOPIC}  — V10.5+ tracked-deferral findings
+ *     pointing at a future sprint version (e.g. F-AUTO-V10.6-SELF-FEED).
+ *     These carry owner+deadline+ID per CLAUDE.md §Architectural Approach
+ *     and live under aria-findings/ alongside canonical findings.
+ *   - DEBT-YYYY-MM-DD-NNN  — ARIA debt entries under aria-debts/
+ */
 function isAriaFindingId(id: string): boolean {
-  return /^F-\d{3}$/.test(id) || /^DEBT-\d{4}-\d{2}-\d{2}-\d{3}$/.test(id);
+  return (
+    /^F-\d{3}$/.test(id) ||
+    /^F-AUTO-V\d+\.\d+(?:-[A-Z0-9-]+)+$/.test(id) ||
+    /^DEBT-\d{4}-\d{2}-\d{2}-\d{3}$/.test(id)
+  );
 }
 
 /**
@@ -419,15 +432,18 @@ function validateCommit(
         });
         continue;
       }
-      // Path-and-ID pairing rule: aria-findings/ requires F-NNN,
+      // Path-and-ID pairing rule: aria-findings/ requires F-NNN OR
+      // F-AUTO-V{X.Y}-{TOPIC} (V10.5+ tracked-deferral form);
       // aria-debts/ requires DEBT-YYYY-MM-DD-NNN.
       const wantsFinding = path.startsWith('aria-findings/');
-      const isFindingId = /^F-\d{3}$/.test(findingId);
+      const isFindingId =
+        /^F-\d{3}$/.test(findingId) ||
+        /^F-AUTO-V\d+\.\d+(?:-[A-Z0-9-]+)+$/.test(findingId);
       if (wantsFinding !== isFindingId) {
         out.push({
           sha: commit.shortSha,
           subject: commit.subject,
-          reason: `Closes: ARIA trailer path/ID mismatch — aria-findings/ requires F-NNN, aria-debts/ requires DEBT-YYYY-MM-DD-NNN; got path=${path} id=${findingId}`,
+          reason: `Closes: ARIA trailer path/ID mismatch — aria-findings/ requires F-NNN or F-AUTO-V{X.Y}-{TOPIC}, aria-debts/ requires DEBT-YYYY-MM-DD-NNN; got path=${path} id=${findingId}`,
         });
       } else if (existsSync(reviewFile)) {
         // Plan 018 Phase 4 (G5) — Closes-trailer ID-content cross-check.

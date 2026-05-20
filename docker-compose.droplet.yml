@@ -510,6 +510,8 @@ services:
       ADMIN_SERVICE_URL: http://admin-api-service:3000/graphql
       CONFIG_SERVICE_URL: http://config-service:3000/graphql
       MESSAGING_SERVICE_URL: http://messaging-service:3000/graphql
+      GATEWAY_COMPOSITION_MAX_RETRIES: ${GATEWAY_COMPOSITION_MAX_RETRIES:-24}
+      GATEWAY_COMPOSITION_RETRY_DELAY_MS: ${GATEWAY_COMPOSITION_RETRY_DELAY_MS:-3000}
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: "false"

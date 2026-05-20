@@ -81,6 +81,14 @@ const TENANT_SCHEMA_HARNESS_PATH = path.resolve(
   REPO_ROOT,
   'apps/farm-service/src/__tests__/e2e/helpers/tenant-schema-harness.ts',
 );
+const FARM_BASELINE_PATH = path.resolve(
+  REPO_ROOT,
+  'apps/farm-service/src/database/migrations/1800000000000-Baseline.ts',
+);
+const FARM_EQUIPMENT_TYPES_REPAIR_PATH = path.resolve(
+  REPO_ROOT,
+  'apps/farm-service/src/database/migrations/1800300000000-AlignEquipmentTypesRuntimeContract.ts',
+);
 
 /**
  * Class name pattern: `<Name><13-digit-timestamp>`. Every migration
@@ -137,7 +145,10 @@ function listImportedMigrationClasses(): string[] {
   const names: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = importRegex.exec(source)) !== null) {
-    const inner = m[1]!;
+    const inner = m[1];
+    if (!inner) {
+      continue;
+    }
     for (const raw of inner.split(',')) {
       const ident = raw
         .trim()
@@ -181,7 +192,10 @@ function listArrayMigrationClasses(): string[] {
   const entryRegex = /^\s*([A-Z][A-Za-z0-9]*\d{13})\s*(?:,|$)/gm;
   let m: RegExpExecArray | null;
   while ((m = entryRegex.exec(body)) !== null) {
-    names.push(m[1]!);
+    const migrationClass = m[1];
+    if (migrationClass) {
+      names.push(migrationClass);
+    }
   }
   return names.sort();
 }
@@ -257,5 +271,30 @@ describe('farm-service migration array completeness (FARM-LOW-001 follow-up)', (
     expect(seedSrc).toMatch(/et\.allowedSubEquipmentTypes\s*\|\|\s*\[\]/);
     expect(seedSrc).not.toMatch(/JSON\.stringify\(\s*et\.allowedSubEquipmentTypes/);
     expect(harnessSrc).toMatch(/"allowedSubEquipmentTypes"\s+TEXT\[\]\s+NULL/i);
+  });
+
+  it('equipment_types baseline and forward repair expose the runtime camelCase contract', () => {
+    const baselineSrc = readFileSync(FARM_BASELINE_PATH, 'utf8');
+    const repairSrc = readFileSync(FARM_EQUIPMENT_TYPES_REPAIR_PATH, 'utf8');
+
+    for (const source of [baselineSrc, repairSrc]) {
+      expect(source).toContain('"specificationSchema"');
+      expect(source).toContain('"allowedSubEquipmentTypes"');
+      expect(source).toContain('"isActive"');
+      expect(source).toContain('"isSystem"');
+      expect(source).toContain('"sortOrder"');
+      expect(source).toContain('"createdAt"');
+      expect(source).toContain('"updatedAt"');
+      expect(source).toContain("'pond'");
+      expect(source).toContain("'cage'");
+    }
+
+    const baselineCreate =
+      baselineSrc.match(/CREATE TABLE IF NOT EXISTS "farm"\."equipment_types" \(([^`]+)\)`/)?.[1] ?? '';
+    expect(baselineCreate).not.toContain('"specification_schema"');
+    expect(baselineCreate).not.toContain('"allowed_sub_equipment_types"');
+    expect(baselineCreate).not.toContain('"is_active" boolean NOT NULL DEFAULT true');
+    expect(repairSrc).toMatch(/postCondition\(queryRunner: QueryRunner\): Promise<boolean>/);
+    expect(repairSrc).toContain('current_schema()');
   });
 });

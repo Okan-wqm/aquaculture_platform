@@ -5,7 +5,7 @@ name: CI - Affected
 # ARCH-CI-006: Removed github.sha from NX cache key
 # ARCH-CI-007: Split lint/type-check/test into parallel jobs so build always runs
 # ARCH-CI-008: Increased timeouts (cold cache), reduced parallel (memory), save Nx cache after build
-# ARCH-CI-009: Skip lint/type-check/test on push to main (non-blocking, speeds deploy)
+# ARCH-CI-009: Push-to-main deploy waits for affected lint/type-check/test/build.
 
 on:
   push:
@@ -59,6 +59,7 @@ jobs:
               - 'crates/**'
               - 'tools/executors/cargo/**'
               - 'scripts/deploy/**'
+              - 'scripts/ci/**'
               - '.github/workflows/deploy-digitalocean.yml'
               - '.github/workflows/deploy-staging.yml'
               - '.github/workflows/ci-affected.yml'
@@ -141,11 +142,14 @@ jobs:
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
   # ---------------------------------------------------------------------------
-  # Lint, type-check, test: PR only (non-blocking, skip on push to main)
+  # Lint, type-check, test: PR + push-to-main deploy gate
   # ---------------------------------------------------------------------------
   lint:
     needs: [install, detect-changes]
-    if: github.event_name == 'pull_request'
+    if: >-
+      needs.detect-changes.outputs.has_changes == 'true' &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # continue-on-error removed: lint failures must block PR merge.
@@ -192,6 +196,7 @@ jobs:
       - name: Run linter (affected only)
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          bash scripts/ci/lint-changed-files.sh --base "$BASE_REF" --head HEAD
           bash scripts/ci/affected-target-policy.sh --target lint --base "$BASE_REF" --parallel 2
         timeout-minutes: 35
         env:
@@ -200,7 +205,10 @@ jobs:
 
   type-check:
     needs: [install, detect-changes]
-    if: github.event_name == 'pull_request'
+    if: >-
+      needs.detect-changes.outputs.has_changes == 'true' &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # continue-on-error removed: TypeScript errors must block PR merge.
@@ -242,8 +250,11 @@ jobs:
           restore-keys: |
             nx-ci-${{ runner.os }}-
 
-      - name: Run type check (affected only)
-        run: npx nx affected -t type-check --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
+      - name: Run type check (affected plus changed TypeScript guard)
+        run: |
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          npx nx affected -t type-check --base="$BASE_REF" --head=HEAD --parallel=2
+          node scripts/ci/type-check-changed-files.mjs --base "$BASE_REF" --head HEAD
         timeout-minutes: 35
         env:
           NX_DAEMON: 'false'
@@ -252,7 +263,10 @@ jobs:
 
   test:
     needs: [install, detect-changes]
-    if: github.event_name == 'pull_request'
+    if: >-
+      needs.detect-changes.outputs.has_changes == 'true' &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # continue-on-error removed: failing tests must block PR merge.
@@ -336,12 +350,16 @@ jobs:
           NODE_OPTIONS: '--max-old-space-size=4096'
 
   # ---------------------------------------------------------------------------
-  # Build: PR only (deploy workflow does its own build for push to main).
-  # On PR this validates the code compiles before merge.
+  # Build: PR + push-to-main deploy gate.
+  # On PR this validates the code compiles before merge; on main it prevents
+  # deploy from starting until the affected workspace graph is buildable.
   # ---------------------------------------------------------------------------
   build:
     needs: [install, detect-changes]
-    if: github.event_name == 'pull_request'
+    if: >-
+      needs.detect-changes.outputs.has_changes == 'true' &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -836,11 +854,10 @@ jobs:
   # ---------------------------------------------------------------------------
   # Deploy to DigitalOcean — production droplet (push-to-main only).
   #
-  # ARCH-CI-009 + ADR-016: lint/type-check/test/build are PR-side gates; the
-  # PR review IS the merge gate. Once a commit reaches main, this job invokes
-  # deploy-digitalocean.yml as a reusable subworkflow so production deploy
-  # rolls out automatically — restoring the chain the deploy workflow's
-  # header comments document as its trigger model.
+  # ARCH-CI-009 + ADR-016: PRs run affected lint/type-check/test/build before
+  # merge, and push-to-main runs the same affected job surface before invoking
+  # deploy-digitalocean.yml. Production deploy must never start from a run where
+  # affected gates were skipped solely because the event was `push`.
   #
   # Restoration history:
   #   - deploy-digitalocean.yml was authored as a workflow_call subworkflow
@@ -850,7 +867,8 @@ jobs:
   #     could only fire via manual workflow_dispatch and was therefore
   #     decoupled from main, breaking the staging-gate audit trail.
   #   - This job closes that gap: every push to main triggers the deploy
-  #     subworkflow with `services: 'all'` and no staging-gate bypass.
+  #     subworkflow with `services: 'auto'` and no staging-gate bypass after
+  #     the affected main gates above have succeeded.
   #     Operator-initiated workflow_dispatch is unchanged.
   #
   # secrets: inherit forwards DROPLET_HOST, DROPLET_SSH_KEY, DROPLET_USER,
@@ -887,12 +905,25 @@ jobs:
       contents: write
       packages: write
       id-token: write
-    needs: [detect-changes, install]
+    needs:
+      - detect-changes
+      - install
+      - lint
+      - type-check
+      - test
+      - build
+      - pre-flight
     if: |
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
+      needs.detect-changes.outputs.has_changes == 'true' &&
       needs.detect-changes.result == 'success' &&
-      (needs.install.result == 'success' || needs.install.result == 'skipped')
+      needs.install.result == 'success' &&
+      needs.lint.result == 'success' &&
+      needs.type-check.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.pre-flight.result == 'success'
     uses: ./.github/workflows/deploy-digitalocean.yml
     secrets: inherit
     # bypass_staging_gate + bypass_reason are intentionally NOT passed —

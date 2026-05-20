@@ -68,6 +68,15 @@ DERIVED_STATES = (
     # Plan 026R §C.5 — bridge-aware acceptance states.
     "ACCEPTED_PENDING_BRIDGE",
     "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
+    # V10.5 Phase 3 (F-023, ADR-0001) — transient Anthropic API
+    # outage state. Reached when api_backoff_exhausted claim event is
+    # the latest non-HUMAN_REQUIRED event for the request. Reaped by
+    # external_outage_reaper after 30 min wall-clock; escalates to
+    # HUMAN_REQUIRED after MAX_EXTERNAL_OUTAGE_REQUEUES requeues.
+    # Ordered AFTER HUMAN_REQUIRED per ADR-0001: HUMAN_REQUIRED stickiness
+    # is preserved; only requests without HUMAN_REQUIRED can enter
+    # EXTERNAL_OUTAGE.
+    "EXTERNAL_OUTAGE",
 )
 
 
@@ -612,6 +621,16 @@ def derive_request_state(
     # If a HUMAN_REQUIRED event was emitted, that is sticky.
     if any(row.get("event") == "human_required" and row.get("request_id") == request_id for row in claims):
         return "HUMAN_REQUIRED"
+
+    # V10.5 Phase 3 (F-023, ADR-0001) — EXTERNAL_OUTAGE check AFTER
+    # HUMAN_REQUIRED to preserve HUMAN_REQUIRED stickiness. A transient
+    # Anthropic API 529 outage must NOT escape operator review. If the
+    # latest non-stale claim event for this request is api_backoff_exhausted,
+    # the request is in EXTERNAL_OUTAGE state (transient; reaped by
+    # external_outage_reaper after 30 min wall-clock).
+    latest_for_outage = _latest_claim_row(claims, request_id)
+    if latest_for_outage is not None and latest_for_outage.get("event") == "api_backoff_exhausted":
+        return "EXTERNAL_OUTAGE"
 
     # Otherwise inspect the latest claim's state.
     latest = _latest_claim_row(claims, request_id)

@@ -48,6 +48,10 @@ CYCLE_BOUND_EVENT_KINDS: frozenset[str] = frozenset({
     "planner_dispatch_daemon_exit",
     "worker_scheduler_daemon_started",
     "worker_scheduler_daemon_exit",
+    # V10.5 Phase 3 — F-023 API backoff governance events
+    "api_backoff_engaged",
+    "api_backoff_exhausted",
+    "api_backoff_interrupted",
 })
 
 # Plan ARIA-V3.2 §2c — events that operate outside cycle context

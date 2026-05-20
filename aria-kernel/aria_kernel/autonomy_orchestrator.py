@@ -736,6 +736,40 @@ def run_autonomy_orchestrator(
                 if cycle_status == "ok":
                     cycles_completed += 1
 
+                # Plan ARIA-V10.4 Phase 1 instrumentation — cost-attribution
+                # sentinel. V10.3-B endurance showed cycle 1 challenger
+                # burned $0.39 + 99s + 3 turns on real Claude but
+                # read_cost_attribution() returned 0 rows. The cost row
+                # write path is silently broken (suspect: bypassed when
+                # cycle convergence_blocks vs converges). Emit a sentinel
+                # governance event when a cycle completes without any
+                # cost row landing in this month's shard. Tier-3
+                # detectable. Real fix lands in Phase 3 once root cause
+                # known.
+                try:
+                    from .budget import _cost_attribution_shard as _cas
+                    _shard = _cas(root)
+                    _had_cost_row = False
+                    if _shard.exists():
+                        _shard_text = _shard.read_text(encoding="utf-8")
+                        # Cheap substring match: cycle_id is unique to
+                        # this cycle so its presence implies at least
+                        # one cost row was written for this cycle.
+                        _had_cost_row = cycle_id in _shard_text
+                    if not _had_cost_row:
+                        append_tools_governance(
+                            root,
+                            "cost_attribution_missing",
+                            {
+                                "cycle_id": cycle_id,
+                                "cycle_status": cycle_status,
+                                "shard_path": str(_shard),
+                                "shard_exists": _shard.exists(),
+                            },
+                        )
+                except Exception:
+                    pass
+
                 # Phase: planner dispatch drain (bounded).
                 planner_result = planner_drainer(
                     base_dir=root,

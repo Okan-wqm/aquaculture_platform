@@ -39,6 +39,7 @@ mock fakes covering all V5.1 verdict paths.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
@@ -261,7 +262,45 @@ def _poll_for_state(
     state transition. Fix: extract the state STRING via .get("state")
     before comparing to the set[str] of target states; return the
     extracted string (callers expect a state name, not a dict).
+
+    Plan ARIA-V10.4 Phase 3.H (F-016 root-cause fix) — INLINE planner
+    dispatch. Pre-V10.4 the convergence_drainer minted challenger /
+    cross_review envelopes and POLLED for plan_state transitions,
+    while assuming an EXTERNAL ``run_planner_dispatch_daemon`` was
+    claiming + processing the envelopes. The orchestrator's daemon is
+    bounded to ``max_iterations_per_phase=10`` per cycle and runs
+    BEFORE ``convergence_runner`` mints its envelopes — by the time
+    the convergence envelope hits ``requests.jsonl``, the planner
+    daemon has already exited.
+
+    F-016 evidence (cyc-20260520T065441Z): challenger envelope
+    ``AIR-aria-challenger-planner-241eadf5`` created at 07:04:35,
+    plan state never transitioned because no daemon was running to
+    claim it; ``challenger_drafted_poll_timeout`` fired at 07:08:07
+    with ``has_challenger_field=false`` (the smoking gun).
+
+    Tier-1 fix: ``_poll_for_state`` runs ONE
+    ``dispatch_one_pending_planner_request`` tick per poll iteration.
+    Each poll: check ARIA_STOP → check state → DISPATCH one pending
+    request → sleep → repeat. Convergence now OWNS dispatch of its
+    own envelopes — no dependency on the outer daemon's iteration
+    budget. The hook returns quickly when there are no pending
+    requests (``status=no_pending``) and blocks on real Claude
+    subprocess (~90-180s) when there is one; either way, the next
+    iteration sees the resulting state transition.
+
+    Concurrency note: ``dispatch_one_pending_planner_request`` does
+    not acquire the daemon-level lock. The underlying
+    ``claim_request`` / ``submit_claim_result`` carry their own §A.1
+    / §H-1 locks, so concurrent dispatch from the convergence_drainer
+    + a separately-running orchestrator daemon are mutually safe
+    (only one can claim any given request).
     """
+    # Local import — keep convergence_drainer module-load cheap. The
+    # hook + per-tick agent_id are only needed when we actually poll.
+    from .planner_dispatch_hook import dispatch_one_pending_planner_request
+    inline_agent_id = f"convergence:{os.getpid()}"
+
     while time.monotonic() < deadline:
         if _check_aria_stop(aria_stop_root):
             return None
@@ -272,6 +311,19 @@ def _poll_for_state(
             current_state = None
         if current_state is not None and current_state in target_states:
             return current_state
+        # Plan ARIA-V10.4 Phase 3.H — inline dispatch tick. Best-effort:
+        # failure to dispatch does not abort the poll. The hook is
+        # already governance-event-emitting + lease-token-discipline +
+        # subprocess-redaction; treating exceptions as recoverable
+        # preserves the V5 contract that ``_poll_for_state`` only
+        # returns on state-match, deadline, or ARIA_STOP.
+        try:
+            dispatch_one_pending_planner_request(
+                base_dir=base_dir,
+                agent_id=inline_agent_id,
+            )
+        except Exception:
+            pass
         time.sleep(sleep_interval)
     return None
 

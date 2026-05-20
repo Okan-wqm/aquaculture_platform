@@ -24,6 +24,7 @@ CANONICAL_V10_TEST_FILES = frozenset({
     "test_phase_v10_4_phase_3_h_10_primary_revision_canonicalizer.py",  # F-021 closure
     "test_phase_v10_4_phase_3_h_11_revision_round_advance.py",  # F-022 closure
     "test_phase_v10_5_phase_3_api_backoff.py",  # V10.5 Phase 3 F-023 backoff
+    "test_phase_v10_5_aria_watchdog.py",  # V10.5 Phase 1 watchdog MVP
     "test_phase_v10_5_v10_arc_completeness.py",  # this file
 })
 

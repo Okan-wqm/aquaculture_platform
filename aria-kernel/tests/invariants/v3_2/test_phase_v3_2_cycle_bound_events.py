@@ -52,6 +52,13 @@ CYCLE_BOUND_EVENT_KINDS: frozenset[str] = frozenset({
     "api_backoff_engaged",
     "api_backoff_exhausted",
     "api_backoff_interrupted",
+    # V10.5 Phase 1 — ARIA-Watchdog daemon governance events
+    "aria_watchdog_daemon_started",
+    "aria_watchdog_daemon_exit",
+    "aria_watchdog_iteration_started",
+    "aria_watchdog_finding_emitted",
+    "aria_watchdog_finding_suppressed",
+    "aria_watchdog_emit_rejected",
 })
 
 # Plan ARIA-V3.2 §2c — events that operate outside cycle context

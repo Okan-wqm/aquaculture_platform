@@ -165,6 +165,15 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
+      # Admin report artifacts require object storage. Keep this endpoint
+      # explicit at compose level so admin-api never inherits localhost.
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
+      MINIO_PORT: ${MINIO_PORT:-9000}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      MINIO_ACCESS_KEY: ${MINIO_USER:?MINIO_USER is required}
+      MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD is required}
+      MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
       # SECURITY (CRITICAL-001): RS256 — legacy stub only, canonical compose at repo root.
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}

@@ -52,7 +52,24 @@ import { MeteringModule } from './modules/metering/metering.module';
  * standard DATABASE_MIGRATIONS_RUN flow below.
  */
 const BillingMigrationRunnerService = createSchemaVersionGate('billing');
-const billingSchemaDdlOwnedByDbMigrate = process.env['DB_MIGRATE_AUTHORITATIVE'] === 'true';
+
+function resolveBillingSchemaDdlOwnedByDbMigrate(env: NodeJS.ProcessEnv): boolean {
+  const explicit = env['DB_MIGRATE_AUTHORITATIVE'];
+  if (explicit === 'true') {
+    return true;
+  }
+  if (explicit === 'false') {
+    return false;
+  }
+
+  const nodeEnv = env['NODE_ENV'] ?? 'development';
+  const aquaEnv = env['AQUA_ENV'] ?? nodeEnv;
+
+  return nodeEnv === 'production' || aquaEnv === 'production' || aquaEnv === 'staging';
+}
+
+const billingSchemaDdlOwnedByDbMigrate =
+  resolveBillingSchemaDdlOwnedByDbMigrate(process.env);
 
 @Module({
   imports: [

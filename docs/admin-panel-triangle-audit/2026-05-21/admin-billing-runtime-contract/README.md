@@ -52,10 +52,22 @@ The architectural decision is that `aqua-db-migrate` remains the only production
 
 Live remediation on 2026-05-21 used a rebuilt `aqua-db-migrate` one-shot image from this branch. The run completed with `db_migrate_complete`, enabled/forced billing RLS on 8 tenant-scoped tables, installed 8 `tenant_isolation_policy` policies, and converted billing audit columns to `timestamp with time zone`.
 
+## Runtime DDL Gate Correction - 2026-05-21
+
+Post-deploy live logs showed `aqua-db-migrate` completed the hardening successfully, but `aqua-billing` still registered the runtime RLS/audit DDL bootstraps because the AppModule import-time gate only checked a literal `process.env.DB_MIGRATE_AUTHORITATIVE=true`. The live container did not carry that env var even though the production schema-version gate correctly defaulted to db-migrate ownership.
+
+The correction aligns the billing-service import-time resolver with the production/staging default used by the schema-version gate and makes the compose contract explicit:
+
+- `apps/billing-service/src/app.module.ts` treats `NODE_ENV=production`, `AQUA_ENV=production`, and `AQUA_ENV=staging` as db-migrate-owned schema modes unless explicitly overridden.
+- `docker-compose.droplet.yml` and `docker-compose.prod.yml` pass `DB_MIGRATE_AUTHORITATIVE=true` and `DATABASE_MIGRATIONS_RUN=false` directly to `billing-service`.
+- `tests/invariants/admin-billing-runtime-contract.spec.ts` now guards both the resolver behavior and the compose env contract.
+
+This keeps billing-service responsible for runtime RLS connection/GUC wiring while preventing least-privilege service containers from attempting table-level DDL in production.
+
 ## Validation
 
-Validation commands are recorded in the PR once run:
+Local validation run before PR:
 
-- `./scripts/nats/generate-nats-conf.py`
 - `npx jest --config tests/invariants/jest.config.ts --runTestsByPath tests/invariants/admin-billing-runtime-contract.spec.ts --runInBand`
-- `npx tsc --noEmit -p apps/admin-api-service/tsconfig.app.json`
+- `npx tsc --noEmit -p apps/billing-service/tsconfig.app.json`
+- `npx eslint apps/billing-service/src/app.module.ts tests/invariants/admin-billing-runtime-contract.spec.ts`

@@ -40,6 +40,14 @@ function extractNatsAllowList(userBlock: string, direction: 'publish' | 'subscri
   );
 }
 
+function extractComposeServiceBlock(compose: string, serviceName: string): string {
+  return (
+    new RegExp(`\\n  ${serviceName}:\\n[\\s\\S]*?(?=\\n  [a-zA-Z0-9_-]+:\\n|\\n\\S|\\s*$)`).exec(
+      `\n${compose}`,
+    )?.[0] ?? ''
+  );
+}
+
 describe('INVARIANT: admin billing read models use UUID tenant contracts', () => {
   it('does not join auth.tenants.id to billing tenant_id by casting tenants to text', () => {
     const violations = ADMIN_BILLING_FILES.flatMap((file) => {
@@ -122,9 +130,29 @@ describe('INVARIANT: billing schema hardening belongs to db-migrate', () => {
     const billingAppModule = readRepoFile('apps/billing-service/src/app.module.ts');
 
     expect(billingAppModule).toContain('billingSchemaDdlOwnedByDbMigrate');
-    expect(billingAppModule).toContain("process.env['DB_MIGRATE_AUTHORITATIVE'] === 'true'");
+    expect(billingAppModule).toContain('resolveBillingSchemaDdlOwnedByDbMigrate');
+    expect(billingAppModule).toContain("env['DB_MIGRATE_AUTHORITATIVE']");
+    expect(billingAppModule).toContain("env['NODE_ENV']");
+    expect(billingAppModule).toContain("env['AQUA_ENV']");
+    expect(billingAppModule).toContain("nodeEnv === 'production'");
+    expect(billingAppModule).toContain("aquaEnv === 'production'");
+    expect(billingAppModule).toContain("aquaEnv === 'staging'");
     expect(billingAppModule).toContain('autoApply: !billingSchemaDdlOwnedByDbMigrate');
-    expect(billingAppModule).toContain('billingSchemaDdlOwnedByDbMigrate');
     expect(billingAppModule).toContain('AuditColumnsModule.forRoot');
+    expect(billingAppModule).not.toContain(
+      "const billingSchemaDdlOwnedByDbMigrate = process.env['DB_MIGRATE_AUTHORITATIVE'] === 'true';",
+    );
+  });
+
+  it('sets the production compose contract that keeps billing runtime DDL disabled', () => {
+    for (const composePath of ['docker-compose.droplet.yml', 'docker-compose.prod.yml']) {
+      const billingService = extractComposeServiceBlock(
+        readRepoFile(composePath),
+        'billing-service',
+      );
+
+      expect(billingService).toContain('DB_MIGRATE_AUTHORITATIVE: "true"');
+      expect(billingService).toContain('DATABASE_MIGRATIONS_RUN: "false"');
+    }
   });
 });

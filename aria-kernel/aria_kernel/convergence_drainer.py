@@ -809,10 +809,20 @@ def run_convergence_drainer(
         if early_terminal is not None:
             return early_terminal
 
+        # Plan ARIA-V10.5 Phase 4 — F-024 closure. Forward the drainer's
+        # max_rounds into the kernel evaluator so plan_convergence and
+        # convergence_drainer share a single source of truth for the
+        # "last round of the cycle" boundary. Pre-fix the drainer's cap
+        # (default 4, often overridden lower via CLI/profile) was
+        # invisible to evaluate_plan, which fell back to MAX_CROSS_REVIEW_ROUNDS=5
+        # and returned NEXT_ROUND_REQUIRED while the drainer was about
+        # to exit its bounded loop — leaving the kernel ledger with
+        # zero plan_evaluated events and no verdict provenance.
         eval_result = evaluate_plan(
             plan_id=plan_id,
             round_number=round_n,
             base_dir=base_dir,
+            max_rounds=max_rounds,
         )
         terminal_state = (
             eval_result.get("state")

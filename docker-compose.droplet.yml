@@ -897,6 +897,15 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      # Admin report artifacts use shared object storage. These values are
+      # required in production so admin-api never falls back to localhost.
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_USER:?MINIO_USER is required}
+      MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD is required}
+      MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
+      MINIO_REGION: us-east-1
       # SEC-015 (CRITICAL-002): Per-service NATS credentials — admin uses gateway account
       <<: *nats-gateway-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
@@ -909,6 +918,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:

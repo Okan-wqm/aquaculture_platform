@@ -52,6 +52,41 @@ import { UsersModule } from './users/users.module';
 
 const AdminSchemaVersionGate = createSchemaVersionGate('admin');
 
+const getRequiredStorageConfig = (
+  configService: ConfigService,
+  key: string,
+): string => {
+  const value = configService.get<string>(key);
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`Missing required object storage configuration: ${key}`);
+  }
+
+  return value;
+};
+
+const getAdminStorageConfigValue = (
+  configService: ConfigService,
+  key: string,
+  fallback: string,
+): string => {
+  if (configService.get<string>('NODE_ENV') === 'production') {
+    return getRequiredStorageConfig(configService, key);
+  }
+
+  return configService.get<string>(key, fallback);
+};
+
+const getAdminStoragePort = (configService: ConfigService): number => {
+  const rawPort = configService.get<string>('MINIO_PORT', '9000');
+  const port = Number.parseInt(rawPort, 10);
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid object storage port: ${rawPort}`);
+  }
+
+  return port;
+};
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -167,11 +202,11 @@ const AdminSchemaVersionGate = createSchemaVersionGate('admin');
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        endpoint: configService.get<string>('MINIO_ENDPOINT', 'localhost'),
-        port: parseInt(configService.get<string>('MINIO_PORT', '9000'), 10),
+        endpoint: getAdminStorageConfigValue(configService, 'MINIO_ENDPOINT', 'localhost'),
+        port: getAdminStoragePort(configService),
         useSSL: configService.get<string>('MINIO_USE_SSL', 'false') === 'true',
-        accessKey: configService.get<string>('MINIO_ACCESS_KEY', 'minioadmin'),
-        secretKey: configService.get<string>('MINIO_SECRET_KEY', 'minioadmin'),
+        accessKey: getAdminStorageConfigValue(configService, 'MINIO_ACCESS_KEY', 'minioadmin'),
+        secretKey: getAdminStorageConfigValue(configService, 'MINIO_SECRET_KEY', 'minioadmin'),
         bucket: configService.get<string>('MINIO_BUCKET', 'aquaculture'),
         region: configService.get<string>('MINIO_REGION', 'us-east-1'),
       }),

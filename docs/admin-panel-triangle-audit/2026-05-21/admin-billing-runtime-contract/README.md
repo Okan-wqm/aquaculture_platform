@@ -34,6 +34,24 @@ The first live rollout proved the subject existed in the NATS SSoT, but it was o
 
 The follow-up fix moved the subject to the subscribe allow-list, regenerated `nats.conf`, and tightened the invariant so it verifies ACL direction instead of only checking subject presence.
 
+## RLS/Audit Hardening Correction - 2026-05-21
+
+After the NATS ACL correction was loaded on the droplet, `aqua-billing` restarted cleanly but logged:
+
+- `rls.bootstrap.failed service="billing" ... must be owner of table invoices`
+- `audit_columns.bootstrap.failed service="billing" ... must be owner of table invoices`
+
+Live database inspection showed most `billing.*` financial tables were owned by the authoritative migration role, not by the least-privilege `billing_service` runtime role, and RLS policies were absent on the billing schema. That is an architectural ownership mismatch, not a frontend or API handler bug.
+
+The architectural decision is that `aqua-db-migrate` remains the only production schema writer when `DB_MIGRATE_AUTHORITATIVE=true`. Billing-service must not attempt table-level DDL at startup in that mode. Instead:
+
+- `apps/db-migrate/src/schema-registry.ts` declares billing `postMigrationHardening` for tenant RLS and audit-column conversion.
+- `apps/db-migrate/src/main.ts` runs `applyTenantRlsToSchema` and `convertAuditColumnsToTimestamptz` after billing migrations.
+- `apps/billing-service/src/app.module.ts` keeps RLS connection/GUC wiring but disables runtime RLS auto-apply and audit-column bootstrap when db-migrate is authoritative.
+- `tests/invariants/admin-billing-runtime-contract.spec.ts` now guards the db-migrate ownership contract.
+
+Live remediation on 2026-05-21 used a rebuilt `aqua-db-migrate` one-shot image from this branch. The run completed with `db_migrate_complete`, enabled/forced billing RLS on 8 tenant-scoped tables, installed 8 `tenant_isolation_policy` policies, and converted billing audit columns to `timestamp with time zone`.
+
 ## Validation
 
 Validation commands are recorded in the PR once run:

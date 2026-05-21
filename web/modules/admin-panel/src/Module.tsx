@@ -8,11 +8,9 @@
  * on demand so the initial bundle stays small.
  */
 
+import { Spinner, useAuthContext } from '@aquaculture/shared-ui';
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-
-import { Spinner } from '../../../shared-ui/src/components/Loading/Loading';
-import { useAuthContext } from '../../../shared-ui/src/contexts/AuthContext';
 
 // ============================================================================
 // Lazy Page Imports

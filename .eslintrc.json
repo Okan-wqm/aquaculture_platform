@@ -23,7 +23,7 @@
           "error",
           {
             "enforceBuildableLibDependency": true,
-            "allow": [],
+            "allow": ["@aquaculture/shared-ui"],
             "depConstraints": [
               {
                 "sourceTag": "*",

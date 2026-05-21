@@ -28,6 +28,12 @@ Tenant identity remains UUID across auth and billing schemas. Admin-api may expo
 - Regenerated `infrastructure/docker/nats/nats.conf` from `infrastructure/nats/services.yaml`.
 - Added an invariant test that fails on text-cast tenant joins and on missing billing admin command NATS ACLs.
 
+## Post-Deploy Correction - 2026-05-21
+
+The first live rollout proved the subject existed in the NATS SSoT, but it was on the wrong side of the billing-service ACL. `request.billing.admin.>` must be in `billing_service.subscribe`, not `billing_service.publish`, because billing-service is the command owner and subscribes to those request subjects.
+
+The follow-up fix moved the subject to the subscribe allow-list, regenerated `nats.conf`, and tightened the invariant so it verifies ACL direction instead of only checking subject presence.
+
 ## Validation
 
 Validation commands are recorded in the PR once run:

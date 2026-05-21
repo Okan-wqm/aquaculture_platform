@@ -14,9 +14,30 @@ const ADMIN_BILLING_FILES = execFileSync(
   ['ls-files', '-z', '--', ADMIN_BILLING_SERVICE_GLOB],
   { cwd: REPO_ROOT, encoding: 'utf-8', maxBuffer: 16 * 1024 * 1024 },
 ).split('\0').filter(Boolean);
+const BILLING_ADMIN_COMMAND_SUBJECT = 'request.billing.admin.>';
 
 function readRepoFile(path: string): string {
   return readFileSync(resolve(REPO_ROOT, path), 'utf-8');
+}
+
+function extractYamlList(block: string, key: 'publish' | 'subscribe'): string {
+  const nextKey = key === 'publish' ? 'subscribe' : undefined;
+  const pattern =
+    nextKey === undefined
+      ? new RegExp(`\\n    ${key}:\\n([\\s\\S]*?)(?=\\n\\s*$)`)
+      : new RegExp(`\\n    ${key}:\\n([\\s\\S]*?)\\n    ${nextKey}:`);
+
+  return pattern.exec(block)?.[1] ?? '';
+}
+
+function extractNatsAllowList(
+  userBlock: string,
+  direction: 'publish' | 'subscribe',
+): string {
+  return (
+    new RegExp(`${direction}:\\s*\\{\\s*allow:\\s*\\[([\\s\\S]*?)\\n\\s*\\]`)
+      .exec(userBlock)?.[1] ?? ''
+  );
 }
 
 describe('INVARIANT: admin billing read models use UUID tenant contracts', () => {
@@ -48,17 +69,23 @@ describe('INVARIANT: admin billing read models use UUID tenant contracts', () =>
 });
 
 describe('INVARIANT: billing-service owns platform-admin billing mutations', () => {
-  it('allows billing-service to subscribe to billing admin command subjects in NATS SSoT', () => {
+  it('allows billing-service to subscribe, not publish, billing admin command subjects in NATS SSoT', () => {
     const servicesYaml = readRepoFile('infrastructure/nats/services.yaml');
     const billingServiceBlock = /- name: billing_service[\s\S]*?(?=\n[ ]{2}# ---------------------------------------------------------------------------|\n[ ]{2}- name:|\n*$)/.exec(servicesYaml)?.[0] ?? '';
+    const publishList = extractYamlList(billingServiceBlock, 'publish');
+    const subscribeList = extractYamlList(billingServiceBlock, 'subscribe');
 
-    expect(billingServiceBlock).toContain('- "request.billing.admin.>"');
+    expect(publishList).not.toContain(`- "${BILLING_ADMIN_COMMAND_SUBJECT}"`);
+    expect(subscribeList).toContain(`- "${BILLING_ADMIN_COMMAND_SUBJECT}"`);
   });
 
-  it('keeps generated NATS config in lockstep with the SSoT', () => {
+  it('keeps generated NATS config in lockstep with the billing-service subscribe ACL', () => {
     const natsConf = readRepoFile('infrastructure/docker/nats/nats.conf');
     const billingUserBlock = /user: "CN=billing_service"[\s\S]*?(?=\n[ ]{4}\},|\n[ ]{4}# ──|\n*$)/.exec(natsConf)?.[0] ?? '';
+    const publishAllowList = extractNatsAllowList(billingUserBlock, 'publish');
+    const subscribeAllowList = extractNatsAllowList(billingUserBlock, 'subscribe');
 
-    expect(billingUserBlock).toContain('"request.billing.admin.>"');
+    expect(publishAllowList).not.toContain(`"${BILLING_ADMIN_COMMAND_SUBJECT}"`);
+    expect(subscribeAllowList).toContain(`"${BILLING_ADMIN_COMMAND_SUBJECT}"`);
   });
 });

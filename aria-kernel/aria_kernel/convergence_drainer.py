@@ -326,7 +326,21 @@ def _poll_for_state(
     # detectable governance event.
     inline_agent_id = f"convergence:{os.getpid()}"
 
-    while time.monotonic() < deadline:
+    # Plan ARIA-V10.5 Phase 5 — F-025 closure. Loop body order matters:
+    # fold_plan_state MUST run BEFORE the deadline check, so a state
+    # transition that was JUST folded inside the previous iteration's
+    # dispatch_one_pending_planner_request call is observed before
+    # deadline expiry can return None. Pre-fix the deadline check at
+    # the while-condition top ran before fold_plan_state, so a
+    # long-running successful dispatch (subprocess wall-clock >
+    # challenger_timeout_seconds) folded the state correctly but the
+    # next iteration exited via deadline-expired without observing it.
+    # F-025 evidence cycle (cyc-20260521T172723Z-auto round 2
+    # challenger): subprocess took 630s vs timeout 600s; bridge folded
+    # CHALLENGER_DRAFTED at t+630s; loop returned None at t+635s; post-
+    # termination fold_plan_state confirmed state was correctly set.
+    # State observation has temporal priority over budget enforcement.
+    while True:
         if _check_aria_stop(aria_stop_root):
             return None
         try:
@@ -336,6 +350,8 @@ def _poll_for_state(
             current_state = None
         if current_state is not None and current_state in target_states:
             return current_state
+        if time.monotonic() >= deadline:
+            return None
         # Plan ARIA-V10.4 Phase 3.H + 3.H.2 — inline dispatch tick.
         # `planner_roles` MUST enumerate every role the convergence
         # drainer mints (primary_plan revisions, challenger_plan,

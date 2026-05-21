@@ -4,8 +4,10 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { billingApi, InvoiceOverview } from '../services/adminApi';
+import { useLocation, useNavigate } from 'react-router-dom';
+
 import CreateInvoiceModal, { type CreateInvoicePayload } from '../components/CreateInvoiceModal';
+import { billingApi, InvoiceOverview } from '../services/adminApi';
 
 interface Invoice {
   id: string;
@@ -50,6 +52,11 @@ const formatDate = (dateStr: string): string => {
 };
 
 const InvoicesPage: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const invoiceListRoute = '/admin/billing/invoices';
+  const invoiceCreateRoute = '/admin/billing/invoices/new';
+  const initialParams = new URLSearchParams(location.search);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [stats, setStats] = useState<InvoiceStats>({
     totalInvoices: 0,
@@ -60,9 +67,10 @@ const InvoicesPage: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState(initialParams.get('search') ?? '');
+  const [statusFilter, setStatusFilter] = useState<string>(initialParams.get('status') ?? 'all');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(location.pathname === invoiceCreateRoute);
 
   // Toast notification
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -77,7 +85,7 @@ const InvoicesPage: React.FC = () => {
   const [voidReason, setVoidReason] = useState('');
   const [voidLoading, setVoidLoading] = useState(false);
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info') => {
+  const showToast = (message: string, type: 'success' | 'error' | 'info'): void => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
@@ -120,26 +128,65 @@ const InvoicesPage: React.FC = () => {
         totalOverdue: data.totalOverdue || 0,
       });
     } catch (err) {
-      console.error('Failed to fetch invoice stats:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load invoice stats');
     }
   }, []);
 
   useEffect(() => {
-    fetchInvoices();
-    fetchStats();
+    void fetchInvoices();
+    void fetchStats();
   }, [fetchInvoices, fetchStats]);
 
-  // Debounced search
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchInvoices();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchTerm, fetchInvoices]);
+    const params = new URLSearchParams(location.search);
+    setSearchTerm(params.get('search') ?? '');
+    setStatusFilter(params.get('status') ?? 'all');
+    setShowCreateModal(location.pathname === invoiceCreateRoute);
+  }, [invoiceCreateRoute, location.pathname, location.search]);
+
+  const updateInvoiceListQuery = useCallback((next: { status?: string; search?: string }) => {
+    const params = new URLSearchParams(location.search);
+    const nextStatus = next.status ?? statusFilter;
+    const nextSearch = next.search ?? searchTerm;
+
+    if (nextStatus && nextStatus !== 'all') {
+      params.set('status', nextStatus);
+    } else {
+      params.delete('status');
+    }
+
+    if (nextSearch.trim()) {
+      params.set('search', nextSearch.trim());
+    } else {
+      params.delete('search');
+    }
+
+    const query = params.toString();
+    navigate(`${invoiceListRoute}${query ? `?${query}` : ''}`, { replace: location.pathname === invoiceListRoute });
+  }, [invoiceListRoute, location.pathname, location.search, navigate, searchTerm, statusFilter]);
+
+  const handleSearchChange = (value: string): void => {
+    setSearchTerm(value);
+    updateInvoiceListQuery({ search: value });
+  };
+
+  const handleStatusFilterChange = (status: string): void => {
+    setStatusFilter(status);
+    updateInvoiceListQuery({ status });
+  };
+
+  const openCreateInvoice = (): void => {
+    navigate(invoiceCreateRoute);
+  };
+
+  const closeCreateInvoice = useCallback((): void => {
+    setShowCreateModal(false);
+    navigate(invoiceListRoute);
+  }, [invoiceListRoute, navigate]);
 
   // --- Action Handlers ---
 
-  const handleMarkAsPaid = async () => {
+  const handleMarkAsPaid = async (): Promise<void> => {
     if (!selectedInvoice) return;
     const amount = parseFloat(markPaidAmount);
     if (isNaN(amount) || amount <= 0) {
@@ -158,8 +205,7 @@ const InvoicesPage: React.FC = () => {
       setShowMarkPaidModal(false);
       setMarkPaidAmount('');
       setSelectedInvoice(null);
-      fetchInvoices();
-      fetchStats();
+      await Promise.all([fetchInvoices(), fetchStats()]);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to mark invoice as paid', 'error');
     } finally {
@@ -167,7 +213,7 @@ const InvoicesPage: React.FC = () => {
     }
   };
 
-  const handleVoidInvoice = async () => {
+  const handleVoidInvoice = async (): Promise<void> => {
     if (!selectedInvoice) return;
     if (!voidReason.trim()) {
       showToast('Please provide a reason for voiding', 'error');
@@ -181,8 +227,7 @@ const InvoicesPage: React.FC = () => {
       setShowVoidModal(false);
       setVoidReason('');
       setSelectedInvoice(null);
-      fetchInvoices();
-      fetchStats();
+      await Promise.all([fetchInvoices(), fetchStats()]);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to void invoice', 'error');
     } finally {
@@ -190,28 +235,16 @@ const InvoicesPage: React.FC = () => {
     }
   };
 
-  const handleDownloadPdf = () => {
-    showToast('PDF download is not yet available', 'info');
-  };
-
-  const handleSendReminder = () => {
-    showToast('Email reminders are not yet configured', 'info');
-  };
-
-  // --- Create Invoice Modal ---
-  const [showCreateModal, setShowCreateModal] = useState(false);
-
   /**
    * Handles submission from the extracted CreateInvoiceModal component.
    * Delegates to the billing API, then refreshes the invoice list and stats.
    */
-  const handleCreateInvoiceSubmit = useCallback(async (data: CreateInvoicePayload) => {
+  const handleCreateInvoiceSubmit = useCallback(async (data: CreateInvoicePayload): Promise<void> => {
     await billingApi.createInvoice(data);
     showToast('Invoice created successfully', 'success');
-    setShowCreateModal(false);
-    fetchInvoices();
-    fetchStats();
-  }, [fetchInvoices, fetchStats]);
+    closeCreateInvoice();
+    await Promise.all([fetchInvoices(), fetchStats()]);
+  }, [closeCreateInvoice, fetchInvoices, fetchStats]);
 
   /**
    * Export invoices to a CSV file.
@@ -220,7 +253,7 @@ const InvoicesPage: React.FC = () => {
    * already fetched. Falls back with an error toast when there is
    * nothing to export.
    */
-  const handleExportCsv = () => {
+  const handleExportCsv = (): void => {
     if (invoices.length === 0) {
       showToast('No invoices to export', 'info');
       return;
@@ -284,14 +317,14 @@ const InvoicesPage: React.FC = () => {
     showToast(`Exported ${invoices.length} invoices`, 'success');
   };
 
-  const openMarkPaidModal = () => {
+  const openMarkPaidModal = (): void => {
     if (selectedInvoice) {
       setMarkPaidAmount(String(selectedInvoice.amountDue));
       setShowMarkPaidModal(true);
     }
   };
 
-  const openVoidModal = () => {
+  const openVoidModal = (): void => {
     setVoidReason('');
     setShowVoidModal(true);
   };
@@ -350,7 +383,7 @@ const InvoicesPage: React.FC = () => {
             Export
           </button>
           <button
-            onClick={() => setShowCreateModal(true)}
+            onClick={openCreateInvoice}
             className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
             Create Invoice
@@ -387,7 +420,10 @@ const InvoicesPage: React.FC = () => {
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <p className="text-red-700">{error}</p>
           <button
-            onClick={() => { fetchInvoices(); fetchStats(); }}
+            onClick={() => {
+              void fetchInvoices();
+              void fetchStats();
+            }}
             className="mt-2 text-red-600 hover:text-red-800 text-sm font-medium"
           >
             Retry
@@ -404,7 +440,7 @@ const InvoicesPage: React.FC = () => {
                 type="text"
                 placeholder="Search invoices..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <svg
@@ -421,7 +457,7 @@ const InvoicesPage: React.FC = () => {
             {['all', 'paid', 'pending', 'overdue', 'void'].map((status) => (
               <button
                 key={status}
-                onClick={() => setStatusFilter(status)}
+                onClick={() => handleStatusFilterChange(status)}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors capitalize ${
                   statusFilter === status
                     ? 'bg-blue-100 text-blue-700'
@@ -519,12 +555,6 @@ const InvoicesPage: React.FC = () => {
                     >
                       View
                     </button>
-                    <button
-                      onClick={handleDownloadPdf}
-                      className="text-gray-600 hover:text-gray-900"
-                    >
-                      Download
-                    </button>
                   </td>
                 </tr>
               ))}
@@ -615,21 +645,6 @@ const InvoicesPage: React.FC = () => {
                   </button>
                 )}
               </div>
-              {/* Secondary Actions */}
-              <div className="flex gap-3">
-                <button
-                  onClick={handleDownloadPdf}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Download PDF
-                </button>
-                <button
-                  onClick={handleSendReminder}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Send Reminder
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -674,7 +689,9 @@ const InvoicesPage: React.FC = () => {
                 Cancel
               </button>
               <button
-                onClick={handleMarkAsPaid}
+                onClick={() => {
+                  void handleMarkAsPaid();
+                }}
                 disabled={markPaidLoading}
                 className="flex-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
               >
@@ -702,10 +719,11 @@ const InvoicesPage: React.FC = () => {
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="invoice-void-reason" className="block text-sm font-medium text-gray-700 mb-1">
                   Reason for voiding
                 </label>
                 <textarea
+                  id="invoice-void-reason"
                   value={voidReason}
                   onChange={(e) => setVoidReason(e.target.value)}
                   rows={3}
@@ -723,7 +741,9 @@ const InvoicesPage: React.FC = () => {
                 Cancel
               </button>
               <button
-                onClick={handleVoidInvoice}
+                onClick={() => {
+                  void handleVoidInvoice();
+                }}
                 disabled={voidLoading || !voidReason.trim()}
                 className="flex-1 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
               >
@@ -738,7 +758,7 @@ const InvoicesPage: React.FC = () => {
       {showCreateModal && (
         <CreateInvoiceModal
           onSubmit={handleCreateInvoiceSubmit}
-          onClose={() => setShowCreateModal(false)}
+          onClose={closeCreateInvoice}
         />
       )}
     </div>

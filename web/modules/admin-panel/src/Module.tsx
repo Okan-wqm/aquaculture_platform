@@ -10,7 +10,9 @@
 
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuthContext, Spinner } from '@aquaculture/shared-ui';
+
+import { Spinner } from '../../../shared-ui/src/components/Loading/Loading';
+import { useAuthContext } from '../../../shared-ui/src/contexts/AuthContext';
 
 // ============================================================================
 // Lazy Page Imports
@@ -40,6 +42,7 @@ const OnboardingPage = lazy(() => import('./pages/OnboardingPage'));
 const ModulesPage = lazy(() => import('./pages/ModulesPage'));
 const BillingDashboardPage = lazy(() => import('./pages/BillingDashboardPage'));
 const InvoicesPage = lazy(() => import('./pages/InvoicesPage'));
+const BillingReportsPage = lazy(() => import('./pages/BillingReportsPage'));
 const DatabaseExplorerPage = lazy(() => import('./pages/DatabaseExplorerPage'));
 const ModulePricingPage = lazy(() => import('./pages/ModulePricingPage'));
 const CustomPlansListPage = lazy(() => import('./pages/CustomPlansListPage'));
@@ -122,13 +125,16 @@ const AdminPanelModule: React.FC = () => {
         <Route path="billing" element={<BillingDashboardPage />} />
         <Route path="billing/subscriptions" element={<SubscriptionManagementPage />} />
         <Route path="billing/invoices" element={<InvoicesPage />} />
+        <Route path="billing/invoices/new" element={<InvoicesPage />} />
+        <Route path="billing/reports" element={<BillingReportsPage />} />
         <Route path="billing/plans" element={<PlanManagementPage />} />
         <Route path="billing/discounts" element={<DiscountCodePage />} />
         <Route path="billing/module-pricing" element={<ModulePricingPage />} />
         <Route path="billing/payments" element={<PaymentsPage />} />
         <Route path="billing/usage" element={<UsageDashboardPage />} />
         <Route path="billing/custom-plans" element={<CustomPlansListPage />} />
-        <Route path="billing/custom-plan-builder" element={<CustomPlanBuilderPage />} />
+        <Route path="billing/custom-plans/new" element={<CustomPlanBuilderPage />} />
+        <Route path="billing/custom-plan-builder" element={<Navigate to="/admin/billing/custom-plans/new" replace />} />
 
         {/* Messaging Monitoring (SUPER_ADMIN) */}
         <Route path="messaging/monitoring" element={<MessagingMonitoringPage />} />

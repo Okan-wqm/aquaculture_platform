@@ -18,10 +18,11 @@
  * Adding a new admin route: edit `adminNavItems` below. New SVG:
  * add a key to `adminNavIcons`. No other file is touched.
  */
+import {
+  ADMIN_BILLING_NAV_ITEMS,
+  type NavigationItem,
+} from '@aquaculture/shared-ui';
 import React from 'react';
-
-import { ADMIN_BILLING_NAV_ITEMS } from '../../../../shared-ui/src/authz/admin-billing-routes';
-import type { NavigationItem } from '../../../../shared-ui/src/types';
 
 /**
  * Admin-specific icon set. Keys are the `icon` string on each

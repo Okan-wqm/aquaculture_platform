@@ -6,17 +6,20 @@
  * Supports role-based navigation with dynamic module loading.
  */
 
+import {
+  ADMIN_BILLING_NAV_ITEMS,
+  Header,
+  Sidebar,
+  createTenantQueryKey,
+  type NavigationItem,
+  type SidebarTheme,
+  useAuthContext,
+  useTenantContext,
+} from '@aquaculture/shared-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import React, { useState, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 
-import { ADMIN_BILLING_NAV_ITEMS } from '../../../shared-ui/src/authz/admin-billing-routes';
-import { Header } from '../../../shared-ui/src/components/Layout/Header';
-import { Sidebar, type SidebarTheme } from '../../../shared-ui/src/components/Layout/Sidebar';
-import { useAuthContext } from '../../../shared-ui/src/contexts/AuthContext';
-import { useTenantContext } from '../../../shared-ui/src/contexts/TenantContext';
-import type { NavigationItem } from '../../../shared-ui/src/types';
-import { createTenantQueryKey } from '../../../shared-ui/src/utils/tenant-query-keys';
 import ConsentBanner from '../components/ConsentBanner';
 
 import { NotificationPanel } from '@/components/NotificationPanel';

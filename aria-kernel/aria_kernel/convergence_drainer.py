@@ -840,13 +840,32 @@ def run_convergence_drainer(
             base_dir=base_dir,
             max_rounds=max_rounds,
         )
-        terminal_state = (
-            eval_result.get("state")
-            or eval_result.get("event", {}).get("details", {}).get("state")
-        )
+        # Plan ARIA-V10.5 Phase 6 — F-026 closure. The kernel writes
+        # terminal-state evaluation results into the plan_evaluated event
+        # under event.payload.terminal_state (see plan_convergence.py
+        # _append_event line 989-1007 and evaluate_plan line 475-481).
+        # The pre-fix extraction looked at event.details.state — wrong
+        # field names on both axes:
+        #   - "details" was never the event payload key (the kernel uses
+        #     "payload"; "details" is reserved for tools governance events
+        #     written via append_tools_governance).
+        #   - "state" was never the terminal-state field on plan events
+        #     (the kernel emits "terminal_state"; "state" is the kernel-
+        #     internal fold output, not the event payload field).
+        # Result: drainer never observed terminal states, fell through to
+        # the line-926 hardcoded "max_rounds" verdict, verdict_provenance
+        # never appended. Cycle 1 of v10-5-f-025-validation endurance
+        # surfaced this — kernel correctly emitted plan_evaluated with
+        # terminal_state=HUMAN_REQUIRED + max_rounds_reached but drainer
+        # read None and missed the in-loop terminal branch.
+        _event_payload = eval_result.get("event", {}).get("payload", {})
+        terminal_state = _event_payload.get("terminal_state")
+        # NEXT_ROUND_REQUIRED has no event field — reason_codes live at
+        # eval_result top level for that case (plan_convergence.py line
+        # 466-474). Terminal cases carry reasons in event.payload.
         reason_codes = (
-            eval_result.get("reason_codes")
-            or eval_result.get("event", {}).get("details", {}).get("reason_codes")
+            _event_payload.get("reason_codes")
+            or eval_result.get("reason_codes")
             or []
         )
 

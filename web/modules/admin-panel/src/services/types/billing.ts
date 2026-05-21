@@ -192,7 +192,7 @@ export interface CreateDiscountCodeDto {
   maxRedemptionsPerTenant?: number;
   campaignId?: string;
   campaignName?: string;
-  createdBy: string;
+  createdBy?: string;
 }
 
 // ============================================================================

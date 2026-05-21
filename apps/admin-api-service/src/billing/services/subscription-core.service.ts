@@ -1,11 +1,12 @@
 import {
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource } from 'typeorm';
 
 import { BillingCycle, PlanTier } from '../entities/plan-definition.entity';
 
@@ -15,11 +16,65 @@ import {
   SubscriptionOverview,
   SubscriptionFilters,
   ModuleQuantities,
-  ModuleLineItem,
-  SubscriptionModuleConfig,
   CreateSubscriptionDto,
   CreateSubscriptionResult,
 } from './subscription-types';
+
+type DbNumeric = number | string | null | undefined;
+
+interface CountRow {
+  count: DbNumeric;
+}
+
+type SubscriptionOverviewRow = Omit<
+  SubscriptionOverview,
+  'monthlyPrice' | 'trialEndDate' | 'cancelledAt'
+> & {
+  monthlyPrice: DbNumeric;
+  trialEndDate: Date | null;
+  cancelledAt: Date | null;
+};
+
+interface TenantExistsRow {
+  id: string;
+  name: string;
+}
+
+interface ExistingSubscriptionRow {
+  id: string;
+}
+
+interface InsertedSubscriptionRow {
+  id: string;
+}
+
+interface InsertedModuleItemRow {
+  id: string;
+  moduleId: string;
+  moduleCode: string;
+}
+
+function dbNumber(value: DbNumeric): number {
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mapSubscriptionOverview(row: SubscriptionOverviewRow): SubscriptionOverview {
+  return {
+    ...row,
+    monthlyPrice: dbNumber(row.monthlyPrice),
+    trialEndDate: row.trialEndDate ?? undefined,
+    cancelledAt: row.cancelledAt ?? undefined,
+  };
+}
 
 /**
  * Subscription Core Service
@@ -61,7 +116,7 @@ export class SubscriptionCoreService {
         s.cancelled_at as "cancelledAt",
         s."createdAt" as "createdAt"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
+      LEFT JOIN auth.tenants t ON t.id = s.tenant_id
       WHERE 1=1
     `;
 
@@ -110,8 +165,8 @@ export class SubscriptionCoreService {
 
     // Get total count
     const countQuery = `SELECT COUNT(*) as count FROM (${query}) as subq`;
-    const countResult = await this.dataSource.query(countQuery, params);
-    const total = parseInt(countResult[0]?.count || '0', 10);
+    const countResult = await this.dataSource.query<CountRow[]>(countQuery, params);
+    const total = dbNumber(countResult[0]?.count);
 
     // Add pagination
     query += ` ORDER BY s."createdAt" DESC`;
@@ -125,16 +180,16 @@ export class SubscriptionCoreService {
       params.push(filters.offset);
     }
 
-    const subscriptions = await this.dataSource.query(query, params);
+    const subscriptions = await this.dataSource.query<SubscriptionOverviewRow[]>(query, params);
 
-    return { subscriptions, total };
+    return { subscriptions: subscriptions.map(mapSubscriptionOverview), total };
   }
 
   /**
    * Get subscription by tenant ID
    */
   async getSubscriptionByTenant(tenantId: string): Promise<SubscriptionOverview | null> {
-    const result = await this.dataSource.query(
+    const result = await this.dataSource.query<SubscriptionOverviewRow[]>(
       `
       SELECT
         s.id,
@@ -152,13 +207,14 @@ export class SubscriptionCoreService {
         s.cancelled_at as "cancelledAt",
         s."createdAt" as "createdAt"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
-      WHERE s.tenant_id = $1
+      LEFT JOIN auth.tenants t ON t.id = s.tenant_id
+      WHERE s.tenant_id = $1::uuid
     `,
       [tenantId],
     );
 
-    return result[0] || null;
+    const subscription = result[0];
+    return subscription ? mapSubscriptionOverview(subscription) : null;
   }
 
   /**
@@ -190,7 +246,7 @@ export class SubscriptionCoreService {
           end_date = $3,
           "updatedAt" = NOW(),
           updated_by = $4
-        WHERE tenant_id = $5
+        WHERE tenant_id = $5::uuid
       `,
         [
           cancelImmediately ? SubscriptionStatus.CANCELLED : subscription.status,
@@ -262,7 +318,7 @@ export class SubscriptionCoreService {
         end_date = NULL,
         "updatedAt" = NOW(),
         updated_by = $1
-      WHERE tenant_id = $2
+      WHERE tenant_id = $2::uuid
     `,
       [reactivatedBy, tenantId],
     );
@@ -305,7 +361,7 @@ export class SubscriptionCoreService {
         current_period_end = $1,
         "updatedAt" = NOW(),
         updated_by = $2
-      WHERE tenant_id = $3
+      WHERE tenant_id = $3::uuid
     `,
       [newTrialEnd, extendedBy, tenantId],
     );
@@ -357,8 +413,8 @@ export class SubscriptionCoreService {
     } = dto;
 
     // Validate tenant exists
-    const tenantResult = await this.dataSource.query(
-      `SELECT id, name FROM auth.tenants WHERE id = $1`,
+    const tenantResult = await this.dataSource.query<TenantExistsRow[]>(
+      `SELECT id, name FROM auth.tenants WHERE id = $1::uuid`,
       [tenantId],
     );
 
@@ -367,8 +423,8 @@ export class SubscriptionCoreService {
     }
 
     // Check if subscription already exists
-    const existingSubscription = await this.dataSource.query(
-      `SELECT id FROM billing.subscriptions WHERE tenant_id = $1`,
+    const existingSubscription = await this.dataSource.query<ExistingSubscriptionRow[]>(
+      `SELECT id FROM billing.subscriptions WHERE tenant_id = $1::uuid`,
       [tenantId],
     );
 
@@ -434,10 +490,10 @@ export class SubscriptionCoreService {
     }> = [];
 
     // Execute in transaction
-    const subscriptionId = await this.dataSource.transaction(async (manager) => {
+    const subscriptionId = await this.dataSource.transaction<string>(async (manager) => {
       // Create subscription record
       // billing.subscriptions uses snake_case columns (owned by billing-service)
-      const subscriptionResult = await manager.query(
+      const subscriptionResult = await manager.query<InsertedSubscriptionRow[]>(
         `
         INSERT INTO billing.subscriptions (
           id, tenant_id, plan_tier, plan_name, status, billing_cycle,
@@ -468,7 +524,12 @@ export class SubscriptionCoreService {
         ],
       );
 
-      const newSubscriptionId = subscriptionResult[0].id;
+      const newSubscription = subscriptionResult[0];
+      if (!newSubscription) {
+        throw new InternalServerErrorException(`Subscription insert did not return a row for tenant ${tenantId}`);
+      }
+
+      const newSubscriptionId = newSubscription.id;
 
       // Bulk insert all subscription_module_items in a single query
       if (modules.length > 0) {
@@ -491,7 +552,7 @@ export class SubscriptionCoreService {
         }
 
         // subscription_module_items uses snake_case columns (owned by billing-service)
-        const bulkInsertResult = await manager.query(
+        const bulkInsertResult = await manager.query<InsertedModuleItemRow[]>(
           `
           INSERT INTO billing.subscription_module_items (
             id, subscription_id, module_id, module_code,
@@ -503,8 +564,7 @@ export class SubscriptionCoreService {
           bulkParams,
         );
 
-        for (let i = 0; i < bulkInsertResult.length; i++) {
-          const row = bulkInsertResult[i];
+        for (const row of bulkInsertResult) {
           const moduleConfig = modules.find((m) => m.moduleId === row.moduleId && m.moduleCode === row.moduleCode);
           moduleItems.push({
             id: row.id,

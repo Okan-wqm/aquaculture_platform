@@ -1,5 +1,12 @@
-import { randomUUID } from 'crypto';
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -53,6 +60,55 @@ export interface RefundPaymentDto {
   reason: string;
 }
 
+type DbNumeric = number | string | null | undefined;
+
+interface CountRow {
+  count: DbNumeric;
+}
+
+type PaymentOverviewRow = Omit<PaymentOverview, 'amount' | 'refundedAmount'> & {
+  amount: DbNumeric;
+  refundedAmount: DbNumeric;
+};
+
+interface InvoicePaymentSourceRow {
+  id: string;
+  tenantId: string;
+  status: string;
+  amountDue: DbNumeric;
+  total: DbNumeric;
+}
+
+interface PaymentRefundSourceRow {
+  id: string;
+  tenantId: string;
+  invoiceId: string;
+  amount: DbNumeric;
+  refundedAmount: DbNumeric;
+  status: string;
+}
+
+function dbNumber(value: DbNumeric): number {
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mapPaymentOverview(row: PaymentOverviewRow): PaymentOverview {
+  return {
+    ...row,
+    amount: dbNumber(row.amount),
+    refundedAmount: dbNumber(row.refundedAmount),
+  };
+}
+
 @Injectable()
 export class PaymentManagementService {
   private readonly logger = new Logger(PaymentManagementService.name);
@@ -80,13 +136,13 @@ export class PaymentManagementService {
     }
 
     if (filters.invoiceId) {
-      conditions.push(`p.invoice_id = $${paramIndex}`);
+      conditions.push(`p.invoice_id = $${paramIndex}::uuid`);
       params.push(filters.invoiceId);
       paramIndex++;
     }
 
     if (filters.tenantId) {
-      conditions.push(`p.tenant_id = $${paramIndex}`);
+      conditions.push(`p.tenant_id = $${paramIndex}::uuid`);
       params.push(filters.tenantId);
       paramIndex++;
     }
@@ -114,8 +170,8 @@ export class PaymentManagementService {
     const offset = filters.offset || 0;
 
     const countQuery = `SELECT COUNT(*) as count FROM billing.payments p ${whereClause}`;
-    const countResult = await this.dataSource.query(countQuery, params);
-    const total = parseInt(countResult[0]?.count || '0', 10);
+    const countResult = await this.dataSource.query<CountRow[]>(countQuery, params);
+    const total = dbNumber(countResult[0]?.count);
 
     const query = `
       SELECT
@@ -143,18 +199,14 @@ export class PaymentManagementService {
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
 
-    const payments = await this.dataSource.query(query, [
+    const payments = await this.dataSource.query<PaymentOverviewRow[]>(query, [
       ...params,
       limit,
       offset,
     ]);
 
     return {
-      payments: payments.map((p: Record<string, unknown>) => ({
-        ...p,
-        amount: typeof p['amount'] === 'string' ? parseFloat(p['amount']) : p['amount'],
-        refundedAmount: typeof p['refundedAmount'] === 'string' ? parseFloat(p['refundedAmount'] as string) : (p['refundedAmount'] || 0),
-      })),
+      payments: payments.map(mapPaymentOverview),
       total,
     };
   }
@@ -167,17 +219,17 @@ export class PaymentManagementService {
     recordedBy: string,
   ): Promise<PaymentOverview> {
     // Verify invoice exists
-    const invoice = await this.dataSource.query(
+    const invoice = await this.dataSource.query<InvoicePaymentSourceRow[]>(
       'SELECT id, tenant_id as "tenantId", status, amount_due as "amountDue", total FROM billing.invoices WHERE id = $1',
       [dto.invoiceId],
     );
 
-    if (!invoice || invoice.length === 0) {
+    const inv = invoice[0];
+    if (!inv) {
       throw new NotFoundException(`Invoice not found: ${dto.invoiceId}`);
     }
 
-    const inv = invoice[0];
-    const amountDue = parseFloat(inv.amountDue?.toString() || '0');
+    const amountDue = dbNumber(inv.amountDue);
 
     if (dto.amount <= 0) {
       throw new BadRequestException('Payment amount must be positive');
@@ -195,7 +247,7 @@ export class PaymentManagementService {
     const txId = `TXN-${Date.now()}-${randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase()}`;
 
     // Insert payment record
-    const result = await this.dataSource.query(
+    const result = await this.dataSource.query<PaymentOverviewRow[]>(
       `
       INSERT INTO billing.payments (
         id, tenant_id, transaction_id, invoice_id, amount, currency,
@@ -237,7 +289,7 @@ export class PaymentManagementService {
     );
 
     // Update invoice paid amount
-    const newAmountPaid = parseFloat(inv.total?.toString() || '0') - amountDue + dto.amount;
+    const newAmountPaid = dbNumber(inv.total) - amountDue + dto.amount;
     const newAmountDue = amountDue - dto.amount;
     const isPaidInFull = newAmountDue <= 0.01;
 
@@ -263,11 +315,11 @@ export class PaymentManagementService {
     this.logger.log(`Payment ${txId} recorded for invoice ${dto.invoiceId} by ${recordedBy}: $${dto.amount}`);
 
     const payment = result[0];
-    return {
-      ...payment,
-      amount: typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount,
-      refundedAmount: typeof payment.refundedAmount === 'string' ? parseFloat(payment.refundedAmount) : (payment.refundedAmount || 0),
-    };
+    if (!payment) {
+      throw new InternalServerErrorException(`Payment insert did not return a row for invoice ${dto.invoiceId}`);
+    }
+
+    return mapPaymentOverview(payment);
   }
 
   /**
@@ -278,19 +330,19 @@ export class PaymentManagementService {
     refundedBy: string,
   ): Promise<PaymentOverview> {
     // Verify payment exists
-    const paymentResult = await this.dataSource.query(
+    const paymentResult = await this.dataSource.query<PaymentRefundSourceRow[]>(
       `SELECT id, tenant_id as "tenantId", invoice_id as "invoiceId", amount, refunded_amount as "refundedAmount", status
        FROM billing.payments WHERE id = $1`,
       [dto.paymentId],
     );
 
-    if (!paymentResult || paymentResult.length === 0) {
+    const payment = paymentResult[0];
+    if (!payment) {
       throw new NotFoundException(`Payment not found: ${dto.paymentId}`);
     }
 
-    const payment = paymentResult[0];
-    const originalAmount = parseFloat(payment.amount?.toString() || '0');
-    const alreadyRefunded = parseFloat(payment.refundedAmount?.toString() || '0');
+    const originalAmount = dbNumber(payment.amount);
+    const alreadyRefunded = dbNumber(payment.refundedAmount);
     const maxRefundable = originalAmount - alreadyRefunded;
 
     if (dto.amount <= 0) {
@@ -351,7 +403,7 @@ export class PaymentManagementService {
     );
 
     // Return updated payment
-    const updated = await this.dataSource.query(
+    const updated = await this.dataSource.query<PaymentOverviewRow[]>(
       `SELECT
         id, tenant_id as "tenantId", transaction_id as "transactionId",
         invoice_id as "invoiceId", amount, currency, status,
@@ -363,11 +415,11 @@ export class PaymentManagementService {
       [dto.paymentId],
     );
 
-    const p = updated[0];
-    return {
-      ...p,
-      amount: typeof p.amount === 'string' ? parseFloat(p.amount) : p.amount,
-      refundedAmount: typeof p.refundedAmount === 'string' ? parseFloat(p.refundedAmount) : (p.refundedAmount || 0),
-    };
+    const updatedPayment = updated[0];
+    if (!updatedPayment) {
+      throw new InternalServerErrorException(`Refund update did not return payment ${dto.paymentId}`);
+    }
+
+    return mapPaymentOverview(updatedPayment);
   }
 }

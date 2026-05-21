@@ -1,6 +1,8 @@
+const workspaceJestPreset = require('../../jest.preset.js');
+
 module.exports = {
+  ...workspaceJestPreset,
   displayName: 'db-migrate',
-  preset: '../../jest.preset.js',
   testEnvironment: 'node',
   testMatch: [
     '<rootDir>/src/**/*.spec.ts',

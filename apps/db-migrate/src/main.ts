@@ -54,27 +54,26 @@ import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
-import { DataSource, QueryRunner } from 'typeorm';
 import { bootInvariantSignalRecord } from '@aquaculture/backend-common/constants';
 import {
+  applyTenantRlsToSchema,
+  convertAuditColumnsToTimestamptz,
   MIGRATION_LEDGER_TABLE,
   tenantMigrationLedgerTable,
   TENANT_AWARE_SCHEMAS,
   TENANT_SCHEMA_NAME_RE,
 } from '@aquaculture/backend-common/database';
+import { DataSource, QueryRunner } from 'typeorm';
+import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 
-import { SCHEMA_REGISTRY } from './schema-registry';
 import {
   runSchemaMigrations,
   type MigrationLedgerHead,
   type RunSchemaOptions,
   type RunSchemaResult,
 } from './migration-orchestrator';
-import {
-  runPlatformBootstrap,
-  resolvePlatformBootstrapSqlDir,
-} from './platform-bootstrap.service';
+import { runPlatformBootstrap, resolvePlatformBootstrapSqlDir } from './platform-bootstrap.service';
+import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
 
 /**
  * Resolve the bundle root so migration globs in schema-registry.ts
@@ -147,10 +146,7 @@ function buildSsl(): PostgresConnectionOptions['ssl'] {
   };
 }
 
-function createControlDataSource(
-  database: RunSchemaOptions['database'],
-  max = 1,
-): DataSource {
+function createControlDataSource(database: RunSchemaOptions['database'], max = 1): DataSource {
   return new DataSource({
     type: 'postgres',
     host: database.host,
@@ -164,6 +160,101 @@ function createControlDataSource(
     ssl: database.ssl,
     extra: { max },
   });
+}
+
+const SAFE_SCHEMA_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+function assertSafeSchemaIdentifier(schema: string): void {
+  if (!SAFE_SCHEMA_IDENT_RE.test(schema)) {
+    throw new Error(`[db-migrate] Unsafe schema identifier for hardening: "${schema}".`);
+  }
+}
+
+async function queryRows<T extends Record<string, unknown>>(
+  queryRunner: QueryRunner,
+  sql: string,
+  params?: unknown[],
+): Promise<T[]> {
+  const result: unknown = await queryRunner.query(sql, params);
+  return Array.isArray(result) ? (result as T[]) : [];
+}
+
+async function runSchemaPostMigrationHardening(
+  database: RunSchemaOptions['database'],
+  schema: string,
+  hardening: SchemaPostMigrationHardening,
+): Promise<void> {
+  assertSafeSchemaIdentifier(schema);
+
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  const helperLogger = {
+    log: (message: string): void =>
+      log({
+        level: 'info',
+        message,
+        context: 'DbMigrateHardening',
+        schema,
+      }),
+    warn: (message: string): void =>
+      log({
+        level: 'warn',
+        message,
+        context: 'DbMigrateHardening',
+        schema,
+      }),
+  };
+
+  try {
+    await queryRunner.connect();
+    await queryRunner.query(`SET search_path TO "${schema}", public`);
+    log({
+      level: 'info',
+      message: 'Schema post-migration hardening starting',
+      context: 'DbMigrateHardening',
+      schema,
+      reason: hardening.reason,
+    });
+
+    if (hardening.tenantRls !== undefined) {
+      const rlsOptions = hardening.tenantRls === true ? {} : hardening.tenantRls;
+      await applyTenantRlsToSchema(queryRunner, {
+        schemaOverride: schema,
+        logger: helperLogger,
+        ...(rlsOptions.excludeTables !== undefined
+          ? { excludeTables: rlsOptions.excludeTables }
+          : {}),
+        ...(rlsOptions.tenantIdColumns !== undefined
+          ? { tenantIdColumns: rlsOptions.tenantIdColumns }
+          : {}),
+      });
+    }
+
+    if (hardening.auditColumns !== undefined) {
+      const auditOptions = hardening.auditColumns === true ? {} : hardening.auditColumns;
+      await convertAuditColumnsToTimestamptz(queryRunner, {
+        schemaOverride: schema,
+        logger: helperLogger,
+        ...(auditOptions.excludeTables !== undefined
+          ? { excludeTables: auditOptions.excludeTables }
+          : {}),
+        ...(auditOptions.auditColumns !== undefined
+          ? { auditColumns: auditOptions.auditColumns }
+          : {}),
+      });
+    }
+
+    log({
+      level: 'info',
+      message: 'Schema post-migration hardening complete',
+      context: 'DbMigrateHardening',
+      schema,
+    });
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
 }
 
 async function withReleaseMigrationLock<T>(
@@ -184,7 +275,8 @@ async function withReleaseMigrationLock<T>(
     const lockDeadline = Date.now() + lockTimeoutSeconds * 1000;
     let locked = false;
     while (Date.now() < lockDeadline) {
-      const rows: Array<{ locked: boolean }> = await queryRunner.query(
+      const rows = await queryRows<{ locked: boolean }>(
+        queryRunner,
         `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`,
         [lockName],
       );
@@ -217,9 +309,7 @@ async function withReleaseMigrationLock<T>(
       });
       return await work();
     } finally {
-      await queryRunner.query(`SELECT pg_advisory_unlock(hashtext($1))`, [
-        lockName,
-      ]);
+      await queryRunner.query(`SELECT pg_advisory_unlock(hashtext($1))`, [lockName]);
       log({
         level: 'info',
         message: 'Release-wide migration lock released',
@@ -238,7 +328,8 @@ async function relationExists(
   schema: string,
   table: string,
 ): Promise<boolean> {
-  const rows: Array<{ exists: boolean }> = await queryRunner.query(
+  const rows = await queryRows<{ exists: boolean }>(
+    queryRunner,
     `SELECT EXISTS (
        SELECT 1
          FROM information_schema.tables
@@ -255,7 +346,8 @@ async function ledgerRowCount(
   schema: string,
   table: string,
 ): Promise<number> {
-  const rows: Array<{ count: string }> = await queryRunner.query(
+  const rows = await queryRows<{ count: string }>(
+    queryRunner,
     `SELECT COUNT(*)::text AS count FROM "${schema}"."${table}"`,
   );
   return Number.parseInt(rows[0]?.count ?? '0', 10);
@@ -280,11 +372,7 @@ async function backfillTenantLedgersForSource(
 
   try {
     await queryRunner.connect();
-    const sourceHasLedger = await relationExists(
-      queryRunner,
-      sourceSchema,
-      MIGRATION_LEDGER_TABLE,
-    );
+    const sourceHasLedger = await relationExists(queryRunner, sourceSchema, MIGRATION_LEDGER_TABLE);
     if (!sourceHasLedger) {
       log({
         level: 'info',
@@ -295,11 +383,7 @@ async function backfillTenantLedgersForSource(
       return backfills;
     }
 
-    const sourceRows = await ledgerRowCount(
-      queryRunner,
-      sourceSchema,
-      MIGRATION_LEDGER_TABLE,
-    );
+    const sourceRows = await ledgerRowCount(queryRunner, sourceSchema, MIGRATION_LEDGER_TABLE);
     if (sourceRows === 0) {
       log({
         level: 'info',
@@ -325,11 +409,7 @@ async function backfillTenantLedgersForSource(
         )
       `);
 
-      const existingRows = await ledgerRowCount(
-        queryRunner,
-        tenantSchema,
-        tenantLedger,
-      );
+      const existingRows = await ledgerRowCount(queryRunner, tenantSchema, tenantLedger);
       if (existingRows > 0) {
         backfills.push({ tenantSchema, copiedRows: 0, skipped: true });
         continue;
@@ -422,8 +502,7 @@ async function writeReleaseLedgerMigrationState(
   const releaseId =
     process.env['DEPLOY_RELEASE_ID'] ?? process.env['DEPLOY_SHA'] ?? 'local-db-migrate';
   const gitSha = process.env['DEPLOY_SHA'] ?? 'unknown';
-  const operator =
-    process.env['GHCR_ACTOR'] ?? process.env['GITHUB_ACTOR'] ?? 'aqua-db-migrate';
+  const operator = process.env['GHCR_ACTOR'] ?? process.env['GITHUB_ACTOR'] ?? 'aqua-db-migrate';
   const dataSource = createControlDataSource(database);
   await dataSource.initialize();
   const queryRunner = dataSource.createQueryRunner();
@@ -485,9 +564,7 @@ async function writeReleaseLedgerMigrationState(
   }
 }
 
-async function listTenantSchemas(
-  database: RunSchemaOptions['database'],
-): Promise<string[]> {
+async function listTenantSchemas(database: RunSchemaOptions['database']): Promise<string[]> {
   const dataSource = createControlDataSource(database);
 
   await dataSource.initialize();
@@ -572,190 +649,196 @@ async function main(): Promise<number> {
   });
 
   return await withReleaseMigrationLock(database, async () => {
-  // ── Phase 0 — Platform Bootstrap Atom (ADR-031) ─────────────────────────
-  // Idempotent installation of extensions, roles, schemas, grants,
-  // platform functions, and shared-schema tables. Survives postgres
-  // restart + DROP SCHEMA + day-one reset. Replaces the
-  // infrastructure/docker/init-scripts/* DDL contract which only fired
-  // on initdb (empty PGDATA).
-  try {
-    const sqlDir = resolvePlatformBootstrapSqlDir(root);
-    const bootstrap = await runPlatformBootstrap({
-      database,
-      sqlDir,
-      log,
-      ...(process.env['DB_MIGRATE_VERSION']
-        ? { version: process.env['DB_MIGRATE_VERSION'] }
-        : {}),
-    });
-    log({
-      level: 'info',
-      message: 'Phase 0 bootstrap success',
-      schemaCount: bootstrap.schemaCount,
-      functionCount: bootstrap.functionCount,
-      sharedTableCount: bootstrap.sharedTableCount,
-      durationMs: bootstrap.durationMs,
-    });
-  } catch (err: unknown) {
-    log({
-      level: 'error',
-      message: 'Phase 0 platform bootstrap FAILED — aborting before service migrations',
-      error: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-    });
-    return 1;
-  }
-
-  // ── Phase 1 — Per-service migration loop ───────────────────────────────
-  const results: RunSchemaResult[] = [];
-  const sourceHeads = new Map<string, MigrationLedgerHead | null>();
-  const tenantHeads = new Map<string, Map<string, MigrationLedgerHead | null>>();
-  const fanoutResults: Record<string, unknown> = {};
-  let tenantSchemas: string[];
-  try {
-    tenantSchemas = await listTenantSchemas(database);
-  } catch (err: unknown) {
-    log({
-      level: 'error',
-      message: 'Tenant schema discovery failed — aborting before migrations',
-      error: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-    });
-    return 2;
-  }
-  for (const entry of SCHEMA_REGISTRY) {
+    // ── Phase 0 — Platform Bootstrap Atom (ADR-031) ─────────────────────────
+    // Idempotent installation of extensions, roles, schemas, grants,
+    // platform functions, and shared-schema tables. Survives postgres
+    // restart + DROP SCHEMA + day-one reset. Replaces the
+    // infrastructure/docker/init-scripts/* DDL contract which only fired
+    // on initdb (empty PGDATA).
     try {
-      // Resolve each schema's migration glob against the bundle root so
-      // the process works regardless of the process.cwd() at invocation.
-      const migrations = entry.migrationsGlob.map((g) => resolve(root, g));
-      const entities = entry.entitiesGlob?.map((g) => resolve(root, g));
-      let backfills:
-        | Array<{ tenantSchema: string; copiedRows: number; skipped: boolean }>
-        | undefined;
-      if (TENANT_AWARE_SCHEMAS.has(entry.schema)) {
-        backfills = await backfillTenantLedgersForSource(
-          database,
-          entry.schema,
-          tenantSchemas,
-        );
-      }
-      const result = await runSchemaMigrations({
-        schema: entry.schema,
-        migrations,
-        ...(entities !== undefined ? { entities } : {}),
+      const sqlDir = resolvePlatformBootstrapSqlDir(root);
+      const bootstrap = await runPlatformBootstrap({
         database,
+        sqlDir,
         log,
+        ...(process.env['DB_MIGRATE_VERSION']
+          ? { version: process.env['DB_MIGRATE_VERSION'] }
+          : {}),
       });
-      results.push(result);
-      sourceHeads.set(entry.schema, result.head);
-
-      if (TENANT_AWARE_SCHEMAS.has(entry.schema)) {
-        if (tenantSchemas.length === 0) {
-          log({
-            level: 'info',
-            message: 'No tenant schemas present — fan-out skipped',
-            context: 'DbMigrate',
-            schema: entry.schema,
-          });
-        } else {
-          log({
-            level: 'info',
-            message: 'Tenant migration fan-out starting',
-            context: 'DbMigrate',
-            sourceSchema: entry.schema,
-            tenantCount: tenantSchemas.length,
-          });
-          const tenantFanout: Record<string, unknown> = {};
-          for (const tenantSchema of tenantSchemas) {
-            const tenantResult = await runSchemaMigrations({
-              schema: tenantSchema,
-              migrations,
-              ...(entities !== undefined ? { entities } : {}),
-              database,
-              log,
-              migrationsTableName: tenantMigrationLedgerTable(entry.schema),
-            });
-            results.push(tenantResult);
-            if (!tenantHeads.has(tenantSchema)) {
-              tenantHeads.set(tenantSchema, new Map());
-            }
-            tenantHeads.get(tenantSchema)!.set(entry.schema, tenantResult.head);
-            tenantFanout[tenantSchema] = {
-              status: 'applied',
-              expectedHead: headToJson(result.head),
-              appliedHead: headToJson(tenantResult.head),
-              appliedMigrations: tenantResult.applied,
-              pendingBeforeRun: tenantResult.pending,
-            };
-          }
-          fanoutResults[entry.schema] = {
-            tenantCount: tenantSchemas.length,
-            backfills: backfills ?? [],
-            tenants: tenantFanout,
-          };
-        }
-      }
+      log({
+        level: 'info',
+        message: 'Phase 0 bootstrap success',
+        schemaCount: bootstrap.schemaCount,
+        functionCount: bootstrap.functionCount,
+        sharedTableCount: bootstrap.sharedTableCount,
+        durationMs: bootstrap.durationMs,
+      });
     } catch (err: unknown) {
       log({
         level: 'error',
-        message: 'Schema migration failed — aborting',
-        schema: entry.schema,
-        service: entry.service,
+        message: 'Phase 0 platform bootstrap FAILED — aborting before service migrations',
         error: err instanceof Error ? err.message : String(err),
         stack: err instanceof Error ? err.stack : undefined,
       });
       return 1;
     }
-  }
 
-  const { expectedHeads, appliedHeads } = buildHeadPayloads(
-    sourceHeads,
-    tenantHeads,
-  );
-  try {
-    await writeReleaseLedgerMigrationState(database, {
-      expectedHeads,
-      appliedHeads,
-      tenantSchemas,
-      fanoutResults,
-    });
-  } catch (err: unknown) {
+    // ── Phase 1 — Per-service migration loop ───────────────────────────────
+    const results: RunSchemaResult[] = [];
+    const sourceHeads = new Map<string, MigrationLedgerHead | null>();
+    const tenantHeads = new Map<string, Map<string, MigrationLedgerHead | null>>();
+    const fanoutResults: Record<string, unknown> = {};
+    let tenantSchemas: string[];
+    try {
+      tenantSchemas = await listTenantSchemas(database);
+    } catch (err: unknown) {
+      log({
+        level: 'error',
+        message: 'Tenant schema discovery failed — aborting before migrations',
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return 2;
+    }
+    for (const entry of SCHEMA_REGISTRY) {
+      try {
+        // Resolve each schema's migration glob against the bundle root so
+        // the process works regardless of the process.cwd() at invocation.
+        const migrations = entry.migrationsGlob.map((g) => resolve(root, g));
+        const entities = entry.entitiesGlob?.map((g) => resolve(root, g));
+        let backfills:
+          | Array<{ tenantSchema: string; copiedRows: number; skipped: boolean }>
+          | undefined;
+        if (TENANT_AWARE_SCHEMAS.has(entry.schema)) {
+          backfills = await backfillTenantLedgersForSource(database, entry.schema, tenantSchemas);
+        }
+        const result = await runSchemaMigrations({
+          schema: entry.schema,
+          migrations,
+          ...(entities !== undefined ? { entities } : {}),
+          database,
+          log,
+        });
+        if (entry.postMigrationHardening !== undefined) {
+          await runSchemaPostMigrationHardening(
+            database,
+            entry.schema,
+            entry.postMigrationHardening,
+          );
+        }
+        results.push(result);
+        sourceHeads.set(entry.schema, result.head);
+
+        if (TENANT_AWARE_SCHEMAS.has(entry.schema)) {
+          if (tenantSchemas.length === 0) {
+            log({
+              level: 'info',
+              message: 'No tenant schemas present — fan-out skipped',
+              context: 'DbMigrate',
+              schema: entry.schema,
+            });
+          } else {
+            log({
+              level: 'info',
+              message: 'Tenant migration fan-out starting',
+              context: 'DbMigrate',
+              sourceSchema: entry.schema,
+              tenantCount: tenantSchemas.length,
+            });
+            const tenantFanout: Record<string, unknown> = {};
+            for (const tenantSchema of tenantSchemas) {
+              const tenantResult = await runSchemaMigrations({
+                schema: tenantSchema,
+                migrations,
+                ...(entities !== undefined ? { entities } : {}),
+                database,
+                log,
+                migrationsTableName: tenantMigrationLedgerTable(entry.schema),
+              });
+              results.push(tenantResult);
+              if (!tenantHeads.has(tenantSchema)) {
+                tenantHeads.set(tenantSchema, new Map());
+              }
+              const tenantHeadMap = tenantHeads.get(tenantSchema);
+              if (tenantHeadMap === undefined) {
+                throw new Error(
+                  `[db-migrate] Tenant head map was not initialized for ${tenantSchema}`,
+                );
+              }
+              tenantHeadMap.set(entry.schema, tenantResult.head);
+              tenantFanout[tenantSchema] = {
+                status: 'applied',
+                expectedHead: headToJson(result.head),
+                appliedHead: headToJson(tenantResult.head),
+                appliedMigrations: tenantResult.applied,
+                pendingBeforeRun: tenantResult.pending,
+              };
+            }
+            fanoutResults[entry.schema] = {
+              tenantCount: tenantSchemas.length,
+              backfills: backfills ?? [],
+              tenants: tenantFanout,
+            };
+          }
+        }
+      } catch (err: unknown) {
+        log({
+          level: 'error',
+          message: 'Schema migration failed — aborting',
+          schema: entry.schema,
+          service: entry.service,
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        });
+        return 1;
+      }
+    }
+
+    const { expectedHeads, appliedHeads } = buildHeadPayloads(sourceHeads, tenantHeads);
+    try {
+      await writeReleaseLedgerMigrationState(database, {
+        expectedHeads,
+        appliedHeads,
+        tenantSchemas,
+        fanoutResults,
+      });
+    } catch (err: unknown) {
+      log({
+        level: 'error',
+        message: 'Release ledger migration state write FAILED — aborting deploy',
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return 1;
+    }
+    if (JSON.stringify(expectedHeads) !== JSON.stringify(appliedHeads)) {
+      log({
+        level: 'error',
+        message: 'Release ledger expected/applied migration heads diverge — aborting deploy',
+        expectedHeads,
+        appliedHeads,
+      });
+      return 1;
+    }
+
+    const totalApplied = results.reduce((sum, r) => sum + r.applied.length, 0);
+    const totalDuration = results.reduce((sum, r) => sum + r.durationMs, 0);
+
     log({
-      level: 'error',
-      message: 'Release ledger migration state write FAILED — aborting deploy',
-      error: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
+      level: 'info',
+      ...bootInvariantSignalRecord('db_migrate_complete', {
+        schemaCount: SCHEMA_REGISTRY.length,
+        totalAppliedMigrations: totalApplied,
+        totalDurationMs: totalDuration,
+        perSchema: results.map((r) => ({
+          schema: r.schema,
+          applied: r.applied.length,
+          durationMs: r.durationMs,
+        })),
+      }),
     });
-    return 1;
-  }
-  if (JSON.stringify(expectedHeads) !== JSON.stringify(appliedHeads)) {
-    log({
-      level: 'error',
-      message: 'Release ledger expected/applied migration heads diverge — aborting deploy',
-      expectedHeads,
-      appliedHeads,
-    });
-    return 1;
-  }
 
-  const totalApplied = results.reduce((sum, r) => sum + r.applied.length, 0);
-  const totalDuration = results.reduce((sum, r) => sum + r.durationMs, 0);
-
-  log({
-    level: 'info',
-    ...bootInvariantSignalRecord('db_migrate_complete', {
-      schemaCount: SCHEMA_REGISTRY.length,
-      totalAppliedMigrations: totalApplied,
-      totalDurationMs: totalDuration,
-      perSchema: results.map((r) => ({
-        schema: r.schema,
-        applied: r.applied.length,
-        durationMs: r.durationMs,
-      })),
-    }),
-  });
-
-  return 0;
+    return 0;
   });
 }
 

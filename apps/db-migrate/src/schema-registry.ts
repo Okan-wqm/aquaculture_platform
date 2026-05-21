@@ -106,10 +106,37 @@ export interface SchemaRegistryEntry {
    */
   entitiesGlob?: string[];
   /**
+   * Optional schema hardening steps that must run inside aqua-db-migrate,
+   * after the schema's TypeORM migrations and before service containers boot.
+   *
+   * Use this for production DDL that application services are not allowed to
+   * perform at runtime under DB_MIGRATE_AUTHORITATIVE=true.
+   */
+  postMigrationHardening?: SchemaPostMigrationHardening;
+  /**
    * Human-readable rationale for the ordering slot. Logged on first pass
    * so operators reading deploy output see the reasoning without having
    * to open this source file.
    */
+  reason: string;
+}
+
+export interface SchemaPostMigrationHardening {
+  /** Install canonical tenant RLS policies on tenant-scoped tables. */
+  tenantRls?:
+    | true
+    | {
+        excludeTables?: readonly string[];
+        tenantIdColumns?: readonly string[];
+      };
+  /** Convert audit timestamp columns to TIMESTAMPTZ. */
+  auditColumns?:
+    | true
+    | {
+        excludeTables?: readonly string[];
+        auditColumns?: readonly string[];
+      };
+  /** Operator-visible reason emitted in db-migrate logs. */
   reason: string;
 }
 
@@ -194,6 +221,15 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'billing-service',
     schema: 'billing',
     migrationsGlob: ['apps/billing-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      tenantRls: true,
+      auditColumns: true,
+      reason:
+        'billing is an authoritative financial schema. Production DDL ' +
+        'hardening must run in aqua-db-migrate, not from billing-service ' +
+        'startup, so least-privilege service credentials never need table ' +
+        'ownership to install RLS or rewrite audit columns.',
+    },
     reason:
       'Consumes subscription/usage events. Independent of domain ' +
       'schemas at DDL level but reads domain-event payloads; ordering ' +

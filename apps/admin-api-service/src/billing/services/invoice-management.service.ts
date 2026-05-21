@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository, Between, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { InvoiceReadOnly, InvoiceStatus } from '../../analytics/entities/external/invoice.entity';
 
@@ -79,6 +79,70 @@ export interface InvoiceFilters {
   offset?: number;
 }
 
+type DbNumeric = number | string | null | undefined;
+
+interface CountRow {
+  count: DbNumeric;
+}
+
+type InvoiceOverviewRow = Omit<InvoiceOverview, 'amount' | 'amountPaid' | 'amountDue'> & {
+  amount: DbNumeric;
+  amountPaid: DbNumeric;
+  amountDue: DbNumeric;
+};
+
+interface InvoiceTotalsRow {
+  count: DbNumeric;
+  totalAmount: DbNumeric;
+  totalPaid: DbNumeric;
+}
+
+interface InvoiceStatusRow {
+  status: string;
+  count: DbNumeric;
+  amount: DbNumeric;
+}
+
+interface InvoiceCurrencyRow {
+  currency: string;
+  amount: DbNumeric;
+}
+
+interface InvoicePaymentTimeRow {
+  avgDays: DbNumeric;
+}
+
+interface InvoiceThisMonthRow {
+  paid: DbNumeric;
+  pending: DbNumeric;
+}
+
+interface UpdatedInvoiceRow {
+  id: string;
+}
+
+function dbNumber(value: DbNumeric): number {
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mapInvoiceOverview(row: InvoiceOverviewRow): InvoiceOverview {
+  return {
+    ...row,
+    amount: dbNumber(row.amount),
+    amountPaid: dbNumber(row.amountPaid),
+    amountDue: dbNumber(row.amountDue),
+  };
+}
+
 /**
  * Invoice Management Service
  * Handles invoice queries for admin panel
@@ -121,7 +185,7 @@ export class InvoiceManagementService {
         i.period_end as "periodEnd",
         i."createdAt" as "createdAt"
       FROM billing.invoices i
-      LEFT JOIN auth.tenants t ON t.id::text = i.tenant_id
+      LEFT JOIN auth.tenants t ON t.id = i.tenant_id
       WHERE 1=1
     `;
 
@@ -135,7 +199,7 @@ export class InvoiceManagementService {
     }
 
     if (filters.tenantId) {
-      query += ` AND i.tenant_id = $${paramIndex}`;
+      query += ` AND i.tenant_id = $${paramIndex}::uuid`;
       params.push(filters.tenantId);
       paramIndex++;
     }
@@ -182,8 +246,8 @@ export class InvoiceManagementService {
 
     // Get total count
     const countQuery = `SELECT COUNT(*) as count FROM (${query}) as subq`;
-    const countResult = await this.dataSource.query(countQuery, params);
-    const total = parseInt(countResult[0]?.count || '0', 10);
+    const countResult = await this.dataSource.query<CountRow[]>(countQuery, params);
+    const total = dbNumber(countResult[0]?.count);
 
     // Add pagination
     query += ` ORDER BY i."createdAt" DESC`;
@@ -197,16 +261,16 @@ export class InvoiceManagementService {
       params.push(filters.offset);
     }
 
-    const invoices = await this.dataSource.query(query, params);
+    const invoices = await this.dataSource.query<InvoiceOverviewRow[]>(query, params);
 
-    return { invoices, total };
+    return { invoices: invoices.map(mapInvoiceOverview), total };
   }
 
   /**
    * Get invoice by ID
    */
   async getInvoiceById(invoiceId: string): Promise<InvoiceOverview | null> {
-    const result = await this.dataSource.query(
+    const result = await this.dataSource.query<InvoiceOverviewRow[]>(
       `
       SELECT
         i.id,
@@ -226,13 +290,14 @@ export class InvoiceManagementService {
         i.period_end as "periodEnd",
         i."createdAt" as "createdAt"
       FROM billing.invoices i
-      LEFT JOIN auth.tenants t ON t.id::text = i.tenant_id
+      LEFT JOIN auth.tenants t ON t.id = i.tenant_id
       WHERE i.id = $1
     `,
       [invoiceId],
     );
 
-    return result[0] || null;
+    const invoice = result[0];
+    return invoice ? mapInvoiceOverview(invoice) : null;
   }
 
   /**
@@ -244,7 +309,7 @@ export class InvoiceManagementService {
     const [totalResult, statusResult, currencyResult, paymentTimeResult, thisMonthResult] =
       await Promise.all([
         // Total invoices and amounts
-        this.dataSource.query(`
+        this.dataSource.query<InvoiceTotalsRow[]>(`
           SELECT
             COUNT(*) as count,
             COALESCE(SUM(total), 0) as "totalAmount",
@@ -253,7 +318,7 @@ export class InvoiceManagementService {
         `),
 
         // By status
-        this.dataSource.query(`
+        this.dataSource.query<InvoiceStatusRow[]>(`
           SELECT
             status,
             COUNT(*) as count,
@@ -263,7 +328,7 @@ export class InvoiceManagementService {
         `),
 
         // By currency
-        this.dataSource.query(`
+        this.dataSource.query<InvoiceCurrencyRow[]>(`
           SELECT
             currency,
             COALESCE(SUM(total), 0) as amount
@@ -272,7 +337,7 @@ export class InvoiceManagementService {
         `),
 
         // Average payment time
-        this.dataSource.query(`
+        this.dataSource.query<InvoicePaymentTimeRow[]>(`
           SELECT
             AVG(EXTRACT(EPOCH FROM (paid_at - issue_date)) / 86400) as "avgDays"
           FROM billing.invoices
@@ -280,7 +345,7 @@ export class InvoiceManagementService {
         `),
 
         // This month stats
-        this.dataSource.query(`
+        this.dataSource.query<InvoiceThisMonthRow[]>(`
           SELECT
             COALESCE(SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END), 0) as paid,
             COALESCE(SUM(CASE WHEN status IN ('pending', 'sent') THEN total ELSE 0 END), 0) as pending
@@ -290,9 +355,9 @@ export class InvoiceManagementService {
       ]);
 
     // Process total results
-    const totalInvoices = parseInt(totalResult[0]?.count || '0', 10);
-    const totalAmount = parseFloat(totalResult[0]?.totalAmount || '0');
-    const totalPaid = parseFloat(totalResult[0]?.totalPaid || '0');
+    const totalInvoices = dbNumber(totalResult[0]?.count);
+    const totalAmount = dbNumber(totalResult[0]?.totalAmount);
+    const totalPaid = dbNumber(totalResult[0]?.totalPaid);
 
     // Process status results
     const byStatus: Record<string, { count: number; amount: number }> = {};
@@ -301,33 +366,33 @@ export class InvoiceManagementService {
 
     for (const row of statusResult) {
       byStatus[row.status] = {
-        count: parseInt(row.count, 10),
-        amount: parseFloat(row.amount),
+        count: dbNumber(row.count),
+        amount: dbNumber(row.amount),
       };
       if (row.status === 'pending' || row.status === 'sent') {
-        totalPending += parseFloat(row.amount);
+        totalPending += dbNumber(row.amount);
       }
       if (row.status === 'overdue') {
-        totalOverdue += parseFloat(row.amount);
+        totalOverdue += dbNumber(row.amount);
       }
     }
 
     // Process currency results
     const byCurrency: Record<string, number> = {};
     for (const row of currencyResult) {
-      byCurrency[row.currency] = parseFloat(row.amount);
+      byCurrency[row.currency] = dbNumber(row.amount);
     }
 
     // Process payment time
-    const avgPaymentTime = parseFloat(paymentTimeResult[0]?.avgDays || '0');
+    const avgPaymentTime = dbNumber(paymentTimeResult[0]?.avgDays);
 
     // Overdue rate
     const overdueCount = byStatus['overdue']?.count || 0;
     const overdueRate = totalInvoices > 0 ? (overdueCount / totalInvoices) * 100 : 0;
 
     // Process this month stats
-    const paidThisMonth = parseFloat(thisMonthResult[0]?.paid || '0');
-    const pendingThisMonth = parseFloat(thisMonthResult[0]?.pending || '0');
+    const paidThisMonth = dbNumber(thisMonthResult[0]?.paid);
+    const pendingThisMonth = dbNumber(thisMonthResult[0]?.pending);
 
     return {
       totalInvoices,
@@ -391,7 +456,11 @@ export class InvoiceManagementService {
     this.logger.log(`Invoice ${invoice.invoiceNumber} marked as ${isPaidInFull ? 'paid' : 'partially paid'} by ${markedBy}`);
 
     const updatedInvoice = await this.getInvoiceById(invoiceId);
-    return { success: true, invoice: updatedInvoice! };
+    if (!updatedInvoice) {
+      throw new NotFoundException(`Invoice not found after payment update: ${invoiceId}`);
+    }
+
+    return { success: true, invoice: updatedInvoice };
   }
 
   /**
@@ -453,7 +522,7 @@ export class InvoiceManagementService {
    * Update overdue status for invoices past due date
    */
   async updateOverdueStatus(): Promise<{ updated: number }> {
-    const result = await this.dataSource.query(
+    const result = await this.dataSource.query<UpdatedInvoiceRow[]>(
       `
       UPDATE billing.invoices SET
         status = 'overdue',

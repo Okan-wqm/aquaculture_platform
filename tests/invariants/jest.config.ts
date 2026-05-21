@@ -111,6 +111,7 @@ export default {
         '<rootDir>/web-shared-ui-singleton-imports.spec.ts',
         '<rootDir>/restore-mutation-tenant-admin.spec.ts',
         '<rootDir>/backup-production-secrets.spec.ts',
+        '<rootDir>/admin-billing-runtime-contract.spec.ts',
       ],
     },
     {

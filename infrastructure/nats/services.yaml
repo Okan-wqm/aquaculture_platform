@@ -239,6 +239,10 @@ services:
       - "AQUACULTURE_EVENTS.Subscription*.>"
       - "AQUACULTURE_EVENTS.Invoice*.>"
       - "AQUACULTURE_EVENTS.Payment*.>"
+      # Platform-admin billing mutations are owned by billing-service.
+      # admin-api may expose REST facade routes, but writes must enter
+      # billing through these audited command subjects.
+      - "request.billing.admin.>"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:

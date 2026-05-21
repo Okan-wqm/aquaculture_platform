@@ -13,6 +13,72 @@ import {
   ReminderConfig,
 } from './subscription-types';
 
+type DbNumeric = number | string | null | undefined;
+type SubscriptionPricingPayload = {
+  basePrice?: DbNumeric;
+};
+
+type SubscriptionOverviewRow = Omit<
+  SubscriptionOverview,
+  'monthlyPrice' | 'trialEndDate' | 'cancelledAt'
+> & {
+  monthlyPrice: DbNumeric;
+  trialEndDate: Date | null;
+  cancelledAt: Date | null;
+};
+
+interface DueSubscriptionRow {
+  id: string;
+  tenantId: string;
+  planTier: string;
+  planName: string;
+  billingCycle: BillingCycle;
+  pricing: string | SubscriptionPricingPayload | null;
+  currentPeriodEnd: Date;
+}
+
+function dbNumber(value: DbNumeric): number {
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parsePricing(value: DueSubscriptionRow['pricing']): SubscriptionPricingPayload {
+  if (typeof value === 'string') {
+    const parsed: unknown = JSON.parse(value);
+    if (!isRecord(parsed)) {
+      return {};
+    }
+
+    const basePrice = parsed.basePrice;
+    return typeof basePrice === 'number' || typeof basePrice === 'string' || basePrice === null
+      ? { basePrice }
+      : {};
+  }
+
+  return value ?? {};
+}
+
+function mapSubscriptionOverview(row: SubscriptionOverviewRow): SubscriptionOverview {
+  return {
+    ...row,
+    monthlyPrice: dbNumber(row.monthlyPrice),
+    trialEndDate: row.trialEndDate ?? undefined,
+    cancelledAt: row.cancelledAt ?? undefined,
+  };
+}
+
 /**
  * Subscription Renewal Service
  * Handles subscription renewals and payment reminders
@@ -48,17 +114,25 @@ export class SubscriptionRenewalService {
     const config = this.defaultReminderConfig;
 
     // Upcoming due (before period end)
-    const upcomingDue = await this.dataSource.query(
+    const upcomingDue = await this.dataSource.query<SubscriptionOverviewRow[]>(
       `
       SELECT
         s.id,
         s.tenant_id as "tenantId",
         t.name as "tenantName",
+        s.plan_tier as "planTier",
         s.plan_name as "planName",
         s.status,
-        s.current_period_end as "currentPeriodEnd"
+        s.billing_cycle as "billingCycle",
+        s.current_period_start as "currentPeriodStart",
+        s.current_period_end as "currentPeriodEnd",
+        (s.pricing->>'basePrice')::decimal as "monthlyPrice",
+        s.auto_renew as "autoRenew",
+        s.trial_end_date as "trialEndDate",
+        s.cancelled_at as "cancelledAt",
+        s."createdAt" as "createdAt"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
+      LEFT JOIN auth.tenants t ON t.id = s.tenant_id
       WHERE s.status = 'active'
         AND s.auto_renew = true
         AND s.current_period_end BETWEEN NOW() AND NOW() + INTERVAL '7 days'
@@ -67,17 +141,25 @@ export class SubscriptionRenewalService {
     );
 
     // Past due
-    const pastDue = await this.dataSource.query(
+    const pastDue = await this.dataSource.query<SubscriptionOverviewRow[]>(
       `
       SELECT
         s.id,
         s.tenant_id as "tenantId",
         t.name as "tenantName",
+        s.plan_tier as "planTier",
         s.plan_name as "planName",
         s.status,
-        s.current_period_end as "currentPeriodEnd"
+        s.billing_cycle as "billingCycle",
+        s.current_period_start as "currentPeriodStart",
+        s.current_period_end as "currentPeriodEnd",
+        (s.pricing->>'basePrice')::decimal as "monthlyPrice",
+        s.auto_renew as "autoRenew",
+        s.trial_end_date as "trialEndDate",
+        s.cancelled_at as "cancelledAt",
+        s."createdAt" as "createdAt"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
+      LEFT JOIN auth.tenants t ON t.id = s.tenant_id
       WHERE s.status = 'past_due'
       ORDER BY s.current_period_end ASC
     `,
@@ -85,17 +167,25 @@ export class SubscriptionRenewalService {
 
     // Grace period ending
     const gracePeriodWarningDays = config.gracePeriodDays - 3;
-    const gracePeriodEnding = await this.dataSource.query(
+    const gracePeriodEnding = await this.dataSource.query<SubscriptionOverviewRow[]>(
       `
       SELECT
         s.id,
         s.tenant_id as "tenantId",
         t.name as "tenantName",
+        s.plan_tier as "planTier",
         s.plan_name as "planName",
         s.status,
-        s.current_period_end as "currentPeriodEnd"
+        s.billing_cycle as "billingCycle",
+        s.current_period_start as "currentPeriodStart",
+        s.current_period_end as "currentPeriodEnd",
+        (s.pricing->>'basePrice')::decimal as "monthlyPrice",
+        s.auto_renew as "autoRenew",
+        s.trial_end_date as "trialEndDate",
+        s.cancelled_at as "cancelledAt",
+        s."createdAt" as "createdAt"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
+      LEFT JOIN auth.tenants t ON t.id = s.tenant_id
       WHERE s.status = 'past_due'
         AND s.current_period_end < NOW() - ($1::integer * INTERVAL '1 day')
       ORDER BY s.current_period_end ASC
@@ -103,7 +193,11 @@ export class SubscriptionRenewalService {
       [gracePeriodWarningDays],
     );
 
-    return { upcomingDue, pastDue, gracePeriodEnding };
+    return {
+      upcomingDue: upcomingDue.map(mapSubscriptionOverview),
+      pastDue: pastDue.map(mapSubscriptionOverview),
+      gracePeriodEnding: gracePeriodEnding.map(mapSubscriptionOverview),
+    };
   }
 
   /**
@@ -119,7 +213,7 @@ export class SubscriptionRenewalService {
     const errors: string[] = [];
 
     // Get subscriptions due for renewal
-    const dueSubs = await this.dataSource.query(
+    const dueSubs = await this.dataSource.query<DueSubscriptionRow[]>(
       `
       SELECT
         s.id,
@@ -139,17 +233,12 @@ export class SubscriptionRenewalService {
     for (const sub of dueSubs) {
       try {
         const newPeriodStart = new Date(sub.currentPeriodEnd);
-        const newPeriodEnd = this.subscriptionCore.calculateNextPeriodEnd(
-          newPeriodStart,
-          sub.billingCycle as BillingCycle,
-        );
+        const newPeriodEnd = this.subscriptionCore.calculateNextPeriodEnd(newPeriodStart, sub.billingCycle);
 
         // Create renewal invoice
         const invoiceNumber = `INV-${Date.now()}-${sub.tenantId.substring(0, 8)}`;
-        const pricing = sub.pricing
-          ? (typeof sub.pricing === 'string' ? JSON.parse(sub.pricing) : sub.pricing)
-          : { basePrice: 0 };
-        const amount = pricing?.basePrice || 0;
+        const pricing = parsePricing(sub.pricing);
+        const amount = dbNumber(pricing.basePrice);
 
         await this.dataSource.transaction(async (manager) => {
           // Update subscription period (billing.subscriptions uses snake_case)
@@ -214,7 +303,7 @@ export class SubscriptionRenewalService {
    * Get expiring subscriptions within days
    */
   async getExpiringSubscriptions(withinDays: number): Promise<SubscriptionOverview[]> {
-    return this.dataSource.query(
+    const rows = await this.dataSource.query<SubscriptionOverviewRow[]>(
       `
       SELECT
         s.id,
@@ -227,9 +316,12 @@ export class SubscriptionRenewalService {
         s.current_period_start as "currentPeriodStart",
         s.current_period_end as "currentPeriodEnd",
         (s.pricing->>'basePrice')::decimal as "monthlyPrice",
-        s.auto_renew as "autoRenew"
+        s.auto_renew as "autoRenew",
+        s.trial_end_date as "trialEndDate",
+        s.cancelled_at as "cancelledAt",
+        s."createdAt" as "createdAt"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
+      LEFT JOIN auth.tenants t ON t.id = s.tenant_id
       WHERE s.status IN ('active', 'trial')
         AND s.auto_renew = false
         AND s.current_period_end <= NOW() + ($1::integer * INTERVAL '1 day')
@@ -237,6 +329,8 @@ export class SubscriptionRenewalService {
     `,
       [withinDays],
     );
+
+    return rows.map(mapSubscriptionOverview);
   }
 
   /**

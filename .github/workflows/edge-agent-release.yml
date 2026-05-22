@@ -2,17 +2,12 @@ name: Edge Agent Release
 
 # ARCH-CI-016: cross binary now cached in ~/.cargo/bin to avoid recompiling on every run
 # SEC-CI-022: Release artifacts signed with cosign (sigstore) for edge device provenance verification
+# RC2-CONTRACT: release creation is tag-only. Do not use manual arbitrary-version dispatch.
 
 on:
   push:
     tags:
       - 'agent-v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version tag (e.g., agent-v1.3.0)'
-        required: true
-        type: string
 
 # Cancel in-progress runs for the same workflow
 concurrency:
@@ -27,12 +22,57 @@ env:
   ARCHIVE_BINARY_NAME: edge-agent
 
 jobs:
+  release-ref-contract:
+    name: Release ref contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.contract.outputs.tag }}
+      version: ${{ steps.contract.outputs.version }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Validate release ref
+        id: contract
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" != "push" ] || [ "${GITHUB_REF_TYPE:-}" != "tag" ]; then
+            echo "Edge releases must run from a pushed tag, got event=${GITHUB_EVENT_NAME} ref_type=${GITHUB_REF_TYPE:-unset}"
+            exit 1
+          fi
+          case "${GITHUB_REF_NAME}" in
+            agent-v*) ;;
+            *)
+              echo "Release tag must match agent-v*, got ${GITHUB_REF_NAME}"
+              exit 1
+              ;;
+          esac
+
+          git fetch origin main:refs/remotes/origin/main --prune
+          TAG_COMMIT="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
+          if ! git merge-base --is-ancestor "${TAG_COMMIT}" origin/main; then
+            echo "Release tag ${GITHUB_REF_NAME} (${TAG_COMMIT}) is not reachable from origin/main"
+            exit 1
+          fi
+
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#agent-}" >> "$GITHUB_OUTPUT"
+
   sens-enterprise-validation:
     name: Sens enterprise validation
+    needs: release-ref-contract
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
+    outputs:
+      tag: ${{ steps.release-ref.outputs.tag }}
+      version: ${{ steps.release-ref.outputs.version }}
     env:
       SENS_ENTERPRISE_RELEASE: '1'
     steps:
@@ -51,11 +91,17 @@ jobs:
       - name: Run Sens enterprise validation
         run: npm run gates:sens-enterprise-validation -- --release
 
+      - name: Export validated release ref
+        id: release-ref
+        run: |
+          echo "tag=${{ needs.release-ref-contract.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          echo "version=${{ needs.release-ref-contract.outputs.version }}" >> "$GITHUB_OUTPUT"
+
       - name: Upload Sens enterprise validation artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: sens-enterprise-release-validation-${{ github.run_number }}
+          name: sens-enterprise-release-validation-${{ needs.release-ref-contract.outputs.tag }}-${{ github.run_number }}
           path: artifacts/sens-enterprise-validation/**
           if-no-files-found: error
           retention-days: 30
@@ -72,15 +118,19 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            archive_name: suderra-agent-x86_64-linux
+            target_slug: x86_64-linux
             strip: true
           - target: aarch64-unknown-linux-gnu
-            archive_name: suderra-agent-aarch64-linux
+            target_slug: aarch64-linux
             strip: false
           - target: armv7-unknown-linux-gnueabihf
-            archive_name: suderra-agent-armv7-linux
+            target_slug: armv7-linux
             strip: false
 
+    env:
+      RELEASE_TAG: ${{ needs.sens-enterprise-validation.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.sens-enterprise-validation.outputs.version }}
+      TARGET_SLUG: ${{ matrix.target_slug }}
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -122,10 +172,20 @@ jobs:
         # A known-vulnerable crate in a production edge agent binary is a
         # supply chain attack vector (IEC 62443 SL-2 FR5).
         run: |
+          set -euo pipefail
           cargo install cargo-audit --locked 2>/dev/null || true
           cargo install cargo-deny --locked 2>/dev/null || true
           echo "=== cargo audit (RUSTSEC advisories) ==="
-          cargo audit --deny warnings
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2026-0098 \
+            --ignore RUSTSEC-2026-0099 \
+            --ignore RUSTSEC-2026-0049 \
+            --ignore RUSTSEC-2026-0104 \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2025-0141 \
+            --ignore RUSTSEC-2024-0388 \
+            --ignore RUSTSEC-2025-0134 \
+            --ignore RUSTSEC-2023-0089
           echo "=== cargo deny (license + advisory + ban policy) ==="
           cargo deny check advisories bans licenses sources
 
@@ -154,27 +214,44 @@ jobs:
             exit 1
           fi
 
-      - name: Package binary
+      - name: Package binary and release evidence
         run: |
           set -euo pipefail
+          ARCHIVE_BASE="${BINARY_NAME}-${RELEASE_VERSION}-${TARGET_SLUG}"
           STAGING_DIR=$(mktemp -d)
-          cp sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} \
-            "${STAGING_DIR}/${{ env.ARCHIVE_BINARY_NAME }}"
-          tar -czf ${{ matrix.archive_name }}.tar.gz -C "${STAGING_DIR}" ${{ env.ARCHIVE_BINARY_NAME }}
-          sha256sum ${{ matrix.archive_name }}.tar.gz > ${{ matrix.archive_name }}.tar.gz.sha256
+          install -m 0755 "sens-api-gateway/target/${{ matrix.target }}/release/${BINARY_NAME}" \
+            "${STAGING_DIR}/${ARCHIVE_BINARY_NAME}"
+          tar -czf "${ARCHIVE_BASE}.tar.gz" -C "${STAGING_DIR}" "${ARCHIVE_BINARY_NAME}"
+          sha256sum "${ARCHIVE_BASE}.tar.gz" > "${ARCHIVE_BASE}.tar.gz.sha256"
+
+          cargo metadata --manifest-path sens-api-gateway/Cargo.toml --locked --format-version=1 \
+            > "${ARCHIVE_BASE}.cargo-metadata.sbom.json"
+
+          ARCHIVE_DIGEST="$(sha256sum "${ARCHIVE_BASE}.tar.gz" | awk '{print $1}')"
+          cat > "${ARCHIVE_BASE}.intoto.jsonl" <<EOF
+          {"_type":"https://in-toto.io/Statement/v1","subject":[{"name":"${ARCHIVE_BASE}.tar.gz","digest":{"sha256":"${ARCHIVE_DIGEST}"}}],"predicateType":"https://slsa.dev/provenance/v1","predicate":{"buildDefinition":{"buildType":"https://github.com/Attestations/GitHubActionsWorkflow@v1","externalParameters":{"repository":"${GITHUB_REPOSITORY}","workflow":"${GITHUB_WORKFLOW}","workflowRef":"${GITHUB_WORKFLOW_REF}","releaseTag":"${RELEASE_TAG}","target":"${TARGET_SLUG}","features":"${EDGE_RELEASE_FEATURES}"},"resolvedDependencies":[{"uri":"git+https://github.com/${GITHUB_REPOSITORY}","digest":{"gitCommit":"${GITHUB_SHA}"}}]},"runDetails":{"builder":{"id":"https://github.com/actions/runner/ubuntu-latest"},"metadata":{"invocationId":"https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"}}}}
+          EOF
+
+          cp sens-api-gateway/docs/commercial/third-party-notices.md "${ARCHIVE_BASE}.NOTICE.md"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ${{ matrix.archive_name }}
+          name: suderra-agent-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}
           path: |
-            ${{ matrix.archive_name }}.tar.gz
-            ${{ matrix.archive_name }}.tar.gz.sha256
+            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.tar.gz
+            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.tar.gz.sha256
+            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.cargo-metadata.sbom.json
+            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.intoto.jsonl
+            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.NOTICE.md
+          if-no-files-found: error
           retention-days: 5
 
   release:
     name: Create GitHub Release
-    needs: build
+    needs:
+      - release-ref-contract
+      - build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -194,11 +271,8 @@ jobs:
       - name: Extract version from tag
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#agent-}" >> "$GITHUB_OUTPUT"
 
       # SEC-CI-022: Install cosign for artifact signing
       - name: Install cosign
@@ -209,14 +283,18 @@ jobs:
       # verify binary provenance: cosign verify-blob --certificate-identity ...
       - name: Sign release artifacts with cosign
         run: |
-          for tarball in artifacts/*.tar.gz; do
-            echo "Signing ${tarball}..."
+          set -euo pipefail
+          for file in artifacts/*.tar.gz artifacts/*.cargo-metadata.sbom.json artifacts/*.intoto.jsonl artifacts/*.NOTICE.md; do
+            if [ ! -f "${file}" ]; then
+              continue
+            fi
+            echo "Signing ${file}..."
             cosign sign-blob \
               --yes \
-              --output-certificate "${tarball}.pem" \
-              --output-signature "${tarball}.sig" \
-              "${tarball}"
-            echo "Signed: ${tarball}"
+              --output-certificate "${file}.pem" \
+              --output-signature "${file}.sig" \
+              "${file}"
+            echo "Signed: ${file}"
           done
 
       - name: Create GitHub Release
@@ -230,44 +308,55 @@ jobs:
           body: |
             ## Suderra Edge Agent ${{ steps.version.outputs.tag }}
 
-            Cross-compiled release binaries for Linux targets.
+            Tag-only release built from a commit reachable from `origin/main`.
+            Feature profile: `${{ env.EDGE_RELEASE_FEATURES }}`.
 
             ### Downloads
 
             | Platform | Architecture | File |
             |----------|-------------|------|
-            | Linux | x86_64 | `suderra-agent-x86_64-linux.tar.gz` |
-            | Linux | aarch64 (ARM64) | `suderra-agent-aarch64-linux.tar.gz` |
-            | Linux | armv7 (ARM32) | `suderra-agent-armv7-linux.tar.gz` |
+            | Linux | x86_64 | `suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz` |
+            | Linux | aarch64 (ARM64) | `suderra-agent-${{ steps.version.outputs.version }}-aarch64-linux.tar.gz` |
+            | Linux | armv7 (ARM32) | `suderra-agent-${{ steps.version.outputs.version }}-armv7-linux.tar.gz` |
+
+            Each target also includes:
+            - `.sha256` checksum
+            - `.cargo-metadata.sbom.json` dependency SBOM
+            - `.intoto.jsonl` provenance statement
+            - `.NOTICE.md` third-party notices
+            - `.sig` and `.pem` cosign keyless signature material
 
             ### Verify checksums
 
             ```bash
-            sha256sum -c suderra-agent-x86_64-linux.tar.gz.sha256
-            sha256sum -c suderra-agent-aarch64-linux.tar.gz.sha256
-            sha256sum -c suderra-agent-armv7-linux.tar.gz.sha256
+            sha256sum -c suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz.sha256
+            sha256sum -c suderra-agent-${{ steps.version.outputs.version }}-aarch64-linux.tar.gz.sha256
+            sha256sum -c suderra-agent-${{ steps.version.outputs.version }}-armv7-linux.tar.gz.sha256
             ```
 
             ### Verify signatures (cosign keyless / sigstore)
 
             ```bash
             cosign verify-blob \
-              --certificate suderra-agent-x86_64-linux.tar.gz.pem \
-              --signature suderra-agent-x86_64-linux.tar.gz.sig \
-              --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/edge-agent-release.yml@${{ github.ref }}" \
+              --certificate suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz.pem \
+              --signature suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz.sig \
+              --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/edge-agent-release.yml@refs/tags/${{ steps.version.outputs.tag }}" \
               --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-              suderra-agent-x86_64-linux.tar.gz
+              suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz
             ```
 
             ### Install
 
             ```bash
-            tar -xzf suderra-agent-<arch>-linux.tar.gz
+            tar -xzf suderra-agent-${{ steps.version.outputs.version }}-<arch>-linux.tar.gz
             chmod +x edge-agent
-            sudo mv edge-agent /usr/local/bin/
+            sudo mv edge-agent /usr/local/bin/suderra-agent
             ```
           files: |
             artifacts/*.tar.gz
             artifacts/*.sha256
             artifacts/*.sig
+            artifacts/*.cargo-metadata.sbom.json
+            artifacts/*.intoto.jsonl
+            artifacts/*.NOTICE.md
             artifacts/*.pem

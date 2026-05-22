@@ -7,6 +7,10 @@
 
 ## Current authorisation posture (HONEST)
 
+### RC2 release posture
+
+`agent-v2.0.0-rc2` does not change the dispatcher authorization behavior documented below. Signed envelope enforcement, replay cache enforcement, and permission-backed dispatch remain follow-up runtime work for the ADR-025-aligned implementation PR.
+
 **Today:** All commands accept invocation based solely on broker ACL (topic filter authorisation). The edge agent does NOT cryptographically verify the invoker; it does NOT check per-operator permissions; the RBAC permission enum (`src/authz/permission.rs`) is defined but NOT consulted by the dispatcher.
 
 **Partial mitigation in place:** a text-based log tag `AUDIT:` is emitted before executing any command in the safety-critical allowlist (`src/commands.rs:380-397`). The allowlist today: `deploy_program`, `deploy_script`, `deploy_to_codesys`, `deploy_auto`, `rollback_program`, `plc_upload`, `plc_start`, `plc_stop`, `plc_delete`, `write_modbus`, `write_gpio`, `reboot`, `restart_agent`, `delete_script`, `update_io_config`, `set_output`, `deploy_process`, `deploy_scada_package`, `update_firmware`.

@@ -166,6 +166,18 @@ mod tests {
     }
 
     #[test]
+    fn update_cert_pinning_requires_manage_cert_pinning_permission() {
+        // D-4/D-6 mTLS pin rotation is a distinct trust anchor from RBAC
+        // policy rotation. The canonical catalog owns the mapping; this
+        // wrapper test keeps the legacy required_permission source invariant
+        // honest while preserving catalog as the single source of truth.
+        assert!(matches!(
+            permission_for_command("update_cert_pinning", &json!({})),
+            Some(Permission::ManageCertPinning)
+        ));
+    }
+
+    #[test]
     fn update_user_token_manifest_requires_distinct_permission() {
         // Batch #248 Faz 5 A-3c hot-reload: user-token manifest
         // is a DIFFERENT trust anchor (different HSM signing key,

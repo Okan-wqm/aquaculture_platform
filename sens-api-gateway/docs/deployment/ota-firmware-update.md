@@ -8,6 +8,12 @@
 - Clock sync is trusted (freshness gate rejects skewed manifests — `src/updater/verify.rs:55-60`).
 
 **Duration:** 5–15 min per device for baseline updates; longer cold-boot on SIMATIC IPC (bootloader budget).
+> RC2 status (`agent-v2.0.0-rc2`): release artifacts are signed and published by GitHub Actions, but automatic device-side OTA enforcement is not claimed for RC2. Use `docs/runbooks/edge-gateway-ota.md` and `docs/runbooks/edge-gateway-rc2-operator.md` for the supported operator-controlled install path.
+
+> RC2 stop rule: do not install an artifact unless checksum and cosign verification both pass against the tag-scoped workflow identity `edge-agent-release.yml@refs/tags/agent-v2.0.0-rc2`.
+
+---
+
 **Blast radius:** single device; extends to fleet when driven through the cohorted rollout in `fleet-ops.md`.
 **Safety:** `SafeStateManager::apply` is invoked in the shutdown sequence (`src/safe_state.rs:76-150`) before any actuator-bearing output loses control. A systemd stop alone does not hard-cut outputs; safe-state drive is explicit.
 

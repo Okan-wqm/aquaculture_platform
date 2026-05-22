@@ -212,7 +212,7 @@ function buildAuditChanges(
 // Components
 // ============================================================================
 
-const getActionColor = (action: AuditAction) => {
+const getActionColor = (action: AuditAction): string => {
   switch (action) {
     case 'create':
       return 'bg-green-100 text-green-800';
@@ -235,7 +235,7 @@ const getActionColor = (action: AuditAction) => {
   }
 };
 
-const getSeverityColor = (severity: AuditSeverity) => {
+const getSeverityColor = (severity: AuditSeverity): string => {
   switch (severity) {
     case 'critical':
       return 'bg-red-100 text-red-800 border-red-200';
@@ -246,7 +246,7 @@ const getSeverityColor = (severity: AuditSeverity) => {
   }
 };
 
-const getSeverityIcon = (severity: AuditSeverity) => {
+const getSeverityIcon = (severity: AuditSeverity): React.ReactElement => {
   switch (severity) {
     case 'critical':
       return <XCircle className="w-4 h-4 text-red-600" />;
@@ -257,7 +257,7 @@ const getSeverityIcon = (severity: AuditSeverity) => {
   }
 };
 
-const formatDate = (dateString: string) => {
+const formatDate = (dateString: string): string => {
   const date = new Date(dateString);
   return date.toLocaleString('tr-TR', {
     day: '2-digit',
@@ -268,7 +268,7 @@ const formatDate = (dateString: string) => {
   });
 };
 
-const formatTimeAgo = (dateString: string) => {
+const formatTimeAgo = (dateString: string): string => {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -518,7 +518,7 @@ export const AuditTrailPage: React.FC = () => {
     void loadData();
   }, [loadData]);
 
-  const handleExport = () => {
+  const handleExport = (): void => {
     const csvContent = [
       ['ID', 'Timestamp', 'Action', 'Entity Type', 'Entity ID', 'Severity', 'User', 'IP'].join(','),
       ...entries.map((e) =>

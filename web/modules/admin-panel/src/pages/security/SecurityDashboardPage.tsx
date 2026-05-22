@@ -21,21 +21,21 @@ const Icon: React.FC<{ path: string; className?: string }> = ({ path, className 
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={path} />
   </svg>
 );
-const Shield = (p: { className?: string }) => <Icon path="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" {...p} />;
-const AlertTriangle = (p: { className?: string }) => <Icon path="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" {...p} />;
-const Activity = (p: { className?: string }) => <Icon path="M22 12h-4l-3 9L9 3l-3 9H2" {...p} />;
-const RefreshCw = (p: { className?: string }) => <Icon path="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" {...p} />;
-const Eye = (p: { className?: string }) => <Icon path="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" {...p} />;
-const Play = (p: { className?: string }) => <Icon path="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Pause = (p: { className?: string }) => <Icon path="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Globe = (p: { className?: string }) => <Icon path="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" {...p} />;
-const AlertCircle = (p: { className?: string }) => <Icon path="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const CheckCircle2 = (p: { className?: string }) => <Icon path="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const XCircle = (p: { className?: string }) => <Icon path="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Zap = (p: { className?: string }) => <Icon path="M13 10V3L4 14h7v7l9-11h-7z" {...p} />;
-const Target = (p: { className?: string }) => <Icon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" {...p} />;
-const Users = (p: { className?: string }) => <Icon path="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" {...p} />;
-const X = (p: { className?: string }) => <Icon path="M6 18L18 6M6 6l12 12" {...p} />;
+const Shield = (p: { className?: string }): React.ReactElement => <Icon path="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" {...p} />;
+const AlertTriangle = (p: { className?: string }): React.ReactElement => <Icon path="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" {...p} />;
+const Activity = (p: { className?: string }): React.ReactElement => <Icon path="M22 12h-4l-3 9L9 3l-3 9H2" {...p} />;
+const RefreshCw = (p: { className?: string }): React.ReactElement => <Icon path="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" {...p} />;
+const Eye = (p: { className?: string }): React.ReactElement => <Icon path="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" {...p} />;
+const Play = (p: { className?: string }): React.ReactElement => <Icon path="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const Pause = (p: { className?: string }): React.ReactElement => <Icon path="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const Globe = (p: { className?: string }): React.ReactElement => <Icon path="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" {...p} />;
+const AlertCircle = (p: { className?: string }): React.ReactElement => <Icon path="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const CheckCircle2 = (p: { className?: string }): React.ReactElement => <Icon path="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const XCircle = (p: { className?: string }): React.ReactElement => <Icon path="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const Zap = (p: { className?: string }): React.ReactElement => <Icon path="M13 10V3L4 14h7v7l9-11h-7z" {...p} />;
+const Target = (p: { className?: string }): React.ReactElement => <Icon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" {...p} />;
+const Users = (p: { className?: string }): React.ReactElement => <Icon path="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" {...p} />;
+const X = (p: { className?: string }): React.ReactElement => <Icon path="M6 18L18 6M6 6l12 12" {...p} />;
 
 // ============================================================================
 // Types
@@ -322,7 +322,7 @@ function mapThreatIndicator(indicator: BackendThreatIndicator): ThreatIndicator 
 // Components
 // ============================================================================
 
-const getSeverityColor = (severity: EventSeverity) => {
+const getSeverityColor = (severity: EventSeverity): string => {
   switch (severity) {
     case 'critical':
       return 'bg-red-100 text-red-800 border-red-200';
@@ -337,7 +337,7 @@ const getSeverityColor = (severity: EventSeverity) => {
   }
 };
 
-const getSeverityIcon = (severity: EventSeverity) => {
+const getSeverityIcon = (severity: EventSeverity): React.ReactElement => {
   switch (severity) {
     case 'critical':
       return <XCircle className="w-4 h-4 text-red-600" />;
@@ -352,7 +352,7 @@ const getSeverityIcon = (severity: EventSeverity) => {
   }
 };
 
-const getStatusColor = (status: EventStatus | IncidentStatus) => {
+const getStatusColor = (status: EventStatus | IncidentStatus): string => {
   switch (status) {
     case 'resolved':
     case 'closed':
@@ -372,7 +372,7 @@ const getStatusColor = (status: EventStatus | IncidentStatus) => {
   }
 };
 
-const formatTimeAgo = (dateString: string) => {
+const formatTimeAgo = (dateString: string): string => {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -386,7 +386,7 @@ const formatTimeAgo = (dateString: string) => {
   return `${diffDays}d ago`;
 };
 
-const formatDateTime = (dateString: string) => {
+const formatDateTime = (dateString: string): string => {
   return new Date(dateString).toLocaleString('tr-TR', {
     day: '2-digit',
     month: '2-digit',
@@ -399,7 +399,7 @@ const formatDateTime = (dateString: string) => {
 
 // Health Score Gauge Component
 const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'critical' }> = ({ score, status }) => {
-  const getColor = () => {
+  const getColor = (): string => {
     if (status === 'healthy') return '#22c55e';
     if (status === 'warning') return '#eab308';
     return '#ef4444';

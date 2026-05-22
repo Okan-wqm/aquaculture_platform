@@ -278,7 +278,7 @@ function mapComplianceCheck(
 // Components
 // ============================================================================
 
-const formatDate = (dateString: string) => {
+const formatDate = (dateString: string): string => {
   return new Date(dateString).toLocaleDateString('tr-TR', {
     day: '2-digit',
     month: '2-digit',
@@ -286,7 +286,7 @@ const formatDate = (dateString: string) => {
   });
 };
 
-const formatDateTime = (dateString: string) => {
+const formatDateTime = (dateString: string): string => {
   return new Date(dateString).toLocaleString('tr-TR', {
     day: '2-digit',
     month: '2-digit',
@@ -296,7 +296,7 @@ const formatDateTime = (dateString: string) => {
   });
 };
 
-const getRequestTypeIcon = (type: DataRequestType) => {
+const getRequestTypeIcon = (type: DataRequestType): React.ReactElement => {
   switch (type) {
     case 'access':
       return <Eye className="w-4 h-4" />;
@@ -315,7 +315,7 @@ const getRequestTypeIcon = (type: DataRequestType) => {
   }
 };
 
-const getRequestTypeLabel = (type: DataRequestType) => {
+const getRequestTypeLabel = (type: DataRequestType): string => {
   const labels: Record<DataRequestType, string> = {
     access: 'Data Access',
     rectification: 'Rectification',
@@ -327,7 +327,7 @@ const getRequestTypeLabel = (type: DataRequestType) => {
   return labels[type];
 };
 
-const getStatusColor = (status: DataRequestStatus) => {
+const getStatusColor = (status: DataRequestStatus): string => {
   switch (status) {
     case 'completed':
       return 'bg-green-100 text-green-800';
@@ -345,7 +345,7 @@ const getStatusColor = (status: DataRequestStatus) => {
   }
 };
 
-const getComplianceStatusColor = (status: string) => {
+const getComplianceStatusColor = (status: string): string => {
   switch (status) {
     case 'compliant':
     case 'pass':

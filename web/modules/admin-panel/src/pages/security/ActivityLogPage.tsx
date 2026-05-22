@@ -162,7 +162,7 @@ async function fetchActivityStats(): Promise<ActivityStats> {
 // Components
 // ============================================================================
 
-const getCategoryIcon = (category: ActivityCategory) => {
+const getCategoryIcon = (category: ActivityCategory): React.ReactElement => {
   switch (category) {
     case 'user_action':
       return <User className="w-4 h-4" />;
@@ -181,7 +181,7 @@ const getCategoryIcon = (category: ActivityCategory) => {
   }
 };
 
-const getCategoryColor = (category: ActivityCategory) => {
+const getCategoryColor = (category: ActivityCategory): string => {
   switch (category) {
     case 'user_action':
       return 'bg-blue-100 text-blue-800';
@@ -200,7 +200,7 @@ const getCategoryColor = (category: ActivityCategory) => {
   }
 };
 
-const getSeverityIcon = (severity: ActivitySeverity) => {
+const getSeverityIcon = (severity: ActivitySeverity): React.ReactElement => {
   switch (severity) {
     case 'critical':
       return <XCircle className="w-4 h-4 text-red-600" />;
@@ -215,7 +215,7 @@ const getSeverityIcon = (severity: ActivitySeverity) => {
   }
 };
 
-const getSeverityColor = (severity: ActivitySeverity) => {
+const getSeverityColor = (severity: ActivitySeverity): string => {
   switch (severity) {
     case 'critical':
       return 'bg-red-100 text-red-800 border-red-200';
@@ -230,7 +230,7 @@ const getSeverityColor = (severity: ActivitySeverity) => {
   }
 };
 
-const formatDate = (dateString: string) => {
+const formatDate = (dateString: string): string => {
   const date = new Date(dateString);
   return date.toLocaleString('tr-TR', {
     day: '2-digit',
@@ -242,7 +242,7 @@ const formatDate = (dateString: string) => {
   });
 };
 
-const formatTimeAgo = (dateString: string) => {
+const formatTimeAgo = (dateString: string): string => {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -497,7 +497,7 @@ export const ActivityLogPage: React.FC = () => {
     void loadData();
   }, [loadData]);
 
-  const toggleRowExpand = (id: string) => {
+  const toggleRowExpand = (id: string): void => {
     const newExpanded = new Set(expandedRows);
     if (newExpanded.has(id)) {
       newExpanded.delete(id);
@@ -507,7 +507,7 @@ export const ActivityLogPage: React.FC = () => {
     setExpandedRows(newExpanded);
   };
 
-  const handleExport = () => {
+  const handleExport = (): void => {
     const csvContent = [
       ['ID', 'Timestamp', 'Category', 'Action', 'Severity', 'User', 'IP', 'Status'].join(','),
       ...activities.map((a) =>

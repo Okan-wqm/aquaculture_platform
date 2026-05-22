@@ -33,6 +33,7 @@ export interface AuditLogFilter {
   entityId?: string;
   tenantId?: string;
   performedBy?: string;
+  performedByEmail?: string;
   severity?: AuditSeverity;
   startDate?: Date;
   endDate?: Date;
@@ -45,6 +46,27 @@ export interface PaginatedAuditLogs {
   page: number;
   limit: number;
   totalPages: number;
+}
+
+interface ActionCountRow {
+  action?: string | null;
+  count: string;
+}
+
+interface SeverityCountRow {
+  severity?: string | null;
+  count: string;
+}
+
+interface EntityTypeCountRow {
+  entityType?: string | null;
+  count: string;
+}
+
+interface UserCountRow {
+  userId?: string | null;
+  email?: string | null;
+  count: string;
 }
 
 @Injectable()
@@ -126,6 +148,12 @@ export class AuditLogService {
       if (filter.performedBy) {
         queryBuilder.andWhere('audit.performedBy = :performedBy', {
           performedBy: filter.performedBy,
+        });
+      }
+
+      if (filter.performedByEmail) {
+        queryBuilder.andWhere('audit.performedByEmail = :performedByEmail', {
+          performedByEmail: filter.performedByEmail,
         });
       }
 
@@ -364,7 +392,7 @@ export class AuditLogService {
         .where(baseWhere + dateWhere, { ...baseParams, ...dateParams })
         .groupBy('audit.action')
         .orderBy('count', 'DESC')
-        .getRawMany(),
+        .getRawMany<ActionCountRow>(),
 
       // By severity
       this.auditLogRepository
@@ -374,7 +402,7 @@ export class AuditLogService {
         .where(baseWhere + dateWhere, { ...baseParams, ...dateParams })
         .groupBy('audit.severity')
         .orderBy('count', 'DESC')
-        .getRawMany(),
+        .getRawMany<SeverityCountRow>(),
 
       // By entity type
       this.auditLogRepository
@@ -384,7 +412,7 @@ export class AuditLogService {
         .where(baseWhere + dateWhere, { ...baseParams, ...dateParams })
         .groupBy('audit.entityType')
         .orderBy('count', 'DESC')
-        .getRawMany(),
+        .getRawMany<EntityTypeCountRow>(),
 
       // Top users with email
       this.auditLogRepository
@@ -397,7 +425,7 @@ export class AuditLogService {
         .addGroupBy('audit.performedByEmail')
         .orderBy('count', 'DESC')
         .limit(10)
-        .getRawMany(),
+        .getRawMany<UserCountRow>(),
     ]);
 
     // Transform results to expected format (arrays instead of objects)
@@ -433,23 +461,17 @@ export class AuditLogService {
   }
 
   /**
-   * Delete old audit logs (for data retention)
+   * Immutable admin audit logs are never purged in-process.
+   *
+   * Retention workflows may archive or partition storage outside this service,
+   * but this append-only source of truth must not issue DELETE statements.
    */
-  async purgeOldLogs(retentionDays: number): Promise<number> {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
-
-    const result = await this.auditLogRepository
-      .createQueryBuilder()
-      .delete()
-      .where('createdAt < :cutoffDate', { cutoffDate })
-      .execute();
-
-    this.logger.log(
-      `Purged ${result.affected} audit logs older than ${retentionDays} days`,
+  purgeOldLogs(retentionDays: number): number {
+    this.logger.warn(
+      `Skipped immutable audit log purge request for retentionDays=${retentionDays}`,
     );
 
-    return result.affected || 0;
+    return 0;
   }
 
   private determineSeverity(action: string): AuditSeverity {

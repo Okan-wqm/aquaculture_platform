@@ -4,7 +4,6 @@
  * Comprehensive activity logging interface with filtering, search, and real-time updates.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
 import {
   Activity,
   Search,
@@ -27,6 +26,8 @@ import {
   AlertCircle,
   XCircle,
 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+
 import { securityApi } from '../../services/adminApi';
 
 // ============================================================================
@@ -39,9 +40,10 @@ type ActivityCategory =
   | 'api_call'
   | 'data_access'
   | 'security_event'
-  | 'configuration_change';
+  | 'configuration'
+  | 'authentication';
 
-type ActivitySeverity = 'info' | 'low' | 'medium' | 'high' | 'critical';
+type ActivitySeverity = 'debug' | 'info' | 'warning' | 'error' | 'critical';
 
 interface GeoLocation {
   country?: string;
@@ -102,31 +104,37 @@ async function fetchActivities(params: {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
-  if (params.category && params.category !== 'all') apiParams.action = params.category;
-  if (params.searchQuery) apiParams.search = params.searchQuery;
+  if (params.category && params.category !== 'all') apiParams.category = params.category;
+  if (params.severity && params.severity !== 'all') apiParams.severity = params.severity;
+  if (params.searchQuery) apiParams.searchQuery = params.searchQuery;
   if (params.startDate) apiParams.startDate = params.startDate;
   if (params.endDate) apiParams.endDate = params.endDate;
 
   const result = await securityApi.getActivityLogs(apiParams);
-  // Map API response to local ActivityLog type
   return {
     data: result.data.map((log) => ({
       id: log.id,
-      category: (log as unknown as { category?: ActivityCategory }).category || 'user_action',
+      category: log.category,
       action: log.action,
-      severity: (log as unknown as { severity?: ActivitySeverity }).severity || 'info',
-      tenantId: log.tenantId,
-      userId: log.userId,
-      userName: (log as unknown as { userName?: string }).userName,
-      userEmail: log.userEmail,
-      ipAddress: log.ipAddress,
-      userAgent: log.userAgent,
-      geoLocation: log.location,
-      entityType: log.entityType,
-      entityId: log.entityId,
-      metadata: log.metadata,
-      success: (log as unknown as { success?: boolean }).success ?? true,
-      createdAt: log.timestamp || (log as unknown as { createdAt?: string }).createdAt || '',
+      severity: log.severity,
+      tenantId: log.tenantId ?? undefined,
+      tenantName: log.tenantName ?? undefined,
+      userId: log.userId ?? undefined,
+      userName: log.userName ?? undefined,
+      userEmail: log.userEmail ?? undefined,
+      ipAddress: log.ipAddress ?? undefined,
+      userAgent: log.userAgent ?? undefined,
+      geoLocation: log.geoLocation ?? log.location,
+      entityType: log.entityType ?? undefined,
+      entityId: log.entityId ?? undefined,
+      entityName: log.entityName ?? undefined,
+      previousValue: log.previousValue ?? undefined,
+      newValue: log.newValue ?? undefined,
+      metadata: log.metadata ?? undefined,
+      duration: log.duration ?? undefined,
+      success: log.success,
+      errorMessage: log.errorMessage ?? undefined,
+      createdAt: log.createdAt || log.timestamp || '',
     })),
     total: result.total,
     page: result.page,
@@ -135,7 +143,19 @@ async function fetchActivities(params: {
 }
 
 async function fetchActivityStats(): Promise<ActivityStats> {
-  return securityApi.getActivityStatsOverview();
+  const stats = await securityApi.getActivityStatsOverview();
+  const failedCount = stats.bySuccess.failure ?? 0;
+  return {
+    totalActivities: stats.totalActivities,
+    byCategory: stats.byCategory,
+    bySeverity: stats.bySeverity,
+    uniqueUsers: stats.topUsers.length,
+    uniqueIps: stats.topIPs.length,
+    averageResponseTime: 0,
+    errorRate: stats.totalActivities > 0
+      ? (failedCount / stats.totalActivities) * 100
+      : 0,
+  };
 }
 
 // ============================================================================
@@ -154,7 +174,7 @@ const getCategoryIcon = (category: ActivityCategory) => {
       return <Database className="w-4 h-4" />;
     case 'security_event':
       return <Shield className="w-4 h-4" />;
-    case 'configuration_change':
+    case 'configuration':
       return <Monitor className="w-4 h-4" />;
     default:
       return <Activity className="w-4 h-4" />;
@@ -173,7 +193,7 @@ const getCategoryColor = (category: ActivityCategory) => {
       return 'bg-orange-100 text-orange-800';
     case 'security_event':
       return 'bg-red-100 text-red-800';
-    case 'configuration_change':
+    case 'configuration':
       return 'bg-yellow-100 text-yellow-800';
     default:
       return 'bg-gray-100 text-gray-800';
@@ -184,11 +204,11 @@ const getSeverityIcon = (severity: ActivitySeverity) => {
   switch (severity) {
     case 'critical':
       return <XCircle className="w-4 h-4 text-red-600" />;
-    case 'high':
+    case 'error':
       return <AlertCircle className="w-4 h-4 text-orange-600" />;
-    case 'medium':
+    case 'warning':
       return <AlertTriangle className="w-4 h-4 text-yellow-600" />;
-    case 'low':
+    case 'debug':
       return <Info className="w-4 h-4 text-blue-600" />;
     default:
       return <Info className="w-4 h-4 text-gray-600" />;
@@ -199,11 +219,11 @@ const getSeverityColor = (severity: ActivitySeverity) => {
   switch (severity) {
     case 'critical':
       return 'bg-red-100 text-red-800 border-red-200';
-    case 'high':
+    case 'error':
       return 'bg-orange-100 text-orange-800 border-orange-200';
-    case 'medium':
+    case 'warning':
       return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    case 'low':
+    case 'debug':
       return 'bg-blue-100 text-blue-800 border-blue-200';
     default:
       return 'bg-gray-100 text-gray-800 border-gray-200';
@@ -259,15 +279,15 @@ const ActivityDetailModal: React.FC<{
           {/* Basic Info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium text-gray-500">ID</label>
+              <span className="text-sm font-medium text-gray-500">ID</span>
               <p className="text-sm text-gray-900 font-mono">{activity.id}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Timestamp</label>
+              <span className="text-sm font-medium text-gray-500">Timestamp</span>
               <p className="text-sm text-gray-900">{formatDate(activity.createdAt)}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Category</label>
+              <span className="text-sm font-medium text-gray-500">Category</span>
               <span
                 className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(activity.category)}`}
               >
@@ -276,7 +296,7 @@ const ActivityDetailModal: React.FC<{
               </span>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Severity</label>
+              <span className="text-sm font-medium text-gray-500">Severity</span>
               <span
                 className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(activity.severity)}`}
               >
@@ -288,7 +308,7 @@ const ActivityDetailModal: React.FC<{
 
           {/* Action */}
           <div>
-            <label className="text-sm font-medium text-gray-500">Action</label>
+            <span className="text-sm font-medium text-gray-500">Action</span>
             <p className="text-sm text-gray-900">{activity.action}</p>
           </div>
 
@@ -297,19 +317,19 @@ const ActivityDetailModal: React.FC<{
             <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-500">User</label>
+                <span className="text-xs text-gray-500">User</span>
                 <p className="text-sm text-gray-900">{activity.userName || 'N/A'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Email</label>
+                <span className="text-xs text-gray-500">Email</span>
                 <p className="text-sm text-gray-900">{activity.userEmail || 'N/A'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Tenant</label>
+                <span className="text-xs text-gray-500">Tenant</span>
                 <p className="text-sm text-gray-900">{activity.tenantName || 'N/A'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">IP Address</label>
+                <span className="text-xs text-gray-500">IP Address</span>
                 <p className="text-sm text-gray-900 font-mono">{activity.ipAddress || 'N/A'}</p>
               </div>
             </div>
@@ -324,11 +344,11 @@ const ActivityDetailModal: React.FC<{
               </h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-gray-500">Country</label>
+                  <span className="text-xs text-gray-500">Country</span>
                   <p className="text-sm text-gray-900">{activity.geoLocation.country || 'N/A'}</p>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">City</label>
+                  <span className="text-xs text-gray-500">City</span>
                   <p className="text-sm text-gray-900">{activity.geoLocation.city || 'N/A'}</p>
                 </div>
               </div>
@@ -341,15 +361,15 @@ const ActivityDetailModal: React.FC<{
               <h3 className="text-sm font-medium text-gray-700 mb-3">Target Entity</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="text-xs text-gray-500">Type</label>
+                  <span className="text-xs text-gray-500">Type</span>
                   <p className="text-sm text-gray-900">{activity.entityType}</p>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">ID</label>
+                  <span className="text-xs text-gray-500">ID</span>
                   <p className="text-sm text-gray-900 font-mono">{activity.entityId}</p>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">Name</label>
+                  <span className="text-xs text-gray-500">Name</span>
                   <p className="text-sm text-gray-900">{activity.entityName}</p>
                 </div>
               </div>
@@ -359,7 +379,7 @@ const ActivityDetailModal: React.FC<{
           {/* Status */}
           <div className="flex items-center gap-4">
             <div>
-              <label className="text-sm font-medium text-gray-500">Status</label>
+              <span className="text-sm font-medium text-gray-500">Status</span>
               <span
                 className={`ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                   activity.success
@@ -372,7 +392,7 @@ const ActivityDetailModal: React.FC<{
             </div>
             {activity.duration !== undefined && (
               <div>
-                <label className="text-sm font-medium text-gray-500">Duration</label>
+                <span className="text-sm font-medium text-gray-500">Duration</span>
                 <span className="ml-2 text-sm text-gray-900">{activity.duration}ms</span>
               </div>
             )}
@@ -389,7 +409,7 @@ const ActivityDetailModal: React.FC<{
           {/* User Agent */}
           {activity.userAgent && (
             <div>
-              <label className="text-sm font-medium text-gray-500">User Agent</label>
+              <span className="text-sm font-medium text-gray-500">User Agent</span>
               <p className="text-xs text-gray-600 font-mono break-all bg-gray-50 p-2 rounded">
                 {activity.userAgent}
               </p>
@@ -434,32 +454,47 @@ export const ActivityLogPage: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
-    try {
-      const [activitiesResult, statsResult] = await Promise.all([
-        fetchActivities({
-          page,
-          limit,
-          category: categoryFilter,
-          severity: severityFilter,
-          searchQuery: searchTerm || undefined,
-          startDate: dateRange.start || undefined,
-          endDate: dateRange.end || undefined,
-        }),
-        fetchActivityStats(),
-      ]);
-      setActivities(activitiesResult.data);
-      setTotal(activitiesResult.total);
-      setStats(statsResult);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load activities');
-      console.error('Failed to load activities:', err);
-    } finally {
-      setLoading(false);
+    const [activitiesResult, statsResult] = await Promise.allSettled([
+      fetchActivities({
+        page,
+        limit,
+        category: categoryFilter,
+        severity: severityFilter,
+        searchQuery: searchTerm || undefined,
+        startDate: dateRange.start || undefined,
+        endDate: dateRange.end || undefined,
+      }),
+      fetchActivityStats(),
+    ]);
+    const failures: string[] = [];
+
+    if (activitiesResult.status === 'fulfilled') {
+      setActivities(activitiesResult.value.data);
+      setTotal(activitiesResult.value.total);
+    } else {
+      failures.push(
+        activitiesResult.reason instanceof Error
+          ? activitiesResult.reason.message
+          : 'Failed to load activities',
+      );
     }
+
+    if (statsResult.status === 'fulfilled') {
+      setStats(statsResult.value);
+    } else {
+      failures.push(
+        statsResult.reason instanceof Error
+          ? statsResult.reason.message
+          : 'Failed to load activity statistics',
+      );
+    }
+
+    setError(failures.length > 0 ? failures.join('; ') : null);
+    setLoading(false);
   }, [page, limit, categoryFilter, severityFilter, searchTerm, dateRange]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
   const toggleRowExpand = (id: string) => {
@@ -511,7 +546,7 @@ export const ActivityLogPage: React.FC = () => {
         <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
         <p className="text-red-600 mb-4">{error}</p>
         <button
-          onClick={loadData}
+          onClick={() => void loadData()}
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
         >
           Retry
@@ -539,7 +574,7 @@ export const ActivityLogPage: React.FC = () => {
             Export
           </button>
           <button
-            onClick={loadData}
+            onClick={() => void loadData()}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
@@ -625,7 +660,7 @@ export const ActivityLogPage: React.FC = () => {
             <option value="api_call">API Calls</option>
             <option value="data_access">Data Access</option>
             <option value="security_event">Security Events</option>
-            <option value="configuration_change">Config Changes</option>
+            <option value="configuration">Config Changes</option>
           </select>
           <select
             value={severityFilter}
@@ -634,9 +669,9 @@ export const ActivityLogPage: React.FC = () => {
           >
             <option value="all">All Severities</option>
             <option value="info">Info</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
+            <option value="debug">Debug</option>
+            <option value="warning">Warning</option>
+            <option value="error">Error</option>
             <option value="critical">Critical</option>
           </select>
           <button
@@ -656,9 +691,9 @@ export const ActivityLogPage: React.FC = () => {
         {showFilters && (
           <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-4 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <span className="block text-sm font-medium text-gray-700 mb-1">
                 Start Date
-              </label>
+              </span>
               <input
                 type="date"
                 value={dateRange.start}
@@ -667,9 +702,9 @@ export const ActivityLogPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <span className="block text-sm font-medium text-gray-700 mb-1">
                 End Date
-              </label>
+              </span>
               <input
                 type="date"
                 value={dateRange.end}

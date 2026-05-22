@@ -4,12 +4,10 @@
  * GDPR compliance management, data subject requests, and compliance reporting.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
 import {
   Shield,
   FileText,
   Search,
-  Filter,
   Download,
   RefreshCw,
   Plus,
@@ -22,26 +20,25 @@ import {
   XCircle,
   User,
   Mail,
-  Calendar,
-  ChevronRight,
   BarChart3,
   Trash2,
-  Database,
   Lock,
   Globe,
   FileCheck,
 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+
 import { securityApi } from '../../services/adminApi';
 import type {
-  ComplianceReport as ApiComplianceReport,
-  DataSubjectRequest,
+  BackendComplianceReport,
+  BackendDataSubjectRequest,
 } from '../../services/types/security';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'iso27001' | 'soc2';
+type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'iso27001' | 'sox' | 'soc2';
 type DataRequestType = 'access' | 'rectification' | 'erasure' | 'portability' | 'restriction' | 'objection';
 type DataRequestStatus = 'pending' | 'in_progress' | 'identity_verification' | 'processing' | 'completed' | 'rejected';
 
@@ -110,6 +107,14 @@ interface ComplianceStats {
   averageResolutionTime: number;
 }
 
+const toPrimitiveString = (value: unknown, fallback: string): string => {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return fallback;
+};
+
 // ============================================================================
 // API Service - Using centralized securityApi with auth headers
 // ============================================================================
@@ -125,7 +130,10 @@ async function fetchDataRequests(params: {
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
   if (params.status && params.status !== 'all') apiParams.status = params.status;
-  if (params.requestType && params.requestType !== 'all') apiParams.type = params.requestType;
+  if (params.requestType && params.requestType !== 'all') {
+    apiParams.requestType = params.requestType === 'erasure' ? 'deletion' : params.requestType;
+  }
+  if (params.searchQuery) apiParams.searchQuery = params.searchQuery;
 
   const result = await securityApi.getDataRequests(apiParams);
   const data = Array.isArray(result?.data)
@@ -147,13 +155,8 @@ async function fetchDataRequests(params: {
 }
 
 async function fetchComplianceReports(): Promise<ComplianceReport[]> {
-  const result = await securityApi.getComplianceReports();
-  // SECURITY: Enforce response contract — backend might return a wrapped
-  // object {reports: [...]} or an error object. Only accept arrays.
-  if (!Array.isArray(result)) {
-    throw new Error(`Compliance reports: expected array, got ${typeof result}`);
-  }
-  return result.map(mapComplianceReport);
+  const result = await securityApi.getComplianceReports({ limit: 50 });
+  return result.data.map(mapComplianceReport);
 }
 
 async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck[]> {
@@ -173,45 +176,75 @@ async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck
   throw new Error(`Compliance checks: expected array, got ${typeof result}`);
 }
 
-function mapDataSubjectRequest(request: DataSubjectRequest): DataRequest {
+function mapDataSubjectRequest(request: BackendDataSubjectRequest): DataRequest {
+  const requestType: DataRequestType =
+    request.requestType === 'deletion' ? 'erasure' : request.requestType;
+
   return {
     id: request.id,
-    requestType: request.type,
-    complianceFramework: 'gdpr',
-    status: request.status,
+    requestType,
+    complianceFramework: request.complianceFramework ?? 'gdpr',
+    status: request.status === 'expired' ? 'rejected' : request.status,
     tenantId: request.tenantId ?? '',
-    tenantName: request.tenantId ?? 'Unknown tenant',
-    requesterName: request.subjectName ?? request.subjectEmail,
-    requesterEmail: request.subjectEmail,
-    description: request.notes ?? '',
-    submittedAt: request.requestedAt,
+    tenantName: request.tenantName ?? request.tenantId ?? 'Unknown tenant',
+    requesterId: request.requesterId ?? undefined,
+    requesterName: request.requesterName ?? request.requesterEmail,
+    requesterEmail: request.requesterEmail,
+    description: request.description ?? '',
+    dataCategories: request.dataCategories ?? undefined,
+    submittedAt: request.createdAt,
     dueDate: request.dueDate,
-    assignedToName: request.handledBy,
-    identityVerified: request.status !== 'pending',
-    completedAt: request.completedAt,
+    assignedTo: request.assignedTo ?? undefined,
+    assignedToName: request.assignedToName ?? undefined,
+    identityVerified: request.identityVerified ?? request.status !== 'pending',
+    verifiedAt: request.verifiedAt ?? undefined,
+    completedAt: request.completedAt ?? undefined,
+    deliveryFormat: request.deliveryFormat ?? undefined,
+    downloadUrl: request.downloadUrl ?? undefined,
     isOverdue: request.status !== 'completed' && new Date(request.dueDate).getTime() < Date.now(),
   };
 }
 
-function mapComplianceReport(report: ApiComplianceReport): ComplianceReport {
+function mapComplianceReport(report: BackendComplianceReport): ComplianceReport {
+  const resultFindings = report.detailedFindings?.complianceResults ?? [];
+  const violationFindings = (report.violations ?? []).map((violation, index) => ({
+    category: toPrimitiveString(violation.category, 'violation-' + String(index + 1)),
+    status: 'fail' as const,
+    description: toPrimitiveString(
+      violation.description ?? violation.message,
+      'Compliance violation',
+    ),
+    recommendation: typeof violation.recommendation === 'string'
+      ? violation.recommendation
+      : undefined,
+  }));
+  const findings = resultFindings.length > 0
+    ? resultFindings.map((finding) => ({
+        category: finding.category ?? finding.requirement ?? 'general',
+        status: finding.status === 'fail' || finding.status === 'non_compliant'
+          ? 'fail' as const
+          : finding.status === 'warning' || finding.status === 'partial'
+            ? 'warning' as const
+            : 'pass' as const,
+        description: finding.description ?? finding.requirement ?? 'Compliance check',
+        recommendation: finding.recommendation,
+      }))
+    : violationFindings;
+
   return {
     id: report.id,
-    complianceType: report.type === 'custom' ? 'soc2' : report.type,
-    reportPeriodStart: report.generatedAt,
-    reportPeriodEnd: report.validUntil,
-    generatedAt: report.generatedAt,
-    generatedBy: '',
-    generatedByName: 'System',
-    overallScore: report.score,
-    totalChecks: report.findings.length,
-    passedChecks: report.findings.filter((finding) => finding.status === 'pass').length,
-    failedChecks: report.findings.filter((finding) => finding.status === 'fail').length,
-    warnings: report.findings.filter((finding) => finding.status === 'warning').length,
-    findings: report.findings.map((finding) => ({
-      category: finding.area,
-      status: finding.status === 'warning' ? 'warning' : finding.status === 'fail' ? 'fail' : 'pass',
-      description: finding.details,
-    })),
+    complianceType: report.complianceType === 'sox' ? 'sox' : report.complianceType,
+    reportPeriodStart: report.reportPeriodStart,
+    reportPeriodEnd: report.reportPeriodEnd,
+    generatedAt: report.generatedAt ?? report.createdAt,
+    generatedBy: report.generatedBy ?? '',
+    generatedByName: report.generatedByName ?? 'System',
+    overallScore: report.complianceScore,
+    totalChecks: findings.length,
+    passedChecks: findings.filter((finding) => finding.status === 'pass').length,
+    failedChecks: findings.filter((finding) => finding.status === 'fail').length,
+    warnings: findings.filter((finding) => finding.status === 'warning').length,
+    findings,
   };
 }
 
@@ -369,7 +402,7 @@ const DataRequestDetailModal: React.FC<{
           {/* Request Info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium text-gray-500">Request Type</label>
+              <span className="text-sm font-medium text-gray-500">Request Type</span>
               <div className="flex items-center gap-2 mt-1">
                 {getRequestTypeIcon(request.requestType)}
                 <span className="text-sm text-gray-900">
@@ -378,7 +411,7 @@ const DataRequestDetailModal: React.FC<{
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Status</label>
+              <span className="text-sm font-medium text-gray-500">Status</span>
               <span
                 className={`inline-flex mt-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}
               >
@@ -386,11 +419,11 @@ const DataRequestDetailModal: React.FC<{
               </span>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Submitted</label>
+              <span className="text-sm font-medium text-gray-500">Submitted</span>
               <p className="text-sm text-gray-900">{formatDateTime(request.submittedAt)}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Due Date</label>
+              <span className="text-sm font-medium text-gray-500">Due Date</span>
               <p className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}>
                 {formatDate(request.dueDate)}
               </p>
@@ -428,14 +461,14 @@ const DataRequestDetailModal: React.FC<{
 
           {/* Description */}
           <div>
-            <label className="text-sm font-medium text-gray-500">Description</label>
+            <span className="text-sm font-medium text-gray-500">Description</span>
             <p className="text-sm text-gray-900 mt-1">{request.description}</p>
           </div>
 
           {/* Data Categories */}
           {request.dataCategories && request.dataCategories.length > 0 && (
             <div>
-              <label className="text-sm font-medium text-gray-500">Data Categories</label>
+              <span className="text-sm font-medium text-gray-500">Data Categories</span>
               <div className="flex flex-wrap gap-2 mt-2">
                 {request.dataCategories.map((cat) => (
                   <span
@@ -452,14 +485,14 @@ const DataRequestDetailModal: React.FC<{
           {/* Assignment */}
           {request.assignedTo && (
             <div>
-              <label className="text-sm font-medium text-gray-500">Assigned To</label>
+              <span className="text-sm font-medium text-gray-500">Assigned To</span>
               <p className="text-sm text-gray-900 mt-1">{request.assignedToName}</p>
             </div>
           )}
 
           {/* Timeline */}
           <div>
-            <label className="text-sm font-medium text-gray-500 mb-3 block">Timeline</label>
+            <span className="text-sm font-medium text-gray-500 mb-3 block">Timeline</span>
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
@@ -569,30 +602,54 @@ export const CompliancePage: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
-    try {
-      const [requestsResult, reportsResult, checksResult] = await Promise.all([
-        fetchDataRequests({
-          status: statusFilter,
-          requestType: typeFilter,
-          searchQuery: searchTerm || undefined,
-        }),
-        fetchComplianceReports(),
-        fetchComplianceChecks('gdpr'),
-      ]);
-      setDataRequests(requestsResult.data);
-      setStats(requestsResult.stats);
-      setReports(reportsResult);
-      setChecks(checksResult);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load compliance data');
-      console.error('Failed to load compliance data:', err);
-    } finally {
-      setLoading(false);
+    const [requestsResult, reportsResult, checksResult] = await Promise.allSettled([
+      fetchDataRequests({
+        status: statusFilter,
+        requestType: typeFilter,
+        searchQuery: searchTerm || undefined,
+      }),
+      fetchComplianceReports(),
+      fetchComplianceChecks('gdpr'),
+    ]);
+    const failures: string[] = [];
+
+    if (requestsResult.status === 'fulfilled') {
+      setDataRequests(requestsResult.value.data);
+      setStats(requestsResult.value.stats);
+    } else {
+      failures.push(
+        requestsResult.reason instanceof Error
+          ? requestsResult.reason.message
+          : 'Failed to load data subject requests',
+      );
     }
+
+    if (reportsResult.status === 'fulfilled') {
+      setReports(reportsResult.value);
+    } else {
+      failures.push(
+        reportsResult.reason instanceof Error
+          ? reportsResult.reason.message
+          : 'Failed to load compliance reports',
+      );
+    }
+
+    if (checksResult.status === 'fulfilled') {
+      setChecks(checksResult.value);
+    } else {
+      failures.push(
+        checksResult.reason instanceof Error
+          ? checksResult.reason.message
+          : 'Failed to load compliance checks',
+      );
+    }
+
+    setError(failures.length > 0 ? failures.join('; ') : null);
+    setLoading(false);
   }, [statusFilter, typeFilter, searchTerm]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
   const [actionLoading, setActionLoading] = useState(false);
@@ -669,7 +726,7 @@ export const CompliancePage: React.FC = () => {
         <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
         <p className="text-red-600 mb-4">{error}</p>
         <button
-          onClick={loadData}
+          onClick={() => void loadData()}
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
         >
           Retry
@@ -690,7 +747,7 @@ export const CompliancePage: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={loadData}
+            onClick={() => void loadData()}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
@@ -1089,7 +1146,7 @@ export const CompliancePage: React.FC = () => {
         <DataRequestDetailModal
           request={selectedRequest}
           onClose={() => { setSelectedRequest(null); setActionError(null); }}
-          onAction={handleRequestAction}
+          onAction={(action) => { void handleRequestAction(action); }}
           actionLoading={actionLoading}
           actionError={actionError}
         />

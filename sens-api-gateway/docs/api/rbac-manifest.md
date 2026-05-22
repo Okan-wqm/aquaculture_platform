@@ -8,7 +8,7 @@
 ## Runtime wiring status
 ### RC2 release posture
 
-`agent-v2.0.0-rc2` publishes a hardened release contract and `edge-rc2` binary profile. It does not claim dispatcher-level RBAC enforcement; this manifest remains the vocabulary for the follow-up runtime PR.
+`agent-v2.0.0-rc2` publishes a hardened release contract and `scada-display` binary tier. It does not claim dispatcher-level RBAC enforcement; this manifest remains the vocabulary for the follow-up runtime PR.
 
 
 Today the `Permission` enum, `ActuatorClass` taxonomy, identifier newtypes, `PolicyEngine` trait, `RbacManifest` wire format, and `verify_manifest` function **exist as types** (`src/main.rs:22-23` `#[allow(dead_code)] mod authz;`) but the command dispatcher does NOT consult them.

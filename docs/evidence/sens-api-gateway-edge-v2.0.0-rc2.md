@@ -45,6 +45,7 @@ Fill these links after the PR is opened and CI has run.
 | Edge Agent Release | Runs only after `agent-v2.0.0-rc2` tag | Pending |
 
 ## Release Artifact Contract
+Release feature tier: `scada-display`. Broader GPIO/I2C/SPI/PWM and debug/security preview surfaces are CI/HIL-owned until a dedicated hardware release contract is introduced.
 
 - Archive: `suderra-agent-v2.0.0-rc2-<target>.tar.gz`
 - Checksum: `.tar.gz.sha256`

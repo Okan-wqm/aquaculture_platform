@@ -3,7 +3,7 @@
 Industrial IoT Edge Agent for aquaculture monitoring and control systems. Built with Rust for reliability, safety, and performance on resource-constrained edge devices.
 
 Current release contract: `agent-v2.0.0-rc2` / Cargo `2.0.0-rc.2`.
-The RC2 release is tag-only and built by GitHub Actions with the `edge-rc2` feature profile.
+The RC2 release is tag-only and built by GitHub Actions with the `scada-display` release tier.
 See `docs/releases/sens-api-gateway-edge-v2.0.0-rc2.md` and `docs/evidence/sens-api-gateway-edge-v2.0.0-rc2.md`.
 
 ## What's New in v1.3.4 (High Availability Edition)

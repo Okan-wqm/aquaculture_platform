@@ -40,7 +40,7 @@ env:
   # 2026-04-30: CI feature set compiles every software protocol/security path
   # while excluding `sx1302-vendor-hal`, which is a real hardware C HAL build
   # and must fail closed unless vendor/sx1302_hal sources are present.
-  SENS_API_GATEWAY_RC2_FEATURES: edge-rc2
+  SENS_API_GATEWAY_RC2_FEATURES: scada-display
   SENS_API_GATEWAY_CI_FEATURES: health,telemetry,metrics,strict-security,scada-display,lorawan,signed-deploy,tpm,st-bytecode,multi-task-scheduler,opc-ua-server,live-debug,license-enforce
 
 jobs:
@@ -58,14 +58,13 @@ jobs:
             echo "edge-agent-release.yml must not allow arbitrary manual release dispatch"
             exit 1
           fi
-          grep -q "EDGE_RELEASE_FEATURES: edge-rc2" .github/workflows/edge-agent-release.yml
+          grep -q "EDGE_RELEASE_FEATURES: scada-display" .github/workflows/edge-agent-release.yml
           grep -q "Release ref contract" .github/workflows/edge-agent-release.yml
           grep -q 'refs/tags/' .github/workflows/edge-agent-release.yml
           grep -q "cargo-metadata.sbom.json" .github/workflows/edge-agent-release.yml
           grep -q "intoto.jsonl" .github/workflows/edge-agent-release.yml
           grep -q "NOTICE.md" .github/workflows/edge-agent-release.yml
           grep -q 'version = "2.0.0-rc.2"' sens-api-gateway/Cargo.toml
-          grep -q '^edge-rc2 = ' sens-api-gateway/Cargo.toml
           if grep -q "apps/admin-api-service/src/edge" docs/evidence/sens-api-gateway-edge-v2.0.0-rc2.md; then
             grep -q "Excluded" docs/evidence/sens-api-gateway-edge-v2.0.0-rc2.md
           fi
@@ -118,7 +117,7 @@ jobs:
         run: cargo check --locked
 
   check-rc2-features:
-    name: cargo check --features edge-rc2
+    name: cargo check --features scada-display
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -137,7 +136,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
 
       # RC2 release profile parity gate. The tag-only release workflow builds
-      # this exact feature alias across the cross targets; this host-native
+      # this exact feature tier across the cross targets; this host-native
       # PR gate catches manifest/profile drift before a release tag is pushed.
       - name: Check gateway RC2 feature profile
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}

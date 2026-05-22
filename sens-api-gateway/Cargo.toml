@@ -421,10 +421,11 @@ strict-security = []
 # SCADA display server (embedded web UI for local HMI/kiosk)
 scada-display = ["axum", "tower-http"]
 
-# RC2 release profile. This is the single feature alias used by
-# .github/workflows/edge-agent-release.yml for agent-v2.0.0-rc2 builds.
-# Keep broad preview/debug surfaces out of this alias unless they are release-owned.
-edge-rc2 = ["health", "gpio", "scada-display", "st-bytecode", "license-enforce"]
+# RC2 compatibility alias. The release workflow names the concrete
+# `scada-display` tier directly so enterprise validation can distinguish
+# release binaries from broader CI/HIL feature gates. Keep hardware and
+# preview surfaces out of this alias unless a dedicated release contract owns them.
+edge-rc2 = ["scada-display"]
 # LoRaWAN protocol support. This intentionally excludes the Semtech SX1302
 # vendor HAL so CI can compile protocol/security paths without hardware C
 # sources. Real concentrator builds must enable `sx1302-vendor-hal` explicitly.

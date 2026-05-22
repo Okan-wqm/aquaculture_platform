@@ -17,7 +17,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_TOOLCHAIN: '1.88.0'
-  EDGE_RELEASE_FEATURES: edge-rc2
+  EDGE_RELEASE_FEATURES: scada-display
   BINARY_NAME: suderra-agent
   ARCHIVE_BINARY_NAME: edge-agent
 
@@ -70,6 +70,9 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    outputs:
+      tag: ${{ steps.release-ref.outputs.tag }}
+      version: ${{ steps.release-ref.outputs.version }}
     env:
       SENS_ENTERPRISE_RELEASE: '1'
     steps:
@@ -88,6 +91,12 @@ jobs:
       - name: Run Sens enterprise validation
         run: npm run gates:sens-enterprise-validation -- --release
 
+      - name: Export validated release ref
+        id: release-ref
+        run: |
+          echo "tag=${{ needs.release-ref-contract.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          echo "version=${{ needs.release-ref-contract.outputs.version }}" >> "$GITHUB_OUTPUT"
+
       - name: Upload Sens enterprise validation artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -99,9 +108,7 @@ jobs:
 
   build:
     name: Build (${{ matrix.target }})
-    needs:
-      - release-ref-contract
-      - sens-enterprise-validation
+    needs: sens-enterprise-validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -121,8 +128,8 @@ jobs:
             strip: false
 
     env:
-      RELEASE_TAG: ${{ needs.release-ref-contract.outputs.tag }}
-      RELEASE_VERSION: ${{ needs.release-ref-contract.outputs.version }}
+      RELEASE_TAG: ${{ needs.sens-enterprise-validation.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.sens-enterprise-validation.outputs.version }}
       TARGET_SLUG: ${{ matrix.target_slug }}
     steps:
       - name: Checkout code

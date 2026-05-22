@@ -12,7 +12,7 @@ It intentionally does not ship the broader Edge Platform v2 schema/runtime migra
 Included in this PR:
 
 - Tag-only GitHub release workflow for `agent-v*` tags.
-- RC2 Cargo feature profile: `edge-rc2`.
+- RC2 Cargo release tier: `scada-display`.
 - Versioned Linux artifacts for x86_64, aarch64, and armv7.
 - Release evidence artifacts: checksum, cargo metadata SBOM, in-toto provenance, notice file, cosign signature and certificate.
 - Operator runbooks for RC2 install, OPC UA posture, and OTA posture.
@@ -34,13 +34,13 @@ Not included in this PR:
 
 ## Build Profile
 
-The release workflow uses this Cargo feature alias:
+The release workflow uses this explicit Cargo feature tier:
 
-```toml
-edge-rc2 = ["health", "gpio", "scada-display", "st-bytecode", "license-enforce"]
+```yaml
+EDGE_RELEASE_FEATURES: scada-display
 ```
 
-This profile includes the health endpoint, physical GPIO support, local SCADA display, ST bytecode support, and license enforcement primitives.
+This tier packages the local SCADA display surface. Broader software coverage remains in the curated CI feature set, and physical GPIO/I2C/SPI/PWM paths stay outside this release tarball unless a dedicated hardware release contract owns them.
 
 ## Known Limitations
 

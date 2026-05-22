@@ -6,7 +6,7 @@ Audience: integrator connecting RC2 to Siemens, Beckhoff, B&R, or Unified Automa
 
 - The always-compiled OPC UA path is the client in `sens-api-gateway/src/plc_programming/opcua.rs`.
 - The optional OPC UA server is behind the `opc-ua-server` feature and is not part of the RC2 release profile.
-- RC2 release profile is `edge-rc2`; it does not include `opc-ua-server`.
+- RC2 release tier is `scada-display`; it does not include `opc-ua-server`.
 - Treat the client as `SecurityPolicy#None` and `SecurityMode#None` unless a later runtime PR proves signed/encrypted chunk support.
 
 ## Network Controls

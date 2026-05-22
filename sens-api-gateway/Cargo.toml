@@ -1,6 +1,6 @@
 [package]
 name = "suderra-agent"
-version = "1.6.0"
+version = "2.0.0-rc.2"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Suderra <info@suderra.com>"]
@@ -420,6 +420,11 @@ metrics = ["dep:metrics", "metrics-exporter-prometheus"]
 strict-security = []
 # SCADA display server (embedded web UI for local HMI/kiosk)
 scada-display = ["axum", "tower-http"]
+
+# RC2 release profile. This is the single feature alias used by
+# .github/workflows/edge-agent-release.yml for agent-v2.0.0-rc2 builds.
+# Keep broad preview/debug surfaces out of this alias unless they are release-owned.
+edge-rc2 = ["health", "gpio", "scada-display", "st-bytecode", "license-enforce"]
 # LoRaWAN protocol support. This intentionally excludes the Semtech SX1302
 # vendor HAL so CI can compile protocol/security paths without hardware C
 # sources. Real concentrator builds must enable `sx1302-vendor-hal` explicitly.

@@ -1,4 +1,7 @@
-# Suderra Edge Agent Architecture v1.3.0
+# Suderra Edge Agent Architecture
+
+Current release contract: `agent-v2.0.0-rc2` with Cargo feature profile `edge-rc2`.
+This architecture document describes the agent capabilities; ADR-025-aligned Edge Platform v2 schema/runtime migration is follow-up work and is not part of the RC2 release-contract PR.
 
 ## Overview
 

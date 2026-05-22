@@ -7,86 +7,94 @@ import type {
   PaginatedResult,
   PaginationParams,
   DateRangeParams,
-  ActivityLog,
-  AuditTrailEntry,
   RetentionPolicy,
-  ComplianceReport,
-  DataSubjectRequest,
-  SecurityEvent,
   SecurityEventType,
   SecurityEventSeverity,
-  SecurityIncident,
-  ThreatIndicator,
+  SecurityEventStatus,
+  BackendActivityLog,
+  BackendAuditLog,
+  BackendComplianceReport,
+  BackendDataSubjectRequest,
+  BackendSecurityEvent,
+  BackendSecurityIncident,
+  BackendThreatIndicator,
+  BackendSecurityDashboardStats,
+  BackendSecurityHealthScore,
+  ActivityStatsOverview,
+  AuditSummary,
+  BackendAuditAlertRule,
+  ThreatIndicatorType,
 } from '../types';
+
+const platformScope = { tenantScope: 'platform' as const };
 
 export const securityApi = {
   // Activity Logs
   getActivityLogs: (params?: {
+    category?: string;
+    severity?: string;
     action?: string;
     entityType?: string;
     userId?: string;
     tenantId?: string;
     ipAddress?: string;
+    searchQuery?: string;
   } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<ActivityLog>>(`/security/activities?${buildQueryString(params || {})}`),
-  getActivityLog: (id: string) => apiFetch<ActivityLog>(`/security/activities/${id}`),
+    apiFetch<PaginatedResult<BackendActivityLog>>(`/security/activities?${buildQueryString(params || {})}`, platformScope),
+  getActivityLog: (id: string) => apiFetch<BackendActivityLog>(`/security/activities/${id}`, platformScope),
   getUserActivities: (userId: string, params?: PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<ActivityLog>>(`/security/activities/user/${userId}?${buildQueryString(params || {})}`),
+    apiFetch<PaginatedResult<BackendActivityLog>>(`/security/activities/user/${userId}?${buildQueryString(params || {})}`, platformScope),
   getEntityActivities: (entityType: string, entityId: string, params?: PaginationParams) =>
-    apiFetch<PaginatedResult<ActivityLog>>(`/security/activities/entity/${entityType}/${entityId}?${buildQueryString(params || {})}`),
-  // TODO: No GET export on activities. Backend has POST /security/audit/export with body { format, startDate, endDate }
-  exportActivityLogs: (_format: 'csv' | 'json', _params?: DateRangeParams) => {
-    throw new Error('Not implemented: no backend GET endpoint for /security/activities/export. Use POST /security/audit/export instead.');
-  },
-
+    apiFetch<PaginatedResult<BackendActivityLog>>(`/security/activities/entity/${entityType}/${entityId}?${buildQueryString(params || {})}`, platformScope),
   // Audit Trail
   getAuditTrail: (params?: {
+    action?: string;
     entityType?: string;
     performedBy?: string;
+    severity?: string;
+    search?: string;
   } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<AuditTrailEntry>>(`/security/audit?${buildQueryString(params || {})}`),
+    apiFetch<PaginatedResult<BackendAuditLog>>(`/security/audit?${buildQueryString(params || {})}`, platformScope),
   getEntityAuditTrail: (entityType: string, entityId: string) =>
-    apiFetch<AuditTrailEntry[]>(`/security/audit/entity/${entityType}/${entityId}`),
+    apiFetch<BackendAuditLog[]>(`/security/audit/entity/${entityType}/${entityId}`, platformScope),
 
   // Retention Policies
-  getRetentionPolicies: () => apiFetch<RetentionPolicy[]>('/security/audit/retention-policies'),
+  getRetentionPolicies: () => apiFetch<RetentionPolicy[]>('/security/audit/retention-policies', platformScope),
   createRetentionPolicy: (data: Omit<RetentionPolicy, 'id' | 'lastRunAt' | 'nextRunAt'>) =>
-    apiFetch<RetentionPolicy>('/security/audit/retention-policies', { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch<RetentionPolicy>('/security/audit/retention-policies', { ...platformScope, method: 'POST', body: JSON.stringify(data) }),
   updateRetentionPolicy: (id: string, data: Partial<RetentionPolicy>) =>
-    apiFetch<RetentionPolicy>(`/security/audit/retention-policies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    apiFetch<RetentionPolicy>(`/security/audit/retention-policies/${id}`, { ...platformScope, method: 'PUT', body: JSON.stringify(data) }),
   deleteRetentionPolicy: (id: string) =>
-    apiFetch<void>(`/security/audit/retention-policies/${id}`, { method: 'DELETE' }),
+    apiFetch<Record<string, never>>(`/security/audit/retention-policies/${id}`, { ...platformScope, method: 'DELETE' }),
   // Fix: backend has POST /security/audit/retention-policies/apply (applies all, no per-policy run)
   runRetentionPolicy: (_id: string) =>
-    apiFetch<{ success: boolean }>('/security/audit/retention-policies/apply', { method: 'POST' }),
+    apiFetch<{ success: boolean }>('/security/audit/retention-policies/apply', { ...platformScope, method: 'POST' }),
 
   // Compliance
-  getComplianceReports: () => apiFetch<ComplianceReport[]>('/security/compliance/reports'),
+  getComplianceReports: (params?: PaginationParams & { complianceType?: string; tenantId?: string }) =>
+    apiFetch<PaginatedResult<BackendComplianceReport>>(`/security/compliance/reports?${buildQueryString(params || {})}`, platformScope),
   // Fix: backend POST /security/compliance/reports (not /reports/generate), body uses complianceType + reportPeriodStart/End
   generateComplianceReport: (complianceType: string, reportPeriodStart?: string, reportPeriodEnd?: string, includedTenants?: string[]) =>
-    apiFetch<ComplianceReport>('/security/compliance/reports', { method: 'POST', body: JSON.stringify({ complianceType, reportPeriodStart: reportPeriodStart || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), reportPeriodEnd: reportPeriodEnd || new Date().toISOString(), includedTenants }) }),
-  // TODO: No backend endpoint for /security/compliance/dashboard - use checks and reports instead
-  getComplianceDashboard: () => {
-    throw new Error('Not implemented: no backend endpoint for /security/compliance/dashboard. Use getComplianceChecks() and getComplianceReports() instead.');
-  },
-
+    apiFetch<BackendComplianceReport>('/security/compliance/reports', { ...platformScope, method: 'POST', body: JSON.stringify({ complianceType, reportPeriodStart: reportPeriodStart || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), reportPeriodEnd: reportPeriodEnd || new Date().toISOString(), includedTenants }) }),
   // Data Subject Requests (GDPR)
-  getDataRequests: (params?: { status?: string; type?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<DataSubjectRequest>>(`/security/compliance/data-requests?${buildQueryString(params || {})}`),
-  getDataRequest: (id: string) => apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}`),
-  createDataRequest: (data: Omit<DataSubjectRequest, 'id' | 'status' | 'requestedAt' | 'dueDate'>) =>
-    apiFetch<DataSubjectRequest>('/security/compliance/data-requests', { method: 'POST', body: JSON.stringify(data) }),
+  getDataRequests: (params?: { status?: string; requestType?: string; searchQuery?: string } & PaginationParams) =>
+    apiFetch<PaginatedResult<BackendDataSubjectRequest>>(`/security/compliance/data-requests?${buildQueryString(params || {})}`, platformScope),
+  getDataRequest: (id: string) => apiFetch<BackendDataSubjectRequest>(`/security/compliance/data-requests/${id}`, platformScope),
+  createDataRequest: (data: Omit<BackendDataSubjectRequest, 'id' | 'status' | 'createdAt' | 'dueDate'>) =>
+    apiFetch<BackendDataSubjectRequest>('/security/compliance/data-requests', { ...platformScope, method: 'POST', body: JSON.stringify(data) }),
   // Fix: backend has separate endpoints: POST .../verify and POST .../complete (no single /process)
   // Use PUT to update status, or POST /verify + POST /complete separately
   processDataRequest: (id: string, action: 'approve' | 'reject', _handledBy: string, notes?: string) => {
     if (action === 'approve') {
-      return apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}/complete`, {
+      return apiFetch<BackendDataSubjectRequest>(`/security/compliance/data-requests/${id}/complete`, {
+        ...platformScope,
         method: 'POST',
         body: JSON.stringify({ completionNotes: notes || 'Approved' })
       });
     }
     // For reject, use PUT to update status
-    return apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}`, {
+    return apiFetch<BackendDataSubjectRequest>(`/security/compliance/data-requests/${id}`, {
+      ...platformScope,
       method: 'PUT',
       body: JSON.stringify({ status: 'rejected', rejectionReason: notes })
     });
@@ -97,7 +105,8 @@ export const securityApi = {
    * Backend: POST /security/compliance/data-requests/:id/verify
    */
   verifyDataRequestIdentity: (id: string, verificationMethod: string) =>
-    apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}/verify`, {
+    apiFetch<BackendDataSubjectRequest>(`/security/compliance/data-requests/${id}/verify`, {
+      ...platformScope,
       method: 'POST',
       body: JSON.stringify({ verificationMethod }),
     }),
@@ -107,7 +116,8 @@ export const securityApi = {
    * Backend: PUT /security/compliance/data-requests/:id with status=rejected
    */
   rejectDataRequest: (id: string, rejectionReason: string) =>
-    apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}`, {
+    apiFetch<BackendDataSubjectRequest>(`/security/compliance/data-requests/${id}`, {
+      ...platformScope,
       method: 'PUT',
       body: JSON.stringify({ status: 'rejected', rejectionReason }),
     }),
@@ -117,50 +127,35 @@ export const securityApi = {
    * Backend: POST /security/compliance/data-requests/:id/complete
    */
   completeDataRequest: (id: string, completionNotes: string, deliveryFormat?: 'json' | 'csv' | 'pdf' | 'xml') =>
-    apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}/complete`, {
+    apiFetch<BackendDataSubjectRequest>(`/security/compliance/data-requests/${id}/complete`, {
+      ...platformScope,
       method: 'POST',
       body: JSON.stringify({ completionNotes, deliveryFormat }),
     }),
 
   // Security Events & Incidents
   getSecurityEvents: (params?: {
-    type?: SecurityEventType[];
-    severity?: SecurityEventSeverity[];
-    isResolved?: boolean;
+    eventType?: SecurityEventType;
+    threatLevel?: SecurityEventSeverity[];
+    status?: SecurityEventStatus;
+    searchQuery?: string;
   } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<SecurityEvent>>(`/security/monitoring/events?${buildQueryString(params || {})}`),
-  getSecurityEvent: (id: string) => apiFetch<SecurityEvent>(`/security/monitoring/events/${id}`),
+    apiFetch<PaginatedResult<BackendSecurityEvent>>(`/security/monitoring/events?${buildQueryString(params || {})}`, platformScope),
+  getSecurityEvent: (id: string) => apiFetch<BackendSecurityEvent>(`/security/monitoring/events/${id}`, platformScope),
   // Fix: backend uses PUT /security/monitoring/events/:id/status (not POST .../resolve)
   resolveSecurityEvent: (id: string, resolvedBy: string, notes?: string) =>
-    apiFetch<SecurityEvent>(`/security/monitoring/events/${id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'resolved', resolvedBy, resolution: notes }) }),
+    apiFetch<BackendSecurityEvent>(`/security/monitoring/events/${id}/status`, { ...platformScope, method: 'PUT', body: JSON.stringify({ status: 'mitigated', resolvedBy, resolution: notes }) }),
 
   getSecurityIncidents: (params?: { status?: string; severity?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<SecurityIncident>>(`/security/monitoring/incidents?${buildQueryString(params || {})}`),
-  getSecurityIncident: (id: string) => apiFetch<SecurityIncident>(`/security/monitoring/incidents/${id}`),
-  // TODO: No backend POST endpoint for creating incidents - incidents are auto-created from security events
-  createSecurityIncident: (_data: Omit<SecurityIncident, 'id' | 'timeline' | 'createdAt'>) => {
-    throw new Error('Not implemented: incidents are auto-created from security events, no POST /incidents endpoint');
-  },
-  updateSecurityIncident: (id: string, data: Partial<SecurityIncident>) =>
-    apiFetch<SecurityIncident>(`/security/monitoring/incidents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  // TODO: No backend endpoint for adding timeline entries directly
-  addIncidentTimeline: (_id: string, _action: string, _performedBy: string) => {
-    throw new Error('Not implemented: no backend endpoint for POST /incidents/:id/timeline');
-  },
-
+    apiFetch<PaginatedResult<BackendSecurityIncident>>(`/security/monitoring/incidents?${buildQueryString(params || {})}`, platformScope),
+  getSecurityIncident: (id: string) => apiFetch<BackendSecurityIncident>(`/security/monitoring/incidents/${id}`, platformScope),
+  updateSecurityIncident: (id: string, data: Partial<BackendSecurityIncident>) =>
+    apiFetch<BackendSecurityIncident>(`/security/monitoring/incidents/${id}`, { ...platformScope, method: 'PUT', body: JSON.stringify(data) }),
   // Threat Intelligence
-  getThreatIndicators: (params?: { type?: string; isBlocked?: boolean } & PaginationParams) =>
-    apiFetch<PaginatedResult<ThreatIndicator>>(`/security/monitoring/threat-intelligence?${buildQueryString(params || {})}`),
-  addThreatIndicator: (data: Omit<ThreatIndicator, 'id' | 'lastSeenAt' | 'createdAt'>) =>
-    apiFetch<ThreatIndicator>('/security/monitoring/threat-intelligence', { method: 'POST', body: JSON.stringify(data) }),
-  // TODO: No backend endpoint for blocking/unblocking individual threat indicators
-  blockThreatIndicator: (_id: string) => {
-    throw new Error('Not implemented: no backend endpoint for POST /threat-intelligence/:id/block');
-  },
-  unblockThreatIndicator: (_id: string) => {
-    throw new Error('Not implemented: no backend endpoint for POST /threat-intelligence/:id/unblock');
-  },
-
+  getThreatIndicators: (params?: { indicatorType?: ThreatIndicatorType; threatLevel?: SecurityEventSeverity; isActive?: boolean } & PaginationParams) =>
+    apiFetch<PaginatedResult<BackendThreatIndicator>>(`/security/monitoring/threat-intelligence?${buildQueryString(params || {})}`, platformScope),
+  addThreatIndicator: (data: Omit<BackendThreatIndicator, 'id' | 'firstSeenAt' | 'lastSeenAt' | 'createdAt' | 'updatedAt'>) =>
+    apiFetch<BackendThreatIndicator>('/security/monitoring/threat-intelligence', { ...platformScope, method: 'POST', body: JSON.stringify(data) }),
   // Security Dashboard
   getSecurityDashboard: () =>
     apiFetch<{
@@ -168,25 +163,25 @@ export const securityApi = {
       activeIncidents: number;
       unresolvedEvents: number;
       blockedThreats: number;
-      recentEvents: SecurityEvent[];
+      recentEvents: BackendSecurityEvent[];
       topThreats: Array<{ type: string; count: number }>;
-    }>('/security/monitoring/dashboard'),
+    }>('/security/monitoring/dashboard', platformScope),
   // Full monitoring dashboard data
-  getMonitoringDashboard: () => apiFetch<unknown>('/security/monitoring/dashboard'),
+  getMonitoringDashboard: () => apiFetch<BackendSecurityDashboardStats>('/security/monitoring/dashboard', platformScope),
   // Health score
-  getHealthScore: () => apiFetch<{ score: number; status: string; details: unknown[] }>('/security/monitoring/health-score'),
+  getHealthScore: () => apiFetch<BackendSecurityHealthScore>('/security/monitoring/health-score', platformScope),
 
   // Audit Summary & Alert Rules
   getAuditSummary: () =>
-    apiFetch<{ totalEntries: number; byAction: Record<string, number>; bySeverity: Record<string, number>; byEntityType: Record<string, number>; last24Hours: number; last7Days: number; retentionPoliciesCount: number; alertRulesCount: number }>('/security/audit/summary'),
+    apiFetch<AuditSummary>('/security/audit/summary', platformScope),
   getAlertRules: () =>
-    apiFetch<Array<{ id: string; name: string; condition: string; threshold?: number; actions: string[]; severity: string; enabled: boolean; triggeredCount: number; lastTriggered?: string; createdAt: string }>>('/security/audit/alert-rules'),
+    apiFetch<BackendAuditAlertRule[]>('/security/audit/alert-rules', platformScope),
 
   // Activity Stats
   getActivityStatsOverview: () =>
-    apiFetch<{ totalActivities: number; byCategory: Record<string, number>; bySeverity: Record<string, number>; uniqueUsers: number; uniqueIps: number; averageResponseTime: number; errorRate: number }>('/security/activities/stats/overview'),
+    apiFetch<ActivityStatsOverview>('/security/activities/stats/overview', platformScope),
 
   // Compliance Checks
   getComplianceChecks: (framework: string) =>
-    apiFetch<Array<{ id: string; category: string; requirement: string; description: string; status: string; evidence?: string; lastChecked: string; nextReview: string }>>(`/security/compliance/checks/${framework}`),
+    apiFetch<Array<{ id: string; category: string; requirement: string; description: string; status: string; evidence?: string; lastChecked: string; nextReview: string }>>(`/security/compliance/checks/${framework}`, platformScope),
 };

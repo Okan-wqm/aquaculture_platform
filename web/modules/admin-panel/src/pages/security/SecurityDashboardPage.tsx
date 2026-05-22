@@ -5,7 +5,15 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+
 import { securityApi } from '../../services/adminApi';
+import type {
+  BackendSecurityEvent,
+  BackendSecurityHealthScore,
+  BackendSecurityIncident,
+  BackendThreatIndicator,
+  SecurityEventStatus,
+} from '../../services/types/security';
 
 // Inline SVG icon components to match module pattern (replaces lucide-react dependency, PERF-011)
 const Icon: React.FC<{ path: string; className?: string }> = ({ path, className = 'w-5 h-5' }) => (
@@ -13,32 +21,21 @@ const Icon: React.FC<{ path: string; className?: string }> = ({ path, className 
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={path} />
   </svg>
 );
-const Shield = (p: { className?: string }) => <Icon path="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" {...p} />;
-const AlertTriangle = (p: { className?: string }) => <Icon path="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" {...p} />;
-const Activity = (p: { className?: string }) => <Icon path="M22 12h-4l-3 9L9 3l-3 9H2" {...p} />;
-const RefreshCw = (p: { className?: string }) => <Icon path="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" {...p} />;
-const Eye = (p: { className?: string }) => <Icon path="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" {...p} />;
-const Search = (p: { className?: string }) => <Icon path="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" {...p} />;
-const Filter = (p: { className?: string }) => <Icon path="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" {...p} />;
-const Download = (p: { className?: string }) => <Icon path="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" {...p} />;
-const Play = (p: { className?: string }) => <Icon path="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Pause = (p: { className?: string }) => <Icon path="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Clock = (p: { className?: string }) => <Icon path="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const MapPin = (p: { className?: string }) => <Icon path="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z" {...p} />;
-const Globe = (p: { className?: string }) => <Icon path="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" {...p} />;
-const Server = (p: { className?: string }) => <Icon path="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" {...p} />;
-const Lock = (p: { className?: string }) => <Icon path="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" {...p} />;
-const Unlock = (p: { className?: string }) => <Icon path="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" {...p} />;
-const AlertCircle = (p: { className?: string }) => <Icon path="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const CheckCircle2 = (p: { className?: string }) => <Icon path="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const XCircle = (p: { className?: string }) => <Icon path="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Zap = (p: { className?: string }) => <Icon path="M13 10V3L4 14h7v7l9-11h-7z" {...p} />;
-const Target = (p: { className?: string }) => <Icon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" {...p} />;
-const BarChart3 = (p: { className?: string }) => <Icon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" {...p} />;
-const TrendingUp = (p: { className?: string }) => <Icon path="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" {...p} />;
-const TrendingDown = (p: { className?: string }) => <Icon path="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" {...p} />;
-const Users = (p: { className?: string }) => <Icon path="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" {...p} />;
-const X = (p: { className?: string }) => <Icon path="M6 18L18 6M6 6l12 12" {...p} />;
+const Shield = (p: { className?: string }): React.ReactElement => <Icon path="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" {...p} />;
+const AlertTriangle = (p: { className?: string }): React.ReactElement => <Icon path="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" {...p} />;
+const Activity = (p: { className?: string }): React.ReactElement => <Icon path="M22 12h-4l-3 9L9 3l-3 9H2" {...p} />;
+const RefreshCw = (p: { className?: string }): React.ReactElement => <Icon path="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" {...p} />;
+const Eye = (p: { className?: string }): React.ReactElement => <Icon path="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" {...p} />;
+const Play = (p: { className?: string }): React.ReactElement => <Icon path="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const Pause = (p: { className?: string }): React.ReactElement => <Icon path="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const Globe = (p: { className?: string }): React.ReactElement => <Icon path="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" {...p} />;
+const AlertCircle = (p: { className?: string }): React.ReactElement => <Icon path="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const CheckCircle2 = (p: { className?: string }): React.ReactElement => <Icon path="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const XCircle = (p: { className?: string }): React.ReactElement => <Icon path="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const Zap = (p: { className?: string }): React.ReactElement => <Icon path="M13 10V3L4 14h7v7l9-11h-7z" {...p} />;
+const Target = (p: { className?: string }): React.ReactElement => <Icon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" {...p} />;
+const Users = (p: { className?: string }): React.ReactElement => <Icon path="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" {...p} />;
+const X = (p: { className?: string }): React.ReactElement => <Icon path="M6 18L18 6M6 6l12 12" {...p} />;
 
 // ============================================================================
 // Types
@@ -47,7 +44,7 @@ const X = (p: { className?: string }) => <Icon path="M6 18L18 6M6 6l12 12" {...p
 type EventSeverity = 'low' | 'medium' | 'high' | 'critical';
 type EventStatus = 'new' | 'investigating' | 'resolved' | 'dismissed';
 type IncidentStatus = 'open' | 'in_progress' | 'contained' | 'resolved' | 'closed';
-type ThreatType = 'malware' | 'phishing' | 'brute_force' | 'data_exfiltration' | 'unauthorized_access' | 'anomaly';
+type ThreatType = 'ip' | 'domain' | 'url' | 'hash' | 'email' | 'user_agent' | 'cidr';
 
 interface SecurityEvent {
   id: string;
@@ -149,7 +146,12 @@ interface DashboardData {
 // ============================================================================
 
 async function fetchDashboardData(): Promise<DashboardData> {
-  return securityApi.getMonitoringDashboard() as Promise<DashboardData>;
+  const [dashboard, health] = await Promise.all([
+    securityApi.getMonitoringDashboard(),
+    securityApi.getHealthScore(),
+  ]);
+
+  return mapDashboardData(dashboard, health);
 }
 
 async function fetchSecurityEvents(params: {
@@ -162,59 +164,165 @@ async function fetchSecurityEvents(params: {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
-  if (params.severity && params.severity !== 'all') apiParams.severity = [params.severity];
-  if (params.status && params.status !== 'all') apiParams.isResolved = params.status === 'resolved';
+  if (params.severity && params.severity !== 'all') apiParams.threatLevel = [params.severity];
+  const status = mapStatusFilter(params.status);
+  if (status) apiParams.status = status;
+  if (params.searchQuery) apiParams.searchQuery = params.searchQuery;
 
   const result = await securityApi.getSecurityEvents(apiParams);
-  // Map API response to local SecurityEvent type
-  const anyEvent = (e: typeof result.data[0]) => e as unknown as Record<string, unknown>;
   return {
-    data: result.data.map((event) => {
-      // Map API status to local EventStatus
-      const apiStatus = anyEvent(event).status as string | undefined;
-      const status: EventStatus = event.isResolved
-        ? 'resolved'
-        : (apiStatus === 'investigating' ? 'investigating' : apiStatus === 'dismissed' ? 'dismissed' : 'new');
-      const timestamp = (anyEvent(event).timestamp as string) || (anyEvent(event).createdAt as string) || '';
-      return {
-        id: event.id,
-        eventType: (anyEvent(event).eventType as string) || event.type,
-        severity: event.severity as EventSeverity,
-        status,
-        source: (anyEvent(event).source as string) || 'unknown',
-        sourceIp: event.sourceIp,
-        description: (anyEvent(event).description as string) || '',
-        details: event.metadata,
-        tenantId: event.tenantId,
-        userId: event.userId,
-        timestamp,
-        detectedAt: (anyEvent(event).detectedAt as string) || timestamp,
-      };
-    }),
+    data: result.data.map(mapSecurityEvent),
     total: result.total,
   };
 }
 
 async function fetchIncidents(): Promise<SecurityIncident[]> {
   const result = await securityApi.getSecurityIncidents({});
-  return result.data as unknown as SecurityIncident[];
+  return result.data.map(mapSecurityIncident);
 }
 
 async function fetchThreatIndicators(): Promise<ThreatIndicator[]> {
   const result = await securityApi.getThreatIndicators({});
-  return result.data as unknown as ThreatIndicator[];
+  return result.data.map(mapThreatIndicator);
 }
 
-async function fetchHealthScore(): Promise<{ score: number; status: string; details: HealthMetric[] }> {
-  const result = await securityApi.getHealthScore();
-  return result as { score: number; status: string; details: HealthMetric[] };
+function mapHealthStatus(score: number): DashboardData['healthStatus'] {
+  if (score >= 85) return 'healthy';
+  if (score >= 65) return 'warning';
+  return 'critical';
+}
+
+function mapDashboardData(
+  dashboard: Awaited<ReturnType<typeof securityApi.getMonitoringDashboard>>,
+  health: BackendSecurityHealthScore,
+): DashboardData {
+  return {
+    healthScore: health.score,
+    healthStatus: mapHealthStatus(health.score),
+    metrics: health.factors.map((factor) => ({
+      name: factor.name,
+      status: mapHealthStatus(factor.score),
+      value: factor.score,
+      unit: '%',
+      threshold: 70,
+      lastUpdated: new Date().toISOString(),
+    })),
+    stats: {
+      totalEvents24h: dashboard.eventsLast24h,
+      criticalEvents24h: dashboard.criticalEvents,
+      openIncidents: dashboard.activeIncidents,
+      resolvedIncidents: 0,
+      activeThreatIndicators: 0,
+      blockedAttacks24h: dashboard.threatsBlocked,
+      uniqueSourceIps: dashboard.topSourceIPs.length,
+      affectedTenants: 0,
+    },
+    trendData: dashboard.eventsTimeline.map((point) => ({
+      date: point.date,
+      events: point.critical + point.high + point.medium + point.low,
+      incidents: 0,
+      blocked: 0,
+    })),
+  };
+}
+
+function mapStatusFilter(status?: string): SecurityEventStatus | undefined {
+  if (!status || status === 'all') return undefined;
+  if (status === 'new') return 'detected';
+  if (status === 'resolved') return 'mitigated';
+  if (status === 'dismissed') return 'false_positive';
+  if (status === 'investigating') return 'investigating';
+  return undefined;
+}
+
+function mapEventStatus(status: SecurityEventStatus): EventStatus {
+  if (status === 'mitigated' || status === 'confirmed') return 'resolved';
+  if (status === 'false_positive') return 'dismissed';
+  if (status === 'investigating' || status === 'escalated') return 'investigating';
+  return 'new';
+}
+
+function mapSecurityEvent(event: BackendSecurityEvent): SecurityEvent {
+  return {
+    id: event.id,
+    eventType: event.eventType,
+    severity: event.threatLevel,
+    status: mapEventStatus(event.status),
+    source: event.detectionSource,
+    sourceIp: event.ipAddress,
+    targetResource: event.targetResource ?? undefined,
+    description: event.description,
+    details: event.rawData ?? undefined,
+    tenantId: event.tenantId ?? undefined,
+    userId: event.userId ?? undefined,
+    userName: event.userName ?? undefined,
+    geoLocation: event.geoLocation ?? undefined,
+    timestamp: event.createdAt,
+    detectedAt: event.createdAt,
+  };
+}
+
+function mapIncidentStatus(status: BackendSecurityIncident['status']): IncidentStatus {
+  switch (status) {
+    case 'closed':
+    case 'recovered':
+      return 'closed';
+    case 'investigating':
+      return 'in_progress';
+    case 'eradicated':
+      return 'contained';
+    default:
+      return status;
+  }
+}
+
+function mapSecurityIncident(incident: BackendSecurityIncident): SecurityIncident {
+  return {
+    id: incident.id,
+    title: incident.title,
+    description: incident.description,
+    severity: incident.severity,
+    status: mapIncidentStatus(incident.status),
+    category: incident.category ?? 'security',
+    affectedSystems: incident.affectedSystems ?? [],
+    affectedUsers: incident.affectedUsers ?? 0,
+    relatedEvents: incident.relatedEvents ?? [],
+    assignedTo: incident.leadInvestigator ?? undefined,
+    assignedToName: incident.leadInvestigatorName ?? undefined,
+    timeline: incident.timeline ?? [],
+    impactAssessment: incident.impactDescription ?? undefined,
+    rootCause: incident.rootCauseAnalysis ?? undefined,
+    remediation: incident.remediation ?? undefined,
+    createdAt: incident.createdAt,
+    updatedAt: incident.updatedAt,
+    resolvedAt: incident.resolvedAt ?? undefined,
+  };
+}
+
+function mapThreatIndicator(indicator: BackendThreatIndicator): ThreatIndicator {
+  return {
+    id: indicator.id,
+    type: indicator.indicatorType,
+    indicator: indicator.value,
+    source: indicator.source,
+    confidence: Math.round(
+      indicator.confidence <= 1 ? indicator.confidence * 100 : indicator.confidence,
+    ),
+    severity: indicator.threatLevel,
+    description: indicator.description ?? '',
+    firstSeen: indicator.firstSeenAt ?? indicator.createdAt,
+    lastSeen: indicator.lastSeenAt ?? indicator.createdAt,
+    hitCount: indicator.hitCount ?? 0,
+    isActive: indicator.isActive,
+    tags: indicator.tags ?? indicator.threatTypes ?? undefined,
+  };
 }
 
 // ============================================================================
 // Components
 // ============================================================================
 
-const getSeverityColor = (severity: EventSeverity) => {
+const getSeverityColor = (severity: EventSeverity): string => {
   switch (severity) {
     case 'critical':
       return 'bg-red-100 text-red-800 border-red-200';
@@ -229,7 +337,7 @@ const getSeverityColor = (severity: EventSeverity) => {
   }
 };
 
-const getSeverityIcon = (severity: EventSeverity) => {
+const getSeverityIcon = (severity: EventSeverity): React.ReactElement => {
   switch (severity) {
     case 'critical':
       return <XCircle className="w-4 h-4 text-red-600" />;
@@ -244,7 +352,7 @@ const getSeverityIcon = (severity: EventSeverity) => {
   }
 };
 
-const getStatusColor = (status: EventStatus | IncidentStatus) => {
+const getStatusColor = (status: EventStatus | IncidentStatus): string => {
   switch (status) {
     case 'resolved':
     case 'closed':
@@ -264,7 +372,7 @@ const getStatusColor = (status: EventStatus | IncidentStatus) => {
   }
 };
 
-const formatTimeAgo = (dateString: string) => {
+const formatTimeAgo = (dateString: string): string => {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -278,7 +386,7 @@ const formatTimeAgo = (dateString: string) => {
   return `${diffDays}d ago`;
 };
 
-const formatDateTime = (dateString: string) => {
+const formatDateTime = (dateString: string): string => {
   return new Date(dateString).toLocaleString('tr-TR', {
     day: '2-digit',
     month: '2-digit',
@@ -291,7 +399,7 @@ const formatDateTime = (dateString: string) => {
 
 // Health Score Gauge Component
 const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'critical' }> = ({ score, status }) => {
-  const getColor = () => {
+  const getColor = (): string => {
     if (status === 'healthy') return '#22c55e';
     if (status === 'warning') return '#eab308';
     return '#ef4444';
@@ -355,22 +463,22 @@ const EventDetailModal: React.FC<{
           {/* Basic Info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium text-gray-500">Event ID</label>
+              <span className="text-sm font-medium text-gray-500">Event ID</span>
               <p className="text-sm text-gray-900 font-mono">{event.id}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Timestamp</label>
+              <span className="text-sm font-medium text-gray-500">Timestamp</span>
               <p className="text-sm text-gray-900">{formatDateTime(event.timestamp)}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Severity</label>
+              <span className="text-sm font-medium text-gray-500">Severity</span>
               <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(event.severity)}`}>
                 {getSeverityIcon(event.severity)}
                 {event.severity}
               </span>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Status</label>
+              <span className="text-sm font-medium text-gray-500">Status</span>
               <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}>
                 {event.status}
               </span>
@@ -379,7 +487,7 @@ const EventDetailModal: React.FC<{
 
           {/* Description */}
           <div>
-            <label className="text-sm font-medium text-gray-500">Description</label>
+            <span className="text-sm font-medium text-gray-500">Description</span>
             <p className="text-sm text-gray-900 mt-1">{event.description}</p>
           </div>
 
@@ -388,19 +496,19 @@ const EventDetailModal: React.FC<{
             <h3 className="text-sm font-medium text-gray-700 mb-3">Source Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-500">Source</label>
+                <span className="text-xs text-gray-500">Source</span>
                 <p className="text-sm text-gray-900">{event.source}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Source IP</label>
+                <span className="text-xs text-gray-500">Source IP</span>
                 <p className="text-sm text-gray-900 font-mono">{event.sourceIp || 'N/A'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Target Resource</label>
+                <span className="text-xs text-gray-500">Target Resource</span>
                 <p className="text-sm text-gray-900">{event.targetResource || 'N/A'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Location</label>
+                <span className="text-xs text-gray-500">Location</span>
                 <p className="text-sm text-gray-900">
                   {event.geoLocation ? `${event.geoLocation.city}, ${event.geoLocation.country}` : 'N/A'}
                 </p>
@@ -414,11 +522,11 @@ const EventDetailModal: React.FC<{
               <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-gray-500">User</label>
+                  <span className="text-xs text-gray-500">User</span>
                   <p className="text-sm text-gray-900">{event.userName}</p>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">Tenant</label>
+                  <span className="text-xs text-gray-500">Tenant</span>
                   <p className="text-sm text-gray-900">{event.tenantName || 'N/A'}</p>
                 </div>
               </div>
@@ -428,7 +536,7 @@ const EventDetailModal: React.FC<{
           {/* Details */}
           {event.details && typeof event.details === 'object' && Object.keys(event.details).length > 0 && (
             <div>
-              <label className="text-sm font-medium text-gray-500">Additional Details</label>
+              <span className="text-sm font-medium text-gray-500">Additional Details</span>
               <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto mt-1">
                 {JSON.stringify(
                   // Whitelist primitive-valued keys only to guard against attacker-controlled nested objects (SEC-008)
@@ -436,9 +544,7 @@ const EventDetailModal: React.FC<{
                     Object.entries(event.details).filter(([, v]) =>
                       v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
                     )
-                  ),
-                  null,
-                  2
+                  )
                 )}
               </pre>
             </div>
@@ -473,37 +579,79 @@ export const SecurityDashboardPage: React.FC = () => {
 
   // Filters
   const [severityFilter, setSeverityFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, _setStatusFilter] = useState('all');
+  const [searchTerm, _setSearchTerm] = useState('');
 
   const loadData = useCallback(async () => {
     setError(null);
-    try {
-      const [dashboardResult, eventsResult, incidentsResult, threatsResult] = await Promise.all([
-        fetchDashboardData(),
-        fetchSecurityEvents({
-          severity: severityFilter,
-          status: statusFilter,
-          searchQuery: searchTerm || undefined,
-          limit: 50,
-        }),
-        fetchIncidents(),
-        fetchThreatIndicators(),
-      ]);
-      setDashboard(dashboardResult);
-      setEvents(eventsResult.data);
-      setIncidents(incidentsResult);
-      setThreatIndicators(threatsResult);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load security data');
-      console.error('Failed to load security data:', err);
-    } finally {
-      setLoading(false);
+    const [dashboardResult, eventsResult, incidentsResult, threatsResult] = await Promise.allSettled([
+      fetchDashboardData(),
+      fetchSecurityEvents({
+        severity: severityFilter,
+        status: statusFilter,
+        searchQuery: searchTerm || undefined,
+        limit: 50,
+      }),
+      fetchIncidents(),
+      fetchThreatIndicators(),
+    ]);
+    const failures: string[] = [];
+    const incidentsValue = incidentsResult.status === 'fulfilled' ? incidentsResult.value : [];
+    const threatsValue = threatsResult.status === 'fulfilled' ? threatsResult.value : [];
+
+    if (dashboardResult.status === 'fulfilled') {
+      setDashboard({
+        ...dashboardResult.value,
+        stats: {
+          ...dashboardResult.value.stats,
+          resolvedIncidents: incidentsValue.filter((incident) => incident.status === 'closed').length,
+          activeThreatIndicators: threatsValue.filter((indicator) => indicator.isActive).length,
+        },
+      });
+    } else {
+      failures.push(
+        dashboardResult.reason instanceof Error
+          ? dashboardResult.reason.message
+          : 'Failed to load security dashboard',
+      );
     }
+
+    if (eventsResult.status === 'fulfilled') {
+      setEvents(eventsResult.value.data);
+    } else {
+      failures.push(
+        eventsResult.reason instanceof Error
+          ? eventsResult.reason.message
+          : 'Failed to load security events',
+      );
+    }
+
+    if (incidentsResult.status === 'fulfilled') {
+      setIncidents(incidentsValue);
+    } else {
+      failures.push(
+        incidentsResult.reason instanceof Error
+          ? incidentsResult.reason.message
+          : 'Failed to load security incidents',
+      );
+    }
+
+    if (threatsResult.status === 'fulfilled') {
+      setThreatIndicators(threatsValue);
+    } else {
+      failures.push(
+        threatsResult.reason instanceof Error
+          ? threatsResult.reason.message
+          : 'Failed to load threat indicators',
+      );
+    }
+
+    setError(failures.length > 0 ? failures.join('; ') : null);
+    setLoading(false);
   }, [severityFilter, statusFilter, searchTerm]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
   // Auto refresh every 30 seconds — pause when browser tab is hidden (PERF-005)
@@ -512,7 +660,7 @@ export const SecurityDashboardPage: React.FC = () => {
 
     const interval = setInterval(() => {
       if (!document.hidden) {
-        loadData();
+        void loadData();
       }
     }, 30000);
 
@@ -533,7 +681,7 @@ export const SecurityDashboardPage: React.FC = () => {
         <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
         <p className="text-red-600 mb-4">{error}</p>
         <button
-          onClick={loadData}
+          onClick={() => void loadData()}
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
         >
           Retry
@@ -565,7 +713,7 @@ export const SecurityDashboardPage: React.FC = () => {
             Auto-refresh {autoRefresh ? 'ON' : 'OFF'}
           </button>
           <button
-            onClick={loadData}
+            onClick={() => void loadData()}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
@@ -722,6 +870,13 @@ export const SecurityDashboardPage: React.FC = () => {
                   key={event.id}
                   className="p-4 hover:bg-gray-50 cursor-pointer"
                   onClick={() => setSelectedEvent(event)}
+                  onKeyDown={(keyboardEvent) => {
+                    if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') {
+                      setSelectedEvent(event);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                 >
                   <div className="flex items-start gap-3">
                     {getSeverityIcon(event.severity)}

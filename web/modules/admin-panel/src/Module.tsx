@@ -83,6 +83,9 @@ const SuspenseFallback: React.FC = () => (
   </div>
 );
 
+const isPlatformAdminRole = (role?: string | null): boolean =>
+  role === 'SUPER_ADMIN' || role === 'PLATFORM_ADMIN';
+
 // ============================================================================
 // Module Component
 // ============================================================================
@@ -90,7 +93,7 @@ const SuspenseFallback: React.FC = () => (
 const AdminPanelModule: React.FC = () => {
   const { user } = useAuthContext();
 
-  if (!user || user.role !== 'SUPER_ADMIN') {
+  if (!user || !isPlatformAdminRole(user.role)) {
     return <Navigate to="/unauthorized" replace />;
   }
 

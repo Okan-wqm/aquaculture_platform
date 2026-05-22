@@ -17,7 +17,6 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-
 import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, Min, Max } from 'class-validator';
 
 import {
@@ -32,6 +31,7 @@ import {
   GeoLocation,
 } from '../entities/security.entity';
 import {
+  AnomalyDetectionConfig,
   SecurityMonitoringService,
   SecurityDashboardStats,
 } from '../services/security-monitoring.service';
@@ -40,8 +40,59 @@ import {
 // DTOs
 // ============================================================================
 
+const SECURITY_EVENT_TYPES: readonly SecurityEventType[] = [
+  'failed_login',
+  'brute_force_attempt',
+  'suspicious_activity',
+  'unauthorized_access',
+  'privilege_escalation',
+  'data_exfiltration',
+  'malware_detected',
+  'api_abuse',
+  'rate_limit_exceeded',
+  'sql_injection_attempt',
+  'xss_attempt',
+  'csrf_attempt',
+  'account_lockout',
+  'password_spray',
+  'credential_stuffing',
+  'session_hijacking',
+  'ip_blacklisted',
+  'geo_anomaly',
+  'device_anomaly',
+  'time_anomaly',
+];
+
+const SECURITY_EVENT_STATUSES: readonly SecurityEventStatus[] = [
+  'detected',
+  'investigating',
+  'confirmed',
+  'mitigated',
+  'false_positive',
+  'escalated',
+];
+
+const INCIDENT_STATUSES: readonly IncidentStatus[] = [
+  'open',
+  'investigating',
+  'contained',
+  'eradicated',
+  'recovered',
+  'closed',
+];
+
+const THREAT_INDICATOR_TYPES: ReadonlyArray<ThreatIntelligence['indicatorType']> = [
+  'ip',
+  'domain',
+  'url',
+  'hash',
+  'email',
+  'user_agent',
+  'cidr',
+];
+
 class CreateSecurityEventDto {
-  @IsIn(['authentication', 'authorization', 'data_access', 'system', 'threat', 'anomaly', 'policy_violation'])
+  @IsIn(SECURITY_EVENT_TYPES)
   eventType!: SecurityEventType;
 
   @IsIn(['low', 'medium', 'high', 'critical'])
@@ -106,7 +157,7 @@ class QuerySecurityEventsDto {
   limit?: number;
 
   @IsOptional()
-  @IsIn(['authentication', 'authorization', 'data_access', 'system', 'threat', 'anomaly', 'policy_violation'])
+  @IsIn(SECURITY_EVENT_TYPES)
   eventType?: SecurityEventType;
 
   @IsOptional()
@@ -114,7 +165,7 @@ class QuerySecurityEventsDto {
   threatLevel?: string; // comma-separated list for multiple levels
 
   @IsOptional()
-  @IsIn(['detected', 'investigating', 'mitigated', 'resolved', 'false_positive'])
+  @IsIn(SECURITY_EVENT_STATUSES)
   status?: SecurityEventStatus;
 
   @IsOptional()
@@ -143,7 +194,7 @@ class QuerySecurityEventsDto {
 }
 
 class UpdateSecurityEventStatusDto {
-  @IsIn(['detected', 'investigating', 'mitigated', 'resolved', 'false_positive'])
+  @IsIn(SECURITY_EVENT_STATUSES)
   status!: SecurityEventStatus;
 
   @IsOptional()
@@ -169,7 +220,7 @@ class UpdateSecurityEventStatusDto {
 
 class UpdateIncidentDto {
   @IsOptional()
-  @IsIn(['open', 'investigating', 'contained', 'eradicated', 'recovered', 'closed', 'false_positive'])
+  @IsIn(INCIDENT_STATUSES)
   status?: IncidentStatus;
 
   @IsOptional()
@@ -224,7 +275,7 @@ class QueryIncidentsDto {
   limit?: number;
 
   @IsOptional()
-  @IsIn(['open', 'investigating', 'contained', 'eradicated', 'recovered', 'closed', 'false_positive'])
+  @IsIn(INCIDENT_STATUSES)
   status?: IncidentStatus;
 
   @IsOptional()
@@ -241,7 +292,7 @@ class QueryIncidentsDto {
 }
 
 class AddThreatIndicatorDto {
-  @IsIn(['ip', 'domain', 'url', 'email', 'file_hash', 'user_agent'])
+  @IsIn(THREAT_INDICATOR_TYPES)
   indicatorType!: ThreatIntelligence['indicatorType'];
 
   @IsString()
@@ -281,7 +332,7 @@ class QueryThreatIntelligenceDto {
   limit?: number;
 
   @IsOptional()
-  @IsIn(['ip', 'domain', 'url', 'email', 'file_hash', 'user_agent'])
+  @IsIn(THREAT_INDICATOR_TYPES)
   indicatorType?: ThreatIntelligence['indicatorType'];
 
   @IsOptional()
@@ -576,9 +627,7 @@ export class SecurityMonitoringController {
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
       indicatorType: query.indicatorType,
       threatLevel: query.threatLevel,
-      isActive:
-        query.isActive === true ||
-        (query.isActive as unknown) === 'true',
+      isActive: query.isActive,
       searchQuery: query.searchQuery,
     });
   }
@@ -662,7 +711,7 @@ export class SecurityMonitoringController {
    * Get anomaly detection configuration
    */
   @Get('config/anomaly-detection')
-  getAnomalyConfig() {
+  getAnomalyConfig(): AnomalyDetectionConfig {
     return this.securityMonitoringService.getAnomalyConfig();
   }
 

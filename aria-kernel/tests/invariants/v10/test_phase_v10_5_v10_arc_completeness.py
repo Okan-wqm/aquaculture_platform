@@ -28,6 +28,7 @@ CANONICAL_V10_TEST_FILES = frozenset({
     "test_phase_v10_5_phase_4_drainer_kernel_max_rounds_ssot.py",  # F-024 closure
     "test_phase_v10_5_phase_5_poll_state_race.py",  # F-025 closure
     "test_phase_v10_5_phase_6_evaluate_plan_response_ssot.py",  # F-026 closure
+    "test_phase_v10_5_phase_7_v9_runner_wired.py",  # F-027 closure
     "test_phase_v10_5_v10_arc_completeness.py",  # this file
 })
 

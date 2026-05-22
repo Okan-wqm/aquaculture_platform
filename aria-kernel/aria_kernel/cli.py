@@ -3533,6 +3533,7 @@ def _main(argv: list[str] | None = None) -> int:
         from .cycle_phases import (
             select_cost_telemetry_hook,
             select_memory_hook,
+            select_v9_implementation_runner,
         )
         # Plan ARIA-V3.1-E (E1+E2) — CLI flag is the SSoT for the
         # cycle's profile when the operator passes it. Otherwise
@@ -3640,6 +3641,18 @@ def _main(argv: list[str] | None = None) -> int:
             # V10 memory pillar + per-LLM cost-attribution activated.
             memory_hook=select_memory_hook(profile=profile),
             cost_telemetry_hook=select_cost_telemetry_hook(profile=profile),
+            # Plan ARIA-V10.5 Phase 7 — F-027 closure. Wire the V9
+            # implementation runner per profile so the orchestrator's
+            # post-CONVERGED phase actually mints aria-implementer
+            # subprocess. observe/standard/frozen → NoOp (V8 backward-
+            # compat); strict → policy_strict_no_implementation refusal;
+            # autonomous → production AutonomousV9ImplementationRunner
+            # (mint_signing_key + mint_installation_token + issue_
+            # implementation_envelope + poll + record_outcome + cleanup).
+            # Pre-F-027 the CLI never installed this factory's return
+            # value so the orchestrator always fell back to NoOp; the
+            # V9 implementation phase was structurally unreachable.
+            v9_implementation_runner=select_v9_implementation_runner(profile=profile),
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         # Exit non-zero only when the orchestrator could not start

@@ -1230,6 +1230,97 @@ def run_autonomy_orchestrator(
                         bypass_profile_gate=True,
                     )
 
+                # Plan ARIA-V10.5 Phase 7 — F-027 closure. V9
+                # implementation phase. Per cycle_phases/implementer.py
+                # contract: "V9 closes the value gap CONVERGED plans
+                # never become real code. v3.1-B wires the
+                # implementation phase between CONVERGED and
+                # specialist_review." Pre-F-027 the runner was plumbed
+                # via the v9_implementation_runner parameter (defaulted
+                # to NoOpV9ImplementationRunner at line 368-370) but
+                # .run() was never invoked — F-024+F-025+F-026 trinity
+                # delivered CONVERGED cycles in production
+                # (v10-5-f-026-validation cycle 3 at 21:24:46) but the
+                # downstream pipeline was structurally absent.
+                #
+                # The signal-typed V9ImplementationResult lets the
+                # orchestrator pick the next specialist_review behavior
+                # without inspecting terminal_state heuristically.
+                # NoOp/Strict variants return IMPLEMENTATION_REQUEST_REFUSED
+                # with specialist_review_signal=review_converged_plan so
+                # V8 behavior is preserved by default. Autonomous variant
+                # mints the aria-implementer subprocess + polls + records
+                # outcome.
+                AutonomyStateReducer.transition(
+                    root,
+                    cycle_id=cycle_id,
+                    phase="v9_implementation_phase_started",
+                    status="ok",
+                    profile=profile_snapshot,
+                    details={
+                        "plan_id": convergence_result.get("plan_id"),
+                        "runner_class": type(v9_implementation_runner).__name__,
+                    },
+                )
+                try:
+                    v9_result = v9_implementation_runner.run(
+                        cycle_id=cycle_id,
+                        plan_id=str(
+                            convergence_result.get("plan_id") or f"plan-{cycle_id}"
+                        ),
+                        workspace_root=Path(workspace_root) if workspace_root else root,
+                        base_dir=root,
+                        converged_plan=convergence_result.get("converged_plan", {}) or {},
+                        cross_review_summary={
+                            "revision_id": convergence_result.get("convergence_id")
+                            or convergence_result.get("plan_id"),
+                            "rounds_count": convergence_result.get("rounds_count"),
+                            "request_ids": convergence_result.get("request_ids", []),
+                        },
+                        profile=str(profile_snapshot or "standard"),
+                        implementer_poll_seconds=implementer_poll_seconds,
+                    )
+                    cycle_summary["v9_implementation"] = {
+                        "terminal_state": v9_result.terminal_state,
+                        "pr_url": v9_result.pr_url,
+                        "rejection_class": v9_result.rejection_class,
+                        "specialist_review_signal": v9_result.specialist_review_signal,
+                    }
+                    AutonomyStateReducer.transition(
+                        root,
+                        cycle_id=cycle_id,
+                        phase="v9_implementation_phase_resolved",
+                        status=str(v9_result.terminal_state),
+                        profile=profile_snapshot,
+                        details={
+                            "specialist_review_signal": v9_result.specialist_review_signal,
+                            "pr_url": v9_result.pr_url,
+                            "rejection_class": v9_result.rejection_class,
+                        },
+                    )
+                except Exception as _v9_exc:
+                    # Best-effort: a V9 phase failure must not block
+                    # specialist_review + worker_drainer. The failure
+                    # surfaces via governance event for operator
+                    # visibility, and the orchestrator falls back to
+                    # review_converged_plan signal (the V8 default).
+                    append_tools_governance(
+                        root, "v9_implementation_phase_failed",
+                        {
+                            "cycle_id": cycle_id,
+                            "plan_id": convergence_result.get("plan_id"),
+                            "error_class": type(_v9_exc).__name__,
+                            "error_message": str(_v9_exc)[:500],
+                        },
+                        bypass_profile_gate=True,
+                    )
+                    cycle_summary["v9_implementation"] = {
+                        "terminal_state": "IMPLEMENTATION_REQUEST_REFUSED",
+                        "pr_url": None,
+                        "rejection_class": f"runner_exception:{type(_v9_exc).__name__}",
+                        "specialist_review_signal": "review_converged_plan",
+                    }
+
                 # Plan ARIA-V6 §2c V6.1 Phase 6.1 — Gate C Lane-A
                 # specialist dispatch. Inserted between Gate A's
                 # converged-verdict check and worker_drainer. The

@@ -53,7 +53,11 @@ jobs:
               ;;
           esac
 
-          git fetch origin main:refs/remotes/origin/main --prune
+          # Tag-triggered checkouts do not reliably keep branch tracking refs.
+          # Fetch main via a fully-qualified refspec so the reachability guard
+          # cannot accidentally prune or miss refs/remotes/origin/main.
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git show-ref --verify --quiet refs/remotes/origin/main
           TAG_COMMIT="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
           if ! git merge-base --is-ancestor "${TAG_COMMIT}" origin/main; then
             echo "Release tag ${GITHUB_REF_NAME} (${TAG_COMMIT}) is not reachable from origin/main"

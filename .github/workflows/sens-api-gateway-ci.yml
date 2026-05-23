@@ -40,7 +40,7 @@ env:
   # 2026-04-30: CI feature set compiles every software protocol/security path
   # while excluding `sx1302-vendor-hal`, which is a real hardware C HAL build
   # and must fail closed unless vendor/sx1302_hal sources are present.
-  SENS_API_GATEWAY_RC2_FEATURES: scada-display
+  SENS_API_GATEWAY_RELEASE_FEATURES: scada-display
   SENS_API_GATEWAY_CI_FEATURES: health,telemetry,metrics,strict-security,scada-display,lorawan,signed-deploy,tpm,st-bytecode,multi-task-scheduler,opc-ua-server,live-debug,license-enforce
 
 jobs:
@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Validate Edge RC2 release contract
+      - name: Validate Edge release contract
         run: |
           set -euo pipefail
           if grep -q "workflow_dispatch" .github/workflows/edge-agent-release.yml; then
@@ -64,9 +64,9 @@ jobs:
           grep -q "cargo-metadata.sbom.json" .github/workflows/edge-agent-release.yml
           grep -q "intoto.jsonl" .github/workflows/edge-agent-release.yml
           grep -q "NOTICE.md" .github/workflows/edge-agent-release.yml
-          grep -q 'version = "2.0.0-rc.2"' sens-api-gateway/Cargo.toml
-          if grep -q "apps/admin-api-service/src/edge" docs/evidence/sens-api-gateway-edge-v2.0.0-rc2.md; then
-            grep -q "Excluded" docs/evidence/sens-api-gateway-edge-v2.0.0-rc2.md
+          grep -q 'version = "2.0.0-rc.3"' sens-api-gateway/Cargo.toml
+          if grep -q "apps/admin-api-service/src/edge" docs/evidence/sens-api-gateway-edge-v2.0.0-rc3.md; then
+            grep -q "Excluded" docs/evidence/sens-api-gateway-edge-v2.0.0-rc3.md
           fi
 
   format:
@@ -116,7 +116,7 @@ jobs:
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
         run: cargo check --locked
 
-  check-rc2-features:
+  check-release-features:
     name: cargo check --features scada-display
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -132,15 +132,15 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: sens-api-gateway -> target
-          shared-key: sens-api-gateway-rc2-features
+          shared-key: sens-api-gateway-release-features
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
 
-      # RC2 release profile parity gate. The tag-only release workflow builds
+      # Release profile parity gate. The tag-only release workflow builds
       # this exact feature tier across the cross targets; this host-native
       # PR gate catches manifest/profile drift before a release tag is pushed.
-      - name: Check gateway RC2 feature profile
+      - name: Check gateway release feature profile
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
-        run: cargo check --locked --features "$SENS_API_GATEWAY_RC2_FEATURES"
+        run: cargo check --locked --features "$SENS_API_GATEWAY_RELEASE_FEATURES"
 
   check-ci-features:
     name: cargo check --release --all-targets --features curated
@@ -390,7 +390,7 @@ jobs:
       - release-contract
       - format
       - check-default
-      - check-rc2-features
+      - check-release-features
       - check-ci-features
       - clippy
       - test
@@ -408,7 +408,7 @@ jobs:
             "${{ needs.release-contract.result }}" \
             "${{ needs.format.result }}" \
             "${{ needs.check-default.result }}" \
-            "${{ needs.check-rc2-features.result }}" \
+            "${{ needs.check-release-features.result }}" \
             "${{ needs.check-ci-features.result }}" \
             "${{ needs.clippy.result }}" \
             "${{ needs.test.result }}" \

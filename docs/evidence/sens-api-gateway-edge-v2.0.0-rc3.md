@@ -1,10 +1,12 @@
-# Sens API Gateway Edge v2.0.0-rc2 Evidence Map
+# Sens API Gateway Edge v2.0.0-rc3 Evidence Map
 
 Date: 2026-05-22
-Branch: `release/sens-edge-rc2-contract-2026-05-22`
+Branch: `release/sens-edge-rc3-contract`
 Base: `origin/main`
 
 ## Decision
+
+Release correction: `agent-v2.0.0-rc2` was pushed, but its workflow failed in `Release ref contract` before enterprise validation, build artifacts, signatures, or GitHub Release creation. The tag is not reused; `agent-v2.0.0-rc3` is the immutable release tag for this corrected release path.
 
 ADR-025 is authoritative for Edge schema ownership. ADR-022 is superseded.
 Therefore this PR is release-contract and documentation only; it does not adopt the admin-api-owned Edge schema files found as untracked local work.
@@ -17,7 +19,7 @@ This PR stages only the release-contract surface:
 - `.github/workflows/sens-api-gateway-ci.yml`
 - `.github/workflows/ci-edge.yml`
 - `sens-api-gateway/Cargo.toml` and `sens-api-gateway/Cargo.lock`
-- RC2 release notes, evidence, and runbooks under `docs/releases/`, `docs/evidence/`, and `docs/runbooks/`
+- RC3 release notes, evidence, and runbooks under `docs/releases/`, `docs/evidence/`, and `docs/runbooks/`
 - Small cross-links in existing `sens-api-gateway` docs
 
 ## Explicit Exclusions
@@ -34,6 +36,28 @@ This PR stages only the release-contract surface:
 The excluded admin-api Edge schema files follow the superseded ADR-022 placement model.
 Including them in this release PR would mix release mechanics with a platform data-ownership decision and could create migration/runtime drift.
 
+## Enterprise Release Profile Evidence
+
+Selected profile: `edge-agent-scada-display`.
+Feature tier: `scada-display`.
+Gate command: `npm run gates:sens-enterprise-validation -- --release --release-profile=edge-agent-scada-display`.
+
+Blocking claims for this profile:
+
+- `sens-ci-bypass-closed`
+- `edge-release-enterprise-gated`
+- `cargo-supply-chain-hard-gates`
+- `suppression-patterns-rejected`
+- `command-permission-burn-down`
+
+Classified as non-blocking and not claimed by this artifact profile:
+
+- `coapproval-rbac-enterprise-closure`
+- `runtime-io-safe-state-closure`
+- `cloud-edge-command-lifecycle-closure`
+- `opcua-s7-physical-write-closure`
+- `sx1302-vendor-hal-hil-closure`
+
 ## GitHub Actions Evidence
 
 Fill these links after the PR is opened and CI has run.
@@ -42,12 +66,12 @@ Fill these links after the PR is opened and CI has run.
 |---|---|---|
 | SENS API Gateway CI | TBD | Pending |
 | CI - Edge Agent | TBD | Pending |
-| Edge Agent Release | Runs only after `agent-v2.0.0-rc2` tag | Pending |
+| Edge Agent Release | Runs only after `agent-v2.0.0-rc3` tag | Pending |
 
 ## Release Artifact Contract
 Release feature tier: `scada-display`. Broader GPIO/I2C/SPI/PWM and debug/security preview surfaces are CI/HIL-owned until a dedicated hardware release contract is introduced.
 
-- Archive: `suderra-agent-v2.0.0-rc2-<target>.tar.gz`
+- Archive: `suderra-agent-v2.0.0-rc3-<target>.tar.gz`
 - Checksum: `.tar.gz.sha256`
 - SBOM: `.cargo-metadata.sbom.json`
 - Provenance: `.intoto.jsonl`

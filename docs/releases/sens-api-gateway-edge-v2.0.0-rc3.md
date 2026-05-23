@@ -1,10 +1,12 @@
-# Sens API Gateway Edge v2.0.0-rc2 Release Notes
+# Sens API Gateway Edge v2.0.0-rc3 Release Notes
 
 Date: 2026-05-22
-Target tag: `agent-v2.0.0-rc2`
-Cargo package version: `2.0.0-rc.2`
+Target tag: `agent-v2.0.0-rc3`
+Cargo package version: `2.0.0-rc.3`
 
 ## Scope
+
+RC3 supersedes the failed `agent-v2.0.0-rc2` tag attempt. That tag stopped in the release ref contract before enterprise validation, builds, signatures, or GitHub Release creation. Do not consume `agent-v2.0.0-rc2` as a released artifact.
 
 This RC is an Edge Agent release-contract hardening release for `sens-api-gateway`.
 It intentionally does not ship the broader Edge Platform v2 schema/runtime migration.
@@ -12,10 +14,10 @@ It intentionally does not ship the broader Edge Platform v2 schema/runtime migra
 Included in this PR:
 
 - Tag-only GitHub release workflow for `agent-v*` tags.
-- RC2 Cargo release tier: `scada-display`.
+- RC3 Cargo release tier: `scada-display`.
 - Versioned Linux artifacts for x86_64, aarch64, and armv7.
 - Release evidence artifacts: checksum, cargo metadata SBOM, in-toto provenance, notice file, cosign signature and certificate.
-- Operator runbooks for RC2 install, OPC UA posture, and OTA posture.
+- Operator runbooks for RC3 install, OPC UA posture, and OTA posture.
 
 Not included in this PR:
 
@@ -23,6 +25,10 @@ Not included in this PR:
 - Admin tenant provisioning workflow changes.
 - Runtime command dispatcher/RBAC rewiring.
 - Sensor-service Edge v2 data-model changes.
+
+## Release Profile
+
+The enterprise gate evaluates release claims through the `edge-agent-scada-display` profile in `tools/gates/sens-enterprise-claims.json`. This profile blocks publication on CI/release/supply-chain/permission closure claims and classifies broader runtime/HIL claims that this artifact does not publish as non-blocking for this artifact profile: co-approval RBAC closure, runtime I/O safe-state closure, durable cloud-edge command lifecycle, OPC UA/S7 physical writes, and SX1302 HIL closure.
 
 ## Release Contract
 
@@ -44,7 +50,7 @@ This tier packages the local SCADA display surface. Broader software coverage re
 
 ## Known Limitations
 
-- OTA remains an operator-controlled install flow for RC2; device-side automatic OTA enforcement is not claimed here.
+- OTA remains an operator-controlled install flow for RC3; device-side automatic OTA enforcement is not claimed here.
 - OPC UA client security posture remains documented as client-side `SecurityPolicy#None` unless later runtime work closes the security-policy gap.
 - Command RBAC and signed envelope types exist, but dispatcher enforcement is a follow-up implementation PR.
 - Edge v2 schema ownership follows ADR-025 and must not use the superseded admin-api `edge` schema design.
@@ -53,7 +59,7 @@ This tier packages the local SCADA display surface. Broader software coverage re
 
 1. Merge this PR to `main` after GitHub Actions is green.
 2. Confirm `main` points at the intended release commit.
-3. Create `agent-v2.0.0-rc2` on that commit.
+3. Create `agent-v2.0.0-rc3` on that commit.
 4. Push the tag to origin.
 5. Wait for `Edge Agent Release` to publish artifacts and signatures.
 6. Attach the GitHub Actions run URL to the evidence document.

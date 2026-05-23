@@ -26,6 +26,17 @@ interface ClaimManifest {
   metadata: ManifestMetadata;
   version: number;
   claims: ClaimDefinition[];
+  release_profiles: ReleaseProfile[];
+}
+
+interface ReleaseProfile {
+  id: string;
+  title: string;
+  feature_tier: string;
+  tag_pattern: string;
+  blocking_claims: string[];
+  non_blocking_claims: string[];
+  non_blocking_rationale: string;
 }
 
 interface ManifestMetadata {
@@ -76,6 +87,7 @@ interface EvaluatedClaim extends ClaimDefinition {
 interface RunOptions {
   artifactRoot: string;
   releaseMode: boolean;
+  releaseProfile: string | null;
   noArtifacts: boolean;
 }
 
@@ -91,6 +103,7 @@ const REPO_ROOT = (() => {
 })();
 
 const MANIFEST_PATH = 'tools/gates/sens-enterprise-claims.json';
+const DEFAULT_RELEASE_PROFILE = 'edge-agent-scada-display';
 const WORKFLOW_CI = '.github/workflows/ci-affected.yml';
 const WORKFLOW_SENS = '.github/workflows/sens-api-gateway-ci.yml';
 const WORKFLOW_RELEASE = '.github/workflows/edge-agent-release.yml';
@@ -185,12 +198,12 @@ function stripCommentOnlyLines(src: string): string {
 
 function workflowJobBlock(src: string, jobName: string): string {
   const lines = src.split(/\r?\n/);
-  const start = lines.findIndex((line) => new RegExp(`^  ${escapeRegExp(jobName)}:\\s*$`).test(line));
+  const start = lines.findIndex((line) => new RegExp(`^ {2}${escapeRegExp(jobName)}:\\s*$`).test(line));
   if (start < 0) return '';
 
   let end = lines.length;
   for (let index = start + 1; index < lines.length; index += 1) {
-    if (/^  [A-Za-z0-9_-]+:\s*$/.test(lines[index] ?? '')) {
+    if (/^ {2}[A-Za-z0-9_-]+:\s*$/.test(lines[index] ?? '')) {
       end = index;
       break;
     }
@@ -277,7 +290,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function requiredString(obj: Record<string, unknown>, key: string, errors: string[]): void {
-  if (typeof obj[key] !== 'string' || (obj[key] as string).length === 0) {
+  const value = obj[key];
+  if (typeof value !== 'string' || value.length === 0) {
     errors.push(`${key} must be a non-empty string`);
   }
 }
@@ -285,6 +299,20 @@ function requiredString(obj: Record<string, unknown>, key: string, errors: strin
 function requireStringArray(value: unknown, label: string): string[] {
   if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
     throw new Error(`${label} must be a non-empty string array`);
+  }
+  const strings = value as string[];
+  if (new Set(strings).size !== strings.length) {
+    throw new Error(`${label} must be unique`);
+  }
+  return strings;
+}
+
+function requireClaimIdArray(value: unknown, label: string, allowEmpty: boolean): string[] {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
+    throw new Error(`${label} must be ${allowEmpty ? 'an array' : 'a non-empty string array'}`);
+  }
+  if (value.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
+    throw new Error(`${label} entries must be non-empty strings`);
   }
   const strings = value as string[];
   if (new Set(strings).size !== strings.length) {
@@ -315,7 +343,8 @@ function validateSx1302HilEvidence(relPath: string): string[] {
     errors.push('hardware must be an object');
   } else {
     for (const key of ['concentrator_model', 'sx1302_hal_source_sha256', 'spi_bus', 'reset_gpio']) {
-      if (typeof evidence.hardware[key] !== 'string' || (evidence.hardware[key] as string).length === 0) {
+      const value = evidence.hardware[key];
+      if (typeof value !== 'string' || value.length === 0) {
         errors.push(`hardware.${key} must be a non-empty string`);
       }
     }
@@ -426,6 +455,8 @@ const CHECKS: Record<string, () => CheckResult> = {
       'sens-enterprise-validation:',
       'npm run gates:sens-enterprise-validation -- --release',
       'SENS_ENTERPRISE_RELEASE: \'1\'',
+      'SENS_ENTERPRISE_RELEASE_PROFILE: edge-agent-scada-display',
+      '--release-profile=edge-agent-scada-display',
       'if-no-files-found: error',
     ];
     const missing = job ? hasAll(job, required) : ['sens-enterprise-validation:'];
@@ -858,16 +889,22 @@ function parseArgs(argv: string[]): { options: RunOptions; selfTest: boolean } {
   let selfTest = false;
   let noArtifacts = false;
   let releaseMode = process.env.SENS_ENTERPRISE_RELEASE === '1';
+  let releaseProfile = process.env.SENS_ENTERPRISE_RELEASE_PROFILE || null;
   let artifactRoot = process.env.SENS_ENTERPRISE_ARTIFACT_ROOT || 'artifacts/sens-enterprise-validation';
 
   for (const arg of argv) {
     if (arg === '--self-test') selfTest = true;
     else if (arg === '--no-artifacts') noArtifacts = true;
     else if (arg === '--release') releaseMode = true;
+    else if (arg.startsWith('--release-profile=')) releaseProfile = arg.slice('--release-profile='.length);
     else if (arg.startsWith('--artifact-root=')) artifactRoot = arg.slice('--artifact-root='.length);
     else if (arg.length > 0) {
       throw new Error(`Unknown argument: ${arg}`);
     }
+  }
+
+  if (releaseMode && !releaseProfile) {
+    releaseProfile = DEFAULT_RELEASE_PROFILE;
   }
 
   return {
@@ -875,9 +912,79 @@ function parseArgs(argv: string[]): { options: RunOptions; selfTest: boolean } {
     options: {
       artifactRoot,
       releaseMode,
+      releaseProfile,
       noArtifacts,
     },
   };
+}
+
+
+function loadReleaseProfiles(raw: unknown, claims: ClaimDefinition[]): ReleaseProfile[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error('claim manifest release_profiles must be a non-empty array');
+  }
+
+  const claimIds = new Set(claims.map((claim) => claim.id));
+  const releaseBlockerClaimIds = new Set(claims.filter((claim) => claim.release_blocker).map((claim) => claim.id));
+  const profileIds = new Set<string>();
+
+  return raw.map((item, index): ReleaseProfile => {
+    if (!isRecord(item)) {
+      throw new Error(`release_profile[${index}] must be an object`);
+    }
+    const profile = item;
+    const allowed = new Set(['id', 'title', 'feature_tier', 'tag_pattern', 'blocking_claims', 'non_blocking_claims', 'non_blocking_rationale']);
+    for (const key of Object.keys(profile)) {
+      if (!allowed.has(key)) throw new Error(`release_profile[${index}] has unknown field: ${key}`);
+    }
+
+    const id = profile.id;
+    if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(id)) {
+      throw new Error(`release_profile[${index}] id must be kebab-case`);
+    }
+    if (profileIds.has(id)) throw new Error(`duplicate release profile id: ${id}`);
+    profileIds.add(id);
+
+    const title = profile.title;
+    const featureTier = profile.feature_tier;
+    const tagPattern = profile.tag_pattern;
+    const deferRationale = profile.non_blocking_rationale;
+    if (typeof title !== 'string' || title.length === 0) throw new Error(`release_profile[${id}] title required`);
+    if (typeof featureTier !== 'string' || featureTier.length === 0) throw new Error(`release_profile[${id}] feature_tier required`);
+    if (typeof tagPattern !== 'string' || tagPattern.length === 0) throw new Error(`release_profile[${id}] tag_pattern required`);
+    if (typeof deferRationale !== 'string' || deferRationale.length === 0) {
+      throw new Error(`release_profile[${id}] non_blocking_rationale required`);
+    }
+
+    const blockingClaims = requireClaimIdArray(profile.blocking_claims, `release_profile[${id}] blocking_claims`, false);
+    const nonBlockingClaims = requireClaimIdArray(profile.non_blocking_claims, `release_profile[${id}] non_blocking_claims`, true);
+    const nonBlockingSet = new Set(nonBlockingClaims);
+    const overlap = blockingClaims.filter((claimId) => nonBlockingSet.has(claimId));
+    if (overlap.length > 0) {
+      throw new Error(`release_profile[${id}] claims cannot be both blocking and non-blocking: ${overlap.join(', ')}`);
+    }
+
+    for (const claimId of [...blockingClaims, ...nonBlockingClaims]) {
+      if (!claimIds.has(claimId)) throw new Error(`release_profile[${id}] references unknown claim: ${claimId}`);
+    }
+
+    const classified = new Set([...blockingClaims, ...nonBlockingClaims]);
+    for (const claimId of releaseBlockerClaimIds) {
+      if (!classified.has(claimId)) {
+        throw new Error(`release_profile[${id}] must classify release_blocker claim: ${claimId}`);
+      }
+    }
+
+    return {
+      id,
+      title,
+      feature_tier: featureTier,
+      tag_pattern: tagPattern,
+      blocking_claims: blockingClaims,
+      non_blocking_claims: nonBlockingClaims,
+      non_blocking_rationale: deferRationale,
+    };
+  });
 }
 
 function loadManifestObject(raw: unknown): ClaimManifest {
@@ -885,7 +992,7 @@ function loadManifestObject(raw: unknown): ClaimManifest {
     throw new Error('claim manifest must be an object');
   }
   const obj = raw as Record<string, unknown>;
-  const allowedTopLevel = new Set(['$schema', 'version', 'metadata', 'claims']);
+  const allowedTopLevel = new Set(['$schema', 'version', 'metadata', 'claims', 'release_profiles']);
   for (const key of Object.keys(obj)) {
     if (!allowedTopLevel.has(key)) throw new Error(`claim manifest has unknown field: ${key}`);
   }
@@ -900,20 +1007,31 @@ function loadManifestObject(raw: unknown): ClaimManifest {
   for (const key of Object.keys(metadataObj)) {
     if (!allowedMetadata.has(key)) throw new Error(`claim manifest metadata has unknown field: ${key}`);
   }
-  for (const key of ['plan_id', 'plan_path', 'reviewed_at', 'claim_schema']) {
-    if (typeof metadataObj[key] !== 'string' || (metadataObj[key] as string).length === 0) {
-      throw new Error(`claim manifest metadata.${key} must be a non-empty string`);
-    }
+  const planId = metadataObj.plan_id;
+  const planPath = metadataObj.plan_path;
+  const reviewedAt = metadataObj.reviewed_at;
+  const claimSchema = metadataObj.claim_schema;
+  if (typeof planId !== 'string' || planId.length === 0) {
+    throw new Error('claim manifest metadata.plan_id must be a non-empty string');
+  }
+  if (typeof planPath !== 'string' || planPath.length === 0) {
+    throw new Error('claim manifest metadata.plan_path must be a non-empty string');
+  }
+  if (typeof reviewedAt !== 'string' || reviewedAt.length === 0) {
+    throw new Error('claim manifest metadata.reviewed_at must be a non-empty string');
+  }
+  if (typeof claimSchema !== 'string' || claimSchema.length === 0) {
+    throw new Error('claim manifest metadata.claim_schema must be a non-empty string');
   }
   if (metadataObj.release_gate !== true) {
     throw new Error('claim manifest metadata.release_gate must be true');
   }
   const metadata: ManifestMetadata = {
-    plan_id: metadataObj.plan_id as string,
-    plan_path: metadataObj.plan_path as string,
-    reviewed_at: metadataObj.reviewed_at as string,
-    release_gate: metadataObj.release_gate as boolean,
-    claim_schema: metadataObj.claim_schema as string,
+    plan_id: planId,
+    plan_path: planPath,
+    reviewed_at: reviewedAt,
+    release_gate: true,
+    claim_schema: claimSchema,
   };
   if (!Array.isArray(obj.claims) || obj.claims.length === 0) {
     throw new Error('claim manifest must contain at least one claim');
@@ -1037,7 +1155,9 @@ function loadManifestObject(raw: unknown): ClaimManifest {
     };
   });
 
-  return { version: obj.version, metadata, claims };
+  const releaseProfiles = loadReleaseProfiles(obj.release_profiles, claims);
+
+  return { version: obj.version, metadata, claims, release_profiles: releaseProfiles };
 }
 
 function evaluateClaim(
@@ -1107,12 +1227,25 @@ function timestampForArtifact(): string {
   return new Date().toISOString().replaceAll(':', '-').replace(/\.\d{3}Z$/, 'Z');
 }
 
+function writeJsonArtifact(filePath: string, value: unknown): void {
+  fs.writeFileSync(filePath, `${JSON.stringify(value)}\n`);
+}
+
+function writeStdout(message: string): void {
+  process.stdout.write(`${message}\n`);
+}
+
+function writeStderr(message: string): void {
+  process.stderr.write(`${message}\n`);
+}
+
 function writeArtifacts(
   options: RunOptions,
   claims: EvaluatedClaim[],
   commands: CheckResult[],
   metadata: ManifestMetadata,
   manifestHash: string,
+  releaseProfile: ReleaseProfile | null,
 ): string | null {
   if (options.noArtifacts) return null;
   const dir = path.resolve(REPO_ROOT, options.artifactRoot, timestampForArtifact());
@@ -1122,33 +1255,20 @@ function writeArtifacts(
   const commandsPath = path.join(dir, 'commands.json');
   const reportPath = path.join(dir, 'report.md');
 
-  fs.writeFileSync(
-    claimsPath,
-    JSON.stringify(
-      {
-        generated_at: new Date().toISOString(),
-        release_mode: options.releaseMode,
-        manifest: MANIFEST_PATH,
-        manifest_metadata: metadata,
-        manifest_sha256: manifestHash,
-        claims,
-      },
-      null,
-      2,
-    ) + '\n',
-  );
+  writeJsonArtifact(claimsPath, {
+    generated_at: new Date().toISOString(),
+    release_mode: options.releaseMode,
+    release_profile: releaseProfile,
+    manifest: MANIFEST_PATH,
+    manifest_metadata: metadata,
+    manifest_sha256: manifestHash,
+    claims,
+  });
 
-  fs.writeFileSync(
-    commandsPath,
-    JSON.stringify(
-      {
-        generated_at: new Date().toISOString(),
-        commands,
-      },
-      null,
-      2,
-    ) + '\n',
-  );
+  writeJsonArtifact(commandsPath, {
+    generated_at: new Date().toISOString(),
+    commands,
+  });
 
   const passCount = claims.filter((claim) => claim.evaluated_status === 'pass').length;
   const blockedCount = claims.filter((claim) => claim.evaluated_status === 'blocked').length;
@@ -1158,6 +1278,15 @@ function writeArtifacts(
     '',
     `- Generated: ${new Date().toISOString()}`,
     `- Release mode: ${options.releaseMode ? 'yes' : 'no'}`,
+    `- Release profile: ${releaseProfile ? releaseProfile.id : 'none'}`,
+    ...(releaseProfile
+      ? [
+          `- Release profile tier: ${releaseProfile.feature_tier}`,
+          `- Blocking profile claims: ${releaseProfile.blocking_claims.join(', ')}`,
+          `- Non-blocking profile claims: ${releaseProfile.non_blocking_claims.join(', ') || 'none'}`,
+          `- Non-blocking rationale: ${releaseProfile.non_blocking_rationale}`,
+        ]
+      : []),
     `- Plan: ${metadata.plan_id} (${metadata.plan_path})`,
     `- Manifest hash: ${manifestHash}`,
     `- Claims: ${passCount} pass, ${blockedCount} blocked, ${failCount} fail`,
@@ -1189,10 +1318,24 @@ function writeArtifacts(
   return path.relative(REPO_ROOT, dir);
 }
 
+
+function resolveReleaseProfile(manifest: ClaimManifest, options: RunOptions): ReleaseProfile | null {
+  if (!options.releaseMode && !options.releaseProfile) return null;
+
+  const profileId = options.releaseProfile || DEFAULT_RELEASE_PROFILE;
+  const profile = manifest.release_profiles.find((candidate) => candidate.id === profileId);
+  if (!profile) {
+    const available = manifest.release_profiles.map((candidate) => candidate.id).join(', ') || 'none';
+    throw new Error(`unknown release profile: ${profileId}; available profiles: ${available}`);
+  }
+  return profile;
+}
+
 function runGate(options: RunOptions): { exitCode: number; artifactDir: string | null; claims: EvaluatedClaim[] } {
   const manifestRaw = readFile(MANIFEST_PATH);
   const manifest = loadManifestObject(JSON.parse(manifestRaw));
   const manifestHash = createHash('sha256').update(manifestRaw).digest('hex');
+  const releaseProfile = resolveReleaseProfile(manifest, options);
 
   const checkIds = new Set(manifest.claims.flatMap((claim) => claim.checks));
   const results = new Map<string, CheckResult>();
@@ -1217,35 +1360,40 @@ function runGate(options: RunOptions): { exitCode: number; artifactDir: string |
   const workflowRunId = process.env.GITHUB_RUN_ID || 'local';
   const claims = manifest.claims.map((claim) => evaluateClaim(claim, results, workflowRunId));
   const commands = [...results.values()].sort((a, b) => a.id.localeCompare(b.id));
-  const artifactDir = writeArtifacts(options, claims, commands, manifest.metadata, manifestHash);
+  const artifactDir = writeArtifacts(options, claims, commands, manifest.metadata, manifestHash, releaseProfile);
 
   const failedClosedClaims = claims.filter((claim) => claim.status === 'closed' && claim.evaluated_status !== 'pass');
   const failedClaims = claims.filter((claim) => claim.evaluated_status === 'fail' && claim.status !== 'closed');
   const blockedClaims = claims.filter((claim) => claim.evaluated_status === 'blocked');
 
-  console.log(
+  writeStdout(
     `sens-enterprise-validation: ${claims.filter((c) => c.evaluated_status === 'pass').length} pass, ` +
       `${blockedClaims.length} blocked, ${failedClosedClaims.length + failedClaims.length} fail` +
+      (releaseProfile ? `; profile=${releaseProfile.id}` : '') +
       (artifactDir ? `; artifacts=${artifactDir}` : ''),
   );
 
   if (failedClosedClaims.length > 0) {
     for (const claim of failedClosedClaims) {
-      console.error(`FAIL closed-claim ${claim.id}: ${claim.closure_errors.join('; ')}`);
+      writeStderr(`FAIL closed-claim ${claim.id}: ${claim.closure_errors.join('; ')}`);
     }
     return { exitCode: 1, artifactDir, claims };
   }
 
   if (failedClaims.length > 0) {
     for (const claim of failedClaims) {
-      console.error(`FAIL claim ${claim.id}`);
+      writeStderr(`FAIL claim ${claim.id}`);
     }
     return { exitCode: 1, artifactDir, claims };
   }
 
-  if (options.releaseMode && blockedClaims.length > 0) {
-    for (const claim of blockedClaims) {
-      console.error(`BLOCKED release claim ${claim.id}: ${claim.blocker ?? 'no blocker detail'}`);
+  const blockedReleaseClaims = releaseProfile
+    ? blockedClaims.filter((claim) => releaseProfile.blocking_claims.includes(claim.id))
+    : blockedClaims;
+
+  if (options.releaseMode && blockedReleaseClaims.length > 0) {
+    for (const claim of blockedReleaseClaims) {
+      writeStderr(`BLOCKED release claim ${claim.id}: ${claim.blocker ?? 'no blocker detail'}`);
     }
     return { exitCode: 1, artifactDir, claims };
   }
@@ -1296,6 +1444,17 @@ function runSelfTest(): void {
   const manifest = loadManifestObject({
     version: 1,
     metadata,
+    release_profiles: [
+      {
+        id: 'self-test-profile',
+        title: 'Self-test profile',
+        feature_tier: 'self-test',
+        tag_pattern: 'self-test-*',
+        blocking_claims: ['closed-claim'],
+        non_blocking_claims: ['blocked-claim'],
+        non_blocking_rationale: 'self-test non-blocking claim remains outside the closed release profile',
+      },
+    ],
     claims: [
       {
         id: 'closed-claim',
@@ -1342,7 +1501,7 @@ function runSelfTest(): void {
   const evaluated = manifest.claims.map((claim) => evaluateClaim(claim, checks, 'self-test'));
   assert.equal(evaluated[0]?.evaluated_status, 'pass');
   assert.equal(evaluated[1]?.evaluated_status, 'blocked');
-  console.log('sens-enterprise-validation self-test: ok');
+  writeStdout('sens-enterprise-validation self-test: ok');
 }
 
 function main(): void {
@@ -1359,7 +1518,7 @@ if (require.main === module) {
   try {
     main();
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    writeStderr(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
 }

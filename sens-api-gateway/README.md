@@ -2,9 +2,9 @@
 
 Industrial IoT Edge Agent for aquaculture monitoring and control systems. Built with Rust for reliability, safety, and performance on resource-constrained edge devices.
 
-Current release contract: `agent-v2.0.0-rc2` / Cargo `2.0.0-rc.2`.
-The RC2 release is tag-only and built by GitHub Actions with the `scada-display` release tier.
-See `docs/releases/sens-api-gateway-edge-v2.0.0-rc2.md` and `docs/evidence/sens-api-gateway-edge-v2.0.0-rc2.md`.
+Current release contract: `agent-v2.0.0-rc3` / Cargo `2.0.0-rc.3`.
+The RC3 release is tag-only and built by GitHub Actions with the `scada-display` release tier.
+See `docs/releases/sens-api-gateway-edge-v2.0.0-rc3.md` and `docs/evidence/sens-api-gateway-edge-v2.0.0-rc3.md`.
 
 ## What's New in v1.3.4 (High Availability Edition)
 
@@ -1123,11 +1123,11 @@ The CI pipeline runs on every push and PR:
 ### Release Process
 
 1. Merge the release-contract PR to `main` after GitHub Actions is green.
-2. Tag the exact `main` commit: `git tag agent-v2.0.0-rc2`.
-3. Push the tag: `git push origin agent-v2.0.0-rc2`.
+2. Tag the exact `main` commit: `git tag agent-v2.0.0-rc3`.
+3. Push the tag: `git push origin agent-v2.0.0-rc3`.
 4. `Edge Agent Release` verifies the tag is reachable from `origin/main`.
 5. GitHub Actions publishes versioned archives, checksums, SBOM, provenance, notices, and cosign signatures.
-6. Store the workflow run URL in `docs/evidence/sens-api-gateway-edge-v2.0.0-rc2.md`.
+6. Store the workflow run URL in `docs/evidence/sens-api-gateway-edge-v2.0.0-rc3.md`.
 
 ---
 

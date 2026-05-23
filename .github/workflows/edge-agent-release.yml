@@ -2,7 +2,7 @@ name: Edge Agent Release
 
 # ARCH-CI-016: cross binary now cached in ~/.cargo/bin to avoid recompiling on every run
 # SEC-CI-022: Release artifacts signed with cosign (sigstore) for edge device provenance verification
-# RC2-CONTRACT: release creation is tag-only. Do not use manual arbitrary-version dispatch.
+# RELEASE-CONTRACT: release creation is tag-only. Do not use manual arbitrary-version dispatch.
 
 on:
   push:
@@ -79,6 +79,7 @@ jobs:
       version: ${{ steps.release-ref.outputs.version }}
     env:
       SENS_ENTERPRISE_RELEASE: '1'
+      SENS_ENTERPRISE_RELEASE_PROFILE: edge-agent-scada-display
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -93,7 +94,7 @@ jobs:
         run: npm ci --ignore-scripts --no-audit
 
       - name: Run Sens enterprise validation
-        run: npm run gates:sens-enterprise-validation -- --release
+        run: npm run gates:sens-enterprise-validation -- --release --release-profile=edge-agent-scada-display
 
       - name: Export validated release ref
         id: release-ref

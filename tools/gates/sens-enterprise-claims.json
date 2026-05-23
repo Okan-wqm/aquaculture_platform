@@ -45,8 +45,8 @@
       "release_blocker": true,
       "evidence_type": "static",
       "evidence_class": "workflow_static",
-      "command": "npm run gates:sens-enterprise-validation -- --release --no-artifacts",
-      "expected_exit": 1,
+      "command": "npm run gates:sens-enterprise-validation -- --release --release-profile=edge-agent-scada-display --no-artifacts",
+      "expected_exit": 0,
       "checks": [
         "edge_release_has_enterprise_validation_job",
         "edge_release_build_needs_enterprise_validation",
@@ -263,6 +263,29 @@
       ],
       "blocker": "Raw all-features compile is not accepted as SX1302 closure. Release closure requires SUDERRA_REQUIRE_SX1302_VENDOR_HAL=1 plus HIL evidence.",
       "linked_finding_id": "SX1302-HIL"
+    }
+  ],
+  "release_profiles": [
+    {
+      "id": "edge-agent-scada-display",
+      "title": "Edge Agent scada-display signed binary artifact release",
+      "feature_tier": "scada-display",
+      "tag_pattern": "agent-v*",
+      "blocking_claims": [
+        "sens-ci-bypass-closed",
+        "edge-release-enterprise-gated",
+        "cargo-supply-chain-hard-gates",
+        "suppression-patterns-rejected",
+        "command-permission-burn-down"
+      ],
+      "non_blocking_claims": [
+        "coapproval-rbac-enterprise-closure",
+        "runtime-io-safe-state-closure",
+        "cloud-edge-command-lifecycle-closure",
+        "opcua-s7-physical-write-closure",
+        "sx1302-vendor-hal-hil-closure"
+      ],
+      "non_blocking_rationale": "The scada-display release profile publishes signed Edge Agent binaries and release evidence only. Runtime RBAC co-approval, durable cloud-edge command lifecycle, physical protocol writes, runtime I/O safe-state closure, and SX1302 HIL closure are classified as non-blocking and are not claimed by this artifact profile."
     }
   ]
 }

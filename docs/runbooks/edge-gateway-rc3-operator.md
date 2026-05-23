@@ -1,7 +1,8 @@
-# Edge Gateway RC2 Operator Runbook
+# Edge Gateway RC3 Operator Runbook
 
 Audience: plant IT, fleet operator, and field engineer.
-Release: `agent-v2.0.0-rc2`.
+Release: `agent-v2.0.0-rc3`.
+Do not install artifacts from `agent-v2.0.0-rc2`; that tag did not publish a GitHub Release.
 
 ## Preconditions
 
@@ -14,7 +15,7 @@ Release: `agent-v2.0.0-rc2`.
 ## Download and Verify
 
 ```bash
-TAG=agent-v2.0.0-rc2
+TAG=agent-v2.0.0-rc3
 VERSION=${TAG#agent-}
 ARCH=aarch64-linux
 BASE=suderra-agent-${VERSION}-${ARCH}

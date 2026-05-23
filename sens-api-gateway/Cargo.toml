@@ -1,6 +1,6 @@
 [package]
 name = "suderra-agent"
-version = "2.0.0-rc.2"
+version = "2.0.0-rc.3"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Suderra <info@suderra.com>"]
@@ -421,11 +421,12 @@ strict-security = []
 # SCADA display server (embedded web UI for local HMI/kiosk)
 scada-display = ["axum", "tower-http"]
 
-# RC2 compatibility alias. The release workflow names the concrete
+# Release compatibility aliases. The release workflow names the concrete
 # `scada-display` tier directly so enterprise validation can distinguish
 # release binaries from broader CI/HIL feature gates. Keep hardware and
-# preview surfaces out of this alias unless a dedicated release contract owns them.
+# preview surfaces out of these aliases unless a dedicated release contract owns them.
 edge-rc2 = ["scada-display"]
+edge-rc3 = ["scada-display"]
 # LoRaWAN protocol support. This intentionally excludes the Semtech SX1302
 # vendor HAL so CI can compile protocol/security paths without hardware C
 # sources. Real concentrator builds must enable `sx1302-vendor-hal` explicitly.

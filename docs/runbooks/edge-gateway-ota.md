@@ -1,20 +1,20 @@
-# Edge Gateway OTA RC2 Runbook
+# Edge Gateway OTA RC3 Runbook
 
-Audience: fleet operator evaluating update paths for `agent-v2.0.0-rc2`.
+Audience: fleet operator evaluating update paths for `agent-v2.0.0-rc3`.
 
-## RC2 Position
+## RC3 Position
 
-RC2 does not claim fully automatic device-side OTA enforcement.
+RC3 does not claim fully automatic device-side OTA enforcement.
 The release workflow signs published artifacts, but installation remains operator-controlled.
 
-Allowed for RC2:
+Allowed for RC3:
 
 - Manual download from GitHub Release.
 - Checksum verification.
 - Cosign verification against the tag-scoped workflow identity.
 - In-place systemd replacement with `.prev` rollback.
 
-Not allowed to claim for RC2:
+Not allowed to claim for RC3:
 
 - Autonomous fleet OTA.
 - A/B partition swap.
@@ -25,7 +25,7 @@ Not allowed to claim for RC2:
 ## Verification
 
 ```bash
-TAG=agent-v2.0.0-rc2
+TAG=agent-v2.0.0-rc3
 VERSION=${TAG#agent-}
 ARCH=aarch64-linux
 BASE=suderra-agent-${VERSION}-${ARCH}
@@ -43,7 +43,7 @@ The certificate identity must contain `@refs/tags/${TAG}`.
 
 ## Install and Rollback
 
-Use `docs/runbooks/edge-gateway-rc2-operator.md` for the install steps.
+Use `docs/runbooks/edge-gateway-rc3-operator.md` for the install steps.
 Keep `/usr/local/bin/suderra-agent.prev` until the soak window passes.
 
 ## Stop Conditions

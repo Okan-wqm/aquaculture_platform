@@ -1,12 +1,12 @@
-# Edge Gateway OPC UA RC2 Runbook
+# Edge Gateway OPC UA RC3 Runbook
 
-Audience: integrator connecting RC2 to Siemens, Beckhoff, B&R, or Unified Automation OPC UA endpoints.
+Audience: integrator connecting RC3 to Siemens, Beckhoff, B&R, or Unified Automation OPC UA endpoints.
 
-## RC2 Boundary
+## RC3 Boundary
 
 - The always-compiled OPC UA path is the client in `sens-api-gateway/src/plc_programming/opcua.rs`.
-- The optional OPC UA server is behind the `opc-ua-server` feature and is not part of the RC2 release profile.
-- RC2 release tier is `scada-display`; it does not include `opc-ua-server`.
+- The optional OPC UA server is behind the `opc-ua-server` feature and is not part of the RC3 release profile.
+- RC3 release tier is `scada-display`; it does not include `opc-ua-server`.
 - Treat the client as `SecurityPolicy#None` and `SecurityMode#None` unless a later runtime PR proves signed/encrypted chunk support.
 
 ## Network Controls

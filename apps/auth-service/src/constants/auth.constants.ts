@@ -72,8 +72,11 @@ export const TOKEN_CONSTANTS = {
   /** Token blacklist cleanup interval in ms (5 minutes) */
   BLACKLIST_CLEANUP_INTERVAL_MS: 300000,
 
-  /** Max tokens to check when using hashed refresh tokens */
-  MAX_REFRESH_TOKEN_CHECK: 100,
+  /** Max active tokens to check when using hashed refresh tokens */
+  MAX_ACTIVE_REFRESH_TOKEN_CHECK: 10,
+
+  /** Max revoked tokens to scan for refresh-token reuse detection */
+  MAX_REVOKED_REFRESH_TOKEN_REUSE_CHECK: 5,
 
   /** Default invitation expiry in days */
   DEFAULT_INVITATION_EXPIRY_DAYS: 7,

@@ -744,7 +744,7 @@ export class AuthenticationService {
 
       const validTokens = await queryBuilder
         .orderBy('rt.createdAt', 'DESC')
-        .take(TOKEN_CONSTANTS.MAX_REFRESH_TOKEN_CHECK)
+        .take(TOKEN_CONSTANTS.MAX_ACTIVE_REFRESH_TOKEN_CHECK)
         .getMany();
 
       // Find matching token by comparing hashes
@@ -824,8 +824,8 @@ export class AuthenticationService {
    * decide whether the presented token corresponds to a previously-
    * issued (now-revoked) refresh token. Returns the matching revoked
    * row on hit, null otherwise. Used only on the no-match branch of
-   * the main refresh path; the cost is N bcrypt.compare calls where N
-   * is bounded by MAX_REFRESH_TOKEN_CHECK (typically 5-10).
+   * the main refresh path; keep the bcrypt scan intentionally tiny so
+   * stale browser cookies cannot turn silent refresh into a long request.
    */
   private async detectRefreshTokenReuse(
     manager: import('typeorm').EntityManager,
@@ -839,7 +839,7 @@ export class AuthenticationService {
       .where('rt.isRevoked = :isRevoked', { isRevoked: true })
       .andWhere('rt.userId = :userId', { userId })
       .orderBy('rt.revokedAt', 'DESC')
-      .take(TOKEN_CONSTANTS.MAX_REFRESH_TOKEN_CHECK)
+      .take(TOKEN_CONSTANTS.MAX_REVOKED_REFRESH_TOKEN_REUSE_CHECK)
       .getMany();
     for (const storedToken of revokedTokens) {
       const isMatch = await bcrypt.compare(tokenPart, storedToken.token);

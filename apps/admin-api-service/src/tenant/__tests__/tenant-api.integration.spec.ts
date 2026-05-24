@@ -6,13 +6,14 @@ import request from 'supertest';
 import { Tenant, TenantStatus, TenantTier } from '../entities/tenant.entity';
 import { TenantActivityService } from '../services/tenant-activity.service';
 import { TenantDetailService } from '../services/tenant-detail.service';
+import { TenantProvisioningWorkflowService } from '../services/tenant-provisioning-workflow.service';
 import { TenantProvisioningService } from '../services/tenant-provisioning.service';
 import { TenantController } from '../tenant.controller';
 
 // Valid UUID constants for test use
-const TENANT_UUID = '11111111-1111-1111-1111-111111111111';
-const TENANT_UUID_2 = '22222222-2222-2222-2222-222222222222';
-const NOTE_UUID = '33333333-3333-3333-3333-333333333333';
+const TENANT_UUID = '11111111-1111-4111-8111-111111111111';
+const TENANT_UUID_2 = '22222222-2222-4222-8222-222222222222';
+const NOTE_UUID = '33333333-3333-4333-8333-333333333333';
 const NULL_UUID = '00000000-0000-0000-0000-000000000000';
 
 // Mock CommandBus and QueryBus
@@ -41,6 +42,13 @@ const mockActivityService = {
 const mockProvisioningService = {
   provisionTenant: jest.fn().mockResolvedValue({ success: true }),
   getProvisioningStatus: jest.fn().mockResolvedValue({ status: 'completed' }),
+};
+
+const mockProvisioningWorkflowService = {
+  createTenantOperation: jest.fn(),
+  processOperation: jest.fn().mockResolvedValue(undefined),
+  getOperation: jest.fn(),
+  retryOperation: jest.fn(),
 };
 
 // Helper to create mock tenant
@@ -101,6 +109,10 @@ describe('Tenant API Integration Tests', () => {
           provide: TenantProvisioningService,
           useValue: mockProvisioningService,
         },
+        {
+          provide: TenantProvisioningWorkflowService,
+          useValue: mockProvisioningWorkflowService,
+        },
       ],
     }).compile();
 
@@ -129,6 +141,19 @@ describe('Tenant API Integration Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockProvisioningWorkflowService.createTenantOperation.mockResolvedValue({
+      accepted: true,
+      id: TENANT_UUID,
+      tenantId: TENANT_UUID,
+      operationId: NOTE_UUID,
+      provisioningState: 'QUEUED',
+      statusUrl: `/api/v1/tenants/provisioning/${NOTE_UUID}`,
+      status: 'PENDING',
+      name: 'New Tenant',
+      slug: 'new-tenant',
+      tier: 'professional',
+    });
+    mockProvisioningWorkflowService.processOperation.mockResolvedValue(undefined);
   });
 
   describe('POST /tenants', () => {
@@ -143,25 +168,38 @@ describe('Tenant API Integration Tests', () => {
     };
 
     it('should create a new tenant', async () => {
-      const createdTenant = createMockTenant({ name: 'New Tenant', slug: 'new-tenant' });
-      mockCommandBus.execute.mockResolvedValueOnce(createdTenant);
+      mockProvisioningWorkflowService.createTenantOperation.mockResolvedValueOnce({
+        accepted: true,
+        id: TENANT_UUID,
+        tenantId: TENANT_UUID,
+        operationId: NOTE_UUID,
+        provisioningState: 'QUEUED',
+        statusUrl: `/api/v1/tenants/provisioning/${NOTE_UUID}`,
+        status: 'PENDING',
+        name: 'New Tenant',
+        slug: 'new-tenant',
+        tier: 'professional',
+      });
 
       const response = await request(app.getHttpServer())
         .post('/tenants')
         .send(validCreateDto)
+        .set('Idempotency-Key', 'tenant-create-test-key')
         .set('x-user-id', 'admin-123')
         .set('x-user-email', 'admin@example.com')
         .set('x-user-roles', JSON.stringify(['SUPER_ADMIN']));
 
-      expect(response.status).toBe(HttpStatus.CREATED);
-      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      expect(response.status).toBe(HttpStatus.ACCEPTED);
+      expect(mockProvisioningWorkflowService.createTenantOperation).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            name: 'New Tenant',
-            slug: 'new-tenant',
-          }),
+          name: 'New Tenant',
+          slug: 'new-tenant',
         }),
+        'admin-123',
+        'tenant-create-test-key',
       );
+      expect(mockProvisioningWorkflowService.processOperation).toHaveBeenCalledWith(NOTE_UUID);
+      expect(response.body).toEqual(expect.objectContaining({ operationId: NOTE_UUID, accepted: true }));
     });
 
     it('should return 400 for invalid tenant data', async () => {
@@ -180,7 +218,7 @@ describe('Tenant API Integration Tests', () => {
     });
 
     it('should handle duplicate slug error', async () => {
-      mockCommandBus.execute.mockRejectedValueOnce({
+      mockProvisioningWorkflowService.createTenantOperation.mockRejectedValueOnce({
         name: 'ConflictException',
         message: 'Tenant with slug already exists',
       });

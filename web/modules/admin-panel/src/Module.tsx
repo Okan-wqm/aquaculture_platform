@@ -84,7 +84,7 @@ const SuspenseFallback: React.FC = () => (
 );
 
 const isPlatformAdminRole = (role?: string | null): boolean =>
-  role === 'SUPER_ADMIN' || role === 'PLATFORM_ADMIN';
+  role === 'SUPER_ADMIN';
 
 // ============================================================================
 // Module Component

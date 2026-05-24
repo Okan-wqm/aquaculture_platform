@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { EventsHandler, IEventHandler, CommandBus } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
-import { NatsEventBus } from '@platform/event-bus';
+import { EventHandler, NatsEventBus } from '@platform/event-bus';
 import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { createBaseEvent, SubscriptionProvisioningFailedEvent } from '@platform/event-contracts';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
@@ -23,6 +23,12 @@ interface ModuleQuantityConfig {
   ponds?: number;
   sensors?: number;
   employees?: number;
+  devices?: number;
+  storageGb?: number;
+  apiCalls?: number;
+  alerts?: number;
+  reports?: number;
+  integrations?: number;
 }
 
 /**
@@ -166,6 +172,7 @@ const RETRY_BASE_DELAY_MS = 30_000;
  */
 @Injectable()
 @EventsHandler(TenantSubscriptionRequestedEvent)
+@EventHandler('TenantSubscriptionRequested')
 export class TenantSubscriptionRequestedHandler
   implements IEventHandler<TenantSubscriptionRequestedEvent>
 {
@@ -178,7 +185,10 @@ export class TenantSubscriptionRequestedHandler
     @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
   ) {}
 
-  async handle(event: TenantSubscriptionRequestedEvent): Promise<void> {
+  async handle(
+    event: TenantSubscriptionRequestedEvent,
+    options: { persistFailure?: boolean } = {},
+  ): Promise<void> {
     // Verify this is the correct event type
     if (event.eventType !== 'TenantSubscriptionRequested') {
       return;
@@ -378,7 +388,10 @@ export class TenantSubscriptionRequestedHandler
       // Persist the failed event for scheduled retry instead of giving up immediately.
       // This prevents orphaned tenants (tenants with no subscription) when NATS or the
       // billing DB is temporarily unavailable.
-      await this.persistForRetry(event, (error as Error).message);
+      if (options.persistFailure !== false) {
+        await this.persistForRetry(event, (error as Error).message);
+      }
+      throw error;
     }
   }
 
@@ -395,6 +408,13 @@ export class TenantSubscriptionRequestedHandler
       farms?: number;
       ponds?: number;
       sensors?: number;
+      employees?: number;
+      devices?: number;
+      storageGb?: number;
+      apiCalls?: number;
+      alerts?: number;
+      reports?: number;
+      integrations?: number;
     }>,
   ): Promise<void> {
     // SubscriptionModuleItem has no tenantId column — it is a child of
@@ -586,7 +606,7 @@ export class TenantSubscriptionRequestedHandler
         // Reconstruct the event and re-invoke handle()
         // JSONB column — validated at insert time; safe to cast
         const event = row.event_payload as unknown as TenantSubscriptionRequestedEvent;
-        await this.handle(event);
+        await this.handle(event, { persistFailure: false });
 
         // Success — remove from retry queue
         await this.dataSource.query(

@@ -180,6 +180,36 @@ export class ModuleQuantityDto {
   @IsNumber()
   @Min(0)
   employees?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  devices?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  storageGb?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  apiCalls?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  alerts?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  reports?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  integrations?: number;
 }
 
 export class CreateTenantDto {
@@ -269,6 +299,21 @@ export class CreateTenantDto {
   maxUsers?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(-1)
+  maxStorage?: number;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TenantLimitsDto)
+  limits?: TenantLimitsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TenantSettingsDto)
+  settings?: TenantSettingsDto;
+
+  @IsOptional()
   @IsEnum(TenantPlan)
   plan?: TenantPlan;
 
@@ -297,6 +342,38 @@ export class CreateTenantDto {
   @IsOptional()
   @IsEnum(['monthly', 'quarterly', 'semi_annual', 'annual'])
   billingCycle?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
+}
+
+export enum TenantProvisioningState {
+  QUEUED = 'QUEUED',
+  RUNNING = 'RUNNING',
+  SUCCEEDED = 'SUCCEEDED',
+  FAILED = 'FAILED',
+}
+
+export class TenantProvisioningStepDto {
+  name!: string;
+  state!: TenantProvisioningState;
+  attempts!: number;
+  lastError?: string;
+  startedAt?: Date;
+  completedAt?: Date;
+}
+
+export class CreateTenantAcceptedResponse {
+  accepted!: boolean;
+  id!: string;
+  tenantId!: string;
+  operationId!: string;
+  provisioningState!: TenantProvisioningState;
+  statusUrl!: string;
+  status!: string;
+  name!: string;
+  slug!: string;
+  tier!: string;
+  currentStep?: string;
+  error?: string;
+  steps?: TenantProvisioningStepDto[];
 }
 
 export class UpdateTenantDto {
@@ -383,6 +460,7 @@ export class SuspendTenantDto {
 
 export class ListTenantsQueryDto {
   @IsOptional()
+  @Transform(({ value }) => typeof value === 'string' ? value.toUpperCase() : value)
   @IsEnum(TenantStatus)
   status?: TenantStatus;
 

@@ -158,7 +158,11 @@ export class TenantProvisioningService {
       };
     }
 
-    if (tenant.status !== TenantStatus.PENDING) {
+    const retryableStatuses = new Set<string>([
+      TenantStatus.PENDING,
+      TenantStatus.PROVISIONING_FAILED,
+    ]);
+    if (!retryableStatuses.has(tenant.status)) {
       return {
         success: false,
         tenantId,
@@ -178,8 +182,10 @@ export class TenantProvisioningService {
     // role setup, and admin creation, allowing partially provisioned tenants
     // to become visible as active.
     const [, rowsAffected] = await this.dataSource.query(
-      `UPDATE auth.tenants SET status = 'PROVISIONING', "updatedAt" = NOW() WHERE id = $1 AND status = $2`,
-      [tenantId, TenantStatus.PENDING],
+      `UPDATE auth.tenants
+          SET status = $2, "updatedAt" = NOW()
+        WHERE id = $1 AND status = ANY($3::text[])`,
+      [tenantId, TenantStatus.PROVISIONING, [TenantStatus.PENDING, TenantStatus.PROVISIONING_FAILED]],
     );
     if ((rowsAffected as number) === 0) {
       return {
@@ -394,6 +400,10 @@ export class TenantProvisioningService {
     if (sagaResult.success) {
       this.logger.log(`Tenant ${tenantId} provisioned successfully`);
     } else {
+      await this.dataSource.query(
+        `UPDATE auth.tenants SET status = $1, "updatedAt" = NOW() WHERE id = $2 AND status = $3`,
+        [TenantStatus.PROVISIONING_FAILED, tenantId, TenantStatus.PROVISIONING],
+      );
       this.logger.error(
         `Tenant ${tenantId} provisioning failed at step [${sagaResult.failedStep}]: ${sagaResult.error}`,
       );
@@ -557,6 +567,10 @@ export class TenantProvisioningService {
     switch (tenant.status) {
       case TenantStatus.PENDING:
         return { status: 'pending', tenant };
+      case TenantStatus.PROVISIONING:
+        return { status: 'provisioning', tenant };
+      case TenantStatus.PROVISIONING_FAILED:
+        return { status: 'failed', tenant };
       case TenantStatus.ACTIVE:
         return { status: 'provisioned', tenant };
       case TenantStatus.SUSPENDED:

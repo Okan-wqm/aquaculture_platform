@@ -11,6 +11,8 @@ import { TenantPlan } from '@platform/event-contracts';
 
 export enum TenantStatus {
   PENDING = 'PENDING',
+  PROVISIONING = 'PROVISIONING',
+  PROVISIONING_FAILED = 'PROVISIONING_FAILED',
   ACTIVE = 'ACTIVE',
   SUSPENDED = 'SUSPENDED',
   CANCELLED = 'CANCELLED',
@@ -29,6 +31,11 @@ export interface TenantSettings {
   currency?: string;
   dateFormat?: string;
   measurementSystem?: 'metric' | 'imperial';
+  country?: string;
+  region?: string;
+  billingEmail?: string;
+  primaryContact?: { name: string; email: string; phone?: string; role: string };
+  billingContact?: { name: string; email: string; phone?: string; role: string };
   notificationPreferences?: {
     email: boolean;
     sms: boolean;
@@ -138,6 +145,15 @@ export class Tenant {
 
   set tier(value: string) {
     this.plan = value;
+  }
+
+  hydrateCompatibilityFields(): void {
+    this.domain = this.customDomain;
+    this.billingEmail = this.settings?.billingEmail;
+    this.country = this.settings?.country;
+    this.region = this.settings?.region;
+    this.primaryContact = this.settings?.primaryContact;
+    this.billingContact = this.settings?.billingContact;
   }
 
   // Limits getter for backwards compatibility (extended for all expected properties)

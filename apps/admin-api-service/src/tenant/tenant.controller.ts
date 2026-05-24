@@ -6,6 +6,7 @@ import {
   Patch,
   Delete,
   Body,
+  Headers,
   Param,
   Query,
   ParseUUIDPipe,
@@ -18,7 +19,6 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 
 import { CurrentUser } from '../decorators/current-user.decorator';
 import {
-  CreateTenantCommand,
   UpdateTenantCommand,
   SuspendTenantCommand,
   ActivateTenantCommand,
@@ -34,6 +34,7 @@ import {
 } from './dto/tenant-detail.dto';
 import {
   CreateTenantDto,
+  CreateTenantAcceptedResponse,
   UpdateTenantDto,
   SuspendTenantDto,
   ListTenantsQueryDto,
@@ -57,6 +58,7 @@ import {
 import { PaginatedResult } from './query-handlers/tenant-query.handlers';
 import { TenantActivityService } from './services/tenant-activity.service';
 import { TenantDetailService } from './services/tenant-detail.service';
+import { TenantProvisioningWorkflowService } from './services/tenant-provisioning-workflow.service';
 import { TenantProvisioningService } from './services/tenant-provisioning.service';
 
 interface AdminUser {
@@ -75,17 +77,49 @@ export class TenantController {
     private readonly queryBus: QueryBus,
     private readonly detailService: TenantDetailService,
     private readonly activityService: TenantActivityService,
+    private readonly provisioningWorkflowService: TenantProvisioningWorkflowService,
     private readonly provisioningService: TenantProvisioningService,
   ) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a new tenant' })
-  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create a new tenant provisioning operation' })
+  @HttpCode(HttpStatus.ACCEPTED)
   async createTenant(
     @Body() dto: CreateTenantDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<Tenant> {
-    return this.commandBus.execute(new CreateTenantCommand(dto, user.id));
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ): Promise<CreateTenantAcceptedResponse> {
+    const response = await this.provisioningWorkflowService.createTenantOperation(
+      dto,
+      user.id,
+      idempotencyKey,
+    );
+
+    this.provisioningWorkflowService.processOperation(response.operationId).catch((err: Error) => {
+      this.logger.error(
+        `Async tenant provisioning failed for operation ${response.operationId}: ${err.message}`,
+        err.stack,
+      );
+    });
+
+    return response;
+  }
+
+  @Get('provisioning/:operationId')
+  @ApiOperation({ summary: 'Get tenant provisioning operation status' })
+  async getTenantProvisioningOperation(
+    @Param('operationId', ParseUUIDPipe) operationId: string,
+  ): Promise<CreateTenantAcceptedResponse> {
+    return this.provisioningWorkflowService.getOperation(operationId);
+  }
+
+  @Post('provisioning/:operationId/retry')
+  @ApiOperation({ summary: 'Retry a failed tenant provisioning operation' })
+  @HttpCode(HttpStatus.ACCEPTED)
+  async retryTenantProvisioningOperation(
+    @Param('operationId', ParseUUIDPipe) operationId: string,
+  ): Promise<CreateTenantAcceptedResponse> {
+    return this.provisioningWorkflowService.retryOperation(operationId);
   }
 
   @Get()

@@ -5,7 +5,7 @@
  * SECURITY:
  *  - Waits for token lifecycle barrier before firing (prevents 401 race on page load)
  *  - Retries once on 401 after a silent refresh (keeps user logged in across token expiry)
- *  - Injects X-Tenant-Id from the shared auth store (prevents cross-tenant leak)
+ *  - Keeps admin-panel requests platform-scoped by default
  *  - Adds X-CSRF-Token header from the XSRF-TOKEN cookie on mutating methods
  *  - Preserves the existing exponential backoff retry for 502/503/504 errors
  */
@@ -174,7 +174,7 @@ export async function apiFetch<T>(
     }
   }
 
-  const { tenantScope = 'tenant', ...fetchOptions } = options ?? {};
+  const { tenantScope = 'platform', ...fetchOptions } = options ?? {};
   const method = (fetchOptions.method ?? 'GET').toUpperCase();
   let lastError: ApiError | null = null;
   let has401Retried = false;
@@ -189,10 +189,9 @@ export async function apiFetch<T>(
         ...getAuthHeader(),
       };
 
-      // SECURITY: attach X-Tenant-Id so the gateway can enforce tenant isolation
-      // and the backend can scope queries. WHY: without this header the server
-      // falls back to the JWT claim which may be stale during tenant switches.
-      const tenantId = tenantScope === 'platform' ? null : getTenantId();
+      // Admin-panel is a platform-admin surface. Default to platform scope so
+      // stale tenant context cannot leak into cross-tenant administration calls.
+      const tenantId = tenantScope === 'tenant' ? getTenantId() : null;
       if (tenantId) {
         headers['X-Tenant-Id'] = tenantId;
       }

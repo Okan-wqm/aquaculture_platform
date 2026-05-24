@@ -335,7 +335,7 @@ const TenantDetailPage: React.FC = () => {
           <Button variant="outline" onClick={() => setIsEditModalOpen(true)}>
             Edit
           </Button>
-          {tenant.status === 'active' ? (
+          {tenant.status === TenantStatus.ACTIVE ? (
             <Button variant="danger" onClick={() => setIsSuspendModalOpen(true)}>
               Suspend
             </Button>

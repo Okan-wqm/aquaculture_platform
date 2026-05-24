@@ -23,10 +23,12 @@ import {
   billingApi,
   PricingMetricType,
   TenantTier,
+  TenantProvisioningState,
   PlanTier,
   BillingCycle,
   type SystemModule,
   type CreateTenantDto,
+  type CreateTenantAcceptedResponse,
   type ModulePricingWithModule,
   type ModuleQuantities,
   type ModuleSelection,
@@ -216,6 +218,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
         <div className="flex items-start gap-3">
           <button
             type="button"
+            aria-label={`${config.enabled ? 'Disable' : 'Enable'} ${config.moduleName}`}
             onClick={onToggle}
             className={`mt-1 w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
               config.enabled
@@ -329,6 +332,7 @@ const CreateTenantPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [createdTenantId, setCreatedTenantId] = useState<string | null>(null);
+  const [provisioningOperation, setProvisioningOperation] = useState<CreateTenantAcceptedResponse | null>(null);
 
   const steps = [
     { label: 'Basic Info', description: 'Company details' },
@@ -572,11 +576,29 @@ const CreateTenantPage: React.FC = () => {
     return null;
   };
 
+  const validateDomain = (domain: string): string | null => {
+    const value = domain.trim().toLowerCase();
+    if (!value) return null;
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(value)) {
+      return 'Domain must be a valid hostname';
+    }
+    return null;
+  };
+
+  const validateCountry = (country: string): string | null => {
+    const value = country.trim().toUpperCase();
+    if (!value) return null;
+    if (!/^[A-Z]{2}$/.test(value)) return 'Country must be a 2-letter ISO code';
+    return null;
+  };
+
   const validateStep = (step: number): boolean => {
     switch (step) {
       case 0: {
         const slugError = validateSlug(formData.slug.trim());
-        return formData.name.trim().length >= 2 && !slugError;
+        const domainError = validateDomain(formData.domain);
+        const countryError = validateCountry(formData.country);
+        return formData.name.trim().length >= 2 && !slugError && !domainError && !countryError;
       }
       case 1:
         return (
@@ -601,7 +623,9 @@ const CreateTenantPage: React.FC = () => {
         setError('Please select at least one module');
       } else if (currentStep === 0) {
         const slugError = validateSlug(formData.slug.trim());
-        setError(slugError || 'Please fill in all required fields');
+        const domainError = validateDomain(formData.domain);
+        const countryError = validateCountry(formData.country);
+        setError(slugError || domainError || countryError || 'Please fill in all required fields');
       } else {
         setError('Please fill in all required fields');
       }
@@ -628,9 +652,9 @@ const CreateTenantPage: React.FC = () => {
         slug: formData.slug || undefined,
         description: formData.description || undefined,
         tier: formData.pricingTier === 'free' ? TenantTier.STARTER : formData.pricingTier as TenantTier,
-        domain: formData.domain || undefined,
-        country: formData.country || undefined,
-        region: formData.region || undefined,
+        domain: formData.domain.trim().toLowerCase() || undefined,
+        country: formData.country.trim().toUpperCase() || undefined,
+        region: formData.region.trim() || undefined,
         primaryContact: {
           name: formData.primaryContact.name,
           email: formData.primaryContact.email,
@@ -649,25 +673,75 @@ const CreateTenantPage: React.FC = () => {
           farms: m.quantities.farms,
           ponds: m.quantities.ponds,
           sensors: m.quantities.sensors,
+          devices: m.quantities.devices,
+          storageGb: m.quantities.storageGb,
+          apiCalls: m.quantities.apiCalls,
+          alerts: m.quantities.alerts,
+          reports: m.quantities.reports,
+          integrations: m.quantities.integrations,
         })),
         // NEW: Billing cycle
         billingCycle: BillingCycle.MONTHLY,
       };
 
-      const tenant = await tenantsApi.create(createData);
-      setCreatedTenantId(tenant.id);
+      const operation = await tenantsApi.create(createData, crypto.randomUUID());
+      setProvisioningOperation(operation);
+      setCreatedTenantId(operation.tenantId);
 
-      // NOTE: Module assignment and subscription creation is now handled by backend
-      // during tenant creation. The backend will:
-      // 1. Create the tenant
-      // 2. Assign selected modules with quantities
-      // 3. Calculate pricing based on tier and quantities
-      // 4. Create subscription with trial period if specified
-      // 5. Send invitation email to the primary contact
-
-      setSuccess(true);
+      if (operation.provisioningState === TenantProvisioningState.SUCCEEDED) {
+        setSuccess(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create tenant');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!provisioningOperation || success) return;
+
+    if (provisioningOperation.provisioningState === TenantProvisioningState.SUCCEEDED) {
+      setSuccess(true);
+      setCreatedTenantId(provisioningOperation.tenantId);
+      return;
+    }
+
+    if (provisioningOperation.provisioningState === TenantProvisioningState.FAILED) {
+      setError(provisioningOperation.error || 'Tenant provisioning failed');
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const latest = await tenantsApi.getProvisioningOperation(provisioningOperation.operationId);
+        if (!cancelled) {
+          setProvisioningOperation(latest);
+          setCreatedTenantId(latest.tenantId);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to refresh provisioning status');
+        }
+      }
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [provisioningOperation, success]);
+
+  const handleRetryProvisioning = async () => {
+    if (!provisioningOperation) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const retried = await tenantsApi.retryProvisioningOperation(provisioningOperation.operationId);
+      setProvisioningOperation(retried);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to retry provisioning');
     } finally {
       setLoading(false);
     }
@@ -706,6 +780,79 @@ const CreateTenantPage: React.FC = () => {
     return total;
   }, [enabledModules, modulePricings]);
 
+  if (provisioningOperation && !success) {
+    const isFailed = provisioningOperation.provisioningState === TenantProvisioningState.FAILED;
+
+    return (
+      <div className="max-w-2xl mx-auto">
+        <Card className="p-8">
+          <div className="flex items-start justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Tenant Provisioning</h2>
+              <p className="text-gray-600 mt-1">
+                {formData.name} is being provisioned.
+              </p>
+            </div>
+            <Badge variant={isFailed ? 'error' : 'warning'}>
+              {provisioningOperation.provisioningState}
+            </Badge>
+          </div>
+
+          {error && (
+            <Alert type={isFailed ? 'error' : 'warning'} className="mb-6">
+              {error}
+            </Alert>
+          )}
+
+          <div className="space-y-3 mb-6">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Operation</span>
+              <span className="font-mono text-gray-700">{provisioningOperation.operationId}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Current step</span>
+              <span className="font-medium text-gray-900">{provisioningOperation.currentStep || '-'}</span>
+            </div>
+          </div>
+
+          {provisioningOperation.steps && provisioningOperation.steps.length > 0 && (
+            <div className="border rounded-lg divide-y mb-6">
+              {provisioningOperation.steps.map((step) => (
+                <div key={step.name} className="flex items-center justify-between px-4 py-3 text-sm">
+                  <div>
+                    <p className="font-medium text-gray-900">{step.name}</p>
+                    {step.lastError && <p className="text-red-600 mt-1">{step.lastError}</p>}
+                  </div>
+                  <Badge variant={step.state === TenantProvisioningState.SUCCEEDED ? 'success' : step.state === TenantProvisioningState.FAILED ? 'error' : 'warning'}>
+                    {step.state}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => navigate('/admin/tenants')}>
+              Tenant List
+            </Button>
+            {isFailed ? (
+              <Button onClick={handleRetryProvisioning} loading={loading}>
+                Retry
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={async () => {
+                const latest = await tenantsApi.getProvisioningOperation(provisioningOperation.operationId);
+                setProvisioningOperation(latest);
+              }}>
+                Refresh
+              </Button>
+            )}
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   // Success view
   if (success && createdTenantId) {
     return (
@@ -716,9 +863,9 @@ const CreateTenantPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Tenant Created Successfully!</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Tenant Provisioned Successfully!</h2>
           <p className="text-gray-600 mb-4">
-            Tenant <strong>{formData.name}</strong> has been created.
+            Tenant <strong>{formData.name}</strong> has been created and provisioned.
           </p>
           {enabledModules.length > 0 && (
             <div className="bg-indigo-50 rounded-lg p-4 mb-6">
@@ -732,7 +879,7 @@ const CreateTenantPage: React.FC = () => {
           )}
           {formData.primaryContact.email && (
             <p className="text-sm text-gray-500 mb-6">
-              An invitation email has been sent to <strong>{formData.primaryContact.email}</strong> for the admin user.
+              Primary contact: <strong>{formData.primaryContact.email}</strong>
             </p>
           )}
           <div className="flex justify-center gap-4">
@@ -814,8 +961,8 @@ const CreateTenantPage: React.FC = () => {
                   <Input
                     label="Country"
                     value={formData.country}
-                    onChange={(e) => updateFormData('country', e.target.value)}
-                    placeholder="Turkey"
+                    onChange={(e) => updateFormData('country', e.target.value.toUpperCase())}
+                    placeholder="TR"
                   />
                   <Input
                     label="Region"
@@ -1037,7 +1184,7 @@ const CreateTenantPage: React.FC = () => {
               </div>
 
               <Alert type="info">
-                When the tenant is created, an invitation email will be sent to <strong>{formData.primaryContact.email}</strong>.
+                Tenant provisioning will create the workspace, admin access, module assignments, and billing subscription for <strong>{formData.primaryContact.email}</strong>.
               </Alert>
             </div>
           )}

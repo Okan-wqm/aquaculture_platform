@@ -156,6 +156,12 @@ export interface ModuleQuantityConfig {
   ponds?: number;
   sensors?: number;
   employees?: number;
+  devices?: number;
+  storageGb?: number;
+  apiCalls?: number;
+  alerts?: number;
+  reports?: number;
+  integrations?: number;
 }
 
 /**

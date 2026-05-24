@@ -7,7 +7,7 @@
 
 import { useCallback } from 'react';
 import { useAsyncData } from './useAsyncData';
-import { tenantsApi } from '../services/adminApi';
+import { tenantsApi, TenantStatus } from '../services/adminApi';
 import type { Tenant } from '../services/types';
 
 // ============================================================================
@@ -32,7 +32,7 @@ interface TenantOption {
  */
 export function useActiveTenants() {
   const fetcher = useCallback(async () => {
-    const result = await tenantsApi.list({ status: 'active', limit: 500 });
+    const result = await tenantsApi.list({ status: TenantStatus.ACTIVE, limit: 500 });
     const tenants: TenantOption[] = (result.data || []).map((t: Tenant) => ({
       id: t.id,
       name: t.name,

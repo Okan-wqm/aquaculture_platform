@@ -6,6 +6,7 @@ import { BillingModule } from '../billing/billing.module';
 import { DatabaseManagementModule } from '../database-management/database-management.module';
 import { TenantSchema } from '../database-management/entities/database-management.entity';
 import { ModuleAssignmentService } from '../modules/tenant-management/services/module-assignment.service';
+import { AdminOutboxModule } from '../outbox/admin-outbox.module';
 import { SettingsModule } from '../settings/settings.module';
 import { UsersModule } from '../users/users.module';
 
@@ -35,6 +36,7 @@ import {
 } from './query-handlers/tenant-query.handlers';
 import { TenantActivityService } from './services/tenant-activity.service';
 import { TenantDetailService } from './services/tenant-detail.service';
+import { TenantProvisioningWorkflowService } from './services/tenant-provisioning-workflow.service';
 import { TenantProvisioningService } from './services/tenant-provisioning.service';
 import { TenantController } from './tenant.controller';
 
@@ -73,16 +75,18 @@ const QueryHandlers = [
     SettingsModule,
     BillingModule,
     UsersModule,
+    AdminOutboxModule,
   ],
   controllers: [TenantController],
   providers: [
     ...CommandHandlers,
     ...QueryHandlers,
     TenantProvisioningService,
+    TenantProvisioningWorkflowService,
     TenantActivityService,
     TenantDetailService,
     ModuleAssignmentService,
   ],
-  exports: [TenantProvisioningService, TenantActivityService],
+  exports: [TenantProvisioningService, TenantProvisioningWorkflowService, TenantActivityService],
 })
 export class TenantManagementModule {}

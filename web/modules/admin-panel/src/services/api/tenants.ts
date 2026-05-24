@@ -11,6 +11,7 @@ import type {
   TenantActivity,
   TenantNote,
   CreateTenantDto,
+  CreateTenantAcceptedResponse,
   UpdateTenantDto,
 } from '../types';
 
@@ -32,8 +33,16 @@ export const tenantsApi = {
     apiFetch<TenantNote>(`/tenants/${tenantId}/notes/${noteId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteNote: (tenantId: string, noteId: string) =>
     apiFetch<void>(`/tenants/${tenantId}/notes/${noteId}`, { method: 'DELETE' }),
-  create: (data: CreateTenantDto) =>
-    apiFetch<Tenant>('/tenants', { method: 'POST', body: JSON.stringify(data) }),
+  create: (data: CreateTenantDto, idempotencyKey?: string) =>
+    apiFetch<CreateTenantAcceptedResponse>('/tenants', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+    }),
+  getProvisioningOperation: (operationId: string) =>
+    apiFetch<CreateTenantAcceptedResponse>(`/tenants/provisioning/${operationId}`),
+  retryProvisioningOperation: (operationId: string) =>
+    apiFetch<CreateTenantAcceptedResponse>(`/tenants/provisioning/${operationId}/retry`, { method: 'POST' }),
   update: (id: string, data: UpdateTenantDto) =>
     apiFetch<Tenant>(`/tenants/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   suspend: (id: string, reason: string) =>

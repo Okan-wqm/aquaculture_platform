@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, MapPin, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
-import { useAuth } from '@/hooks/useAuth';
 import { useMyAttendanceRecords, useMyAttendanceSummary, useTodaysAttendance } from '@/hooks/useAttendance';
 import type { GeoLocation, AttendanceRecord } from '@/types';
 import { clsx } from 'clsx';
@@ -32,15 +31,12 @@ function formatMinutes(mins: number): string {
 
 export function AttendancePage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const { addToQueue, isOnline } = useOfflineQueue();
-
-  const employeeId = user?.employeeId || user?.id || '';
 
   // WHY React Query hooks accept params directly instead of imperative fetch():
   // React Query auto-fetches when params change, deduplicates identical requests,
   // and serves stale data instantly while revalidating in the background.
-  const { data: todayRecords, refetch: refetchToday } = useTodaysAttendance(employeeId);
+  const { data: todayRecords, refetch: refetchToday } = useTodaysAttendance();
   const { data: recentRecords } = useMyAttendanceRecords({
     startDate: new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0],
@@ -56,7 +52,7 @@ export function AttendancePage() {
   const [location, setLocation] = useState<GeoLocation | null>(null);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
 
-  const todayRecord = todayRecords?.find((r) => r.employeeId === employeeId);
+  const todayRecord = todayRecords?.find((r) => r.clockIn || r.clockOut);
   const isClockedIn = todayRecord?.clockIn && !todayRecord?.clockOut;
 
   const getLocation = useCallback(async (): Promise<GeoLocation | null> => {
@@ -90,7 +86,6 @@ export function AttendancePage() {
     try {
       const loc = await getLocation();
       const opId = await addToQueue('clockIn', {
-        employeeId,
         method: 'MOBILE' as const,
         location: loc || undefined,
       });
@@ -114,7 +109,6 @@ export function AttendancePage() {
     try {
       const loc = await getLocation();
       const opId = await addToQueue('clockOut', {
-        employeeId,
         method: 'MOBILE' as const,
         location: loc || undefined,
       });

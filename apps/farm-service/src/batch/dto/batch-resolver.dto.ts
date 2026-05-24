@@ -16,6 +16,7 @@ import {
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsEnum } from 'class-validator';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
 import { BatchStatus, BatchInputType } from '../entities/batch.entity';
 import { BatchDocumentType } from '../entities/batch-document.entity';
 import { UpdateBatchPayload } from '../commands/update-batch.command';
@@ -59,7 +60,7 @@ export class UpdateBatchInput implements UpdateBatchPayload {
 }
 
 @InputType()
-export class RecordMortalityInput {
+export class RecordMortalityInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity: number;
@@ -72,7 +73,7 @@ export class RecordMortalityInput {
 }
 
 @InputType()
-export class RecordCullInput {
+export class RecordCullInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity: number;
@@ -95,7 +96,7 @@ export class AllocateToTankInput {
 }
 
 @InputType()
-export class TransferBatchInput {
+export class TransferBatchInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() sourceTankId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() destinationTankId: string;

@@ -38,6 +38,7 @@ interface GraphQLContext {
     user?: {
       sub: string;
       tenantId: string;
+      roles?: string[];
     };
   };
 }
@@ -91,6 +92,11 @@ export class AttendanceResolver {
       throw new NotFoundException('Employee record not found for current user');
     }
     return employee;
+  }
+
+  private hasManagementRole(context: GraphQLContext): boolean {
+    const roles = context.req.user?.roles ?? [];
+    return roles.includes(Role.TENANT_ADMIN) || roles.includes(Role.MODULE_MANAGER);
   }
 
   // =====================
@@ -226,7 +232,25 @@ export class AttendanceResolver {
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
   ): Promise<AttendanceRecord[]> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetTodaysAttendanceQuery(tenantId, employeeId));
+    const userId = this.getUserId(context);
+    const employee = await this.resolveEmployee(userId, tenantId);
+
+    if (employeeId && employeeId !== employee.id && !this.hasManagementRole(context)) {
+      throw new ForbiddenException('You can only view your own attendance');
+    }
+
+    const effectiveEmployeeId = employeeId ?? (this.hasManagementRole(context) ? undefined : employee.id);
+    return this.queryBus.execute(new GetTodaysAttendanceQuery(tenantId, effectiveEmployeeId));
+  }
+
+  @Query(() => [AttendanceRecord], { name: 'myTodaysAttendance' })
+  async getMyTodaysAttendance(
+    @Context() context: GraphQLContext,
+  ): Promise<AttendanceRecord[]> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    const employee = await this.resolveEmployee(userId, tenantId);
+    return this.queryBus.execute(new GetTodaysAttendanceQuery(tenantId, employee.id));
   }
 
   // =====================

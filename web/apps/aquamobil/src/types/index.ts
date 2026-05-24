@@ -163,7 +163,7 @@ export interface AttendanceSummary {
 }
 
 export interface ClockInInput {
-  employeeId: string;
+  employeeId?: string;
   method: ClockMethod;
   location?: GeoLocation;
   workAreaId?: string;
@@ -171,7 +171,7 @@ export interface ClockInInput {
 }
 
 export interface ClockOutInput {
-  employeeId: string;
+  employeeId?: string;
   method: ClockMethod;
   location?: GeoLocation;
   remarks?: string;
@@ -234,6 +234,15 @@ export interface CreateLeaveRequestInput {
 // Offline queue types
 export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead';
 
+export interface MobileCommandEnvelope {
+  clientCommandId?: string;
+  clientCreatedAt?: string;
+  deviceId?: string;
+  operationType?: OperationType;
+  payloadHash?: string;
+  schemaVersion?: string;
+}
+
 /** Messaging offline payloads — sendMessage uses SendMessageInput, editMessage uses { id, content },
  * deleteMessage uses { id }, markMessagesRead uses { channelId, messageId }. */
 export type MessagingOfflinePayload =
@@ -242,7 +251,9 @@ export type MessagingOfflinePayload =
   | { id: string }
   | { channelId: string; messageId: string };
 
-export type OperationPayload = MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | MessagingOfflinePayload;
+export type OperationPayload = (
+  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | MessagingOfflinePayload
+) & MobileCommandEnvelope;
 
 export interface QueuedOperation {
   id: string;
@@ -406,8 +417,8 @@ export interface StockMovementInput {
 /**
  * Matches backend TransferStockInput exactly.
  *
- * Note: the backend does NOT accept 'unit' or 'idempotencyKey' --
- * those are mobile-only offline queue metadata, not sent in the GraphQL mutation.
+ * Note: the backend does NOT accept 'unit'. `idempotencyKey` is a server-side
+ * at-most-once key and must be reused on every retry.
  */
 export interface StockTransferInput {
   itemType: StorageItemType;
@@ -418,6 +429,7 @@ export interface StockTransferInput {
   lotNumber?: string;
   reference?: string;
   reason?: string;
+  idempotencyKey?: string;
 }
 
 // GraphQL response types

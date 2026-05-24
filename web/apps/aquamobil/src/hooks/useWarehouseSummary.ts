@@ -18,7 +18,7 @@ interface WarehouseSummaryResponse {
 }
 
 // WHY default constant: avoids re-creating the object on every render cycle
-// when the query hasn't resolved yet or the backend resolver is missing.
+// while the authoritative query is still loading.
 const DEFAULT_SUMMARY: WarehouseSummary = {
   totalItems: 0,
   lowStockAlertCount: 0,
@@ -67,11 +67,7 @@ export function useWarehouseSummary(): {
         const cached = await getCachedData<WarehouseSummary>(tenantId!, cacheKey);
         if (cached) return cached;
 
-        // WHY swallow on total failure: if both network and cache fail, return
-        // defaults so the hub page renders with zeros rather than crashing.
-        // This also handles the case where the backend resolver doesn't exist yet.
-        console.warn('useWarehouseSummary: network and cache both failed', error);
-        return DEFAULT_SUMMARY;
+        throw error;
       }
     },
     enabled: isAuthenticated && !!tenantId,

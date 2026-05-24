@@ -151,38 +151,28 @@ export function useMyAttendanceSummary(params: AttendanceSummaryParams = {}) {
 }
 
 // =============================================================================
-// Today's Attendance — real-time clock-in/out status for a specific employee
+// Today's Attendance — real-time clock-in/out status for the authenticated employee
 // =============================================================================
 
 /**
- * Fetches today's attendance records to determine clock-in/out status.
- *
- * WHY employeeId as parameter: the page derives employeeId from the auth
- * context (user.employeeId || user.id). Accepting it as a parameter keeps
- * the hook pure — it doesn't assume where the ID comes from — and ensures
- * the queryKey uniquely identifies this employee's data.
- *
- * WHY 30s staleTime: this is the most time-sensitive hook. After a clock-in
- * mutation, the UI calls refetch() to show the updated status immediately.
- * Between explicit refetches, 30s prevents hammering the server while still
- * reflecting co-worker clock-ins (relevant for managers viewing team status).
+ * Fetches today's attendance records for the current employee.
+ * The backend resolves auth user id -> HR employee id, so the mobile app never
+ * guesses HR identifiers from token fields.
  */
-export function useTodaysAttendance(employeeId?: string) {
+export function useTodaysAttendance() {
   const { tenantId, isAuthenticated } = useAuth();
 
-  const cacheKey = `todays-attendance-${employeeId ?? 'self'}`;
+  const cacheKey = 'todays-attendance-self';
 
   return useQuery<AttendanceRecord[]>({
-    // WHY employeeId in queryKey: prevents cross-employee cache collisions.
-    // If a manager switches between employee views, each gets its own cache entry.
-    queryKey: createTenantQueryKey(tenantId, 'todaysAttendance', tenantId, employeeId),
+    queryKey: createTenantQueryKey(tenantId, 'todaysAttendance', tenantId, 'self'),
     queryFn: async () => {
       try {
         const result = await graphqlRequest<{
-          todaysAttendance: AttendanceRecord[];
-        }>(GET_TODAYS_ATTENDANCE, { employeeId });
+          myTodaysAttendance: AttendanceRecord[];
+        }>(GET_TODAYS_ATTENDANCE);
 
-        const records = result.todaysAttendance;
+        const records = result.myTodaysAttendance;
         // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
         await cacheData(tenantId!, cacheKey, records, CACHE_TTL_1H);
         return records;
@@ -195,7 +185,7 @@ export function useTodaysAttendance(employeeId?: string) {
         throw error;
       }
     },
-    enabled: isAuthenticated && !!tenantId && !!employeeId,
+    enabled: isAuthenticated && !!tenantId,
     // WHY 30s staleTime: clock-in/out is the primary real-time action on this
     // page. 30 seconds keeps the status reasonably fresh without being aggressive.
     staleTime: 1000 * 30,

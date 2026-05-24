@@ -10,6 +10,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
 import { ClockMethod } from '../entities/attendance-record.entity';
 
 @InputType()
@@ -40,7 +41,7 @@ export class GeoLocationInput {
 }
 
 @InputType()
-export class ClockInInput {
+export class ClockInInput extends MobileCommandEnvelopeInput {
   @Field({ nullable: true })
   @IsUUID()
   @IsOptional()
@@ -67,7 +68,7 @@ export class ClockInInput {
 }
 
 @InputType()
-export class ClockOutInput {
+export class ClockOutInput extends MobileCommandEnvelopeInput {
   @Field({ nullable: true })
   @IsUUID()
   @IsOptional()

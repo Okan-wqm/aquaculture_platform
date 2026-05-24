@@ -4,6 +4,7 @@
 import { InputType, Field, ID, Float } from '@nestjs/graphql';
 import { IsUUID, IsOptional, IsDate, IsEnum, IsNumber, Min, Max, IsString, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 import { MeasurementSource } from '../entities/water-quality-measurement.entity';
 import { ValidateDynamicParameters } from '../validators/dynamic-parameters.validator';
@@ -75,7 +76,7 @@ export class WaterParametersInput {
 }
 
 @InputType()
-export class CreateWaterQualityInput {
+export class CreateWaterQualityInput extends MobileCommandEnvelopeInput {
   @Field(() => ID, { nullable: true, description: 'Tank ID' })
   @IsOptional()
   @IsUUID()

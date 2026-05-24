@@ -19,11 +19,12 @@ import {
   Max,
   MaxLength,
 } from 'class-validator';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
 import { QualityGrade } from '../entities/harvest-record.entity';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
 
 @InputType()
-export class CreateHarvestRecordInput {
+export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @Field(() => ID, { description: 'Batch ID' })
   @IsNotEmpty()
   @IsUUID()

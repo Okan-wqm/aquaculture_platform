@@ -44,8 +44,8 @@ export interface WeeklyPlan {
 }
 
 const MY_WEEKLY_PLAN_QUERY = `
-  query GetMyWeeklyPlan($employeeId: ID, $weekStartDate: String) {
-    weeklyPlans(employeeId: $employeeId, weekStartDate: $weekStartDate, status: published, limit: 1) {
+  query GetMyWeeklyPlan($weekStartDate: String) {
+    mySchedule(weekStartDate: $weekStartDate, limit: 1) {
       items {
         id
         employeeId
@@ -94,15 +94,14 @@ function getWeekMonday(date: Date): string {
 }
 
 async function fetchMySchedule(
-  userId: string,
   weekStartDate: string,
 ): Promise<WeeklyPlan | null> {
-  const result = await graphqlRequest<{ weeklyPlans: { items: WeeklyPlan[]; total: number } }>(
+  const result = await graphqlRequest<{ mySchedule: { items: WeeklyPlan[]; total: number } }>(
     MY_WEEKLY_PLAN_QUERY,
-    { employeeId: userId, weekStartDate },
+    { weekStartDate },
   );
 
-  const items = result.weeklyPlans?.items;
+  const items = result.mySchedule?.items;
   return items && items.length > 0 ? items[0] : null;
 }
 
@@ -122,19 +121,8 @@ export function useMySchedule(weekOffset = 0) {
         throw new Error('Not authenticated');
       }
 
-      // BUG-11: Use employeeId (HR system identifier) if available, fall back to
-      // auth user.id with a warning. These may differ in deployments where HR IDs
-      // are managed independently from auth user IDs.
-      const scheduleId = user.employeeId ?? user.id;
-      if (!user.employeeId) {
-        console.warn(
-          'useMySchedule: user.employeeId is not set — falling back to user.id. ' +
-          'Schedule lookup may return no results if HR IDs differ from auth IDs.'
-        );
-      }
-
       try {
-        const plan = await fetchMySchedule(scheduleId, weekStartDate);
+        const plan = await fetchMySchedule(weekStartDate);
         if (plan) {
           // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
           await cacheData(tenantId, cacheKey, plan, 1000 * 60 * 30); // 30 min TTL

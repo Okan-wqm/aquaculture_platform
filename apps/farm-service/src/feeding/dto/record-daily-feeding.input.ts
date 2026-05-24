@@ -19,6 +19,7 @@ import {
   ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
 import { FeedingMethod } from '../entities/feeding-record.entity';
 
 // ============================================================================
@@ -29,7 +30,7 @@ import { FeedingMethod } from '../entities/feeding-record.entity';
  * Gunluk yemleme kaydi input
  */
 @InputType()
-export class RecordDailyFeedingInput {
+export class RecordDailyFeedingInput extends MobileCommandEnvelopeInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()

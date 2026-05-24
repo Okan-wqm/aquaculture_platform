@@ -12,6 +12,7 @@ import { StorageInventoryResponse } from './dto/storage-inventory.response';
 import { StorageInventoryCursorConnection } from './dto/storage-inventory-cursor.response';
 import { StockMovementResponse, PaginatedStockMovementsResponse } from './dto/stock-movement.response';
 import { StorageOverviewResponse } from './dto/storage-overview.response';
+import { WarehouseSummaryResponse } from './dto/warehouse-summary.response';
 import { CreateStorageLocationInput } from './dto/create-storage-location.input';
 import { UpdateStorageLocationInput } from './dto/update-storage-location.input';
 import { StorageLocationFilterInput } from './dto/storage-location-filter.input';
@@ -31,6 +32,7 @@ import { GetStorageInventoryQuery } from './queries/get-storage-inventory.query'
 import { ListStorageInventoryByCursorQuery } from './queries/list-storage-inventory-by-cursor.query';
 import { ListStockMovementsQuery } from './queries/list-stock-movements.query';
 import { GetStorageOverviewQuery } from './queries/get-storage-overview.query';
+import { GetWarehouseSummaryQuery } from './queries/get-warehouse-summary.query';
 import { TraceLotQuery } from './queries/trace-lot.query';
 import { StorageItemType } from './entities/storage-inventory.entity';
 import { PurchaseOrderResponse, PaginatedPurchaseOrdersResponse } from './dto/purchase-order.response';
@@ -274,6 +276,14 @@ export class StorageResolver {
   ): Promise<StorageOverviewResponse> {
     const query = new GetStorageOverviewQuery(tenantId);
     return this.queryBus.execute(query);
+  }
+
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => WarehouseSummaryResponse)
+  async warehouseSummary(
+    @CurrentTenant() tenantId: string,
+  ): Promise<WarehouseSummaryResponse> {
+    return this.queryBus.execute(new GetWarehouseSummaryQuery(tenantId));
   }
 
   // === Lot Traceability ===

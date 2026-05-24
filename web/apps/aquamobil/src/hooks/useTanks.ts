@@ -8,27 +8,29 @@ import type { Tank } from '@/types';
 // tenantId comes from X-Tenant-Id header (extracted from JWT by backend)
 const TANK_PAGE_SIZE = 100;
 
-const TANKS_QUERY = `
-  query GetTanksWithBatches($filter: TankFilterInput) {
-    tanks(filter: $filter) {
+const FARM_STOCK_INVENTORY_QUERY = `
+  query FarmStockInventory($filter: FarmStockInventoryFilterInput) {
+    farmStockInventory(filter: $filter) {
       items {
-        id
-        name
-        code
-        volume
-        status
-        currentBiomass
-        maxBiomass
-        batchMetrics {
-          batchId
-          batchNumber
-          pieces
-          avgWeight
-          biomass
-          density
+        container {
+          containerId
+          name
+          code
+          volume
+          status
+          currentQuantity
+          currentBiomassKg
+          maxBiomassKg
           capacityUsedPercent
           isOverCapacity
-          daysSinceStocking
+        }
+        batches {
+          batchId
+          batchNumber
+          quantity
+          avgWeightG
+          biomassKg
+          densityKgM3
         }
       }
       total
@@ -36,21 +38,77 @@ const TANKS_QUERY = `
   }
 `;
 
-async function fetchTanksPage(offset: number): Promise<{ items: Tank[]; total: number }> {
-  const result = await graphqlRequest<{ tanks: { items: Tank[]; total: number } }>(TANKS_QUERY, {
+interface FarmStockInventoryResult {
+  farmStockInventory: {
+    items: Array<{
+      container: {
+        containerId: string;
+        name: string;
+        code: string;
+        volume: number | null;
+        status: string | null;
+        currentQuantity: number | null;
+        currentBiomassKg: number | null;
+        maxBiomassKg: number | null;
+        capacityUsedPercent: number | null;
+        isOverCapacity: boolean;
+      };
+      batches: Array<{
+        batchId: string;
+        batchNumber: string | null;
+        quantity: number;
+        avgWeightG: number;
+        biomassKg: number;
+        densityKgM3: number | null;
+      }>;
+    }>;
+    total: number;
+  };
+}
+
+function mapInventoryItemToTank(item: FarmStockInventoryResult['farmStockInventory']['items'][number]): Tank {
+  const primaryBatch = item.batches[0];
+  return {
+    id: item.container.containerId,
+    name: item.container.name,
+    code: item.container.code,
+    volume: item.container.volume ?? 0,
+    status: (item.container.status?.toUpperCase() ?? 'ACTIVE') as Tank['status'],
+    currentBiomass: item.container.currentBiomassKg ?? 0,
+    maxBiomass: item.container.maxBiomassKg ?? 0,
+    batchMetrics: primaryBatch
+      ? {
+          batchId: primaryBatch.batchId,
+          batchNumber: primaryBatch.batchNumber,
+          pieces: primaryBatch.quantity,
+          avgWeight: primaryBatch.avgWeightG,
+          biomass: primaryBatch.biomassKg,
+          density: primaryBatch.densityKgM3,
+          capacityUsedPercent: item.container.capacityUsedPercent,
+          isOverCapacity: item.container.isOverCapacity,
+          daysSinceStocking: null,
+        }
+      : null,
+  };
+}
+
+async function fetchTanksPage(page: number): Promise<{ items: Tank[]; total: number }> {
+  const result = await graphqlRequest<FarmStockInventoryResult>(FARM_STOCK_INVENTORY_QUERY, {
     filter: {
-      offset,
+      page,
       limit: TANK_PAGE_SIZE,
-      sortBy: 'name',
-      sortOrder: 'ASC',
+      isActive: true,
     },
   });
 
-  if (!result.tanks?.items) {
-    throw new Error('Invalid response: no tanks data');
+  if (!result.farmStockInventory?.items) {
+    throw new Error('Invalid response: no farm stock inventory data');
   }
 
-  return result.tanks;
+  return {
+    items: result.farmStockInventory.items.map(mapInventoryItemToTank),
+    total: result.farmStockInventory.total,
+  };
 }
 
 export async function fetchAllTanks(): Promise<Tank[]> {
@@ -61,7 +119,7 @@ export async function fetchAllTanks(): Promise<Tank[]> {
   // limit of 100. Mobile home/detail/action screens need the complete tenant
   // tank set; otherwise rows that exist in the tenant schema never appear.
   while (tanks.length < total) {
-    const page = await fetchTanksPage(tanks.length);
+    const page = await fetchTanksPage(Math.floor(tanks.length / TANK_PAGE_SIZE) + 1);
     total = page.total;
 
     if (page.items.length === 0 && tanks.length < total) {

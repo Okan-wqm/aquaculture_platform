@@ -33,31 +33,23 @@ export function useStockEventsSummary(): {
   // --- Source 1: Active batch count from cached tank data ---
   const { data: tanks, isLoading: tanksLoading } = useTanks();
 
-  // --- Source 2: Stock events aggregate (new backend query) ---
-  // WHY graceful fallback: the backend resolver may not be deployed yet.
+  // --- Source 2: Stock events aggregate ---
   const {
     data: eventsSummary,
     isLoading: eventsLoading,
   } = useQuery<StockEventsSummaryResponse>({
     queryKey: createTenantQueryKey(tenantId, 'stockEventsSummary', tenantId),
     queryFn: async () => {
-      try {
-        const result = await graphqlRequest<{
-          stockEventsSummary: StockEventsSummaryResponse;
-        }>(GET_STOCK_EVENTS_SUMMARY, { daysBack: 7 });
-        return result.stockEventsSummary;
-      } catch {
-        // WHY swallow: resolver may not exist yet. Return safe defaults so
-        // the hub page renders with zeros instead of an error screen.
-        return { thisWeekEventsCount: 0, pendingTransferCount: 0, recentEvents: [] };
-      }
+      const result = await graphqlRequest<{
+        stockEventsSummary: StockEventsSummaryResponse;
+      }>(GET_STOCK_EVENTS_SUMMARY, { daysBack: 7 });
+      return result.stockEventsSummary;
     },
     enabled: isAuthenticated && !!tenantId,
     // WHY 5min staleTime: stock events are recorded a few times per day at
     // most. 5 minutes avoids unnecessary refetches on page navigation.
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 30,
-    retry: false,
   });
 
   const summary = useMemo<StockEventsSummary>(() => {

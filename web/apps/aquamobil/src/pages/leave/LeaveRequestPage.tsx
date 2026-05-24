@@ -5,7 +5,6 @@ import { ArrowLeft, CalendarOff, AlertCircle } from 'lucide-react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
-import { useAuth } from '@/hooks/useAuth';
 import type { LeaveType, CreateLeaveRequestInput } from '@/types';
 import { clsx } from 'clsx';
 
@@ -19,7 +18,6 @@ interface FormErrors {
 export function LeaveRequestPage() {
   const navigate = useNavigate();
   const { addToQueue, isOnline } = useOfflineQueue();
-  const { user } = useAuth();
   // WHY no imperative fetch calls: React Query auto-fetches on mount when
   // enabled conditions are met, and the data is shared/deduplicated across
   // components that use the same queryKey.
@@ -78,21 +76,10 @@ export function LeaveRequestPage() {
     setErrors({});
 
     try {
-      // WHY: employeeId is required by the backend CreateLeaveRequestInput DTO.
-      // The backend also resolves it from JWT and validates ownership, so this
-      // is not a security bypass — it's a contract requirement. BUG-11: user.employeeId
-      // is the HR employee identifier, distinct from the auth user id.
-      const employeeId = user?.employeeId;
-      if (!employeeId) {
-        setErrors({ general: 'Employee record not found. Please contact your administrator.' });
-        return;
-      }
-
       // WHY: Build a payload that matches the backend CreateLeaveRequestInput
       // DTO exactly. The old code sent { isHalfDay } which the backend does not
       // recognize — the backend uses isHalfDayStart/isHalfDayEnd/halfDayPeriod.
       const payload: CreateLeaveRequestInput = {
-        employeeId,
         leaveTypeId: selectedTypeId,
         startDate,
         endDate,

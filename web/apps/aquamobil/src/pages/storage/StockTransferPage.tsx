@@ -201,13 +201,16 @@ export function StockTransferPage() {
     setIsSubmitting(true);
     setSubmitError(null);
 
-    // Matches backend TransferStockInput exactly: no 'unit' or 'idempotencyKey'
+    // Generate once for this submit attempt. The offline queue adds a command
+    // envelope when queued; online direct submissions still need server-side
+    // idempotency for timeout/retry safety.
     const input: StockTransferInput = {
       itemType: selectedItemType!,
       itemId: selectedItemId,
       fromLocationId,
       toLocationId,
       quantity: parseFloat(quantity),
+      idempotencyKey: crypto.randomUUID(),
     };
 
     try {

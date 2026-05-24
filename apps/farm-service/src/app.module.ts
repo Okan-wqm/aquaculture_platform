@@ -82,6 +82,8 @@ import { WeatherModule } from './weather/weather.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { EventListenersModule } from './events/event-listeners.module';
 import { TaskModule } from './task/task.module';
+import { FarmStockModule } from './farm-stock/farm-stock.module';
+import { MobileDashboardModule } from './mobile-dashboard/mobile-dashboard.module';
 /**
  * WHY: AiInsightsModule integrates the MCP Farm Intelligence server with the
  * farm service, providing AI-powered risk assessment, anomaly detection, growth
@@ -413,6 +415,8 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     SchedulerModule,
     EventListenersModule,
     TaskModule,
+    FarmStockModule,
+    MobileDashboardModule,
     // WHY: AI insights module — MCP Farm Intelligence integration
     AiInsightsModule,
     /**

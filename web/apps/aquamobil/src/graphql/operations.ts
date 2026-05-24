@@ -128,7 +128,7 @@ export const GET_MY_ATTENDANCE_RECORDS = `
 export const GET_MY_ATTENDANCE_SUMMARY = `
   query MyAttendanceSummary($month: Int!, $year: Int!) {
     myAttendanceSummary(month: $month, year: $year) {
-      totalWorkingDays
+      totalWorkingDays: totalWorkDays
       presentDays
       absentDays
       lateDays
@@ -141,8 +141,8 @@ export const GET_MY_ATTENDANCE_SUMMARY = `
 `;
 
 export const GET_TODAYS_ATTENDANCE = `
-  query TodaysAttendance($employeeId: ID) {
-    todaysAttendance(employeeId: $employeeId) {
+  query MyTodaysAttendance {
+    myTodaysAttendance {
       id
       employeeId
       date
@@ -222,10 +222,10 @@ export const GET_MY_LEAVE_BALANCES = `
         isPaid
         color
       }
-      totalEntitlement
-      usedDays
-      pendingDays
-      remainingDays
+      totalEntitlement: currentBalance
+      usedDays: used
+      pendingDays: pending
+      remainingDays: availableBalance
       year
     }
   }
@@ -321,7 +321,7 @@ export const GET_TODAYS_TASKS = `
 `;
 
 export const GET_TASK_DETAIL = `
-  query GetTaskDetail($id: String!) {
+  query GetTaskDetail($id: ID!) {
     task(id: $id) {
       id
       title
@@ -363,7 +363,7 @@ export const GET_TASK_STATS = `
 `;
 
 export const COMPLETE_TASK = `
-  mutation CompleteTask($id: String!) {
+  mutation CompleteTask($id: ID!) {
     completeTask(id: $id) {
       id
       status
@@ -374,7 +374,7 @@ export const COMPLETE_TASK = `
 `;
 
 export const START_TASK = `
-  mutation StartTask($id: String!) {
+  mutation StartTask($id: ID!) {
     startTask(id: $id) {
       id
       status
@@ -383,7 +383,7 @@ export const START_TASK = `
 `;
 
 export const TOGGLE_CHECKLIST_ITEM = `
-  mutation ToggleChecklistItem($taskId: String!, $itemId: String!) {
+  mutation ToggleChecklistItem($taskId: ID!, $itemId: String!) {
     toggleChecklistItem(taskId: $taskId, itemId: $itemId) {
       id
       checklistItems
@@ -392,7 +392,7 @@ export const TOGGLE_CHECKLIST_ITEM = `
 `;
 
 export const ADD_TASK_NOTE = `
-  mutation AddTaskNote($taskId: String!, $text: String!) {
+  mutation AddTaskNote($taskId: ID!, $text: String!) {
     addTaskNote(taskId: $taskId, text: $text) {
       id
       notes

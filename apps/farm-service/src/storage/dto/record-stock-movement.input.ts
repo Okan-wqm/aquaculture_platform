@@ -1,11 +1,12 @@
 import { InputType, Field, Float, ID } from '@nestjs/graphql';
 import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, IsEnum, IsUUID, Min, Max, IsDate, MaxDate } from 'class-validator';
 import { Type } from 'class-transformer';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
 import { MovementType } from '../entities/stock-movement.entity';
 import { StorageItemType } from '../entities/storage-inventory.entity';
 
 @InputType()
-export class RecordStockMovementInput {
+export class RecordStockMovementInput extends MobileCommandEnvelopeInput {
   @Field(() => MovementType)
   @IsEnum(MovementType)
   movementType: MovementType;

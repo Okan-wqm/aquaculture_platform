@@ -10,13 +10,15 @@ import {
   Min,
   MaxLength,
 } from 'class-validator';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
 import { HalfDayPeriod } from '../entities/leave-request.entity';
 
 @InputType()
-export class CreateLeaveRequestInput {
-  @Field()
+export class CreateLeaveRequestInput extends MobileCommandEnvelopeInput {
+  @Field({ nullable: true })
   @IsUUID()
-  employeeId!: string;
+  @IsOptional()
+  employeeId?: string;
 
   @Field()
   @IsUUID()

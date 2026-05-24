@@ -6,7 +6,7 @@
  *
  * Tests:
  * - Leave mutation invalidates leaveRequests and leaveBalances query keys
- * - Offline leave queues with contract-valid payload (has employeeId, totalDays)
+ * - Offline leave queues with contract-valid payload (server-resolved employee, totalDays, command envelope)
  * - Dedup fingerprint prevents duplicate leave requests (same leaveTypeId+startDate+endDate)
  */
 
@@ -39,6 +39,17 @@ Object.defineProperty(globalThis, 'crypto', {
   value: {
     subtle: {
       generateKey: vi.fn().mockResolvedValue({ type: 'secret', algorithm: 'AES-GCM' }),
+      digest: vi.fn((_algo: unknown, data: ArrayBuffer | ArrayBufferView) => {
+        const bytes =
+          data instanceof ArrayBuffer
+            ? new Uint8Array(data)
+            : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        const digest = new Uint8Array(32);
+        for (let i = 0; i < digest.length; i += 1) {
+          digest[i] = bytes.length ? bytes[i % bytes.length] : i;
+        }
+        return Promise.resolve(digest.buffer as ArrayBuffer);
+      }),
       encrypt: vi.fn((_algo: unknown, _key: unknown, data: ArrayBuffer) =>
         Promise.resolve(new Uint8Array(data).buffer),
       ),
@@ -176,8 +187,12 @@ describe('useLeave — offline regression coverage', () => {
       submitConfig.onSuccess?.();
 
       // Verify both query key families are invalidated
-      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['leaveRequests'] });
-      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['leaveBalances'] });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['tenant', 'tenant-1', 'leaveRequests'],
+      });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['tenant', 'tenant-1', 'leaveBalances'],
+      });
     });
 
     it('useCancelLeaveRequest onSuccess should invalidate leaveRequests and leaveBalances', () => {
@@ -195,8 +210,12 @@ describe('useLeave — offline regression coverage', () => {
       const cancelConfig = capturedMutationConfigs[capturedMutationConfigs.length - 1];
       cancelConfig.onSuccess?.();
 
-      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['leaveRequests'] });
-      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['leaveBalances'] });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['tenant', 'tenant-1', 'leaveRequests'],
+      });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['tenant', 'tenant-1', 'leaveBalances'],
+      });
     });
   });
 
@@ -205,12 +224,11 @@ describe('useLeave — offline regression coverage', () => {
   // ========================================================================
 
   describe('Offline leave queue payload contract (AQ-01)', () => {
-    it('should include all required CreateLeaveRequestInput fields in queued payload', async () => {
+    it('should include all required CreateLeaveRequestInput fields and command envelope in queued payload', async () => {
       // Directly test the offline-queue module to verify payload integrity
       const { queueOperation, getOperation } = await import('@/pwa/offline-queue');
 
       const payload = {
-        employeeId: 'emp-001',
         leaveTypeId: 'lt-annual',
         startDate: '2026-04-20',
         endDate: '2026-04-22',
@@ -226,12 +244,18 @@ describe('useLeave — offline regression coverage', () => {
       expect(op).toBeDefined();
       expect(op!.type).toBe('createLeaveRequest');
       // Verify the decrypted payload has the required fields
-      const p = op!.payload as Record<string, unknown>;
-      expect(p.employeeId).toBe('emp-001');
+      const p = op!.payload as unknown as Record<string, unknown>;
+      expect(p.employeeId).toBeUndefined();
       expect(p.totalDays).toBe(3);
       expect(p.leaveTypeId).toBe('lt-annual');
       expect(p.startDate).toBe('2026-04-20');
       expect(p.endDate).toBe('2026-04-22');
+      expect(p.clientCommandId).toBe(id);
+      expect(typeof p.clientCreatedAt).toBe('string');
+      expect(typeof p.deviceId).toBe('string');
+      expect(p.operationType).toBe('createLeaveRequest');
+      expect(typeof p.payloadHash).toBe('string');
+      expect(p.schemaVersion).toBe('mobile-command-v1');
     });
   });
 
@@ -244,7 +268,6 @@ describe('useLeave — offline regression coverage', () => {
       const { queueOperation } = await import('@/pwa/offline-queue');
 
       const payload = {
-        employeeId: 'emp-001',
         leaveTypeId: 'lt-annual',
         startDate: '2026-04-20',
         endDate: '2026-04-22',
@@ -265,7 +288,6 @@ describe('useLeave — offline regression coverage', () => {
       const { queueOperation } = await import('@/pwa/offline-queue');
 
       const payload1 = {
-        employeeId: 'emp-001',
         leaveTypeId: 'lt-annual',
         startDate: '2026-04-20',
         endDate: '2026-04-22',
@@ -273,7 +295,6 @@ describe('useLeave — offline regression coverage', () => {
       };
 
       const payload2 = {
-        employeeId: 'emp-001',
         leaveTypeId: 'lt-annual',
         startDate: '2026-05-01',
         endDate: '2026-05-03',
@@ -294,7 +315,6 @@ describe('useLeave — offline regression coverage', () => {
       const { queueOperation } = await import('@/pwa/offline-queue');
 
       const payload1 = {
-        employeeId: 'emp-001',
         leaveTypeId: 'lt-annual',
         startDate: '2026-04-20',
         endDate: '2026-04-22',
@@ -302,7 +322,6 @@ describe('useLeave — offline regression coverage', () => {
       };
 
       const payload2 = {
-        employeeId: 'emp-001',
         leaveTypeId: 'lt-sick',
         startDate: '2026-04-20',
         endDate: '2026-04-22',

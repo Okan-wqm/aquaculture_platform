@@ -1,9 +1,10 @@
 import { InputType, Field, Float, ID } from '@nestjs/graphql';
 import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, IsEnum, IsUUID } from 'class-validator';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
 import { StorageItemType } from '../entities/storage-inventory.entity';
 
 @InputType()
-export class TransferStockInput {
+export class TransferStockInput extends MobileCommandEnvelopeInput {
   @Field(() => StorageItemType)
   @IsEnum(StorageItemType)
   itemType: StorageItemType;
@@ -41,4 +42,10 @@ export class TransferStockInput {
   @IsString()
   @MaxLength(2000)
   reason?: string;
+
+  @Field({ nullable: true, description: 'Client-generated idempotency key for at-most-once transfer execution' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  idempotencyKey?: string;
 }

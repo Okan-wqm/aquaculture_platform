@@ -36,6 +36,19 @@ export {
   tenantMigrationLedgerTable,
 } from './migration-ledger';
 
+// Tenant migration ledger privilege SSoT. aqua-db-migrate creates/backfills
+// tenant ledgers; runtime services only need read access for SchemaVersionGate.
+export {
+  buildTenantMigrationLedgerReadGrant,
+  grantTenantMigrationLedgerReadAccess,
+  serviceRoleForTenantAwareSchema,
+} from './tenant-migration-ledger-privileges';
+export type {
+  TenantMigrationLedgerQueryExecutor,
+  TenantMigrationLedgerReadGrant,
+  TenantMigrationLedgerReadGrantOptions,
+} from './tenant-migration-ledger-privileges';
+
 // Migration helpers — column/table existence guards. Shared across all
 // services for migrations that reference state created by squashed
 // earlier migrations. See migration-helpers.ts docblock for rationale.

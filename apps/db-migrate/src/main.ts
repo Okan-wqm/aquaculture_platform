@@ -58,6 +58,7 @@ import { bootInvariantSignalRecord } from '@aquaculture/backend-common/constants
 import {
   applyTenantRlsToSchema,
   convertAuditColumnsToTimestamptz,
+  grantTenantMigrationLedgerReadAccess,
   MIGRATION_LEDGER_TABLE,
   tenantMigrationLedgerTable,
   TENANT_AWARE_SCHEMAS,
@@ -408,6 +409,19 @@ async function backfillTenantLedgersForSource(
           "name" varchar NOT NULL
         )
       `);
+      const grant = await grantTenantMigrationLedgerReadAccess(queryRunner, {
+        tenantSchema,
+        sourceSchema,
+      });
+      log({
+        level: 'info',
+        message: 'Tenant migration ledger read grant asserted',
+        context: 'DbMigrate',
+        sourceSchema,
+        tenantSchema,
+        tenantLedger: grant.tenantLedger,
+        serviceRole: grant.serviceRole,
+      });
 
       const existingRows = await ledgerRowCount(queryRunner, tenantSchema, tenantLedger);
       if (existingRows > 0) {
@@ -437,6 +451,32 @@ async function backfillTenantLedgersForSource(
     }
 
     return backfills;
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+async function grantTenantLedgerReadAccess(
+  database: RunSchemaOptions['database'],
+  sourceSchema: string,
+  tenantSchema: string,
+): Promise<{
+  tenantSchema: string;
+  sourceSchema: string;
+  tenantLedger: string;
+  serviceRole: string;
+}> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+
+  try {
+    await queryRunner.connect();
+    return await grantTenantMigrationLedgerReadAccess(queryRunner, {
+      tenantSchema,
+      sourceSchema,
+    });
   } finally {
     await queryRunner.release();
     await dataSource.destroy();
@@ -754,6 +794,20 @@ async function main(): Promise<number> {
                 database,
                 log,
                 migrationsTableName: tenantMigrationLedgerTable(entry.schema),
+              });
+              const grant = await grantTenantLedgerReadAccess(
+                database,
+                entry.schema,
+                tenantSchema,
+              );
+              log({
+                level: 'info',
+                message: 'Tenant migration ledger read grant asserted',
+                context: 'DbMigrate',
+                sourceSchema: entry.schema,
+                tenantSchema,
+                tenantLedger: grant.tenantLedger,
+                serviceRole: grant.serviceRole,
               });
               results.push(tenantResult);
               if (!tenantHeads.has(tenantSchema)) {

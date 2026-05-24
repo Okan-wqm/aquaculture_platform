@@ -64,9 +64,9 @@ jobs:
           grep -q "cargo-metadata.sbom.json" .github/workflows/edge-agent-release.yml
           grep -q "intoto.jsonl" .github/workflows/edge-agent-release.yml
           grep -q "NOTICE.md" .github/workflows/edge-agent-release.yml
-          grep -q 'version = "2.0.0-rc.3"' sens-api-gateway/Cargo.toml
-          if grep -q "apps/admin-api-service/src/edge" docs/evidence/sens-api-gateway-edge-v2.0.0-rc3.md; then
-            grep -q "Excluded" docs/evidence/sens-api-gateway-edge-v2.0.0-rc3.md
+          grep -q 'version = "2.0.0-rc.4"' sens-api-gateway/Cargo.toml
+          if grep -q "apps/admin-api-service/src/edge" docs/evidence/sens-api-gateway-edge-v2.0.0-rc4.md; then
+            grep -q "Excluded" docs/evidence/sens-api-gateway-edge-v2.0.0-rc4.md
           fi
 
   format:

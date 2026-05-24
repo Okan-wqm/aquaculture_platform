@@ -1,6 +1,6 @@
 [package]
 name = "suderra-agent"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Suderra <info@suderra.com>"]
@@ -427,6 +427,7 @@ scada-display = ["axum", "tower-http"]
 # preview surfaces out of these aliases unless a dedicated release contract owns them.
 edge-rc2 = ["scada-display"]
 edge-rc3 = ["scada-display"]
+edge-rc4 = ["scada-display"]
 # LoRaWAN protocol support. This intentionally excludes the Semtech SX1302
 # vendor HAL so CI can compile protocol/security paths without hardware C
 # sources. Real concentrator builds must enable `sx1302-vendor-hal` explicitly.

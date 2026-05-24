@@ -7,9 +7,9 @@
 
 ## Current authorisation posture (HONEST)
 
-### RC3 release posture
+### RC4 release posture
 
-`agent-v2.0.0-rc3` does not change the dispatcher authorization behavior documented below. Signed envelope enforcement, replay cache enforcement, and permission-backed dispatch remain follow-up runtime work for the ADR-025-aligned implementation PR.
+`agent-v2.0.0-rc4` does not change the dispatcher authorization behavior documented below. Signed envelope enforcement, replay cache enforcement, and permission-backed dispatch remain follow-up runtime work for the ADR-025-aligned implementation PR.
 
 **Today:** All commands accept invocation based solely on broker ACL (topic filter authorisation). The edge agent does NOT cryptographically verify the invoker; it does NOT check per-operator permissions; the RBAC permission enum (`src/authz/permission.rs`) is defined but NOT consulted by the dispatcher.
 

@@ -507,7 +507,8 @@ const CHECKS: Record<string, () => CheckResult> = {
     const buildJob = workflowJobBlock(release, 'build');
     const ok =
       hasExecutableText(release, 'EDGE_RELEASE_FEATURES: scada-display') &&
-      hasExecutableText(buildJob, 'cross build --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"') &&
+      hasExecutableText(release, 'CARGO_TARGET_DIR: ${{ github.workspace }}/sens-api-gateway/target') &&
+      hasExecutableText(buildJob, 'cross build --target-dir "$CARGO_TARGET_DIR" --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"') &&
       hasExecutableText(sensCi, `SENS_API_GATEWAY_CI_FEATURES: ${CI_AFFECTED_SENS_FEATURES}`) &&
       !hasExecutableText(buildJob, '--features scada-display');
     return check(

@@ -100,7 +100,7 @@ jobs:
         id: release-ref
         run: |
           echo "tag=${{ needs.release-ref-contract.outputs.tag }}" >> "$GITHUB_OUTPUT"
-          echo "version=${{ needs.release-ref-contract.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "version=${{ needs.sens-enterprise-validation.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Upload Sens enterprise validation artifacts
         if: always()
@@ -136,6 +136,7 @@ jobs:
       RELEASE_TAG: ${{ needs.sens-enterprise-validation.outputs.tag }}
       RELEASE_VERSION: ${{ needs.sens-enterprise-validation.outputs.version }}
       TARGET_SLUG: ${{ matrix.target_slug }}
+      CARGO_TARGET_DIR: ${{ github.workspace }}/sens-api-gateway/target
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -203,16 +204,39 @@ jobs:
         # in Cross.toml — the documented cross integration pattern.
         env:
           LIBCLANG_PATH: /usr/lib/llvm-12/lib
-        run: cross build --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"
+        run: cross build --target-dir "$CARGO_TARGET_DIR" --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"
+
+      - name: Resolve release binary path
+        id: release-binary
+        run: |
+          set -euo pipefail
+          binary_path="${CARGO_TARGET_DIR}/${{ matrix.target }}/release/${BINARY_NAME}"
+          binary_dir="$(dirname "${binary_path}")"
+          echo "path=${binary_path}" >> "$GITHUB_OUTPUT"
+          echo "dir=${binary_dir}" >> "$GITHUB_OUTPUT"
+          echo "Release binary path: ${binary_path}"
 
       - name: Strip binary (x86_64 only)
         if: matrix.strip
-        run: strip sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}
+        run: strip "${{ steps.release-binary.outputs.path }}"
 
       - name: Verify binary size
         run: |
           set -euo pipefail
-          BINARY_SIZE=$(stat --format=%s "sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}" 2>/dev/null || stat -f%z "sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}")
+          binary_path="${{ steps.release-binary.outputs.path }}"
+          if [ ! -f "${binary_path}" ]; then
+            echo "ERROR: Release binary missing at ${binary_path}"
+            echo "Available ${BINARY_NAME} candidates under ${CARGO_TARGET_DIR}:"
+            find "${CARGO_TARGET_DIR}" -maxdepth 4 -type f -name "${BINARY_NAME}" -print || true
+            exit 1
+          fi
+          BINARY_SIZE="$(wc -c < "${binary_path}" | tr -d '[:space:]' )"
+          case "${BINARY_SIZE}" in
+            ''|*[!0-9]*)
+              echo "ERROR: Unable to determine binary size for ${binary_path}"
+              exit 1
+              ;;
+          esac
           echo "Binary size: $BINARY_SIZE bytes"
           if [ "$BINARY_SIZE" -lt 1048576 ]; then
             echo "ERROR: Binary is suspiciously small (< 1MB). Build may have failed."
@@ -224,7 +248,7 @@ jobs:
           set -euo pipefail
           ARCHIVE_BASE="${BINARY_NAME}-${RELEASE_VERSION}-${TARGET_SLUG}"
           STAGING_DIR=$(mktemp -d)
-          install -m 0755 "sens-api-gateway/target/${{ matrix.target }}/release/${BINARY_NAME}" \
+          install -m 0755 "${{ steps.release-binary.outputs.path }}" \
             "${STAGING_DIR}/${ARCHIVE_BINARY_NAME}"
           tar -czf "${ARCHIVE_BASE}.tar.gz" -C "${STAGING_DIR}" "${ARCHIVE_BINARY_NAME}"
           sha256sum "${ARCHIVE_BASE}.tar.gz" > "${ARCHIVE_BASE}.tar.gz.sha256"
@@ -242,13 +266,13 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: suderra-agent-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}
+          name: suderra-agent-${{ needs.sens-enterprise-validation.outputs.version }}-${{ matrix.target_slug }}
           path: |
-            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.tar.gz
-            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.tar.gz.sha256
-            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.cargo-metadata.sbom.json
-            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.intoto.jsonl
-            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.NOTICE.md
+            ${{ env.BINARY_NAME }}-${{ needs.sens-enterprise-validation.outputs.version }}-${{ matrix.target_slug }}.tar.gz
+            ${{ env.BINARY_NAME }}-${{ needs.sens-enterprise-validation.outputs.version }}-${{ matrix.target_slug }}.tar.gz.sha256
+            ${{ env.BINARY_NAME }}-${{ needs.sens-enterprise-validation.outputs.version }}-${{ matrix.target_slug }}.cargo-metadata.sbom.json
+            ${{ env.BINARY_NAME }}-${{ needs.sens-enterprise-validation.outputs.version }}-${{ matrix.target_slug }}.intoto.jsonl
+            ${{ env.BINARY_NAME }}-${{ needs.sens-enterprise-validation.outputs.version }}-${{ matrix.target_slug }}.NOTICE.md
           if-no-files-found: error
           retention-days: 5
 

@@ -2,6 +2,19 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 
 import { CreateFarmStockReadModel1800400000000 } from './1800400000000-CreateFarmStockReadModel';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasCompleteReadModel(rows: unknown): boolean {
+  if (!Array.isArray(rows)) {
+    return false;
+  }
+
+  const firstRow: unknown = rows[0];
+  return isRecord(firstRow) && firstRow['complete'] === true;
+}
+
 export class AssertFarmStockBatchSnapshotMetadata1800500000000
   implements MigrationInterface
 {
@@ -9,14 +22,15 @@ export class AssertFarmStockBatchSnapshotMetadata1800500000000
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Tenant-relative contract alignment.
-    const readModelRows: Array<{ complete: boolean }> = await queryRunner.query(`
+    const readModelRows: unknown = await queryRunner.query(`
       SELECT
         to_regclass(current_schema() || '.farm_stock_container_snapshots') IS NOT NULL
         AND to_regclass(current_schema() || '.farm_stock_batch_snapshots') IS NOT NULL
         AS complete
-    `);
+    `)
+      .then((rows: unknown) => rows);
 
-    if (readModelRows[0]?.complete !== true) {
+    if (!hasCompleteReadModel(readModelRows)) {
       await new CreateFarmStockReadModel1800400000000().up(queryRunner);
     }
 

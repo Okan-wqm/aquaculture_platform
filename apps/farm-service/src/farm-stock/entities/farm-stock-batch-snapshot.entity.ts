@@ -1,3 +1,5 @@
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { Directive, Field, Float, ID, Int, ObjectType } from '@nestjs/graphql';
 import {
   Column,
   CreateDateColumn,
@@ -6,8 +8,6 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { Directive, Field, Float, ID, Int, ObjectType } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 @ObjectType()
 @Directive('@key(fields: "id")')
@@ -33,7 +33,7 @@ export class FarmStockBatchSnapshot {
   batchId!: string;
 
   @Field({ nullable: true })
-  @Column({ length: 50, nullable: true })
+  @Column({ type: 'varchar', length: 50, nullable: true })
   batchNumber?: string | null;
 
   @Field({ nullable: true })

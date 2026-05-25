@@ -134,6 +134,17 @@
       }
     },
     {
+      "files": ["apps/farm-service/src/**/*.entity.ts"],
+      "excludedFiles": [
+        "apps/farm-service/src/compliance/entities/tenant-erasure-audit.entity.ts",
+        "apps/farm-service/src/database/entities/audit-log.entity.ts",
+        "apps/farm-service/src/outbox/farm-outbox.entity.ts"
+      ],
+      "rules": {
+        "aquaculture/require-entity-schema": "off"
+      }
+    },
+    {
       "files": ["web/**/*.ts", "web/**/*.tsx"],
       "excludedFiles": ["web/**/*.spec.ts", "web/**/*.test.ts", "web/**/__tests__/**"],
       "rules": {

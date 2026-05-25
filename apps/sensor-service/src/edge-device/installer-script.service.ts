@@ -16,6 +16,14 @@ export interface ProvisioningConfig {
   mqttTlsEnabled: boolean;
 }
 
+interface RemoteProvisioningConfig {
+  provisioningApiUrl?: string;
+  mqttBrokerHost?: string;
+  mqttBrokerPort?: number;
+  agentDefaultVersion?: string;
+  mqttTlsEnabled?: boolean;
+}
+
 export interface SuderraOsInstallManifest {
   version: string;
   artifact_url: string;
@@ -49,7 +57,7 @@ export class InstallerScriptService {
 
   constructor(private readonly configService: ConfigService) {
     this.API_BASE_URL = this.configService.get<string>('PROVISIONING_API_BASE_URL', 'http://localhost:3000');
-    this.AGENT_VERSION = this.configService.get<string>('AGENT_VERSION', 'latest');
+    this.AGENT_VERSION = this.configService.get<string>('AGENT_VERSION', '');
     // Public broker host for edge agents (external access). Falls back to MQTT_BROKER_HOST
     // which may be an internal Docker hostname — override with MQTT_PUBLIC_BROKER_HOST in production.
     const apiBaseUrl = this.configService.get<string>('PROVISIONING_API_BASE_URL', 'http://localhost:3000');
@@ -89,14 +97,14 @@ export class InstallerScriptService {
       });
 
       if (response.ok) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let config: any;
+        let configRaw: unknown;
         try {
-          config = await response.json();
+          configRaw = await response.json();
         } catch {
           this.logger.warn('Failed to parse provisioning config response as JSON');
           throw new Error('Invalid JSON response');
         }
+        const config = this.parseRemoteProvisioningConfig(configRaw);
         this.cachedConfig = {
           apiBaseUrl: config.provisioningApiUrl ?? this.API_BASE_URL,
           mqttBroker: config.mqttBrokerHost ?? this.MQTT_BROKER,
@@ -139,6 +147,49 @@ export class InstallerScriptService {
     // This covers URLs, repo paths, version strings, device codes
     // Note: @ is intentionally excluded to prevent URL credential injection
     return value.replace(/[^a-zA-Z0-9._\-/:+]/g, '');
+  }
+
+  private parseRemoteProvisioningConfig(value: unknown): RemoteProvisioningConfig {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      provisioningApiUrl: this.stringOrUndefined(record.provisioningApiUrl),
+      mqttBrokerHost: this.stringOrUndefined(record.mqttBrokerHost),
+      mqttBrokerPort: this.numberOrUndefined(record.mqttBrokerPort),
+      agentDefaultVersion: this.stringOrUndefined(record.agentDefaultVersion),
+      mqttTlsEnabled: this.booleanOrUndefined(record.mqttTlsEnabled),
+    };
+  }
+
+  private stringOrUndefined(value: unknown): string | undefined {
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  private numberOrUndefined(value: unknown): number | undefined {
+    return typeof value === 'number' ? value : undefined;
+  }
+
+  private booleanOrUndefined(value: unknown): boolean | undefined {
+    return typeof value === 'boolean' ? value : undefined;
+  }
+
+  private assertExplicitAgentVersion(version: string): string {
+    const trimmed = version.trim();
+    if (!trimmed || trimmed === 'latest') {
+      throw new Error('AGENT_VERSION cannot be latest; configure an explicit agent-v<exact Cargo semver> release tag.');
+    }
+
+    const canonical = trimmed.startsWith('agent-v') ? trimmed : `agent-v${trimmed}`;
+    if (!/^agent-v\d+\.\d+\.\d+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$/.test(canonical)) {
+      throw new Error(
+        `Invalid AGENT_VERSION '${version}'. Expected agent-v<exact Cargo semver>, for example agent-v2.0.0-rc.4.`,
+      );
+    }
+
+    return canonical;
   }
 
   /**
@@ -230,7 +281,7 @@ export class InstallerScriptService {
     const GITHUB_REPO = this.sanitizeForShell(config?.githubRepo || this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform'));
     const now = new Date().toISOString();
     const safeDeviceCode = this.sanitizeForShell(variables.deviceCode);
-    const safeAgentVersion = this.sanitizeForShell(variables.agentVersion);
+    const safeAgentVersion = this.sanitizeForShell(this.assertExplicitAgentVersion(variables.agentVersion));
     const safeApiUrl = this.sanitizeForShell(variables.apiUrl);
     const safeDeviceId = this.sanitizeForShell(variables.deviceId);
     const safeProvisioningToken = this.sanitizeForShell(variables.provisioningToken);
@@ -282,6 +333,9 @@ telemetry:
   include_disk: true
   include_temperature: true
 
+firmware_update:
+  mode: disabled
+
 modbus: []
 
 gpio: []
@@ -326,7 +380,7 @@ log ""
   renderTenantInstallerScript(variables: TenantInstallerScriptVariables, config?: ProvisioningConfig): string {
     const GITHUB_REPO = this.sanitizeForShell(config?.githubRepo || this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform'));
     const now = new Date().toISOString();
-    const safeAgentVersion = this.sanitizeForShell(variables.agentVersion);
+    const safeAgentVersion = this.sanitizeForShell(this.assertExplicitAgentVersion(variables.agentVersion));
     const safeApiUrl = this.sanitizeForShell(variables.apiUrl);
     const safeTenantToken = this.sanitizeForShell(variables.tenantToken);
     const safeMqttBroker = this.sanitizeForShell(config?.mqttBroker || this.MQTT_BROKER);
@@ -376,6 +430,9 @@ telemetry:
   include_memory: true
   include_disk: true
   include_temperature: true
+
+firmware_update:
+  mode: disabled
 
 modbus: []
 
@@ -438,6 +495,7 @@ log ""
   renderUpdateScript(deviceCode?: string): string {
     const safeDeviceCode = deviceCode ? this.sanitizeForShell(deviceCode) : '';
     const GITHUB_REPO = this.sanitizeForShell(this.PINNED_GITHUB_REPO);
+    const safeAgentVersion = this.sanitizeForShell(this.assertExplicitAgentVersion(this.AGENT_VERSION));
     const now = new Date().toISOString();
 
     return `#!/bin/bash
@@ -449,6 +507,7 @@ ${safeDeviceCode ? `#  Device: ${safeDeviceCode}\n` : ''}#  Generated: ${now}
 # ══════════════════════════════════════════════════════════════════════════════
 
 GITHUB_REPO="${GITHUB_REPO}"
+AGENT_VERSION="${safeAgentVersion}"
 INSTALL_DIR="/opt/suderra"
 SERVICE="suderra-agent"
 BINARY="$INSTALL_DIR/edge-agent"
@@ -502,40 +561,51 @@ log "Current version: $CURRENT_VERSION"
 log "[2/6] Detecting architecture..."
 ARCH=$(uname -m)
 case $ARCH in
-    x86_64)   ARCHIVE_NAME="suderra-agent-x86_64-linux" ;;
-    aarch64)  ARCHIVE_NAME="suderra-agent-aarch64-linux" ;;
-    armv7l)   ARCHIVE_NAME="suderra-agent-armv7-linux" ;;
+    x86_64)   TARGET_SLUG="x86_64-linux" ;;
+    aarch64)  TARGET_SLUG="aarch64-linux" ;;
+    armv7l)   TARGET_SLUG="armv7-linux" ;;
     *)
         log "ERROR: Unsupported architecture: $ARCH"
         exit 1
         ;;
 esac
-log "Architecture: $ARCH -> $ARCHIVE_NAME"
+log "Architecture: $ARCH -> $TARGET_SLUG"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 3: Download Latest Release
+# Step 3: Download Explicit Release
 # ─────────────────────────────────────────────────────────────────────────────
-log "[3/6] Fetching latest release from GitHub..."
+log "[3/6] Downloading pinned release from GitHub..."
 
-LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=20" | grep '"tag_name"' | grep 'agent-v' | head -1 | cut -d '"' -f 4)
-
-if [ -z "$LATEST_TAG" ]; then
-    log "ERROR: Could not determine latest release from GitHub API."
+case "$AGENT_VERSION" in
+    agent-v*) ;;
+    latest|"")
+        log "ERROR: AGENT_VERSION cannot be latest or empty. Use an explicit agent-v<exact Cargo semver> release tag."
+        exit 1
+        ;;
+    *)
+        log "ERROR: AGENT_VERSION must use canonical agent-v<exact Cargo semver>, got $AGENT_VERSION"
+        exit 1
+        ;;
+esac
+RELEASE_TAG="$AGENT_VERSION"
+RELEASE_VERSION="\${AGENT_VERSION#agent-v}"
+if ! echo "$RELEASE_VERSION" | grep -Eq '^[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'; then
+    log "ERROR: AGENT_VERSION must match agent-v<exact Cargo semver>, got $AGENT_VERSION"
     exit 1
 fi
 
-log "Latest version: $LATEST_TAG"
+log "Release version: $RELEASE_TAG"
 
 # Check if already up to date
-if echo "$CURRENT_VERSION" | grep -q "$LATEST_TAG" 2>/dev/null; then
+if echo "$CURRENT_VERSION" | grep -q "$RELEASE_TAG" 2>/dev/null; then
     log "Agent is already up to date ($CURRENT_VERSION)"
     exit 0
 fi
 
-TARBALL="\${ARCHIVE_NAME}.tar.gz"
+TARBALL="suderra-agent-\${RELEASE_VERSION}-\${TARGET_SLUG}.tar.gz"
 CHECKSUM_FILE="\${TARBALL}.sha256"
-DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/$LATEST_TAG/\${TARBALL}"
-CHECKSUM_URL="https://github.com/$GITHUB_REPO/releases/download/$LATEST_TAG/\${CHECKSUM_FILE}"
+DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/$RELEASE_TAG/\${TARBALL}"
+CHECKSUM_URL="https://github.com/$GITHUB_REPO/releases/download/$RELEASE_TAG/\${CHECKSUM_FILE}"
 
 log "Downloading $DOWNLOAD_URL ..."
 download_with_retry "$DOWNLOAD_URL" "$WORK_DIR/\${TARBALL}"
@@ -543,7 +613,7 @@ download_with_retry "$CHECKSUM_URL" "$WORK_DIR/\${CHECKSUM_FILE}"
 
 # Verify SHA256 checksum
 log "Verifying SHA256 checksum..."
-if (cd "$WORK_DIR" && sha256sum -c "\$CHECKSUM_FILE"); then
+if (cd "$WORK_DIR" && sha256sum -c "$CHECKSUM_FILE"); then
     log "Checksum verified"
 else
     log "ERROR: Checksum verification failed! Binary may be corrupted."
@@ -932,15 +1002,15 @@ fi
 log "[2/9] Detecting architecture..."
 ARCH=$(uname -m)
 case $ARCH in
-    x86_64)   ARCHIVE_NAME="suderra-agent-x86_64-linux" ;;
-    aarch64)  ARCHIVE_NAME="suderra-agent-aarch64-linux" ;;
-    armv7l)   ARCHIVE_NAME="suderra-agent-armv7-linux" ;;
+    x86_64)   TARGET_SLUG="x86_64-linux" ;;
+    aarch64)  TARGET_SLUG="aarch64-linux" ;;
+    armv7l)   TARGET_SLUG="armv7-linux" ;;
     *)
         log "ERROR: Unsupported architecture: $ARCH"
         exit 1
         ;;
 esac
-log "Architecture: $ARCH -> $ARCHIVE_NAME"
+log "Architecture: $ARCH -> $TARGET_SLUG"
 
 # Check available disk space
 REQUIRED_MB=100
@@ -953,34 +1023,33 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 3: Download from GitHub Releases
 # ─────────────────────────────────────────────────────────────────────────────
-log "[3/9] Downloading edge-agent from GitHub..."
+log "[3/9] Downloading pinned edge-agent release from GitHub..."
 
-# Get latest release tag or use pinned version
 AGENT_VERSION="${safeAgentVersion}"
-if [ "$AGENT_VERSION" = "latest" ]; then
-    # Fetch most recent edge agent release tag (agent-v* prefix only)
-    LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=20" | grep '"tag_name"' | grep 'agent-v' | head -1 | cut -d '"' -f 4)
-else
-    # GitHub release tags may use "agent-v" or "v" prefix
-    case "$AGENT_VERSION" in
-        agent-v*|v*) LATEST_TAG="$AGENT_VERSION" ;;
-        *)           LATEST_TAG="agent-v$AGENT_VERSION" ;;
-    esac
-fi
-
-if [ -z "$LATEST_TAG" ]; then
-    log "ERROR: Could not determine release version from GitHub API."
-    log "This may be due to GitHub API rate limiting or network issues."
-    log "Please specify an explicit agent version in the provisioning settings."
+case "$AGENT_VERSION" in
+    agent-v*) ;;
+    latest|"")
+        log "ERROR: AGENT_VERSION cannot be latest or empty. Use an explicit agent-v<exact Cargo semver> release tag."
+        exit 1
+        ;;
+    *)
+        log "ERROR: AGENT_VERSION must use canonical agent-v<exact Cargo semver>, got $AGENT_VERSION"
+        exit 1
+        ;;
+esac
+RELEASE_TAG="$AGENT_VERSION"
+RELEASE_VERSION="\${AGENT_VERSION#agent-v}"
+if ! echo "$RELEASE_VERSION" | grep -Eq '^[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'; then
+    log "ERROR: AGENT_VERSION must match agent-v<exact Cargo semver>, got $AGENT_VERSION"
     exit 1
 fi
 
-log "Version: $LATEST_TAG"
+log "Version: $RELEASE_TAG"
 
-TARBALL="\${ARCHIVE_NAME}.tar.gz"
+TARBALL="suderra-agent-\${RELEASE_VERSION}-\${TARGET_SLUG}.tar.gz"
 CHECKSUM_FILE="\${TARBALL}.sha256"
-DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/$LATEST_TAG/\${TARBALL}"
-CHECKSUM_URL="https://github.com/$GITHUB_REPO/releases/download/$LATEST_TAG/\${CHECKSUM_FILE}"
+DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/$RELEASE_TAG/\${TARBALL}"
+CHECKSUM_URL="https://github.com/$GITHUB_REPO/releases/download/$RELEASE_TAG/\${CHECKSUM_FILE}"
 
 log "Download URL: $DOWNLOAD_URL"
 
@@ -989,7 +1058,7 @@ download_with_retry "$CHECKSUM_URL" "$WORK_DIR/\${CHECKSUM_FILE}"
 
 # Verify SHA256 checksum
 log "Verifying SHA256 checksum..."
-if (cd "$WORK_DIR" && sha256sum -c "\$CHECKSUM_FILE"); then
+if (cd "$WORK_DIR" && sha256sum -c "$CHECKSUM_FILE"); then
     log "Checksum verified"
 else
     log "ERROR: Checksum verification failed! Binary may be corrupted or tampered with."

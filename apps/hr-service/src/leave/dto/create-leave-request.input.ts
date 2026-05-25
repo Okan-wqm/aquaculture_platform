@@ -1,16 +1,17 @@
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { InputType, Field, Float } from '@nestjs/graphql';
 import {
-  IsUUID,
   IsDateString,
-  IsOptional,
   IsBoolean,
   IsEnum,
-  IsString,
   IsNumber,
-  Min,
+  IsOptional,
+  IsString,
+  IsUUID,
   MaxLength,
+  Min,
 } from 'class-validator';
-import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
+
 import { HalfDayPeriod } from '../entities/leave-request.entity';
 
 @InputType()

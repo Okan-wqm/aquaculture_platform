@@ -7,14 +7,16 @@
 //   - SchemaIntrospectionService (listTenantSchemas, getSchemaTableCount, validateModuleSchemas)
 // Keep MODULE_SCHEMAS and ModuleSchema interface in a separate schemas.constants.ts file.
 
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
 import * as crypto from 'crypto';
+
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 
 import {
   MIGRATION_LEDGER_TABLE,
   tenantMigrationLedgerTable,
 } from './migration-ledger';
+import { SchemaLRUCache } from './schema-lru-cache';
 
 /**
  * Module schema definitions - tables for each module
@@ -304,6 +306,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'inventory_counts',
       'inventory_count_items',
       'storage_lot_mixes',
+      'farm_stock_batch_snapshots',
+      'farm_stock_container_snapshots',
 
       // Regulatory settings (Maskinporten credentials, company info)
       'regulatory_settings',
@@ -577,9 +581,6 @@ export interface SchemaCreationResult {
   partialSuccess?: boolean;
 }
 
-// SchemaLRUCache is imported from ./schema-lru-cache (shared across all services)
-import { SchemaLRUCache } from './schema-lru-cache';
-
 /**
  * SEC-M13: Validate tenant schema name format to prevent SQL injection.
  * Only allows the pattern 'public' or 'tenant_{16 hex chars}' which is the
@@ -634,6 +635,44 @@ export class SchemaManagerService {
 
   constructor(private readonly dataSource: DataSource) {}
 
+  private static isQueryRow(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+  }
+
+  private static countFromRow(row: Record<string, unknown> | undefined): number {
+    const value = row?.['count'];
+    if (typeof value === 'number') {
+      return value;
+    }
+    if (typeof value === 'bigint') {
+      return Number(value);
+    }
+    if (typeof value === 'string') {
+      const parsed = Number.parseInt(value, 10);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  }
+
+  private async queryRows(
+    sql: string,
+    parameters?: unknown[],
+  ): Promise<Array<Record<string, unknown>>> {
+    const rows: unknown = await this.dataSource.query(sql, parameters);
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+    return rows.filter((row) => SchemaManagerService.isQueryRow(row));
+  }
+
+  private async queryExists(sql: string, parameters?: unknown[]): Promise<boolean> {
+    return (await this.queryRows(sql, parameters)).length > 0;
+  }
+
+  private async queryCount(sql: string, parameters?: unknown[]): Promise<number> {
+    return SchemaManagerService.countFromRow((await this.queryRows(sql, parameters))[0]);
+
+  }
   /**
    * Generate tenant schema name from tenant ID
    * Format: tenant_{first16chars_of_uuid} (uses 16 chars to avoid collisions)
@@ -699,9 +738,9 @@ export class SchemaManagerService {
     }
 
     // 2. Fall back to current session user
-    const result = await this.dataSource.query(`SELECT current_user AS role`);
-    const role = result[0]?.role;
-    if (role) {
+    const result = await this.queryRows(`SELECT current_user AS role`);
+    const role = result[0]?.['role'];
+    if (typeof role === 'string') {
       // Validate role name to prevent injection
       if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(role)) {
         return `"${role}"`;
@@ -1183,19 +1222,18 @@ export class SchemaManagerService {
     }
 
     // Check if target already has data (avoid duplicate copies)
-    const existingCount = await this.dataSource.query(
+    const existingCount = await this.queryCount(
       `SELECT COUNT(*) as count FROM "${safeTargetSchema}"."${safeTableName}"`,
     );
-    if (parseInt(existingCount[0]?.count || '0', 10) > 0) {
+    if (existingCount > 0) {
       this.logger.debug(`Target table ${safeTargetSchema}.${safeTableName} already has data, skipping copy`);
       return 0;
     }
 
     // Get source row count first
-    const sourceCountResult = await this.dataSource.query(
+    const sourceCount = await this.queryCount(
       `SELECT COUNT(*) as count FROM "${safeSourceSchema}"."${safeTableName}"`,
     );
-    const sourceCount = parseInt(sourceCountResult[0]?.count || '0', 10);
 
     if (sourceCount === 0) {
       this.logger.debug(`Source table ${safeSourceSchema}.${safeTableName} is empty, skipping copy`);
@@ -1209,10 +1247,9 @@ export class SchemaManagerService {
     `);
 
     // Verify rows were copied by counting target
-    const targetCountResult = await this.dataSource.query(
+    const rowsCopied = await this.queryCount(
       `SELECT COUNT(*) as count FROM "${safeTargetSchema}"."${safeTableName}"`,
     );
-    const rowsCopied = parseInt(targetCountResult[0]?.count || '0', 10);
 
     this.logger.debug(`Copied ${rowsCopied} rows to ${safeTargetSchema}.${safeTableName}`);
     return rowsCopied;
@@ -1275,11 +1312,10 @@ export class SchemaManagerService {
    * Use this when you need guaranteed fresh result
    */
   async schemaExistsNoCache(schemaName: string): Promise<boolean> {
-    const result = await this.dataSource.query(
+    return this.queryExists(
       `SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`,
       [schemaName],
     );
-    return result.length > 0;
   }
 
   /**
@@ -1310,12 +1346,11 @@ export class SchemaManagerService {
    * Check if a table exists in a schema
    */
   async tableExists(schemaName: string, tableName: string): Promise<boolean> {
-    const result = await this.dataSource.query(
+    return this.queryExists(
       `SELECT 1 FROM information_schema.tables
        WHERE table_schema = $1 AND table_name = $2`,
       [schemaName, tableName],
     );
-    return result.length > 0;
   }
 
   /**
@@ -1325,23 +1360,23 @@ export class SchemaManagerService {
   private async createHypertable(schemaName: string, tableName: string): Promise<void> {
     try {
       // Check if TimescaleDB extension is available
-      const extensionCheck = await this.dataSource.query(
+      const hasTimescaleExtension = await this.queryExists(
         `SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'`,
       );
 
-      if (extensionCheck.length === 0) {
+      if (!hasTimescaleExtension) {
         this.logger.warn('TimescaleDB extension not installed, skipping hypertable creation');
         return;
       }
 
       // Check if table is already a hypertable
-      const isHypertable = await this.dataSource.query(
+      const isHypertable = await this.queryExists(
         `SELECT 1 FROM timescaledb_information.hypertables
          WHERE hypertable_schema = $1 AND hypertable_name = $2`,
         [schemaName, tableName],
       );
 
-      if (isHypertable.length > 0) {
+      if (isHypertable) {
         this.logger.debug(`${schemaName}.${tableName} is already a hypertable`);
         return;
       }
@@ -1377,7 +1412,7 @@ export class SchemaManagerService {
   private async addRetentionPolicy(schemaName: string, tableName: string): Promise<void> {
     try {
       // Check if policy already exists
-      const existingPolicy = await this.dataSource.query(`
+      const existingPolicy = await this.queryExists(`
         SELECT 1 FROM timescaledb_information.jobs
         WHERE proc_schema = '_timescaledb_functions'
           AND proc_name = 'policy_retention_check'
@@ -1385,7 +1420,7 @@ export class SchemaManagerService {
           AND hypertable_name = $2
       `, [schemaName, tableName]);
 
-      if (existingPolicy.length > 0) {
+      if (existingPolicy) {
         this.logger.debug(`Retention policy already exists for ${schemaName}.${tableName}`);
         return;
       }
@@ -1454,12 +1489,12 @@ export class SchemaManagerService {
   private async createContinuousAggregates(schemaName: string): Promise<void> {
     try {
       // Check if hourly aggregate already exists
-      const hourlyExists = await this.dataSource.query(`
+      const hourlyExists = await this.queryExists(`
         SELECT 1 FROM timescaledb_information.continuous_aggregates
         WHERE view_schema = $1 AND view_name = 'sensor_hourly'
       `, [schemaName]);
 
-      if (hourlyExists.length === 0) {
+      if (!hourlyExists) {
         // Create hourly aggregate
         // JSONB keys: camelCase ('temperature', 'ph', 'dissolvedOxygen', 'salinity')
         await this.dataSource.query(`
@@ -1496,12 +1531,12 @@ export class SchemaManagerService {
       }
 
       // Check if daily aggregate already exists
-      const dailyExists = await this.dataSource.query(`
+      const dailyExists = await this.queryExists(`
         SELECT 1 FROM timescaledb_information.continuous_aggregates
         WHERE view_schema = $1 AND view_name = 'sensor_daily'
       `, [schemaName]);
 
-      if (dailyExists.length === 0) {
+      if (!dailyExists) {
         // Create daily aggregate
         await this.dataSource.query(`
           CREATE MATERIALIZED VIEW "${schemaName}"."sensor_daily"
@@ -1566,10 +1601,9 @@ export class SchemaManagerService {
       );
 
       // Count rows before migration
-      const beforeCountResult = await this.dataSource.query(
+      const beforeCount = await this.queryCount(
         `SELECT COUNT(*) as count FROM "${safeSchemaName}"."${safeTableName}"`,
       );
-      const beforeCount = parseInt(beforeCountResult[0]?.count || '0', 10);
 
       // Insert data with tenant filter
       // Note: tenant column name varies by table (tenant_id for sensor/new tables, tenantId for legacy farm/hr)
@@ -1599,10 +1633,9 @@ export class SchemaManagerService {
       }
 
       // Count rows after migration to get actual migrated count
-      const afterCountResult = await this.dataSource.query(
+      const afterCount = await this.queryCount(
         `SELECT COUNT(*) as count FROM "${safeSchemaName}"."${safeTableName}"`,
       );
-      const afterCount = parseInt(afterCountResult[0]?.count || '0', 10);
       const rowsMigrated = afterCount - beforeCount;
 
       this.logger.log(`Migrated ${rowsMigrated} rows to ${safeSchemaName}.${safeTableName}`);
@@ -1619,26 +1652,27 @@ export class SchemaManagerService {
    * Get all tenant schemas
    */
   async listTenantSchemas(): Promise<string[]> {
-    const result = await this.dataSource.query(`
+    const result = await this.queryRows(`
       SELECT schema_name
       FROM information_schema.schemata
       WHERE schema_name LIKE 'tenant_%'
       ORDER BY schema_name
     `);
-    return result.map((r: { schema_name: string }) => r.schema_name);
+    return result
+      .map((row) => row['schema_name'])
+      .filter((schemaName): schemaName is string => typeof schemaName === 'string');
   }
 
   /**
    * Get table count for a schema
    */
   async getSchemaTableCount(schemaName: string): Promise<number> {
-    const result = await this.dataSource.query(
+    return this.queryCount(
       `SELECT COUNT(*) as count
        FROM information_schema.tables
        WHERE table_schema = $1`,
       [schemaName],
     );
-    return parseInt(result[0]?.count || '0', 10);
   }
 
   /**
@@ -1780,23 +1814,23 @@ export class SchemaManagerService {
 
     try {
       // Check if TimescaleDB extension is available
-      const extensionCheck = await this.dataSource.query(
+      const hasTimescaleExtension = await this.queryExists(
         `SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'`,
       );
 
-      if (extensionCheck.length === 0) {
+      if (!hasTimescaleExtension) {
         this.logger.warn('TimescaleDB extension not installed, skipping sensor_metrics hypertable');
         return;
       }
 
       // Check if table is already a hypertable
-      const isHypertable = await this.dataSource.query(
+      const isHypertable = await this.queryExists(
         `SELECT 1 FROM timescaledb_information.hypertables
          WHERE hypertable_schema = $1 AND hypertable_name = $2`,
         [schemaName, tableName],
       );
 
-      if (isHypertable.length > 0) {
+      if (isHypertable) {
         this.logger.debug(`${schemaName}.${tableName} is already a hypertable`);
         return;
       }
@@ -1983,12 +2017,12 @@ export class SchemaManagerService {
   private async createNarrowTableAggregates(schemaName: string): Promise<void> {
     try {
       // 1. Create 1-minute aggregate
-      const min1Exists = await this.dataSource.query(`
+      const min1Exists = await this.queryExists(`
         SELECT 1 FROM timescaledb_information.continuous_aggregates
         WHERE view_schema = $1 AND view_name = 'metrics_1min'
       `, [schemaName]);
 
-      if (min1Exists.length === 0) {
+      if (!min1Exists) {
         await this.dataSource.query(`
           CREATE MATERIALIZED VIEW "${schemaName}"."metrics_1min"
           WITH (timescaledb.continuous) AS
@@ -2036,12 +2070,12 @@ export class SchemaManagerService {
       }
 
       // 2. Create 1-hour aggregate
-      const hour1Exists = await this.dataSource.query(`
+      const hour1Exists = await this.queryExists(`
         SELECT 1 FROM timescaledb_information.continuous_aggregates
         WHERE view_schema = $1 AND view_name = 'metrics_1hour'
       `, [schemaName]);
 
-      if (hour1Exists.length === 0) {
+      if (!hour1Exists) {
         await this.dataSource.query(`
           CREATE MATERIALIZED VIEW "${schemaName}"."metrics_1hour"
           WITH (timescaledb.continuous) AS
@@ -2088,12 +2122,12 @@ export class SchemaManagerService {
       }
 
       // 3. Create 1-day aggregate
-      const day1Exists = await this.dataSource.query(`
+      const day1Exists = await this.queryExists(`
         SELECT 1 FROM timescaledb_information.continuous_aggregates
         WHERE view_schema = $1 AND view_name = 'metrics_1day'
       `, [schemaName]);
 
-      if (day1Exists.length === 0) {
+      if (!day1Exists) {
         await this.dataSource.query(`
           CREATE MATERIALIZED VIEW "${schemaName}"."metrics_1day"
           WITH (timescaledb.continuous) AS

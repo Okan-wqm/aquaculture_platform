@@ -1,5 +1,9 @@
 # Edge Gateway - Tenant-First Self-Registration Flow
 
+## Historical Flow Warning
+
+Bu dokümandaki GitHub `latest`, plaintext activation token ve `update_firmware` anlatımları eski akışı temsil eder. Yeni üretim mimarisi `docs/architecture/edge-release-provisioning-ota.md` dosyasındaki explicit `agent-v<exact Cargo semver>` release, hashed provisioning credential ve signed `apply_signed_manifest` akışıdır.
+
 ## Overview
 
 Bu sistem, endüstriyel edge cihazlarının otomatik kayıt ve yönetimini sağlar. Geleneksel "device-first" yaklaşım yerine **"tenant-first"** model kullanılır: Tenant admin tek bir installer link oluşturur, bu link herhangi bir endüstriyel PC'ye kurulduğunda cihaz kendini otomatik kayıt eder.

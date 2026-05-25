@@ -19,7 +19,7 @@ import {
   Max,
   MaxLength,
 } from 'class-validator';
-import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { QualityGrade } from '../entities/harvest-record.entity';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
 

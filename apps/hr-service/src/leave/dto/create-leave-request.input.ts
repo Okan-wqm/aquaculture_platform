@@ -10,7 +10,7 @@ import {
   Min,
   MaxLength,
 } from 'class-validator';
-import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { HalfDayPeriod } from '../entities/leave-request.entity';
 
 @InputType()

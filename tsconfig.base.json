@@ -87,6 +87,9 @@
       "@aquaculture/backend-common/middleware": [
         "libs/backend-common/src/middleware/index.ts"
       ],
+      "@aquaculture/backend-common/mobile-command": [
+        "libs/backend-common/src/mobile-command/index.ts"
+      ],
       "@aquaculture/backend-common/monetary": [
         "libs/backend-common/src/monetary/index.ts"
       ],

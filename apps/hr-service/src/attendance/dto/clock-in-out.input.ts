@@ -10,7 +10,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
-import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { ClockMethod } from '../entities/attendance-record.entity';
 
 @InputType()

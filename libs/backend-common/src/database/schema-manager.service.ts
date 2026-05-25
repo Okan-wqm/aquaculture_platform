@@ -304,6 +304,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'inventory_counts',
       'inventory_count_items',
       'storage_lot_mixes',
+      'farm_stock_batch_snapshots',
+      'farm_stock_container_snapshots',
 
       // Regulatory settings (Maskinporten credentials, company info)
       'regulatory_settings',

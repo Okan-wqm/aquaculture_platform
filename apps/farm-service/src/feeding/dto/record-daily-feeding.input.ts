@@ -19,7 +19,7 @@ import {
   ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { FeedingMethod } from '../entities/feeding-record.entity';
 
 // ============================================================================

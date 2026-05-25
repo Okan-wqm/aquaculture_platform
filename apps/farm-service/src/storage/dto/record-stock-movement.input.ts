@@ -1,7 +1,7 @@
 import { InputType, Field, Float, ID } from '@nestjs/graphql';
 import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, IsEnum, IsUUID, Min, Max, IsDate, MaxDate } from 'class-validator';
 import { Type } from 'class-transformer';
-import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { MovementType } from '../entities/stock-movement.entity';
 import { StorageItemType } from '../entities/storage-inventory.entity';
 

@@ -16,7 +16,7 @@ import {
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsEnum } from 'class-validator';
-import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { BatchStatus, BatchInputType } from '../entities/batch.entity';
 import { BatchDocumentType } from '../entities/batch-document.entity';
 import { UpdateBatchPayload } from '../commands/update-batch.command';

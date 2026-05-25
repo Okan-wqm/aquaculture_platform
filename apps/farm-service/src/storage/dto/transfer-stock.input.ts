@@ -1,6 +1,7 @@
-import { InputType, Field, Float, ID } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, IsEnum, IsUUID } from 'class-validator';
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
+import { InputType, Field, Float, ID } from '@nestjs/graphql';
+import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+
 import { StorageItemType } from '../entities/storage-inventory.entity';
 
 @InputType()

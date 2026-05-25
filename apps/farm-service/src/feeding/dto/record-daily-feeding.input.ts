@@ -2,24 +2,24 @@
  * Record Daily Feeding DTO
  * @module Feeding/DTO
  */
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { InputType, Field, Float, Int, ID } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import {
-  IsNotEmpty,
-  IsString,
-  IsOptional,
-  IsNumber,
-  IsUUID,
+  ArrayMinSize,
   IsArray,
-  IsBoolean,
   IsEnum,
-  Min,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
   Max,
   MaxLength,
+  Min,
   ValidateNested,
-  ArrayMinSize,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
+
 import { FeedingMethod } from '../entities/feeding-record.entity';
 
 // ============================================================================

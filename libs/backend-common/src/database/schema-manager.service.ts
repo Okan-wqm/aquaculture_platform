@@ -16,6 +16,7 @@ import {
   MIGRATION_LEDGER_TABLE,
   tenantMigrationLedgerTable,
 } from './migration-ledger';
+import { SchemaLRUCache } from './schema-lru-cache';
 
 /**
  * Module schema definitions - tables for each module
@@ -579,9 +580,6 @@ export interface SchemaCreationResult {
    */
   partialSuccess?: boolean;
 }
-
-// SchemaLRUCache is imported from ./schema-lru-cache (shared across all services)
-import { SchemaLRUCache } from './schema-lru-cache';
 
 /**
  * SEC-M13: Validate tenant schema name format to prevent SQL injection.

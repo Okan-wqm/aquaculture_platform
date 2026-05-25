@@ -25,6 +25,10 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource } from 'typeorm';
 
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+  defaultMobileCommandReceiptsForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
 import { toCullReasonCode } from '../../common/utils/reason-codecs';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
@@ -49,8 +53,10 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
     private readonly outboxPublisher: OutboxPublisher,
-    private readonly farmStockProjection: FarmStockProjectionService,
-    private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly mobileCommandReceipts: MobileCommandReceiptService =
+      defaultMobileCommandReceiptsForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: RecordCullCommand): Promise<Batch> {

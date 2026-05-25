@@ -7,6 +7,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { Repository } from 'typeorm';
 
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
@@ -23,7 +26,8 @@ export class UpdateTankStatusHandler
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
     private readonly auditLogService: AuditLogService,
-    private readonly farmStockProjection: FarmStockProjectionService,
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: UpdateTankStatusCommand): Promise<Tank> {

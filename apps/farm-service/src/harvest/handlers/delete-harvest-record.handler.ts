@@ -18,6 +18,9 @@ import { Repository, DataSource } from 'typeorm';
 
 import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { Tank } from '../../tank/entities/tank.entity';
 import { DeleteHarvestRecordCommand } from '../commands/delete-harvest-record.command';
@@ -37,7 +40,8 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
     private readonly tankRepository: Repository<Tank>,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
-    private readonly farmStockProjection: FarmStockProjectionService,
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: DeleteHarvestRecordCommand): Promise<boolean> {

@@ -24,6 +24,10 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource } from 'typeorm';
 
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+  defaultMobileCommandReceiptsForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
@@ -80,8 +84,10 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     private readonly outboxPublisher: OutboxPublisher,
     private readonly tankCapacityService: TankCapacityService,
     private readonly auditLogService: AuditLogService,
-    private readonly farmStockProjection: FarmStockProjectionService,
-    private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly mobileCommandReceipts: MobileCommandReceiptService =
+      defaultMobileCommandReceiptsForDirectHandlerConstruction(),
   ) {}
 
   /**

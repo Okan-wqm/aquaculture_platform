@@ -34,6 +34,10 @@ import { TankOperation, OperationType } from '../../batch/entities/tank-operatio
 import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+  defaultMobileCommandReceiptsForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 import { Tank } from '../../tank/entities/tank.entity';
@@ -62,8 +66,10 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     private readonly tankBatchRepository: Repository<TankBatch>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
-    private readonly farmStockProjection: FarmStockProjectionService,
-    private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly mobileCommandReceipts: MobileCommandReceiptService =
+      defaultMobileCommandReceiptsForDirectHandlerConstruction(),
     @Optional()
     private readonly metricsService?: FarmDomainMetricsService,
   ) {}

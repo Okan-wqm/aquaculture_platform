@@ -27,6 +27,10 @@ import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource } from 'typeorm';
 
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+  defaultMobileCommandReceiptsForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
 import { toMortalityReasonCode } from '../../common/utils/reason-codecs';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
@@ -62,8 +66,10 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly backdatePolicy: BackdatePolicyService,
-    private readonly farmStockProjection: FarmStockProjectionService,
-    private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly mobileCommandReceipts: MobileCommandReceiptService =
+      defaultMobileCommandReceiptsForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: RecordMortalityCommand): Promise<Batch> {

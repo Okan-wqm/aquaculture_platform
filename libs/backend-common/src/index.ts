@@ -103,7 +103,6 @@ export * from './orchestrator-rate-limit';
 export * from './security';
 export * from './pagination';
 export * from './health';
-export * from './mobile-command';
 
 // Audit — DI-token-level exports only (see audit/audit-log.tokens);
 // entity-touching classes remain deep-import-only to avoid TypeORM

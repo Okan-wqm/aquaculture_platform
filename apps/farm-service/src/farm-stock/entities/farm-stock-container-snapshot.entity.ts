@@ -1,3 +1,5 @@
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { Directive, Field, Float, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import {
   Column,
   CreateDateColumn,
@@ -6,8 +8,6 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { Directive, Field, Float, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 export enum FarmStockContainerSource {
   TANK = 'TANK',
@@ -21,11 +21,11 @@ registerEnumType(FarmStockContainerSource, {
 @ObjectType()
 @Directive('@key(fields: "id")')
 @Entity('farm_stock_container_snapshots')
-@Index(['tenantId', 'containerId'], { unique: true })
-@Index(['tenantId', 'status'])
-@Index(['tenantId', 'departmentId'])
-@Index(['tenantId', 'siteId'])
-@Index(['tenantId', 'hasActiveBatch'])
+@Index('uq_farm_stock_container_snapshot_tenant_container', ['tenantId', 'containerId'], { unique: true })
+@Index('idx_farm_stock_container_tenant_status', ['tenantId', 'status'])
+@Index('idx_farm_stock_container_tenant_department', ['tenantId', 'departmentId'])
+@Index('idx_farm_stock_container_tenant_site', ['tenantId', 'siteId'])
+@Index('idx_farm_stock_container_tenant_active_batch', ['tenantId', 'hasActiveBatch'])
 export class FarmStockContainerSnapshot {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -51,15 +51,15 @@ export class FarmStockContainerSnapshot {
   @Column({ length: 50 })
   code!: string;
 
-  @Field({ nullable: true })
+  @Field(() => ID, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
   departmentId?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => ID, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
   siteId?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 80, nullable: true })
   status?: string | null;
 
@@ -95,7 +95,7 @@ export class FarmStockContainerSnapshot {
   @Column({ default: true })
   isActive!: boolean;
 
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   lastStockEventAt?: Date | null;
 

@@ -10,6 +10,8 @@
  * - Current and target operating points
  */
 
+import { criticalPHforNH3 } from './ammonia-calc.js';
+import { criticalPHforCO2 } from './co2-calc.js';
 import {
   PHIsoline,
   ToxicZone,
@@ -20,7 +22,6 @@ import {
   WaterParams,
   TargetParams,
   ToxicLimits,
-  alkMgToMeq,
 } from './types.js';
 import {
   phLineSlope,
@@ -28,14 +29,11 @@ import {
   phNbsToFree,
   calcDicOfAlk,
   calcCo2OfDic,
-  co2MmToMg,
   calcAlkOfDicPh,
   alphaTwo,
   calcKspCalcite,
   calcKspAragonite,
 } from './water-quality.js';
-import { criticalPHforNH3 } from './ammonia-calc.js';
-import { criticalPHforCO2 } from './co2-calc.js';
 
 // ============================================================================
 // PH ISOLINE GENERATION
@@ -71,8 +69,8 @@ function phIsolineColor(pH: number): string {
 export function generatePHIsolines(
   tempC: number,
   S: number,
-  maxDIC: number = 6,
-  step: number = 0.25
+  maxDIC = 6,
+  step = maxDIC / 100
 ): PHIsoline[] {
   const isolines: PHIsoline[] = [];
 
@@ -82,7 +80,7 @@ export function generatePHIsolines(
     const intercept = phLineIntercept(pHfree, tempC, S);
 
     const points: Array<{ CT: number; AT: number }> = [];
-    for (let ct = 0; ct <= maxDIC; ct += maxDIC / 100) {
+    for (let ct = 0; ct <= maxDIC; ct += step) {
       const at = ct * slope + intercept;
       points.push({
         CT: parseFloat(ct.toFixed(4)),
@@ -116,7 +114,7 @@ export function generateNH3ToxicZone(
   nh3Limit: number,
   alkMin: number,
   alkMax: number,
-  maxDIC: number = 6
+  maxDIC = 6
 ): ToxicZone | null {
   const critPH = criticalPHforNH3(tan, nh3Limit, tempC, S);
   if (isNaN(critPH)) return null;
@@ -151,7 +149,7 @@ export function generateCO2ToxicZone(
   S: number,
   alkMeq: number,
   co2CritMg: number,
-  maxDIC: number = 6
+  maxDIC = 6
 ): ToxicZone | null {
   // For each DIC, find the pH where CO2 = co2Crit, then get ALK at that pH
   // Scan a wider CT range (up to maxDIC*3) to ensure curve crosses both AT=0 and AT=maxALK
@@ -305,7 +303,7 @@ function generateOmegaIsopleth(
   S: number,
   caMolKg: number,
   ksp: number,
-  maxDIC: number = 8
+  maxDIC = 8
 ): Array<{ CT: number; AT: number }> {
   const points: Array<{ CT: number; AT: number }> = [];
   if (caMolKg <= 0) return points;
@@ -360,7 +358,7 @@ export function generateCalciteIsopleth(
   tempC: number,
   S: number,
   caMgL: number,
-  maxDIC: number = 8
+  maxDIC = 8
 ): OmegaIsopleth | null {
   if (caMgL <= 0) return null;
   const caMolKg = caMgL / 40078; // mg/L → mol/L ≈ mol/kg
@@ -377,7 +375,7 @@ export function generateAragoniteIsopleth(
   tempC: number,
   S: number,
   caMgL: number,
-  maxDIC: number = 8
+  maxDIC = 8
 ): OmegaIsopleth | null {
   if (caMgL <= 0) return null;
   const caMolKg = caMgL / 40078;
@@ -400,8 +398,8 @@ export function generateDeffeyesChartData(
   limits: ToxicLimits,
   alkMinMeq: number,
   alkMaxMeq: number,
-  caMgL: number = 0,
-  showTarget: boolean = true
+  caMgL = 0,
+  showTarget = true
 ): DeffeyesChartData {
   const { tempC, pH, salinity, alkalinity } = params;
   const maxDIC = 8;

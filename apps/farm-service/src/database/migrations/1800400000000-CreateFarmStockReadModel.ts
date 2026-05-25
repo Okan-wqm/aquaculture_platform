@@ -1,3 +1,4 @@
+import { tableExists } from '@aquaculture/backend-common/database';
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class CreateFarmStockReadModel1800400000000 implements MigrationInterface {
@@ -119,7 +120,7 @@ export class CreateFarmStockReadModel1800400000000 implements MigrationInterface
     await queryRunner.query(`
       INSERT INTO farm_stock_container_snapshots (
         "tenantId", "containerId", "containerSource", "name", "code",
-        "departmentId", "status", "volume", "maxBiomassKg",
+        "departmentId", "siteId", "status", "volume", "maxBiomassKg",
         "currentQuantity", "currentBiomassKg", "isOverCapacity",
         "hasActiveBatch", "isActive", "lastStockEventAt", "createdAt", "updatedAt"
       )
@@ -130,9 +131,14 @@ export class CreateFarmStockReadModel1800400000000 implements MigrationInterface
         e."name",
         e."code",
         e."departmentId",
+        d."siteId",
         e."status"::text,
         e."volume",
-        NULLIF(e."specifications" ->> 'maxBiomass', '')::numeric,
+        CASE
+          WHEN NULLIF(trim(e."specifications" ->> 'maxBiomass'), '') ~ '^\\s*-?\\d+(\\.\\d+)?\\s*$'
+            THEN NULLIF(trim(e."specifications" ->> 'maxBiomass'), '')::numeric
+          ELSE NULL
+        END,
         e."currentCount",
         e."currentBiomass",
         false,
@@ -142,11 +148,13 @@ export class CreateFarmStockReadModel1800400000000 implements MigrationInterface
         now(),
         now()
       FROM equipment e
+      LEFT JOIN departments d ON d."id" = e."departmentId" AND d."tenantId" = e."tenantId"
       WHERE e."isTank" = true
       ON CONFLICT ("tenantId", "containerId") DO UPDATE SET
         "name" = EXCLUDED."name",
         "code" = EXCLUDED."code",
         "departmentId" = EXCLUDED."departmentId",
+        "siteId" = EXCLUDED."siteId",
         "status" = EXCLUDED."status",
         "volume" = EXCLUDED."volume",
         "maxBiomassKg" = EXCLUDED."maxBiomassKg",
@@ -199,13 +207,15 @@ export class CreateFarmStockReadModel1800400000000 implements MigrationInterface
         "updatedAt" = now()
     `);
 
-    await queryRunner.query(`
-      DROP INDEX IF EXISTS "IDX_93018beb62439a265dcb715936";
-      DROP INDEX IF EXISTS "IDX_stock_movements_idempotency_key";
-      CREATE UNIQUE INDEX IF NOT EXISTS "idx_stock_movements_tenant_idempotency"
-        ON stock_movements ("tenant_id", "idempotency_key")
-        WHERE "idempotency_key" IS NOT NULL
-    `);
+    if (await tableExists(queryRunner, 'stock_movements')) {
+      await queryRunner.query(`
+        DROP INDEX IF EXISTS "IDX_93018beb62439a265dcb715936";
+        DROP INDEX IF EXISTS "IDX_stock_movements_idempotency_key";
+        CREATE UNIQUE INDEX IF NOT EXISTS "idx_stock_movements_tenant_idempotency"
+          ON stock_movements ("tenant_id", "idempotency_key")
+          WHERE "idempotency_key" IS NOT NULL
+      `);
+    }
   }
 
   public async down(_queryRunner: QueryRunner): Promise<void> {

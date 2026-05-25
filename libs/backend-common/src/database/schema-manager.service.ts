@@ -16,6 +16,7 @@ import {
   MIGRATION_LEDGER_TABLE,
   tenantMigrationLedgerTable,
 } from './migration-ledger';
+import { applyTenantRlsToSchema } from './rls/apply-tenant-rls.helper';
 import { SchemaLRUCache } from './schema-lru-cache';
 
 /**
@@ -306,8 +307,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'inventory_counts',
       'inventory_count_items',
       'storage_lot_mixes',
-      'farm_stock_batch_snapshots',
       'farm_stock_container_snapshots',
+      'farm_stock_batch_snapshots',
+      'farm_mobile_command_receipts',
 
       // Regulatory settings (Maskinporten credentials, company info)
       'regulatory_settings',
@@ -390,6 +392,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'work_areas',
       'work_rotations',
       'safety_training_records',
+      'hr_mobile_command_receipts',
     ],
   },
   {
@@ -535,13 +538,34 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
  */
 /**
  * Default module names for tenant provisioning.
- * Derived from MODULE_SCHEMAS to prevent drift when new modules are added.
+ *
+ * This list is deliberately narrower than MODULE_SCHEMAS: MODULE_SCHEMAS is the
+ * complete registry of schemas known to SchemaManagerService, including
+ * platform-level schemas such as auth and notification. DEFAULT_TENANT_MODULES
+ * is the schema-per-tenant fan-out set only.
  *
  * Usage:
  *   import { DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
  *   await schemaManager.createTenantSchema(tenantId, DEFAULT_TENANT_MODULES);
  */
-export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.map(m => m.moduleName);
+export const TENANT_SCOPED_MODULES: ReadonlySet<string> = new Set([
+  'sensor',
+  'farm',
+  'hr',
+  'hydroponics',
+  'alert',
+  'ai',
+  'messaging',
+]);
+
+export const PLATFORM_LEVEL_MODULES: ReadonlySet<string> = new Set([
+  'auth',
+  'notification',
+]);
+
+export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS
+  .filter((m) => TENANT_SCOPED_MODULES.has(m.moduleName))
+  .map((m) => m.moduleName);
 
 export const REFERENCE_DATA_TABLES: Record<string, string[]> = Object.fromEntries(
   MODULE_SCHEMAS.map(m => [m.moduleName, m.referenceDataTables || []]),
@@ -912,9 +936,7 @@ export class SchemaManagerService {
                 await this.createSensorMetricsHypertable(schemaName);
               }
             } else {
-              this.logger.warn(
-                `Source table ${moduleSchema.sourceSchema}.${tableName} does not exist`,
-              );
+              errors.push(`Source table ${moduleSchema.sourceSchema}.${tableName} does not exist`);
             }
           } catch (tableError) {
             const errorMsg = `Failed to create table ${tableName}: ${(tableError as Error).message}`;
@@ -999,7 +1021,22 @@ export class SchemaManagerService {
         }
       }
 
-      // Update cache
+      errors.push(
+        ...(await this.validateTenantSchemaComplete(schemaName, modules)),
+      );
+      if (errors.length === 0) {
+        try {
+          await this.applyTenantRlsPolicies(schemaName);
+        } catch (rlsError) {
+          errors.push(`Failed to apply tenant RLS policies: ${(rlsError as Error).message}`);
+        }
+      }
+      if (errors.length > 0) {
+        throw new Error(errors.join('; '));
+      }
+
+      // Update cache only after table, ledger, reference-data, and RLS
+      // invariants are all complete. Partial tenant schemas must not be cached.
       this.schemaCache.set(schemaName, true);
 
       const totalRefRows = referenceDataCopied.reduce((sum, r) => sum + r.rows, 0);
@@ -1007,23 +1044,14 @@ export class SchemaManagerService {
         `Tenant schema ${schemaName} created: ${tablesCreated.length} tables, ${totalRefRows} reference rows in ${Date.now() - startTime}ms`,
       );
 
-      const hasErrors = errors.length > 0;
-      if (!hasErrors) {
-        errors.push(
-          ...(await this.validateTenantSchemaComplete(schemaName, modules)),
-        );
-      }
-      const hasPostValidationErrors = errors.length > 0;
-      const isPartial = hasPostValidationErrors && tablesCreated.length > 0;
       return {
-        success: !hasPostValidationErrors,
-        status: hasPostValidationErrors ? ProvisioningStatus.PARTIAL : ProvisioningStatus.COMPLETE,
+        success: true,
+        status: ProvisioningStatus.COMPLETE,
         schemaName,
         tablesCreated,
         referenceDataCopied,
-        errors,
+        errors: [],
         duration: Date.now() - startTime,
-        partialSuccess: isPartial || undefined,
       };
     } catch (error) {
       const errorMsg = `Failed to create tenant schema: ${(error as Error).message}`;
@@ -1149,7 +1177,10 @@ export class SchemaManagerService {
           moduleSchema.sourceSchema,
           tableName,
         );
-        if (!sourceExists) continue;
+        if (!sourceExists) {
+          errors.push(`Source schema ${moduleSchema.sourceSchema} missing table ${tableName}`);
+          continue;
+        }
 
         const targetExists = await this.tableExists(safeSchema, tableName);
         if (!targetExists) {
@@ -1253,6 +1284,21 @@ export class SchemaManagerService {
 
     this.logger.debug(`Copied ${rowsCopied} rows to ${safeTargetSchema}.${safeTableName}`);
     return rowsCopied;
+  }
+
+  private async applyTenantRlsPolicies(schemaName: string): Promise<void> {
+    const safeSchema = validateSqlIdentifier(schemaName, 'schema');
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    try {
+      await applyTenantRlsToSchema(queryRunner, {
+        schemaOverride: safeSchema,
+        tenantIdColumns: ['tenant_id', 'tenantId'],
+        logger: this.logger,
+      });
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**
@@ -2000,6 +2046,14 @@ export class SchemaManagerService {
         );
       } catch (grantError) {
         errors.push(`Failed to grant permissions: ${(grantError as Error).message}`);
+      }
+    }
+
+    if (created.length > 0 && errors.length === 0) {
+      try {
+        await this.applyTenantRlsPolicies(schemaName);
+      } catch (rlsError) {
+        errors.push(`Failed to apply tenant RLS policies: ${(rlsError as Error).message}`);
       }
     }
 

@@ -77,7 +77,7 @@ export class RecordCullInput extends MobileCommandEnvelopeInput {
 }
 
 @InputType()
-export class AllocateToTankInput {
+export class AllocateToTankInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity: number;

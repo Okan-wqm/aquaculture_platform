@@ -62,16 +62,14 @@
  */
 
 /* eslint-disable no-console */
+import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
+
 import * as ts from 'typescript';
 
 const REPO = path.resolve(__dirname, '../..');
 const BACKEND_COMMON_SRC = path.join(REPO, 'libs/backend-common/src');
-
-const ROOT_BARREL_SPECIFIER_RE =
-  /from\s*['"]@aquaculture\/backend-common['"];?/;
 
 // Ordered list — the root barrel in index.ts currently does
 // `export *` from each of these sub-barrels. Deep-only paths (audit /
@@ -89,6 +87,7 @@ const SUBTREES = [
   'auth',
   'filters',
   'middleware',
+  'mobile-command',
   'database',
   'redis',
   'context',
@@ -327,7 +326,7 @@ function rewriteFile(
   return { changed: true, ambiguous, sideEffect, unknownSymbols };
 }
 
-async function main(): Promise<void> {
+function main(): void {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const all = args.includes('--all');
@@ -401,7 +400,9 @@ async function main(): Promise<void> {
   process.exit(unknowns.length > 0 && !dryRun ? 1 : 0);
 }
 
-main().catch((e) => {
-  console.error(e);
+try {
+  main();
+} catch (error) {
+  console.error(error);
   process.exit(1);
-});
+}

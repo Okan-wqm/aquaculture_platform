@@ -116,9 +116,9 @@ export function generateUIAvsPHData(
   S: number,
   tan: number,
   nh3Limit: number,
-  pHmin: number = 6.0,
-  pHmax: number = 9.5,
-  step: number = 0.05
+  pHmin = 6.0,
+  pHmax = 9.5,
+  step = 0.05
 ): Array<{ pH: number; UIA: number; limit: number }> {
   const data: Array<{ pH: number; UIA: number; limit: number }> = [];
   for (let pH = pHmin; pH <= pHmax + 0.001; pH += step) {
@@ -139,10 +139,10 @@ export function generateUIAvsPHData(
 export function generateNH3vsPHData(
   tempC: number,
   S: number,
-  tan: number = 1.0,
-  pHmin: number = 6.0,
-  pHmax: number = 9.5,
-  step: number = 0.1
+  tan = 1.0,
+  pHmin = 6.0,
+  pHmax = 9.5,
+  step = 0.1
 ): Array<{ pH: number; NH3: number; NH4: number }> {
   const data: Array<{ pH: number; NH3: number; NH4: number }> = [];
   for (let pH = pHmin; pH <= pHmax + 0.001; pH += step) {
@@ -280,9 +280,9 @@ export function generateH2SvsPHData(
   h2sMeasured: number,
   currentPH: number,
   h2sLimit: number,
-  pHmin: number = 5.0,
-  pHmax: number = 9.5,
-  step: number = 0.05
+  pHmin = 5.0,
+  pHmax = 9.5,
+  step = 0.05
 ): Array<{ pH: number; H2S_pct: number; HS_pct: number; H2S_ugL: number; limit: number }> {
   const totalSulfide = calcTotalSulfide(h2sMeasured, currentPH, tempC, S);
   const data: Array<{ pH: number; H2S_pct: number; HS_pct: number; H2S_ugL: number; limit: number }> = [];

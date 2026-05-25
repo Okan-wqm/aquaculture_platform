@@ -31,7 +31,11 @@ describe('INVARIANT: platform-admin security frontend uses backend envelopes', (
 
     expect(httpClient).toContain("tenantScope?: 'tenant' | 'platform'");
     expect(httpClient).toContain("tenantScope = 'platform'");
-    expect(httpClient).toContain("tenantScope === 'tenant' ? getTenantId() : null");
+    expect(httpClient).toContain('resolveTenantIdForScope');
+    expect(httpClient).toContain('RESERVED_SECURITY_HEADERS');
+    expect(httpClient).toContain('mergeHeadersWithReservedPolicy');
+    expect(httpClient).toContain("'x-tenant-id'");
+    expect(httpClient).toContain("'authorization'");
     expect(securityApi).toContain("const platformScope = { tenantScope: 'platform' as const }");
     expect(securityApi).not.toContain('isResolved');
     expect(securityApi).not.toContain('Not implemented');

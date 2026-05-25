@@ -70,10 +70,10 @@ export function criticalPHforCO2(
 export function generateCarbonateVsPHData(
   tempC: number,
   S: number,
-  _dicMM: number = 2.0,
-  pHmin: number = 6.0,
-  pHmax: number = 9.5,
-  step: number = 0.1
+  _dicMM = 2.0,
+  pHmin = 6.0,
+  pHmax = 9.5,
+  step = 0.1
 ): Array<{ pH: number; CO2: number; HCO3: number; CO3: number }> {
   const data: Array<{ pH: number; CO2: number; HCO3: number; CO3: number }> = [];
   for (let pH = pHmin; pH <= pHmax + 0.001; pH += step) {
@@ -105,9 +105,9 @@ export function generateSaturationVsPHData(
   S: number,
   dicMM: number,
   caMgL: number,
-  pHmin: number = 6.0,
-  pHmax: number = 9.5,
-  step: number = 0.1
+  pHmin = 6.0,
+  pHmax = 9.5,
+  step = 0.1
 ): Array<{ pH: number; Calcite: number; Aragonite: number }> {
   // Mucci (1983) T/S-dependent Ksp
   const KspCa = calcKspCalcite(tempC, S);

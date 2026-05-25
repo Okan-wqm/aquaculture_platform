@@ -2,14 +2,16 @@
  * Update Tank Command Handler
  * @module Tank/Handlers
  */
-import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
-import { UpdateTankCommand } from '../commands/update-tank.command';
-import { Tank, TankType, TankStatus } from '../entities/tank.entity';
-import { AuditLogService } from '../../database/services/audit-log.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { Repository } from 'typeorm';
+
 import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { UpdateTankCommand } from '../commands/update-tank.command';
+import { Tank } from '../entities/tank.entity';
 
 @CommandHandler(UpdateTankCommand)
 export class UpdateTankHandler
@@ -21,6 +23,7 @@ export class UpdateTankHandler
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
     private readonly auditLogService: AuditLogService,
+    private readonly farmStockProjection: FarmStockProjectionService,
   ) {}
 
   async execute(command: UpdateTankCommand): Promise<Tank> {
@@ -75,13 +78,13 @@ export class UpdateTankHandler
     if (updateData.maxBiomass !== undefined) existing.maxBiomass = updateData.maxBiomass;
     if (updateData.maxDensity !== undefined) existing.maxDensity = updateData.maxDensity;
     if (updateData.waterFlow !== undefined) {
-      existing.waterFlow = updateData.waterFlow as Tank['waterFlow'];
+      existing.waterFlow = updateData.waterFlow;
     }
     if (updateData.aeration !== undefined) {
       existing.aeration = updateData.aeration as Tank['aeration'];
     }
     if (updateData.location !== undefined) {
-      existing.location = updateData.location as Tank['location'];
+      existing.location = updateData.location;
     }
     if (updateData.notes !== undefined) existing.notes = updateData.notes;
     if (updateData.installationDate !== undefined) {
@@ -102,6 +105,11 @@ export class UpdateTankHandler
 
     // Save
     const saved = await this.tankRepository.save(existing);
+    await this.farmStockProjection.refreshContainers(
+      this.tankRepository.manager,
+      tenantId,
+      [saved.id],
+    );
 
     // Capture new values for audit
     const newValues = {

@@ -15,22 +15,24 @@
  *
  * @module Batch/Handlers
  */
-import { randomUUID } from 'crypto';
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { Injectable, NotFoundException, BadRequestException, Logger, ConflictException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import type { BatchAllocatedToTankEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { Repository, DataSource } from 'typeorm';
+
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
+import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { TankCapacityService } from '../../tank/services/tank-capacity.service';
 import { AllocateToTankCommand, AllocationType } from '../commands/allocate-to-tank.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { TankAllocation } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
-import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
-import { TankCapacityService } from '../../tank/services/tank-capacity.service';
-import { AuditLogService } from '../../database/services/audit-log.service';
-import { AuditAction } from '../../database/entities/audit-log.entity';
 
 /**
  * Map the command's AllocationType enum to the BatchAllocatedToTankEvent
@@ -78,6 +80,8 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     private readonly outboxPublisher: OutboxPublisher,
     private readonly tankCapacityService: TankCapacityService,
     private readonly auditLogService: AuditLogService,
+    private readonly farmStockProjection: FarmStockProjectionService,
+    private readonly mobileCommandReceipts: MobileCommandReceiptService,
   ) {}
 
   /**
@@ -95,6 +99,26 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope: command.mobileCommand,
+        operationType: 'allocateBatchToTank',
+        responseType: 'TankAllocation',
+      });
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(TankAllocation, {
+              where: { id: receipt.responseId, tenantId, isDeleted: false },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
       // Batch bul with pessimistic lock
       const batch = await queryRunner.manager.findOne(Batch, {
         where: { id: batchId, tenantId, isActive: true },
@@ -149,7 +173,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         tenantId,
         batchId,
         tankId: payload.tankId,
-        allocationType: payload.allocationType as AllocationType,
+        allocationType: payload.allocationType,
         allocationDate: payload.allocatedAt || new Date(),
         quantity: payload.quantity,
         avgWeightG: payload.avgWeightG,
@@ -296,6 +320,12 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         await queryRunner.manager.save(batch);
       }
 
+      await this.farmStockProjection.refreshContainers(
+        queryRunner.manager,
+        tenantId,
+        [payload.tankId],
+      );
+
       // Enqueue BatchAllocatedToTankEvent into the transactional outbox BEFORE commit.
       const allocationDate = payload.allocatedAt || new Date();
       const eventBiomassKg = (payload.quantity * (payload.avgWeightG ?? 0)) / 1000;
@@ -306,10 +336,17 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         tankId: payload.tankId,
         quantity: payload.quantity,
         biomassKg: eventBiomassKg,
-        allocationType: toAllocationTypeCode(payload.allocationType as AllocationType),
+        allocationType: toAllocationTypeCode(payload.allocationType),
         allocationDate,
       };
       await this.outboxPublisher.enqueue(allocationEvent, queryRunner.manager);
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'TankAllocation',
+        responseId: savedAllocation.id,
+        responsePayload: { id: savedAllocation.id },
+      });
 
       await queryRunner.commitTransaction();
 

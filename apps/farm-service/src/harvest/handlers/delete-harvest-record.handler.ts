@@ -8,18 +8,20 @@
  */
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import {
   createBaseEvent,
   type HarvestRecordCancelledEvent,
 } from '@platform/event-contracts';
-import { DeleteHarvestRecordCommand } from '../commands/delete-harvest-record.command';
-import { HarvestRecord, HarvestRecordStatus } from '../entities/harvest-record.entity';
+import { OutboxPublisher } from '@platform/outbox';
+import { Repository, DataSource } from 'typeorm';
+
 import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { Tank } from '../../tank/entities/tank.entity';
+import { DeleteHarvestRecordCommand } from '../commands/delete-harvest-record.command';
+import { HarvestRecord, HarvestRecordStatus } from '../entities/harvest-record.entity';
 
 @Injectable()
 @CommandHandler(DeleteHarvestRecordCommand)
@@ -35,6 +37,7 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
     private readonly tankRepository: Repository<Tank>,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly farmStockProjection: FarmStockProjectionService,
   ) {}
 
   async execute(command: DeleteHarvestRecordCommand): Promise<boolean> {
@@ -103,6 +106,12 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
           tank.currentCount = (tank.currentCount || 0) + harvestRecord.quantityHarvested;
           await queryRunner.manager.save(Tank, tank);
         }
+
+        await this.farmStockProjection.refreshContainers(
+          queryRunner.manager,
+          tenantId,
+          [harvestRecord.tankId],
+        );
       }
 
       // Mark the harvest record as cancelled (soft delete)

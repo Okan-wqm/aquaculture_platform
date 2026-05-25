@@ -15,22 +15,17 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
-import { Tank } from './entities/tank.entity';
-import { Department } from '../department/entities/department.entity';
+import { Batch } from '../batch/entities/batch.entity';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { TankOperation } from '../batch/entities/tank-operation.entity';
-import { Batch } from '../batch/entities/batch.entity';
+import { Department } from '../department/entities/department.entity';
+import { FarmStockModule } from '../farm-stock/farm-stock.module';
 import { Species } from '../species/entities/species.entity';
 
-// Services
-import { TankCapacityService } from './services/tank-capacity.service';
-
-// Handlers
+import { Tank } from './entities/tank.entity';
 import { TankHandlers } from './handlers';
-
-// Resolvers
 import { TankResolver } from './resolvers/tank.resolver';
+import { TankCapacityService } from './services/tank-capacity.service';
 
 @Module({
   imports: [
@@ -42,6 +37,7 @@ import { TankResolver } from './resolvers/tank.resolver';
       Batch,
       Species,
     ]),
+    FarmStockModule,
   ],
   providers: [
     TankCapacityService,

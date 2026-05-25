@@ -16,22 +16,24 @@
  *
  * @module Batch/Handlers
  */
-import { randomUUID } from 'crypto';
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import type { CullRecordedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { Repository, DataSource } from 'typeorm';
+
+import { toCullReasonCode } from '../../common/utils/reason-codecs';
+import { Equipment } from '../../equipment/entities/equipment.entity';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { Tank } from '../../tank/entities/tank.entity';
 import { RecordCullCommand } from '../commands/record-cull.command';
 import { Batch } from '../entities/batch.entity';
-import { TankOperation, OperationType, CullReason } from '../entities/tank-operation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
-import { Equipment } from '../../equipment/entities/equipment.entity';
-import { Tank } from '../../tank/entities/tank.entity';
+import { TankOperation, OperationType, CullReason } from '../entities/tank-operation.entity';
 import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
-import { toCullReasonCode } from '../../common/utils/reason-codecs';
 
 @Injectable()
 @CommandHandler(RecordCullCommand)
@@ -47,6 +49,8 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly farmStockProjection: FarmStockProjectionService,
+    private readonly mobileCommandReceipts: MobileCommandReceiptService,
   ) {}
 
   async execute(command: RecordCullCommand): Promise<Batch> {
@@ -65,6 +69,26 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     let batch: Batch;
 
     try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope: command.mobileCommand,
+        operationType: 'recordCull',
+        responseType: 'Batch',
+      });
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(Batch, {
+              where: { id: receipt.responseId, tenantId, isActive: true },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
       // Batch bul — pessimistic write lock prevents concurrent races
       const foundBatch = await queryRunner.manager.findOne(Batch, {
         where: { id: batchId, tenantId, isActive: true },
@@ -182,6 +206,12 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         await queryRunner.manager.save(Equipment, tank);
       }
 
+      await this.farmStockProjection.refreshContainers(
+        queryRunner.manager,
+        tenantId,
+        [payload.tankId],
+      );
+
       // Enqueue CullRecordedEvent into the transactional outbox BEFORE commit.
       // The outbox row is part of the same transaction as the domain writes —
       // either both commit or neither. OutboxWorkerService publishes to NATS
@@ -199,6 +229,13 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         newCurrentQuantity: batch.currentQuantity,
       };
       await this.outboxPublisher.enqueue(cullEvent, queryRunner.manager);
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'Batch',
+        responseId: batch.id,
+        responsePayload: { id: batch.id },
+      });
 
       // Commit transaction (domain writes + outbox row are atomic)
       await queryRunner.commitTransaction();

@@ -2,14 +2,16 @@
  * Update Tank Status Command Handler
  * @module Tank/Handlers
  */
-import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { Repository } from 'typeorm';
+
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { UpdateTankStatusCommand } from '../commands/update-tank-status.command';
 import { Tank, TankStatus } from '../entities/tank.entity';
-import { AuditLogService } from '../../database/services/audit-log.service';
-import { AuditAction } from '../../database/entities/audit-log.entity';
 
 @CommandHandler(UpdateTankStatusCommand)
 export class UpdateTankStatusHandler
@@ -21,6 +23,7 @@ export class UpdateTankStatusHandler
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
     private readonly auditLogService: AuditLogService,
+    private readonly farmStockProjection: FarmStockProjectionService,
   ) {}
 
   async execute(command: UpdateTankStatusCommand): Promise<Tank> {
@@ -60,6 +63,11 @@ export class UpdateTankStatusHandler
 
     // Save
     const saved = await this.tankRepository.save(tank);
+    await this.farmStockProjection.refreshContainers(
+      this.tankRepository.manager,
+      tenantId,
+      [saved.id],
+    );
 
     // Audit log
     await this.auditLogService.log({

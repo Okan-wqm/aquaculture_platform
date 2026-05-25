@@ -5,21 +5,21 @@
  * When an equipment ID is found in the tanks table, the update is delegated
  * to update the Tank entity instead.
  */
-import { randomUUID } from 'crypto';
-
-import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { ConflictException, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { EquipmentUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { Repository, Not, In } from 'typeorm';
-import { ConflictException, NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
-import { NatsEventBus } from '@platform/event-bus';
-import { EquipmentUpdatedEvent , createBaseEvent } from '@platform/event-contracts';
-import { UpdateEquipmentCommand } from '../commands/update-equipment.command';
-import { Equipment, EquipmentStatus } from '../entities/equipment.entity';
-import { EquipmentSystem } from '../entities/equipment-system.entity';
+
 import { Department } from '../../department/entities/department.entity';
-import { System } from '../../system/entities/system.entity';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { Supplier } from '../../supplier/entities/supplier.entity';
+import { System } from '../../system/entities/system.entity';
 import { Tank, TankType, TankMaterial, TankStatus, WaterType } from '../../tank/entities/tank.entity';
+import { UpdateEquipmentCommand } from '../commands/update-equipment.command';
+import { EquipmentSystem } from '../entities/equipment-system.entity';
+import { Equipment, EquipmentStatus } from '../entities/equipment.entity';
 
 @CommandHandler(UpdateEquipmentCommand)
 export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCommand, Equipment> {
@@ -38,8 +38,8 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
     private readonly supplierRepository: Repository<Supplier>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly farmStockProjection: FarmStockProjectionService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpdateEquipmentCommand): Promise<Equipment> {
@@ -198,7 +198,7 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
     }
 
     // Remove systemIds from input (handled via junction table)
-    const { systemIds, ...equipmentInput } = input;
+    const { systemIds: _systemIds, ...equipmentInput } = input;
 
     // Update fields
     Object.assign(equipment, {
@@ -207,62 +207,69 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
       updatedBy: userId,
     });
 
-    const updatedEquipment = await this.equipmentRepository.save(equipment);
-
-    // Update subEquipmentCount for parent changes
-    if (hasParentEquipmentId && oldParentEquipmentId !== input.parentEquipmentId) {
-      // Decrement old parent's count
-      if (oldParentEquipmentId) {
-        await this.equipmentRepository.decrement(
-          { id: oldParentEquipmentId },
-          'subEquipmentCount',
-          1
+    const updatedEquipment = await this.equipmentRepository.manager.transaction(async (manager) => {
+      const persistedEquipment = await manager.save(Equipment, equipment);
+      if (persistedEquipment.isTank) {
+        await this.farmStockProjection.refreshContainers(
+          manager,
+          tenantId,
+          [persistedEquipment.id],
         );
-        this.logger.log(`Decremented subEquipmentCount for old parent equipment ${oldParentEquipmentId}`);
       }
 
-      // Increment new parent's count
-      if (input.parentEquipmentId) {
-        await this.equipmentRepository.increment(
-          { id: input.parentEquipmentId },
-          'subEquipmentCount',
-          1
-        );
-        this.logger.log(`Incremented subEquipmentCount for new parent equipment ${input.parentEquipmentId}`);
+      // Update subEquipmentCount for parent changes
+      if (hasParentEquipmentId && oldParentEquipmentId !== input.parentEquipmentId) {
+        // Decrement old parent's count
+        if (oldParentEquipmentId) {
+          await manager.decrement(
+            Equipment,
+            { id: oldParentEquipmentId },
+            'subEquipmentCount',
+            1
+          );
+          this.logger.log(`Decremented subEquipmentCount for old parent equipment ${oldParentEquipmentId}`);
+        }
+
+        // Increment new parent's count
+        if (input.parentEquipmentId) {
+          await manager.increment(
+            Equipment,
+            { id: input.parentEquipmentId },
+            'subEquipmentCount',
+            1
+          );
+          this.logger.log(`Incremented subEquipmentCount for new parent equipment ${input.parentEquipmentId}`);
+        }
       }
-    }
 
-    // Update equipment-system relationships if systemIds was provided
-    if (newEquipmentSystems) {
-      // Remove existing relationships
-      await this.equipmentSystemRepository.delete({ equipmentId });
+      // Update equipment-system relationships if systemIds was provided
+      if (newEquipmentSystems) {
+        // Remove existing relationships
+        await manager.delete(EquipmentSystem, { equipmentId });
 
-      // Create new relationships
-      await this.equipmentSystemRepository.save(newEquipmentSystems);
+        // Create new relationships
+        const persistedEquipmentSystems = await manager.save(EquipmentSystem, newEquipmentSystems);
 
-      // Attach to response
-      updatedEquipment.equipmentSystems = newEquipmentSystems;
+        // Attach to response
+        persistedEquipment.equipmentSystems = persistedEquipmentSystems;
 
-      this.logger.log(`Equipment ${equipmentId} systems updated: ${input.systemIds?.join(', ')}`);
-    }
+        this.logger.log(`Equipment ${equipmentId} systems updated: ${input.systemIds?.join(', ')}`);
+      }
+
+      const event: EquipmentUpdatedEvent = {
+        ...createBaseEvent<EquipmentUpdatedEvent>('EquipmentUpdated', tenantId),
+        equipmentId: persistedEquipment.id,
+        name: persistedEquipment.name,
+        status: persistedEquipment.status,
+      };
+      await this.outboxPublisher.enqueue(event, manager, {
+        aggregateId: persistedEquipment.id,
+      });
+
+      return persistedEquipment;
+    });
 
     this.logger.log(`Equipment ${equipmentId} updated successfully`);
-
-    // Publish domain event: EquipmentUpdated
-    if (this.eventBus) {
-      try {
-        const event: EquipmentUpdatedEvent = {
-          ...createBaseEvent<EquipmentUpdatedEvent>('EquipmentUpdated', tenantId),
-          equipmentId: updatedEquipment.id,
-          name: updatedEquipment.name,
-          status: updatedEquipment.status,
-        };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published EquipmentUpdatedEvent for equipment ${updatedEquipment.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish EquipmentUpdatedEvent: ${(eventError as Error).message}`);
-      }
-    }
 
     return updatedEquipment;
   }
@@ -414,13 +421,13 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
       // JSONB fields
       if (specs.waterFlow !== undefined) {
-        tank.waterFlow = specs.waterFlow as Tank['waterFlow'];
+        tank.waterFlow = specs.waterFlow;
       }
       if (specs.aeration !== undefined) {
         tank.aeration = specs.aeration as Tank['aeration'];
       }
       if (specs.location !== undefined) {
-        tank.location = specs.location as Tank['location'];
+        tank.location = specs.location;
       }
     }
 
@@ -450,13 +457,7 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
     // Handle location from equipment input
     if (input.location) {
-      const equipmentLocation = input.location as {
-        building?: string;
-        floor?: string;
-        room?: string;
-        coordinates?: { x: number; y: number; z?: number };
-        notes?: string;
-      };
+      const equipmentLocation = input.location;
       tank.location = {
         ...tank.location,
         building: equipmentLocation.building ?? tank.location?.building,
@@ -480,8 +481,16 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
       }
     }
 
-    // Save the tank
-    const savedTank = await this.tankRepository.save(tank);
+    const savedTank = await this.tankRepository.manager.transaction(async (manager) => {
+      const persistedTank = await manager.save(Tank, tank);
+      await this.farmStockProjection.refreshContainers(
+        manager,
+        tenantId,
+        [persistedTank.id],
+      );
+
+      return persistedTank;
+    });
 
     this.logger.log(`Tank ${savedTank.id} updated successfully via equipment resolver`);
 

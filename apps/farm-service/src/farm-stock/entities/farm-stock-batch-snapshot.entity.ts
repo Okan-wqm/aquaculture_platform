@@ -12,9 +12,9 @@ import {
 @ObjectType()
 @Directive('@key(fields: "id")')
 @Entity('farm_stock_batch_snapshots')
-@Index(['tenantId', 'containerId', 'batchId'], { unique: true })
-@Index(['tenantId', 'batchId'])
-@Index(['tenantId', 'containerId'])
+@Index('uq_farm_stock_batch_snapshot_tenant_container_batch', ['tenantId', 'containerId', 'batchId'], { unique: true })
+@Index('idx_farm_stock_batch_tenant_batch', ['tenantId', 'batchId'])
+@Index('idx_farm_stock_batch_tenant_container', ['tenantId', 'containerId'])
 export class FarmStockBatchSnapshot {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -32,11 +32,11 @@ export class FarmStockBatchSnapshot {
   @Column('uuid')
   batchId!: string;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 50, nullable: true })
   batchNumber?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 80, nullable: true })
   batchStatus?: string | null;
 
@@ -72,7 +72,7 @@ export class FarmStockBatchSnapshot {
   @Column({ default: true })
   isPrimary!: boolean;
 
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   lastMortalityAt?: Date | null;
 

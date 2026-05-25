@@ -2,21 +2,22 @@
  * Create Tank Command Handler
  * @module Tank/Handlers
  */
-import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import {
-  ConflictException,
   Logger,
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { Repository } from 'typeorm';
+
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
+import { CodeGeneratorService } from '../../database/services/code-generator.service';
+import { Department } from '../../department/entities/department.entity';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { CreateTankCommand } from '../commands/create-tank.command';
 import { Tank, TankType } from '../entities/tank.entity';
-import { Department } from '../../department/entities/department.entity';
-import { AuditLogService } from '../../database/services/audit-log.service';
-import { AuditAction } from '../../database/entities/audit-log.entity';
-import { CodeGeneratorService } from '../../database/services/code-generator.service';
 
 @CommandHandler(CreateTankCommand)
 export class CreateTankHandler
@@ -31,6 +32,7 @@ export class CreateTankHandler
     private readonly departmentRepository: Repository<Department>,
     private readonly auditLogService: AuditLogService,
     private readonly codeGeneratorService: CodeGeneratorService,
+    private readonly farmStockProjection: FarmStockProjectionService,
   ) {}
 
   async execute(command: CreateTankCommand): Promise<Tank> {
@@ -78,9 +80,9 @@ export class CreateTankHandler
       maxBiomass: input.maxBiomass,
       currentBiomass: 0,
       maxDensity: input.maxDensity || 30,
-      waterFlow: input.waterFlow as Tank['waterFlow'],
+      waterFlow: input.waterFlow,
       aeration: input.aeration as Tank['aeration'],
-      location: input.location as Tank['location'],
+      location: input.location,
       status: input.status,
       installationDate: input.installationDate
         ? new Date(input.installationDate)
@@ -111,6 +113,11 @@ export class CreateTankHandler
 
     // Save
     const saved = await this.tankRepository.save(tank);
+    await this.farmStockProjection.refreshContainers(
+      this.tankRepository.manager,
+      tenantId,
+      [saved.id],
+    );
 
     // Audit log
     await this.auditLogService.log({
@@ -175,7 +182,7 @@ export class CreateTankHandler
         }
         break;
 
-      case TankType.OTHER:
+      case TankType.OTHER: {
         // For OTHER type, at least one dimension set should be provided
         const hasCircular = input.diameter && input.diameter > 0;
         const hasRectangular =
@@ -187,6 +194,7 @@ export class CreateTankHandler
           );
         }
         break;
+      }
     }
   }
 }

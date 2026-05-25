@@ -349,7 +349,7 @@ export function reagentDirectionLine(
   startDIC: number,
   startAlk: number,
   reagent: ReagentInfo,
-  length: number = 3
+  length = 3
 ): Array<{ CT: number; AT: number }> {
   const points: Array<{ CT: number; AT: number }> = [];
   const steps = 50;

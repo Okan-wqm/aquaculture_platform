@@ -26,6 +26,10 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+  defaultMobileCommandReceiptsForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
 import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
@@ -69,8 +73,10 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly tankCapacityService: TankCapacityService,
-    private readonly farmStockProjection: FarmStockProjectionService,
-    private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly mobileCommandReceipts: MobileCommandReceiptService =
+      defaultMobileCommandReceiptsForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: TransferBatchCommand): Promise<Batch> {

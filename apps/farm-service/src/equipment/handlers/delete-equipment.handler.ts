@@ -14,6 +14,10 @@ import { OutboxPublisher } from '@platform/outbox';
 import { Repository, In } from 'typeorm';
 
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+  defaultOutboxPublisherForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { Tank } from '../../tank/entities/tank.entity';
 import { DeleteEquipmentCommand } from '../commands/delete-equipment.command';
@@ -33,8 +37,10 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
     private readonly tankRepository: Repository<Tank>,
     @InjectRepository(TankBatch)
     private readonly tankBatchRepository: Repository<TankBatch>,
-    private readonly farmStockProjection: FarmStockProjectionService,
-    private readonly outboxPublisher: OutboxPublisher,
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly outboxPublisher: OutboxPublisher =
+      defaultOutboxPublisherForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: DeleteEquipmentCommand): Promise<boolean> {

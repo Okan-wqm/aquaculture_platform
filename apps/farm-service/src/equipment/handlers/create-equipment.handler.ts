@@ -8,6 +8,10 @@ import { EquipmentCreatedEvent, createBaseEvent } from '@platform/event-contract
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, In } from 'typeorm';
 
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+  defaultOutboxPublisherForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
 import { Department } from '../../department/entities/department.entity';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
@@ -39,8 +43,10 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
     private readonly codeGeneratorService: CodeGeneratorService,
-    private readonly farmStockProjection: FarmStockProjectionService,
-    private readonly outboxPublisher: OutboxPublisher,
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly outboxPublisher: OutboxPublisher =
+      defaultOutboxPublisherForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: CreateEquipmentCommand): Promise<Equipment> {

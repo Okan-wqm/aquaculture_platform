@@ -1,23 +1,23 @@
 /**
  * Create Equipment Command Handler
  */
-import { randomUUID } from 'crypto';
-
-import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { ConflictException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { EquipmentCreatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { Repository, In } from 'typeorm';
-import { ConflictException, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
-import { NatsEventBus } from '@platform/event-bus';
-import { EquipmentCreatedEvent , createBaseEvent } from '@platform/event-contracts';
-import { CreateEquipmentCommand } from '../commands/create-equipment.command';
-import { Equipment, EquipmentStatus, TankSpecifications } from '../entities/equipment.entity';
-import { EquipmentType, EquipmentCategory } from '../entities/equipment-type.entity';
-import { EquipmentSystem } from '../entities/equipment-system.entity';
-import { Department } from '../../department/entities/department.entity';
-import { System } from '../../system/entities/system.entity';
-import { Supplier } from '../../supplier/entities/supplier.entity';
-import { Tank, TankType, TankMaterial, TankStatus, WaterType } from '../../tank/entities/tank.entity';
+
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
+import { Department } from '../../department/entities/department.entity';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { Supplier } from '../../supplier/entities/supplier.entity';
+import { System } from '../../system/entities/system.entity';
+import { Tank, TankType, TankMaterial, TankStatus, WaterType } from '../../tank/entities/tank.entity';
+import { CreateEquipmentCommand } from '../commands/create-equipment.command';
+import { EquipmentSystem } from '../entities/equipment-system.entity';
+import { EquipmentType, EquipmentCategory } from '../entities/equipment-type.entity';
+import { Equipment, EquipmentStatus, TankSpecifications } from '../entities/equipment.entity';
 
 @CommandHandler(CreateEquipmentCommand)
 export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCommand, Equipment> {
@@ -39,8 +39,8 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
     private readonly codeGeneratorService: CodeGeneratorService,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly farmStockProjection: FarmStockProjectionService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: CreateEquipmentCommand): Promise<Equipment> {
@@ -193,59 +193,65 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
       updatedBy: userId,
     });
 
-    const savedEquipment = await this.equipmentRepository.save(equipment);
+    const savedEquipment = await this.equipmentRepository.manager.transaction(async (manager) => {
+      const persistedEquipment = await manager.save(Equipment, equipment);
+      if (persistedEquipment.isTank) {
+        await this.farmStockProjection.refreshContainers(
+          manager,
+          tenantId,
+          [persistedEquipment.id],
+        );
+      }
 
-    // Create equipment-system relationships (many-to-many)
-    const equipmentSystems = input.systemIds.map((systemId, index) =>
-      this.equipmentSystemRepository.create({
-        tenantId,
-        equipmentId: savedEquipment.id,
-        systemId,
-        isPrimary: index === 0, // First system is primary by default
-        criticalityLevel: 3, // Default criticality
-        createdBy: userId,
-      })
-    );
-
-    await this.equipmentSystemRepository.save(equipmentSystems);
-
-    // Update parent's subEquipmentCount if parent was specified
-    if (parentEquipment) {
-      await this.equipmentRepository.increment(
-        { id: parentEquipment.id },
-        'subEquipmentCount',
-        1
+      // Create equipment-system relationships (many-to-many)
+      const equipmentSystems = input.systemIds.map((systemId, index) =>
+        this.equipmentSystemRepository.create({
+          tenantId,
+          equipmentId: persistedEquipment.id,
+          systemId,
+          isPrimary: index === 0, // First system is primary by default
+          criticalityLevel: 3, // Default criticality
+          createdBy: userId,
+        })
       );
-      this.logger.log(`Incremented subEquipmentCount for parent equipment ${parentEquipment.id}`);
-    }
+
+      await manager.save(EquipmentSystem, equipmentSystems);
+
+      // Update parent's subEquipmentCount if parent was specified
+      if (parentEquipment) {
+        await manager.increment(
+          Equipment,
+          { id: parentEquipment.id },
+          'subEquipmentCount',
+          1
+        );
+        this.logger.log(`Incremented subEquipmentCount for parent equipment ${parentEquipment.id}`);
+      }
+
+      const event: EquipmentCreatedEvent = {
+        ...createBaseEvent<EquipmentCreatedEvent>('EquipmentCreated', tenantId),
+        equipmentId: persistedEquipment.id,
+        siteId: department.siteId ?? '',
+        systemId: systems[0]?.id,
+        departmentId: persistedEquipment.departmentId,
+        name: persistedEquipment.name,
+        code: persistedEquipment.code,
+        typeId: persistedEquipment.equipmentTypeId,
+        category: equipmentType.category,
+        status: persistedEquipment.status,
+        version: 1,
+      };
+      await this.outboxPublisher.enqueue(event, manager, {
+        aggregateId: persistedEquipment.id,
+      });
+
+      persistedEquipment.equipmentSystems = equipmentSystems;
+      return persistedEquipment;
+    });
 
     this.logger.log(`Equipment "${savedEquipment.name}" created with ID ${savedEquipment.id}, linked to ${systems.length} system(s)`);
 
-    // Publish domain event: EquipmentCreated
-    if (this.eventBus) {
-      try {
-        const event: EquipmentCreatedEvent = {
-          ...createBaseEvent<EquipmentCreatedEvent>('EquipmentCreated', tenantId),
-          equipmentId: savedEquipment.id,
-          siteId: department.siteId ?? '',
-          systemId: systems[0]?.id,
-          departmentId: savedEquipment.departmentId,
-          name: savedEquipment.name,
-          code: savedEquipment.code,
-          typeId: savedEquipment.equipmentTypeId,
-          category: equipmentType.category,
-          status: savedEquipment.status,
-          version: 1,
-        };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published EquipmentCreatedEvent for equipment ${savedEquipment.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish EquipmentCreatedEvent: ${(eventError as Error).message}`);
-      }
-    }
-
     // Return equipment with systems
-    savedEquipment.equipmentSystems = equipmentSystems;
     return savedEquipment;
   }
 
@@ -320,6 +326,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
 
     // Map equipment status to tank status
     const tankStatus = this.mapEquipmentStatusToTankStatus(input.status);
+    const primarySystem = systems[0];
 
     // Create Tank entity
     const tank = this.tankRepository.create({
@@ -328,7 +335,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
       code: tankCode,
       description: input.description,
       departmentId: input.departmentId,
-      systemId: systems.length > 0 ? systems[0]!.id : undefined,
+      systemId: primarySystem?.id,
       tankType,
       material,
       waterType,
@@ -344,7 +351,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
       maxDensity,
       waterFlow: specs.waterFlow,
       aeration: specs.aeration,
-      location: input.location as Tank['location'],
+      location: input.location,
       status: tankStatus,
       installationDate: input.installationDate ? new Date(input.installationDate) : undefined,
       notes: input.notes,
@@ -367,6 +374,11 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
     }
 
     const savedTank = await this.tankRepository.save(tank);
+    await this.farmStockProjection.refreshContainers(
+      this.tankRepository.manager,
+      tenantId,
+      [savedTank.id],
+    );
 
     this.logger.log(
       `Tank "${savedTank.name}" created with ID ${savedTank.id}, code ${savedTank.code} (${savedTank.volume?.toFixed(2) ?? 0}m3) from equipment input`,
@@ -428,7 +440,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
       maxDensity: tank.maxDensity,
       waterFlow: tank.waterFlow,
       aeration: tank.aeration,
-    } as TankSpecifications;
+    };
 
     // Create mock equipment systems for response
     equipment.equipmentSystems = systems.map((system, index) => ({
@@ -441,7 +453,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
       createdAt: tank.createdAt,
       updatedAt: tank.updatedAt,
       createdBy: tank.createdBy,
-    })) as Equipment['equipmentSystems'];
+    }));
 
     return equipment;
   }

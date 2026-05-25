@@ -349,20 +349,20 @@ jobs:
   #
   # Asserts that per-tenant schema clones are a structurally faithful,
   # RLS-enabled mirror of every source-schema table. Runs against a
-  # live Postgres service container (NOT testcontainers) because the
-  # spec assumes the e2e shared DB is already populated by earlier
-  # migration runs — pattern matches schema-invariants.spec.ts and
-  # nats-invariants.spec.ts.
+  # live Postgres service container (NOT testcontainers) after applying
+  # the same aqua-db-migrate entrypoint used by production deploys.
   #
   # Why a separate job from bootstrap-from-scratch: the bootstrap spec
   # is hermetic (its own testcontainer); tenant-clone-parity targets
   # the running e2e Postgres so it can exercise the actual production
-  # provisioning path, not a hand-rolled mock. Splitting also lets
+  # migration/provisioning path, not a hand-rolled mock. Splitting also lets
   # this job complete in ~3 minutes vs the bootstrap job's 8.
   # ===================================================================
   tenant-clone-parity:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      AQUA_TEST_DB_VALUE: aquaculture-test
 
     services:
       postgres:
@@ -392,36 +392,33 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit
 
-      - name: Run init-scripts against test DB
+      - name: Run aqua-db-migrate against test DB
         env:
-          PGPASSWORD: aquaculture-test
-          # PGHOST/PGUSER/PGDATABASE: every psql invocation inside the
-          # .sh init-scripts inherits these via libpq env. Without
-          # PGHOST psql falls back to the unix socket which doesn't
-          # exist on the GHA runner (postgres is exposed via TCP from
-          # the `services:` container). POSTGRES_USER/POSTGRES_DB:
-          # 00-init-schemas.sh reads these to wire its internal psql
-          # `--username` / `--dbname` flags — defaults are `postgres`
-          # but the GHA service was provisioned with `aquaculture`,
-          # so the defaults would crash with `role "postgres" does
-          # not exist`. Setting both at the step env layer keeps the
-          # script source untouched.
-          PGHOST: localhost
-          PGUSER: aquaculture
-          PGDATABASE: aquaculture
-          POSTGRES_USER: aquaculture
-          POSTGRES_DB: aquaculture
+          DATABASE_HOST: localhost
+          DATABASE_PORT: '5432'
+          DATABASE_USER: aquaculture
+          DATABASE_PASSWORD: aquaculture-test
+          DATABASE_NAME: aquaculture
+          AUTH_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          FARM_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          SENSOR_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          BILLING_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          HR_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          ALERT_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          ADMIN_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          GATEWAY_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          NOTIFICATION_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          HYDROPONICS_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          AI_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          MESSAGING_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          OBSERVABILITY_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          EVENT_STORE_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
+          CONFIG_SERVICE_DB_PASS: ${{ env.AQUA_TEST_DB_VALUE }}
         run: |
-          # Apply the production init scripts to the e2e DB so the
-          # source-schema table inventory matches what tenant-clone-
-          # parity asserts. Order matters: 00-init-schemas.sh first
-          # (creates schemas), then the .sql files alphabetically.
-          for script in infrastructure/docker/init-scripts/*; do
-            case "$script" in
-              *.sh) bash "$script" ;;
-              *.sql) psql -h localhost -U aquaculture -d aquaculture -f "$script" ;;
-            esac
-          done
+          npx ts-node \
+            --project apps/db-migrate/tsconfig.app.json \
+            -r tsconfig-paths/register \
+            apps/db-migrate/src/main.ts
 
       - name: Run tenant-clone-parity test
         run: npm run test:tenant-clone

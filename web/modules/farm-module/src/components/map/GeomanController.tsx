@@ -8,12 +8,14 @@
  * which renders OUTSIDE MapContainer.
  */
 
+import type { Layer } from 'leaflet';
 import { useEffect, useRef } from 'react';
 import { useMap } from 'react-leaflet';
-import type { Layer } from 'leaflet';
+
 import '@geoman-io/leaflet-geoman-free';
 import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css';
 import type { DrawingMode, AOIType } from '../../hooks/useAOIDrawing';
+import type { GeomanCreateEvent } from '../../types/leaflet-geoman';
 
 interface GeomanControllerProps {
   drawingMode: DrawingMode;
@@ -85,7 +87,7 @@ export const GeomanController: React.FC<GeomanControllerProps> = ({
   useEffect(() => {
     if (!map) return;
 
-    const handleCreate = (e: any) => {
+    const handleCreate = (e: GeomanCreateEvent): void => {
       const { layer, shape } = e;
 
       // Map Geoman shape names to our AOI types

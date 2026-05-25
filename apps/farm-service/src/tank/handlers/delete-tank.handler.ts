@@ -2,14 +2,16 @@
  * Delete Tank Command Handler
  * @module Tank/Handlers
  */
-import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { Repository } from 'typeorm';
+
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { DeleteTankCommand } from '../commands/delete-tank.command';
 import { Tank } from '../entities/tank.entity';
-import { AuditLogService } from '../../database/services/audit-log.service';
-import { AuditAction } from '../../database/entities/audit-log.entity';
 
 @CommandHandler(DeleteTankCommand)
 export class DeleteTankHandler
@@ -21,6 +23,7 @@ export class DeleteTankHandler
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
     private readonly auditLogService: AuditLogService,
+    private readonly farmStockProjection: FarmStockProjectionService,
   ) {}
 
   async execute(command: DeleteTankCommand): Promise<boolean> {
@@ -50,6 +53,11 @@ export class DeleteTankHandler
     tank.updatedBy = userId;
 
     await this.tankRepository.save(tank);
+    await this.farmStockProjection.refreshContainers(
+      this.tankRepository.manager,
+      tenantId,
+      [tank.id],
+    );
 
     // Audit log
     await this.auditLogService.log({

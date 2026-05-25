@@ -3,7 +3,6 @@
  * Organized by category with collapsible accordion sections
  */
 
-import React, { useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -14,7 +13,7 @@ import {
   SlidersHorizontal,
   Keyboard,
   CircleDot,
-  OctagonAlert,
+  AlertOctagon,
   TrendingUp,
   Bell,
   List,
@@ -27,7 +26,6 @@ import {
   Link2,
   Type,
   GitCommitHorizontal,
-  Shapes,
   Square,
   Circle,
   Minus,
@@ -35,7 +33,7 @@ import {
   Calendar,
   Video,
   MapPinned,
-  Ellipsis,
+  MoreHorizontal,
   Spline,
   Image,
   Hexagon,
@@ -53,8 +51,10 @@ import {
   Minimize2,
   LayoutGrid,
 } from 'lucide-react';
-import type { ScadaWidgetType } from '../../types/scada-widget.types';
+import React, { useState } from 'react';
+
 import { WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES } from '../../constants/scada-widget-sizes';
+import type { ScadaWidgetType } from '../../types/scada-widget.types';
 
 interface WidgetDefinition {
   type: ScadaWidgetType;
@@ -166,7 +166,7 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
       { type: 'slider', label: 'Slider', icon: <SlidersHorizontal className="w-4 h-4" /> },
       { type: 'numericInput', label: 'NumericInput', icon: <Keyboard className="w-4 h-4" /> },
       { type: 'pushButton', label: 'PushButton', icon: <CircleDot className="w-4 h-4" /> },
-      { type: 'emergencyStop', label: 'EmergencyStop', icon: <OctagonAlert className="w-4 h-4" /> },
+      { type: 'emergencyStop', label: 'EmergencyStop', icon: <AlertOctagon className="w-4 h-4" /> },
       { type: 'knob', label: 'Knob', icon: <Disc3 className="w-4 h-4" /> },
       { type: 'dropdownSelect', label: 'Dropdown Select', icon: <ChevronDownSquare className="w-4 h-4" /> },
     ],
@@ -221,7 +221,7 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
       { type: 'svgLine', label: 'Line', icon: <Minus className="w-4 h-4" /> },
       { type: 'svgText', label: 'Text', icon: <Type className="w-4 h-4" /> },
       { type: 'customSvg', label: 'Custom SVG', icon: <FileImage className="w-4 h-4" /> },
-      { type: 'svgEllipse', label: 'Ellipse', icon: <Ellipsis className="w-4 h-4" /> },
+      { type: 'svgEllipse', label: 'Ellipse', icon: <MoreHorizontal className="w-4 h-4" /> },
       { type: 'svgPath', label: 'Path', icon: <Spline className="w-4 h-4" /> },
       { type: 'svgPolygon', label: 'Polygon', icon: <Hexagon className="w-4 h-4" /> },
       { type: 'svgTriangle', label: 'Triangle', icon: <Triangle className="w-4 h-4" /> },
@@ -260,72 +260,72 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
   {
     name: 'Process Equipment',
     widgets: [
-      { type: 'feeder' as ScadaWidgetType, label: 'Feeder', icon: FEEDER_ICON },
-      { type: 'mbbr' as ScadaWidgetType, label: 'MBBR', icon: MBBR_ICON },
-      { type: 'hepaFilter' as ScadaWidgetType, label: 'HEPA Filter', icon: HEPA_ICON },
-      { type: 'radialFilter' as ScadaWidgetType, label: 'Radial Filter', icon: FILTER_ICON },
-      { type: 'cornellDualDrain' as ScadaWidgetType, label: 'Cornell Dual Drain', icon: CORNELL_ICON },
+      { type: 'feeder', label: 'Feeder', icon: FEEDER_ICON },
+      { type: 'mbbr', label: 'MBBR', icon: MBBR_ICON },
+      { type: 'hepaFilter', label: 'HEPA Filter', icon: HEPA_ICON },
+      { type: 'radialFilter', label: 'Radial Filter', icon: FILTER_ICON },
+      { type: 'cornellDualDrain', label: 'Cornell Dual Drain', icon: CORNELL_ICON },
     ],
   },
   {
     name: 'Water Tanks',
     widgets: [
-      { type: 'cleanWaterTank' as ScadaWidgetType, label: 'Clean Water Tank', icon: WATER_TANK_ICON },
-      { type: 'dirtyWaterTank' as ScadaWidgetType, label: 'Dirty Water Tank', icon: WATER_TANK_ICON },
+      { type: 'cleanWaterTank', label: 'Clean Water Tank', icon: WATER_TANK_ICON },
+      { type: 'dirtyWaterTank', label: 'Dirty Water Tank', icon: WATER_TANK_ICON },
     ],
   },
   {
     name: 'Pumps',
     widgets: [
-      { type: 'equipment' as ScadaWidgetType, label: 'Centrifugal Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'centrifugalPump' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Gear Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'gearPump' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Diaphragm Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'diaphragmPump' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Piston Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'pistonPump' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Submersible Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'submersiblePump' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Vacuum Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'vacuumPump' } },
+      { type: 'equipment', label: 'Centrifugal Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'centrifugalPump' } },
+      { type: 'equipment', label: 'Gear Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'gearPump' } },
+      { type: 'equipment', label: 'Diaphragm Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'diaphragmPump' } },
+      { type: 'equipment', label: 'Piston Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'pistonPump' } },
+      { type: 'equipment', label: 'Submersible Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'submersiblePump' } },
+      { type: 'equipment', label: 'Vacuum Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'vacuumPump' } },
     ],
   },
   {
     name: 'Valves',
     widgets: [
-      { type: 'equipment' as ScadaWidgetType, label: 'Gate Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'gateValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Ball Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'ballValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Butterfly Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'butterflyValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Globe Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'globeValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Check Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'checkValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Relief Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'reliefValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Control Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'controlValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Needle Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'needleValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Solenoid Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'solenoidValve' } },
+      { type: 'equipment', label: 'Gate Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'gateValve' } },
+      { type: 'equipment', label: 'Ball Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'ballValve' } },
+      { type: 'equipment', label: 'Butterfly Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'butterflyValve' } },
+      { type: 'equipment', label: 'Globe Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'globeValve' } },
+      { type: 'equipment', label: 'Check Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'checkValve' } },
+      { type: 'equipment', label: 'Relief Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'reliefValve' } },
+      { type: 'equipment', label: 'Control Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'controlValve' } },
+      { type: 'equipment', label: 'Needle Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'needleValve' } },
+      { type: 'equipment', label: 'Solenoid Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'solenoidValve' } },
     ],
   },
   {
     name: 'Tank / Vessel',
     widgets: [
-      { type: 'equipment' as ScadaWidgetType, label: 'Vertical Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'verticalTank' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Horizontal Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'horizontalTank' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Conical Bottom Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'conicalBottomTank' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Pressure Vessel', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'pressureVessel' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Silo', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'silo' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Mixing Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'mixingTank' } },
+      { type: 'equipment', label: 'Vertical Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'verticalTank' } },
+      { type: 'equipment', label: 'Horizontal Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'horizontalTank' } },
+      { type: 'equipment', label: 'Conical Bottom Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'conicalBottomTank' } },
+      { type: 'equipment', label: 'Pressure Vessel', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'pressureVessel' } },
+      { type: 'equipment', label: 'Silo', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'silo' } },
+      { type: 'equipment', label: 'Mixing Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'mixingTank' } },
     ],
   },
   {
     name: 'Heat Exchangers',
     widgets: [
-      { type: 'equipment' as ScadaWidgetType, label: 'Shell & Tube', icon: HX_ICON, defaultConfig: { equipmentSubType: 'shellAndTube' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Plate Heat Exchanger', icon: HX_ICON, defaultConfig: { equipmentSubType: 'plateHeatExchanger' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Air Cooler', icon: HX_ICON, defaultConfig: { equipmentSubType: 'airCooler' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Condenser', icon: HX_ICON, defaultConfig: { equipmentSubType: 'condenser' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Evaporator', icon: HX_ICON, defaultConfig: { equipmentSubType: 'evaporator' } },
+      { type: 'equipment', label: 'Shell & Tube', icon: HX_ICON, defaultConfig: { equipmentSubType: 'shellAndTube' } },
+      { type: 'equipment', label: 'Plate Heat Exchanger', icon: HX_ICON, defaultConfig: { equipmentSubType: 'plateHeatExchanger' } },
+      { type: 'equipment', label: 'Air Cooler', icon: HX_ICON, defaultConfig: { equipmentSubType: 'airCooler' } },
+      { type: 'equipment', label: 'Condenser', icon: HX_ICON, defaultConfig: { equipmentSubType: 'condenser' } },
+      { type: 'equipment', label: 'Evaporator', icon: HX_ICON, defaultConfig: { equipmentSubType: 'evaporator' } },
     ],
   },
   {
     name: 'VFD / Motor Drives',
     widgets: [
-      { type: 'vfdDrive' as ScadaWidgetType, label: 'VFD Drive', icon: <Zap size={20} />, defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
-      { type: 'vfdMini' as ScadaWidgetType, label: 'VFD Mini', icon: <Minimize2 size={20} />, defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
-      { type: 'vfdGroup' as ScadaWidgetType, label: 'VFD Group', icon: <LayoutGrid size={20} />, defaultConfig: { title: 'VFD Group' } },
+      { type: 'vfdDrive', label: 'VFD Drive', icon: <Zap size={20} />, defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
+      { type: 'vfdMini', label: 'VFD Mini', icon: <Minimize2 size={20} />, defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
+      { type: 'vfdGroup', label: 'VFD Group', icon: <LayoutGrid size={20} />, defaultConfig: { title: 'VFD Group' } },
     ],
   },
 ];
@@ -335,7 +335,7 @@ export const WidgetPalette: React.FC = () => {
     new Set(WIDGET_CATEGORIES.map((c) => c.name))
   );
 
-  const toggleCategory = (name: string) => {
+  const toggleCategory = (name: string): void => {
     setExpandedCategories((prev) => {
       const next = new Set(prev);
       if (next.has(name)) {
@@ -347,7 +347,7 @@ export const WidgetPalette: React.FC = () => {
     });
   };
 
-  const handleDragStart = (e: React.DragEvent, widget: WidgetDefinition) => {
+  const handleDragStart = (e: React.DragEvent, widget: WidgetDefinition): void => {
     const subType = widget.defaultConfig?.equipmentSubType as string | undefined;
     const sizeDef = subType
       ? EQUIPMENT_SUBTYPE_SIZES[subType as import('../../types/scada-widget.types').EquipmentSubType] || WIDGET_SIZES[widget.type]

@@ -1,24 +1,12 @@
-import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { GraphQLModule } from '@nestjs/graphql';
-import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { join } from 'path';
-import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
-import { CqrsModule } from '@nestjs/cqrs';
-import { ScheduleModule } from '@nestjs/schedule';
-import { EventBusModule } from '@platform/event-bus';
-import { HrOutboxModule } from './hr-outbox.module';
-import { HrOutbox } from './hr/entities/hr-outbox.entity';
-import { GraphQLError, GraphQLFormattedError } from 'graphql';
-import depthLimit from 'graphql-depth-limit';
-import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
-import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+
+import type { GraphQLRequestContextDidResolveOperation } from '@apollo/server';
 import {
   AuditLogModule,
   AuditLogInterceptor,
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import {
   AuditColumnsModule,
   createSchemaVersionGate,
@@ -38,6 +26,70 @@ import {
   TenantContextMiddleware,
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
+import { CqrsModule } from '@nestjs/cqrs';
+import { GraphQLModule } from '@nestjs/graphql';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { EventBusModule } from '@platform/event-bus';
+import { Request } from 'express';
+import { GraphQLError, GraphQLFormattedError } from 'graphql';
+import depthLimit from 'graphql-depth-limit';
+import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
+
+import { AquacultureModule } from './aquaculture/aquaculture.module';
+import { SafetyTrainingRecord } from './aquaculture/entities/safety-training-record.entity';
+import { GeoCoordinates, WorkArea } from './aquaculture/entities/work-area.entity';
+import {
+  CheckInHistoryEntry,
+  CheckInLocation,
+  TransportInfo,
+  WorkRotation,
+} from './aquaculture/entities/work-rotation.entity';
+import { AttendanceModule } from './attendance/attendance.module';
+import { AttendanceRecord } from './attendance/entities/attendance-record.entity';
+import { ScheduleEntry } from './attendance/entities/schedule-entry.entity';
+import { Schedule } from './attendance/entities/schedule.entity';
+import { Shift } from './attendance/entities/shift.entity';
+import { DailyAttendanceOverview } from './attendance/query-handlers/get-daily-attendance-overview.handler';
+import { HealthModule } from './health/health.module';
+import { DepartmentHR } from './hr/entities/department.entity';
+import { Address, ContactInfo, Employee, NextOfKin } from './hr/entities/employee.entity';
+import { HrOutbox } from './hr/entities/hr-outbox.entity';
+import { PayrollAudit } from './hr/entities/payroll-audit.entity';
+import { Payroll } from './hr/entities/payroll.entity';
+import { HRModule } from './hr/hr.module';
+import { HRDashboardStats } from './hr/query-handlers/get-hr-dashboard-stats.handler';
+import { HrOutboxModule } from './hr-outbox.module';
+import { LeaveBalance } from './leave/entities/leave-balance.entity';
+import { LeaveRequest } from './leave/entities/leave-request.entity';
+import { LeaveType } from './leave/entities/leave-type.entity';
+import { LeaveModule } from './leave/leave.module';
+import { HrMobileCommandReceipt } from './mobile-command/entities/hr-mobile-command-receipt.entity';
+import { Goal, GoalMilestone, KeyResult } from './performance/entities/goal.entity';
+import { EmployeeKPI } from './performance/entities/kpi.entity';
+import {
+  CompetencyRating,
+  PerformanceReview,
+} from './performance/entities/performance-review.entity';
+import { PerformanceModule } from './performance/performance.module';
+import {
+  PerformanceSummary,
+  ReviewSummaryItem,
+} from './performance/query-handlers/get-performance-summary.handler';
+import { Holiday } from './scheduling/entities/holiday.entity';
+import { SchedulingSettings } from './scheduling/entities/scheduling-settings.entity';
+import { WeeklyPlanEntry } from './scheduling/entities/weekly-plan-entry.entity';
+import { WeeklyPlan } from './scheduling/entities/weekly-plan.entity';
+import { SchedulingModule } from './scheduling/scheduling.module';
+import { CertificationType } from './training/entities/certification-type.entity';
+import { EmployeeCertification } from './training/entities/employee-certification.entity';
+import { TrainingCourse } from './training/entities/training-course.entity';
+import { TrainingEnrollment } from './training/entities/training-enrollment.entity';
+import { TrainingModule } from './training/training.module';
 
 /**
  * HrMigrationRunnerService — runs pending TypeORM migrations in the hr
@@ -56,65 +108,10 @@ import {
 const HrMigrationRunnerService = createSchemaVersionGate('hr');
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hr');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hr');
-import { HRModule } from './hr/hr.module';
-import { HealthModule } from './health/health.module';
-import { LeaveModule } from './leave/leave.module';
-import { AttendanceModule } from './attendance/attendance.module';
-import { TrainingModule } from './training/training.module';
-import { AquacultureModule } from './aquaculture/aquaculture.module';
-import { SchedulingModule } from './scheduling/scheduling.module';
-import { PerformanceModule } from './performance/performance.module';
 
-// Explicit entity imports (required for webpack bundle - glob patterns don't work)
-// Core HR entities
-import { Employee } from './hr/entities/employee.entity';
-import { Payroll } from './hr/entities/payroll.entity';
-import { PayrollAudit } from './hr/entities/payroll-audit.entity';
-import { DepartmentHR } from './hr/entities/department.entity';
-// Leave entities
-import { LeaveType } from './leave/entities/leave-type.entity';
-import { LeaveBalance } from './leave/entities/leave-balance.entity';
-import { LeaveRequest } from './leave/entities/leave-request.entity';
-// Attendance entities
-import { Shift } from './attendance/entities/shift.entity';
-import { Schedule } from './attendance/entities/schedule.entity';
-import { ScheduleEntry } from './attendance/entities/schedule-entry.entity';
-import { AttendanceRecord } from './attendance/entities/attendance-record.entity';
-// Training entities
-import { CertificationType } from './training/entities/certification-type.entity';
-import { EmployeeCertification } from './training/entities/employee-certification.entity';
-import { TrainingCourse } from './training/entities/training-course.entity';
-import { TrainingEnrollment } from './training/entities/training-enrollment.entity';
-// Aquaculture entities
-import { WorkArea } from './aquaculture/entities/work-area.entity';
-import { WorkRotation } from './aquaculture/entities/work-rotation.entity';
-import { SafetyTrainingRecord } from './aquaculture/entities/safety-training-record.entity';
-// Scheduling entities
-import { SchedulingSettings } from './scheduling/entities/scheduling-settings.entity';
-import { WeeklyPlan } from './scheduling/entities/weekly-plan.entity';
-import { WeeklyPlanEntry } from './scheduling/entities/weekly-plan-entry.entity';
-import { Holiday } from './scheduling/entities/holiday.entity';
-// Performance entities
-import { PerformanceReview } from './performance/entities/performance-review.entity';
-import { Goal } from './performance/entities/goal.entity';
-import { EmployeeKPI } from './performance/entities/kpi.entity';
-
-// Nested ObjectTypes for orphanedTypes registration
-import { ContactInfo, Address, NextOfKin } from './hr/entities/employee.entity';
-import { GeoCoordinates } from './aquaculture/entities/work-area.entity';
-import {
-  TransportInfo,
-  CheckInLocation,
-  CheckInHistoryEntry,
-} from './aquaculture/entities/work-rotation.entity';
-import { DailyAttendanceOverview } from './attendance/query-handlers/get-daily-attendance-overview.handler';
-import { HRDashboardStats } from './hr/query-handlers/get-hr-dashboard-stats.handler';
-import { CompetencyRating } from './performance/entities/performance-review.entity';
-import { KeyResult, GoalMilestone } from './performance/entities/goal.entity';
-import {
-  PerformanceSummary,
-  ReviewSummaryItem,
-} from './performance/query-handlers/get-performance-summary.handler';
+interface ApolloGraphQLContext {
+  req: Request;
+}
 
 @Module({
   imports: [
@@ -152,6 +149,7 @@ import {
             Schedule,
             ScheduleEntry,
             AttendanceRecord,
+            HrMobileCommandReceipt,
             CertificationType,
             EmployeeCertification,
             TrainingCourse,
@@ -222,8 +220,10 @@ import {
       validationRules: [depthLimit(10)],
       plugins: [
         {
-          requestDidStart: async () => ({
-            async didResolveOperation({ request, document, schema }) {
+          requestDidStart: () => Promise.resolve({
+            didResolveOperation(
+              { request, document, schema }: GraphQLRequestContextDidResolveOperation<ApolloGraphQLContext>,
+            ): Promise<void> {
               const complexity = getComplexity({
                 schema,
                 operationName: request.operationName,
@@ -237,6 +237,7 @@ import {
                   `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
                 );
               }
+              return Promise.resolve();
             },
           }),
         },
@@ -349,7 +350,7 @@ import {
   ],
 })
 export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
+  configure(consumer: MiddlewareConsumer): void {
     // Middleware execution order:
     // 1. CorrelationIdMiddleware - Add correlation ID for request tracing
     // 2. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)

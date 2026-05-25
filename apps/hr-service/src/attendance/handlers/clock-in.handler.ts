@@ -1,24 +1,25 @@
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
-import { BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
 import { OutboxPublisher } from '@platform/outbox';
+import { Repository, DataSource, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+
+import { WorkArea } from '../../aquaculture/entities/work-area.entity';
+import { Employee, EmployeeStatus, PersonnelCategory } from '../../hr/entities/employee.entity';
+import { LeaveRequest, LeaveRequestStatus } from '../../leave/entities/leave-request.entity';
 import { ClockInCommand } from '../commands/clock-in.command';
 import {
   AttendanceRecord,
   AttendanceStatus,
   ApprovalStatus,
-  ClockMethod,
   convertLocalToUtc,
-  isValidTimezone,
   getTimezoneOffset,
+  isValidTimezone,
 } from '../entities/attendance-record.entity';
 import { Schedule, ScheduleStatus } from '../entities/schedule.entity';
-import { Shift } from '../entities/shift.entity';
-import { Employee, EmployeeStatus } from '../../hr/entities/employee.entity';
-import { LeaveRequest, LeaveRequestStatus } from '../../leave/entities/leave-request.entity';
-import { WorkArea } from '../../aquaculture/entities/work-area.entity';
 import { EmployeeClockedInEvent } from '../events/attendance.events';
+
 
 /** Default timezone if none specified */
 const DEFAULT_TIMEZONE = 'UTC';
@@ -35,8 +36,12 @@ function safeParseTime(time: string | undefined): [number, number] {
   if (parts.length !== 2) {
     return [0, 0];
   }
-  const hours = parseInt(parts[0]!, 10);
-  const minutes = parseInt(parts[1]!, 10);
+  const [hoursPart, minutesPart] = parts;
+  if (hoursPart === undefined || minutesPart === undefined) {
+    return [0, 0];
+  }
+  const hours = parseInt(hoursPart, 10);
+  const minutes = parseInt(minutesPart, 10);
   if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
     return [0, 0];
   }
@@ -51,7 +56,7 @@ function haversineDistance(
   b: { lat: number; lng: number },
 ): number {
   const R = 6_371_000; // Earth radius in meters
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const toRad = (deg: number): number => (deg * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);
   const sinLat = Math.sin(dLat / 2);
@@ -77,6 +82,7 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
     private readonly workAreaRepository: Repository<WorkArea>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly dataSource: DataSource,
+    private readonly mobileCommandReceipts: MobileCommandReceiptService,
   ) {}
 
   async execute(command: ClockInCommand): Promise<AttendanceRecord> {
@@ -172,6 +178,26 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
     await queryRunner.startTransaction();
 
     try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'hr_mobile_command_receipts',
+        tenantId,
+        envelope: command.mobileCommand,
+        operationType: 'clockIn',
+        responseType: 'AttendanceRecord',
+      });
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(AttendanceRecord, {
+              where: { id: receipt.responseId, tenantId, isDeleted: false },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
       // Re-check for existing clock-in inside the transaction to prevent double clock-in race
       const existingRecord = await queryRunner.manager.findOne(AttendanceRecord, {
         where: {
@@ -237,7 +263,7 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
       }
 
       // Determine if offshore
-      const isOffshore = workAreaId ? true : employee.personnelCategory === 'offshore';
+      const isOffshore = workAreaId ? true : employee.personnelCategory === PersonnelCategory.OFFSHORE;
 
       let savedRecord: AttendanceRecord;
 
@@ -289,6 +315,13 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
       // Previously eventBus.publish() was called AFTER commit — fire-and-forget.
       const clockInEvent = EmployeeClockedInEvent(savedRecord);
       await this.outboxPublisher.enqueue(clockInEvent, queryRunner.manager);
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'hr_mobile_command_receipts',
+        receipt,
+        responseType: 'AttendanceRecord',
+        responseId: savedRecord.id,
+        responsePayload: { id: savedRecord.id },
+      });
 
       // Commit transaction (domain write + outbox row are atomic)
       await queryRunner.commitTransaction();

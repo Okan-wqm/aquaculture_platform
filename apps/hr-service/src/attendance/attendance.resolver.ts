@@ -1,17 +1,16 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
-import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
-import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
+import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+
+import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
 import { Employee } from '../hr/entities/employee.entity';
-import { Shift, ShiftType } from './entities/shift.entity';
-import { AttendanceRecord, AttendanceStatus, ApprovalStatus } from './entities/attendance-record.entity';
-import { ClockInInput, ClockOutInput, ManualAttendanceInput } from './dto/clock-in-out.input';
-import { CreateShiftInput, UpdateShiftInput } from './dto/create-shift.input';
+
 import {
   ClockInCommand,
   ClockOutCommand,
@@ -19,6 +18,10 @@ import {
   CreateManualAttendanceCommand,
   ApproveAttendanceCommand,
 } from './commands';
+import { ClockInInput, ClockOutInput, ManualAttendanceInput } from './dto/clock-in-out.input';
+import { CreateShiftInput } from './dto/create-shift.input';
+import { AttendanceRecord, AttendanceStatus, ApprovalStatus } from './entities/attendance-record.entity';
+import { Shift, ShiftType } from './entities/shift.entity';
 import {
   GetShiftsQuery,
   GetAttendanceRecordsQuery,
@@ -40,6 +43,18 @@ interface GraphQLContext {
       tenantId: string;
       roles?: string[];
     };
+  };
+}
+
+interface CqrsPaginatedResult<T> {
+  data: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
   };
 }
 
@@ -111,7 +126,9 @@ export class AttendanceResolver {
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
   ): Promise<IStandardPaginatedResult<Shift>> {
     const tenantId = this.getTenantId(context);
-    const result = await this.queryBus.execute(new GetShiftsQuery(tenantId, isActive, shiftType, limit, page));
+    const result = await this.queryBus.execute<GetShiftsQuery, CqrsPaginatedResult<Shift>>(
+      new GetShiftsQuery(tenantId, isActive, shiftType, limit, page),
+    );
     return fromCqrsPaginated(result);
   }
 
@@ -133,7 +150,10 @@ export class AttendanceResolver {
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
   ): Promise<IStandardPaginatedResult<AttendanceRecord>> {
     const tenantId = this.getTenantId(context);
-    const result = await this.queryBus.execute(
+    const result = await this.queryBus.execute<
+      GetAttendanceRecordsQuery,
+      CqrsPaginatedResult<AttendanceRecord>
+    >(
       new GetAttendanceRecordsQuery(
         tenantId,
         employeeId,
@@ -160,7 +180,10 @@ export class AttendanceResolver {
     const userId = this.getUserId(context);
     // Resolve auth userId → HR employeeId for correct attendance lookup
     const employee = await this.resolveEmployee(userId, tenantId);
-    const result = await this.queryBus.execute(
+    const result = await this.queryBus.execute<
+      GetAttendanceRecordsQuery,
+      CqrsPaginatedResult<AttendanceRecord>
+    >(
       new GetAttendanceRecordsQuery(
         tenantId,
         employee.id,
@@ -186,7 +209,7 @@ export class AttendanceResolver {
     @Context() context: GraphQLContext,
   ): Promise<AttendanceSummary> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
+    return this.queryBus.execute<GetAttendanceSummaryQuery, AttendanceSummary>(
       new GetAttendanceSummaryQuery(tenantId, employeeId, month, year),
     );
   }
@@ -201,7 +224,7 @@ export class AttendanceResolver {
     const userId = this.getUserId(context);
     // Resolve auth userId → HR employeeId for correct attendance lookup
     const employee = await this.resolveEmployee(userId, tenantId);
-    return this.queryBus.execute(
+    return this.queryBus.execute<GetAttendanceSummaryQuery, AttendanceSummary>(
       new GetAttendanceSummaryQuery(tenantId, employee.id, month, year),
     );
   }
@@ -217,7 +240,10 @@ export class AttendanceResolver {
   ): Promise<IStandardPaginatedResult<AttendanceRecord>> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    const result = await this.queryBus.execute(
+    const result = await this.queryBus.execute<
+      GetPendingAttendanceApprovalsQuery,
+      CqrsPaginatedResult<AttendanceRecord>
+    >(
       new GetPendingAttendanceApprovalsQuery(tenantId, userId, departmentId, limit, page),
     );
     return fromCqrsPaginated(result);
@@ -240,7 +266,9 @@ export class AttendanceResolver {
     }
 
     const effectiveEmployeeId = employeeId ?? (this.hasManagementRole(context) ? undefined : employee.id);
-    return this.queryBus.execute(new GetTodaysAttendanceQuery(tenantId, effectiveEmployeeId));
+    return this.queryBus.execute<GetTodaysAttendanceQuery, AttendanceRecord[]>(
+      new GetTodaysAttendanceQuery(tenantId, effectiveEmployeeId),
+    );
   }
 
   @Query(() => [AttendanceRecord], { name: 'myTodaysAttendance' })
@@ -250,7 +278,9 @@ export class AttendanceResolver {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     const employee = await this.resolveEmployee(userId, tenantId);
-    return this.queryBus.execute(new GetTodaysAttendanceQuery(tenantId, employee.id));
+    return this.queryBus.execute<GetTodaysAttendanceQuery, AttendanceRecord[]>(
+      new GetTodaysAttendanceQuery(tenantId, employee.id),
+    );
   }
 
   // =====================
@@ -264,7 +294,9 @@ export class AttendanceResolver {
     @Args('date', { nullable: true }) date?: string,
   ): Promise<DailyAttendanceOverview> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetDailyAttendanceOverviewQuery(tenantId, date));
+    return this.queryBus.execute<GetDailyAttendanceOverviewQuery, DailyAttendanceOverview>(
+      new GetDailyAttendanceOverviewQuery(tenantId, date),
+    );
   }
 
   // =====================
@@ -280,7 +312,7 @@ export class AttendanceResolver {
   ): Promise<Shift> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.commandBus.execute(
+    return this.commandBus.execute<CreateShiftCommand, Shift>(
       new CreateShiftCommand(
         tenantId,
         userId,
@@ -324,7 +356,7 @@ export class AttendanceResolver {
       throw new ForbiddenException('You can only clock in for yourself');
     }
 
-    return this.commandBus.execute(
+    return this.commandBus.execute<ClockInCommand, AttendanceRecord>(
       new ClockInCommand(
         tenantId,
         userId,
@@ -333,6 +365,8 @@ export class AttendanceResolver {
         input.location,
         input.remarks,
         input.workAreaId,
+        undefined,
+        mobileCommandEnvelopeFromInput(input),
       ),
     );
   }
@@ -352,7 +386,7 @@ export class AttendanceResolver {
       throw new ForbiddenException('You can only clock out for yourself');
     }
 
-    return this.commandBus.execute(
+    return this.commandBus.execute<ClockOutCommand, AttendanceRecord>(
       new ClockOutCommand(
         tenantId,
         userId,
@@ -362,6 +396,7 @@ export class AttendanceResolver {
         input.remarks,
         input.breakStartTime,
         input.breakEndTime,
+        mobileCommandEnvelopeFromInput(input),
       ),
     );
   }
@@ -379,7 +414,7 @@ export class AttendanceResolver {
   ): Promise<AttendanceRecord> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.commandBus.execute(
+    return this.commandBus.execute<CreateManualAttendanceCommand, AttendanceRecord>(
       new CreateManualAttendanceCommand(
         tenantId,
         userId,
@@ -406,7 +441,7 @@ export class AttendanceResolver {
   ): Promise<AttendanceRecord> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.commandBus.execute(
+    return this.commandBus.execute<ApproveAttendanceCommand, AttendanceRecord>(
       new ApproveAttendanceCommand(tenantId, userId, id, notes),
     );
   }

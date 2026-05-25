@@ -27,6 +27,7 @@ done
 mapfile -t CHANGED_TS_FILES < <(
   git diff --name-only --diff-filter=ACMR "$BASE_REF...$HEAD_REF" \
     | grep -E '\.(ts|tsx)$' \
+    | grep -Ev '\.d\.ts$' \
     | grep -Ev '^apps/[^/]+/src/database/migrations/[0-9]{13}-Baseline\.ts$' \
     || true
 )

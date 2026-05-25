@@ -1,3 +1,5 @@
+import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
+
 import { HalfDayPeriod } from '../entities/leave-request.entity';
 
 export class CreateLeaveRequestCommand {
@@ -9,10 +11,11 @@ export class CreateLeaveRequestCommand {
     public readonly startDate: string,
     public readonly endDate: string,
     public readonly totalDays: number,
-    public readonly isHalfDayStart: boolean = false,
-    public readonly isHalfDayEnd: boolean = false,
+    public readonly isHalfDayStart = false,
+    public readonly isHalfDayEnd = false,
     public readonly halfDayPeriod?: HalfDayPeriod,
     public readonly reason?: string,
     public readonly contactDuringLeave?: string,
+    public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

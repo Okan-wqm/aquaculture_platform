@@ -68,6 +68,13 @@ const CSRF_PROTECTED_METHODS: ReadonlySet<string> = new Set([
   'DELETE',
 ]);
 
+const RESERVED_SECURITY_HEADERS: ReadonlySet<string> = new Set([
+  'authorization',
+  'x-tenant-id',
+  'x-request-id',
+  'x-csrf-token',
+]);
+
 // ============================================================================
 // Internal Helpers
 // ============================================================================
@@ -110,6 +117,56 @@ const createApiError = (
   if (code !== undefined) error.code = code;
   if (details !== undefined) error.details = details;
   return error;
+};
+
+const resolveTenantIdForScope = (tenantScope: ApiFetchOptions['tenantScope']): string | null => {
+  if (tenantScope === 'platform') {
+    return null;
+  }
+  if (tenantScope === 'tenant') {
+    return getTenantId();
+  }
+  throw createApiError('Invalid tenant scope', 400, 'INVALID_TENANT_SCOPE');
+};
+
+const normalizeHeaders = (headers?: HeadersInit): Record<string, string> => {
+  if (!headers) {
+    return {};
+  }
+
+  const normalized: Record<string, string> = {};
+  if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      normalized[key] = value;
+    });
+    return normalized;
+  }
+
+  if (Array.isArray(headers)) {
+    for (const [key, value] of headers) {
+      normalized[key] = value;
+    }
+    return normalized;
+  }
+
+  for (const [key, value] of Object.entries(headers)) {
+    normalized[key] = String(value);
+  }
+  return normalized;
+};
+
+const mergeHeadersWithReservedPolicy = (
+  internalHeaders: Record<string, string>,
+  callerHeaders?: HeadersInit,
+): HeadersInit => {
+  const merged: Record<string, string> = { ...internalHeaders };
+  for (const [key, value] of Object.entries(normalizeHeaders(callerHeaders))) {
+    if (RESERVED_SECURITY_HEADERS.has(key.toLowerCase())) {
+      continue;
+    }
+    merged[key] = value;
+  }
+  return merged;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -191,7 +248,7 @@ export async function apiFetch<T>(
 
       // Admin-panel is a platform-admin surface. Default to platform scope so
       // stale tenant context cannot leak into cross-tenant administration calls.
-      const tenantId = tenantScope === 'tenant' ? getTenantId() : null;
+      const tenantId = resolveTenantIdForScope(tenantScope);
       if (tenantId) {
         headers['X-Tenant-Id'] = tenantId;
       }
@@ -205,11 +262,10 @@ export async function apiFetch<T>(
         }
       }
 
-      // Caller-supplied headers win last so tests / special cases can override.
-      const mergedHeaders: HeadersInit = {
-        ...headers,
-        ...(fetchOptions.headers as Record<string, string> | undefined),
-      };
+      const mergedHeaders = mergeHeadersWithReservedPolicy(
+        headers,
+        fetchOptions.headers,
+      );
 
       const response = await fetch(`${ADMIN_API_URL}${endpoint}`, {
         ...fetchOptions,

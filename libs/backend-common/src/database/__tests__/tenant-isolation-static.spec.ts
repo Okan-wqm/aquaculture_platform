@@ -1,4 +1,9 @@
-import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '../schema-manager.service';
+import {
+  DEFAULT_TENANT_MODULES,
+  MODULE_SCHEMAS,
+  PLATFORM_LEVEL_MODULES,
+  TENANT_SCOPED_MODULES,
+} from '../schema-manager.service';
 
 describe('Tenant Isolation Static Analysis', () => {
 
@@ -28,9 +33,9 @@ describe('Tenant Isolation Static Analysis', () => {
       }
     });
 
-    it('total table count should be 133', () => {
+    it('total table count should be 170', () => {
       const total = MODULE_SCHEMAS.reduce((sum, m) => sum + m.tables.length, 0);
-      expect(total).toBe(133);
+      expect(total).toBe(170);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -76,34 +81,51 @@ describe('Tenant Isolation Static Analysis', () => {
         counts[mod.moduleName] = mod.tables.length;
       }
       // These are the known counts from the codebase
-      expect(counts['sensor']).toBe(34);
-      expect(counts['farm']).toBe(66);
-      expect(counts['hr']).toBe(24);
+      expect(counts['sensor']).toBe(45);
+      expect(counts['farm']).toBe(73);
+      expect(counts['hr']).toBe(25);
       expect(counts['hydroponics']).toBe(1);
-      expect(counts['alert']).toBe(5);
-      expect(counts['ai']).toBe(3);
+      expect(counts['alert']).toBe(4);
+      expect(counts['ai']).toBe(2);
+      expect(counts['messaging']).toBe(15);
+      expect(counts['auth']).toBe(3);
+      expect(counts['notification']).toBe(2);
     });
   });
 
   describe('DEFAULT_TENANT_MODULES', () => {
-    it('should include all 6 modules', () => {
-      expect(DEFAULT_TENANT_MODULES).toHaveLength(6);
+    it('should include all tenant-scoped modules', () => {
+      expect(DEFAULT_TENANT_MODULES).toHaveLength(7);
       expect(DEFAULT_TENANT_MODULES).toContain('sensor');
       expect(DEFAULT_TENANT_MODULES).toContain('farm');
       expect(DEFAULT_TENANT_MODULES).toContain('hr');
       expect(DEFAULT_TENANT_MODULES).toContain('hydroponics');
       expect(DEFAULT_TENANT_MODULES).toContain('alert');
       expect(DEFAULT_TENANT_MODULES).toContain('ai');
+      expect(DEFAULT_TENANT_MODULES).toContain('messaging');
     });
 
-    it('should be derived from MODULE_SCHEMAS (no drift)', () => {
-      const derived = MODULE_SCHEMAS.map(m => m.moduleName);
+    it('should be derived from tenant-scoped MODULE_SCHEMAS only (no drift)', () => {
+      const derived = MODULE_SCHEMAS
+        .filter((m) => TENANT_SCOPED_MODULES.has(m.moduleName))
+        .map(m => m.moduleName);
       expect(DEFAULT_TENANT_MODULES).toEqual(derived);
     });
 
-    it('order should match MODULE_SCHEMAS order', () => {
+    it('should not include platform-level schemas', () => {
+      for (const moduleName of DEFAULT_TENANT_MODULES) {
+        expect(PLATFORM_LEVEL_MODULES.has(moduleName)).toBe(false);
+      }
+    });
+
+    it('order should match tenant-scoped MODULE_SCHEMAS order', () => {
+      const tenantScopedModules = MODULE_SCHEMAS.filter((m) =>
+        TENANT_SCOPED_MODULES.has(m.moduleName),
+      );
       for (let i = 0; i < DEFAULT_TENANT_MODULES.length; i++) {
-        expect(DEFAULT_TENANT_MODULES[i]).toBe(MODULE_SCHEMAS[i]!.moduleName);
+        const expectedModule = tenantScopedModules[i];
+        expect(expectedModule).toBeDefined();
+        expect(DEFAULT_TENANT_MODULES[i]).toBe(expectedModule?.moduleName);
       }
     });
   });

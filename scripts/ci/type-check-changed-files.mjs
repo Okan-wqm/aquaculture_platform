@@ -94,6 +94,7 @@ function projectRootFor(file) {
   if (top === 'web' && (second === 'shared-ui' || second === 'shell')) {
     return `${top}/${second}`;
   }
+  if (top === 'e2e') return 'e2e';
   if (top === 'tests' && second === 'invariants') return 'tests/invariants';
   if (top === 'tools' && second) return `${top}/${second}`;
 
@@ -109,6 +110,10 @@ function tsconfigFor(file) {
       `${root}/tsconfig.spec.json`,
       `${root}/tsconfig.json`,
     ]);
+  }
+
+  if (root === 'tools/scripts') {
+    return firstExisting(['tools/scripts/tsconfig.json', 'tsconfig.base.json']);
   }
 
   if (root.startsWith('tools/')) {

@@ -1,18 +1,20 @@
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
-import { BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { OutboxPublisher } from '@platform/outbox';
+import { Repository, DataSource, QueryRunner } from 'typeorm';
+
 import { ClockOutCommand } from '../commands/clock-out.command';
 import {
   AttendanceRecord,
   AttendanceStatus,
   ApprovalStatus,
   convertLocalToUtc,
-  getTimezoneOffset,
 } from '../entities/attendance-record.entity';
 import { Shift } from '../entities/shift.entity';
 import { EmployeeClockedOutEvent } from '../events/attendance.events';
+
 
 /** Default timezone if none specified */
 const DEFAULT_TIMEZONE = 'UTC';
@@ -29,8 +31,12 @@ function safeParseTime(time: string | undefined): [number, number] {
   if (parts.length !== 2) {
     return [0, 0];
   }
-  const hours = parseInt(parts[0]!, 10);
-  const minutes = parseInt(parts[1]!, 10);
+  const [hoursPart, minutesPart] = parts;
+  if (hoursPart === undefined || minutesPart === undefined) {
+    return [0, 0];
+  }
+  const hours = parseInt(hoursPart, 10);
+  const minutes = parseInt(minutesPart, 10);
   if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
     return [0, 0];
   }
@@ -50,6 +56,7 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
     // lookup optimisation; all writes use queryRunner.
     private readonly outboxPublisher: OutboxPublisher,
     private readonly dataSource: DataSource,
+    private readonly mobileCommandReceipts: MobileCommandReceiptService,
   ) {}
 
   async execute(command: ClockOutCommand): Promise<AttendanceRecord> {
@@ -60,6 +67,26 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
     await queryRunner.startTransaction();
 
     try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'hr_mobile_command_receipts',
+        tenantId,
+        envelope: command.mobileCommand,
+        operationType: 'clockOut',
+        responseType: 'AttendanceRecord',
+      });
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(AttendanceRecord, {
+              where: { id: receipt.responseId, tenantId, isDeleted: false },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
       // Current time in UTC
       const nowUtc = new Date();
 
@@ -82,7 +109,6 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
 
       // Use the timezone from the attendance record (set during clock-in)
       const timezone = attendanceRecord.timezone || DEFAULT_TIMEZONE;
-      const tzOffset = getTimezoneOffset(timezone, nowUtc);
 
       const clockInTime = new Date(attendanceRecord.clockIn);
 
@@ -172,6 +198,13 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
       // Previously eventBus.publish() was called AFTER commit — fire-and-forget.
       const clockOutEvent = EmployeeClockedOutEvent(savedRecord);
       await this.outboxPublisher.enqueue(clockOutEvent, queryRunner.manager);
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'hr_mobile_command_receipts',
+        receipt,
+        responseType: 'AttendanceRecord',
+        responseId: savedRecord.id,
+        responsePayload: { id: savedRecord.id },
+      });
 
       // Commit transaction (domain write + outbox row are atomic)
       await queryRunner.commitTransaction();
@@ -192,7 +225,7 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
    * does not need to issue a second query for the same Shift (H-3 fix).
    */
   private async findActiveAttendanceRecord(
-    queryRunner: import('typeorm').QueryRunner,
+    queryRunner: QueryRunner,
     tenantId: string,
     employeeId: string
   ): Promise<{ record: AttendanceRecord | null; shift: Shift | null }> {
@@ -204,7 +237,7 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
     yesterday.setDate(yesterday.getDate() - 1);
 
     // First try to find today's record (with shift eagerly loaded)
-    let record = await queryRunner.manager.findOne(AttendanceRecord, {
+    const record = await queryRunner.manager.findOne(AttendanceRecord, {
       where: {
         tenantId,
         employeeId,

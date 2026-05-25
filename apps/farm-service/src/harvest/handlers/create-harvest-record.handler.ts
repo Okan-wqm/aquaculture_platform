@@ -19,25 +19,27 @@
  *
  * @module Harvest/Handlers
  */
-import { randomUUID } from 'crypto';
-import { Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { Injectable, NotFoundException, BadRequestException, Optional, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
-import type { BatchHarvestedEvent } from '@platform/event-contracts';
-import { createBaseEvent } from '@platform/event-contracts';
-import { OutboxPublisher } from '@platform/outbox';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { CreateHarvestRecordCommand, CreateHarvestRecordInput } from '../commands/create-harvest-record.command';
-import { HarvestRecord, HarvestRecordStatus, QualityGrade, HarvestOperation, LotInfo } from '../entities/harvest-record.entity';
-import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
+import { createBaseEvent } from '@platform/event-contracts';
+import type { BatchHarvestedEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { Repository, DataSource } from 'typeorm';
+
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
-import { Tank } from '../../tank/entities/tank.entity';
-import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import { Tank } from '../../tank/entities/tank.entity';
+import { CreateHarvestRecordCommand } from '../commands/create-harvest-record.command';
+import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
+import { HarvestRecord, HarvestRecordStatus, QualityGrade, HarvestOperation, LotInfo } from '../entities/harvest-record.entity';
 import { HarvestPolicyService } from '../services/harvest-policy.service';
 
 @Injectable()
@@ -60,6 +62,8 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     private readonly tankBatchRepository: Repository<TankBatch>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
+    private readonly farmStockProjection: FarmStockProjectionService,
+    private readonly mobileCommandReceipts: MobileCommandReceiptService,
     @Optional()
     private readonly metricsService?: FarmDomainMetricsService,
   ) {}
@@ -91,6 +95,26 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     await queryRunner.startTransaction();
 
     try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope: command.mobileCommand,
+        operationType: 'createHarvestRecord',
+        responseType: 'HarvestRecord',
+      });
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(HarvestRecord, {
+              where: { id: receipt.responseId, tenantId },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
       // Batch bul with pessimistic lock
       const batch = await queryRunner.manager.findOne(Batch, {
         where: { id: input.batchId, tenantId, isActive: true },
@@ -313,6 +337,11 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       tank.currentBiomass = Math.max(0, Number(tank.currentBiomass || 0) - biomassKg);
       tank.currentCount = Math.max(0, (tank.currentCount || 0) - input.quantityHarvested);
       await queryRunner.manager.save(Tank, tank);
+      await this.farmStockProjection.refreshContainers(
+        queryRunner.manager,
+        tenantId,
+        [input.tankId],
+      );
 
       // Post-operation state güncelle
       const updatedTankBatch = await queryRunner.manager.findOne(TankBatch, {
@@ -344,6 +373,13 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         totalWeight: harvestRecord.totalBiomass,
       };
       await this.outboxPublisher.enqueue(harvestEvent, queryRunner.manager);
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'HarvestRecord',
+        responseId: harvestRecord.id,
+        responsePayload: { id: harvestRecord.id },
+      });
 
       // Commit transaction (domain writes + outbox row are atomic)
       await queryRunner.commitTransaction();

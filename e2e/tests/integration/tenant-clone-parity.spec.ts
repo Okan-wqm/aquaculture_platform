@@ -65,8 +65,11 @@
  * and the downstream artifact is the tenant clone schema.
  */
 
-import { TestDatabase } from '../../helpers/db.helper';
 import { randomUUID } from 'crypto';
+
+import { MODULE_SCHEMAS } from '@aquaculture/backend-common/database';
+
+import { TestDatabase } from '../../helpers/db.helper';
 
 const TENANT_SCOPED_SCHEMAS: ReadonlyArray<string> = [
   'farm',
@@ -83,6 +86,17 @@ interface ColumnRow extends Record<string, unknown> {
   data_type: string;
   is_nullable: string;
   column_default: string | null;
+}
+
+const TENANT_FANOUT_TABLES_BY_SCHEMA: ReadonlyMap<string, ReadonlyArray<string>> = new Map(
+  MODULE_SCHEMAS.map((moduleSchema) => [
+    moduleSchema.sourceSchema,
+    moduleSchema.tables,
+  ]),
+);
+
+function getFanoutTables(sourceSchema: string): ReadonlyArray<string> {
+  return TENANT_FANOUT_TABLES_BY_SCHEMA.get(sourceSchema) ?? [];
 }
 
 /**
@@ -121,20 +135,26 @@ async function provisionTestTenantSchema(
 
   const provisioned = new Map<string, string[]>();
   for (const sourceSchema of TENANT_SCOPED_SCHEMAS) {
-    const tables = await db.query<{ table_name: string }>(
-      `SELECT table_name FROM information_schema.tables
-       WHERE table_schema = $1 AND table_type = 'BASE TABLE'
-       ORDER BY table_name`,
-      [sourceSchema],
-    );
     const tableNames: string[] = [];
-    for (const row of tables.rows) {
+    for (const tableName of [...getFanoutTables(sourceSchema)].sort()) {
+      const sourceExists = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM information_schema.tables
+           WHERE table_schema = $1 AND table_name = $2 AND table_type = 'BASE TABLE'
+         ) AS exists`,
+        [sourceSchema, tableName],
+      );
+      if (!sourceExists.rows[0]?.exists) {
+        throw new Error(
+          `MODULE_SCHEMAS declares ${sourceSchema}.${tableName}, but the source table does not exist`,
+        );
+      }
       // CREATE TABLE LIKE INCLUDING ALL replicates columns, indexes,
       // constraints, defaults, and storage parameters. Same DDL the
       // production SchemaManagerService.createTenantSchema uses.
       await db.query(
-        `CREATE TABLE "${schemaName}"."${row.table_name}"
-         (LIKE "${sourceSchema}"."${row.table_name}" INCLUDING ALL)`,
+        `CREATE TABLE "${schemaName}"."${tableName}"
+         (LIKE "${sourceSchema}"."${tableName}" INCLUDING ALL)`,
       );
       // Enable RLS + a tenant-context policy mirroring the
       // ApplyTenantRls helper at libs/backend-common/.../rls/apply-tenant-rls.helper.ts.
@@ -143,13 +163,13 @@ async function provisionTestTenantSchema(
       // with bypass-role logic, but the assertion below only needs to
       // verify RLS-enabled + ≥1 policy referencing the session
       // setting. Any production-grade policy includes that reference.
-      await db.query(`ALTER TABLE "${schemaName}"."${row.table_name}" ENABLE ROW LEVEL SECURITY`);
+      await db.query(`ALTER TABLE "${schemaName}"."${tableName}" ENABLE ROW LEVEL SECURITY`);
       const hasTenantId = await db.query<{ exists: boolean }>(
         `SELECT EXISTS (
            SELECT 1 FROM information_schema.columns
            WHERE table_schema = $1 AND table_name = $2 AND column_name = 'tenantId'
          ) AS exists`,
-        [schemaName, row.table_name],
+        [schemaName, tableName],
       );
       // Only create a tenant-isolation policy when the table has a
       // tenantId column. Tables without tenantId (e.g. reference
@@ -157,12 +177,12 @@ async function provisionTestTenantSchema(
       // this spec's parity check.
       if (hasTenantId.rows[0]?.exists) {
         await db.query(`
-          CREATE POLICY tenant_isolation_${row.table_name}
-          ON "${schemaName}"."${row.table_name}"
+          CREATE POLICY tenant_isolation_${tableName}
+          ON "${schemaName}"."${tableName}"
           USING ("tenantId"::text = current_setting('app.current_tenant_id', true))
         `);
       }
-      tableNames.push(row.table_name);
+      tableNames.push(tableName);
     }
     provisioned.set(sourceSchema, tableNames);
   }
@@ -219,13 +239,7 @@ describe('Tenant Clone Parity (per-tenant schema mirrors source 1:1)', () => {
   it.each(TENANT_SCOPED_SCHEMAS)(
     'source-table set of "%s" equals tenant-clone table set',
     async (sourceSchema) => {
-      const sourceTables = await db.query<{ table_name: string }>(
-        `SELECT table_name FROM information_schema.tables
-         WHERE table_schema = $1 AND table_type = 'BASE TABLE'
-         ORDER BY table_name`,
-        [sourceSchema],
-      );
-      const sourceSet = new Set(sourceTables.rows.map((r) => r.table_name));
+      const sourceSet = new Set(getFanoutTables(sourceSchema));
 
       const cloneTables = await db.query<{ table_name: string }>(
         `SELECT table_name FROM information_schema.tables

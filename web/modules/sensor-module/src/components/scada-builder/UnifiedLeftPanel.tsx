@@ -10,23 +10,18 @@
  * category count badges, persisted expansion state.
  */
 
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   FolderTree, Palette, Search, X, Star, Clock,
   ChevronDown, ChevronRight, GripVertical, GripHorizontal,
   Gauge, Hash, Activity, ToggleLeft, SlidersHorizontal, Keyboard,
-  CircleDot, OctagonAlert, TrendingUp, Bell, List, Wrench, History,
+  CircleDot, AlertOctagon, TrendingUp, Bell, List, Wrench, History,
   CheckCircle, LayoutDashboard, Droplets, Link2, Type,
   GitCommitHorizontal, Square, Circle, Minus, FileImage, Calendar,
-  Video, MapPinned, Ellipsis, Spline, Image, Hexagon,
+  Video, MapPinned, MoreHorizontal, Spline, Image, Hexagon,
   Triangle, Diamond, ArrowRight, Package, Zap,
 } from 'lucide-react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 
-import { SceneTreePanel } from './SceneTreePanel';
-import { LayersPanel } from './LayersPanel';
-import { FuxaWidgetBrowser } from './FuxaWidgetBrowser';
-import type { FuxaWidgetCatalogEntry } from './fuxa-bridge/catalog';
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
 import {
   PALETTE_CATEGORIES,
   DEFAULT_EXPANDED_CATEGORIES,
@@ -36,7 +31,13 @@ import {
 import {
   WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES,
 } from '../../constants/scada-widget-sizes';
+import { useScadaPackageStore } from '../../store/scadaPackageStore';
 import type { EquipmentSubType } from '../../types/scada-widget.types';
+
+import type { FuxaWidgetCatalogEntry } from './fuxa-bridge/catalog';
+import { FuxaWidgetBrowser } from './FuxaWidgetBrowser';
+import { LayersPanel } from './LayersPanel';
+import { SceneTreePanel } from './SceneTreePanel';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -55,10 +56,10 @@ type TabId = 'scene' | 'palette';
 
 const ICONS: Record<string, React.FC<{ className?: string }>> = {
   Gauge, Hash, Activity, ToggleLeft, SlidersHorizontal, Keyboard,
-  CircleDot, OctagonAlert, TrendingUp, Bell, List, Wrench, History,
+  CircleDot, OctagonAlert: AlertOctagon, TrendingUp, Bell, List, Wrench, History,
   CheckCircle, LayoutDashboard, Droplets, Link2, Type,
   GitCommitHorizontal, Square, Circle, Minus, FileImage, Calendar,
-  Video, MapPinned, Ellipsis, Spline, Image, Hexagon, Triangle,
+  Video, MapPinned, Ellipsis: MoreHorizontal, Spline, Image, Hexagon, Triangle,
   Diamond, ArrowRight, Zap,
 };
 
@@ -211,7 +212,7 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
 
   // "/" shortcut
   useEffect(() => {
-    const h = (e: KeyboardEvent) => {
+    const h = (e: KeyboardEvent): void => {
       if (e.key === '/' && tab === 'palette' && !collapsed
         && document.activeElement?.tagName !== 'INPUT'
         && document.activeElement?.tagName !== 'TEXTAREA') {
@@ -226,12 +227,25 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
   useEffect(() => { lsWrite(LS_CAT, Array.from(expCat)); }, [expCat]);
 
   const toggleCat = useCallback((n: string) => {
-    setExpCat((p) => { const x = new Set(p); x.has(n) ? x.delete(n) : x.add(n); return x; });
+    setExpCat((p) => {
+      const x = new Set(p);
+      if (x.has(n)) {
+        x.delete(n);
+      } else {
+        x.add(n);
+      }
+      return x;
+    });
   }, []);
 
   const toggleFav = useCallback((k: string) => {
     setFavs((p) => {
-      const x = new Set(p); x.has(k) ? x.delete(k) : x.add(k);
+      const x = new Set(p);
+      if (x.has(k)) {
+        x.delete(k);
+      } else {
+        x.add(k);
+      }
       lsWrite(LS_FAV, Array.from(x)); return x;
     });
   }, []);
@@ -280,10 +294,10 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault(); setResizing(true);
     rRef.current = { y: e.clientY, h: layH };
-    const move = (ev: MouseEvent) => {
+    const move = (ev: MouseEvent): void => {
       setLayH(Math.min(400, Math.max(120, rRef.current.h + rRef.current.y - ev.clientY)));
     };
-    const up = () => { setResizing(false); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+    const up = (): void => { setResizing(false); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   }, [layH]);
@@ -300,12 +314,16 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
   }
 
   /* ---- Render palette content ---- */
-  const renderPalette = () => {
+  const renderPalette = (): React.ReactNode => {
     // Search results
     if (filtered) {
       if (filtered.length === 0) return <div className="py-8 text-center text-xs text-gray-500">No widgets match &ldquo;{dq}&rdquo;</div>;
       const byCat = new Map<string, PaletteWidgetDef[]>();
-      for (const { w, cat } of filtered) { if (!byCat.has(cat)) byCat.set(cat, []); byCat.get(cat)!.push(w); }
+      for (const { w, cat } of filtered) {
+        const widgets = byCat.get(cat) ?? [];
+        widgets.push(w);
+        byCat.set(cat, widgets);
+      }
       return (
         <div className="py-1 px-1 space-y-1">
           {Array.from(byCat.entries()).map(([cat, ws]) => (
@@ -414,10 +432,13 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
       {/* Layers — always visible, collapsible, resizable */}
       <div className="flex-shrink-0">
         {!layColl && (
-          <div onMouseDown={onResizeStart}
+          <button
+            type="button"
+            aria-label="Resize layers panel"
+            onMouseDown={onResizeStart}
             className={`h-1.5 cursor-row-resize flex items-center justify-center border-t border-gray-200 hover:bg-cyan-50 transition-colors ${resizing ? 'bg-cyan-100' : ''}`}>
             <GripHorizontal className="w-4 h-4 text-gray-300" />
-          </div>
+          </button>
         )}
         <button onClick={() => setLayColl((p) => !p)}
           className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-gray-700 border-t border-gray-200 hover:bg-gray-50 transition-colors">

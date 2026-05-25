@@ -1,7 +1,6 @@
 import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { SchemaManagerService } from '@aquaculture/backend-common/database';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 
 import {
   TenantRolePermissions,
@@ -44,14 +43,54 @@ export interface UpdateTenantRoleInput {
 /**
  * Tenant Role with permissions and user count
  */
-export interface TenantRoleWithDetails extends TenantRole {
-  permissions: TenantRolePermissions;
+type QueryClient = DataSource | EntityManager;
+type QueryRow = Record<string, unknown>;
+
+export type TenantRoleWithDetails = Omit<TenantRole, 'permissions'> & {
+  permissions: Omit<TenantRolePermissions, 'role'>;
   userCount: number;
+};
+
+async function queryRows<T extends QueryRow>(
+  client: QueryClient,
+  sql: string,
+  parameters?: unknown[],
+): Promise<T[]> {
+  const result: unknown = await client.query(sql, parameters);
+  return Array.isArray(result) ? (result as T[]) : [];
+}
+
+function parsePanelPermissions(value: unknown): PanelPermissions {
+  if (typeof value === 'string') {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  }
+  return value && typeof value === 'object' ? value : {};
+}
+
+function parseStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function rowString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function rowBoolean(value: unknown): boolean {
+  return value === true;
+}
+
+function rowNumber(value: unknown): number {
+  return typeof value === 'number' ? value : Number(value ?? 0);
+}
+
+function rowDate(value: unknown): Date {
+  return value instanceof Date ? value : new Date(String(value));
 }
 
 /**
  * Tenant Role Service
- * Manages tenant-specific roles stored in tenant schemas
+ * Manages tenant-specific roles stored in auth.* with tenantId scoping.
  */
 @Injectable()
 export class TenantRoleService {
@@ -60,23 +99,14 @@ export class TenantRoleService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly schemaManager: SchemaManagerService,
   ) {}
 
   /**
    * Get all roles for a tenant
    */
   async getTenantRoles(tenantId: string): Promise<TenantRoleWithDetails[]> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
-    // Check if schema exists and has the roles table
-    const tableExists = await this.schemaManager.tableExists(schemaName, 'tenant_roles');
-    if (!tableExists) {
-      this.logger.warn(`tenant_roles table does not exist in schema ${schemaName}`);
-      return [];
-    }
-
-    const roles = await this.dataSource.query(
+    const roles = await queryRows<QueryRow>(
+      this.dataSource,
       `
       SELECT
         r.*,
@@ -84,16 +114,19 @@ export class TenantRoleService {
         p.panel_permissions,
         p.resource_permissions,
         COALESCE(uc.user_count, 0)::int as user_count
-      FROM "${schemaName}"."tenant_roles" r
-      LEFT JOIN "${schemaName}"."tenant_role_permissions" p ON r.id = p.role_id
+      FROM "auth"."tenant_roles" r
+      LEFT JOIN "auth"."tenant_role_permissions" p ON r.id = p.role_id
       LEFT JOIN (
-        SELECT role_id, COUNT(*)::int as user_count
-        FROM "${schemaName}"."user_role_assignments"
-        WHERE is_active = true
-        GROUP BY role_id
+        SELECT a.role_id, COUNT(*)::int as user_count
+        FROM "auth"."user_role_assignments" a
+        JOIN "auth"."tenant_roles" ar ON ar.id = a.role_id
+        WHERE ar."tenantId" = $1 AND a.is_active = true
+        GROUP BY a.role_id
       ) uc ON r.id = uc.role_id
+      WHERE r."tenantId" = $1
       ORDER BY r.level DESC, r.name ASC
       `,
+      [tenantId],
     );
 
     return roles.map((row: Record<string, unknown>) => this.mapRowToRole(row));
@@ -103,9 +136,8 @@ export class TenantRoleService {
    * Get a single role by ID
    */
   async getRoleById(tenantId: string, roleId: string): Promise<TenantRoleWithDetails | null> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
-    const result = await this.dataSource.query(
+    const result = await queryRows<QueryRow>(
+      this.dataSource,
       `
       SELECT
         r.*,
@@ -113,33 +145,34 @@ export class TenantRoleService {
         p.panel_permissions,
         p.resource_permissions,
         COALESCE(uc.user_count, 0)::int as user_count
-      FROM "${schemaName}"."tenant_roles" r
-      LEFT JOIN "${schemaName}"."tenant_role_permissions" p ON r.id = p.role_id
+      FROM "auth"."tenant_roles" r
+      LEFT JOIN "auth"."tenant_role_permissions" p ON r.id = p.role_id
       LEFT JOIN (
-        SELECT role_id, COUNT(*)::int as user_count
-        FROM "${schemaName}"."user_role_assignments"
-        WHERE is_active = true
-        GROUP BY role_id
+        SELECT a.role_id, COUNT(*)::int as user_count
+        FROM "auth"."user_role_assignments" a
+        JOIN "auth"."tenant_roles" ar ON ar.id = a.role_id
+        WHERE ar."tenantId" = $1 AND a.is_active = true
+        GROUP BY a.role_id
       ) uc ON r.id = uc.role_id
-      WHERE r.id = $1
+      WHERE r."tenantId" = $1 AND r.id = $2
       `,
-      [roleId],
+      [tenantId, roleId],
     );
 
-    if (result.length === 0) {
+    const [row] = result;
+    if (!row) {
       return null;
     }
 
-    return this.mapRowToRole(result[0]);
+    return this.mapRowToRole(row);
   }
 
   /**
    * Get the default role for a tenant
    */
   async getDefaultRole(tenantId: string): Promise<TenantRoleWithDetails | null> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
-    const result = await this.dataSource.query(
+    const result = await queryRows<QueryRow>(
+      this.dataSource,
       `
       SELECT
         r.*,
@@ -147,18 +180,20 @@ export class TenantRoleService {
         p.panel_permissions,
         p.resource_permissions,
         0 as user_count
-      FROM "${schemaName}"."tenant_roles" r
-      LEFT JOIN "${schemaName}"."tenant_role_permissions" p ON r.id = p.role_id
-      WHERE r.is_default = true
+      FROM "auth"."tenant_roles" r
+      LEFT JOIN "auth"."tenant_role_permissions" p ON r.id = p.role_id
+      WHERE r."tenantId" = $1 AND r.is_default = true
       LIMIT 1
       `,
+      [tenantId],
     );
 
-    if (result.length === 0) {
+    const [row] = result;
+    if (!row) {
       return null;
     }
 
-    return this.mapRowToRole(result[0]);
+    return this.mapRowToRole(row);
   }
 
   /**
@@ -169,12 +204,11 @@ export class TenantRoleService {
     input: CreateTenantRoleInput,
     createdBy: string,
   ): Promise<TenantRoleWithDetails> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
     // Check for duplicate name
-    const existing = await this.dataSource.query(
-      `SELECT id FROM "${schemaName}"."tenant_roles" WHERE LOWER(name) = LOWER($1)`,
-      [input.name],
+    const existing = await queryRows<{ id: string }>(
+      this.dataSource,
+      `SELECT id FROM "auth"."tenant_roles" WHERE "tenantId" = $1 AND LOWER(name) = LOWER($2)`,
+      [tenantId, input.name],
     );
 
     if (existing.length > 0) {
@@ -187,19 +221,22 @@ export class TenantRoleService {
       // If this is set as default, unset other defaults
       if (input.isDefault) {
         await manager.query(
-          `UPDATE "${schemaName}"."tenant_roles" SET is_default = false WHERE is_default = true`,
+          `UPDATE "auth"."tenant_roles" SET is_default = false WHERE "tenantId" = $1 AND is_default = true`,
+          [tenantId],
         );
       }
 
       // Create the role
-      const roleResult = await manager.query(
+      const roleResult = await queryRows<{ id: string }>(
+        manager,
         `
-        INSERT INTO "${schemaName}"."tenant_roles" (
-          name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, false, $6, $7, NOW(), NOW())
+        INSERT INTO "auth"."tenant_roles" (
+          "tenantId", name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8, NOW(), NOW())
         RETURNING id
         `,
         [
+          tenantId,
           input.name,
           input.description || null,
           input.color || '#6366F1',
@@ -210,14 +247,18 @@ export class TenantRoleService {
         ],
       );
 
-      const newRoleId = roleResult[0].id;
+      const newRole = roleResult[0];
+      if (!newRole) {
+        throw new Error('Failed to create tenant role');
+      }
+      const newRoleId = newRole.id;
 
       // Create role permissions
       const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
 
       await manager.query(
         `
-        INSERT INTO "${schemaName}"."tenant_role_permissions" (
+        INSERT INTO "auth"."tenant_role_permissions" (
           role_id, panel_permissions, resource_permissions, created_at, updated_at
         ) VALUES ($1, $2, $3, NOW(), NOW())
         `,
@@ -245,8 +286,6 @@ export class TenantRoleService {
     input: UpdateTenantRoleInput,
     updatedBy: string,
   ): Promise<TenantRoleWithDetails> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
     // Get existing role
     const existing = await this.getRoleById(tenantId, roleId);
     if (!existing) {
@@ -262,9 +301,10 @@ export class TenantRoleService {
 
     // Check for duplicate name if changing name
     if (input.name && input.name !== existing.name) {
-      const duplicate = await this.dataSource.query(
-        `SELECT id FROM "${schemaName}"."tenant_roles" WHERE LOWER(name) = LOWER($1) AND id != $2`,
-        [input.name, roleId],
+      const duplicate = await queryRows<{ id: string }>(
+        this.dataSource,
+        `SELECT id FROM "auth"."tenant_roles" WHERE "tenantId" = $1 AND LOWER(name) = LOWER($2) AND id != $3`,
+        [tenantId, input.name, roleId],
       );
       if (duplicate.length > 0) {
         throw new ConflictException(`Role with name "${input.name}" already exists`);
@@ -278,7 +318,8 @@ export class TenantRoleService {
       // If this is set as default, unset other defaults
       if (input.isDefault && !existing.isDefault) {
         await manager.query(
-          `UPDATE "${schemaName}"."tenant_roles" SET is_default = false WHERE is_default = true`,
+          `UPDATE "auth"."tenant_roles" SET is_default = false WHERE "tenantId" = $1 AND is_default = true`,
+          [tenantId],
         );
       }
 
@@ -317,8 +358,8 @@ export class TenantRoleService {
 
       if (updateFields.length > 1) {
         await manager.query(
-          `UPDATE "${schemaName}"."tenant_roles" SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`,
-          values,
+          `UPDATE "auth"."tenant_roles" SET ${updateFields.join(', ')} WHERE "tenantId" = $${paramIndex} AND id = $${paramIndex + 1}`,
+          [...values.slice(0, -1), tenantId, roleId],
         );
       }
 
@@ -328,7 +369,7 @@ export class TenantRoleService {
 
         await manager.query(
           `
-          UPDATE "${schemaName}"."tenant_role_permissions"
+          UPDATE "auth"."tenant_role_permissions"
           SET panel_permissions = $1, resource_permissions = $2, updated_at = NOW()
           WHERE role_id = $3
           `,
@@ -350,8 +391,6 @@ export class TenantRoleService {
    * Delete a tenant role
    */
   async deleteRole(tenantId: string, roleId: string, deletedBy: string): Promise<boolean> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
     // Get existing role
     const existing = await this.getRoleById(tenantId, roleId);
     if (!existing) {
@@ -372,8 +411,8 @@ export class TenantRoleService {
 
     // Delete the role (cascade will delete permissions)
     await this.dataSource.query(
-      `DELETE FROM "${schemaName}"."tenant_roles" WHERE id = $1`,
-      [roleId],
+      `DELETE FROM "auth"."tenant_roles" WHERE "tenantId" = $1 AND id = $2`,
+      [tenantId, roleId],
     );
 
     this.logger.log(`Deleted role "${existing.name}" (${roleId}) in tenant ${tenantId} by ${deletedBy}`);
@@ -386,14 +425,14 @@ export class TenantRoleService {
    * Called when a tenant schema is first created
    */
   async seedDefaultRoles(tenantId: string, createdBy: string): Promise<TenantRoleWithDetails[]> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
     // Check if roles already exist
-    const existingRoles = await this.dataSource.query(
-      `SELECT COUNT(*)::int as count FROM "${schemaName}"."tenant_roles"`,
+    const existingRoles = await queryRows<{ count: number }>(
+      this.dataSource,
+      `SELECT COUNT(*)::int as count FROM "auth"."tenant_roles" WHERE "tenantId" = $1`,
+      [tenantId],
     );
 
-    if (existingRoles[0].count > 0) {
+    if ((existingRoles[0]?.count ?? 0) > 0) {
       this.logger.debug(`Roles already exist in tenant ${tenantId}, skipping seed`);
       return this.getTenantRoles(tenantId);
     }
@@ -404,14 +443,16 @@ export class TenantRoleService {
     // so either all default roles are created or none are (no orphaned roles).
     await this.dataSource.transaction(async (manager) => {
       for (const roleTemplate of DEFAULT_TENANT_ROLES) {
-        const roleResult = await manager.query(
+        const roleResult = await queryRows<{ id: string }>(
+          manager,
           `
-          INSERT INTO "${schemaName}"."tenant_roles" (
-            name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+          INSERT INTO "auth"."tenant_roles" (
+            "tenantId", name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
           RETURNING id
           `,
           [
+            tenantId,
             roleTemplate.name,
             roleTemplate.description,
             roleTemplate.color,
@@ -423,14 +464,18 @@ export class TenantRoleService {
           ],
         );
 
-        const roleId = roleResult[0].id;
+        const role = roleResult[0];
+        if (!role) {
+          throw new Error(`Failed to seed default role: ${roleTemplate.name}`);
+        }
+        const roleId = role.id;
 
         const defaultPermissions = DEFAULT_ROLE_PERMISSIONS[roleTemplate.name] || {};
-        const resourcePermissions = panelPermissionsToResourceArray(defaultPermissions as PanelPermissions);
+        const resourcePermissions = panelPermissionsToResourceArray(defaultPermissions);
 
         await manager.query(
           `
-          INSERT INTO "${schemaName}"."tenant_role_permissions" (
+          INSERT INTO "auth"."tenant_role_permissions" (
             role_id, panel_permissions, resource_permissions, created_at, updated_at
           ) VALUES ($1, $2, $3, NOW(), NOW())
           `,
@@ -462,29 +507,39 @@ export class TenantRoleService {
     resource: string,
     action: string,
   ): Promise<boolean> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
     const permissionKey = `${resource}:${action}`;
 
-    const result = await this.dataSource.query(
+    const result = await queryRows<{
+      resource_permissions: unknown;
+      permission_overrides: unknown;
+    }>(
+      this.dataSource,
       `
       SELECT
         p.resource_permissions,
         a.permission_overrides
-      FROM "${schemaName}"."user_role_assignments" a
-      JOIN "${schemaName}"."tenant_role_permissions" p ON a.role_id = p.role_id
+      FROM "auth"."user_role_assignments" a
+      JOIN "auth"."tenant_roles" r ON r.id = a.role_id
+      JOIN "auth"."tenant_role_permissions" p ON a.role_id = p.role_id
       WHERE a.user_id = $1
+        AND r."tenantId" = $2
         AND a.is_active = true
         AND (a.expires_at IS NULL OR a.expires_at > NOW())
       `,
-      [userId],
+      [userId, tenantId],
     );
 
     if (result.length === 0) {
       return false;
     }
 
-    const { resource_permissions, permission_overrides } = result[0];
-    const overrides = permission_overrides || { grants: [], revokes: [] };
+    const permissionsRow = result[0];
+    if (!permissionsRow) {
+      return false;
+    }
+
+    const resourcePermissions = parseStringArray(permissionsRow.resource_permissions);
+    const overrides = parsePermissionOverrides(permissionsRow.permission_overrides);
 
     // Check if explicitly revoked
     if (overrides.revokes?.includes(permissionKey)) {
@@ -497,7 +552,7 @@ export class TenantRoleService {
     }
 
     // Check role permissions
-    return resource_permissions?.includes(permissionKey) || false;
+    return resourcePermissions.includes(permissionKey);
   }
 
   /**
@@ -505,29 +560,38 @@ export class TenantRoleService {
    */
   private mapRowToRole(row: Record<string, unknown>): TenantRoleWithDetails {
     return {
-      id: row.id as string,
-      name: row.name as string,
-      description: row.description as string | undefined,
-      color: row.color as string,
-      icon: row.icon as string,
-      level: row.level as number,
-      isSystem: row.is_system as boolean,
-      isDefault: row.is_default as boolean,
-      createdBy: row.created_by as string,
-      createdAt: row.created_at as Date,
-      updatedAt: row.updated_at as Date,
-      userCount: (row.user_count as number) || 0,
+      id: rowString(row.id),
+      name: rowString(row.name),
+      description: typeof row.description === 'string' ? row.description : undefined,
+      color: rowString(row.color),
+      icon: rowString(row.icon),
+      level: rowNumber(row.level),
+      isSystem: rowBoolean(row.is_system),
+      isDefault: rowBoolean(row.is_default),
+      createdBy: rowString(row.created_by),
+      createdAt: rowDate(row.created_at),
+      updatedAt: rowDate(row.updated_at),
+      userCount: rowNumber(row.user_count),
       permissions: {
-        id: row.permission_id as string,
-        roleId: row.id as string,
-        panelPermissions: typeof row.panel_permissions === 'string'
-          ? JSON.parse(row.panel_permissions)
-          : (row.panel_permissions as PanelPermissions) || {},
-        resourcePermissions: (row.resource_permissions as string[]) || [],
-        createdAt: row.created_at as Date,
-        updatedAt: row.updated_at as Date,
-        role: null!,
+        id: rowString(row.permission_id),
+        roleId: rowString(row.id),
+        panelPermissions: parsePanelPermissions(row.panel_permissions),
+        resourcePermissions: parseStringArray(row.resource_permissions),
+        createdAt: rowDate(row.created_at),
+        updatedAt: rowDate(row.updated_at),
       },
     };
   }
+}
+
+function parsePermissionOverrides(value: unknown): { grants: string[]; revokes: string[] } {
+  const parsed = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
+  if (!parsed || typeof parsed !== 'object') {
+    return { grants: [], revokes: [] };
+  }
+  const candidate = parsed as { grants?: unknown; revokes?: unknown };
+  return {
+    grants: parseStringArray(candidate.grants),
+    revokes: parseStringArray(candidate.revokes),
+  };
 }

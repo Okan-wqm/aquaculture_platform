@@ -4,55 +4,42 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
-import { Equipment } from './entities/equipment.entity';
-import { EquipmentType } from './entities/equipment-type.entity';
-import { EquipmentSystem } from './entities/equipment-system.entity';
-import { SubEquipment } from './entities/sub-equipment.entity';
-import { SubEquipmentType } from './entities/sub-equipment-type.entity';
-import { FeederCalibration } from './entities/feeder-calibration.entity';
-import { Department } from '../department/entities/department.entity';
-import { System } from '../system/entities/system.entity';
-import { SubSystem } from '../system/entities/sub-system.entity';
-import { Supplier } from '../supplier/entities/supplier.entity';
-import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { BatchFeedAssignment } from '../batch/entities/batch-feed-assignment.entity';
+import { TankBatch } from '../batch/entities/tank-batch.entity';
+import { Department } from '../department/entities/department.entity';
+import { FarmStockModule } from '../farm-stock/farm-stock.module';
 import { Feed } from '../feed/entities/feed.entity';
+import { FeedingModule } from '../feeding/feeding.module';
+import { Supplier } from '../supplier/entities/supplier.entity';
+import { SubSystem } from '../system/entities/sub-system.entity';
+import { System } from '../system/entities/system.entity';
 import { Tank } from '../tank/entities/tank.entity';
 
-// Modules
-import { FeedingModule } from '../feeding/feeding.module';
-
-// Services
-import { EquipmentTypeLookupService } from './services/equipment-type-lookup.service';
-import { EquipmentTypeCatalogCheckerService } from './services/equipment-type-catalog-checker.service';
-
-// Resolvers
+import { EquipmentSystem } from './entities/equipment-system.entity';
+import { EquipmentType } from './entities/equipment-type.entity';
+import { Equipment } from './entities/equipment.entity';
+import { FeederCalibration } from './entities/feeder-calibration.entity';
+import { SubEquipmentType } from './entities/sub-equipment-type.entity';
+import { SubEquipment } from './entities/sub-equipment.entity';
 import { EquipmentResolver } from './equipment.resolver';
-import { SubEquipmentResolver } from './sub-equipment.resolver';
-
-// Equipment Command Handlers
 import { CreateEquipmentHandler } from './handlers/create-equipment.handler';
-import { UpdateEquipmentHandler } from './handlers/update-equipment.handler';
-import { DeleteEquipmentHandler } from './handlers/delete-equipment.handler';
-import { SaveFeederCalibrationsHandler } from './handlers/save-feeder-calibrations.handler';
-
-// Equipment Query Handlers
-import { GetEquipmentHandler } from './handlers/get-equipment.handler';
-import { ListEquipmentHandler } from './handlers/list-equipment.handler';
-import { GetEquipmentTypesHandler } from './handlers/get-equipment-types.handler';
-import { GetEquipmentDeletePreviewHandler } from './handlers/get-equipment-delete-preview.handler';
-import { ListFeederCalibrationsHandler } from './handlers/list-feeder-calibrations.handler';
-
-// SubEquipment Command Handlers
 import { CreateSubEquipmentHandler } from './handlers/create-sub-equipment.handler';
-import { UpdateSubEquipmentHandler } from './handlers/update-sub-equipment.handler';
+import { DeleteEquipmentHandler } from './handlers/delete-equipment.handler';
 import { DeleteSubEquipmentHandler } from './handlers/delete-sub-equipment.handler';
-
-// SubEquipment Query Handlers
-import { GetSubEquipmentHandler } from './handlers/get-sub-equipment.handler';
-import { ListSubEquipmentHandler } from './handlers/list-sub-equipment.handler';
+import { GetEquipmentDeletePreviewHandler } from './handlers/get-equipment-delete-preview.handler';
+import { GetEquipmentTypesHandler } from './handlers/get-equipment-types.handler';
+import { GetEquipmentHandler } from './handlers/get-equipment.handler';
 import { GetSubEquipmentTypesHandler } from './handlers/get-sub-equipment-types.handler';
+import { GetSubEquipmentHandler } from './handlers/get-sub-equipment.handler';
+import { ListEquipmentHandler } from './handlers/list-equipment.handler';
+import { ListFeederCalibrationsHandler } from './handlers/list-feeder-calibrations.handler';
+import { ListSubEquipmentHandler } from './handlers/list-sub-equipment.handler';
+import { SaveFeederCalibrationsHandler } from './handlers/save-feeder-calibrations.handler';
+import { UpdateEquipmentHandler } from './handlers/update-equipment.handler';
+import { UpdateSubEquipmentHandler } from './handlers/update-sub-equipment.handler';
+import { EquipmentTypeCatalogCheckerService } from './services/equipment-type-catalog-checker.service';
+import { EquipmentTypeLookupService } from './services/equipment-type-lookup.service';
+import { SubEquipmentResolver } from './sub-equipment.resolver';
 
 const CommandHandlers = [
   CreateEquipmentHandler,
@@ -94,6 +81,7 @@ const QueryHandlers = [
       Tank, // Added for unified equipmentList query
     ]),
     FeedingModule,
+    FarmStockModule,
   ],
   providers: [
     EquipmentResolver,

@@ -1,3 +1,5 @@
+import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
+
 import { ClockMethod, GeoLocation } from '../entities/attendance-record.entity';
 
 export class ClockOutCommand {
@@ -16,5 +18,6 @@ export class ClockOutCommand {
      * Break end time (in UTC or local time - will be stored as UTC)
      */
     public readonly breakEndTime?: Date,
+    public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

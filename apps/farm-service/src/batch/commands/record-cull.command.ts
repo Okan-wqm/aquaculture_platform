@@ -6,6 +6,7 @@
  *
  * @module Batch/Commands
  */
+import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 import { ITenantCommand } from '@platform/cqrs';
 
 export enum CullReason {
@@ -34,5 +35,6 @@ export class RecordCullCommand implements ITenantCommand {
     public readonly batchId: string,
     public readonly payload: RecordCullPayload,
     public readonly recordedBy: string,
+    public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

@@ -6,6 +6,11 @@
  *
  * @module Harvest/Resolvers
  */
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
+import { StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { UseGuards, Logger } from '@nestjs/common';
 import {
   Resolver,
   Query,
@@ -19,32 +24,19 @@ import {
   ResolveField,
   Parent,
 } from '@nestjs/graphql';
-import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
-import { TenantGuard } from '@aquaculture/backend-common/guards';
-import { StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
-// Entities
-import { HarvestRecord, HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
-import { HarvestPlan } from '../entities/harvest-plan.entity';
-// DTOs
-import { CreateHarvestRecordInput } from '../dto/create-harvest-record.input';
-import { UpdateHarvestRecordInput } from '../dto/update-harvest-record.input';
-import { HarvestFilterInput, HarvestPaginationInput, DateRangeInput } from '../dto/harvest-filter.input';
-
-// Commands
 import { CreateHarvestRecordCommand } from '../commands/create-harvest-record.command';
-import { UpdateHarvestRecordCommand } from '../commands/update-harvest-record.command';
 import { DeleteHarvestRecordCommand } from '../commands/delete-harvest-record.command';
-
-// Queries
-import { ListHarvestsQuery } from '../queries/list-harvests.query';
-import { GetHarvestQuery } from '../queries/get-harvest.query';
-import { GetHarvestStatisticsQuery } from '../queries/get-harvest-statistics.query';
-
-// Handler Types
+import { UpdateHarvestRecordCommand } from '../commands/update-harvest-record.command';
+import { CreateHarvestRecordInput } from '../dto/create-harvest-record.input';
+import { HarvestFilterInput, HarvestPaginationInput, DateRangeInput } from '../dto/harvest-filter.input';
+import { UpdateHarvestRecordInput } from '../dto/update-harvest-record.input';
+import { HarvestRecord, HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
 import { HarvestStatistics } from '../handlers/get-harvest-statistics.handler';
+import { GetHarvestStatisticsQuery } from '../queries/get-harvest-statistics.query';
+import { GetHarvestQuery } from '../queries/get-harvest.query';
+import { ListHarvestsQuery } from '../queries/list-harvests.query';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -254,7 +246,7 @@ export class HarvestResolver {
       } : undefined,
     );
 
-    const result = await this.queryBus.execute<any, PaginatedQueryResult<HarvestRecord>>(query);
+    const result = await this.queryBus.execute<ListHarvestsQuery, PaginatedQueryResult<HarvestRecord>>(query);
     return fromCqrsPaginated(result);
   }
 
@@ -296,7 +288,7 @@ export class HarvestResolver {
       } : { sortBy: 'harvestDate', sortOrder: 'DESC' },
     );
 
-    const result = await this.queryBus.execute<any, PaginatedQueryResult<HarvestRecord>>(query);
+    const result = await this.queryBus.execute<ListHarvestsQuery, PaginatedQueryResult<HarvestRecord>>(query);
     return fromCqrsPaginated(result);
   }
 
@@ -309,7 +301,10 @@ export class HarvestResolver {
     @Tenant() tenantId: string,
     @Args('dateRange', { type: () => DateRangeInput }) dateRange: DateRangeInput,
   ): Promise<HarvestStatisticsResponse> {
-    this.logger.log(`Getting harvest statistics for tenant ${tenantId} from ${dateRange.startDate} to ${dateRange.endDate}`);
+    this.logger.log(
+      `Getting harvest statistics for tenant ${tenantId} from ` +
+        `${dateRange.startDate.toISOString()} to ${dateRange.endDate.toISOString()}`,
+    );
 
     const query = new GetHarvestStatisticsQuery(tenantId, {
       startDate: dateRange.startDate,
@@ -348,7 +343,7 @@ export class HarvestResolver {
     this.logger.log(`Creating harvest record for tenant ${tenantId} by user ${user.sub}`);
 
     return this.commandBus.execute(
-      new CreateHarvestRecordCommand(tenantId, input, user.sub)
+      new CreateHarvestRecordCommand(tenantId, input, user.sub, mobileCommandEnvelopeFromInput(input))
     );
   }
 

@@ -1,17 +1,16 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
+import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
+import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
+import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
-import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Employee } from '../hr/entities/employee.entity';
-import { LeaveType, LeaveCategory } from './entities/leave-type.entity';
-import { LeaveBalance } from './entities/leave-balance.entity';
-import { LeaveRequest, LeaveRequestStatus } from './entities/leave-request.entity';
-import { CreateLeaveRequestInput, UpdateLeaveRequestInput } from './dto/create-leave-request.input';
+
 import {
   CreateLeaveRequestCommand,
   SubmitLeaveRequestCommand,
@@ -19,6 +18,10 @@ import {
   RejectLeaveRequestCommand,
   CancelLeaveRequestCommand,
 } from './commands';
+import { CreateLeaveRequestInput } from './dto/create-leave-request.input';
+import { LeaveBalance } from './entities/leave-balance.entity';
+import { LeaveRequest, LeaveRequestStatus } from './entities/leave-request.entity';
+import { LeaveType, LeaveCategory } from './entities/leave-type.entity';
 import {
   GetLeaveTypesQuery,
   GetLeaveBalancesQuery,
@@ -38,6 +41,18 @@ interface GraphQLContext {
       sub: string;
       tenantId: string;
     };
+  };
+}
+
+interface CqrsPaginatedResult<T> {
+  data: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
   };
 }
 
@@ -103,7 +118,9 @@ export class LeaveResolver {
     @Args('category', { type: () => LeaveCategory, nullable: true }) category?: LeaveCategory,
   ): Promise<LeaveType[]> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetLeaveTypesQuery(tenantId, isActive, category));
+    return this.queryBus.execute<GetLeaveTypesQuery, LeaveType[]>(
+      new GetLeaveTypesQuery(tenantId, isActive, category),
+    );
   }
 
   // =====================
@@ -119,7 +136,7 @@ export class LeaveResolver {
     @Args('leaveTypeId', { type: () => ID, nullable: true }) leaveTypeId?: string,
   ): Promise<LeaveBalance[]> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
+    return this.queryBus.execute<GetLeaveBalancesQuery, LeaveBalance[]>(
       new GetLeaveBalancesQuery(tenantId, employeeId, year, leaveTypeId),
     );
   }
@@ -132,7 +149,7 @@ export class LeaveResolver {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     const employeeId = await this.resolveEmployeeId(userId, tenantId);
-    return this.queryBus.execute(
+    return this.queryBus.execute<GetLeaveBalancesQuery, LeaveBalance[]>(
       new GetLeaveBalancesQuery(tenantId, employeeId, year),
     );
   }
@@ -148,7 +165,9 @@ export class LeaveResolver {
     @Context() context: GraphQLContext,
   ): Promise<LeaveRequest> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetLeaveRequestByIdQuery(tenantId, id));
+    return this.queryBus.execute<GetLeaveRequestByIdQuery, LeaveRequest>(
+      new GetLeaveRequestByIdQuery(tenantId, id),
+    );
   }
 
   @Query(() => LeaveRequestConnection, { name: 'leaveRequests' })
@@ -165,7 +184,10 @@ export class LeaveResolver {
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
   ): Promise<IStandardPaginatedResult<LeaveRequest>> {
     const tenantId = this.getTenantId(context);
-    const result = await this.queryBus.execute(
+    const result = await this.queryBus.execute<
+      GetLeaveRequestsQuery,
+      CqrsPaginatedResult<LeaveRequest>
+    >(
       new GetLeaveRequestsQuery(
         tenantId,
         employeeId,
@@ -190,7 +212,10 @@ export class LeaveResolver {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     const employeeId = await this.resolveEmployeeId(userId, tenantId);
-    const result = await this.queryBus.execute(
+    const result = await this.queryBus.execute<
+      GetLeaveRequestsQuery,
+      CqrsPaginatedResult<LeaveRequest>
+    >(
       new GetLeaveRequestsQuery(
         tenantId,
         employeeId,
@@ -222,7 +247,10 @@ export class LeaveResolver {
       select: ['id'],
     });
     const employeeId = employee?.id ?? null;
-    const result = await this.queryBus.execute(
+    const result = await this.queryBus.execute<
+      GetPendingApprovalsQuery,
+      CqrsPaginatedResult<LeaveRequest>
+    >(
       new GetPendingApprovalsQuery(tenantId, employeeId, departmentId, limit, page),
     );
     return fromCqrsPaginated(result);
@@ -236,7 +264,7 @@ export class LeaveResolver {
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
   ): Promise<LeaveCalendarEntry[]> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
+    return this.queryBus.execute<GetTeamLeaveCalendarQuery, LeaveCalendarEntry[]>(
       new GetTeamLeaveCalendarQuery(tenantId, departmentId, startDate, endDate),
     );
   }
@@ -262,7 +290,7 @@ export class LeaveResolver {
       throw new ForbiddenException('You can only create leave requests for yourself');
     }
 
-    return this.commandBus.execute(
+    return this.commandBus.execute<CreateLeaveRequestCommand, LeaveRequest>(
       new CreateLeaveRequestCommand(
         tenantId,
         userId,
@@ -276,6 +304,7 @@ export class LeaveResolver {
         input.halfDayPeriod,
         input.reason,
         input.contactDuringLeave,
+        mobileCommandEnvelopeFromInput(input),
       ),
     );
   }
@@ -288,7 +317,7 @@ export class LeaveResolver {
   ): Promise<LeaveRequest> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.commandBus.execute(
+    return this.commandBus.execute<SubmitLeaveRequestCommand, LeaveRequest>(
       new SubmitLeaveRequestCommand(tenantId, userId, id),
     );
   }
@@ -306,7 +335,7 @@ export class LeaveResolver {
   ): Promise<LeaveRequest> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.commandBus.execute(
+    return this.commandBus.execute<ApproveLeaveRequestCommand, LeaveRequest>(
       new ApproveLeaveRequestCommand(tenantId, userId, id, notes),
     );
   }
@@ -323,7 +352,7 @@ export class LeaveResolver {
   ): Promise<LeaveRequest> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.commandBus.execute(
+    return this.commandBus.execute<RejectLeaveRequestCommand, LeaveRequest>(
       new RejectLeaveRequestCommand(tenantId, userId, id, reason),
     );
   }
@@ -337,7 +366,7 @@ export class LeaveResolver {
   ): Promise<LeaveRequest> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.commandBus.execute(
+    return this.commandBus.execute<CancelLeaveRequestCommand, LeaveRequest>(
       new CancelLeaveRequestCommand(tenantId, userId, id, reason),
     );
   }

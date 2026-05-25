@@ -176,10 +176,12 @@ invariant catches the omission immediately.
 
 ## Enforcement
 
-  - **Commit-time:** ESLint custom rule `require-entity-schema`
-    (deferred from P11; future work). Rejects `@Entity('x')` without
-    a `{ schema: 'X' }` argument unless the table name is in the
-    explicit allow-list (`migrations` only).
+  - **Commit-time:** ESLint custom rule `require-entity-schema` enforces
+    explicit `schema:` metadata on platform-level and source-scoped
+    entities. Tenant-scoped per-tenant entities stay unqualified so
+    request-scoped `search_path` routing can select the tenant clone;
+    `apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts`
+    guards that inverse contract for farm-service.
   - **CI:** `e2e/tests/integration/schema-invariants.spec.ts` asserts
     the public/shared/per-service layout on every PR build.
   - **Runtime:** `createSchemaDriftValidator(serviceName)` from

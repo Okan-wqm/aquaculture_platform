@@ -3,6 +3,7 @@ import { BackfillTenantFarmOperationalTables1800100000000 } from './180010000000
 import { CreateFarmOutboxTable1800200000000 } from './1800200000000-CreateFarmOutboxTable';
 import { AlignEquipmentTypesRuntimeContract1800300000000 } from './1800300000000-AlignEquipmentTypesRuntimeContract';
 import { CreateFarmStockReadModel1800400000000 } from './1800400000000-CreateFarmStockReadModel';
+import { AssertFarmStockBatchSnapshotMetadata1800500000000 } from './1800500000000-AssertFarmStockBatchSnapshotMetadata';
 
 /**
  * Canonical farm-service migration class list.
@@ -18,4 +19,5 @@ export const FARM_MIGRATIONS = [
   CreateFarmOutboxTable1800200000000,
   AlignEquipmentTypesRuntimeContract1800300000000,
   CreateFarmStockReadModel1800400000000,
+  AssertFarmStockBatchSnapshotMetadata1800500000000,
 ] as const;

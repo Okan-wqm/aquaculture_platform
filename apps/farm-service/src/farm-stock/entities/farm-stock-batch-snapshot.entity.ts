@@ -32,11 +32,11 @@ export class FarmStockBatchSnapshot {
   @Column('uuid')
   batchId!: string;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 50, nullable: true })
   batchNumber?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 80, nullable: true })
   batchStatus?: string | null;
 
@@ -72,7 +72,7 @@ export class FarmStockBatchSnapshot {
   @Column({ default: true })
   isPrimary!: boolean;
 
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   lastMortalityAt?: Date | null;
 

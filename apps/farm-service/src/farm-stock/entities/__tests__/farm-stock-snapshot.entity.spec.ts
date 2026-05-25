@@ -1,13 +1,15 @@
+import { LazyMetadataStorage } from '@nestjs/graphql/dist/schema-builder/storages/lazy-metadata.storage';
 import { getMetadataArgsStorage, type ColumnOptions } from 'typeorm';
 
 import { FarmStockBatchSnapshot } from '../farm-stock-batch-snapshot.entity';
 import { FarmStockContainerSnapshot } from '../farm-stock-container-snapshot.entity';
 
 describe('farm stock snapshot entity metadata', () => {
-  const snapshotEntities = new Set<unknown>([
+  const snapshotEntityTypes = [
     FarmStockBatchSnapshot,
     FarmStockContainerSnapshot,
-  ]);
+  ] as const;
+  const snapshotEntities = new Set<unknown>(snapshotEntityTypes);
 
   const columns = getMetadataArgsStorage().columns.filter((column) =>
     snapshotEntities.has(column.target),
@@ -41,5 +43,11 @@ describe('farm stock snapshot entity metadata', () => {
       length: 50,
       nullable: true,
     });
+  });
+
+  it('registers nullable GraphQL field metadata without reflected Object types', () => {
+    expect(() => {
+      LazyMetadataStorage.load([...snapshotEntityTypes]);
+    }).not.toThrow();
   });
 });

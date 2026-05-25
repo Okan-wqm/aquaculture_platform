@@ -51,15 +51,15 @@ export class FarmStockContainerSnapshot {
   @Column({ length: 50 })
   code!: string;
 
-  @Field({ nullable: true })
+  @Field(() => ID, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
   departmentId?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => ID, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
   siteId?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 80, nullable: true })
   status?: string | null;
 
@@ -95,7 +95,7 @@ export class FarmStockContainerSnapshot {
   @Column({ default: true })
   isActive!: boolean;
 
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   lastStockEventAt?: Date | null;
 

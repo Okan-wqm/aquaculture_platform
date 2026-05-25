@@ -5,6 +5,10 @@ Audience: fleet operator evaluating update paths for `agent-v2.0.0-rc4`.
 ## RC4 Position
 
 RC4 does not claim fully automatic device-side OTA enforcement.
+RC4 is Historical RC Only and is not an approved production tenant download.
+New releases follow `docs/architecture/edge-release-provisioning-ota.md`:
+the control plane selects an explicit `agent-v<exact Cargo semver>` release,
+publishes a signed `edge-release-manifest.json`, and devices apply with `apply_signed_manifest`.
 The release workflow signs published artifacts, but installation remains operator-controlled.
 
 Allowed for RC4:

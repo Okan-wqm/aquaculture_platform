@@ -1,25 +1,24 @@
 import { randomUUID } from 'crypto';
 
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import {
-  Injectable,
+  BadRequestException,
+  ConflictException,
   Inject,
+  Injectable,
   Logger,
   NotFoundException,
-  ConflictException,
-  BadRequestException,
-  Optional,
   OnModuleDestroy,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
-import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
-import { InstallerScriptService } from './installer-script.service';
 import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
 import {
   EdgeDevice,
@@ -27,6 +26,7 @@ import {
   DeviceModel,
 } from './entities/edge-device.entity';
 import { LoRaDevice, LoRaActivationMode, LoRaDeviceClass } from './entities/lora-device.entity';
+import { InstallerScriptService } from './installer-script.service';
 
 
 /**
@@ -90,6 +90,19 @@ export interface AddIoConfigInput {
   alarmLL?: number;
   deadband?: number;
 }
+
+type DeviceIoConfigWithGpioPin = DeviceIoConfig & { gpioPin: number };
+type DeviceIoConfigWithI2cAddress = DeviceIoConfig & { i2cAddress: number };
+type DeviceIoConfigWithModbusRegister = DeviceIoConfig & { modbusRegister: number };
+
+interface EdgeDeviceFingerprint {
+  cpuSerial?: string;
+  macAddresses?: string[];
+  machineId?: string;
+  hostname?: string;
+}
+
+type RowValueMap = Record<string, unknown>;
 
 /**
  * Device statistics type
@@ -263,10 +276,6 @@ export class EdgeDeviceService implements OnModuleDestroy {
   private cleanupIntervalId: NodeJS.Timeout | null = null;
   private isShuttingDown = false;
 
-  // Firmware version cache
-  private firmwareVersionsCache: { data: FirmwareVersionInfo[]; fetchedAt: number } | null = null;
-  private readonly FIRMWARE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
   constructor(
     @InjectRepository(EdgeDevice)
     private readonly deviceRepository: Repository<EdgeDevice>,
@@ -286,11 +295,33 @@ export class EdgeDeviceService implements OnModuleDestroy {
     this.startPendingPingsCleanup();
   }
 
+  private static isRecord(value: unknown): value is RowValueMap {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  private static queryAffectedRows(result: unknown): number {
+    if (!EdgeDeviceService.isRecord(result)) {
+      return 0;
+    }
+
+    const rowCount = result.rowCount;
+    if (typeof rowCount === 'number') {
+      return rowCount;
+    }
+
+    const affected = result.affected;
+    return typeof affected === 'number' ? affected : 0;
+  }
+
+  private isLegacyOtaAllowed(): boolean {
+    return this.configService.get<string>('EDGE_LEGACY_OTA_ALLOWED', 'false').toLowerCase() === 'true';
+  }
+
   /**
    * Lifecycle: Clean up resources on module destroy
    * Prevents memory leaks from pending pings and intervals
    */
-  async onModuleDestroy(): Promise<void> {
+  onModuleDestroy(): void {
     this.isShuttingDown = true;
     this.logger.log('EdgeDeviceService shutting down...');
 
@@ -362,7 +393,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
    * Clear all pending pings with a specific error message
    */
   private clearAllPendingPings(errorMessage: string): void {
-    for (const [commandId, pending] of this.pendingPings) {
+    for (const [, pending] of this.pendingPings) {
       clearTimeout(pending.timeout);
       pending.resolve({
         success: false,
@@ -611,12 +642,13 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     if (tenantSchema) {
       const column = isUuid ? 'id' : 'device_code';
-      const rows = await this.dataSource.query(
+      const rows = await this.dataSource.query<RowValueMap[]>(
         `SELECT * FROM "${tenantSchema}".edge_devices WHERE "${column}" = $1 LIMIT 1`,
         [heartbeat.deviceCode],
       );
-      if (rows && rows.length > 0) {
-        device = this.mapRowToEdgeDevice(rows[0]);
+      const firstRow = rows[0];
+      if (firstRow) {
+        device = this.mapRowToEdgeDevice(firstRow);
       }
     } else {
       const whereCondition: Record<string, unknown> = isUuid
@@ -644,7 +676,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
       // Check if firmware update target has been reached
       if (device.targetFirmwareVersion) {
-        const normalize = (v: string) => v.replace(/^agent-v/, '');
+        const normalize = (v: string): string => v.replace(/^agent-v/, '');
         if (normalize(heartbeat.firmwareVersion) === normalize(device.targetFirmwareVersion)) {
           device.firmwareUpdatedAt = new Date();
           device.targetFirmwareVersion = undefined;
@@ -734,7 +766,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
         await qr.connect();
         await qr.query(`SET search_path TO "${schema_name}", sensor, public`);
 
-        const result = await qr.query(
+        const result: unknown = await qr.query(
           `UPDATE edge_devices
            SET is_online = false,
                lifecycle_state = $1
@@ -749,7 +781,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
           ],
         );
 
-        const affected = result?.rowCount ?? result?.affected ?? 0;
+        const affected = EdgeDeviceService.queryAffectedRows(result);
         if (affected > 0) {
           this.logger.log(`Marked ${affected} devices as offline in ${schema_name}`);
           totalAffected += affected;
@@ -759,7 +791,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
           `Failed stale-device check for ${schema_name}: ${(err as Error).message}`,
         );
       } finally {
-        await qr.query('RESET search_path').catch(() => {});
+        await qr.query('RESET search_path').catch(() => undefined);
         await qr.release();
       }
     }
@@ -1082,7 +1114,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     try {
       // Sanitize reason to prevent log injection
-      const safeReason = (reason || 'User requested reboot').replace(/[^a-zA-Z0-9 ._\-]/g, '').substring(0, 200);
+      const safeReason = (reason || 'User requested reboot').replace(/[^a-zA-Z0-9 ._-]/g, '').substring(0, 200);
       // Publish using tenant-scoped topic for proper ACL enforcement
       await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
         commandId: randomUUID(),
@@ -1241,14 +1273,14 @@ export class EdgeDeviceService implements OnModuleDestroy {
   ): AgentIoConfig {
     // Partition configs by protocol: GPIO uses gpioPin, Modbus uses modbusRegister.
     // Configs with neither field set are skipped (incomplete configuration).
-    const gpioConfigs: DeviceIoConfig[] = [];
-    const modbusConfigs: DeviceIoConfig[] = [];
+    const gpioConfigs: DeviceIoConfigWithGpioPin[] = [];
+    const modbusConfigs: DeviceIoConfigWithModbusRegister[] = [];
 
     for (const cfg of ioConfigs) {
       if (cfg.gpioPin != null) {
-        gpioConfigs.push(cfg);
+        gpioConfigs.push(cfg as DeviceIoConfigWithGpioPin);
       } else if (cfg.modbusRegister != null) {
-        modbusConfigs.push(cfg);
+        modbusConfigs.push(cfg as DeviceIoConfigWithModbusRegister);
       } else if (cfg.busType === 'i2c' && cfg.i2cAddress != null) {
         // I2C configs handled below
       } else if (cfg.busType === 'spi' || cfg.busType === 'uart') {
@@ -1262,7 +1294,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     // I2C partition
     const i2cConfigs = ioConfigs.filter(
-      (cfg) => cfg.busType === 'i2c' && cfg.i2cAddress != null,
+      (cfg): cfg is DeviceIoConfigWithI2cAddress => cfg.busType === 'i2c' && cfg.i2cAddress != null,
     );
 
     // SPI/UART warning
@@ -1277,7 +1309,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     // Group Modbus configs by slave ID.  Each group becomes one TCP
     // connection on the agent side (ModbusDeviceConfig).
-    const modbusGrouped = new Map<number, DeviceIoConfig[]>();
+    const modbusGrouped = new Map<number, DeviceIoConfigWithModbusRegister[]>();
     for (const cfg of modbusConfigs) {
       const slaveId = cfg.modbusSlaveId ?? 1;
       const group = modbusGrouped.get(slaveId);
@@ -1300,7 +1332,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       slave_id: slaveId,
       registers: configs.map((cfg): AgentModbusRegisterConfig => ({
         name: cfg.tagName,
-        address: cfg.modbusRegister!,
+        address: cfg.modbusRegister,
         register_type: EdgeDeviceService.mapModbusFunctionToRegisterType(cfg.modbusFunction),
         data_type: cfg.dataType.toLowerCase(),
         scale: EdgeDeviceService.computeLinearScale(cfg),
@@ -1311,7 +1343,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // Build GpioConfig array
     const gpio: AgentGpioConfig[] = gpioConfigs.map((cfg): AgentGpioConfig => ({
       name: cfg.tagName,
-      pin: cfg.gpioPin!,
+      pin: cfg.gpioPin,
       direction: EdgeDeviceService.mapIoTypeToGpioDirection(cfg.ioType),
       invert: cfg.invertValue ?? false,
     }));
@@ -1320,7 +1352,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const i2c: AgentI2cDeviceConfig[] = i2cConfigs.map((cfg) => ({
       name: cfg.tagName,
       bus: cfg.i2cBus ?? 1,
-      address: cfg.i2cAddress!,
+      address: cfg.i2cAddress,
       driver_type: this.inferI2cDriverType(cfg),
       io_type: cfg.ioType,
       data_type: cfg.dataType.toLowerCase(),
@@ -2185,106 +2217,40 @@ export class EdgeDeviceService implements OnModuleDestroy {
   // ==================== Firmware Update Methods ====================
 
   /**
-   * Fetch available firmware versions from GitHub releases.
-   * Results are cached for 5 minutes to avoid rate limiting.
+   * Firmware versions are sourced from the signed Edge release registry.
+   * Until that registry is wired into this service, production must not infer
+   * consumable versions from live GitHub release state.
    */
-  async getAvailableFirmwareVersions(): Promise<FirmwareVersionInfo[]> {
-    // Return cached data if still valid
-    if (
-      this.firmwareVersionsCache &&
-      Date.now() - this.firmwareVersionsCache.fetchedAt < this.FIRMWARE_CACHE_TTL_MS
-    ) {
-      return this.firmwareVersionsCache.data;
-    }
-
-    const repo = this.configService.get<string>('GITHUB_REPO', '');
-    if (!repo) {
-      this.logger.warn('GITHUB_REPO not configured — firmware version list unavailable');
-      return [];
-    }
-    const url = `https://api.github.com/repos/${repo}/releases`;
-
-    try {
-      // Use Node.js https module for better compatibility across environments
-      const https = await import('https');
-      const githubToken = this.configService.get<string>('GITHUB_TOKEN');
-      const headers: Record<string, string> = {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'aquaculture-platform-sensor-service',
-      };
-      if (githubToken) {
-        headers['Authorization'] = `token ${githubToken}`;
-      }
-
-      const body = await new Promise<string>((resolve, reject) => {
-        const req = https.get(
-          url,
-          {
-            headers,
-          },
-          (res) => {
-            if (res.statusCode !== 200) {
-              reject(new Error(`GitHub API responded with ${res.statusCode}`));
-              res.resume();
-              return;
-            }
-            const chunks: Buffer[] = [];
-            res.on('data', (chunk) => chunks.push(chunk));
-            res.on('end', () => resolve(Buffer.concat(chunks).toString()));
-            res.on('error', reject);
-          },
-        );
-        req.on('error', reject);
-        req.setTimeout(15_000, () => {
-          req.destroy(new Error('GitHub API request timed out'));
-        });
-      });
-
-      const releases = JSON.parse(body) as Array<{
-        tag_name: string;
-        name: string;
-        published_at: string;
-        prerelease: boolean;
-      }>;
-
-      const filtered: FirmwareVersionInfo[] = releases
-        .filter((r) => r.tag_name.startsWith('agent-v'))
-        .map((r) => ({
-          tag: r.tag_name,
-          name: r.name || r.tag_name,
-          publishedAt: new Date(r.published_at),
-          prerelease: r.prerelease,
-        }));
-
-      this.firmwareVersionsCache = { data: filtered, fetchedAt: Date.now() };
-      return filtered;
-    } catch (error) {
-      this.logger.error(`Failed to fetch firmware versions from ${url}: ${(error as Error).message}`);
-      // Return stale cache if available
-      if (this.firmwareVersionsCache) {
-        return this.firmwareVersionsCache.data;
-      }
-      // Return empty array instead of throwing — avoids blocking UI when API is unreachable
-      return [];
-    }
+  getAvailableFirmwareVersions(): FirmwareVersionInfo[] {
+    this.logger.warn(
+      'Edge release registry is not connected to availableFirmwareVersions; returning no production-consumable firmware versions.',
+    );
+    return [];
   }
 
   /**
-   * Trigger firmware update on a single edge device.
-   * Sets targetFirmwareVersion and sends MQTT command.
+   * Legacy firmware update path. Production rollouts use the signed release
+   * registry and apply_signed_manifest command path, not live latest tarballs.
    */
   async updateDeviceFirmware(
     deviceId: string,
     tenantId: string,
     targetVersion?: string,
   ): Promise<EdgeDevice> {
-    // Validate targetVersion format — must be 'latest' or match 'agent-v*' tag pattern
-    if (targetVersion && targetVersion !== 'latest') {
-      if (!/^agent-v\d+\.\d+\.\d+/.test(targetVersion)) {
-        throw new BadRequestException(
-          `Invalid firmware version format: '${targetVersion}'. Expected 'agent-vX.Y.Z' or 'latest'.`,
-        );
-      }
+    if (!this.isLegacyOtaAllowed()) {
+      throw new BadRequestException(
+        'Legacy update_firmware is disabled. Use the signed Edge release registry and apply_signed_manifest rollout path.',
+      );
+    }
+
+    if (!targetVersion || targetVersion === 'latest') {
+      throw new BadRequestException('Firmware update requires an explicit agent-v<exact Cargo semver> target version.');
+    }
+
+    if (!/^agent-v\d+\.\d+\.\d+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$/.test(targetVersion)) {
+      throw new BadRequestException(
+        `Invalid firmware version format: '${targetVersion}'. Expected agent-v<exact Cargo semver>.`,
+      );
     }
 
     const device = await this.findByIdOrFail(deviceId, tenantId);
@@ -2294,11 +2260,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
     }
 
     // Send MQTT command first — only persist targetFirmwareVersion if
-    // the command was successfully published.  This prevents the DB from
+    // the command was successfully published. This prevents the DB from
     // recording a pending update that was never actually sent.
     const mqtt = this.ensureMqttAvailable();
-    const repo = this.configService.get<string>('GITHUB_REPO', '');
-    const resolvedVersion = targetVersion || 'latest';
 
     await mqtt.publish(
       `tenants/${device.tenantId}/devices/${device.id}/commands`,
@@ -2306,19 +2270,18 @@ export class EdgeDeviceService implements OnModuleDestroy {
         commandId: randomUUID(),
         command: 'update_firmware',
         params: {
-          target_version: resolvedVersion,
-          github_repo: repo,
+          target_version: targetVersion,
         },
         timestamp: new Date(),
       },
     );
 
     // Persist after successful MQTT publish
-    device.targetFirmwareVersion = resolvedVersion;
+    device.targetFirmwareVersion = targetVersion;
     const saved = await this.deviceRepository.save(device);
 
     this.logger.log(
-      `Firmware update command sent to ${device.deviceCode}: target=${resolvedVersion}`,
+      `Legacy firmware update command sent to ${device.deviceCode}: target=${targetVersion}`,
     );
 
     return saved;
@@ -2398,33 +2361,81 @@ export class EdgeDeviceService implements OnModuleDestroy {
     return getTenantSchemaName(tenantId);
   }
 
-  private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {
+  private rowString(row: RowValueMap, key: string): string | undefined {
+    const value = row[key];
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  private rowNumber(row: RowValueMap, key: string): number | undefined {
+    const value = row[key];
+    return typeof value === 'number' ? value : undefined;
+  }
+
+  private rowBoolean(row: RowValueMap, key: string): boolean {
+    const value = row[key];
+    return typeof value === 'boolean' ? value : false;
+  }
+
+  private rowDate(row: RowValueMap, key: string): Date | undefined {
+    const value = row[key];
+    if (value instanceof Date) {
+      return value;
+    }
+    return typeof value === 'string' || typeof value === 'number' ? new Date(value) : undefined;
+  }
+
+  private rowObject(row: RowValueMap, key: string): Record<string, unknown> | undefined {
+    const value = row[key];
+    return EdgeDeviceService.isRecord(value) ? value : undefined;
+  }
+
+  private rowFingerprint(row: RowValueMap): EdgeDeviceFingerprint | null {
+    const value = this.rowObject(row, 'fingerprint');
+    if (!value) {
+      return null;
+    }
+    return {
+      cpuSerial: this.stringOrUndefined(value.cpuSerial),
+      macAddresses: Array.isArray(value.macAddresses)
+        ? value.macAddresses.filter((entry): entry is string => typeof entry === 'string')
+        : undefined,
+      machineId: this.stringOrUndefined(value.machineId),
+      hostname: this.stringOrUndefined(value.hostname),
+    };
+  }
+
+  private stringOrUndefined(value: unknown): string | undefined {
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  private mapRowToEdgeDevice(row: RowValueMap): EdgeDevice {
     const device = new EdgeDevice();
-    device.id = row['id'];
-    device.tenantId = row['tenant_id'];
-    device.deviceCode = row['device_code'];
-    device.deviceName = row['device_name'];
-    device.deviceModel = row['device_model'];
-    device.serialNumber = row['serial_number'];
-    device.description = row['description'];
-    device.siteId = row['site_id'];
-    device.lifecycleState = row['lifecycle_state'];
-    device.mqttClientId = row['mqtt_client_id'];
-    device.mqttPasswordHash = row['mqtt_password_hash'];
-    device.isOnline = row['is_online'];
-    device.lastSeenAt = row['last_seen_at'] ? new Date(row['last_seen_at']) : undefined;
-    device.cpuUsage = row['cpu_usage'];
-    device.memoryUsage = row['memory_usage'];
-    device.storageUsage = row['storage_usage'];
-    device.temperatureCelsius = row['temperature_celsius'];
-    device.uptimeSeconds = row['uptime_seconds'];
-    device.firmwareVersion = row['firmware_version'];
-    device.targetFirmwareVersion = row['target_firmware_version'];
-    device.ipAddress = row['ip_address'];
-    device.connectionQuality = row['connection_quality'];
-    device.fingerprint = row['fingerprint'];
-    device.agentVersion = row['agent_version'];
-    device.config = row['config'];
+    device.id = this.rowString(row, 'id') ?? '';
+    device.tenantId = this.rowString(row, 'tenant_id') ?? '';
+    device.deviceCode = this.rowString(row, 'device_code') ?? '';
+    device.deviceName = this.rowString(row, 'device_name') ?? '';
+    device.deviceModel = (this.rowString(row, 'device_model') as DeviceModel | undefined) ?? DeviceModel.CUSTOM;
+    device.serialNumber = this.rowString(row, 'serial_number');
+    device.description = this.rowString(row, 'description');
+    device.siteId = this.rowString(row, 'site_id');
+    device.lifecycleState =
+      (this.rowString(row, 'lifecycle_state') as DeviceLifecycleState | undefined) ?? DeviceLifecycleState.REGISTERED;
+    device.mqttClientId = this.rowString(row, 'mqtt_client_id');
+    device.mqttPasswordHash = this.rowString(row, 'mqtt_password_hash') ?? null;
+    device.isOnline = this.rowBoolean(row, 'is_online');
+    device.lastSeenAt = this.rowDate(row, 'last_seen_at');
+    device.cpuUsage = this.rowNumber(row, 'cpu_usage');
+    device.memoryUsage = this.rowNumber(row, 'memory_usage');
+    device.storageUsage = this.rowNumber(row, 'storage_usage');
+    device.temperatureCelsius = this.rowNumber(row, 'temperature_celsius');
+    device.uptimeSeconds = this.rowNumber(row, 'uptime_seconds');
+    device.firmwareVersion = this.rowString(row, 'firmware_version');
+    device.targetFirmwareVersion = this.rowString(row, 'target_firmware_version');
+    device.ipAddress = this.rowString(row, 'ip_address');
+    device.connectionQuality = this.rowNumber(row, 'connection_quality');
+    device.fingerprint = this.rowFingerprint(row);
+    device.agentVersion = this.rowString(row, 'agent_version') ?? null;
+    device.config = this.rowObject(row, 'config');
     return device;
   }
 }

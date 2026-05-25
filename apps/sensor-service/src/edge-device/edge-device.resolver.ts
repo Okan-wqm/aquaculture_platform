@@ -1,3 +1,4 @@
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { Logger } from '@nestjs/common';
 import {
   Resolver,
@@ -10,7 +11,6 @@ import {
   Parent,
 } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { Repository } from 'typeorm';
 
 import { AutomationProgram, ProgramStatus } from '../automation/entities/automation-program.entity';
@@ -46,11 +46,11 @@ import {
   TenantKeyResponse,
   DeviceEventConnection,
 } from './dto/provisioning.dto';
-import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { EdgeDeviceService } from './edge-device.service';
 import { DeviceIoConfig } from './entities/device-io-config.entity';
 import { EdgeDevice, DeviceLifecycleState } from './entities/edge-device.entity';
 import { LoRaDevice } from './entities/lora-device.entity';
+import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { ProvisioningService } from './provisioning.service';
 
 /**
@@ -547,13 +547,13 @@ export class EdgeDeviceResolver {
   // ==================== OTA Firmware Update ====================
 
   /**
-   * List available firmware versions from GitHub releases
+   * List firmware versions approved by the signed Edge release registry.
    */
   @Query(() => [FirmwareVersionInfo], { name: 'availableFirmwareVersions' })
-  async getAvailableFirmwareVersions(
-    @Tenant() tenantId: string,
-  ): Promise<FirmwareVersionInfo[]> {
-    return await this.edgeDeviceService.getAvailableFirmwareVersions();
+  getAvailableFirmwareVersions(
+    @Tenant() _tenantId: string,
+  ): FirmwareVersionInfo[] {
+    return this.edgeDeviceService.getAvailableFirmwareVersions();
   }
 
   /**
@@ -566,7 +566,7 @@ export class EdgeDeviceResolver {
     @Tenant() tenantId: string,
     @Args('targetVersion', { nullable: true }) targetVersion?: string,
   ): Promise<boolean> {
-    this.logger.log(`Firmware update requested for device: ${id}, version: ${targetVersion || 'latest'}`);
+    this.logger.log(`Legacy firmware update requested for device: ${id}, version: ${targetVersion ?? 'explicit-version-required'}`);
     await this.edgeDeviceService.updateDeviceFirmware(id, tenantId, targetVersion);
     return true;
   }
@@ -581,7 +581,7 @@ export class EdgeDeviceResolver {
     @Tenant() tenantId: string,
     @Args('targetVersion', { nullable: true }) targetVersion?: string,
   ): Promise<BulkFirmwareUpdateResult> {
-    this.logger.log(`Bulk firmware update requested for ${deviceIds.length} devices, version: ${targetVersion || 'latest'}`);
+    this.logger.log(`Bulk legacy firmware update requested for ${deviceIds.length} devices, version: ${targetVersion ?? 'explicit-version-required'}`);
     return await this.edgeDeviceService.bulkUpdateDeviceFirmware(deviceIds, tenantId, targetVersion);
   }
 

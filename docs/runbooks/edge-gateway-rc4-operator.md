@@ -1,5 +1,9 @@
 # Edge Gateway RC4 Operator Runbook
 
+## Historical RC Only
+
+This runbook is retained for audit history. `agent-v2.0.0-rc4` is not approved for production tenant downloads; use `docs/architecture/edge-release-provisioning-ota.md` and a signed release manifest for any new edge release.
+
 Audience: plant IT, fleet operator, and field engineer.
 Release: `agent-v2.0.0-rc4`.
 Do not install artifacts from `agent-v2.0.0-rc2`; that tag did not publish a GitHub Release.

@@ -112,6 +112,12 @@ const SX1302_HIL_EVIDENCE_SCHEMA = 'tools/gates/sx1302-hil-evidence.schema.json'
 const CATALOG = 'sens-api-gateway/src/commands/catalog.rs';
 const PERMISSION = 'sens-api-gateway/src/authz/permission.rs';
 const IO_CONFIG = 'sens-api-gateway/src/commands/io_config.rs';
+const INSTALLER_SCRIPT = 'apps/sensor-service/src/edge-device/installer-script.service.ts';
+const EDGE_DEVICE_SERVICE = 'apps/sensor-service/src/edge-device/edge-device.service.ts';
+const EDGE_DEVICE_RESOLVER = 'apps/sensor-service/src/edge-device/edge-device.resolver.ts';
+const RUST_FIRMWARE = 'sens-api-gateway/src/commands/firmware.rs';
+const RUST_APPLY_SIGNED_MANIFEST = 'sens-api-gateway/src/commands/apply_signed_manifest.rs';
+const EDGE_RELEASE_ARCHITECTURE_DOC = 'docs/architecture/edge-release-provisioning-ota.md';
 
 const ALL_WORKFLOWS_DIR = path.join(REPO_ROOT, '.github', 'workflows');
 const CI_AFFECTED_SENS_FEATURES =
@@ -177,6 +183,17 @@ function listWorkflowFiles(): string[] {
 
 function sha256File(relPath: string): string {
   return createHash('sha256').update(readFile(relPath)).digest('hex');
+}
+
+function sensCargoPackageVersion(): string {
+  const cargo = readFile('sens-api-gateway/Cargo.toml');
+  const versionLine = cargo.split(/\r?\n/).find((line) => line.startsWith('version = '));
+  const match = /^version = "([^"]+)"$/.exec(versionLine ?? '');
+  const version = match?.[1];
+  if (!version) {
+    throw new Error('sens-api-gateway Cargo package version not found');
+  }
+  return version;
 }
 
 function lineRef(relPath: string, needle: string): string {
@@ -473,12 +490,14 @@ const CHECKS: Record<string, () => CheckResult> = {
   edge_release_build_needs_enterprise_validation: () => {
     const src = readFile(WORKFLOW_RELEASE);
     const buildJob = workflowJobBlock(src, 'build');
-    const ok = hasExecutableText(buildJob, 'needs: sens-enterprise-validation');
+    const missing = hasAll(buildJob, ['needs:', '- release-ref-contract', '- sens-enterprise-validation']);
     return check(
       'edge_release_build_needs_enterprise_validation',
       'edge release build matrix depends on enterprise validation',
-      ok,
-      ok ? 'build job needs enterprise validation' : 'build job does not need sens-enterprise-validation',
+      missing.length === 0,
+      missing.length === 0
+        ? 'build job needs release-ref-contract and enterprise validation'
+        : `build job dependency drift: ${missing.join(', ')}`,
       [WORKFLOW_RELEASE],
       [lineRef(WORKFLOW_RELEASE, 'build:')],
     );
@@ -520,6 +539,140 @@ const CHECKS: Record<string, () => CheckResult> = {
         : 'release feature tier is implicit or drifted from the curated CI feature contract',
       [WORKFLOW_RELEASE, WORKFLOW_SENS],
       [lineRef(WORKFLOW_RELEASE, 'EDGE_RELEASE_FEATURES'), lineRef(WORKFLOW_SENS, 'SENS_API_GATEWAY_CI_FEATURES')],
+    );
+  },
+
+  edge_release_ref_contract_matches_cargo_semver: () => {
+    const release = readFile(WORKFLOW_RELEASE);
+    const cargoVersion = sensCargoPackageVersion();
+    const required = [
+      'VERSION="${GITHUB_REF_NAME#agent-v}"',
+      "grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'",
+      'CARGO_VERSION="$(awk -F\' = \'',
+      'if [ "${VERSION}" != "${CARGO_VERSION}" ]; then',
+      'if [ "${GITHUB_REF_NAME}" != "agent-v${CARGO_VERSION}" ]; then',
+      'echo "version=${VERSION}" >> "$GITHUB_OUTPUT"',
+      'echo "version=${{ needs.release-ref-contract.outputs.version }}" >> "$GITHUB_OUTPUT"',
+      'RELEASE_VERSION: ${{ needs.release-ref-contract.outputs.version }}',
+    ];
+    const forbidden = [
+      'echo "version=${GITHUB_REF_NAME#agent-}" >> "$GITHUB_OUTPUT"',
+      'needs.sens-enterprise-validation.outputs.version',
+      'contains(steps.version.outputs.tag, \'-rc\')',
+    ];
+    const missing = [
+      ...hasAll(release, required),
+      ...forbidden.filter((needle) => hasExecutableText(release, needle)).map((needle) => `forbidden marker: ${needle}`),
+    ];
+    const ok = missing.length === 0 && hasExecutableText(release, 'expected agent-v${CARGO_VERSION}');
+    return check(
+      'edge_release_ref_contract_matches_cargo_semver',
+      'edge release tag contract is canonical agent-v<exact Cargo semver> with no self-referential outputs',
+      ok,
+      ok
+        ? `release ref contract requires agent-v${cargoVersion} and exports validated release-ref-contract outputs`
+        : `release ref contract drift: ${missing.join(', ') || 'missing expected agent-v${CARGO_VERSION}'}`,
+      [WORKFLOW_RELEASE, 'sens-api-gateway/Cargo.toml'],
+      [lineRef(WORKFLOW_RELEASE, 'Validate release ref'), lineRef('sens-api-gateway/Cargo.toml', 'version = ')],
+    );
+  },
+
+  edge_release_signed_manifest_contract: () => {
+    const release = readFile(WORKFLOW_RELEASE);
+    const required = [
+      'Create release manifest',
+      'Sign release manifest with cosign',
+      'edge-release-manifest.json',
+      "kind: 'suderra.edge.release.manifest'",
+      "targets = ['x86_64-linux', 'aarch64-linux', 'armv7-linux']",
+      'signature: requireFile(`${base}.tar.gz.sig`)',
+      'certificate: requireFile(`${base}.tar.gz.pem`)',
+      'artifacts/edge-release-manifest.json.sig',
+      'artifacts/edge-release-manifest.json.pem',
+      'artifacts/edge-release-manifest.json',
+    ];
+    const missing = hasAll(release, required);
+    return check(
+      'edge_release_signed_manifest_contract',
+      'edge release publishes a signed machine-readable manifest for all target artifacts',
+      missing.length === 0,
+      missing.length ? `missing signed manifest markers: ${missing.join(', ')}` : 'signed manifest contract present',
+      [WORKFLOW_RELEASE],
+      [lineRef(WORKFLOW_RELEASE, 'Create release manifest'), lineRef(WORKFLOW_RELEASE, 'Sign release manifest with cosign')],
+    );
+  },
+
+  edge_release_runtime_consumers_block_latest_and_legacy_ota: () => {
+    const installer = readFile(INSTALLER_SCRIPT);
+    const service = readFile(EDGE_DEVICE_SERVICE);
+    const resolver = readFile(EDGE_DEVICE_RESOLVER);
+    const firmware = readFile(RUST_FIRMWARE);
+    const applyManifest = readFile(RUST_APPLY_SIGNED_MANIFEST);
+    const required = [
+      [installer, 'assertExplicitAgentVersion'],
+      [installer, 'AGENT_VERSION cannot be latest'],
+      [installer, 'RELEASE_VERSION="\\${AGENT_VERSION#agent-v}"'],
+      [service, 'EDGE_LEGACY_OTA_ALLOWED'],
+      [service, 'Legacy update_firmware is disabled'],
+      [resolver, 'explicit-version-required'],
+      [firmware, 'FirmwareUpdateMode::Disabled => LegacyTarballGateDecision::Reject'],
+      [applyManifest, 'gate: "ab_partitions_required"'],
+    ] as const;
+    const missing = required
+      .filter(([src, needle]) => !hasExecutableText(src, needle))
+      .map(([, needle]) => needle);
+    const forbidden = [
+      [installer, "AGENT_VERSION', 'latest'"],
+      [installer, 'releases?per_page=20'],
+      [installer, "grep 'agent-v' | head -1"],
+      [service, "targetVersion || 'latest'"],
+      [service, 'github_repo'],
+      [firmware, 'if target == "latest"'],
+      [applyManifest, 'HC-1 backward-compat'],
+    ] as const;
+    const offenders = forbidden
+      .filter(([src, needle]) => hasExecutableText(src, needle))
+      .map(([, needle]) => `forbidden marker: ${needle}`);
+    const details = [...missing, ...offenders];
+    return check(
+      'edge_release_runtime_consumers_block_latest_and_legacy_ota',
+      'tenant provisioning and edge OTA consumers cannot resolve live latest or legacy GitHub tarball updates by default',
+      details.length === 0,
+      details.length ? `runtime consumer contract drift: ${details.join(', ')}` : 'runtime consumers require explicit signed release paths',
+      [INSTALLER_SCRIPT, EDGE_DEVICE_SERVICE, EDGE_DEVICE_RESOLVER, RUST_FIRMWARE, RUST_APPLY_SIGNED_MANIFEST],
+      [
+        lineRef(INSTALLER_SCRIPT, 'assertExplicitAgentVersion'),
+        lineRef(EDGE_DEVICE_SERVICE, 'EDGE_LEGACY_OTA_ALLOWED'),
+        lineRef(RUST_FIRMWARE, 'FirmwareUpdateMode::Disabled'),
+        lineRef(RUST_APPLY_SIGNED_MANIFEST, 'ab_partitions_required'),
+      ],
+    );
+  },
+
+  edge_release_docs_mark_rc4_historical_and_define_signed_ota: () => {
+    const docExists = fs.existsSync(path.join(REPO_ROOT, EDGE_RELEASE_ARCHITECTURE_DOC));
+    const releaseNotes = readFile('docs/releases/sens-api-gateway-edge-v2.0.0-rc4.md');
+    const runbook = readFile('docs/runbooks/edge-gateway-rc4-operator.md');
+    const architecture = docExists ? readFile(EDGE_RELEASE_ARCHITECTURE_DOC) : '';
+    const required = [
+      [releaseNotes, 'not an approved production tenant download'],
+      [runbook, 'not approved for production tenant downloads'],
+      [architecture, 'EdgeReleaseRegistryService'],
+      [architecture, 'ProvisioningCredentialService'],
+      [architecture, 'apply_signed_manifest'],
+      [architecture, 'agent-v<exact Cargo semver>'],
+    ] as const;
+    const missing = required
+      .filter(([src, needle]) => !hasExecutableText(src, needle))
+      .map(([, needle]) => needle);
+    const ok = docExists && missing.length === 0;
+    return check(
+      'edge_release_docs_mark_rc4_historical_and_define_signed_ota',
+      'edge release documentation marks RC4 historical and defines signed provisioning/OTA architecture',
+      ok,
+      ok ? 'edge release docs are aligned with signed manifest provisioning architecture' : `documentation drift: ${missing.join(', ')}`,
+      [EDGE_RELEASE_ARCHITECTURE_DOC, 'docs/releases/sens-api-gateway-edge-v2.0.0-rc4.md', 'docs/runbooks/edge-gateway-rc4-operator.md'],
+      [lineRef(EDGE_RELEASE_ARCHITECTURE_DOC, 'EdgeReleaseRegistryService')],
     );
   },
 

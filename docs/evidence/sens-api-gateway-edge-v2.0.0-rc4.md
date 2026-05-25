@@ -1,5 +1,9 @@
 # Sens API Gateway Edge v2.0.0-rc4 Evidence Map
 
+## Historical RC Only
+
+This evidence map records the RC4 release attempt and is not production release evidence for tenant downloads. New production evidence must include a signed `edge-release-manifest.json`, exact `agent-v<exact Cargo semver>` tag/Cargo parity, and the release gate artifacts described in `docs/architecture/edge-release-provisioning-ota.md`.
+
 Date: 2026-05-22
 Branch: `release/sens-edge-rc4-release-workflow`
 Base: `origin/main`
@@ -60,13 +64,13 @@ Classified as non-blocking and not claimed by this artifact profile:
 
 ## GitHub Actions Evidence
 
-Fill these links after the PR is opened and CI has run.
+Historical RC4 runs were not promoted to production. Do not use this table as tenant-facing release approval.
 
 | Gate | Run | Status |
 |---|---|---|
-| SENS API Gateway CI | TBD | Pending |
-| CI - Edge Agent | TBD | Pending |
-| Edge Agent Release | Runs only after `agent-v2.0.0-rc4` tag | Pending |
+| SENS API Gateway CI | Historical RC4 attempt | Not production-approved |
+| CI - Edge Agent | Historical RC4 attempt | Not production-approved |
+| Edge Agent Release | Historical RC4 attempt | Not production-approved |
 
 ## Release Artifact Contract
 Release feature tier: `scada-display`. Broader GPIO/I2C/SPI/PWM and debug/security preview surfaces are CI/HIL-owned until a dedicated hardware release contract is introduced.

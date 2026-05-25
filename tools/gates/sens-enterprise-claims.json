@@ -51,15 +51,25 @@
         "edge_release_has_enterprise_validation_job",
         "edge_release_build_needs_enterprise_validation",
         "edge_release_rust_toolchain_pinned",
-        "edge_release_tiered_binary_feature_contract"
+        "edge_release_tiered_binary_feature_contract",
+        "edge_release_ref_contract_matches_cargo_semver",
+        "edge_release_signed_manifest_contract",
+        "edge_release_runtime_consumers_block_latest_and_legacy_ota",
+        "edge_release_docs_mark_rc4_historical_and_define_signed_ota"
       ],
       "plan_refs": [
-        "Enterprise gate v2: release workflow pinned toolchain and explicit binary tier"
+        "Enterprise gate v2: release workflow pinned toolchain and explicit binary tier",
+        "Edge release/provisioning/OTA architecture: signed manifest registry and explicit-version tenant download contract"
       ],
       "evidence_refs": [
         ".github/workflows/edge-agent-release.yml",
         ".github/workflows/sens-api-gateway-ci.yml",
-        "rust-toolchain.toml"
+        "rust-toolchain.toml",
+        "apps/sensor-service/src/edge-device/installer-script.service.ts",
+        "apps/sensor-service/src/edge-device/edge-device.service.ts",
+        "sens-api-gateway/src/commands/firmware.rs",
+        "sens-api-gateway/src/commands/apply_signed_manifest.rs",
+        "docs/architecture/edge-release-provisioning-ota.md"
       ],
       "linked_finding_id": "EDGE-RELEASE-GATE"
     },

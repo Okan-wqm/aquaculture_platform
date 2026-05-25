@@ -1,5 +1,9 @@
 # Sens API Gateway Edge v2.0.0-rc4 Release Notes
 
+## Historical RC Only
+
+This document is retained as historical evidence for the RC4 release-contract attempt. `agent-v2.0.0-rc4` is not an approved production tenant download. Production releases must use the architecture in `docs/architecture/edge-release-provisioning-ota.md`, canonical `agent-v<exact Cargo semver>` tags, and a signed `edge-release-manifest.json`.
+
 Date: 2026-05-22
 Target tag: `agent-v2.0.0-rc4`
 Cargo package version: `2.0.0-rc.4`

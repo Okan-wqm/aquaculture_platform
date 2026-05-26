@@ -1,4 +1,125 @@
+import { applyTenantRlsToSchema } from '@aquaculture/backend-common/database';
 import { MigrationInterface, QueryRunner } from 'typeorm';
+
+const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
+
+const TOPOLOGY_SOURCE_SCHEMAS = [
+  'sensor',
+  'farm',
+  'hr',
+  'hydroponics',
+  'alert',
+  'ai',
+  'messaging',
+] as const;
+
+const TOPOLOGY_SOURCE_ONLY_TABLES = [
+  'migrations',
+  'sensor_audit_logs',
+  'farm_outbox',
+  'tenant_erasure_audit',
+  'farm_audit_logs',
+  'hr_outbox',
+  'payroll_audit',
+  'alert_audit_log',
+  'ai_outbox',
+  'tool_execution_audit',
+  'messaging_outbox',
+  'embeddings_metadata',
+] as const;
+
+const TENANT_TOPOLOGY_RLS_COLUMNS = ['tenantId', 'tenant_id'] as const;
+
+interface TenantSchemaRow {
+  schema_name: string;
+}
+
+interface TopologyTableRow {
+  table_name: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isTenantSchemaRow(value: unknown): value is TenantSchemaRow {
+  return isRecord(value) && typeof value.schema_name === 'string';
+}
+
+function isTopologyTableRow(value: unknown): value is TopologyTableRow {
+  return isRecord(value) && typeof value.table_name === 'string';
+}
+
+async function queryRows<T>(
+  queryRunner: QueryRunner,
+  sql: string,
+  params: readonly unknown[],
+  guard: (value: unknown) => value is T,
+): Promise<T[]> {
+  const result: unknown = await queryRunner.query(sql, [...params]);
+  if (!Array.isArray(result)) {
+    return [];
+  }
+  return result.filter(guard);
+}
+
+function assertTenantSchemaName(schemaName: string): void {
+  if (!TENANT_SCHEMA_REGEX.test(schemaName)) {
+    throw new Error(
+      `Unsafe tenant schema name discovered during admin topology migration: ${schemaName}`,
+    );
+  }
+}
+
+async function discoverActiveTenantSchemas(
+  queryRunner: QueryRunner,
+): Promise<string[]> {
+  const rows = await queryRows(
+    queryRunner,
+    `
+      SELECT ts."schemaName" AS schema_name
+      FROM "admin"."tenant_schemas" ts
+      JOIN "auth"."tenants" t ON t.id = ts."tenantId"
+      WHERE ts."schemaName" ~ '^tenant_[a-f0-9]{16}$'
+        AND COALESCE(ts.status, 'active') <> 'deleted'
+      ORDER BY ts."schemaName"
+    `,
+    [],
+    isTenantSchemaRow,
+  );
+
+  const schemaNames = [...new Set(rows.map((row) => row.schema_name))];
+  for (const schemaName of schemaNames) {
+    assertTenantSchemaName(schemaName);
+  }
+  return schemaNames;
+}
+
+async function discoverTopologyTableNames(
+  queryRunner: QueryRunner,
+): Promise<string[]> {
+  const rows = await queryRows(
+    queryRunner,
+    `
+      SELECT DISTINCT t.table_name
+      FROM information_schema.tables t
+      WHERE t.table_schema = ANY($1::text[])
+        AND t.table_type = 'BASE TABLE'
+        AND t.table_name <> ALL($2::text[])
+      ORDER BY t.table_name
+    `,
+    [[...TOPOLOGY_SOURCE_SCHEMAS], [...TOPOLOGY_SOURCE_ONLY_TABLES]],
+    isTopologyTableRow,
+  );
+
+  const tableNames = rows.map((row) => row.table_name);
+  if (tableNames.length === 0) {
+    throw new Error(
+      'Admin tenant topology migration discovered no source tables for tenant RLS convergence',
+    );
+  }
+  return tableNames;
+}
 
 export class TenantProvisioningTopology1800500000000
   implements MigrationInterface
@@ -13,7 +134,6 @@ export class TenantProvisioningTopology1800500000000
         source_schema TEXT;
         service_role TEXT;
         table_rec RECORD;
-        tenant_column TEXT;
         source_schemas TEXT[] := ARRAY[
           'sensor',
           'farm',
@@ -95,40 +215,6 @@ export class TenantProvisioningTopology1800500000000
                   'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA %I TO %I',
                   tenant_rec.schema_name,
                   service_role
-                );
-              END IF;
-
-              SELECT c.column_name
-              INTO tenant_column
-              FROM information_schema.columns c
-              WHERE c.table_schema = tenant_rec.schema_name
-                AND c.table_name = table_rec.table_name
-                AND c.column_name IN ('tenantId', 'tenant_id')
-              ORDER BY CASE c.column_name WHEN 'tenantId' THEN 0 ELSE 1 END
-              LIMIT 1;
-
-              IF tenant_column IS NOT NULL THEN
-                EXECUTE format(
-                  'ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY',
-                  tenant_rec.schema_name,
-                  table_rec.table_name
-                );
-                EXECUTE format(
-                  'ALTER TABLE %I.%I FORCE ROW LEVEL SECURITY',
-                  tenant_rec.schema_name,
-                  table_rec.table_name
-                );
-                EXECUTE format(
-                  'DROP POLICY IF EXISTS tenant_isolation_policy ON %I.%I',
-                  tenant_rec.schema_name,
-                  table_rec.table_name
-                );
-                EXECUTE format(
-                  'CREATE POLICY tenant_isolation_policy ON %I.%I USING (current_setting(''app.bypass_rls'', true) = ''on'' OR %I = NULLIF(current_setting(''app.current_tenant'', true), '''')::uuid) WITH CHECK (current_setting(''app.bypass_rls'', true) = ''on'' OR %I = NULLIF(current_setting(''app.current_tenant'', true), '''')::uuid)',
-                  tenant_rec.schema_name,
-                  table_rec.table_name,
-                  tenant_column,
-                  tenant_column
                 );
               END IF;
             END LOOP;
@@ -229,6 +315,8 @@ export class TenantProvisioningTopology1800500000000
       END $tenant_provisioning_topology$;
     `);
 
+    await this.applyTenantTopologyRls(queryRunner);
+
     await queryRunner.query(`
       DO $tenant_provisioning_topology_post$
       BEGIN
@@ -251,5 +339,20 @@ export class TenantProvisioningTopology1800500000000
   public async down(_queryRunner: QueryRunner): Promise<void> {
     // Forward-only topology convergence; recreating tenant auth clones would
     // reintroduce the platform/tenant trust-boundary violation this removes.
+  }
+
+  private async applyTenantTopologyRls(queryRunner: QueryRunner): Promise<void> {
+    const [tenantSchemas, topologyTables] = await Promise.all([
+      discoverActiveTenantSchemas(queryRunner),
+      discoverTopologyTableNames(queryRunner),
+    ]);
+
+    for (const schemaName of tenantSchemas) {
+      await applyTenantRlsToSchema(queryRunner, {
+        schemaOverride: schemaName,
+        includeTables: topologyTables,
+        tenantIdColumns: TENANT_TOPOLOGY_RLS_COLUMNS,
+      });
+    }
   }
 }

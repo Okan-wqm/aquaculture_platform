@@ -3,6 +3,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 
 const SAFE_NUMERIC = String.raw`^\s*-?\d+(\.\d+)?\s*$`;
 const SAFE_INT = String.raw`^\s*\d+\s*$`;
+const FARM_STOCK_RLS_TABLES = [
+  'farm_stock_container_snapshots',
+  'farm_stock_batch_snapshots',
+  'farm_mobile_command_receipts',
+] as const;
+
 const SAFE_UUID = String.raw`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`;
 
 export class ExtendFarmStockReadModelFanout1800600000000 implements MigrationInterface {
@@ -16,6 +22,7 @@ export class ExtendFarmStockReadModelFanout1800600000000 implements MigrationInt
     await this.reconcileStockMovementIdempotencyIndex(queryRunner);
 
     await applyTenantRlsToSchema(queryRunner, {
+      includeTables: FARM_STOCK_RLS_TABLES,
       tenantIdColumns: ['tenant_id', 'tenantId'],
     });
   }
@@ -62,7 +69,16 @@ export class ExtendFarmStockReadModelFanout1800600000000 implements MigrationInt
             AND c.relname = 'farm_stock_batch_snapshots'
             AND c.relrowsecurity = true
             AND c.relforcerowsecurity = true
-        ) AS ok
+        )
+        AND EXISTS (
+          SELECT 1 FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = current_schema()
+            AND c.relname = 'farm_mobile_command_receipts'
+            AND c.relrowsecurity = true
+            AND c.relforcerowsecurity = true
+        )
+        AS ok
       `);
     const rows = Array.isArray(result) ? (result as Array<{ ok: boolean }>) : [];
     return rows[0]?.ok === true;

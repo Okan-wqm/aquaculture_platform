@@ -1,4 +1,5 @@
 import type { QueryRunner } from 'typeorm';
+
 import {
   applyTenantRlsToSchema,
   removeTenantRlsFromSchema,
@@ -55,7 +56,7 @@ function makeMockRunner(
   let callIndex = 0;
 
   const runner = {
-    query: async (sql: string, params?: unknown[]): Promise<unknown> => {
+    query: (sql: string, params?: unknown[]): Promise<unknown> => {
       calls.push({ sql, params });
       if (callIndex >= replies.length) {
         throw new Error(
@@ -65,7 +66,7 @@ function makeMockRunner(
       }
       const reply = replies[callIndex];
       callIndex += 1;
-      return reply;
+      return Promise.resolve(reply);
     },
   } as unknown as QueryRunner;
 
@@ -140,8 +141,8 @@ describe('apply-tenant-rls.helper', () => {
         [{ schema: 'farm' }],
         // information_schema.columns discovery
         [
-          { table_name: 'batches', column_name: 'tenant_id' },
-          { table_name: 'users_legacy', column_name: 'tenantId' },
+          { table_name: 'batches', column_name: 'tenant_id', udt_name: 'uuid' },
+          { table_name: 'users_legacy', column_name: 'tenantId', udt_name: 'uuid' },
         ],
         // 4 DDL statements × 2 tables = 8 undefined replies
         undefined, undefined, undefined, undefined,
@@ -194,9 +195,9 @@ describe('apply-tenant-rls.helper', () => {
       const replies = [
         [{ schema: 'farm' }],
         [
-          { table_name: 'batches', column_name: 'tenant_id' },
-          { table_name: 'farm_outbox', column_name: 'tenant_id' },
-          { table_name: 'audit_logs', column_name: 'tenant_id' },
+          { table_name: 'batches', column_name: 'tenant_id', udt_name: 'uuid' },
+          { table_name: 'farm_outbox', column_name: 'tenant_id', udt_name: 'uuid' },
+          { table_name: 'audit_logs', column_name: 'tenant_id', udt_name: 'uuid' },
         ],
         // 4 DDLs × 1 non-excluded table (batches) = 4 replies
         undefined, undefined, undefined, undefined,
@@ -226,8 +227,8 @@ describe('apply-tenant-rls.helper', () => {
       const replies = [
         [{ schema: 'mixed' }],
         [
-          { table_name: 'weird_table', column_name: 'tenantId' },   // first
-          { table_name: 'weird_table', column_name: 'tenant_id' },  // duplicate
+          { table_name: 'weird_table', column_name: 'tenantId', udt_name: 'uuid' },   // first
+          { table_name: 'weird_table', column_name: 'tenant_id', udt_name: 'uuid' },  // duplicate
         ],
         undefined, undefined, undefined, undefined,
       ];
@@ -259,7 +260,7 @@ describe('apply-tenant-rls.helper', () => {
     it('honours custom tenantIdColumns option', async () => {
       const replies = [
         [{ schema: 'custom' }],
-        [{ table_name: 't', column_name: 'orgId' }],
+        [{ table_name: 't', column_name: 'orgId', udt_name: 'uuid' }],
         undefined, undefined, undefined, undefined,
       ];
       const { runner, calls } = makeMockRunner(replies);
@@ -271,13 +272,75 @@ describe('apply-tenant-rls.helper', () => {
       expect(calls[1]?.params).toEqual(['custom', ['orgId']]);
       expect(calls[5]?.sql).toContain('"orgId" = NULLIF');
     });
+
+    it('honours includeTables for migration-scoped RLS installation', async () => {
+      const replies = [
+        [{ schema: 'farm' }],
+        [
+          {
+            table_name: 'farm_stock_batch_snapshots',
+            column_name: 'tenantId',
+            udt_name: 'uuid',
+          },
+        ],
+        undefined, undefined, undefined, undefined,
+      ];
+      const { runner, calls } = makeMockRunner(replies);
+
+      await applyTenantRlsToSchema(runner, {
+        includeTables: ['farm_stock_batch_snapshots'],
+      });
+
+      expect(calls[1]?.sql).toContain('c.table_name = ANY($3::text[])');
+      expect(calls[1]?.params).toEqual([
+        'farm',
+        ['tenantId', 'tenant_id'],
+        ['farm_stock_batch_snapshots'],
+      ]);
+      expect(calls.filter((call) => call.sql.includes('"farm"."farm_stock_batch_snapshots"'))).toHaveLength(4);
+    });
+
+    it('skips TimescaleDB columnstore hypertables only in tenant schemas', async () => {
+      const logs: string[] = [];
+      const warns: string[] = [];
+      const logger = {
+        log: (msg: string): void => void logs.push(msg),
+        warn: (msg: string): void => void warns.push(msg),
+      };
+      const replies = [
+        [{ schema: 'tenant_7f6b08ab90e246d3' }],
+        [
+          {
+            table_name: 'farm_stock_batch_snapshots',
+            column_name: 'tenantId',
+            udt_name: 'uuid',
+          },
+          {
+            table_name: 'sensor_metrics',
+            column_name: 'tenant_id',
+            udt_name: 'uuid',
+          },
+        ],
+        [{ column_name: 'columnstore_enabled' }],
+        [{ table_name: 'sensor_metrics' }],
+        undefined, undefined, undefined, undefined,
+      ];
+      const { runner, calls } = makeMockRunner(replies);
+
+      await applyTenantRlsToSchema(runner, { logger });
+
+      expect(calls.filter((call) => call.sql.includes('"tenant_7f6b08ab90e246d3"."farm_stock_batch_snapshots"'))).toHaveLength(4);
+      expect(calls.filter((call) => call.sql.includes('"tenant_7f6b08ab90e246d3"."sensor_metrics"'))).toHaveLength(0);
+      expect(warns.some((warn) => warn.includes('TimescaleDB columnstore hypertable') && warn.includes('sensor_metrics'))).toBe(true);
+      expect(logs.some((log) => log.includes('skipped: 1'))).toBe(true);
+    });
   });
 
   describe('removeTenantRlsFromSchema', () => {
     it('drops policy then DISABLEs RLS in the right order', async () => {
       const replies = [
         [{ schema: 'farm' }],
-        [{ table_name: 'batches', column_name: 'tenant_id' }],
+        [{ table_name: 'batches', column_name: 'tenant_id', udt_name: 'uuid' }],
         undefined, undefined, undefined, // DROP POLICY, NO FORCE, DISABLE
       ];
       const { runner, calls } = makeMockRunner(replies);
@@ -344,8 +407,8 @@ describe('apply-tenant-rls.helper', () => {
         [{ schema: 'auth' }],
         [
           // Discovery returns users alongside a legitimately RLS-gated table.
-          { table_name: 'users', column_name: 'tenantId' },
-          { table_name: 'invitations', column_name: 'tenantId' },
+          { table_name: 'users', column_name: 'tenantId', udt_name: 'uuid' },
+          { table_name: 'invitations', column_name: 'tenantId', udt_name: 'uuid' },
         ],
         // 4 DDL statements × 1 non-skipped table (invitations) = 4 replies
         undefined, undefined, undefined, undefined,
@@ -385,8 +448,8 @@ describe('apply-tenant-rls.helper', () => {
       const replies = [
         [{ schema: 'billing' }],
         [
-          { table_name: 'tenants', column_name: 'tenantId' },
-          { table_name: 'subscriptions', column_name: 'tenantId' },
+          { table_name: 'tenants', column_name: 'tenantId', udt_name: 'uuid' },
+          { table_name: 'subscriptions', column_name: 'tenantId', udt_name: 'uuid' },
         ],
         // 4 DDL × 1 table = 4 replies
         undefined, undefined, undefined, undefined,
@@ -420,9 +483,9 @@ describe('apply-tenant-rls.helper', () => {
       const replies = [
         [{ schema: 'auth' }],
         [
-          { table_name: 'users', column_name: 'tenantId' },
-          { table_name: 'auth_outbox', column_name: 'tenantId' },
-          { table_name: 'refresh_tokens', column_name: 'tenantId' },
+          { table_name: 'users', column_name: 'tenantId', udt_name: 'uuid' },
+          { table_name: 'auth_outbox', column_name: 'tenantId', udt_name: 'uuid' },
+          { table_name: 'refresh_tokens', column_name: 'tenantId', udt_name: 'uuid' },
         ],
         // 4 DDL × 1 non-skipped table (refresh_tokens)
         undefined, undefined, undefined, undefined,

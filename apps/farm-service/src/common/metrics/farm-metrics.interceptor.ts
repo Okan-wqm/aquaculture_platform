@@ -15,31 +15,22 @@
  *
  * Phase 5.3 of the "Farm modülü kalan kör noktalar" plan.
  */
-import {
-  CallHandler,
-  ExecutionContext,
-  Injectable,
-  NestInterceptor,
-} from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import { Observable, tap } from 'rxjs';
 
 import { FarmDomainMetricsService } from './farm-domain-metrics.service';
 
 interface GraphQLContextRequest {
-  headers?: Record<string, string | string[] | undefined>;
+  tenantId?: string;
+  user?: { tenantId?: string | null };
 }
 
 @Injectable()
 export class FarmMetricsInterceptor implements NestInterceptor {
-  constructor(
-    private readonly metricsService: FarmDomainMetricsService,
-  ) {}
+  constructor(private readonly metricsService: FarmDomainMetricsService) {}
 
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler<unknown>,
-  ): Observable<unknown> {
+  intercept(context: ExecutionContext, next: CallHandler<unknown>): Observable<unknown> {
     if (context.getType<GqlContextType>() !== 'graphql') {
       return next.handle();
     }
@@ -59,10 +50,7 @@ export class FarmMetricsInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const operationName =
-      info?.fieldName ??
-      info?.operation?.name?.value ??
-      'unknown';
+    const operationName = info?.fieldName ?? info?.operation?.name?.value ?? 'unknown';
 
     // Skip introspection so schema checks do not inflate metrics.
     if (operationName.startsWith('__')) {
@@ -70,9 +58,8 @@ export class FarmMetricsInterceptor implements NestInterceptor {
     }
 
     const ctx = gqlContext.getContext<{ req?: GraphQLContextRequest }>();
-    const tenantHeader = ctx?.req?.headers?.['x-tenant-id'];
-    const tenantId =
-      typeof tenantHeader === 'string' ? tenantHeader : undefined;
+    const resolvedTenant = ctx?.req?.tenantId ?? ctx?.req?.user?.tenantId ?? undefined;
+    const tenantId = typeof resolvedTenant === 'string' ? resolvedTenant : undefined;
 
     const startHrTime = process.hrtime.bigint();
 

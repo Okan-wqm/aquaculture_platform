@@ -8,21 +8,18 @@ import {
   Logger,
   Optional,
 } from '@nestjs/common';
-import { GqlExecutionContext } from '@nestjs/graphql';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import { SKIP_TENANT_GUARD_KEY, IS_PUBLIC_KEY, Role } from '../decorators/roles.decorator';
-import { TenantRequest } from '../types/tenant-request.interface';
+import { GqlExecutionContext } from '@nestjs/graphql';
+
 // IMPORTANT: import from tokens, NOT from `audit-log.service` / `audit-log.entity`.
 // Importing the service would chain through `audit-log.entity` and fire the
 // `@Entity()` decorator on every backend-common consumer, polluting TypeORM's
 // global metadata storage and surfacing as cross-service drift on services
 // that never opted into audit logging (DEFECT-1, INFRA-CRITICAL-021).
-import {
-  AUDIT_LOG_SERVICE,
-  AuditSeverity,
-  type IAuditLogService,
-} from '../audit/audit-log.tokens';
+import { AUDIT_LOG_SERVICE, AuditSeverity, type IAuditLogService } from '../audit/audit-log.tokens';
+import { SKIP_TENANT_GUARD_KEY, IS_PUBLIC_KEY, Role } from '../decorators/roles.decorator';
+import { TenantRequest } from '../types/tenant-request.interface';
 
 /** UUID v4 format validator. */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -99,20 +96,20 @@ export class TenantGuard implements CanActivate {
    */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Skip if endpoint is marked public
-    const isPublic = this.reflector.getAllAndOverride<boolean>(
-      IS_PUBLIC_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     if (isPublic) {
       return true;
     }
 
     // Skip if explicitly annotated with @SkipTenantGuard()
-    const skipGuard = this.reflector.getAllAndOverride<boolean>(
-      SKIP_TENANT_GUARD_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const skipGuard = this.reflector.getAllAndOverride<boolean>(SKIP_TENANT_GUARD_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     if (skipGuard) {
       return true;
@@ -123,7 +120,8 @@ export class TenantGuard implements CanActivate {
 
     if (contextType === 'graphql') {
       const gqlCtx = GqlExecutionContext.create(context);
-      request = gqlCtx.getContext().req as TenantRequest;
+      const gqlRequestContext = gqlCtx.getContext<{ req: TenantRequest }>();
+      request = gqlRequestContext.req;
     } else {
       request = context.switchToHttp().getRequest<TenantRequest>();
     }
@@ -140,9 +138,7 @@ export class TenantGuard implements CanActivate {
       const actAsTenant = this.extractActAsTenantHeader(request);
       if (actAsTenant) {
         if (!UUID_REGEX.test(actAsTenant)) {
-          throw new BadRequestException(
-            'X-Act-As-Tenant header must be a valid UUID',
-          );
+          throw new BadRequestException('X-Act-As-Tenant header must be a valid UUID');
         }
 
         const sourceTenantId = user?.tenantId ?? 'system';
@@ -218,7 +214,7 @@ export class TenantGuard implements CanActivate {
       });
       throw new ForbiddenException(
         'MFA verification is required for cross-tenant access. ' +
-        'Please complete MFA step-up authentication before accessing another tenant.',
+          'Please complete MFA step-up authentication before accessing another tenant.',
       );
     }
   }
@@ -239,10 +235,9 @@ export class TenantGuard implements CanActivate {
    * - timestamp: ISO 8601 timestamp
    * - client IP and user agent for forensic traceability
    *
-   * If AuditLogService is not available, falls back to ephemeral logger.warn().
-   * If the awaited write fails, the error is logged but not propagated — the
-   * guard still allows the request (audit failure must not block legitimate
-   * admin operations, but the failure IS counted and logged).
+   * If AuditLogService is unavailable or the awaited write fails, production
+   * requests fail closed. Non-production keeps ephemeral logging so partial
+   * local service modules can still be exercised.
    */
   private async auditCrossTenantAccess(
     request: TenantRequest,
@@ -253,9 +248,8 @@ export class TenantGuard implements CanActivate {
     const endpoint = `${request.method} ${request.url}`;
     const timestamp = new Date().toISOString();
     const ip = this.extractClientIp(request);
-    const userAgent = typeof request.headers['user-agent'] === 'string'
-      ? request.headers['user-agent']
-      : undefined;
+    const userAgent =
+      typeof request.headers['user-agent'] === 'string' ? request.headers['user-agent'] : undefined;
 
     // Always emit an ephemeral log for real-time observability
     this.logger.warn('SUPER_ADMIN cross-tenant access', {
@@ -266,36 +260,53 @@ export class TenantGuard implements CanActivate {
       timestamp,
     });
 
-    // Persist to audit trail via AuditLogService (awaited for critical events)
-    if (this.auditLogService) {
-      try {
-        await this.auditLogService.recordAwait({
-          action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
-          resource: 'TenantGuard',
-          resourceId: targetTenantId,
-          userId: user?.sub ?? null,
-          userEmail: user?.email ?? null,
-          tenantId: targetTenantId,
-          metadata: {
-            sourceTenantId,
-            targetTenantId,
-            endpoint,
-            timestamp,
-            mfaVerified: user?.mfaVerified ?? false,
-          },
-          ip: ip ?? null,
-          userAgent: userAgent ?? null,
-          severity: AuditSeverity.WARNING,
-        });
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.logger.error(
-          `Critical audit write failed for SUPER_ADMIN cross-tenant access: ${message}`,
-          { userId: user?.sub, sourceTenantId, targetTenantId, endpoint },
-        );
-        // Do not re-throw: audit failure must not block legitimate admin operations
+    // Persist to audit trail via AuditLogService (awaited for critical events).
+    // Production farm/admin surfaces fail closed if the durable audit row cannot
+    // be written; non-production keeps the historical graceful degradation for
+    // local testing and partial service modules.
+    if (!this.auditLogService) {
+      if (this.isProduction()) {
+        throw new ForbiddenException('Cross-tenant audit logging is unavailable. Access denied.');
+      }
+      return;
+    }
+
+    try {
+      await this.auditLogService.recordAwait({
+        action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+        resource: 'TenantGuard',
+        resourceId: targetTenantId,
+        userId: user?.sub ?? null,
+        userEmail: user?.email ?? null,
+        tenantId: targetTenantId,
+        metadata: {
+          sourceTenantId,
+          targetTenantId,
+          endpoint,
+          timestamp,
+          mfaVerified: user?.mfaVerified ?? false,
+        },
+        ip: ip ?? null,
+        userAgent: userAgent ?? null,
+        severity: AuditSeverity.WARNING,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        'Critical audit write failed for SUPER_ADMIN cross-tenant access: ' + message,
+        { userId: user?.sub, sourceTenantId, targetTenantId, endpoint },
+      );
+      if (this.isProduction()) {
+        throw new ForbiddenException('Cross-tenant audit logging failed. Access denied.');
       }
     }
+  }
+
+  private isProduction(): boolean {
+    return (
+      this.configService?.get<string>('NODE_ENV', process.env['NODE_ENV'] ?? 'development') ===
+      'production'
+    );
   }
 
   /**

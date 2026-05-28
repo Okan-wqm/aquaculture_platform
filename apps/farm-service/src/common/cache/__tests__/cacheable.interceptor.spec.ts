@@ -22,10 +22,7 @@ import { Reflector } from '@nestjs/core';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { lastValueFrom, of, throwError } from 'rxjs';
 
-import {
-  CACHEABLE_METADATA_KEY,
-  CacheableOptions,
-} from '../cacheable.decorator';
+import { CACHEABLE_METADATA_KEY, CacheableOptions } from '../cacheable.decorator';
 import { CacheableInterceptor } from '../cacheable.interceptor';
 
 interface RedisDouble {
@@ -42,9 +39,7 @@ function makeExecutionContext(opts: {
   contextType?: 'graphql' | 'http';
   gqlArgs?: Record<string, unknown>;
 }): ExecutionContext {
-  const headers: Record<string, string> = {};
-  if (opts.tenantId) headers['x-tenant-id'] = opts.tenantId;
-  const req = { headers };
+  const req = { tenantId: opts.tenantId };
   const handler = jest.fn();
   const contextType = opts.contextType ?? 'graphql';
 
@@ -92,17 +87,13 @@ function makeInterceptor(opts: {
     }),
   };
   const redis: RedisDouble = {
-    getJson: jest
-      .fn()
-      .mockImplementation(async () => {
-        if (opts.redisGetError) throw opts.redisGetError;
-        return opts.redisGet ?? null;
-      }),
-    setJson: jest
-      .fn()
-      .mockImplementation(async () => {
-        if (opts.redisSetError) throw opts.redisSetError;
-      }),
+    getJson: jest.fn().mockImplementation(async () => {
+      if (opts.redisGetError) throw opts.redisGetError;
+      return opts.redisGet ?? null;
+    }),
+    setJson: jest.fn().mockImplementation(async () => {
+      if (opts.redisSetError) throw opts.redisSetError;
+    }),
   };
   const interceptor = new CacheableInterceptor(
     reflector as unknown as Reflector,
@@ -198,9 +189,9 @@ describe('CacheableInterceptor', () => {
     const handler: CallHandler = {
       handle: () => throwError(() => new Error('underlying method failed')),
     };
-    await expect(
-      lastValueFrom(interceptor.intercept(ctx, handler)),
-    ).rejects.toThrow('underlying method failed');
+    await expect(lastValueFrom(interceptor.intercept(ctx, handler))).rejects.toThrow(
+      'underlying method failed',
+    );
   });
 
   it('non-tenant-scoped cacheable uses a global key (no tenant segment needed)', async () => {
@@ -243,9 +234,7 @@ describe('CacheableInterceptor', () => {
     await lastValueFrom(interceptor.intercept(ctx1, h1.handler));
     await lastValueFrom(interceptor.intercept(ctx2, h2.handler));
     expect(redis.setJson).toHaveBeenCalledTimes(2);
-    expect(redis.setJson.mock.calls[0][0]).toBe(
-      redis.setJson.mock.calls[1][0],
-    );
+    expect(redis.setJson.mock.calls[0][0]).toBe(redis.setJson.mock.calls[1][0]);
   });
 
   it('different args produce different keys', async () => {
@@ -266,8 +255,6 @@ describe('CacheableInterceptor', () => {
 
     await lastValueFrom(interceptor.intercept(ctx1, h1.handler));
     await lastValueFrom(interceptor.intercept(ctx2, h2.handler));
-    expect(redis.setJson.mock.calls[0][0]).not.toBe(
-      redis.setJson.mock.calls[1][0],
-    );
+    expect(redis.setJson.mock.calls[0][0]).not.toBe(redis.setJson.mock.calls[1][0]);
   });
 });

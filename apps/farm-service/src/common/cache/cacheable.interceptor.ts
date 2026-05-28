@@ -9,6 +9,9 @@
  *
  * Phase 7.3 of the "Farm modülü kalan kör noktalar" plan.
  */
+import { createHash } from 'crypto';
+
+import { RedisService } from '@aquaculture/backend-common/redis';
 import {
   CallHandler,
   ExecutionContext,
@@ -19,15 +22,10 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
-import { RedisService } from '@aquaculture/backend-common/redis';
-import { createHash } from 'crypto';
 import { Observable, from, of } from 'rxjs';
 import { switchMap, tap } from 'rxjs/operators';
 
-import {
-  CACHEABLE_METADATA_KEY,
-  CacheableOptions,
-} from './cacheable.decorator';
+import { CACHEABLE_METADATA_KEY, CacheableOptions } from './cacheable.decorator';
 
 interface ResolvedOptions extends CacheableOptions {
   scopeToTenant: boolean;
@@ -43,10 +41,7 @@ export class CacheableInterceptor implements NestInterceptor {
     private readonly redisService?: RedisService,
   ) {}
 
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler<unknown>,
-  ): Observable<unknown> {
+  intercept(context: ExecutionContext, next: CallHandler<unknown>): Observable<unknown> {
     const handler = context.getHandler();
     const metadata = this.reflector.get<CacheableOptions | undefined>(
       CACHEABLE_METADATA_KEY,
@@ -79,23 +74,16 @@ export class CacheableInterceptor implements NestInterceptor {
         }
         return next.handle().pipe(
           tap((result) => {
-            this.writeCache(key, result, options.ttlSeconds).catch(
-              (err: unknown) => {
-                this.logger.warn(
-                  `Cache write failed for ${key}: ${(err as Error).message}`,
-                );
-              },
-            );
+            this.writeCache(key, result, options.ttlSeconds).catch((err: unknown) => {
+              this.logger.warn(`Cache write failed for ${key}: ${(err as Error).message}`);
+            });
           }),
         );
       }),
     );
   }
 
-  private buildKey(
-    context: ExecutionContext,
-    options: ResolvedOptions,
-  ): string | null {
+  private buildKey(context: ExecutionContext, options: ResolvedOptions): string | null {
     const argsPayload = this.serializeArgs(context);
     let tenantSegment = '';
 
@@ -105,10 +93,7 @@ export class CacheableInterceptor implements NestInterceptor {
       tenantSegment = `t:${tenantId}:`;
     }
 
-    const argsHash = createHash('sha1')
-      .update(argsPayload)
-      .digest('hex')
-      .slice(0, 16);
+    const argsHash = createHash('sha1').update(argsPayload).digest('hex').slice(0, 16);
 
     return `farm:cache:${options.prefix}:${tenantSegment}${argsHash}`;
   }
@@ -116,18 +101,11 @@ export class CacheableInterceptor implements NestInterceptor {
   private extractTenantId(context: ExecutionContext): string | undefined {
     if (context.getType<GqlContextType>() === 'graphql') {
       const gqlCtx = GqlExecutionContext.create(context);
-      const ctx = gqlCtx.getContext<{
-        req?: { headers?: Record<string, string | string[] | undefined> };
-      }>();
-      const header = ctx?.req?.headers?.['x-tenant-id'];
-      if (typeof header === 'string' && header.length > 0) return header;
-      return undefined;
+      const ctx = gqlCtx.getContext<{ req?: TenantScopedRequest }>();
+      return resolveRequestTenant(ctx?.req);
     }
-    const req = context.switchToHttp().getRequest<
-      { headers?: Record<string, string | string[] | undefined> } | undefined
-    >();
-    const header = req?.headers?.['x-tenant-id'];
-    return typeof header === 'string' && header.length > 0 ? header : undefined;
+    const req = context.switchToHttp().getRequest<TenantScopedRequest | undefined>();
+    return resolveRequestTenant(req);
   }
 
   /**
@@ -139,9 +117,7 @@ export class CacheableInterceptor implements NestInterceptor {
   private serializeArgs(context: ExecutionContext): string {
     const args = context.getArgs();
     const gqlCtx =
-      context.getType<GqlContextType>() === 'graphql'
-        ? GqlExecutionContext.create(context)
-        : null;
+      context.getType<GqlContextType>() === 'graphql' ? GqlExecutionContext.create(context) : null;
     if (gqlCtx) {
       // GraphQL resolver args: [root, args, context, info]. Hash
       // just the `args` object — the other three change every call.
@@ -156,18 +132,12 @@ export class CacheableInterceptor implements NestInterceptor {
     try {
       return await this.redisService.getJson(key);
     } catch (err) {
-      this.logger.warn(
-        `Cache read failed for ${key}: ${(err as Error).message}`,
-      );
+      this.logger.warn(`Cache read failed for ${key}: ${(err as Error).message}`);
       return null;
     }
   }
 
-  private async writeCache(
-    key: string,
-    value: unknown,
-    ttlSeconds: number,
-  ): Promise<void> {
+  private async writeCache(key: string, value: unknown, ttlSeconds: number): Promise<void> {
     if (!this.redisService) return;
     await this.redisService.setJson(key, value, ttlSeconds);
   }
@@ -175,14 +145,26 @@ export class CacheableInterceptor implements NestInterceptor {
 
 function safeStringify(value: unknown): string {
   try {
-    return JSON.stringify(value, (_key, v) => {
-      if (v && typeof v === 'object' && 'headers' in (v as Record<string, unknown>)) {
-        // drop request-like objects (carry volatile state)
-        return undefined;
-      }
-      return v;
-    }) ?? 'null';
+    return (
+      JSON.stringify(value, (_key: string, v: unknown): unknown => {
+        if (v && typeof v === 'object' && 'headers' in (v as Record<string, unknown>)) {
+          // drop request-like objects (carry volatile state)
+          return undefined;
+        }
+        return v;
+      }) ?? 'null'
+    );
   } catch {
     return 'serialize-fail';
   }
+}
+
+interface TenantScopedRequest {
+  tenantId?: string;
+  user?: { tenantId?: string | null };
+}
+
+function resolveRequestTenant(req: TenantScopedRequest | undefined): string | undefined {
+  const tenantId = req?.tenantId ?? req?.user?.tenantId ?? undefined;
+  return typeof tenantId === 'string' && tenantId.length > 0 ? tenantId : undefined;
 }

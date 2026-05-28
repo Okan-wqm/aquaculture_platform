@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -25,7 +22,9 @@ import { JwtUser } from '../../types/tenant-request.interface';
  */
 describe('TenantGuard', () => {
   let reflector: Reflector;
-  let auditLogService: jest.Mocked<Pick<AuditLogService, 'record' | 'recordAwait' | 'getFailureCount'>>;
+  let auditLogService: jest.Mocked<
+    Pick<AuditLogService, 'record' | 'recordAwait' | 'getFailureCount'>
+  >;
   let configService: jest.Mocked<Pick<ConfigService, 'get'>>;
 
   const TENANT_A = '11111111-1111-1111-1111-111111111111';
@@ -151,7 +150,11 @@ describe('TenantGuard', () => {
 
     it('should throw BadRequestException for invalid UUID tenantId', async () => {
       const guard = createGuard();
-      const context = createMockContext({ sub: 'user-1', tenantId: 'not-a-uuid', roles: [Role.MODULE_USER] });
+      const context = createMockContext({
+        sub: 'user-1',
+        tenantId: 'not-a-uuid',
+        roles: [Role.MODULE_USER],
+      });
       await expect(guard.canActivate(context)).rejects.toThrow(BadRequestException);
     });
 
@@ -177,10 +180,7 @@ describe('TenantGuard', () => {
 
     it('should throw BadRequestException for invalid X-Act-As-Tenant UUID', async () => {
       const guard = createGuard();
-      const context = createMockContext(
-        superAdminUser(),
-        { 'x-act-as-tenant': 'bad-uuid' },
-      );
+      const context = createMockContext(superAdminUser(), { 'x-act-as-tenant': 'bad-uuid' });
       await expect(guard.canActivate(context)).rejects.toThrow(BadRequestException);
     });
   });
@@ -357,9 +357,7 @@ describe('TenantGuard', () => {
 
   describe('BULGU-4: audit write failure resilience', () => {
     it('should not block the request when audit write fails', async () => {
-      auditLogService.recordAwait.mockRejectedValueOnce(
-        new Error('DB connection lost'),
-      );
+      auditLogService.recordAwait.mockRejectedValueOnce(new Error('DB connection lost'));
       const guard = createGuard();
       const user = superAdminUser();
       const context = createMockContext(user, { 'x-act-as-tenant': TENANT_B });
@@ -369,9 +367,7 @@ describe('TenantGuard', () => {
     });
 
     it('should still set request.tenantId when audit write fails', async () => {
-      auditLogService.recordAwait.mockRejectedValueOnce(
-        new Error('DB connection lost'),
-      );
+      auditLogService.recordAwait.mockRejectedValueOnce(new Error('DB connection lost'));
       const guard = createGuard();
       const user = superAdminUser();
       const context = createMockContext(user, { 'x-act-as-tenant': TENANT_B });
@@ -380,6 +376,30 @@ describe('TenantGuard', () => {
 
       const request = context.switchToHttp().getRequest();
       expect(request.tenantId).toBe(TENANT_B);
+    });
+
+    it('should fail closed in production when audit write fails', async () => {
+      configService.get.mockImplementation((key: string, defaultValue?: unknown) =>
+        key === 'NODE_ENV' ? 'production' : (defaultValue ?? 'false'),
+      );
+      auditLogService.recordAwait.mockRejectedValueOnce(new Error('DB connection lost'));
+      const guard = createGuard();
+      const user = superAdminUser();
+      const context = createMockContext(user, { 'x-act-as-tenant': TENANT_B });
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should fail closed in production when AuditLogService is unavailable', async () => {
+      configService.get.mockImplementation((key: string, defaultValue?: unknown) =>
+        key === 'NODE_ENV' ? 'production' : (defaultValue ?? 'false'),
+      );
+      const guard = createGuard({ withAudit: false });
+      const user = superAdminUser();
+      const context = createMockContext(user, { 'x-act-as-tenant': TENANT_B });
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+      expect(auditLogService.recordAwait).not.toHaveBeenCalled();
     });
   });
 
@@ -409,9 +429,7 @@ describe('TenantGuard', () => {
       const user = superAdminUser({ mfaVerified: false });
       const context = createMockContext(user, { 'x-act-as-tenant': TENANT_B });
 
-      await expect(guard.canActivate(context)).rejects.toThrow(
-        /MFA verification is required/,
-      );
+      await expect(guard.canActivate(context)).rejects.toThrow(/MFA verification is required/);
     });
 
     it('should throw ForbiddenException when MFA is required and mfaVerified is undefined', async () => {

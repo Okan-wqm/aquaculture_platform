@@ -1,25 +1,87 @@
-import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { GraphQLModule } from '@nestjs/graphql';
-import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
-import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { join } from 'path';
-import { Request } from 'express';
-import { GraphQLError } from 'graphql';
-import depthLimit from 'graphql-depth-limit';
-import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
+
+import type { GraphQLRequestContextDidResolveOperation } from '@apollo/server';
+import { AUDIT_LOG_SERVICE, type IAuditLogService } from '@aquaculture/backend-common/audit-tokens';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
+import {
+  createServiceTypeOrmConfig,
+  createTenantConnectionBootstrap,
+  RlsModule,
+  SchemaDriftModule,
+  SourceSchemaBootstrapService,
+  SourceSchemaWriteGuardService,
+  TenantSchemaSyncService,
+} from '@aquaculture/backend-common/database';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import {
   CorrelationIdMiddleware,
+  createTenantSchemaMiddleware,
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { ThrottlerModule } from '@aquaculture/backend-common/security';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { GraphQLModule } from '@nestjs/graphql';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { CqrsModule } from '@platform/cqrs';
+import { EventBusModule } from '@platform/event-bus';
+import { StorageModule, type StorageConfig } from '@platform/storage';
+import type { Request } from 'express';
+import { GraphQLError } from 'graphql';
+import depthLimit from 'graphql-depth-limit';
+import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
+
+import { AiInsightsModule } from './ai-insights/ai-insights.module';
+import { BatchModule } from './batch/batch.module';
+import { ChemicalModule } from './chemical/chemical.module';
+import { PermissionMatrixGuard } from './common/authz/permission-matrix.guard';
+import { CacheableModule } from './common/cache/cacheable.module';
+import { FarmAppErrorFilter } from './common/errors/farm-app-error.filter';
+import { GraphQLContextFactory } from './common/graphql-context.factory';
+import { GraphQLContextModule } from './common/graphql-context.module';
+import { JsonbPatchModule } from './common/jsonb/jsonb-patch.module';
+import { FarmMetricsModule } from './common/metrics/farm-metrics.module';
+import { getTenantSchemaName } from './common/utils/schema-sanitizer';
+import { ComplianceModule } from './compliance/compliance.module';
+import { ConsumableModule } from './consumable/consumable.module';
+import { DatabaseModule } from './database/database.module';
+import { FARM_MIGRATIONS } from './database/migrations/manifest';
+import { DepartmentModule } from './department/department.module';
+import { EquipmentModule } from './equipment/equipment.module';
+import { EventListenersModule } from './events/event-listeners.module';
+import { FarmModule } from './farm/farm.module';
+import { FarmStockModule } from './farm-stock/farm-stock.module';
+import { FeedModule } from './feed/feed.module';
+import { FeedingModule } from './feeding/feeding.module';
+import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { FishHealthModule } from './fish-health/fish-health.module';
+import { GrowthModule } from './growth/growth.module';
+import { HarvestModule } from './harvest/harvest.module';
+import { HealthModule } from './health/health.module';
+import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
+import { MaintenanceModule } from './maintenance/maintenance.module';
+import { MobileDashboardModule } from './mobile-dashboard/mobile-dashboard.module';
+import { FarmOutboxModule } from './outbox/farm-outbox.module';
+import { RegulatoryModule } from './regulatory/regulatory.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
+import { SentinelHubModule } from './sentinel-hub/sentinel-hub.module';
+import { SiteModule } from './site/site.module';
+import { SpeciesModule } from './species/species.module';
+import { InventoryModule } from './storage/storage.module';
+import { SupplierModule } from './supplier/supplier.module';
+import { SystemModule } from './system/system.module';
+import { TankModule } from './tank/tank.module';
+import { TaskModule } from './task/task.module';
+import { WaterQualityModule } from './water-quality/water-quality.module';
+import { WeatherModule } from './weather/weather.module';
+import { WorkerModule } from './worker/worker.module';
 
 /**
  * Extended request interface for GraphQL context
@@ -32,79 +94,19 @@ interface GraphQLContextRequest extends Request {
   };
   tenantId?: string;
 }
-import {
-  createTenantConnectionBootstrap,
-  TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
-  RlsModule,
-  SchemaDriftModule,
-  createServiceTypeOrmConfig,
-} from '@aquaculture/backend-common/database';
-import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
-import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
-import { ScheduleModule } from '@nestjs/schedule';
-import { EventEmitterModule } from '@nestjs/event-emitter';
-import { CqrsModule } from '@platform/cqrs';
-import { EventBusModule } from '@platform/event-bus';
-import { DatabaseModule } from './database/database.module';
-import { FarmMetricsModule } from './common/metrics/farm-metrics.module';
-import { FarmAppErrorFilter } from './common/errors/farm-app-error.filter';
-import { CacheableModule } from './common/cache/cacheable.module';
-import { JsonbPatchModule } from './common/jsonb/jsonb-patch.module';
-import { ComplianceModule } from './compliance/compliance.module';
-import { StorageModule } from '@platform/storage';
-import type { StorageConfig } from '@platform/storage';
-import { PermissionMatrixGuard } from './common/authz/permission-matrix.guard';
-import { FarmOutboxModule } from './outbox/farm-outbox.module';
-import { FarmModule } from './farm/farm.module';
-import { HealthModule } from './health/health.module';
-import { SpeciesModule } from './species/species.module';
-import { TankModule } from './tank/tank.module';
-import { BatchModule } from './batch/batch.module';
-import { FeedingModule } from './feeding/feeding.module';
-import { GrowthModule } from './growth/growth.module';
-import { WaterQualityModule } from './water-quality/water-quality.module';
-import { FishHealthModule } from './fish-health/fish-health.module';
-import { MaintenanceModule } from './maintenance/maintenance.module';
-import { HarvestModule } from './harvest/harvest.module';
-import { SiteModule } from './site/site.module';
-import { DepartmentModule } from './department/department.module';
-import { EquipmentModule } from './equipment/equipment.module';
-import { SupplierModule } from './supplier/supplier.module';
-import { ChemicalModule } from './chemical/chemical.module';
-import { ConsumableModule } from './consumable/consumable.module';
-import { FeedModule } from './feed/feed.module';
-import { InventoryModule } from './storage/storage.module';
-import { WorkerModule } from './worker/worker.module';
-import { SystemModule } from './system/system.module';
-import { SentinelHubModule } from './sentinel-hub/sentinel-hub.module';
-import { RegulatoryModule } from './regulatory/regulatory.module';
-import { WeatherModule } from './weather/weather.module';
-import { SchedulerModule } from './scheduler/scheduler.module';
-import { EventListenersModule } from './events/event-listeners.module';
-import { TaskModule } from './task/task.module';
-import { FarmStockModule } from './farm-stock/farm-stock.module';
-import { MobileDashboardModule } from './mobile-dashboard/mobile-dashboard.module';
+
 /**
  * WHY: AiInsightsModule integrates the MCP Farm Intelligence server with the
  * farm service, providing AI-powered risk assessment, anomaly detection, growth
  * prediction, and feeding advice via GraphQL queries.
+ *
+ * FARM_MIGRATIONS is the canonical runtime class list. Keep the import path
+ * stable; invariants compare it with on-disk migrations and the production
+ * db-migrate numeric glob.
  */
-import { AiInsightsModule } from './ai-insights/ai-insights.module';
-import { GlobalExceptionFilter } from './filters/global-exception.filter';
-import { GraphQLContextFactory } from './common/graphql-context.factory';
-import { GraphQLContextModule } from './common/graphql-context.module';
-import { getTenantSchemaName } from './common/utils/schema-sanitizer';
-
-// Migrations — FARM_MIGRATIONS is the canonical runtime class list. Keep this
-// import path stable; invariants compare it with the on-disk migrations
-// directory and the production db-migrate numeric glob. The numeric glob
-// intentionally excludes manifest.js so TypeORM does not load the same classes
-// twice via the manifest import graph.
-import { FARM_MIGRATIONS } from './database/migrations/manifest';
-
 @Module({
   imports: [
     // Global configuration
@@ -200,8 +202,10 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
          */
         plugins: [
           {
-            requestDidStart: async () => ({
-              async didResolveOperation({ request, document, schema }) {
+            requestDidStart: () => Promise.resolve({
+              didResolveOperation(
+                { request, document, schema }: GraphQLRequestContextDidResolveOperation<Record<string, unknown>>,
+              ): Promise<void> {
                 const rawLimit = configService.get<number | string>(
                   'FARM_GRAPHQL_MAX_COMPLEXITY',
                   1000,
@@ -233,6 +237,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
                     },
                   );
                 }
+                return Promise.resolve();
               },
             }),
           },
@@ -241,33 +246,10 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
         context: ({ req }: { req: GraphQLContextRequest }) => {
-          // Reconstruct user from gateway headers for @CurrentUser() decorator
-          const userPayloadHeader = req.headers['x-user-payload'];
-          const userIdHeader = req.headers['x-user-id'];
-          const userRolesHeader = req.headers['x-user-roles'];
-
-          if (typeof userPayloadHeader === 'string') {
-            try {
-              req.user = JSON.parse(userPayloadHeader);
-            } catch {
-              // Fallback: create minimal user from individual headers
-              if (typeof userIdHeader === 'string') {
-                req.user = {
-                  sub: userIdHeader,
-                  roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
-                };
-              }
-            }
-          } else if (typeof userIdHeader === 'string') {
-            // Fallback if x-user-payload not present
-            req.user = {
-              sub: userIdHeader,
-              roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
-            };
-          }
-
           // Create per-request DataLoaders from authenticated/normalised tenant context.
-          const tenantId = req.user?.tenantId ?? req.tenantId;
+          // UserContextMiddleware and TenantGuard own all user/tenant verification;
+          // the GraphQL adapter never reparses raw x-user-* gateway headers.
+          const tenantId = req.tenantId ?? req.user?.tenantId;
           let loaders;
           if (tenantId) {
             const schema = getTenantSchemaName(tenantId);
@@ -316,8 +298,8 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        natsUrl: configService.get('NATS_URL', 'nats://localhost:4222'),
-        streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
+        natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
+        streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
 
@@ -479,9 +461,12 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     // Tenant guard
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, configService: ConfigService): TenantGuard =>
-        new TenantGuard(reflector, undefined, configService),
-      inject: [Reflector, ConfigService],
+      useFactory: (
+        reflector: Reflector,
+        auditLogService: IAuditLogService,
+        configService: ConfigService,
+      ): TenantGuard => new TenantGuard(reflector, auditLogService, configService),
+      inject: [Reflector, AUDIT_LOG_SERVICE, ConfigService],
     },
     // SECURITY: Roles guard - enforces @Roles() decorator authorization
     {
@@ -512,12 +497,12 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
   ],
 })
 export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
+  configure(consumer: MiddlewareConsumer): void {
     // Middleware execution order:
     // 1. StripInternalHeadersMiddleware - remove spoofable gateway headers unless service-signed
     // 2. CorrelationIdMiddleware - Add correlation ID for request tracing
     // 3. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
-    // 4. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
+    // 4. TenantContextMiddleware - Extract tenant from JWT, verified service identity, or allowed subdomain
     // 5. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(

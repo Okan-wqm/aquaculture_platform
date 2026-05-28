@@ -9,6 +9,7 @@
  *
  * Phase 7.3.2 of the "Farm modülü kalan kör noktalar" plan.
  */
+import { RedisService } from '@aquaculture/backend-common/redis';
 import {
   CallHandler,
   ExecutionContext,
@@ -19,14 +20,10 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
-import { RedisService } from '@aquaculture/backend-common/redis';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 
-import {
-  CACHE_EVICT_METADATA_KEY,
-  CacheEvictOptions,
-} from './cache-evict.decorator';
+import { CACHE_EVICT_METADATA_KEY, CacheEvictOptions } from './cache-evict.decorator';
 
 interface ResolvedOptions extends CacheEvictOptions {
   scopeToTenant: boolean;
@@ -42,10 +39,7 @@ export class CacheEvictInterceptor implements NestInterceptor {
     private readonly redisService?: RedisService,
   ) {}
 
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler<unknown>,
-  ): Observable<unknown> {
+  intercept(context: ExecutionContext, next: CallHandler<unknown>): Observable<unknown> {
     const handler = context.getHandler();
     const metadata = this.reflector.get<CacheEvictOptions | undefined>(
       CACHE_EVICT_METADATA_KEY,
@@ -79,10 +73,7 @@ export class CacheEvictInterceptor implements NestInterceptor {
     );
   }
 
-  private async evict(
-    context: ExecutionContext,
-    options: ResolvedOptions,
-  ): Promise<void> {
+  private async evict(context: ExecutionContext, options: ResolvedOptions): Promise<void> {
     if (!this.redisService) return;
 
     let tenantSegment = '';
@@ -102,26 +93,27 @@ export class CacheEvictInterceptor implements NestInterceptor {
     for (const prefix of options.prefixes) {
       const pattern = `farm:cache:${prefix}:${tenantSegment}*`;
       const count = await this.redisService.deletePattern(pattern);
-      this.logger.debug(
-        `CacheEvict: pattern='${pattern}' removed=${count}`,
-      );
+      this.logger.debug(`CacheEvict: pattern='${pattern}' removed=${count}`);
     }
   }
 
   private extractTenantId(context: ExecutionContext): string | undefined {
     if (context.getType<GqlContextType>() === 'graphql') {
       const gqlCtx = GqlExecutionContext.create(context);
-      const ctx = gqlCtx.getContext<{
-        req?: { headers?: Record<string, string | string[] | undefined> };
-      }>();
-      const header = ctx?.req?.headers?.['x-tenant-id'];
-      if (typeof header === 'string' && header.length > 0) return header;
-      return undefined;
+      const ctx = gqlCtx.getContext<{ req?: TenantScopedRequest }>();
+      return resolveRequestTenant(ctx?.req);
     }
-    const req = context.switchToHttp().getRequest<
-      { headers?: Record<string, string | string[] | undefined> } | undefined
-    >();
-    const header = req?.headers?.['x-tenant-id'];
-    return typeof header === 'string' && header.length > 0 ? header : undefined;
+    const req = context.switchToHttp().getRequest<TenantScopedRequest | undefined>();
+    return resolveRequestTenant(req);
   }
+}
+
+interface TenantScopedRequest {
+  tenantId?: string;
+  user?: { tenantId?: string | null };
+}
+
+function resolveRequestTenant(req: TenantScopedRequest | undefined): string | undefined {
+  const tenantId = req?.tenantId ?? req?.user?.tenantId ?? undefined;
+  return typeof tenantId === 'string' && tenantId.length > 0 ? tenantId : undefined;
 }

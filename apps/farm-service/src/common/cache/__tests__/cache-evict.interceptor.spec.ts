@@ -17,23 +17,15 @@ import { GqlContextType } from '@nestjs/graphql';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { firstValueFrom, lastValueFrom, of, throwError } from 'rxjs';
 
-import {
-  CACHE_EVICT_METADATA_KEY,
-  CacheEvictOptions,
-} from '../cache-evict.decorator';
+import { CACHE_EVICT_METADATA_KEY, CacheEvictOptions } from '../cache-evict.decorator';
 import { CacheEvictInterceptor } from '../cache-evict.interceptor';
 
 interface RedisDouble {
   deletePattern: jest.Mock;
 }
 
-function makeCtx(opts: {
-  tenantId?: string;
-  type?: 'graphql' | 'http';
-}): ExecutionContext {
-  const headers: Record<string, string> = {};
-  if (opts.tenantId) headers['x-tenant-id'] = opts.tenantId;
-  const req = { headers };
+function makeCtx(opts: { tenantId?: string; type?: 'graphql' | 'http' }): ExecutionContext {
+  const req = { tenantId: opts.tenantId };
   const type = opts.type ?? 'graphql';
   const classRef = class FakeResolver {};
   const args = [null, {}, { req }, {}];
@@ -55,10 +47,10 @@ function makeCtx(opts: {
   } as unknown as ExecutionContext;
 }
 
-function makeInterceptor(opts: {
-  metadata?: CacheEvictOptions;
-  redisError?: Error;
-}): { interceptor: CacheEvictInterceptor; redis: RedisDouble } {
+function makeInterceptor(opts: { metadata?: CacheEvictOptions; redisError?: Error }): {
+  interceptor: CacheEvictInterceptor;
+  redis: RedisDouble;
+} {
   const reflector = {
     get: jest.fn((key: string) => {
       if (key === CACHE_EVICT_METADATA_KEY) return opts.metadata;
@@ -104,12 +96,8 @@ describe('CacheEvictInterceptor', () => {
     await flushMicrotasks();
 
     expect(redis.deletePattern).toHaveBeenCalledTimes(2);
-    expect(redis.deletePattern).toHaveBeenCalledWith(
-      'farm:cache:species:list:t:tenant-abc:*',
-    );
-    expect(redis.deletePattern).toHaveBeenCalledWith(
-      'farm:cache:species:byId:t:tenant-abc:*',
-    );
+    expect(redis.deletePattern).toHaveBeenCalledWith('farm:cache:species:list:t:tenant-abc:*');
+    expect(redis.deletePattern).toHaveBeenCalledWith('farm:cache:species:byId:t:tenant-abc:*');
   });
 
   it('does NOT evict when the mutation throws', async () => {
@@ -121,9 +109,9 @@ describe('CacheEvictInterceptor', () => {
       handle: () => throwError(() => new Error('mutation failed')),
     };
 
-    await expect(
-      lastValueFrom(interceptor.intercept(ctx, handler)),
-    ).rejects.toThrow('mutation failed');
+    await expect(lastValueFrom(interceptor.intercept(ctx, handler))).rejects.toThrow(
+      'mutation failed',
+    );
     await flushMicrotasks();
     expect(redis.deletePattern).not.toHaveBeenCalled();
   });
@@ -155,9 +143,7 @@ describe('CacheEvictInterceptor', () => {
     await flushMicrotasks();
 
     expect(redis.deletePattern).toHaveBeenCalledTimes(1);
-    expect(redis.deletePattern).toHaveBeenCalledWith(
-      'farm:cache:wq:parameterTemplates:*',
-    );
+    expect(redis.deletePattern).toHaveBeenCalledWith('farm:cache:wq:parameterTemplates:*');
   });
 
   it('logs + swallows when Redis deletePattern fails — result still flows', async () => {

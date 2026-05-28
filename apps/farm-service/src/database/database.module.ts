@@ -8,9 +8,11 @@
  * - MigrationRunnerService: Pending TypeORM migration'larını OnApplicationBootstrap
  *   sırasında çalıştırır (SourceSchemaBootstrap.synchronize() sonrası)
  */
+import { AUDIT_LOG_SERVICE } from '@aquaculture/backend-common/audit-tokens';
 import { Module, Global } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
 import { AuditLog } from './entities/audit-log.entity';
 import { CodeSequence } from './entities/code-sequence.entity';
 import { AuditLogService } from './services/audit-log.service';
@@ -21,17 +23,21 @@ import { MigrationRunnerService } from './services/migration-runner.service';
 
 @Global()
 @Module({
-  imports: [
-    ConfigModule,
-    TypeOrmModule.forFeature([AuditLog, CodeSequence]),
-  ],
+  imports: [ConfigModule, TypeOrmModule.forFeature([AuditLog, CodeSequence])],
   providers: [
     AuditLogService,
+    { provide: AUDIT_LOG_SERVICE, useExisting: AuditLogService },
     AuditRedactionService,
     CodeGeneratorService,
     MigrationRunnerService,
     FarmSeedService,
   ],
-  exports: [AuditLogService, AuditRedactionService, CodeGeneratorService, TypeOrmModule],
+  exports: [
+    AuditLogService,
+    AUDIT_LOG_SERVICE,
+    AuditRedactionService,
+    CodeGeneratorService,
+    TypeOrmModule,
+  ],
 })
 export class DatabaseModule {}

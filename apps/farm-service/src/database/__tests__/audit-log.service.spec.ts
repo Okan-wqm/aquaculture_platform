@@ -101,6 +101,46 @@ describe('AuditLogService', () => {
     });
   });
 
+  describe('AUDIT_LOG_SERVICE adapter', () => {
+    const tenantId = '11111111-1111-4111-8111-111111111111';
+
+    it('recordAwait should persist shared audit entries durably', async () => {
+      mockRepository.create.mockImplementation((data) => data);
+      mockRepository.save.mockImplementation((data) => Promise.resolve({ id: 'log-1', ...data }));
+
+      await service.recordAwait({
+        action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+        resource: 'TenantGuard',
+        resourceId: tenantId,
+        tenantId,
+        userId: '22222222-2222-4222-8222-222222222222',
+        userEmail: 'admin@example.com',
+        metadata: { targetTenantId: tenantId },
+      });
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId,
+          entityType: 'TenantGuard',
+          entityId: tenantId,
+          action: AuditAction.UPDATE,
+          summary: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+        }),
+      );
+      expect(mockRepository.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('recordAwait should throw when no durable tenant UUID is available', async () => {
+      await expect(
+        service.recordAwait({
+          action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+          resource: 'TenantGuard',
+          resourceId: 'not-a-uuid',
+        }),
+      ).rejects.toThrow('requires a UUID tenantId');
+    });
+  });
+
   describe('logCreate', () => {
     it('should log CREATE action with after data', async () => {
       const entity = { id: 'entity-1', name: 'Test Site', version: 1 };

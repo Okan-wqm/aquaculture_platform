@@ -1,18 +1,17 @@
-import {
-  Module,
-  Global,
-  OnModuleInit,
-  DynamicModule,
-  Provider,
-  Type,
-} from '@nestjs/common';
+import { Module, Global, OnModuleInit, DynamicModule, Provider, Type } from '@nestjs/common';
 import { DiscoveryModule, DiscoveryService } from '@nestjs/core';
+
 import { CommandBus } from './command/command-bus';
-import { QueryBus } from './query/query-bus';
-import { COMMAND_HANDLER_METADATA } from './decorators/command-handler.decorator';
-import { QUERY_HANDLER_METADATA } from './decorators/query-handler.decorator';
 import { ICommandHandler } from './command/command.interface';
+import { getCommandHandlerMetadata } from './decorators/command-handler.decorator';
+import { getQueryHandlerMetadata } from './decorators/query-handler.decorator';
+import { QueryBus } from './query/query-bus';
 import { IQueryHandler } from './query/query.interface';
+
+interface DiscoveredProviderWrapper {
+  instance?: unknown;
+  metatype?: Type<unknown>;
+}
 
 /**
  * CQRS Module - Provides Command and Query buses
@@ -34,7 +33,7 @@ export class CqrsModule implements OnModuleInit {
   /**
    * Register with custom handlers
    */
-  static forRoot(options?: CqrsModuleOptions): DynamicModule {
+  static forRoot(_options?: CqrsModuleOptions): DynamicModule {
     const providers: Provider[] = [CommandBus, QueryBus];
 
     return {
@@ -69,36 +68,37 @@ export class CqrsModule implements OnModuleInit {
     const providers = this.discovery.getProviders();
 
     for (const wrapper of providers) {
-      const { instance, metatype } = wrapper;
+      const providerWrapper = wrapper as DiscoveredProviderWrapper;
+      const instance = providerWrapper.instance;
+      const metatype = providerWrapper.metatype;
 
       if (!instance || !metatype) {
         continue;
       }
 
       // Register command handlers
-      const commandMetadata = Reflect.getMetadata(
-        COMMAND_HANDLER_METADATA,
-        metatype,
-      );
+      const commandMetadata = getCommandHandlerMetadata(metatype);
 
       if (commandMetadata) {
-        this.commandBus.registerByName(
-          commandMetadata.commandName,
-          metatype as Type<ICommandHandler>,
-        );
+        if (commandMetadata.command) {
+          this.commandBus.register(commandMetadata.command, metatype as Type<ICommandHandler>);
+        } else {
+          this.commandBus.registerByName(
+            commandMetadata.commandName,
+            metatype as Type<ICommandHandler>,
+          );
+        }
       }
 
       // Register query handlers
-      const queryMetadata = Reflect.getMetadata(
-        QUERY_HANDLER_METADATA,
-        metatype,
-      );
+      const queryMetadata = getQueryHandlerMetadata(metatype);
 
       if (queryMetadata) {
-        this.queryBus.registerByName(
-          queryMetadata.queryName,
-          metatype as Type<IQueryHandler>,
-        );
+        if (queryMetadata.query) {
+          this.queryBus.register(queryMetadata.query, metatype as Type<IQueryHandler>);
+        } else {
+          this.queryBus.registerByName(queryMetadata.queryName, metatype as Type<IQueryHandler>);
+        }
       }
     }
   }

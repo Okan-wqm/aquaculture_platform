@@ -21,6 +21,13 @@ export interface JwtUser {
   email?: string;
 }
 
+export interface VerifiedServiceIdentity {
+  serviceName: string;
+  tenantId?: string;
+  signatureVersion: 'v1' | 'v2';
+  verifiedAt: string;
+}
+
 /**
  * Canonical TenantRequest interface.
  *
@@ -38,4 +45,6 @@ export interface TenantRequest extends Request {
   tenantId?: string;
   /** Decoded JWT payload – set by JwtAuthGuard / UserContextMiddleware */
   user?: JwtUser;
+  /** HMAC-verified service identity attached by the service identity boundary. */
+  verifiedIdentity?: VerifiedServiceIdentity;
 }

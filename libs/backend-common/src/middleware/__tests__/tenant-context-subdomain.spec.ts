@@ -84,7 +84,7 @@ describe('TenantContextMiddleware - subdomain hardening', () => {
       expect(req2.tenantId).toBeUndefined();
     });
 
-    it('should allow any domain when ALLOWED_BASE_DOMAINS is not set', () => {
+    it('should reject subdomain tenant extraction when ALLOWED_BASE_DOMAINS is not set in production', () => {
       process.env = {
         ...originalEnv,
         NODE_ENV: 'production',
@@ -96,7 +96,7 @@ describe('TenantContextMiddleware - subdomain hardening', () => {
         hostname: `${validUuid}.any-domain.example.com`,
       });
       prodMiddleware.use(req, mockRes as Response, mockNext);
-      expect(req.tenantId).toBe(validUuid);
+      expect(req.tenantId).toBeUndefined();
     });
 
     it('should always allow subdomain extraction in development', () => {
@@ -115,13 +115,34 @@ describe('TenantContextMiddleware - subdomain hardening', () => {
     });
   });
 
-  describe('header-based tenant extraction still works', () => {
-    it('should extract tenant from x-tenant-id header', () => {
+  describe('service identity tenant extraction', () => {
+    it('should extract tenant from verified service identity', () => {
       const req = createRequest({
         headers: { 'x-tenant-id': validUuid },
+        verifiedIdentity: {
+          serviceName: 'gateway-api',
+          tenantId: validUuid,
+          signatureVersion: 'v2',
+          verifiedAt: new Date().toISOString(),
+        },
       });
       middleware.use(req, mockRes as Response, mockNext);
       expect(req.tenantId).toBe(validUuid);
+      expect(req.tenantContext.source).toBe('service-identity');
+    });
+
+    it('should ignore raw x-tenant-id header in production without verified identity', () => {
+      const originalEnv = process.env;
+      process.env = { ...originalEnv, NODE_ENV: 'production' };
+      try {
+        const req = createRequest({
+          headers: { 'x-tenant-id': validUuid },
+        });
+        middleware.use(req, mockRes as Response, mockNext);
+        expect(req.tenantId).toBeUndefined();
+      } finally {
+        process.env = originalEnv;
+      }
     });
   });
 

@@ -7,10 +7,16 @@
  * - Retention policy uygula (90 gün)
  * - Bulk cleanup işlemi
  */
+import type {
+  CreateAuditEntryDto,
+  IAuditLogService,
+} from '@aquaculture/backend-common/audit-tokens';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
+
 import { AuditLog, AuditAction, AuditChanges, AuditMetadata } from '../entities/audit-log.entity';
+
 import { AuditRedactionService } from './audit-redaction.service';
 
 export interface LogAuditParams {
@@ -39,7 +45,7 @@ export interface AuditLogQuery {
 }
 
 @Injectable()
-export class AuditLogService {
+export class AuditLogService implements IAuditLogService {
   private readonly logger = new Logger(AuditLogService.name);
 
   /**
@@ -97,6 +103,80 @@ export class AuditLogService {
     this.redactionService = redactionService ?? new AuditRedactionService();
   }
 
+  record(dto: CreateAuditEntryDto): void {
+    void this.recordAwait(dto).catch((error: unknown) => {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Failed to create shared audit log: ' + err.message, err.stack);
+    });
+  }
+
+  async recordAwait(dto: CreateAuditEntryDto): Promise<void> {
+    await this.persistSharedAuditEntry(dto);
+  }
+
+  private async persistSharedAuditEntry(dto: CreateAuditEntryDto): Promise<AuditLog> {
+    const tenantId = this.resolveAuditTenantId(dto);
+    const entityId = this.resolveAuditEntityId(dto, tenantId);
+    const metadata = this.redactionService.redactPayload({
+      ...(dto.metadata ?? {}),
+      auditAction: dto.action,
+      schemaName: dto.schemaName,
+      severity: dto.severity,
+      correlationId: dto.correlationId,
+      actorHomeTenantId: dto.actorHomeTenantId,
+      actedOnTenantId: dto.actedOnTenantId,
+      method: dto.method,
+      mfaVerified: dto.mfaVerified,
+      result: dto.result,
+      preStateHash: dto.preStateHash,
+      postStateHash: dto.postStateHash,
+      justification: dto.justification,
+      relatedAuditIds: dto.relatedAuditIds,
+    }) as AuditMetadata;
+
+    const auditLog = this.auditLogRepository.create({
+      tenantId,
+      entityType: dto.resource.slice(0, 100),
+      entityId,
+      action: this.mapSharedAuditAction(dto.action),
+      userId: dto.userId ?? undefined,
+      userName: dto.userEmail ?? undefined,
+      metadata,
+      summary: dto.action,
+    });
+
+    return this.auditLogRepository.save(auditLog);
+  }
+
+  private resolveAuditTenantId(dto: CreateAuditEntryDto): string {
+    const candidate = dto.actedOnTenantId ?? dto.tenantId ?? dto.resourceId ?? undefined;
+    if (candidate && this.isUuid(candidate)) {
+      return candidate;
+    }
+    throw new Error('Shared audit entry requires a UUID tenantId, actedOnTenantId, or resourceId');
+  }
+
+  private resolveAuditEntityId(dto: CreateAuditEntryDto, tenantId: string): string {
+    if (dto.resourceId && this.isUuid(dto.resourceId)) {
+      return dto.resourceId;
+    }
+    return tenantId;
+  }
+
+  private mapSharedAuditAction(action: string): AuditAction {
+    if ((Object.values(AuditAction) as string[]).includes(action)) {
+      return action as AuditAction;
+    }
+    if (action.includes('DELETE')) return AuditAction.DELETE;
+    if (action.includes('RESTORE')) return AuditAction.RESTORE;
+    if (action.includes('CREATE')) return AuditAction.CREATE;
+    return AuditAction.UPDATE;
+  }
+
+  private isUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  }
+
   /**
    * Audit log kaydı oluştur
    *
@@ -131,10 +211,7 @@ export class AuditLogService {
     } catch (error) {
       // Audit log errors must not affect the main operation (fire-and-forget)
       const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error(
-        `Failed to create audit log: ${err.message}`,
-        err.stack,
-      );
+      this.logger.error(`Failed to create audit log: ${err.message}`, err.stack);
       return auditLog;
     }
   }
@@ -270,10 +347,7 @@ export class AuditLogService {
    * (capacity overrides, deletes, restores) the transactional
    * variant is mandatory.
    */
-  async logWithManager(
-    manager: EntityManager,
-    params: LogAuditParams,
-  ): Promise<AuditLog> {
+  async logWithManager(manager: EntityManager, params: LogAuditParams): Promise<AuditLog> {
     const redactedChanges = this.redactionService.redactChanges(params.changes);
     const redactedMetadata = this.redactionService.redactMetadata(params.metadata);
 
@@ -427,7 +501,9 @@ export class AuditLogService {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - days);
 
-    this.logger.log(`Cleaning up audit logs older than ${days} days (before ${cutoffDate.toISOString()})`);
+    this.logger.log(
+      `Cleaning up audit logs older than ${days} days (before ${cutoffDate.toISOString()})`,
+    );
 
     const result = await this.auditLogRepository
       .createQueryBuilder()
@@ -481,9 +557,7 @@ export class AuditLogService {
     };
 
     const changedFields = params.changes?.changedFields;
-    const fieldText = changedFields?.length
-      ? ` (fields: ${changedFields.join(', ')})`
-      : '';
+    const fieldText = changedFields?.length ? ` (fields: ${changedFields.join(', ')})` : '';
 
     return `${params.entityType} ${params.entityId} was ${actionText[params.action]}${fieldText}`;
   }

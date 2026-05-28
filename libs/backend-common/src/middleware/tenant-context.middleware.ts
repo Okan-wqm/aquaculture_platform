@@ -1,7 +1,9 @@
-import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+
+import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { trace, context } from '@opentelemetry/api';
+import { Request, Response, NextFunction } from 'express';
+
 import { TenantRequest as CanonicalTenantRequest } from '../types/tenant-request.interface';
 
 /**
@@ -40,7 +42,7 @@ export interface TenantRequest extends CanonicalTenantRequest {
 export interface TenantContext {
   tenantId: string;
   // 'query' source removed — see extractTenantContext for rationale (MT-CRITICAL-001 3rd cycle closure).
-  source: 'header' | 'jwt' | 'subdomain';
+  source: 'jwt' | 'service-identity' | 'subdomain';
 }
 
 /**
@@ -65,11 +67,10 @@ export class UserContextMiddleware implements NestMiddleware {
         // aggregation pipelines may persist debug rows long enough
         // for the PII to leak into a third-party retention. The
         // userId (sub) is sufficient for trace correlation.
-        this.logger.debug(
-          `User context set: userId=${user.sub} (tenant: ${user.tenantId})`,
-        );
+        this.logger.debug(`User context set: userId=${user.sub} (tenant: ${user.tenantId})`);
       } catch (error) {
-        this.logger.warn(`Failed to parse x-user-payload header: ${error}`);
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Failed to parse x-user-payload header: ${message}`);
       }
     }
 
@@ -110,17 +111,11 @@ export class TenantContextMiddleware implements NestMiddleware {
       return { tenantId: req.user.tenantId, source: 'jwt' };
     }
 
-    // 2. Header fallback — used by pre-auth paths (login, register,
-    //    password-reset, refresh-token), edge-device ingestion routes,
-    //    and the HMAC-signed cross-tenant admin RPC. Each of those
-    //    paths MUST go through StripInternalHeadersMiddleware first
-    //    (W0.I) so a forged header from an external caller has been
-    //    stripped before reaching this point. The cross-tenant access
-    //    decision still belongs to TenantIsolationGuard further down
-    //    the request lifecycle.
-    const headerTenant = req.headers['x-tenant-id'] as string;
-    if (headerTenant) {
-      return { tenantId: headerTenant, source: 'header' };
+    // 2. Verified service identity fallback. StripInternalHeadersMiddleware
+    //    validates the HMAC before this middleware runs and attaches the
+    //    canonical identity object. Raw x-tenant-id is not authoritative.
+    if (req.verifiedIdentity?.tenantId) {
+      return { tenantId: req.verifiedIdentity.tenantId, source: 'service-identity' };
     }
 
     // WHY: query-param tenant fallback REMOVED. Pre-fix the middleware
@@ -151,9 +146,7 @@ export class TenantContextMiddleware implements NestMiddleware {
         // SECURITY: Subdomains must be valid UUIDs to prevent spoofing
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         if (!uuidRegex.test(subdomain)) {
-          this.logger.debug(
-            `Rejected non-UUID subdomain: "${subdomain}" from host "${host}"`,
-          );
+          this.logger.debug(`Rejected non-UUID subdomain: "${subdomain}" from host "${host}"`);
           return null;
         }
 
@@ -161,7 +154,7 @@ export class TenantContextMiddleware implements NestMiddleware {
         if (!this.isAllowedBaseDomain(baseDomain)) {
           this.logger.warn(
             `Rejected subdomain tenant extraction from unauthorized domain: "${host}". ` +
-            `Base domain "${baseDomain}" is not in ALLOWED_BASE_DOMAINS.`,
+              `Base domain "${baseDomain}" is not in ALLOWED_BASE_DOMAINS.`,
           );
           return null;
         }
@@ -196,8 +189,8 @@ export class TenantContextMiddleware implements NestMiddleware {
 
     const allowedDomains = allowedDomainsEnv
       .split(',')
-      .map(d => d.trim().toLowerCase())
-      .filter(d => d.length > 0);
+      .map((d) => d.trim().toLowerCase())
+      .filter((d) => d.length > 0);
 
     return allowedDomains.includes(baseDomain.toLowerCase());
   }
@@ -209,7 +202,7 @@ export class TenantContextMiddleware implements NestMiddleware {
     // IPv4 pattern: 4 parts, all numeric
     const parts = host.split('.');
     if (parts.length === 4) {
-      return parts.every(part => /^\d+$/.test(part));
+      return parts.every((part) => /^\d+$/.test(part));
     }
     // IPv6 or localhost
     if (host.includes(':') || host === 'localhost') {
@@ -347,11 +340,7 @@ export class RequestLoggingMiddleware implements NestMiddleware {
     const startTime = Date.now();
     const { method, originalUrl, ip } = req;
     const correlationId = req.headers['x-correlation-id'];
-    const tenantId = req.tenantId || req.headers['x-tenant-id'];
-
-    // Get trace context
-    const traceId = req.traceContext?.traceId || req.headers['x-trace-id'];
-    const spanId = req.traceContext?.spanId || req.headers['x-span-id'];
+    const tenantId = req.tenantId || req.verifiedIdentity?.tenantId;
 
     // Log when response finishes
     res.on('finish', () => {

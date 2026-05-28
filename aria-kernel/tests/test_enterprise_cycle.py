@@ -30,7 +30,7 @@ from aria_kernel import (
 from aria_kernel.constants import OUTPUT_CONTRACT_COMPAT_FINDING_ID
 from aria_kernel.cli import main
 from aria_kernel.feedback_store import record_operator_feedback
-from aria_kernel.ledger import append_jsonl
+from aria_kernel.ledger import append_jsonl, load_jsonl
 from aria_kernel.memory import list_memory, validate_repo_evidence
 from aria_kernel.pressure import explain_pressure, run_pressure
 from aria_kernel.tool_registry import GovernanceError, transition_tool, get_tool
@@ -232,6 +232,28 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(fingerprint_payload["file_counts"], counts)
         self.assertEqual(fingerprint_payload["tracked_file_count"], counts["fated"])
         self.assertEqual(fingerprint_payload["legacy_tracked_file_count"], counts["fated"])
+
+    def test_post_tool_phase_failure_closes_cycle_and_preserves_artifacts(self):
+        from aria_kernel.cycle import run_enterprise_cycle
+
+        register_active_for_test(shadow_tool(), base_dir=self.tools_dir)
+        with patch("aria_kernel.cycle.update_memory", side_effect=GovernanceError("memory boom")):
+            result = run_enterprise_cycle(
+                workspace_root=self.root,
+                cycle_id="cycle-memory-boom",
+                base_dir=self.tools_dir,
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["runtime_status"], "failed")
+        self.assertEqual(result["failed_phases"][0]["phase"], "memory")
+        self.assertEqual(result["artifact_integrity"]["status"], "ok")
+        self.assertEqual(len(result["artifact_refs"]), 1)
+        self.assertEqual(len(result["tool_run_summary"]), 1)
+        cycle_rows = load_jsonl(self.tools_dir / "cycles.jsonl")
+        self.assertEqual(cycle_rows[-1]["event"], "failed")
+        self.assertEqual(cycle_rows[-1]["status"], "failed")
+        self.assertEqual(verify_integrity(tools_dir=self.tools_dir)["status"], "ok")
 
     def test_snapshot_outside_evidence_marks_run_invalid_and_unsampleable(self):
         tool = shadow_tool()

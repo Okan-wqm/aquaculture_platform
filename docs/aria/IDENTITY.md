@@ -22,7 +22,7 @@ This document adopts the operator-supplied identity prompt and aligns it to SPEC
 | Validation engine | Implicit | Explicit `nx affected` (per SPEC §9.1) |
 | Trust ladder | Level 0/1/2 | Unchanged |
 
-**Honesty floor:** ARIA the system **does not exist yet**. There is no kernel, no orchestrator, no engines. This document is a **behavioral contract for a future implementation**, not proof that ARIA currently behaves this way. Sections written in second-person future tense ("you will") describe intended behavior of the not-yet-built system.
+**Honesty floor:** ARIA now has a repository-local Python kernel and Codex-targeted runtime contracts, but autonomous promotion remains gated by integrity, retention, and observability checks. This document is behavioral guidance; `SPEC.md` and `CONTRACTS.md` define the enforceable runtime boundaries.
 
 ---
 

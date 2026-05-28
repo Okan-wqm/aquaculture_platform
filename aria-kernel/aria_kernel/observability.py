@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 from .budget import list_budget_usage
 from .ledger import append_jsonl, load_jsonl
+from .runtime_artifacts import artifact_inventory_path
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_runs
 
@@ -20,8 +22,8 @@ def record_cycle_metrics(
 ) -> dict[str, Any]:
     if not cycle_id.strip():
         raise GovernanceError("cycle metrics require cycle_id")
-    if status not in ("ok", "failed", "blocked", "partial"):
-        raise GovernanceError("cycle metrics status must be ok, failed, blocked, or partial")
+    if status not in ("ok", "failed", "blocked", "partial", "degraded", "integrity_failed"):
+        raise GovernanceError("cycle metrics status must be ok, failed, blocked, partial, degraded, or integrity_failed")
     if artifact_count < 0 or cost_units < 0:
         raise GovernanceError("cycle metrics counts must be non-negative")
     durations = _normalize_durations(phase_durations_ms)
@@ -47,12 +49,18 @@ def generate_observability_dashboard(
     validation_runs = list_validation_runs(base_dir=base_dir)
     budget_usage = list_budget_usage(base_dir=base_dir)
     latest = metrics[-1] if metrics else None
+    rolling = _rolling_slo(metrics)
+    alerts = _record_alerts(cycle_id=cycle_id, metrics=metrics, rolling=rolling, base_dir=base_dir)
+    artifact_inventory = load_jsonl(artifact_inventory_path(base_dir))
     dashboard = {
-        "schema_version": 1,
+        "schema_version": 2,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "latest_cycle": latest,
         "trend": _metrics_trend(metrics),
+        "rolling_slo": rolling,
+        "alerts": alerts,
+        "artifact_bytes_by_class": _artifact_bytes_by_class(artifact_inventory),
         "operator_message": _operator_message(metrics),
         "validation": {
             "run_count": len(validation_runs),
@@ -107,3 +115,78 @@ def _operator_message(metrics: list[dict[str, Any]]) -> str:
     if len(metrics) == 1:
         return "insufficient_history: trend will be available after the next recorded cycle"
     return "trend_available"
+
+
+def alerts_path(base_dir: str | Path | None = None) -> Path:
+    return ensure_tools_dir(base_dir) / "observability" / "alerts.jsonl"
+
+
+def _rolling_slo(metrics: list[dict[str, Any]]) -> dict[str, Any]:
+    window = metrics[-30:]
+    durations = [int(row.get("total_duration_ms") or 0) for row in window]
+    if not durations:
+        return {"window": 0, "slo_state": "ok", "duration_p50_ms": 0, "duration_p95_ms": 0}
+    sorted_durations = sorted(durations)
+    p50 = int(median(sorted_durations))
+    p95_index = min(len(sorted_durations) - 1, int(round((len(sorted_durations) - 1) * 0.95)))
+    p95 = sorted_durations[p95_index]
+    latest = durations[-1]
+    if latest > 900_000 or (p50 and latest > 2 * p50):
+        state = "degraded"
+    elif latest > 600_000 or (p50 and latest > int(1.5 * p50)):
+        state = "warning"
+    else:
+        state = "ok"
+    return {
+        "window": len(window),
+        "slo_state": state,
+        "duration_p50_ms": p50,
+        "duration_p95_ms": p95,
+        "latest_duration_ms": latest,
+    }
+
+
+def _record_alerts(
+    *,
+    cycle_id: str,
+    metrics: list[dict[str, Any]],
+    rolling: dict[str, Any],
+    base_dir: str | Path | None,
+) -> list[dict[str, Any]]:
+    alerts: list[dict[str, Any]] = []
+    if rolling.get("slo_state") in {"warning", "degraded"}:
+        alerts.append({
+            "schema_version": 1,
+            "recorded_at": utc_now(),
+            "cycle_id": cycle_id,
+            "slo_state": rolling.get("slo_state"),
+            "reason": "cycle_duration_slo",
+            "threshold": "warning>600s_or_1.5x_p50 degraded>900s_or_2x_p50",
+            "observed": rolling.get("latest_duration_ms"),
+        })
+    if len(metrics) >= 2:
+        previous = metrics[-2]
+        latest = metrics[-1]
+        prev_artifacts = int(previous.get("artifact_count") or 0)
+        latest_artifacts = int(latest.get("artifact_count") or 0)
+        if prev_artifacts > 0 and latest_artifacts == 0:
+            alerts.append({
+                "schema_version": 1,
+                "recorded_at": utc_now(),
+                "cycle_id": cycle_id,
+                "slo_state": "degraded",
+                "reason": "artifact_count_cliff",
+                "threshold": "previous_artifact_count>0 latest_artifact_count=0",
+                "observed": latest_artifacts,
+            })
+    for alert in alerts:
+        append_jsonl(alerts_path(base_dir), alert)
+    return alerts
+
+
+def _artifact_bytes_by_class(rows: list[dict[str, Any]]) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for row in rows:
+        klass = str(row.get("artifact_class") or "unknown")
+        totals[klass] = totals.get(klass, 0) + int(row.get("bytes") or 0)
+    return dict(sorted(totals.items()))

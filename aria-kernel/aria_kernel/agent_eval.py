@@ -497,7 +497,7 @@ def sample_shadow_raw_findings(
     from datetime import datetime, timedelta, timezone
     from .human_required import record_human_required
     from .tool_health import runs_path
-    from .ledger import load_jsonl
+    from .runs_reader import read_runs_rows
     from .tool_registry import (
         append_tools_governance,
         ensure_tools_dir,
@@ -508,7 +508,7 @@ def sample_shadow_raw_findings(
     root = ensure_tools_dir(base_dir)
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-    runs = load_jsonl(runs_path(base_dir))
+    runs = list(read_runs_rows(runs_path(base_dir), base_dir=root))
     by_tool: dict[str, int] = {}
     # Plan 023 v3 §C-6 — track runs skipped due to scope_out_mutations
     # so the sampler output surfaces the suspect-run count separately

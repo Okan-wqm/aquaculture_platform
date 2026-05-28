@@ -96,6 +96,16 @@ from aria_kernel.handoff_ledger import (
     read_handoff,
     take_handoff_snapshot,
 )
+from aria_kernel.runtime_artifacts import (
+    SUMMARY_STDOUT_MAX_BYTES,
+    autonomy_exit_code,
+    autonomy_output_summary,
+    restore_artifact,
+    retention_apply,
+    retention_dry_run,
+    rollback_retention,
+    verify_artifacts,
+)
 from aria_kernel.runtime_profile import (
     PROFILES,
     get_profile,
@@ -509,6 +519,21 @@ def _main(argv: list[str] | None = None) -> int:
     profile_set.add_argument("--set-by", default="operator")
     profile_get = add_subparser(profile_sub, "get")
     profile_history = add_subparser(profile_sub, "history")
+
+    runtime_parser = add_subparser(sub, "runtime")
+    runtime_sub = runtime_parser.add_subparsers(dest="runtime_command", required=True)
+    runtime_verify = add_subparser(runtime_sub, "verify-artifacts")
+    runtime_retention = add_subparser(runtime_sub, "retention")
+    runtime_retention_sub = runtime_retention.add_subparsers(dest="runtime_retention_command", required=True)
+    runtime_retention_dry = add_subparser(runtime_retention_sub, "dry-run")
+    runtime_retention_dry.add_argument("--retain-hot-cycles", type=int, default=20)
+    runtime_retention_apply = add_subparser(runtime_retention_sub, "apply")
+    runtime_retention_apply.add_argument("--retain-hot-cycles", type=int, default=20)
+    runtime_retention_apply.add_argument("--acknowledge", action="store_true")
+    runtime_restore = add_subparser(runtime_sub, "restore-artifact")
+    runtime_restore.add_argument("--artifact-ref", required=True)
+    runtime_rollback = add_subparser(runtime_sub, "rollback-retention")
+    runtime_rollback.add_argument("--manifest-id", required=True)
 
     memory_parser = add_subparser(sub, "memory")
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
@@ -1111,6 +1136,14 @@ def _main(argv: list[str] | None = None) -> int:
         "--daemon-id", default="autonomy",
         help="fcntl single-instance lock id (default: autonomy).",
     )
+    auto_run.add_argument(
+        "--output", choices=["summary", "full"], default="summary",
+        help="Print bounded v2 summary by default; full requires --artifact.",
+    )
+    auto_run.add_argument(
+        "--artifact", default=None,
+        help="Path to write full autonomy output when --output full is selected.",
+    )
     auto_status = add_subparser(
         autonomy_sub, "status",
         help="Print the canonical AutonomyState derived from autonomy_state.jsonl.",
@@ -1615,6 +1648,30 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "profile" and args.profile_command == "history":
         print(json.dumps(list_profile_history(base_dir=args.tools_dir), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "runtime" and args.runtime_command == "verify-artifacts":
+        result = verify_artifacts(base_dir=args.tools_dir)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("status") == "ok" else 4
+    if args.command == "runtime" and args.runtime_command == "retention":
+        if args.runtime_retention_command == "dry-run":
+            result = retention_dry_run(base_dir=args.tools_dir, retain_hot_cycles=args.retain_hot_cycles)
+        else:
+            result = retention_apply(
+                base_dir=args.tools_dir,
+                retain_hot_cycles=args.retain_hot_cycles,
+                acknowledge=args.acknowledge,
+            )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "runtime" and args.runtime_command == "restore-artifact":
+        result = restore_artifact(base_dir=args.tools_dir, artifact_ref=args.artifact_ref)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "runtime" and args.runtime_command == "rollback-retention":
+        result = rollback_retention(base_dir=args.tools_dir, manifest_id=args.manifest_id)
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
     if args.command == "memory" and args.memory_command == "withdraw":
@@ -2675,12 +2732,36 @@ def _main(argv: list[str] | None = None) -> int:
             max_iterations_per_phase=args.max_iterations_per_phase,
             daemon_id=args.daemon_id,
         )
-        print(json.dumps(result, indent=2, sort_keys=True))
-        # Exit non-zero only when the orchestrator could not start
-        # (lock contention) — every other exit_reason (max_cycles,
-        # aria_stop, profile_frozen) is a clean halt the operator
-        # asked for and returns 0.
-        return 0 if result.get("exits_clean") else 1
+        if args.output == "full" and not args.artifact:
+            contract = {
+                "schema_version": 2,
+                "result_detail": "summary",
+                "overall_status": "contract_error",
+                "exit_code": 4,
+                "error": "--output full requires --artifact",
+            }
+            print(json.dumps(contract, indent=2, sort_keys=True))
+            return 4
+        if args.output == "full":
+            artifact_path = Path(args.artifact)
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        summary = autonomy_output_summary(result, result_detail=args.output)
+        if args.output == "full":
+            summary.pop("full_result", None)
+            summary["full_result_artifact"] = str(Path(args.artifact))
+        encoded = json.dumps(summary, indent=2, sort_keys=True)
+        if len(encoded.encode("utf-8")) > SUMMARY_STDOUT_MAX_BYTES:
+            print(json.dumps({
+                "schema_version": 2,
+                "result_detail": "summary",
+                "overall_status": "contract_error",
+                "exit_code": 4,
+                "error": "summary_stdout_exceeds_32kb",
+            }, indent=2, sort_keys=True))
+            return 4
+        print(encoded)
+        return autonomy_exit_code(str(summary.get("overall_status") or "failed"))
 
     if args.command == "autonomy" and args.autonomy_command == "status":
         # Plan 026R §F.3 — canonical state via the reducer.

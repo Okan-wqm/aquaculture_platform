@@ -10,17 +10,17 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .feedback import derive_pressure
-from .ledger import load_jsonl_verified, verify_index_hashes, write_index
+from .ledger import verify_index_hashes, write_index
 from .learning import run_learning_pass
 from .workspace import WorkspacePaths, ensure_workspace, workspace_paths
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
 from .memory import update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
+from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
 from .reflection import run_reflection
-from .tool_health import load_jsonl, runs_path
-from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now
+from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_jsonl
 
@@ -347,19 +347,22 @@ def run_enterprise_cycle(
             base_dir=root,
         )
         decisions.append(decision)
-    # Plan 026R §A.2 — strict verified load of the runs ledger. Pre-§A.2
-    # the loader accepted hashless / tampered rows silently; the strict
-    # primitive raises `LedgerIntegrityError` so cycle summarisation
-    # cannot proceed on a corrupt ledger.
-    for run in load_jsonl_verified(runs_path(root)):
-        if run.get("cycle_id") != cycle_id:
-            continue
+    # v2 runtime contract — prefer the per-cycle run index to avoid
+    # O(N) scans over a growing runs.jsonl. The helper falls back to the
+    # strict runs reader for legacy ledgers.
+    for run in read_runs_for_cycle(base_dir=root, cycle_uid=cycle_id):
+        runner = run.get("runner") if isinstance(run.get("runner"), dict) else {}
+        artifact_ref = run.get("artifact_ref") if isinstance(run.get("artifact_ref"), dict) else None
         run_summary.append(
             {
                 "tool_id": run.get("tool_id"),
+                "run_id": run.get("run_id"),
                 "status": run.get("status"),
-                "raw_findings_count": int(run.get("runner", {}).get("raw_findings_count") or 0),
-                "raw_observations_count": int(run.get("runner", {}).get("raw_observations_count") or 0),
+                "artifact_status": run.get("artifact_status", "legacy_inline_or_sample_only"),
+                "artifact_ref": artifact_ref,
+                "artifact_hash": run.get("artifact_hash"),
+                "raw_findings_count": int(runner.get("raw_findings_count") or 0),
+                "raw_observations_count": int(runner.get("raw_observations_count") or 0),
                 "emitted_findings_count": len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0,
                 "emitted_observations_count": len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0,
             },
@@ -367,19 +370,57 @@ def run_enterprise_cycle(
     # Plan 026R §E.7 — pass workspace_root so update_memory's FATES
     # hash recompute check fires. Pre-§E.7 legacy callers omitted
     # workspace_root and the integrity check silently skipped.
-    memory = update_memory(
-        cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
-    )
-    pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
-    reflection = run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
-    metrics = record_cycle_metrics(
-        cycle_id=cycle_id,
-        phase_durations_ms={"cycle": int((time.monotonic() - started) * 1000)},
-        artifact_count=len(run_summary) + 4,
-        status="ok",
-        base_dir=root,
-    )
-    dashboard = generate_observability_dashboard(cycle_id=cycle_id, base_dir=root)
+    # Runtime hardening: post-tool phase failures must still close the
+    # cycle ledger and retain tool artifact evidence in the returned state.
+    memory: dict[str, Any] = {}
+    pressure: dict[str, Any] = {}
+    reflection: dict[str, Any] = {}
+    post_tool_failure: dict[str, Any] | None = None
+    try:
+        memory = update_memory(
+            cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
+        )
+    except Exception as exc:
+        post_tool_failure = {"phase": "memory", "status": "failed", "error": str(exc)}
+    if post_tool_failure is None:
+        try:
+            pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "pressure", "status": "failed", "error": str(exc)}
+    if post_tool_failure is None:
+        try:
+            reflection = run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "reflection", "status": "failed", "error": str(exc)}
+    artifact_integrity = verify_artifacts(base_dir=root)
+    non_ok_runs = [
+        run for run in run_summary
+        if run.get("status") != "ok" or run.get("artifact_status") in {"missing", "hash_mismatch", "write_failed"}
+    ]
+    runtime_status = "ok" if not non_ok_runs and artifact_integrity.get("valid") else "integrity_failed"
+    if post_tool_failure is not None:
+        runtime_status = "failed"
+    try:
+        metrics = record_cycle_metrics(
+            cycle_id=cycle_id,
+            phase_durations_ms={"cycle": int((time.monotonic() - started) * 1000)},
+            artifact_count=len(run_summary) + 4,
+            status="ok" if runtime_status == "ok" else "failed",
+            cost_units=sum(float((decision.get("envelope") or {}).get("cost_units") or 0) for decision in decisions if isinstance(decision, dict)),
+            base_dir=root,
+        )
+    except Exception as exc:
+        metrics = {"schema_version": 1, "cycle_id": cycle_id, "status": "failed", "error": str(exc)}
+        if post_tool_failure is None:
+            post_tool_failure = {"phase": "metrics", "status": "failed", "error": str(exc)}
+        runtime_status = "failed"
+    try:
+        dashboard = generate_observability_dashboard(cycle_id=cycle_id, base_dir=root)
+    except Exception as exc:
+        dashboard = {"schema_version": 1, "cycle_id": cycle_id, "status": "failed", "error": str(exc)}
+        if post_tool_failure is None:
+            post_tool_failure = {"phase": "observability_dashboard", "status": "failed", "error": str(exc)}
+        runtime_status = "failed"
 
     # Plan 022 §M-1 — extended-phase dispatch. Default behaviour
     # (run_phases=None) is unchanged; only when the operator opts into
@@ -414,26 +455,36 @@ def run_enterprise_cycle(
         name for name, result in extended_phase_results.items()
         if isinstance(result, dict) and result.get("status") == "fail"
     ]
-    if phase_failures:
+    failed_phases = [
+        {"phase": str(name), "status": "failed"}
+        for name in phase_failures
+    ]
+    if post_tool_failure is not None:
+        failed_phases.append(post_tool_failure)
+    if phase_failures or runtime_status != "ok":
         event = _failed_event(
             cycle_id,
             decision_count=len(decisions),
             git_head_sha_at_cycle=git_head_sha_at_cycle,
         )
         append_jsonl(root / "cycles.jsonl", event)
+        update_tools_index(root)
         state_status: str = "failed"
     else:
         event = _complete_event(
             root, cycle_id, len(decisions),
             git_head_sha_at_cycle=git_head_sha_at_cycle,
         )
+        update_tools_index(root)
         state_status = "completed"
     state = {
         "schema_version": 2,
         "cycle_id": cycle_id,
         "git_head_sha_at_cycle": git_head_sha_at_cycle,
         "status": state_status,
+        "runtime_status": runtime_status,
         "extended_phase_failures": phase_failures,
+        "failed_phases": failed_phases,
         "event": event,
         "learning": learning,
         "discovery": discovery,
@@ -443,6 +494,10 @@ def run_enterprise_cycle(
         "reflection": reflection,
         "cycle_metrics": metrics,
         "observability_dashboard": dashboard,
+        "artifact_integrity": artifact_integrity,
+        "artifact_refs": [run["artifact_ref"] for run in run_summary if isinstance(run.get("artifact_ref"), dict)],
+        "non_ok_tools": non_ok_runs,
+        "incomplete_lifecycle_count": 0,
         "tool_decisions": decisions,
         "tool_governance_decisions": decisions,
         "tool_run_summary": run_summary,

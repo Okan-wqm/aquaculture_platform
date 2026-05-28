@@ -5,6 +5,26 @@
 .aria-ci/
 aria-tools/.archive/
 aria-tools/.backups/
+aria-tools/run-artifacts/hot/
+aria-tools/run-artifacts/*.jsonl
+aria-tools/run-artifacts/**/*.json
+aria-tools/runs/by-cycle/
+aria-tools/observability/*.jsonl
+aria-tools/retention/*.jsonl
+aria-tools/**/*.lock
+aria-tools/**/*.lock.lock
+aria-tools/autonomy_state.jsonl
+aria-tools/findings.jsonl
+aria-tools/quarantine.jsonl
+aria-tools/quarantine/
+aria-tools/daemons/
+aria-tools/cycle-diff/20*.json
+aria-tools/cycle-diff/cyc-*.json
+aria-tools/discovery/20*/
+aria-tools/discovery/cyc-*/
+aria-tools/pressure/cyc-*.json
+aria-kernel/aria-tools/**/*.lock
+aria-kernel/aria-tools/**/*.lock.lock
 # Plan 019 Phase 0.3 — recursive_impact runtime artifacts (live evidence
 # already lives in runs.jsonl + governance.jsonl; per-compute graph dumps
 # under aria-tools/impact-graphs/ are throwaway snapshots).

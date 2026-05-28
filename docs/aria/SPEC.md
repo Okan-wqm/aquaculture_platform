@@ -15,6 +15,11 @@ Snowball v9 preserves the two-root operating model: workspace state and tools st
 
 ---
 
+## 0.2 — Codex Runtime Authority
+
+ARIA autonomous execution targets Codex. Runtime contracts live in `docs/aria/CONTRACTS.md` and include the artifact-backed run ledger, bounded autonomy summary, fail-closed integrity gates, and v1/v2-shadow/v2 rollout modes. Implementations must preserve auditability when output is summarized: smaller stdout must not mean smaller evidence.
+
+
 ## 0 — Why v7.2 exists
 
 v7.1 was a thoughtful spec with three structural problems for THIS repo:

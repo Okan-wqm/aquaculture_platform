@@ -33,6 +33,27 @@ Governance known kinds include `workspace_bootstrapped`, `tools_root_bootstrappe
 
 Default governance actor: if `ARIA_ACTOR` is set, parse it as JSON `{kind, id, session?}`. Otherwise use `{kind: "human", id: "<user>@<hostname>"}`.
 
+
+## 0.1.1 — Codex Runtime Artifact Contract
+
+Codex is the authoritative runtime target for ARIA autonomous execution. Claude/Anthropic execution text in older sections is historical unless explicitly marked current. The kernel must not require `ANTHROPIC_API_KEY` for ARIA cycles.
+
+`aria-kernel autonomy run` prints a bounded v2 summary by default. Full output is written only when the operator explicitly requests `--output full --artifact <path>`. The summary includes `overall_status`, `exit_code`, status counts, non-ok tools, evidence errors, artifact refs, artifact hash status, suppressed/truncated counts, failed phases, and incomplete lifecycle count. Summary stdout over 32KB is a contract error.
+
+Run ledger format is selected by `ARIA_RUN_LEDGER_FORMAT=v1|v2-shadow|v2`. Default is `v2-shadow`: legacy run fields remain readable while full runtime output is also persisted as verified artifacts. `v2` rows are artifact-backed thin rows; consumers must use `aria_kernel.runs_reader` rather than reading `runs.jsonl` directly. Rollback to `v1` must not rewrite or delete already-written v2 artifacts.
+
+No silent loss invariant: any runtime output that is bounded, truncated, summarized, deduplicated, archived, redacted, migrated, or omitted must produce an auditable artifact reference, count, reason code, and integrity-verifiable hash. If that cannot be produced, the run cannot remain `ok`. Missing artifacts, hash mismatch, path escape, partial writes, or unverifiable archive restores are integrity failures and block autonomous follow-on phases.
+
+Runtime artifact commands:
+
+- `aria-kernel runtime verify-artifacts` verifies artifact index rows against hot/archive files.
+- `aria-kernel runtime retention dry-run` computes archive candidates without mutation.
+- `aria-kernel runtime retention apply --acknowledge` archives eligible reviewed artifacts.
+- `aria-kernel runtime restore-artifact --artifact-ref <ref>` restores/verifies an artifact.
+- `aria-kernel runtime rollback-retention --manifest-id <id>` restores files from a retention manifest.
+
+Covered runtime ledgers become part of tools integrity when present: `run-artifacts/artifact-index.jsonl`, `run-artifacts/manifest.jsonl`, `retention/events.jsonl`, `observability/alerts.jsonl`, and `observability/artifact-inventory.jsonl`.
+
 ## 0.2 — Phase-2A Learning Pass Contract
 
 Each cycle runs an ordered learning pass before normal cycle work:
@@ -109,9 +130,9 @@ It is also the operator's decision tool: the Phase-1 PoC at the end (§13) is th
 
 ---
 
-## 0.6 — CLI Execution Model (NEW — corrects v7.2 API assumption)
+## 0.6 — Superseded Claude CLI Execution Model (historical)
 
-ARIA does **not** run as a standalone Python daemon calling the Anthropic API directly. ARIA runs **inside Claude Code CLI sessions**. This changes substantially what the kernel needs to implement.
+ARIA does **not** run as a standalone Python daemon calling the Anthropic API directly. Historical note: earlier ARIA prototypes ran inside Claude Code CLI sessions. Current autonomous runtime target is Codex; see §0.1.1. The old model ran **inside Claude Code CLI sessions**. This changes substantially what the kernel needs to implement.
 
 ### Component map (CLI mode)
 

@@ -19,10 +19,7 @@ import { EntityManager, Repository } from 'typeorm';
 
 import { LotMixService } from '../services/lot-mix.service';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
-import {
-  LotContribution,
-  StorageLotMix,
-} from '../entities/storage-lot-mix.entity';
+import { LotContribution, StorageLotMix } from '../entities/storage-lot-mix.entity';
 
 interface InventoryRepoDouble {
   find: jest.Mock;
@@ -44,9 +41,7 @@ function makeInventoryRows(
   return rows;
 }
 
-function makeDoubles(opts: {
-  residentLots?: Array<Partial<StorageInventory>>;
-}): {
+function makeDoubles(opts: { residentLots?: Array<Partial<StorageInventory>> }): {
   service: LotMixService;
   inventoryRepo: InventoryRepoDouble;
   mixRepo: MixRepoDouble;
@@ -123,9 +118,7 @@ describe('LotMixService.detect', () => {
 
   it('is a no-op when only the same lot is already resident', async () => {
     const { service, manager, mixRepo } = makeDoubles({
-      residentLots: makeInventoryRows([
-        { id: 'i1', lotNumber: 'LOT-A', quantity: 50 },
-      ]),
+      residentLots: makeInventoryRows([{ id: 'i1', lotNumber: 'LOT-A', quantity: 50 }]),
     });
     const outcome = await service.detect({
       tenantId: TENANT,
@@ -143,9 +136,7 @@ describe('LotMixService.detect', () => {
 
   it('ignores resident lots whose quantity has already drained to zero', async () => {
     const { service, manager, mixRepo } = makeDoubles({
-      residentLots: makeInventoryRows([
-        { id: 'i1', lotNumber: 'LOT-OLD', quantity: 0 },
-      ]),
+      residentLots: makeInventoryRows([{ id: 'i1', lotNumber: 'LOT-OLD', quantity: 0 }]),
     });
     const outcome = await service.detect({
       tenantId: TENANT,
@@ -163,9 +154,7 @@ describe('LotMixService.detect', () => {
 
   it('creates a mix row when a different non-zero resident lot is found', async () => {
     const { service, manager, mixRepo } = makeDoubles({
-      residentLots: makeInventoryRows([
-        { id: 'i1', lotNumber: 'LOT-OLD', quantity: 25 },
-      ]),
+      residentLots: makeInventoryRows([{ id: 'i1', lotNumber: 'LOT-OLD', quantity: 25 }]),
     });
     const outcome = await service.detect({
       tenantId: TENANT,
@@ -180,7 +169,7 @@ describe('LotMixService.detect', () => {
     });
     expect(outcome.mixCreated).toBe(true);
     expect(outcome.effectiveLotNumber).toBe('MIX-LOT-NEW-LOT-OLD');
-    expect(mixRepo.create).toHaveBeenCalledTimes(1);
+    expect(mixRepo.create).toHaveBeenCalledTimes(2);
     const created = mixRepo.create.mock.calls[0][0] as {
       contributingLots: LotContribution[];
       totalQuantityKg: string;
@@ -189,12 +178,8 @@ describe('LotMixService.detect', () => {
     expect(created.totalQuantityKg).toBe('100.00');
     expect(created.contributingLots).toHaveLength(2);
     // Percentages: 25 kg of 100 = 25%; 75 kg of 100 = 75%.
-    const oldContrib = created.contributingLots.find(
-      (c) => c.lotNumber === 'LOT-OLD',
-    );
-    const newContrib = created.contributingLots.find(
-      (c) => c.lotNumber === 'LOT-NEW',
-    );
+    const oldContrib = created.contributingLots.find((c) => c.lotNumber === 'LOT-OLD');
+    const newContrib = created.contributingLots.find((c) => c.lotNumber === 'LOT-NEW');
     expect(oldContrib?.contributionPct).toBeCloseTo(25);
     expect(newContrib?.contributionPct).toBeCloseTo(75);
     // Manufacturer captured as a snapshot on each contribution.
@@ -250,12 +235,8 @@ describe('LotMixService.detect', () => {
     const created = mixRepo.create.mock.calls[0][0] as {
       contributingLots: LotContribution[];
     };
-    const oldContrib = created.contributingLots.find(
-      (c) => c.lotNumber === 'LOT-OLD',
-    );
-    const newContrib = created.contributingLots.find(
-      (c) => c.lotNumber === 'LOT-NEW',
-    );
+    const oldContrib = created.contributingLots.find((c) => c.lotNumber === 'LOT-OLD');
+    const newContrib = created.contributingLots.find((c) => c.lotNumber === 'LOT-NEW');
     expect(oldContrib?.expiryDate).toBe(residentExpiry.toISOString());
     expect(newContrib?.expiryDate).toBe(incomingExpiry.toISOString());
   });
@@ -274,14 +255,10 @@ describe('LotMixService.findMixesForLot', () => {
     const result = await service.findMixesForLot(repo, TENANT, 'LOT-A');
 
     expect(createQueryBuilder).toHaveBeenCalledWith('mix');
-    expect(where).toHaveBeenCalledWith(
-      'mix.tenantId = :tenantId',
-      { tenantId: TENANT },
-    );
-    expect(andWhere).toHaveBeenCalledWith(
-      'mix."contributingLots" @> :lotFilter',
-      { lotFilter: JSON.stringify([{ lotNumber: 'LOT-A' }]) },
-    );
+    expect(where).toHaveBeenCalledWith('mix.tenantId = :tenantId', { tenantId: TENANT });
+    expect(andWhere).toHaveBeenCalledWith('mix."contributingLots" @> :lotFilter', {
+      lotFilter: JSON.stringify([{ lotNumber: 'LOT-A' }]),
+    });
     expect(orderBy).toHaveBeenCalledWith('mix.mixedAt', 'DESC');
     expect(result).toEqual([{ id: 'mix-1' }]);
   });

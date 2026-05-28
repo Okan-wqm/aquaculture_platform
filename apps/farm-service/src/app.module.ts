@@ -15,6 +15,7 @@ import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/back
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import {
   CorrelationIdMiddleware,
+  StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
@@ -26,8 +27,10 @@ import { ThrottlerModule } from '@aquaculture/backend-common/security';
 interface GraphQLContextRequest extends Request {
   user?: {
     sub: string;
+    tenantId?: string;
     roles: string[];
   };
+  tenantId?: string;
 }
 import {
   createTenantConnectionBootstrap,
@@ -263,9 +266,8 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
             };
           }
 
-          // Create per-request DataLoaders for equipment batch metrics (N+1 → bulk)
-          const tenantHeader = req.headers['x-tenant-id'];
-          const tenantId = typeof tenantHeader === 'string' ? tenantHeader : undefined;
+          // Create per-request DataLoaders from authenticated/normalised tenant context.
+          const tenantId = req.user?.tenantId ?? req.tenantId;
           let loaders;
           if (tenantId) {
             const schema = getTenantSchemaName(tenantId);
@@ -512,12 +514,14 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Middleware execution order:
-    // 1. CorrelationIdMiddleware - Add correlation ID for request tracing
-    // 2. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
-    // 3. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
-    // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
+    // 1. StripInternalHeadersMiddleware - remove spoofable gateway headers unless service-signed
+    // 2. CorrelationIdMiddleware - Add correlation ID for request tracing
+    // 3. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
+    // 4. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
+    // 5. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
+        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

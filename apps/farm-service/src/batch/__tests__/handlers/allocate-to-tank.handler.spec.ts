@@ -24,6 +24,14 @@ describe('AllocateToTankHandler', () => {
     }),
   };
 
+  const saveEntity = (entityOrClass: any, data?: any, fallbackId = 'saved-allocation') => {
+    const entity = data ?? entityOrClass;
+    if (entity && typeof entity === 'object') {
+      return Promise.resolve({ ...entity, id: entity.id ?? fallbackId });
+    }
+    return Promise.resolve(entity);
+  };
+
   const okCapacity = (
     overrides: Partial<ReturnType<typeof mockTankCapacityService.enforce>> = {},
   ) => ({
@@ -44,6 +52,11 @@ describe('AllocateToTankHandler', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockManager.create.mockImplementation(((_cls: unknown, data: unknown) => data) as never);
+    mockManager.save.mockImplementation(
+      ((_cls: unknown, data: { id?: string } | undefined): Promise<{ id: string }> =>
+        Promise.resolve({ ...(data ?? {}), id: data?.id ?? 'saved-allocation' })) as never,
+    );
     handler = new AllocateToTankHandler(
       createMockRepository() as any,
       createMockRepository() as any,
@@ -63,10 +76,19 @@ describe('AllocateToTankHandler', () => {
     mockManager.findOne.mockResolvedValueOnce(null);
 
     await expect(
-      handler.execute(new AllocateToTankCommand(TENANT, 'batch-1', {
-        tankId: 'tank-1', quantity: 100, avgWeightG: 50,
-        allocationType: AllocationType.INITIAL_STOCKING,
-      }, USER)),
+      handler.execute(
+        new AllocateToTankCommand(
+          TENANT,
+          'batch-1',
+          {
+            tankId: 'tank-1',
+            quantity: 100,
+            avgWeightG: 50,
+            allocationType: AllocationType.INITIAL_STOCKING,
+          },
+          USER,
+        ),
+      ),
     ).rejects.toThrow(NotFoundException);
 
     expect(mockQueryRunner.release).toHaveBeenCalled();
@@ -74,8 +96,11 @@ describe('AllocateToTankHandler', () => {
 
   it('should allocate batch to tank on success', async () => {
     const batch = {
-      id: 'batch-1', tenantId: TENANT, status: BatchStatus.ACTIVE,
-      currentQuantity: 5000, isActive: true,
+      id: 'batch-1',
+      tenantId: TENANT,
+      status: BatchStatus.ACTIVE,
+      currentQuantity: 5000,
+      isActive: true,
       isOperational: () => true,
     } as unknown as Batch;
 
@@ -96,13 +121,23 @@ describe('AllocateToTankHandler', () => {
       .mockResolvedValueOnce(batch)
       .mockResolvedValueOnce(equipment)
       .mockResolvedValueOnce(null);
-    mockManager.save.mockImplementation((_cls: any, data: any) => Promise.resolve(data));
+    mockManager.save.mockImplementation(((entityOrClass: any, data?: any) =>
+      saveEntity(entityOrClass, data)) as never);
     mockQueryRunner.query.mockResolvedValue([{ total_quantity: 0, total_biomass: 0 }]);
 
-    await handler.execute(new AllocateToTankCommand(TENANT, 'batch-1', {
-      tankId: 'tank-1', quantity: 100, avgWeightG: 50,
-      allocationType: AllocationType.INITIAL_STOCKING,
-    }, USER));
+    await handler.execute(
+      new AllocateToTankCommand(
+        TENANT,
+        'batch-1',
+        {
+          tankId: 'tank-1',
+          quantity: 100,
+          avgWeightG: 50,
+          allocationType: AllocationType.INITIAL_STOCKING,
+        },
+        USER,
+      ),
+    );
 
     expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
     expect(mockOutboxPublisher.enqueue).toHaveBeenCalled();
@@ -113,10 +148,19 @@ describe('AllocateToTankHandler', () => {
     mockManager.findOne.mockRejectedValueOnce(new Error('timeout'));
 
     await expect(
-      handler.execute(new AllocateToTankCommand(TENANT, 'batch-1', {
-        tankId: 'tank-1', quantity: 100, avgWeightG: 50,
-        allocationType: AllocationType.INITIAL_STOCKING,
-      }, USER)),
+      handler.execute(
+        new AllocateToTankCommand(
+          TENANT,
+          'batch-1',
+          {
+            tankId: 'tank-1',
+            quantity: 100,
+            avgWeightG: 50,
+            allocationType: AllocationType.INITIAL_STOCKING,
+          },
+          USER,
+        ),
+      ),
     ).rejects.toThrow();
 
     expect(mockQueryRunner.release).toHaveBeenCalled();
@@ -131,14 +175,22 @@ describe('AllocateToTankHandler', () => {
     // audit row behind would record an event that didn't actually
     // happen.
     const batch = {
-      id: 'batch-2', tenantId: TENANT, status: BatchStatus.ACTIVE,
-      currentQuantity: 1000, isActive: true,
+      id: 'batch-2',
+      tenantId: TENANT,
+      status: BatchStatus.ACTIVE,
+      currentQuantity: 1000,
+      isActive: true,
       isOperational: () => true,
     } as unknown as Batch;
 
     const tank = {
-      id: 'tank-2', code: 'T-002', tenantId: TENANT, status: 'ACTIVE',
-      maxBiomass: 5000, volume: 100, currentBiomass: 4900,
+      id: 'tank-2',
+      code: 'T-002',
+      tenantId: TENANT,
+      status: 'ACTIVE',
+      maxBiomass: 5000,
+      volume: 100,
+      currentBiomass: 4900,
     };
 
     mockManager.findOne
@@ -146,9 +198,8 @@ describe('AllocateToTankHandler', () => {
       .mockResolvedValueOnce(tank)
       .mockResolvedValueOnce(null) // existingTankBatch lookup #1
       .mockResolvedValueOnce(null); // tankBatch pessimistic lookup #2
-    mockManager.save.mockImplementation((cls: any, data: any) =>
-      Promise.resolve({ ...data, id: data?.id ?? 'tank-batch-1' }),
-    );
+    mockManager.save.mockImplementation(((entityOrClass: any, data?: any) =>
+      saveEntity(entityOrClass, data, 'tank-batch-1')) as never);
     mockManager.create.mockImplementation((_cls: any, data: any) => data);
     mockQueryRunner.query.mockResolvedValue([{ total_quantity: 0, total_biomass: 0 }]);
 
@@ -159,10 +210,19 @@ describe('AllocateToTankHandler', () => {
       okCapacity({ isOverCapacity: true, primaryBlockReason: 'biomass' }),
     );
 
-    await handler.execute(new AllocateToTankCommand(TENANT, 'batch-2', {
-      tankId: 'tank-2', quantity: 100, avgWeightG: 50,
-      allocationType: AllocationType.INITIAL_STOCKING,
-    }, USER));
+    await handler.execute(
+      new AllocateToTankCommand(
+        TENANT,
+        'batch-2',
+        {
+          tankId: 'tank-2',
+          quantity: 100,
+          avgWeightG: 50,
+          allocationType: AllocationType.INITIAL_STOCKING,
+        },
+        USER,
+      ),
+    );
 
     expect(mockAuditLogService.logWithManager).toHaveBeenCalledTimes(1);
     const [calledManager, params] = mockAuditLogService.logWithManager.mock.calls[0];
@@ -180,24 +240,44 @@ describe('AllocateToTankHandler', () => {
 
   it('should NOT write a CAPACITY_BLOCKED audit row when capacity is OK', async () => {
     const batch = {
-      id: 'batch-3', tenantId: TENANT, status: BatchStatus.ACTIVE,
-      currentQuantity: 1000, isActive: true,
+      id: 'batch-3',
+      tenantId: TENANT,
+      status: BatchStatus.ACTIVE,
+      currentQuantity: 1000,
+      isActive: true,
       isOperational: () => true,
     } as unknown as Batch;
-    const tank = { id: 'tank-3', code: 'T-003', tenantId: TENANT, status: 'ACTIVE', maxBiomass: 10000, volume: 100 };
+    const tank = {
+      id: 'tank-3',
+      code: 'T-003',
+      tenantId: TENANT,
+      status: 'ACTIVE',
+      maxBiomass: 10000,
+      volume: 100,
+    };
 
     mockManager.findOne
       .mockResolvedValueOnce(batch)
       .mockResolvedValueOnce(tank)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
-    mockManager.save.mockImplementation((_cls: any, data: any) => Promise.resolve(data));
+    mockManager.save.mockImplementation(((entityOrClass: any, data?: any) =>
+      saveEntity(entityOrClass, data)) as never);
     mockManager.create.mockImplementation((_cls: any, data: any) => data);
 
-    await handler.execute(new AllocateToTankCommand(TENANT, 'batch-3', {
-      tankId: 'tank-3', quantity: 100, avgWeightG: 50,
-      allocationType: AllocationType.INITIAL_STOCKING,
-    }, USER));
+    await handler.execute(
+      new AllocateToTankCommand(
+        TENANT,
+        'batch-3',
+        {
+          tankId: 'tank-3',
+          quantity: 100,
+          avgWeightG: 50,
+          allocationType: AllocationType.INITIAL_STOCKING,
+        },
+        USER,
+      ),
+    );
 
     expect(mockAuditLogService.logWithManager).not.toHaveBeenCalled();
   });

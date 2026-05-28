@@ -12,6 +12,10 @@ import { FCRCalculationService, FCRCalculationInput } from '../../services/fcr-c
 import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
 import { GrowthMeasurement } from '../../entities/growth-measurement.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
+import { Species } from '../../../species/entities/species.entity';
+import { BatchLocation } from '../../../batch/entities/batch-location.entity';
+import { FeedingProgram } from '../../../feeding/entities/feeding-program.entity';
+import { FeedingProgramTank } from '../../../feeding/entities/feeding-program-tank.entity';
 
 describe('FCRCalculationService', () => {
   let service: FCRCalculationService;
@@ -30,6 +34,25 @@ describe('FCRCalculationService', () => {
   };
 
   const mockBatchRepository = {
+    findOne: jest.fn(),
+  };
+
+  const mockSpeciesRepository = {
+    findOne: jest.fn(),
+  };
+
+  const mockBatchLocationRepository = {
+    find: jest.fn(),
+    findOne: jest.fn(),
+  };
+
+  const mockFeedingProgramRepository = {
+    find: jest.fn(),
+    findOne: jest.fn(),
+  };
+
+  const mockFeedingProgramTankRepository = {
+    find: jest.fn(),
     findOne: jest.fn(),
   };
 
@@ -57,6 +80,22 @@ describe('FCRCalculationService', () => {
         {
           provide: getRepositoryToken(Batch),
           useValue: mockBatchRepository,
+        },
+        {
+          provide: getRepositoryToken(Species),
+          useValue: mockSpeciesRepository,
+        },
+        {
+          provide: getRepositoryToken(BatchLocation),
+          useValue: mockBatchLocationRepository,
+        },
+        {
+          provide: getRepositoryToken(FeedingProgram),
+          useValue: mockFeedingProgramRepository,
+        },
+        {
+          provide: getRepositoryToken(FeedingProgramTank),
+          useValue: mockFeedingProgramTankRepository,
         },
       ],
     }).compile();
@@ -106,8 +145,8 @@ describe('FCRCalculationService', () => {
       mockQueryBuilder.getOne.mockResolvedValue({ estimatedBiomass: 1100 });
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
-        stockingQuantity: 10000,
-        stockingWeight: 100, // 100g = 1000kg biomass
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } }, // 100g = 1000kg biomass
       });
 
       const result = await service.calculatePeriodFCR(defaultInput);
@@ -119,9 +158,7 @@ describe('FCRCalculationService', () => {
     });
 
     it('should return warning when less than 2 measurements', async () => {
-      mockFeedingRecordRepository.find.mockResolvedValue([
-        { id: '1', actualAmount: 50 },
-      ]);
+      mockFeedingRecordRepository.find.mockResolvedValue([{ id: '1', actualAmount: 50 }]);
 
       mockGrowthMeasurementRepository.find.mockResolvedValue([
         { id: '1', estimatedBiomass: 1000, measurementDate: startDate },
@@ -134,9 +171,7 @@ describe('FCRCalculationService', () => {
     });
 
     it('should return warning for negative or zero growth', async () => {
-      mockFeedingRecordRepository.find.mockResolvedValue([
-        { id: '1', actualAmount: 50 },
-      ]);
+      mockFeedingRecordRepository.find.mockResolvedValue([{ id: '1', actualAmount: 50 }]);
 
       // No growth - same biomass
       mockGrowthMeasurementRepository.find.mockResolvedValue([
@@ -151,35 +186,31 @@ describe('FCRCalculationService', () => {
     });
 
     it('should warn for abnormally high FCR', async () => {
-      // 500kg feed for 100kg growth = FCR 5.0
-      mockFeedingRecordRepository.find.mockResolvedValue([
-        { id: '1', actualAmount: 500 },
-      ]);
+      // 510kg feed for 100kg growth = FCR 5.1
+      mockFeedingRecordRepository.find.mockResolvedValue([{ id: '1', actualAmount: 510 }]);
 
       mockGrowthMeasurementRepository.find.mockResolvedValue([
         { id: '1', estimatedBiomass: 1000, measurementDate: startDate },
         { id: '2', estimatedBiomass: 1100, measurementDate: endDate },
       ]);
 
-      mockQueryBuilder.getRawOne.mockResolvedValue({ totalFeed: 500 });
+      mockQueryBuilder.getRawOne.mockResolvedValue({ totalFeed: 510 });
       mockQueryBuilder.getOne.mockResolvedValue({ estimatedBiomass: 1100 });
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
-        stockingQuantity: 10000,
-        stockingWeight: 100,
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } },
       });
 
       const result = await service.calculatePeriodFCR(defaultInput);
 
-      expect(result.periodFCR).toBe(5);
-      expect(result.warnings.some(w => w.includes('Anormal FCR'))).toBe(true);
+      expect(result.periodFCR).toBe(5.1);
+      expect(result.warnings.some((w) => w.includes('Anormal FCR'))).toBe(true);
     });
 
     it('should warn for abnormally low FCR', async () => {
       // 40kg feed for 100kg growth = FCR 0.4
-      mockFeedingRecordRepository.find.mockResolvedValue([
-        { id: '1', actualAmount: 40 },
-      ]);
+      mockFeedingRecordRepository.find.mockResolvedValue([{ id: '1', actualAmount: 40 }]);
 
       mockGrowthMeasurementRepository.find.mockResolvedValue([
         { id: '1', estimatedBiomass: 1000, measurementDate: startDate },
@@ -190,20 +221,18 @@ describe('FCRCalculationService', () => {
       mockQueryBuilder.getOne.mockResolvedValue({ estimatedBiomass: 1100 });
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
-        stockingQuantity: 10000,
-        stockingWeight: 100,
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } },
       });
 
       const result = await service.calculatePeriodFCR(defaultInput);
 
       expect(result.periodFCR).toBe(0.4);
-      expect(result.warnings.some(w => w.includes('Anormal FCR'))).toBe(true);
+      expect(result.warnings.some((w) => w.includes('Anormal FCR'))).toBe(true);
     });
 
     it('should include FCR analysis in result', async () => {
-      mockFeedingRecordRepository.find.mockResolvedValue([
-        { id: '1', actualAmount: 150 },
-      ]);
+      mockFeedingRecordRepository.find.mockResolvedValue([{ id: '1', actualAmount: 150 }]);
 
       mockGrowthMeasurementRepository.find.mockResolvedValue([
         { id: '1', estimatedBiomass: 1000, measurementDate: startDate },
@@ -214,8 +243,8 @@ describe('FCRCalculationService', () => {
       mockQueryBuilder.getOne.mockResolvedValue({ estimatedBiomass: 1100 });
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
-        stockingQuantity: 10000,
-        stockingWeight: 100,
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } },
       });
 
       const result = await service.calculatePeriodFCR(defaultInput);
@@ -245,8 +274,8 @@ describe('FCRCalculationService', () => {
     it('should calculate cumulative FCR from batch start', async () => {
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
-        stockingQuantity: 10000,
-        stockingWeight: 100, // 100g = 1000kg start biomass
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } }, // 100g = 1000kg start biomass
       });
 
       // Total feed: 500kg
@@ -267,8 +296,8 @@ describe('FCRCalculationService', () => {
 
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
-        stockingQuantity: 10000,
-        stockingWeight: 100,
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } },
       });
 
       mockQueryBuilder.getRawOne.mockResolvedValue({ totalFeed: 300 });
@@ -277,17 +306,16 @@ describe('FCRCalculationService', () => {
       await service.calculateCumulativeFCR(batchId, tenantId, endDate);
 
       // Verify andWhere was called with endDate
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'fr.feedingDate <= :endDate',
-        { endDate }
-      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('fr.feedingDate <= :endDate', {
+        endDate,
+      });
     });
 
     it('should return 0 FCR when no growth', async () => {
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
-        stockingQuantity: 10000,
-        stockingWeight: 100, // 1000kg start
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } }, // 1000kg start
       });
 
       mockQueryBuilder.getRawOne.mockResolvedValue({ totalFeed: 100 });
@@ -318,10 +346,26 @@ describe('FCRCalculationService', () => {
 
     it('should detect improving trend (decreasing FCR)', async () => {
       mockGrowthMeasurementRepository.find.mockResolvedValue([
-        { id: '1', fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.8 }, measurementDate: new Date('2024-01-01') },
-        { id: '2', fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.7 }, measurementDate: new Date('2024-01-08') },
-        { id: '3', fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.6 }, measurementDate: new Date('2024-01-15') },
-        { id: '4', fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.5 }, measurementDate: new Date('2024-01-22') },
+        {
+          id: '1',
+          fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.8 },
+          measurementDate: new Date('2024-01-01'),
+        },
+        {
+          id: '2',
+          fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.7 },
+          measurementDate: new Date('2024-01-08'),
+        },
+        {
+          id: '3',
+          fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.6 },
+          measurementDate: new Date('2024-01-15'),
+        },
+        {
+          id: '4',
+          fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.5 },
+          measurementDate: new Date('2024-01-22'),
+        },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -332,10 +376,26 @@ describe('FCRCalculationService', () => {
 
     it('should detect declining trend (increasing FCR)', async () => {
       mockGrowthMeasurementRepository.find.mockResolvedValue([
-        { id: '1', fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.2 }, measurementDate: new Date('2024-01-01') },
-        { id: '2', fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.3 }, measurementDate: new Date('2024-01-08') },
-        { id: '3', fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.4 }, measurementDate: new Date('2024-01-15') },
-        { id: '4', fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.5 }, measurementDate: new Date('2024-01-22') },
+        {
+          id: '1',
+          fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.2 },
+          measurementDate: new Date('2024-01-01'),
+        },
+        {
+          id: '2',
+          fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.3 },
+          measurementDate: new Date('2024-01-08'),
+        },
+        {
+          id: '3',
+          fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.4 },
+          measurementDate: new Date('2024-01-15'),
+        },
+        {
+          id: '4',
+          fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.5 },
+          measurementDate: new Date('2024-01-22'),
+        },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -366,8 +426,8 @@ describe('FCRCalculationService', () => {
     beforeEach(() => {
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
-        stockingQuantity: 10000,
-        stockingWeight: 100,
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } },
       });
     });
 
@@ -421,8 +481,8 @@ describe('FCRCalculationService', () => {
     beforeEach(() => {
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
-        stockingQuantity: 10000,
-        stockingWeight: 100,
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } },
       });
       mockGrowthMeasurementRepository.find.mockResolvedValue([]);
     });
@@ -435,7 +495,7 @@ describe('FCRCalculationService', () => {
       const result = await service.detectFCRAnomalies(batchId, tenantId);
 
       expect(result.hasAnomaly).toBe(true);
-      expect(result.anomalies.some(a => a.includes('Kritik'))).toBe(true);
+      expect(result.anomalies.some((a) => a.includes('Kritik'))).toBe(true);
     });
 
     it('should detect suspiciously low FCR', async () => {
@@ -446,7 +506,7 @@ describe('FCRCalculationService', () => {
       const result = await service.detectFCRAnomalies(batchId, tenantId);
 
       expect(result.hasAnomaly).toBe(true);
-      expect(result.anomalies.some(a => a.includes('çok düşük'))).toBe(true);
+      expect(result.anomalies.some((a) => a.includes('çok düşük'))).toBe(true);
     });
 
     it('should detect significant variance from target', async () => {
@@ -457,7 +517,7 @@ describe('FCRCalculationService', () => {
       const result = await service.detectFCRAnomalies(batchId, tenantId);
 
       expect(result.hasAnomaly).toBe(true);
-      expect(result.anomalies.some(a => a.includes('sapma'))).toBe(true);
+      expect(result.anomalies.some((a) => a.includes('sapma'))).toBe(true);
     });
 
     it('should return no anomalies for normal FCR', async () => {
@@ -487,9 +547,9 @@ describe('FCRCalculationService', () => {
     it('should return comprehensive summary', async () => {
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
-        batchCode: 'B-2024-001',
-        stockingQuantity: 10000,
-        stockingWeight: 100,
+        batchNumber: 'B-2024-001',
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } },
       });
 
       mockGrowthMeasurementRepository.find.mockResolvedValue([

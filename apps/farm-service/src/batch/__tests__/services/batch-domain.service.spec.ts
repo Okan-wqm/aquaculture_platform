@@ -32,8 +32,19 @@ describe('BatchDomainService', () => {
       batchType: BatchType.PRODUCTION,
       weight: {
         initial: { avgWeight: 50, totalBiomass: 500, measuredAt: new Date() },
-        theoretical: { avgWeight: 150, totalBiomass: 1425, lastCalculatedAt: new Date(), basedOnFCR: 1.2 },
-        actual: { avgWeight: 160, totalBiomass: 1520, lastMeasuredAt: new Date(), sampleSize: 100, confidencePercent: 95 },
+        theoretical: {
+          avgWeight: 150,
+          totalBiomass: 1425,
+          lastCalculatedAt: new Date(),
+          basedOnFCR: 1.2,
+        },
+        actual: {
+          avgWeight: 160,
+          totalBiomass: 1520,
+          lastMeasuredAt: new Date(),
+          sampleSize: 100,
+          confidencePercent: 95,
+        },
         variance: { weightDifference: 10, percentageDifference: 6.67, isSignificant: false },
       },
       ...overrides,
@@ -52,8 +63,19 @@ describe('BatchDomainService', () => {
       const batch = createBatch({
         weight: {
           initial: { avgWeight: 50, totalBiomass: 500, measuredAt: new Date() },
-          theoretical: { avgWeight: 150, totalBiomass: 1425, lastCalculatedAt: new Date(), basedOnFCR: 1.2 },
-          actual: { avgWeight: 0, totalBiomass: 0, lastMeasuredAt: new Date(), sampleSize: 0, confidencePercent: 0 },
+          theoretical: {
+            avgWeight: 150,
+            totalBiomass: 1425,
+            lastCalculatedAt: new Date(),
+            basedOnFCR: 1.2,
+          },
+          actual: {
+            avgWeight: 0,
+            totalBiomass: 0,
+            lastMeasuredAt: new Date(),
+            sampleSize: 0,
+            confidencePercent: 0,
+          },
           variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
         },
       });
@@ -64,8 +86,19 @@ describe('BatchDomainService', () => {
       const batch = createBatch({
         weight: {
           initial: { avgWeight: 50, totalBiomass: 500, measuredAt: new Date() },
-          theoretical: { avgWeight: 0, totalBiomass: 0, lastCalculatedAt: new Date(), basedOnFCR: 0 },
-          actual: { avgWeight: 0, totalBiomass: 0, lastMeasuredAt: new Date(), sampleSize: 0, confidencePercent: 0 },
+          theoretical: {
+            avgWeight: 0,
+            totalBiomass: 0,
+            lastCalculatedAt: new Date(),
+            basedOnFCR: 0,
+          },
+          actual: {
+            avgWeight: 0,
+            totalBiomass: 0,
+            lastMeasuredAt: new Date(),
+            sampleSize: 0,
+            confidencePercent: 0,
+          },
           variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
         },
       });
@@ -126,8 +159,19 @@ describe('BatchDomainService', () => {
         totalFeedConsumed: 5000,
         weight: {
           initial: { avgWeight: 50, totalBiomass: 500, measuredAt: new Date() },
-          theoretical: { avgWeight: 0, totalBiomass: 0, lastCalculatedAt: new Date(), basedOnFCR: 0 },
-          actual: { avgWeight: 160, totalBiomass: 1520, lastMeasuredAt: new Date(), sampleSize: 100, confidencePercent: 95 },
+          theoretical: {
+            avgWeight: 0,
+            totalBiomass: 0,
+            lastCalculatedAt: new Date(),
+            basedOnFCR: 0,
+          },
+          actual: {
+            avgWeight: 160,
+            totalBiomass: 1520,
+            lastMeasuredAt: new Date(),
+            sampleSize: 100,
+            confidencePercent: 95,
+          },
           variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
         },
       });
@@ -141,8 +185,19 @@ describe('BatchDomainService', () => {
         totalFeedConsumed: 5000,
         weight: {
           initial: { avgWeight: 50, totalBiomass: 500, measuredAt: new Date() },
-          theoretical: { avgWeight: 0, totalBiomass: 0, lastCalculatedAt: new Date(), basedOnFCR: 0 },
-          actual: { avgWeight: 160, totalBiomass: 1520, lastMeasuredAt: new Date(), sampleSize: 100, confidencePercent: 95 },
+          theoretical: {
+            avgWeight: 0,
+            totalBiomass: 0,
+            lastCalculatedAt: new Date(),
+            basedOnFCR: 0,
+          },
+          actual: {
+            avgWeight: 160,
+            totalBiomass: 1520,
+            lastMeasuredAt: new Date(),
+            sampleSize: 100,
+            confidencePercent: 95,
+          },
           variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
         },
       });
@@ -161,8 +216,19 @@ describe('BatchDomainService', () => {
         totalFeedConsumed: 1000,
         weight: {
           initial: { avgWeight: 200, totalBiomass: 2000, measuredAt: new Date() },
-          theoretical: { avgWeight: 0, totalBiomass: 0, lastCalculatedAt: new Date(), basedOnFCR: 0 },
-          actual: { avgWeight: 100, totalBiomass: 1000, lastMeasuredAt: new Date(), sampleSize: 50, confidencePercent: 90 },
+          theoretical: {
+            avgWeight: 0,
+            totalBiomass: 0,
+            lastCalculatedAt: new Date(),
+            basedOnFCR: 0,
+          },
+          actual: {
+            avgWeight: 100,
+            totalBiomass: 1000,
+            lastMeasuredAt: new Date(),
+            sampleSize: 50,
+            confidencePercent: 90,
+          },
           variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
         },
       });
@@ -179,8 +245,19 @@ describe('BatchDomainService', () => {
         actualHarvestDate: undefined,
         weight: {
           initial: { avgWeight: 50, totalBiomass: 500, measuredAt: thirtyDaysAgo },
-          theoretical: { avgWeight: 0, totalBiomass: 0, lastCalculatedAt: new Date(), basedOnFCR: 0 },
-          actual: { avgWeight: 100, totalBiomass: 950, lastMeasuredAt: now, sampleSize: 100, confidencePercent: 95 },
+          theoretical: {
+            avgWeight: 0,
+            totalBiomass: 0,
+            lastCalculatedAt: new Date(),
+            basedOnFCR: 0,
+          },
+          actual: {
+            avgWeight: 100,
+            totalBiomass: 950,
+            lastMeasuredAt: now,
+            sampleSize: 100,
+            confidencePercent: 95,
+          },
           variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
         },
       });
@@ -194,8 +271,19 @@ describe('BatchDomainService', () => {
       const batch = createBatch({
         weight: {
           initial: { avgWeight: 0, totalBiomass: 0, measuredAt: new Date() },
-          theoretical: { avgWeight: 0, totalBiomass: 0, lastCalculatedAt: new Date(), basedOnFCR: 0 },
-          actual: { avgWeight: 100, totalBiomass: 1000, lastMeasuredAt: new Date(), sampleSize: 100, confidencePercent: 95 },
+          theoretical: {
+            avgWeight: 0,
+            totalBiomass: 0,
+            lastCalculatedAt: new Date(),
+            basedOnFCR: 0,
+          },
+          actual: {
+            avgWeight: 100,
+            totalBiomass: 1000,
+            lastMeasuredAt: new Date(),
+            sampleSize: 100,
+            confidencePercent: 95,
+          },
           variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
         },
       });
@@ -205,9 +293,15 @@ describe('BatchDomainService', () => {
 
   describe('getDaysInProduction', () => {
     it('should calculate days from stocking to now', () => {
-      const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
-      const batch = createBatch({ stockedAt: tenDaysAgo });
-      expect(service.getDaysInProduction(batch)).toBe(10);
+      const now = new Date('2025-05-11T00:00:00.000Z');
+      jest.useFakeTimers().setSystemTime(now);
+
+      try {
+        const batch = createBatch({ stockedAt: new Date('2025-05-01T00:00:00.000Z') });
+        expect(service.getDaysInProduction(batch)).toBe(10);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('should use harvest date as end if batch is harvested', () => {

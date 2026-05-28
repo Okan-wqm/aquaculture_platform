@@ -115,17 +115,14 @@ class HotPathVerifiedReadInvariantTests(unittest.TestCase):
 
     def test_cycle_runs_path_loader_uses_strict_primitive(self) -> None:
         src = _module_source("cycle.py")
-        # Import of load_jsonl_verified MUST be present.
-        self.assertIn("load_jsonl_verified", src)
-        # The runs-summary loop MUST call load_jsonl_verified on runs_path.
-        # Match the exact migrated form so a regression (re-introducing
-        # plain `load_jsonl(runs_path(root))`) fails.
-        self.assertIn("load_jsonl_verified(runs_path(root))", src)
+        # v2 runtime contract: cycle summaries use the per-cycle run index
+        # via read_runs_for_cycle, which falls back to the strict runs reader.
+        self.assertIn("read_runs_for_cycle", src)
+        self.assertIn("for run in read_runs_for_cycle(base_dir=root, cycle_uid=cycle_id)", src)
         self.assertNotIn(
             "for run in load_jsonl(runs_path(root))",
             src,
-            "cycle.py runs-summary loop must use load_jsonl_verified — "
-            "regression from §A.2 hot-path migration",
+            "cycle.py runs-summary loop must not reintroduce direct runs.jsonl scans",
         )
 
     def test_reflection_hot_path_loaders_use_strict_primitive(self) -> None:

@@ -7,6 +7,7 @@ from typing import Any
 
 from .impact_graph import list_impact_graphs
 from .ledger import append_jsonl, load_jsonl
+from .runs_reader import read_runs_rows
 from .performance import list_performance_baselines
 from .research import list_research_sources
 from .tool_health import runs_path
@@ -32,7 +33,7 @@ def generate_fitness_report(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
-    runs = load_jsonl(runs_path(root))
+    runs = list(read_runs_rows(runs_path(root), base_dir=root))
     validation_plans = list_validation_plans(base_dir=base_dir)
     impact_graphs = list_impact_graphs(base_dir=base_dir)
     research_sources = list_research_sources(base_dir=base_dir)

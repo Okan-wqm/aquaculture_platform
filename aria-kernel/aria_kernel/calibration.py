@@ -5,6 +5,7 @@ from typing import Any
 
 from .feedback_store import load_feedback
 from .ledger import append_jsonl, load_jsonl
+from .runs_reader import read_runs_rows
 from .tool_health import compute_metrics, runs_path
 from .tool_registry import ensure_tools_dir, list_tools, utc_now
 
@@ -26,7 +27,7 @@ def recommend_calibration(
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
     feedback_rows = load_feedback(base_dir=base_dir)
-    runs = load_jsonl(runs_path(root))
+    runs = list(read_runs_rows(runs_path(root), base_dir=root))
     tool_recommendations = []
     for tool in list_tools(base_dir=base_dir):
         tool_runs = [run for run in runs if run.get("tool_id") == tool.get("tool_id")]

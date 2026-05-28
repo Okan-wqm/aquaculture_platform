@@ -18,6 +18,7 @@ from .tool_registry import GovernanceError, get_tool
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
 RAW_SAMPLE_LIMIT = 50
+STDOUT_PARSE_MAX_BYTES = 5 * 1024 * 1024
 
 
 def run_tool(
@@ -104,7 +105,11 @@ def run_tool(
             stdout = completed.stdout or ""
             stderr = completed.stderr or ""
             exit_code = completed.returncode
-            if completed.returncode != 0:
+            if len(stdout.encode("utf-8")) > STDOUT_PARSE_MAX_BYTES:
+                status = "budget_exceeded"
+                parse_error = "output_too_large"
+                output = {}
+            elif completed.returncode != 0:
                 status = "crash"
             else:
                 output, parse_error = _parse_tool_output(stdout, tool)
@@ -191,6 +196,13 @@ def run_tool(
             "parse_error": parse_error,
         },
         "repo_snapshot": _compact_snapshot(repo_snapshot),
+        "_runtime_artifact_payload": {
+            "stdout": stdout,
+            "stderr": stderr,
+            "parsed_output": output,
+            "raw_observations": _array_or_empty(raw_observations),
+            "raw_findings": _array_or_empty(raw_findings),
+        },
     }
     decision = record_run(envelope, base_dir=base_dir)
     # Plan 024 v3 §B-7 — return contract split. Pre-fix run_tool returned

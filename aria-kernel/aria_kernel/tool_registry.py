@@ -219,6 +219,11 @@ def covered_tool_ledgers(root: Path) -> dict[str, Path]:
         "plans_events": root / "plans" / "events.jsonl",
         "agent_invocations_requests": root / "agent-invocations" / "requests.jsonl",
         "agent_invocations_results": root / "agent-invocations" / "results.jsonl",
+        "runtime_artifact_index": root / "run-artifacts" / "artifact-index.jsonl",
+        "runtime_artifact_manifest": root / "run-artifacts" / "manifest.jsonl",
+        "runtime_retention_events": root / "retention" / "events.jsonl",
+        "runtime_observability_alerts": root / "observability" / "alerts.jsonl",
+        "runtime_artifact_inventory": root / "observability" / "artifact-inventory.jsonl",
     }
     for name, path in optional.items():
         if path.exists():

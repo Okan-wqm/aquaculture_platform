@@ -12,18 +12,19 @@ import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 import {
   createMockChannelMember,
+  createMockDataSource,
   createMockMessage,
   createMockRepository,
   createMockQueryBuilder,
+  createMockQueryRunner,
   createMockRedis,
   fakeUuid,
   resetUuidCounter,
-  TENANT_A,
-  TENANT_B,
   MockRepository,
+  MockQueryRunner,
   MockRedis,
 } from './test-helpers';
-import { SelectQueryBuilder } from 'typeorm';
+import { DataSource, SelectQueryBuilder } from 'typeorm';
 
 // Import handlers/services under test
 import { GetMessagesHandler } from '../message/queries/get-messages.handler';
@@ -33,8 +34,12 @@ import { PresenceService } from '../presence/presence.service';
 describe('Tenant Isolation', () => {
   let messageRepo: MockRepository<Message>;
   let memberRepo: MockRepository<ChannelMember>;
+  let queryRunner: MockQueryRunner;
+  let dataSource: ReturnType<typeof createMockDataSource>;
   let redisClient: MockRedis;
 
+  const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
   const tenantAChannelId = fakeUuid('ch');
   const tenantBChannelId = fakeUuid('ch');
   const tenantAUserId = fakeUuid('usr');
@@ -44,6 +49,8 @@ describe('Tenant Isolation', () => {
     resetUuidCounter();
     messageRepo = createMockRepository<Message>();
     memberRepo = createMockRepository<ChannelMember>();
+    queryRunner = createMockQueryRunner();
+    dataSource = createMockDataSource(queryRunner);
     redisClient = createMockRedis();
   });
 
@@ -62,11 +69,12 @@ describe('Tenant Isolation', () => {
       );
 
       // When tenant B queries, membership check fails
-      memberRepo.findOne.mockResolvedValue(null);
+      queryRunner.manager.findOne.mockResolvedValue(null);
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           GetMessagesHandler,
+          { provide: DataSource, useValue: dataSource },
           { provide: getRepositoryToken(Message), useValue: messageRepo },
           { provide: getRepositoryToken(ChannelMember), useValue: memberRepo },
         ],
@@ -156,7 +164,7 @@ describe('Tenant Isolation', () => {
   describe('search scoping', () => {
     it('search results are scoped to user tenant via membership check', async () => {
       const qb = createMockQueryBuilder<Message>();
-      messageRepo.createQueryBuilder.mockReturnValue(
+      queryRunner.manager.createQueryBuilder.mockReturnValue(
         qb as unknown as SelectQueryBuilder<Message>,
       );
 
@@ -167,8 +175,9 @@ describe('Tenant Isolation', () => {
       qb.getMany.mockResolvedValue([tenantAMsg]);
 
       // Tenant A user IS a member
-      memberRepo.findOne.mockResolvedValue(
+      queryRunner.manager.findOne.mockResolvedValue(
         createMockChannelMember({
+          tenantId: TENANT_A,
           channelId: tenantAChannelId,
           userId: tenantAUserId,
         }),
@@ -177,6 +186,7 @@ describe('Tenant Isolation', () => {
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           GetMessagesHandler,
+          { provide: DataSource, useValue: dataSource },
           { provide: getRepositoryToken(Message), useValue: messageRepo },
           { provide: getRepositoryToken(ChannelMember), useValue: memberRepo },
         ],

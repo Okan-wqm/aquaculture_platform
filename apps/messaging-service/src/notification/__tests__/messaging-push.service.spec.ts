@@ -5,41 +5,38 @@
  * @mention override, and deduplication.
  */
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { MessagingPushService } from '../messaging-push.service';
 import { ChannelMember, NotificationPreference } from '../../channel/entities/channel-member.entity';
 import { PresenceService } from '../../presence/presence.service';
-import { MessageService } from '../../message/services/message.service';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
+import { Message } from '../../message/entities/message.entity';
+import {
+  createMockDataSource,
+  createMockQueryBuilder,
+  createMockQueryRunner,
+  createMockRedis,
+  MockQueryRunner,
+} from '../../__tests__/test-helpers';
 
 describe('MessagingPushService', () => {
   let service: MessagingPushService;
-
-  const mockMemberRepo = {
-    find: jest.fn(),
-  };
+  let queryRunner: MockQueryRunner;
+  let mockDataSource: ReturnType<typeof createMockDataSource>;
 
   const mockPresenceService = {
     getOnlineUsers: jest.fn(),
   };
 
-  const mockMessageService = {
-    getUnreadCount: jest.fn().mockResolvedValue(3),
+  const mockEventBus = {
+    publish: jest.fn().mockResolvedValue(undefined),
   };
 
-  const mockNatsClient = {
-    emit: jest.fn(),
-    connect: jest.fn().mockResolvedValue(undefined),
-  };
-
-  const mockRedis = {
-    get: jest.fn().mockResolvedValue(null),
-    setex: jest.fn().mockResolvedValue('OK'),
-  };
+  let mockRedis: ReturnType<typeof createMockRedis>;
 
   const basePayload = {
     eventId: 'evt-1',
-    tenantId: 'tenant-1',
+    tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     channelId: 'channel-1',
     messageId: 'msg-1',
     senderId: 'user-sender',
@@ -51,14 +48,25 @@ describe('MessagingPushService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    queryRunner = createMockQueryRunner();
+    mockDataSource = createMockDataSource(queryRunner);
+    mockRedis = createMockRedis();
+
+    const unreadQuery = createMockQueryBuilder<Message>();
+    unreadQuery.getCount.mockResolvedValue(3);
+    queryRunner.manager.createQueryBuilder.mockReturnValue(unreadQuery);
+    queryRunner.manager.findOne.mockResolvedValue({
+      userId: 'recipient',
+      notificationPreference: NotificationPreference.ALL,
+      lastReadAt: null,
+    } as ChannelMember);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MessagingPushService,
-        { provide: getRepositoryToken(ChannelMember), useValue: mockMemberRepo },
+        { provide: DataSource, useValue: mockDataSource },
         { provide: PresenceService, useValue: mockPresenceService },
-        { provide: MessageService, useValue: mockMessageService },
-        { provide: 'NATS_SERVICE', useValue: mockNatsClient },
+        { provide: 'EVENT_BUS', useValue: mockEventBus },
         { provide: REDIS_CLIENT, useValue: mockRedis },
       ],
     }).compile();
@@ -67,7 +75,7 @@ describe('MessagingPushService', () => {
   });
 
   it('should send push notifications to offline members', async () => {
-    mockMemberRepo.find.mockResolvedValue([
+    queryRunner.manager.find.mockResolvedValue([
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-a', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-b', notificationPreference: NotificationPreference.ALL },
@@ -78,30 +86,31 @@ describe('MessagingPushService', () => {
 
     await service.handleMessageSent(basePayload);
 
-    expect(mockNatsClient.emit).toHaveBeenCalledTimes(2);
-    expect(mockNatsClient.emit).toHaveBeenCalledWith(
-      'commands.notification.sendPush',
+    expect(mockEventBus.publish).toHaveBeenCalledTimes(2);
+    expect(mockEventBus.publish).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: 'user-a',
-        title: 'Alice',
-        body: 'Sent you a message',
-        data: expect.objectContaining({ type: 'CHAT_MESSAGE' }),
+        eventType: 'ChatPushRequested',
+        tenantId: basePayload.tenantId,
+        recipientUserId: 'user-a',
+        notificationRef: basePayload.eventId,
+        badge: 3,
+        notificationType: 'CHAT_MESSAGE',
       }),
     );
   });
 
   it('should skip the message sender', async () => {
-    mockMemberRepo.find.mockResolvedValue([
+    queryRunner.manager.find.mockResolvedValue([
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
     ]);
 
     await service.handleMessageSent(basePayload);
 
-    expect(mockNatsClient.emit).not.toHaveBeenCalled();
+    expect(mockEventBus.publish).not.toHaveBeenCalled();
   });
 
   it('should skip online members', async () => {
-    mockMemberRepo.find.mockResolvedValue([
+    queryRunner.manager.find.mockResolvedValue([
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-online', notificationPreference: NotificationPreference.ALL },
     ]);
@@ -111,11 +120,11 @@ describe('MessagingPushService', () => {
 
     await service.handleMessageSent(basePayload);
 
-    expect(mockNatsClient.emit).not.toHaveBeenCalled();
+    expect(mockEventBus.publish).not.toHaveBeenCalled();
   });
 
   it('should respect notification preference none', async () => {
-    mockMemberRepo.find.mockResolvedValue([
+    queryRunner.manager.find.mockResolvedValue([
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-quiet', notificationPreference: NotificationPreference.NONE },
     ]);
@@ -125,11 +134,11 @@ describe('MessagingPushService', () => {
 
     await service.handleMessageSent(basePayload);
 
-    expect(mockNatsClient.emit).not.toHaveBeenCalled();
+    expect(mockEventBus.publish).not.toHaveBeenCalled();
   });
 
   it('should always notify @mentioned users (overrides mentions-only preference)', async () => {
-    mockMemberRepo.find.mockResolvedValue([
+    queryRunner.manager.find.mockResolvedValue([
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-mentioned', notificationPreference: NotificationPreference.MENTIONS },
     ]);
@@ -142,15 +151,14 @@ describe('MessagingPushService', () => {
       mentionedUserIds: ['user-mentioned'],
     });
 
-    expect(mockNatsClient.emit).toHaveBeenCalledTimes(1);
-    expect(mockNatsClient.emit).toHaveBeenCalledWith(
-      'commands.notification.sendPush',
-      expect.objectContaining({ userId: 'user-mentioned' }),
+    expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
+    expect(mockEventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientUserId: 'user-mentioned' }),
     );
   });
 
   it('should deduplicate: max 1 push per 30s per user per channel', async () => {
-    mockMemberRepo.find.mockResolvedValue([
+    queryRunner.manager.find.mockResolvedValue([
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-a', notificationPreference: NotificationPreference.ALL },
     ]);
@@ -162,11 +170,11 @@ describe('MessagingPushService', () => {
 
     await service.handleMessageSent(basePayload);
 
-    expect(mockNatsClient.emit).not.toHaveBeenCalled();
+    expect(mockEventBus.publish).not.toHaveBeenCalled();
   });
 
   it('should never include message content in push payload', async () => {
-    mockMemberRepo.find.mockResolvedValue([
+    queryRunner.manager.find.mockResolvedValue([
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-a', notificationPreference: NotificationPreference.ALL },
     ]);
@@ -176,8 +184,10 @@ describe('MessagingPushService', () => {
 
     await service.handleMessageSent(basePayload);
 
-    const emittedPayload = mockNatsClient.emit.mock.calls[0]?.[1];
-    expect(emittedPayload?.body).toBe('Sent you a message');
+    const emittedPayload = mockEventBus.publish.mock.calls[0]?.[0];
+    expect(emittedPayload.notificationRef).toBe(basePayload.eventId);
     expect(JSON.stringify(emittedPayload)).not.toContain('content');
+    expect(JSON.stringify(emittedPayload)).not.toContain(basePayload.channelId);
+    expect(JSON.stringify(emittedPayload)).not.toContain(basePayload.messageId);
   });
 });

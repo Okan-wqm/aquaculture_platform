@@ -4,6 +4,7 @@ import { Repository, DataSource, LessThan, IsNull, EntityManager } from 'typeorm
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 import {
+  pinTenantTransactionSearchPath,
   runInTenantTransaction,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
@@ -263,9 +264,7 @@ export class RetentionPolicyService {
 
     try {
       // Set tenant schema before any DB operation (cron job has no HTTP context)
-      await qr.query(
-        `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
-      );
+      await pinTenantTransactionSearchPath(qr, 'messaging', tenantId);
 
       // Build exclusion clause for held channels (tenant-wide cleanup only)
       const heldExclusion =
@@ -360,9 +359,7 @@ export class RetentionPolicyService {
     await qr.startTransaction();
 
     try {
-      await qr.query(
-        `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
-      );
+      await pinTenantTransactionSearchPath(qr, 'messaging', tenantId);
 
       // Serialize against ToggleLegalHoldHandler.activate which takes the
       // SAME advisory key. Either we wait for activate to commit (then

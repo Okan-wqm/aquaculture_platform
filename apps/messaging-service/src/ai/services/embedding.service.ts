@@ -15,6 +15,7 @@ import { Cron } from '@nestjs/schedule';
 import { ClientProxy } from '@nestjs/microservices';
 import { DataSource } from 'typeorm';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { AiPrivacyService } from './ai-privacy.service';
 
 /** Batch size for embedding generation. */
@@ -178,10 +179,19 @@ export class EmbeddingService implements OnModuleDestroy {
 
       try {
         const vectorStr = `[${embedding.join(',')}]`;
-        await this.dataSource.query(
+        await runInTenantTransaction(this.dataSource, 'messaging', consentedMessages[i]!.tenantId, async (queryRunner) =>
+          queryRunner.query(
           `UPDATE "messages" SET "embedding" = $1::vector
-           WHERE "id" = $2 AND "createdAt" = $3`,
-          [vectorStr, consentedMessages[i]!.id, consentedMessages[i]!.createdAt],
+           WHERE "id" = $2
+             AND "createdAt" = $3
+             AND "tenantId" = $4::uuid`,
+          [
+            vectorStr,
+            consentedMessages[i]!.id,
+            consentedMessages[i]!.createdAt,
+            consentedMessages[i]!.tenantId,
+          ],
+          ),
         );
         successCount++;
       } catch (err: unknown) {

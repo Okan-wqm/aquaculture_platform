@@ -16,6 +16,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { MessageAnalysis, AnalysisType } from '../entities/message-analysis.entity';
@@ -123,6 +124,7 @@ export class SentimentAnalysisService {
     };
 
     const analysis = this.analysisRepo.create({
+      tenantId,
       messageId,
       messageCreatedAt,
       analysisType: AnalysisType.SENTIMENT,
@@ -150,17 +152,27 @@ export class SentimentAnalysisService {
   ): Promise<void> {
     try {
       // Get last N sentiment analyses for this sender in this channel
-      const recentAnalyses: Array<{ score: string }> = await this.dataSource.query(
+      const recentAnalyses = await runInTenantTransaction(
+        this.dataSource,
+        'messaging',
+        tenantId,
+        (queryRunner) => queryRunner.manager.query(
         `SELECT (ma."result"->>'score')::text as score
          FROM "message_analysis" ma
-         INNER JOIN "messages" m ON ma."messageId" = m."id" AND ma."messageCreatedAt" = m."createdAt"
-         WHERE m."channelId" = $1
-           AND m."senderId" = $2
+         INNER JOIN "messages" m
+           ON ma."tenantId" = m."tenantId"
+          AND ma."messageId" = m."id"
+          AND ma."messageCreatedAt" = m."createdAt"
+         WHERE ma."tenantId" = $1::uuid
+           AND m."tenantId" = $1::uuid
+           AND m."channelId" = $2
+           AND m."senderId" = $3
            AND ma."analysisType" = 'sentiment'
          ORDER BY ma."analyzedAt" DESC
-         LIMIT $3`,
-        [channelId, senderId, CONSECUTIVE_NEGATIVE_ALERT_COUNT],
-      );
+         LIMIT $4`,
+        [tenantId, channelId, senderId, CONSECUTIVE_NEGATIVE_ALERT_COUNT],
+        ),
+      ) as Array<{ score: string }>;
 
       if (recentAnalyses.length < CONSECUTIVE_NEGATIVE_ALERT_COUNT) {
         return;
@@ -184,7 +196,7 @@ export class SentimentAnalysisService {
         // this reason (guaranteed at-least-once delivery via the outbox worker).
         // Wrapped in dataSource.transaction() because OutboxPublisher.enqueue() requires
         // an active transaction context.
-        await this.dataSource.transaction(async (manager) => {
+        await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
           await this.outboxPublisher.enqueue({
             ...createBaseEvent('SentimentAlert', tenantId),
             channelId,
@@ -192,7 +204,7 @@ export class SentimentAnalysisService {
             avgScore,
             messageCount: CONSECUTIVE_NEGATIVE_ALERT_COUNT,
             detectedAt: new Date().toISOString(),
-          },  manager);
+          },  queryRunner.manager);
         });
 
         this.logger.warn(

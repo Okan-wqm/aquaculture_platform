@@ -74,6 +74,7 @@ interface TankRegistryEntry {
  */
 interface ProcessableMessage {
   id: string;
+  tenantId: string;
   channelId: string;
   senderId: string;
   content: string;
@@ -167,21 +168,30 @@ export class KnowledgeExtractionService {
    * @param tenantSchema - Validated tenant schema name (e.g. "tenant_4b529829ea7948da")
    */
   private async runBatchForTenantSchema(tenantSchema: string): Promise<void> {
+    if (!TENANT_SCHEMA_REGEX.test(tenantSchema)) {
+      throw new Error(`Invalid tenant schema name: ${tenantSchema}`);
+    }
+
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
+    await queryRunner.startTransaction();
 
     try {
       // Set search_path to the specific tenant schema for all subsequent queries
       await queryRunner.query(
-        `SET search_path TO "${tenantSchema}", messaging, public`,
+        `SELECT pg_catalog.set_config('search_path', $1, true)`,
+        [`"${tenantSchema}", "messaging", public`],
       );
 
       const messages: ProcessableMessage[] = await queryRunner.query(
-        `SELECT m."id", m."channelId", m."senderId", m."content", m."createdAt"
+        `SELECT m."id", m."tenantId", m."channelId", m."senderId", m."content", m."createdAt"
          FROM "messages" m
-         LEFT JOIN "message_entity_references" mer ON mer."messageId" = m."id"
+         LEFT JOIN "message_entity_references" mer
+           ON mer."tenantId" = m."tenantId"
+          AND mer."messageId" = m."id"
+          AND mer."messageCreatedAt" = m."createdAt"
          WHERE m."createdAt" > $1
            AND m."isDeleted" = false
            AND m."content" IS NOT NULL
@@ -193,6 +203,7 @@ export class KnowledgeExtractionService {
       );
 
       if (messages.length === 0) {
+        await queryRunner.commitTransaction();
         return;
       }
 
@@ -201,7 +212,8 @@ export class KnowledgeExtractionService {
       );
 
       // Fetch tank registry for this tenant from farm-service
-      const tankRegistry = await this.fetchTankRegistry(tenantSchema);
+      const tenantId = messages[0]!.tenantId;
+      const tankRegistry = await this.fetchTankRegistry(tenantId, tenantSchema);
 
       for (const msg of messages) {
         try {
@@ -213,6 +225,10 @@ export class KnowledgeExtractionService {
           );
         }
       }
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
     } finally {
       await queryRunner.release();
     }
@@ -243,6 +259,7 @@ export class KnowledgeExtractionService {
     for (const tankRef of tankRefs) {
       const existing = await queryRunner.manager.findOne(MessageEntityReference, {
         where: {
+          tenantId: msg.tenantId,
           messageId: msg.id,
           entityType: DomainEntityType.TANK,
           entityId: tankRef.id,
@@ -251,6 +268,7 @@ export class KnowledgeExtractionService {
 
       if (!existing) {
         const ref = queryRunner.manager.create(MessageEntityReference, {
+          tenantId: msg.tenantId,
           messageId: msg.id,
           messageCreatedAt: msg.createdAt,
           entityType: DomainEntityType.TANK,
@@ -271,6 +289,7 @@ export class KnowledgeExtractionService {
       }));
 
       const entry = queryRunner.manager.create(KnowledgeEntry, {
+        tenantId: msg.tenantId,
         sourceMessageId: msg.id,
         sourceMessageCreatedAt: msg.createdAt,
         category,
@@ -339,10 +358,14 @@ export class KnowledgeExtractionService {
    *
    * @param tenantSchema - Validated tenant schema name
    */
-  private async fetchTankRegistry(tenantSchema: string): Promise<TankRegistryEntry[]> {
+  private async fetchTankRegistry(
+    tenantId: string,
+    tenantSchema: string,
+  ): Promise<TankRegistryEntry[]> {
     const response = await firstValueFrom(
       this.natsClient
         .send<TankRegistryEntry[]>('request.farm.getTankRegistry', {
+          tenantId,
           tenantSchema,
         })
         .pipe(

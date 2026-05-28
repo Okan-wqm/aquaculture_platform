@@ -24,6 +24,7 @@ import { Species } from '../species/entities/species.entity';
 
 import { Tank } from './entities/tank.entity';
 import { TankHandlers } from './handlers';
+import { TankRegistryNatsHandler } from './handlers/tank-registry-nats.handler';
 import { TankResolver } from './resolvers/tank.resolver';
 import { TankCapacityService } from './services/tank-capacity.service';
 
@@ -39,6 +40,7 @@ import { TankCapacityService } from './services/tank-capacity.service';
     ]),
     FarmStockModule,
   ],
+  controllers: [TankRegistryNatsHandler],
   providers: [
     TankCapacityService,
     ...TankHandlers,

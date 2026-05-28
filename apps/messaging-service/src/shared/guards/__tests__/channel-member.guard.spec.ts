@@ -27,6 +27,7 @@ describe('ChannelMemberGuard', () => {
 
   const channelId = fakeUuid('ch');
   const userId = fakeUuid('usr');
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
   beforeEach(async () => {
     resetUuidCounter();
@@ -52,7 +53,7 @@ describe('ChannelMemberGuard', () => {
     userSub: string | undefined,
   ): ExecutionContext {
     const req: Record<string, unknown> = {
-      user: userSub ? { sub: userSub } : undefined,
+      user: userSub ? { sub: userSub, tenantId } : undefined,
     };
     const mockGqlCtx = {
       getArgs: jest.fn().mockReturnValue(args),
@@ -77,6 +78,7 @@ describe('ChannelMemberGuard', () => {
     memberRepo.findOne.mockResolvedValue(
       createMockChannelMember({
         channelId,
+        tenantId,
         userId,
         role: ChannelMemberRole.MEMBER,
         leftAt: null,

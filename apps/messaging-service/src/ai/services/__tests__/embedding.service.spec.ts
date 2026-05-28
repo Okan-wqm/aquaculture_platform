@@ -22,7 +22,7 @@ describe('EmbeddingService', () => {
   let natsClient: MockNatsClient;
   let privacyService: jest.Mocked<Pick<AiPrivacyService, 'canAnalyzeMessage'>>;
 
-  const tenantId = 'tenant-0001-0001-0001-000000000001';
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const userA = fakeUuid('usr');
   const userB = fakeUuid('usr');
 
@@ -79,8 +79,8 @@ describe('EmbeddingService', () => {
   // -----------------------------------------------------------------------
   it('skips messages from non-consented users', async () => {
     const messages = [
-      { id: fakeUuid('msg'), channelId: fakeUuid('ch'), senderId: userA, content: 'Hello', createdAt: new Date() },
-      { id: fakeUuid('msg'), channelId: fakeUuid('ch'), senderId: userB, content: 'World', createdAt: new Date() },
+      { id: fakeUuid('msg'), tenantId, channelId: fakeUuid('ch'), senderId: userA, content: 'Hello', createdAt: new Date() },
+      { id: fakeUuid('msg'), tenantId, channelId: fakeUuid('ch'), senderId: userB, content: 'World', createdAt: new Date() },
     ];
 
     (mockDataSource as unknown as { query: jest.Mock }).query = jest
@@ -124,6 +124,7 @@ describe('EmbeddingService', () => {
   it('writes embeddings back via UPDATE query', async () => {
     const msg = {
       id: fakeUuid('msg'),
+      tenantId,
       channelId: fakeUuid('ch'),
       senderId: userA,
       content: 'Test message',
@@ -153,6 +154,7 @@ describe('EmbeddingService', () => {
   it('does not crash when ai-service is unavailable', async () => {
     const msg = {
       id: fakeUuid('msg'),
+      tenantId,
       channelId: fakeUuid('ch'),
       senderId: userA,
       content: 'Test message',

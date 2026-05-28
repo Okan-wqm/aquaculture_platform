@@ -1,17 +1,20 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { SentimentAnalysisService } from '../sentiment-analysis.service';
 import { AiPrivacyService } from '../ai-privacy.service';
 import { MessageAnalysis } from '../../entities/message-analysis.entity';
 import {
   createMockRepository,
+  createMockDataSource,
   createMockNatsClient,
+  createMockQueryRunner,
   fakeUuid,
   resetUuidCounter,
   MockRepository,
   MockNatsClient,
-  TENANT_A,
+  MockQueryRunner,
 } from '../../../__tests__/test-helpers';
 import { of } from 'rxjs';
 
@@ -19,9 +22,12 @@ describe('SentimentAnalysisService', () => {
   let service: SentimentAnalysisService;
   let analysisRepo: MockRepository<MessageAnalysis>;
   let natsClient: MockNatsClient;
-  let mockDataSource: { query: jest.Mock };
+  let queryRunner: MockQueryRunner;
+  let mockDataSource: ReturnType<typeof createMockDataSource>;
   let privacyService: jest.Mocked<Pick<AiPrivacyService, 'canAnalyzeMessage'>>;
+  let outboxPublisher: { enqueue: jest.Mock };
 
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const channelId = fakeUuid('ch');
   const senderId = fakeUuid('usr');
   const messageId = fakeUuid('msg');
@@ -32,10 +38,12 @@ describe('SentimentAnalysisService', () => {
 
     analysisRepo = createMockRepository<MessageAnalysis>();
     natsClient = createMockNatsClient();
-    mockDataSource = { query: jest.fn().mockResolvedValue([]) };
+    queryRunner = createMockQueryRunner();
+    mockDataSource = createMockDataSource(queryRunner);
     privacyService = {
       canAnalyzeMessage: jest.fn().mockResolvedValue(true),
     };
+    outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     // analysisRepo.create returns the input as-is
     analysisRepo.create.mockImplementation(
@@ -52,6 +60,7 @@ describe('SentimentAnalysisService', () => {
         { provide: DataSource, useValue: mockDataSource },
         { provide: 'NATS_SERVICE', useValue: natsClient },
         { provide: AiPrivacyService, useValue: privacyService },
+        { provide: OutboxPublisher, useValue: outboxPublisher },
       ],
     }).compile();
 
@@ -70,7 +79,7 @@ describe('SentimentAnalysisService', () => {
     natsClient.send.mockReturnValue(of(sentimentResponse));
 
     await service.analyzeMessage(
-      TENANT_A, channelId, messageId, messageCreatedAt, senderId, 'Great work!',
+      tenantId, channelId, messageId, messageCreatedAt, senderId, 'Great work!',
     );
 
     expect(natsClient.send).toHaveBeenCalledWith(
@@ -87,11 +96,12 @@ describe('SentimentAnalysisService', () => {
     natsClient.send.mockReturnValue(of(sentimentResponse));
 
     await service.analyzeMessage(
-      TENANT_A, channelId, messageId, messageCreatedAt, senderId, 'Great work!',
+      tenantId, channelId, messageId, messageCreatedAt, senderId, 'Great work!',
     );
 
     expect(analysisRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({
+        tenantId,
         messageId,
         messageCreatedAt,
         analysisType: 'sentiment',
@@ -110,23 +120,24 @@ describe('SentimentAnalysisService', () => {
     natsClient.send.mockReturnValue(of(negativeResponse));
 
     // Mock DB query returning 3 consecutive negative analyses
-    mockDataSource.query.mockResolvedValueOnce([
+    queryRunner.manager.query.mockResolvedValueOnce([
       { score: '0.15' },
       { score: '0.20' },
       { score: '0.10' },
     ]);
 
     await service.analyzeMessage(
-      TENANT_A, channelId, messageId, messageCreatedAt, senderId, 'This is terrible',
+      tenantId, channelId, messageId, messageCreatedAt, senderId, 'This is terrible',
     );
 
-    expect(natsClient.emit).toHaveBeenCalledWith(
-      'events.SentimentAlert',
+    expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
-        tenantId: TENANT_A,
+        tenantId,
+        eventType: 'SentimentAlert',
         channelId,
         userId: senderId,
       }),
+      queryRunner.manager,
     );
   });
 
@@ -137,7 +148,7 @@ describe('SentimentAnalysisService', () => {
     privacyService.canAnalyzeMessage.mockResolvedValue(false);
 
     await service.analyzeMessage(
-      TENANT_A, channelId, messageId, messageCreatedAt, senderId, 'Hello',
+      tenantId, channelId, messageId, messageCreatedAt, senderId, 'Hello',
     );
 
     expect(natsClient.send).not.toHaveBeenCalled();
@@ -152,8 +163,8 @@ describe('SentimentAnalysisService', () => {
     natsClient.send.mockReturnValue(of(null));
 
     await expect(
-      service.analyzeMessage(
-        TENANT_A, channelId, messageId, messageCreatedAt, senderId, 'Hello',
+        service.analyzeMessage(
+        tenantId, channelId, messageId, messageCreatedAt, senderId, 'Hello',
       ),
     ).resolves.not.toThrow();
 
@@ -169,15 +180,15 @@ describe('SentimentAnalysisService', () => {
     natsClient.send.mockReturnValue(of(negativeResponse));
 
     // Only 2 negative analyses
-    mockDataSource.query.mockResolvedValueOnce([
+    queryRunner.manager.query.mockResolvedValueOnce([
       { score: '0.15' },
       { score: '0.20' },
     ]);
 
     await service.analyzeMessage(
-      TENANT_A, channelId, messageId, messageCreatedAt, senderId, 'Bad day',
+      tenantId, channelId, messageId, messageCreatedAt, senderId, 'Bad day',
     );
 
-    expect(natsClient.emit).not.toHaveBeenCalled();
+    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
   });
 });

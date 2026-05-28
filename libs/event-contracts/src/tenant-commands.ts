@@ -20,6 +20,27 @@ export const TENANT_COMMAND_SUBJECTS = {
   ROLLBACK_TENANT_PROVISIONING: 'tenant.commands.RollbackTenantProvisioning',
 } as const;
 
+export const AUTH_USER_QUERY_SUBJECTS = {
+  VALIDATE_TENANT_USERS: 'auth.queries.ValidateTenantUsers',
+} as const;
+
+export interface ValidateTenantUsersQuery {
+  tenantId: string;
+  userIds: string[];
+  requireActive?: boolean;
+  correlationId?: string;
+}
+
+export interface ValidateTenantUsersResult {
+  success: boolean;
+  allValid: boolean;
+  validUserIds: string[];
+  invalidUserIds: string[];
+  inactiveUserIds: string[];
+  errorCode?: 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
 // ==================== CreateTenantAdmin ====================
 
 /**

@@ -10,6 +10,8 @@ import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { Message, MessageContentType } from '../../entities/message.entity';
 import { MessageAttachment } from '../../entities/message-attachment.entity';
+import { MessageSendIdempotency } from '../../entities/message-send-idempotency.entity';
+import { Channel } from '../../../channel/entities/channel.entity';
 import { ChannelMember } from '../../../channel/entities/channel-member.entity';
 // MessagingOutbox import dropped: outbox writes go through
 // OutboxPublisher.enqueue, not direct manager.save(MessagingOutbox).
@@ -18,6 +20,7 @@ import { REDIS_CLIENT } from '../../../shared/redis.provider';
 import { MentionService } from '../../services/mention.service';
 import { MediaService } from '../../services/media.service';
 import { MessagingMetricsService } from '../../../metrics/messaging-metrics.service';
+import { TenantPrincipalService } from '../../../principal/tenant-principal.service';
 import { SendMessageHandler } from '../send-message.handler';
 import { SendMessageCommand } from '../send-message.command';
 import {
@@ -55,6 +58,7 @@ describe('SendMessageHandler', () => {
   let mediaService: { validateAttachmentKey: jest.Mock; extractVoiceDuration: jest.Mock };
   let metricsService: { incrementMessages: jest.Mock };
   let outboxPublisher: { enqueue: jest.Mock };
+  let tenantPrincipalService: { upsertActiveUsers: jest.Mock };
 
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const channelId = fakeUuid('ch');
@@ -74,6 +78,38 @@ describe('SendMessageHandler', () => {
     channelMemberRepo.find.mockResolvedValue([]);
     queryRunner = createMockQueryRunner();
     queryRunner.manager.find.mockResolvedValue([]);
+    queryRunner.manager.findOne.mockImplementation((entity: unknown) => {
+      if (entity === Channel) {
+        return Promise.resolve({
+          id: channelId,
+          tenantId,
+          isArchived: false,
+        } as Channel);
+      }
+      if (entity === ChannelMember) {
+        return Promise.resolve({
+          tenantId,
+          channelId,
+          userId: senderId,
+          leftAt: null,
+        } as ChannelMember);
+      }
+      if (entity === Message || entity === MessageSendIdempotency) {
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(null);
+    });
+    queryRunner.manager.query.mockImplementation((sql: string, params?: unknown[]) => {
+      if (sql.includes('INSERT INTO "message_send_idempotency"')) {
+        return Promise.resolve([
+          {
+            messageId: params?.[4] as string,
+            messageCreatedAt: params?.[5] as Date,
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
     mockDataSource = createMockDataSource(queryRunner);
     redisClient = createMockRedis();
 
@@ -99,6 +135,9 @@ describe('SendMessageHandler', () => {
     // Outbox enqueue is fire-and-await inside the transaction — return
     // void to mirror the real OutboxPublisher.
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    tenantPrincipalService = {
+      upsertActiveUsers: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -112,6 +151,7 @@ describe('SendMessageHandler', () => {
         { provide: MediaService, useValue: mediaService },
         { provide: MessagingMetricsService, useValue: metricsService },
         { provide: OutboxPublisher, useValue: outboxPublisher },
+        { provide: TenantPrincipalService, useValue: tenantPrincipalService },
       ],
     }).compile();
 
@@ -161,12 +201,13 @@ describe('SendMessageHandler', () => {
   // -----------------------------------------------------------------------
   it('returns existing message when same idempotencyKey (Redis hit)', async () => {
     const existingMsg = createMockMessage({ id: fakeUuid('msg'), channelId, senderId });
-    // The handler now uses SET-NX: if Redis returns null (key already
-    // exists), the handler treats it as an idempotent hit. The previous
-    // implementation did GET-first; the rewrite is race-safe (atomic SET-NX).
-    redisClient.set.mockResolvedValue(null);
     redisClient.get.mockResolvedValue(existingMsg.id);
-    queryRunner.manager.findOne.mockResolvedValue(existingMsg);
+    queryRunner.manager.findOne.mockImplementation((entity: unknown) => {
+      if (entity === Message) {
+        return Promise.resolve(existingMsg);
+      }
+      return Promise.resolve(null);
+    });
 
     const cmd = makeCmd();
     const result = await handler.execute(cmd);
@@ -298,6 +339,11 @@ describe('SendMessageHandler', () => {
 
     expect(result).toBeDefined();
     expect(result.channelId).toBe(channelId);
+    expect(tenantPrincipalService.upsertActiveUsers).toHaveBeenCalledWith(
+      queryRunner.manager,
+      tenantId,
+      [senderId],
+    );
   });
 
   // -----------------------------------------------------------------------
@@ -341,7 +387,7 @@ describe('SendMessageHandler', () => {
       channelId?: string;
       eventType?: string;
     };
-    expect(payload.eventType).toBe('MessageSent');
+    expect(payload.eventType).toBe('ChannelMessageSent');
     expect(payload.tenantId).toBe(tenantId);
     expect(payload.channelId).toBe(channelId);
   });

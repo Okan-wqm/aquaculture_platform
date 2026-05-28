@@ -14,6 +14,8 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { AddMemberCommand } from './add-member.command';
 import { Channel, ChannelType } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
+import { TenantUserAdmissionService } from '../services/tenant-user-admission.service';
+import { TenantPrincipalService } from '../../principal/tenant-principal.service';
 
 /**
  * Role hierarchy weight — higher number = more privileged.
@@ -46,6 +48,8 @@ export class AddMemberHandler
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly tenantUserAdmissionService: TenantUserAdmissionService,
+    private readonly tenantPrincipalService: TenantPrincipalService,
   ) {}
 
   /**
@@ -56,6 +60,7 @@ export class AddMemberHandler
    */
   async execute(command: AddMemberCommand): Promise<ChannelMember> {
     const { tenantId, actorUserId, channelId, targetUserId, role } = command;
+    await this.tenantUserAdmissionService.assertActiveTenantUsers(tenantId, [targetUserId]);
 
     return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       // Load channel
@@ -96,6 +101,8 @@ export class AddMemberHandler
           `${actorMember.role} cannot assign the ${role} role`,
         );
       }
+
+      await this.tenantPrincipalService.upsertActiveUsers(queryRunner.manager, tenantId, [targetUserId]);
 
       // Check if target is already a member
       const existingMember = await queryRunner.manager.findOne(ChannelMember, {

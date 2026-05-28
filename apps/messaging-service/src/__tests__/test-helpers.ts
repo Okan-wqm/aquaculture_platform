@@ -163,6 +163,12 @@ export function createMockOutboxEvent(
   } as MessagingOutbox;
 }
 
+export function createMockOutboxPublisher(): { enqueue: jest.Mock } {
+  return {
+    enqueue: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Mock QueryRunner (for transactional handlers that use createQueryRunner)
 // ---------------------------------------------------------------------------

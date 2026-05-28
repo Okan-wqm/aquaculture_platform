@@ -17,7 +17,9 @@ interface MessagingNatsEvent {
   channelId?: string;
   messageId?: string;
   userId?: string;
+  senderId?: string;
   data?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 // ============================================================================
@@ -25,13 +27,19 @@ interface MessagingNatsEvent {
 // ============================================================================
 
 const MESSAGING_SUBJECTS = [
-  'events.MessageSent',
-  'events.MessageUpdated',
-  'events.MessageDeleted',
-  'events.ChannelCreated',
-  'events.ChannelMemberAdded',
-  'events.ChannelMemberRemoved',
-  'events.MessageRead',
+  'events.*.ChannelMessageSent',
+  'events.*.MessageSent',
+  'events.*.MessageUpdated',
+  'events.*.MessageDeleted',
+  'events.*.MessageForwarded',
+  'events.*.ReactionAdded',
+  'events.*.ReactionRemoved',
+  'events.*.MessagePinned',
+  'events.*.MessageUnpinned',
+  'events.*.ChannelCreated',
+  'events.*.ChannelMemberAdded',
+  'events.*.ChannelMemberRemoved',
+  'events.*.MessageRead',
 ] as const;
 
 // ============================================================================
@@ -125,15 +133,62 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     }
 
     switch (event.eventType) {
+      case 'ChannelMessageSent':
       case 'MessageSent':
         this.messagingGateway.broadcastNewMessage(event.tenantId, channelId, {
+          ...event,
+          ...event.data,
           messageId: event.messageId,
           channelId,
           tenantId: event.tenantId,
-          userId: event.userId,
+          userId: event.userId ?? event.senderId,
           timestamp: event.timestamp,
-          ...event.data,
         });
+        break;
+
+      case 'MessageForwarded':
+        this.messagingGateway.broadcastChannelEvent(
+          event.tenantId,
+          channelId,
+          'messageForwarded',
+          event,
+        );
+        break;
+
+      case 'ReactionAdded':
+        this.messagingGateway.broadcastChannelEvent(
+          event.tenantId,
+          channelId,
+          'reactionAdded',
+          event,
+        );
+        break;
+
+      case 'ReactionRemoved':
+        this.messagingGateway.broadcastChannelEvent(
+          event.tenantId,
+          channelId,
+          'reactionRemoved',
+          event,
+        );
+        break;
+
+      case 'MessagePinned':
+        this.messagingGateway.broadcastChannelEvent(
+          event.tenantId,
+          channelId,
+          'messagePinned',
+          event,
+        );
+        break;
+
+      case 'MessageUnpinned':
+        this.messagingGateway.broadcastChannelEvent(
+          event.tenantId,
+          channelId,
+          'messageUnpinned',
+          event,
+        );
         break;
 
       case 'MessageUpdated':

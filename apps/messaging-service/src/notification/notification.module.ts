@@ -7,28 +7,17 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { PresenceModule } from '../presence/presence.module';
-import { MessageModule } from '../message/message.module';
 import { MessagingPushService } from './messaging-push.service';
+import { MessagingPushNatsHandler } from './messaging-push-nats.handler';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ChannelMember]),
-    /** SEC-H01: NATS client with shared auth factory. */
-    ClientsModule.register([
-      {
-        name: 'NATS_SERVICE',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('messaging-service'),
-      },
-    ]),
     PresenceModule,
-    MessageModule,
   ],
-  providers: [MessagingPushService],
+  providers: [MessagingPushService, MessagingPushNatsHandler],
   exports: [MessagingPushService],
 })
 export class MessagingNotificationModule {}

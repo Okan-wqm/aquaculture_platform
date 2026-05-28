@@ -1,6 +1,6 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { Logger, NotFoundException, Inject } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { Logger, NotFoundException, Inject, ForbiddenException } from '@nestjs/common';
+import { DataSource, IsNull } from 'typeorm';
 import { randomUUID as uuidv4 } from 'crypto';
 import Redis from 'ioredis';
 
@@ -12,6 +12,7 @@ import { Message } from '../entities/message.entity';
 import { MessageReceipt, ReceiptStatus } from '../entities/message-receipt.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
+import { TenantPrincipalService } from '../../principal/tenant-principal.service';
 
 /**
  * Handler for MarkReadCommand.
@@ -30,6 +31,7 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly tenantPrincipalService: TenantPrincipalService,
   ) {}
 
   async execute(command: MarkReadCommand): Promise<boolean> {
@@ -40,28 +42,37 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
 
       // 1. Find the target message
       const message = await manager.findOne(Message, {
-        where: { tenantId, id: messageId },
+        where: { tenantId, id: messageId, channelId },
       });
       if (!message) {
         throw new NotFoundException(`Message ${messageId} not found.`);
       }
 
+      const member = await manager.findOne(ChannelMember, {
+        where: { tenantId, channelId: message.channelId, userId, leftAt: IsNull() },
+      });
+      if (!member) {
+        throw new ForbiddenException('You are not an active member of this channel.');
+      }
+
+      await this.tenantPrincipalService.upsertActiveUsers(manager, tenantId, [userId]);
+
       // 2. Transactional: update channel member lastReadAt + create/update receipt + outbox
       // 2a. Update channel_members.lastReadAt
-      await manager
-        .createQueryBuilder()
-        .update(ChannelMember)
-        .set({ lastReadAt: message.createdAt })
-        .where('"tenantId" = :tenantId AND "channelId" = :channelId AND "userId" = :userId', {
+      await manager.update(
+        ChannelMember,
+        {
           tenantId,
-          channelId,
+          channelId: message.channelId,
           userId,
-        })
-        .execute();
+        },
+        { lastReadAt: message.createdAt },
+      );
 
       // 2b. Upsert MessageReceipt
       const existingReceipt = await manager.findOne(MessageReceipt, {
         where: {
+          tenantId,
           messageId: message.id,
           userId,
         },
@@ -74,6 +85,14 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
         existingReceipt.readAt = now;
         await manager.save(MessageReceipt, existingReceipt);
       } else {
+        await manager.query(
+          `INSERT INTO "message_read_receipt_keys"
+             ("tenantId", "messageId", "messageCreatedAt", "userId")
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT ("tenantId", "messageId", "messageCreatedAt", "userId") DO NOTHING`,
+          [tenantId, message.id, message.createdAt, userId],
+        );
+
         const receipt = manager.create(MessageReceipt, {
           id: uuidv4(),
           tenantId,
@@ -136,7 +155,8 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
         tenantId,
         async (queryRunner) => queryRunner.manager
           .createQueryBuilder(Message, 'm')
-        .where('m."channelId" = :channelId', { channelId })
+        .where('m."tenantId" = :tenantId', { tenantId })
+        .andWhere('m."channelId" = :channelId', { channelId })
         .andWhere('m."createdAt" > :lastReadAt', { lastReadAt: member.lastReadAt })
         .andWhere('m."senderId" != :userId', { userId })
         .andWhere('m."isDeleted" = false')

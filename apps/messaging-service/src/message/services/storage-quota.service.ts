@@ -13,6 +13,7 @@ import { ClientProxy } from '@nestjs/microservices';
 import Redis from 'ioredis';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 
 import { MessageAttachment } from '../entities/message-attachment.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
@@ -73,12 +74,16 @@ export class StorageQuotaService {
     }
 
     // DB fallback: SUM(file_size) for all attachments in this tenant's schema.
-    // Tenant isolation is enforced at the PostgreSQL schema level (tenant_* schemas),
-    // so no explicit tenantId WHERE clause is needed here.
-    const result = await this.attachmentRepo
-      .createQueryBuilder('att')
-      .select('COALESCE(SUM(att."fileSize"), 0)', 'total')
-      .getRawOne<{ total: string }>();
+    const result = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      (queryRunner) => queryRunner.manager
+        .createQueryBuilder(MessageAttachment, 'att')
+        .select('COALESCE(SUM(att."fileSize"), 0)', 'total')
+        .where('att."tenantId" = :tenantId', { tenantId })
+        .getRawOne<{ total: string }>(),
+    );
 
     const totalBytes = parseInt(result?.total ?? '0', 10);
 
@@ -168,14 +173,14 @@ export class StorageQuotaService {
     // an active transaction context.
     const usageAfterUpload = (used + newFileSize) / quota;
     if (usageAfterUpload >= STORAGE_WARNING_THRESHOLD) {
-      await this.dataSource.transaction(async (manager) => {
+      await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
         await this.outboxPublisher.enqueue({
           ...createBaseEvent('StorageWarning', tenantId),
           usedBytes: used + newFileSize,
           quotaBytes: quota,
           usagePercentage: Math.round(usageAfterUpload * 100),
           timestamp: new Date().toISOString(),
-        },  manager);
+        },  queryRunner.manager);
       });
       this.logger.warn(
         `Tenant ${tenantId} storage at ${Math.round(usageAfterUpload * 100)}% ` +

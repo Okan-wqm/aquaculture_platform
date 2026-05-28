@@ -15,7 +15,6 @@ import {
   resetUuidCounter,
   MockRepository,
   MockQueryRunner,
-  TENANT_A,
 } from '../../../__tests__/test-helpers';
 
 describe('RetentionPolicyService', () => {
@@ -31,6 +30,9 @@ describe('RetentionPolicyService', () => {
 
   const userId = fakeUuid('usr');
   const channelId = fakeUuid('ch');
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const tenantId2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const heldTenantId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
   beforeEach(async () => {
     resetUuidCounter();
@@ -76,11 +78,11 @@ describe('RetentionPolicyService', () => {
   it('creates a new tenant-level retention policy', async () => {
     policyRepo.findOne.mockResolvedValue(null); // no existing policy
 
-    const result = await service.setPolicy(TENANT_A, null, 90, userId);
+    const result = await service.setPolicy(tenantId, null, 90, userId);
 
     expect(policyRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        tenantId: TENANT_A,
+        tenantId,
         channelId: null,
         retentionDays: 90,
         createdBy: userId,
@@ -94,7 +96,7 @@ describe('RetentionPolicyService', () => {
     const existing = createMockRetentionPolicy({ retentionDays: 365 });
     policyRepo.findOne.mockResolvedValue(existing);
 
-    const result = await service.setPolicy(TENANT_A, null, 90, userId);
+    const result = await service.setPolicy(tenantId, null, 90, userId);
 
     expect(result.retentionDays).toBe(90);
     expect(policyRepo.save).toHaveBeenCalled();
@@ -106,12 +108,13 @@ describe('RetentionPolicyService', () => {
   it('channel-level override takes precedence over tenant default', async () => {
     // Channel policy: 30 days
     const channelPolicy = createMockRetentionPolicy({
+      tenantId,
       channelId,
       retentionDays: 30,
     });
     policyRepo.findOne.mockResolvedValue(channelPolicy);
 
-    const days = await service.getEffectiveRetentionDays(TENANT_A, channelId);
+    const days = await service.getEffectiveRetentionDays(tenantId, channelId);
 
     expect(days).toBe(30);
   });
@@ -125,7 +128,7 @@ describe('RetentionPolicyService', () => {
         createMockRetentionPolicy({ channelId: null, retentionDays: 365 }),
       );
 
-    const days = await service.getEffectiveRetentionDays(TENANT_A, channelId);
+    const days = await service.getEffectiveRetentionDays(tenantId, channelId);
 
     expect(days).toBe(365);
   });
@@ -138,6 +141,7 @@ describe('RetentionPolicyService', () => {
     // queryRunner). Tenant-wide policies take the dropChunks
     // TimescaleDB fast path which doesn't run a DELETE query.
     const policy = createMockRetentionPolicy({
+      tenantId,
       retentionDays: 90,
       channelId,
     });
@@ -148,13 +152,13 @@ describe('RetentionPolicyService', () => {
 
     await service.executeRetentionCleanup();
 
-    // Tenant-wide cleanup uses the TimescaleDB fast path.
+    // Channel-scoped cleanup uses the row-delete path.
     const queryCalls = queryRunner.query.mock.calls;
-    const dropCall = queryCalls.find((call) => {
+    const deleteCall = queryCalls.find((call) => {
       const sql = call[0] as string;
-      return sql.includes("drop_chunks('messages'");
+      return sql.includes('DELETE FROM messages');
     });
-    expect(dropCall).toBeDefined();
+    expect(deleteCall).toBeDefined();
   });
 
   // -----------------------------------------------------------------------
@@ -162,6 +166,7 @@ describe('RetentionPolicyService', () => {
   // -----------------------------------------------------------------------
   it('skips cleanup for tenant under legal hold', async () => {
     const policy = createMockRetentionPolicy({
+      tenantId,
       retentionDays: 90,
       channelId: null,
     });
@@ -181,6 +186,7 @@ describe('RetentionPolicyService', () => {
     // Channel-scoped policy → slow path (DELETE FROM
     // message_attachments runs only on the row-DELETE branch).
     const policy = createMockRetentionPolicy({
+      tenantId,
       retentionDays: 30,
       channelId,
     });
@@ -193,11 +199,11 @@ describe('RetentionPolicyService', () => {
     const queryCalls = queryRunner.query.mock.calls;
     const attachmentDropIndex = queryCalls.findIndex((call) => {
       const sql = call[0] as string;
-      return sql.includes("drop_chunks('message_attachments'");
+      return sql.includes('DELETE FROM message_attachments');
     });
     const messageDropIndex = queryCalls.findIndex((call) => {
       const sql = call[0] as string;
-      return sql.includes("drop_chunks('messages'");
+      return sql.includes('DELETE FROM messages');
     });
     expect(attachmentDropIndex).toBeGreaterThanOrEqual(0);
     expect(messageDropIndex).toBeGreaterThan(attachmentDropIndex);
@@ -211,11 +217,11 @@ describe('RetentionPolicyService', () => {
   // -----------------------------------------------------------------------
   it('emits one audit row per policy processed (LEGAL-LOW-002)', async () => {
     const tenant1Policy = createMockRetentionPolicy({
-      tenantId: 'tenant-1',
+      tenantId,
       retentionDays: 90,
     });
     const tenant2Policy = createMockRetentionPolicy({
-      tenantId: 'tenant-2',
+      tenantId: tenantId2,
       retentionDays: 30,
     });
     policyRepo.find.mockResolvedValue([tenant1Policy, tenant2Policy]);
@@ -230,8 +236,8 @@ describe('RetentionPolicyService', () => {
     // Each audit row carries the real tenantId, the policy.id as
     // resourceId, and the per-policy deletedCount inside details.
     const calls = auditService.log.mock.calls.map((c) => c[0]);
-    expect(calls.find((c) => c.tenantId === 'tenant-1')).toMatchObject({
-      tenantId: 'tenant-1',
+    expect(calls.find((c) => c.tenantId === tenantId)).toMatchObject({
+      tenantId,
       resourceType: 'retention_policy',
       details: expect.objectContaining({
         policyId: tenant1Policy.id,
@@ -239,8 +245,8 @@ describe('RetentionPolicyService', () => {
         deletedCount: expect.any(Number),
       }),
     });
-    expect(calls.find((c) => c.tenantId === 'tenant-2')).toMatchObject({
-      tenantId: 'tenant-2',
+    expect(calls.find((c) => c.tenantId === tenantId2)).toMatchObject({
+      tenantId: tenantId2,
       resourceType: 'retention_policy',
       details: expect.objectContaining({
         policyId: tenant2Policy.id,
@@ -257,7 +263,7 @@ describe('RetentionPolicyService', () => {
 
   it('audits the legal-hold skip path with the actual tenant + skipReason', async () => {
     const policy = createMockRetentionPolicy({
-      tenantId: 'tenant-held',
+      tenantId: heldTenantId,
       retentionDays: 90,
       channelId: null,
     });
@@ -268,7 +274,7 @@ describe('RetentionPolicyService', () => {
 
     expect(auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({
-        tenantId: 'tenant-held',
+        tenantId: heldTenantId,
         resourceType: 'retention_policy',
         resourceId: policy.id,
         details: expect.objectContaining({
@@ -283,7 +289,7 @@ describe('RetentionPolicyService', () => {
   // Skips indefinite retention policies
   // -----------------------------------------------------------------------
   it('skips policies with retentionDays = -1 (indefinite)', async () => {
-    const indefinitePolicy = createMockRetentionPolicy({ retentionDays: -1 });
+    const indefinitePolicy = createMockRetentionPolicy({ tenantId, retentionDays: -1 });
     policyRepo.find.mockResolvedValue([indefinitePolicy]);
 
     await service.executeRetentionCleanup();

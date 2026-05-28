@@ -405,6 +405,15 @@ export class MessagingGateway
     this.server.to(`channel:${tenantId}:${channelId}`).emit('readReceipt', data);
   }
 
+  broadcastChannelEvent(
+    tenantId: string,
+    channelId: string,
+    eventName: string,
+    data: Record<string, unknown>,
+  ): void {
+    this.server.to(`channel:${tenantId}:${channelId}`).emit(eventName, data);
+  }
+
   getConnectedClientCount(): number {
     return this.clients.size;
   }

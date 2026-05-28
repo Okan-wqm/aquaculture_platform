@@ -10,10 +10,13 @@ import { MessageAttachment } from './entities/message-attachment.entity';
 import { MessageReceipt } from './entities/message-receipt.entity';
 import { MessageReaction } from './entities/message-reaction.entity';
 import { PinnedMessage } from './entities/pinned-message.entity';
+import { MessageSendIdempotency } from './entities/message-send-idempotency.entity';
+import { MessageReadReceiptKey } from './entities/message-read-receipt-key.entity';
 // Feature module dependencies
 import { ChannelModule } from '../channel/channel.module';
 import { PresenceModule } from '../presence/presence.module';
 import { GdprModule } from '../gdpr/gdpr.module';
+import { PrincipalModule } from '../principal/principal.module';
 // ComplianceModule imported: DeleteMessageHandler now calls LegalHoldService.isUnderLegalHold()
 // before soft-deleting messages. ComplianceModule exports LegalHoldService.
 import { ComplianceModule } from '../compliance/compliance.module';
@@ -50,6 +53,8 @@ import { MessageResolver } from './resolvers/message.resolver';
       MessageReceipt,
       MessageReaction,
       PinnedMessage,
+      MessageSendIdempotency,
+      MessageReadReceiptKey,
     ]),
     CqrsModule,
     /** SEC-H01: NATS client with shared auth factory. */
@@ -64,6 +69,7 @@ import { MessageResolver } from './resolvers/message.resolver';
     PresenceModule,
     GdprModule,
     ComplianceModule,
+    PrincipalModule,
   ],
   providers: [
     // CQRS handlers

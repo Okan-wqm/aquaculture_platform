@@ -8,6 +8,8 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
+import { ClientsModule, Transport } from '@nestjs/microservices';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 
 // Entities
 import { Channel } from './entities/channel.entity';
@@ -30,6 +32,8 @@ import { ChannelResolver, ChannelMemberResolver } from './resolvers/channel.reso
 
 // Service
 import { ChannelService } from './services/channel.service';
+import { TenantUserAdmissionService } from './services/tenant-user-admission.service';
+import { PrincipalModule } from '../principal/principal.module';
 
 // Cross-module services needed for field resolvers
 import { PresenceModule } from '../presence/presence.module';
@@ -51,7 +55,15 @@ const queryHandlers = [
   imports: [
     TypeOrmModule.forFeature([Channel, ChannelMember, Message]),
     CqrsModule,
+    ClientsModule.register([
+      {
+        name: 'NATS_SERVICE',
+        transport: Transport.NATS,
+        options: buildNatsTransportOptions('messaging-service'),
+      },
+    ]),
     forwardRef(() => PresenceModule),
+    PrincipalModule,
   ],
   providers: [
     ...commandHandlers,
@@ -59,7 +71,8 @@ const queryHandlers = [
     ChannelResolver,
     ChannelMemberResolver,
     ChannelService,
+    TenantUserAdmissionService,
   ],
-  exports: [ChannelService, TypeOrmModule],
+  exports: [ChannelService, TenantUserAdmissionService, PrincipalModule, TypeOrmModule],
 })
 export class ChannelModule {}

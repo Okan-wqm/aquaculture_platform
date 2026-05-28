@@ -18,6 +18,8 @@ import { CreateChannelCommand } from './create-channel.command';
 import { Channel, ChannelType } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
 import { ChannelService } from '../services/channel.service';
+import { TenantUserAdmissionService } from '../services/tenant-user-admission.service';
+import { TenantPrincipalService } from '../../principal/tenant-principal.service';
 import { MessagingMetricsService } from '../../metrics/messaging-metrics.service';
 
 /** Platform roles that are allowed to create GROUP channels */
@@ -39,6 +41,8 @@ export class CreateChannelHandler
     private readonly channelService: ChannelService,
     private readonly metricsService: MessagingMetricsService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly tenantUserAdmissionService: TenantUserAdmissionService,
+    private readonly tenantPrincipalService: TenantPrincipalService,
   ) {}
 
   /**
@@ -95,6 +99,7 @@ export class CreateChannelHandler
       }
 
       const dmPairKey = this.channelService.buildDmPairKey(peerIds[0], peerIds[1]);
+      await this.tenantUserAdmissionService.assertActiveTenantUsers(tenantId, peerIds);
 
       // ---------------------------------------------------------------
       // Check for existing DM (return it instead of creating duplicate).
@@ -125,7 +130,9 @@ export class CreateChannelHandler
     }
 
     // GROUP or AI
-    const channel = await this.createGroupOrAiChannel(tenantId, userId, input);
+    const memberIds = [...new Set([userId, ...input.memberIds])];
+    await this.tenantUserAdmissionService.assertActiveTenantUsers(tenantId, memberIds);
+    const channel = await this.createGroupOrAiChannel(tenantId, userId, input, memberIds);
     this.metricsService.incrementChannelsCreated(tenantId, input.type);
     return channel;
   }
@@ -155,6 +162,8 @@ export class CreateChannelHandler
         );
         return existingDm;
       }
+
+      await this.tenantPrincipalService.upsertActiveUsers(queryRunner.manager, tenantId, peerIds);
 
       // SECURITY: tenantId MUST be set on every channel row for RLS and event routing.
       const channel = queryRunner.manager.create(Channel, {
@@ -202,13 +211,11 @@ export class CreateChannelHandler
     tenantId: string,
     creatorId: string,
     input: CreateChannelCommand['input'],
+    memberIds: string[],
   ): Promise<Channel> {
-    // Ensure creator is included in member list
-    const memberIds = [...new Set([creatorId, ...input.memberIds])];
-
-    // TODO Phase 2: Validate all memberIds belong to same tenant via NATS request to auth-service.
-
     return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      await this.tenantPrincipalService.upsertActiveUsers(queryRunner.manager, tenantId, memberIds);
+
       // SECURITY: tenantId MUST be set on every channel row for RLS and event routing.
       const channel = queryRunner.manager.create(Channel, {
         tenantId,

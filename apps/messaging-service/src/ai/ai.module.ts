@@ -39,6 +39,8 @@ import { SentimentAnalysisService } from './services/sentiment-analysis.service'
 import { KnowledgeExtractionService } from './services/knowledge-extraction.service';
 import { AiChatBridgeService } from './services/ai-chat-bridge.service';
 import { AiPersonasRegistryService } from './services/ai-personas-registry.service';
+import { AiEgressGateService } from './services/ai-egress-gate.service';
+import { ChannelMessageSentAiConsumer } from './events/channel-message-sent-ai.consumer';
 
 // AI Safety — SSRF / input filter / output PII scanner now come from the
 // shared core module (libs/backend-common/src/ai-safety) extracted under
@@ -76,6 +78,8 @@ const services = [
   KnowledgeExtractionService,
   AiChatBridgeService,
   AiPersonasRegistryService,
+  AiEgressGateService,
+  ChannelMessageSentAiConsumer,
   // messaging-local AI safety extensions (SSRF / input filter / output PII
   // scanner now come from AiSafetyCoreModule imported below).
   InstructionHierarchyService,
@@ -119,6 +123,6 @@ const services = [
     ...services,
     AiResolver,
   ],
-  exports: [AiPrivacyService, AiPersonasRegistryService],
+  exports: [AiPrivacyService, AiPersonasRegistryService, AiEgressGateService],
 })
 export class AiModule {}

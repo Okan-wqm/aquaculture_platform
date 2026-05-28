@@ -5,7 +5,9 @@ import { OutboxPublisher } from '@platform/outbox';
 import { Channel, ChannelType } from '../../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../../entities/channel-member.entity';
 import { ChannelService } from '../../services/channel.service';
+import { TenantUserAdmissionService } from '../../services/tenant-user-admission.service';
 import { MessagingMetricsService } from '../../../metrics/messaging-metrics.service';
+import { TenantPrincipalService } from '../../../principal/tenant-principal.service';
 import { CreateChannelHandler } from '../create-channel.handler';
 import { CreateChannelCommand } from '../create-channel.command';
 import { CreateChannelInput } from '../../dto/create-channel.input';
@@ -25,6 +27,8 @@ describe('CreateChannelHandler', () => {
   let channelService: { buildDmPairKey: jest.Mock };
   let metricsService: { incrementChannelsCreated: jest.Mock };
   let outboxPublisher: { enqueue: jest.Mock };
+  let tenantUserAdmissionService: { assertActiveTenantUsers: jest.Mock };
+  let tenantPrincipalService: { upsertActiveUsers: jest.Mock };
 
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const creatorId = fakeUuid('usr');
@@ -45,6 +49,9 @@ describe('CreateChannelHandler', () => {
 
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
+    mockDataSource.getRepository = jest.fn().mockReturnValue({
+      findOne: jest.fn().mockResolvedValue(null),
+    });
 
     channelService = {
       buildDmPairKey: jest.fn((a: string, b: string) => {
@@ -54,6 +61,12 @@ describe('CreateChannelHandler', () => {
     };
     metricsService = { incrementChannelsCreated: jest.fn() };
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    tenantUserAdmissionService = {
+      assertActiveTenantUsers: jest.fn().mockResolvedValue(undefined),
+    };
+    tenantPrincipalService = {
+      upsertActiveUsers: jest.fn().mockResolvedValue(undefined),
+    };
 
     // Default: manager.save returns the data it received (with an id)
     let saveCounter = 0;
@@ -72,6 +85,8 @@ describe('CreateChannelHandler', () => {
         { provide: ChannelService, useValue: channelService },
         { provide: MessagingMetricsService, useValue: metricsService },
         { provide: OutboxPublisher, useValue: outboxPublisher },
+        { provide: TenantUserAdmissionService, useValue: tenantUserAdmissionService },
+        { provide: TenantPrincipalService, useValue: tenantPrincipalService },
       ],
     }).compile();
 
@@ -96,6 +111,15 @@ describe('CreateChannelHandler', () => {
     expect(result.type).toBe(ChannelType.GROUP);
     expect(queryRunner.commitTransaction).toHaveBeenCalled();
     expect(queryRunner.release).toHaveBeenCalled();
+    expect(tenantUserAdmissionService.assertActiveTenantUsers).toHaveBeenCalledWith(
+      tenantId,
+      expect.arrayContaining([creatorId, memberA, memberB]),
+    );
+    expect(tenantPrincipalService.upsertActiveUsers).toHaveBeenCalledWith(
+      queryRunner.manager,
+      tenantId,
+      expect.arrayContaining([creatorId, memberA, memberB]),
+    );
   });
 
   it('rejects GROUP creation for MODULE_USER role', async () => {
@@ -133,7 +157,9 @@ describe('CreateChannelHandler', () => {
       members: [],
     });
 
-    queryRunner.manager.findOne.mockResolvedValueOnce(existingChannel);
+    mockDataSource.getRepository = jest.fn().mockReturnValue({
+      findOne: jest.fn().mockResolvedValue(existingChannel),
+    });
 
     const input = makeInput({
       type: ChannelType.DIRECT,
@@ -144,8 +170,8 @@ describe('CreateChannelHandler', () => {
     const result = await handler.execute(cmd);
 
     expect(result.id).toBe(existingChannel.id);
-    expect(queryRunner.startTransaction).toHaveBeenCalled();
-    expect(queryRunner.commitTransaction).toHaveBeenCalled();
+    expect(queryRunner.startTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
     expect(queryRunner.manager.save).not.toHaveBeenCalled();
   });
 

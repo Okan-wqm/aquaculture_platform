@@ -1,5 +1,11 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { Logger, BadRequestException, Inject } from '@nestjs/common';
+import {
+  Logger,
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  NotFoundException,
+} from '@nestjs/common';
 import { DataSource, IsNull } from 'typeorm';
 import { randomUUID as uuidv4 } from 'crypto';
 import Redis from 'ioredis';
@@ -10,7 +16,10 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { SendMessageCommand } from './send-message.command';
 import { Message, MessageContentType } from '../entities/message.entity';
 import { MessageAttachment } from '../entities/message-attachment.entity';
+import { MessageSendIdempotency } from '../entities/message-send-idempotency.entity';
+import { Channel } from '../../channel/entities/channel.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
+import { TenantPrincipalService } from '../../principal/tenant-principal.service';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { sanitizeContent, validateUrlSchemes } from '../../shared/sanitize';
 import { MentionService } from '../services/mention.service';
@@ -25,7 +34,7 @@ const IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
  * Handler for SendMessageCommand — the most critical handler in the system.
  *
  * Flow:
- * 1. Check Redis idempotency key; if exists, return existing message (no duplicate)
+ * 1. Redis is a cache only; DB idempotency is claimed after tenant authorization
  * 2. Sanitize content (strip HTML, validate URL schemes)
  * 3. Inside a single DB transaction: INSERT message + INSERT outbox event
  * 4. After transaction: SET Redis idempotency key with 7-day TTL
@@ -43,6 +52,7 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     private readonly mediaService: MediaService,
     private readonly metricsService: MessagingMetricsService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly tenantPrincipalService: TenantPrincipalService,
   ) {}
 
   async execute(command: SendMessageCommand): Promise<Message> {
@@ -58,28 +68,27 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       metadata,
     } = command;
 
-    // ── 1. Atomic idempotency check via SET NX ─────────────────────────
+    // ── 1. Fast cache lookup only; the DB claim below is authoritative ──
     const idemKey = `msg:${tenantId}:idem:${idempotencyKey}`;
-
-    const wasSet = await this.safeRedisSetNx(idemKey, 'pending', IDEMPOTENCY_TTL_SECONDS);
-    if (!wasSet) {
-      this.logger.debug(`Idempotent hit for key=${idempotencyKey}, returning existing message`);
-      const existingMessageId = await this.safeRedisGet(idemKey);
-      if (existingMessageId && existingMessageId !== 'pending') {
-        const existing = await runInTenantTransaction(
-          this.dataSource,
-          'messaging',
-          tenantId,
-          async (queryRunner) => queryRunner.manager.findOne(Message, {
-            where: { tenantId, id: existingMessageId },
-            relations: ['attachments'],
-          }),
-        );
-        if (existing) {
-          return existing;
-        }
+    const cachedMessageId = await this.safeRedisGet(idemKey);
+    if (cachedMessageId) {
+      const cached = await runInTenantTransaction(
+        this.dataSource,
+        'messaging',
+        tenantId,
+        async (queryRunner) => queryRunner.manager.findOne(Message, {
+          where: {
+            tenantId,
+            id: cachedMessageId,
+            channelId,
+            senderId,
+          },
+          relations: ['attachments'],
+        }),
+      );
+      if (cached) {
+        return cached;
       }
-      this.logger.warn(`Idempotent key exists but message not found, proceeding`);
     }
 
     // ── 2. Content sanitization ────────────────────────────────────────
@@ -126,6 +135,65 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     const createdMessage = await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       const { manager } = queryRunner;
       let mentionedUserIds: string[] = [];
+
+      const channel = await manager.findOne(Channel, {
+        where: { tenantId, id: channelId },
+      });
+      if (!channel) {
+        throw new NotFoundException(`Channel ${channelId} not found.`);
+      }
+      if (channel.isArchived) {
+        throw new BadRequestException('Cannot send messages to an archived channel.');
+      }
+
+      const senderMembership = await manager.findOne(ChannelMember, {
+        where: { tenantId, channelId, userId: senderId, leftAt: IsNull() },
+      });
+      if (!senderMembership) {
+        throw new ForbiddenException('You are not an active member of this channel.');
+      }
+
+      if (parentId) {
+        const parent = await manager.findOne(Message, {
+          where: { tenantId, id: parentId, channelId, isDeleted: false },
+        });
+        if (!parent) {
+          throw new BadRequestException('Parent message must exist in the same channel.');
+        }
+      }
+
+      await this.tenantPrincipalService.upsertActiveUsers(manager, tenantId, [senderId]);
+
+      const claimRows = await manager.query(
+        `INSERT INTO "message_send_idempotency"
+           ("tenantId", "channelId", "senderId", "idempotencyKey", "messageId", "messageCreatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT ("tenantId", "channelId", "senderId", "idempotencyKey") DO NOTHING
+         RETURNING "messageId", "messageCreatedAt"`,
+        [tenantId, channelId, senderId, idempotencyKey, messageId, now],
+      ) as Array<{ messageId: string; messageCreatedAt: Date }>;
+
+      if (claimRows.length === 0) {
+        const existingClaim = await manager.findOne(MessageSendIdempotency, {
+          where: { tenantId, channelId, senderId, idempotencyKey },
+        });
+        if (existingClaim) {
+          const existingMessage = await manager.findOne(Message, {
+            where: {
+              tenantId,
+              id: existingClaim.messageId,
+              createdAt: existingClaim.messageCreatedAt,
+              channelId,
+              senderId,
+            },
+            relations: ['attachments'],
+          });
+          if (existingMessage) {
+            return existingMessage;
+          }
+        }
+        throw new BadRequestException('Idempotency key is already in use.');
+      }
 
       if (sanitizedContent) {
         const members = await manager.find(ChannelMember, {
@@ -201,7 +269,7 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       // SECURITY: tenantId MUST be set at the entity level (not just inside payload)
       // for per-tenant NATS subject routing in the outbox worker.
       await this.outboxPublisher.enqueue({
-        ...createBaseEvent('MessageSent', tenantId),
+        ...createBaseEvent('ChannelMessageSent', tenantId),
         channelId,
         messageId: savedMessage.id,
         senderId,
@@ -253,15 +321,4 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     }
   }
 
-  /** Atomic SET NX with TTL for race-free idempotency. */
-  private async safeRedisSetNx(key: string, value: string, ttlSeconds: number): Promise<boolean> {
-    try {
-      const result = await this.redis.set(key, value, 'EX', ttlSeconds, 'NX');
-      return result === 'OK';
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Redis SET NX failed (proceeding without idempotency): ${message}`);
-      return true;
-    }
-  }
 }

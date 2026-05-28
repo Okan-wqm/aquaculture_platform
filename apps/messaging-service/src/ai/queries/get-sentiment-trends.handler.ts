@@ -13,6 +13,7 @@ import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { GetSentimentTrendsQuery } from './get-sentiment-trends.query';
 
 /**
@@ -46,16 +47,16 @@ export class GetSentimentTrendsHandler
    * Returns weekly aggregated sentiment scores per channel, sorted by week descending.
    */
   async execute(query: GetSentimentTrendsQuery): Promise<SentimentTrend[]> {
-    const { channelId, weeks } = query;
+    const { tenantId, channelId, weeks } = query;
 
     const weeksAgo = new Date();
     weeksAgo.setDate(weeksAgo.getDate() - weeks * 7);
 
-    const params: (string | Date)[] = [weeksAgo];
+    const params: (string | Date)[] = [tenantId, weeksAgo];
     let channelFilter = '';
 
     if (channelId) {
-      channelFilter = 'AND m."channelId" = $2';
+      channelFilter = 'AND m."channelId" = $3::uuid';
       params.push(channelId);
     }
 
@@ -65,7 +66,11 @@ export class GetSentimentTrendsHandler
       weekStart: Date;
       avgScore: string;
       messageCount: string;
-    }> = await this.dataSource.query(
+    }> = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      (queryRunner) => queryRunner.manager.query(
       `SELECT
         m."channelId",
         c."name" as "channelName",
@@ -74,16 +79,28 @@ export class GetSentimentTrendsHandler
         COUNT(*)::text as "messageCount"
       FROM "message_analysis" ma
       INNER JOIN "messages" m
-        ON ma."messageId" = m."id"
+        ON ma."tenantId" = m."tenantId"
+        AND ma."messageId" = m."id"
         AND ma."messageCreatedAt" = m."createdAt"
-      LEFT JOIN "channels" c ON c."id" = m."channelId"
+      LEFT JOIN "channels" c
+        ON c."id" = m."channelId"
+       AND c."tenantId" = $1::uuid
       WHERE ma."analysisType" = 'sentiment'
-        AND ma."analyzedAt" >= $1
+        AND ma."tenantId" = $1::uuid
+        AND m."tenantId" = $1::uuid
+        AND ma."analyzedAt" >= $2
         ${channelFilter}
       GROUP BY m."channelId", c."name", date_trunc('week', ma."analyzedAt")
       ORDER BY date_trunc('week', ma."analyzedAt") DESC, m."channelId"`,
       params,
-    );
+      ),
+    ) as Array<{
+      channelId: string;
+      channelName: string | null;
+      weekStart: Date;
+      avgScore: string;
+      messageCount: string;
+    }>;
 
     // Compute trend by comparing consecutive weeks per channel
     const trendMap = new Map<string, number[]>();

@@ -1,9 +1,20 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { AiChatBridgeService } from '../ai-chat-bridge.service';
 import { Channel, ChannelType } from '../../../channel/entities/channel.entity';
+import { ChannelMember, ChannelMemberRole } from '../../../channel/entities/channel-member.entity';
 import { Message, MessageContentType } from '../../../message/entities/message.entity';
+import {
+  InputFilterService,
+  OutputPiiScannerService,
+  SsrfValidatorService,
+} from '@aquaculture/backend-common/ai-safety';
+import { InstructionHierarchyService } from '../../safety/instruction-hierarchy.service';
+import { ToolSchemaValidatorService } from '../../safety/tool-schema-validator.service';
+import { AiPersonasRegistryService } from '../ai-personas-registry.service';
+import { AiEgressGateService } from '../ai-egress-gate.service';
 import {
   createMockRepository,
   createMockNatsClient,
@@ -28,11 +39,14 @@ describe('AiChatBridgeService', () => {
   let service: AiChatBridgeService;
   let channelRepo: MockRepository<Channel>;
   let messageRepo: MockRepository<Message>;
+  let channelMemberRepo: MockRepository<ChannelMember>;
   let natsClient: MockNatsClient;
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
+  let outboxPublisher: { enqueue: jest.Mock };
+  let aiEgressGate: { assertAllowed: jest.Mock };
 
-  const tenantId = 'tenant-0001-0001-0001-000000000001';
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const aiChannelId = fakeUuid('ch');
   const groupChannelId = fakeUuid('ch');
   const messageId = fakeUuid('msg');
@@ -43,9 +57,12 @@ describe('AiChatBridgeService', () => {
 
     channelRepo = createMockRepository<Channel>();
     messageRepo = createMockRepository<Message>();
+    channelMemberRepo = createMockRepository<ChannelMember>();
     natsClient = createMockNatsClient();
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
+    outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    aiEgressGate = { assertAllowed: jest.fn().mockResolvedValue(undefined) };
 
     // Setup createQueryBuilder for context message fetching
     const qb = createMockQueryBuilder<Message>();
@@ -59,8 +76,43 @@ describe('AiChatBridgeService', () => {
         AiChatBridgeService,
         { provide: getRepositoryToken(Message), useValue: messageRepo },
         { provide: getRepositoryToken(Channel), useValue: channelRepo },
+        { provide: getRepositoryToken(ChannelMember), useValue: channelMemberRepo },
         { provide: DataSource, useValue: mockDataSource },
         { provide: 'NATS_SERVICE', useValue: natsClient },
+        {
+          provide: InputFilterService,
+          useValue: { scanInput: jest.fn().mockReturnValue({ safe: true, flaggedPatterns: [] }) },
+        },
+        {
+          provide: OutputPiiScannerService,
+          useValue: {
+            redact: jest.fn((text: string) => ({
+              redactedText: text,
+              scanResult: { hasPii: false },
+            })),
+          },
+        },
+        {
+          provide: SsrfValidatorService,
+          useValue: {
+            validateUrl: jest.fn().mockResolvedValue({ safe: true }),
+            getSafeFetchOptions: jest.fn().mockReturnValue({ redirect: 'error' }),
+          },
+        },
+        {
+          provide: InstructionHierarchyService,
+          useValue: { buildHardenedSystemPrompt: jest.fn().mockReturnValue('system') },
+        },
+        {
+          provide: ToolSchemaValidatorService,
+          useValue: { validateToolCall: jest.fn().mockReturnValue({ valid: true }) },
+        },
+        {
+          provide: AiPersonasRegistryService,
+          useValue: { getPersonaSystemPrompt: jest.fn().mockReturnValue('base system') },
+        },
+        { provide: OutboxPublisher, useValue: outboxPublisher },
+        { provide: AiEgressGateService, useValue: aiEgressGate },
       ],
     }).compile();
 
@@ -98,7 +150,7 @@ describe('AiChatBridgeService', () => {
   // -----------------------------------------------------------------------
   // Persists AI response as message from virtual AI user
   // -----------------------------------------------------------------------
-  it('persists AI response via DataSource transaction', async () => {
+  it('persists AI response inside a tenant-pinned transaction', async () => {
     const aiChannel = createMockChannel({ id: aiChannelId, type: ChannelType.AI });
     channelRepo.findOne.mockResolvedValue(aiChannel);
 
@@ -109,21 +161,29 @@ describe('AiChatBridgeService', () => {
       tenantId, aiChannelId, messageId, 'Question', senderId,
     );
 
-    // Transaction should have been called
-    expect(mockDataSource.transaction).toHaveBeenCalled();
-
-    // The transaction callback should save a Message with AI_USER_ID
-    const txCallback = mockDataSource.transaction.mock.calls[0][0] as (
-      manager: typeof queryRunner.manager,
-    ) => Promise<void>;
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      `SELECT pg_catalog.set_config('search_path', $1, true)`,
+      ['"tenant_aaaaaaaaaaaa4aaa", "messaging", public'],
+    );
     expect(queryRunner.manager.create).toHaveBeenCalledWith(
       Message,
       expect.objectContaining({
+        tenantId,
         channelId: aiChannelId,
         senderId: AI_USER_ID,
         content: 'Here is the answer.',
         contentType: MessageContentType.SYSTEM,
       }),
+    );
+    expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ChannelMessageSent',
+        tenantId,
+        channelId: aiChannelId,
+        senderId: AI_USER_ID,
+        isAiResponse: true,
+      }),
+      queryRunner.manager,
     );
   });
 
@@ -146,7 +206,10 @@ describe('AiChatBridgeService', () => {
     );
 
     // Should still persist a response (the fallback)
-    expect(mockDataSource.transaction).toHaveBeenCalled();
+    expect(queryRunner.manager.save).toHaveBeenCalledWith(
+      Message,
+      expect.objectContaining({ senderId: AI_USER_ID }),
+    );
   });
 
   // -----------------------------------------------------------------------
@@ -164,7 +227,7 @@ describe('AiChatBridgeService', () => {
     );
 
     expect(natsClient.send).not.toHaveBeenCalled();
-    expect(mockDataSource.transaction).not.toHaveBeenCalled();
+    expect(queryRunner.manager.save).not.toHaveBeenCalled();
   });
 
   it('returns early when channel is not found', async () => {
@@ -229,6 +292,13 @@ describe('AiChatBridgeService', () => {
       metadata: { status: 'proposed', actionType: 'create_alert', params: {} },
     });
     messageRepo.findOne.mockResolvedValue(actionMsg);
+    channelMemberRepo.findOne.mockResolvedValue({
+      tenantId,
+      channelId: actionMsg.channelId,
+      userId: senderId,
+      role: ChannelMemberRole.MEMBER,
+      leftAt: null,
+    } as ChannelMember);
     natsClient.send.mockReturnValue(of({ success: true, result: 'Alert created.' }));
 
     const result = await service.confirmAiAction(tenantId, actionMsgId, senderId);
@@ -243,7 +313,7 @@ describe('AiChatBridgeService', () => {
       }),
     );
     expect(messageRepo.update).toHaveBeenCalledWith(
-      { id: actionMsgId },
+      { tenantId, id: actionMsgId },
       expect.objectContaining({
         metadata: expect.objectContaining({ status: 'confirmed' }),
       }),

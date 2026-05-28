@@ -1,14 +1,19 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import type {
   MessagingEvent,
   MessageSentEvent,
+  ChatPushRequestedEvent,
   AnnouncementPublishedEvent,
   BulkThreadsCreatedEvent,
 } from '@platform/event-contracts';
 import { InAppNotificationService } from '../services/in-app.service';
+import { PushService } from '../services/push.service';
 import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
+import { DeviceToken } from '../entities/device-token.entity';
 
 // UUID v4 regex for tenant ID validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -51,6 +56,7 @@ class Semaphore {
  *
  * Subscribed events:
  * - MessageSent: Notify the other party about a new message
+ * - ChatPushRequested: Push-only fanout for tenant-scoped chat recipients
  * - AnnouncementPublished: Notify target tenant admins about a new announcement
  * - BulkThreadsCreated: Notify tenant admins about bulk thread creation
  *
@@ -69,7 +75,10 @@ export class MessagingEventHandler
 
   constructor(
     private readonly inAppService: InAppNotificationService,
+    private readonly pushService: PushService,
     private readonly dlqService: DeadLetterQueueService,
+    @InjectRepository(DeviceToken)
+    private readonly deviceTokenRepository: Repository<DeviceToken>,
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
   ) {}
@@ -81,10 +90,11 @@ export class MessagingEventHandler
     // design; explicit helper pins the publisher↔subscriber subject
     // contract (3 segments).
     await this.eventBus.subscribeWildcard('MessageSent', this);
+    await this.eventBus.subscribeWildcard('ChatPushRequested', this);
     await this.eventBus.subscribeWildcard('AnnouncementPublished', this);
     await this.eventBus.subscribeWildcard('BulkThreadsCreated', this);
     this.logger.log(
-      'Subscribed to MessageSent, AnnouncementPublished, and BulkThreadsCreated events (cross-tenant wildcard)',
+      'Subscribed to MessageSent, ChatPushRequested, AnnouncementPublished, and BulkThreadsCreated events (cross-tenant wildcard)',
     );
   }
 
@@ -114,6 +124,9 @@ export class MessagingEventHandler
       switch (eventType) {
         case 'MessageSent':
           await this.handleMessageSent(event as MessageSentEvent);
+          break;
+        case 'ChatPushRequested':
+          await this.handleChatPushRequested(event as ChatPushRequestedEvent);
           break;
         case 'AnnouncementPublished':
           await this.handleAnnouncementPublished(event as AnnouncementPublishedEvent);
@@ -227,6 +240,58 @@ export class MessagingEventHandler
     this.logger.debug(
       `In-app notification created for MessageSent: thread ${event.threadId.substring(0, 8)}...`,
     );
+  }
+
+  /**
+   * Handle ChatPushRequested event.
+   *
+   * SECURITY: This event intentionally carries only an opaque notificationRef,
+   * recipient user id, badge count, and type. No message content, channel id, or
+   * message id is forwarded to provider payloads.
+   */
+  private async handleChatPushRequested(event: ChatPushRequestedEvent): Promise<void> {
+    if (event.notificationType !== 'CHAT_MESSAGE') {
+      this.logger.warn(`Unsupported chat push notification type: ${event.notificationType}`);
+      return;
+    }
+
+    if (!event.recipientUserId || !event.notificationRef) {
+      this.logger.error('ChatPushRequested event missing recipientUserId or notificationRef. Skipping.');
+      return;
+    }
+
+    const deviceTokens = await this.deviceTokenRepository.find({
+      where: {
+        tenantId: event.tenantId,
+        userId: event.recipientUserId,
+      },
+    });
+
+    if (deviceTokens.length === 0) {
+      this.logger.debug(
+        `No device tokens found for chat recipient ${event.recipientUserId.substring(0, 8)}...`,
+      );
+      return;
+    }
+
+    for (const deviceToken of deviceTokens) {
+      try {
+        await this.pushService.sendPushNotification(deviceToken.token, {
+          title: 'New message',
+          body: 'Sent you a message',
+          badge: event.badge,
+          sound: 'default',
+          data: {
+            type: 'CHAT_MESSAGE',
+            notificationRef: event.notificationRef,
+          },
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Chat push failed for device ${deviceToken.id.substring(0, 8)}...: ${(error as Error).message}`,
+        );
+      }
+    }
   }
 
   /**

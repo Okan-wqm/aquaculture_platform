@@ -58,6 +58,40 @@ export interface MessageReadEvent extends BaseEvent {
   messageIds: string[];
 }
 
+/**
+ * Channel Message Sent Event
+ *
+ * Published by messaging-service when an in-tenant channel message is
+ * committed. This is intentionally separate from the legacy support-thread
+ * MessageSentEvent above, whose fields model admin support threads.
+ */
+export interface ChannelMessageSentEvent extends BaseEvent {
+  eventType: 'ChannelMessageSent';
+  channelId: string;
+  messageId: string;
+  senderId: string;
+  contentType: string;
+  hasAttachments: boolean;
+  mentionedUserIds?: string[];
+  createdAt: string;
+  isAiResponse?: boolean;
+}
+
+/**
+ * Chat Push Requested Event
+ *
+ * Durable push fanout request emitted after messaging-service has applied
+ * channel membership, notification preference, presence, and dedupe checks.
+ * Carries no message content or channel metadata to provider-facing workers.
+ */
+export interface ChatPushRequestedEvent extends BaseEvent {
+  eventType: 'ChatPushRequested';
+  recipientUserId: string;
+  notificationRef: string;
+  badge: number;
+  notificationType: 'CHAT_MESSAGE';
+}
+
 // ==================== Bulk Operations ====================
 
 /**
@@ -274,6 +308,8 @@ export type MessagingEvent =
   | ThreadStatusChangedEvent
   | MessageSentEvent
   | MessageReadEvent
+  | ChannelMessageSentEvent
+  | ChatPushRequestedEvent
   | BulkThreadsCreatedEvent
   | AnnouncementPublishedEvent
   | AnnouncementExpiredEvent

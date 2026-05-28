@@ -1,27 +1,27 @@
 /**
  * @module MessagingPushService
- * @description Subscribes to MessageSent outbox events via NATS and dispatches
+ * @description Subscribes to ChannelMessageSent outbox events and dispatches
  * push notification commands to the notification-service. Applies filtering:
  * skip sender, skip online users (Redis presence), respect notification preferences.
  * SECURITY: Message content is NEVER included in push payloads.
  * @see ADR-012 section 5 (Push Notifications)
  */
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import Redis from 'ioredis';
 
+import { IEventBus } from '@platform/event-bus';
+import { ChatPushRequestedEvent, createBaseEvent } from '@platform/event-contracts';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { ChannelMember, NotificationPreference } from '../channel/entities/channel-member.entity';
 import { PresenceService } from '../presence/presence.service';
-import { MessageService } from '../message/services/message.service';
+import { Message } from '../message/entities/message.entity';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 
 /** Deduplication window: max 1 push per user per channel within this period (seconds). */
 const DEDUP_TTL_SECONDS = 30;
 
-/** Pattern to extract @mention user IDs from message metadata. */
-interface MessageSentPayload {
+interface ChannelMessageSentPayload {
   eventId: string;
   tenantId: string;
   channelId: string;
@@ -34,21 +34,9 @@ interface MessageSentPayload {
   senderDisplayName?: string;
 }
 
-interface PushCommandPayload {
-  userId: string;
-  title: string;
-  body: string;
-  data: {
-    type: string;
-    channelId: string;
-    messageId: string;
-  };
-  badge: number;
-}
-
 /**
- * Service that listens to MessageSent events (published by the outbox worker)
- * and dispatches push notifications to the notification-service via NATS.
+ * Service that listens to durable ChannelMessageSent events and requests
+ * push delivery through the platform event bus.
  *
  * Filtering logic:
  * 1. Skip the message sender (no self-notification)
@@ -61,34 +49,37 @@ export class MessagingPushService implements OnModuleInit {
   private readonly logger = new Logger(MessagingPushService.name);
 
   constructor(
-    @InjectRepository(ChannelMember)
-    private readonly channelMemberRepo: Repository<ChannelMember>,
+    private readonly dataSource: DataSource,
     private readonly presenceService: PresenceService,
-    private readonly messageService: MessageService,
-    @Inject('NATS_SERVICE')
-    private readonly natsClient: ClientProxy,
+    @Inject('EVENT_BUS')
+    private readonly eventBus: IEventBus,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
   ) {}
 
   async onModuleInit(): Promise<void> {
-    this.logger.log('MessagingPushService initialized — listening for MessageSent events');
+    this.logger.log('MessagingPushService initialized — listening for ChannelMessageSent events');
   }
 
   /**
-   * Handle a MessageSent event from the outbox worker.
+   * Handle a ChannelMessageSent event from the outbox worker.
    * Called by the NATS event handler or event-handlers module.
    */
-  async handleMessageSent(payload: MessageSentPayload): Promise<void> {
+  async handleMessageSent(payload: ChannelMessageSentPayload): Promise<void> {
     const { tenantId, channelId, messageId, senderId, mentionedUserIds } = payload;
     const mentionedSet = new Set(mentionedUserIds ?? []);
 
     try {
       // 1. Load active channel members
-      const members = await this.channelMemberRepo.find({
-        where: { channelId, leftAt: IsNull() },
-        select: ['userId', 'notificationPreference'],
-      });
+      const members = await runInTenantTransaction(
+        this.dataSource,
+        'messaging',
+        tenantId,
+        async (queryRunner) => queryRunner.manager.find(ChannelMember, {
+          where: { tenantId, channelId, leftAt: IsNull() },
+          select: ['userId', 'notificationPreference'],
+        }),
+      );
 
       if (members.length === 0) return;
 
@@ -120,8 +111,6 @@ export class MessagingPushService implements OnModuleInit {
       if (offlineUsers.length === 0) return;
 
       // 5. Dedup + dispatch
-      const senderName = payload.senderDisplayName ?? 'Someone';
-
       for (const member of offlineUsers) {
         const dedupKey = `msg:push:dedup:${tenantId}:${channelId}:${member.userId}`;
         const alreadySent = await this.safeRedisGet(dedupKey);
@@ -133,24 +122,20 @@ export class MessagingPushService implements OnModuleInit {
           continue;
         }
 
-        // Get unread count for badge
-        const unreadCount = await this.messageService.getUnreadCount(member.userId, tenantId);
+        const unreadCount = await this.getUnreadCount(tenantId, channelId, member.userId);
 
-        // SECURITY: NEVER include message content in push payload
-        const pushPayload: PushCommandPayload = {
-          userId: member.userId,
-          title: senderName,
-          body: 'Sent you a message',
-          data: {
-            type: 'CHAT_MESSAGE',
-            channelId,
-            messageId,
-          },
+        const pushEvent: ChatPushRequestedEvent = {
+          ...createBaseEvent<ChatPushRequestedEvent>('ChatPushRequested', tenantId, {
+            aggregateId: payload.eventId,
+            aggregateType: 'ChatPushRequest',
+          }),
+          recipientUserId: member.userId,
+          notificationRef: payload.eventId,
           badge: unreadCount,
+          notificationType: 'CHAT_MESSAGE',
         };
 
-        // Publish NATS command to notification-service
-        this.natsClient.emit('commands.notification.sendPush', pushPayload);
+        await this.eventBus.publish(pushEvent);
 
         // Set dedup key with TTL
         await this.safeRedisSetEx(dedupKey, DEDUP_TTL_SECONDS, '1');
@@ -164,7 +149,36 @@ export class MessagingPushService implements OnModuleInit {
       this.logger.error(
         `Failed to dispatch push notifications for message ${messageId}: ${errMsg}`,
       );
+      throw err;
     }
+  }
+
+  private async getUnreadCount(
+    tenantId: string,
+    channelId: string,
+    userId: string,
+  ): Promise<number> {
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const member = await queryRunner.manager.findOne(ChannelMember, {
+        where: { tenantId, channelId, userId, leftAt: IsNull() },
+      });
+      if (!member) {
+        return 0;
+      }
+
+      const query = queryRunner.manager
+        .createQueryBuilder(Message, 'm')
+        .where('m."tenantId" = :tenantId', { tenantId })
+        .andWhere('m."channelId" = :channelId', { channelId })
+        .andWhere('m."senderId" != :userId', { userId })
+        .andWhere('m."isDeleted" = false');
+
+      if (member.lastReadAt) {
+        query.andWhere('m."createdAt" > :lastReadAt', { lastReadAt: member.lastReadAt });
+      }
+
+      return query.getCount();
+    });
   }
 
   /** Safe Redis GET with graceful degradation. */

@@ -10,6 +10,8 @@ import { Channel, ChannelType } from '../../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../../entities/channel-member.entity';
 import { AddMemberHandler } from '../add-member.handler';
 import { AddMemberCommand } from '../add-member.command';
+import { TenantUserAdmissionService } from '../../services/tenant-user-admission.service';
+import { TenantPrincipalService } from '../../../principal/tenant-principal.service';
 import {
   createMockChannel,
   createMockChannelMember,
@@ -25,6 +27,8 @@ describe('AddMemberHandler', () => {
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
   let outboxPublisher: { enqueue: jest.Mock };
+  let tenantUserAdmissionService: { assertActiveTenantUsers: jest.Mock };
+  let tenantPrincipalService: { upsertActiveUsers: jest.Mock };
 
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const channelId = fakeUuid('ch');
@@ -37,12 +41,20 @@ describe('AddMemberHandler', () => {
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    tenantUserAdmissionService = {
+      assertActiveTenantUsers: jest.fn().mockResolvedValue(undefined),
+    };
+    tenantPrincipalService = {
+      upsertActiveUsers: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AddMemberHandler,
         { provide: DataSource, useValue: mockDataSource },
         { provide: OutboxPublisher, useValue: outboxPublisher },
+        { provide: TenantUserAdmissionService, useValue: tenantUserAdmissionService },
+        { provide: TenantPrincipalService, useValue: tenantPrincipalService },
       ],
     }).compile();
 
@@ -93,6 +105,15 @@ describe('AddMemberHandler', () => {
     expect(result.userId).toBe(targetUserId);
     expect(result.tenantId).toBe(tenantId);
     expect(queryRunner.commitTransaction).toHaveBeenCalled();
+    expect(tenantUserAdmissionService.assertActiveTenantUsers).toHaveBeenCalledWith(
+      tenantId,
+      [targetUserId],
+    );
+    expect(tenantPrincipalService.upsertActiveUsers).toHaveBeenCalledWith(
+      queryRunner.manager,
+      tenantId,
+      [targetUserId],
+    );
     expect(queryRunner.query).toHaveBeenCalledWith(
       `SELECT pg_catalog.set_config('search_path', $1, true)`,
       ['"tenant_aaaaaaaaaaaa4aaa", "messaging", public'],

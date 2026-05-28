@@ -18,6 +18,7 @@ import { Repository, DataSource, IsNull } from 'typeorm';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 import { randomUUID as uuidv4 } from 'crypto';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { Message, MessageContentType } from '../../message/entities/message.entity';
@@ -32,6 +33,7 @@ import {
 import { InstructionHierarchyService } from '../safety/instruction-hierarchy.service';
 import { ToolSchemaValidatorService } from '../safety/tool-schema-validator.service';
 import { AiPersonasRegistryService } from './ai-personas-registry.service';
+import { AiEgressGateService } from './ai-egress-gate.service';
 
 /** Virtual AI user UUID -- consistent across all tenants. */
 const AI_USER_ID = '00000000-0000-0000-0000-000000000001';
@@ -97,6 +99,7 @@ export class AiChatBridgeService {
     private readonly toolSchemaValidator: ToolSchemaValidatorService,
     private readonly personasRegistry: AiPersonasRegistryService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly aiEgressGate: AiEgressGateService,
   ) {}
 
   /**
@@ -118,7 +121,7 @@ export class AiChatBridgeService {
   ): Promise<void> {
     // Verify this is actually an AI channel
     const channel = await this.channelRepo.findOne({
-      where: { id: channelId },
+      where: { tenantId, id: channelId },
     });
 
     if (!channel || channel.type !== ChannelType.AI) {
@@ -140,8 +143,14 @@ export class AiChatBridgeService {
       return;
     }
 
+    await this.aiEgressGate.assertAllowed(
+      tenantId,
+      senderId,
+      channel.aiServiceUrl ? 'custom-ai-chat' : 'ai-chat',
+    );
+
     // Fetch context: last N messages from this channel
-    const contextMessages = await this.fetchContextMessages(channelId);
+    const contextMessages = await this.fetchContextMessages(tenantId, channelId);
 
     // SECURITY: Build hardened system prompt with instruction hierarchy.
     // Prevents user messages from overriding system-level directives.
@@ -206,7 +215,7 @@ export class AiChatBridgeService {
   ): Promise<boolean> {
     // Find the action message
     const actionMessage = await this.messageRepo.findOne({
-      where: { id: actionMessageId, senderId: AI_USER_ID },
+      where: { tenantId, id: actionMessageId, senderId: AI_USER_ID },
     });
 
     if (!actionMessage || !actionMessage.metadata) {
@@ -221,6 +230,7 @@ export class AiChatBridgeService {
     // query ChannelMember where channelId + userId + leftAt IS NULL.
     const member = await this.channelMemberRepo.findOne({
       where: {
+        tenantId,
         channelId: actionMessage.channelId,
         userId,
         leftAt: IsNull(),
@@ -264,7 +274,7 @@ export class AiChatBridgeService {
 
     // Update action status
     await this.messageRepo.update(
-      { id: actionMessageId },
+      { tenantId, id: actionMessageId },
       {
         metadata: {
           ...metadata,
@@ -290,12 +300,14 @@ export class AiChatBridgeService {
    * Fetch the last N messages from a channel for context injection.
    */
   private async fetchContextMessages(
+    tenantId: string,
     channelId: string,
   ): Promise<ContextMessage[]> {
     const messages = await this.messageRepo
       .createQueryBuilder('m')
       .select(['m.senderId', 'm.content', 'm.createdAt'])
-      .where('m."channelId" = :channelId', { channelId })
+      .where('m."tenantId" = :tenantId', { tenantId })
+      .andWhere('m."channelId" = :channelId', { channelId })
       .andWhere('m."isDeleted" = false')
       .andWhere('m."content" IS NOT NULL')
       .orderBy('m.createdAt', 'DESC')
@@ -323,7 +335,8 @@ export class AiChatBridgeService {
     const messageId = uuidv4();
     const now = new Date();
 
-    await this.dataSource.transaction(async (manager) => {
+    await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
       // Sanitize AI response content before storage.
       // BEFORE: response.content stored raw — a prompt injection attack (user crafts
       // a message that causes Claude to output <script>alert(1)</script>) would create
@@ -367,7 +380,7 @@ export class AiChatBridgeService {
       await manager.save(Message, message);
 
       await this.outboxPublisher.enqueue({
-        ...createBaseEvent('MessageSent', tenantId),
+        ...createBaseEvent('ChannelMessageSent', tenantId),
         channelId,
         messageId,
         senderId: AI_USER_ID,

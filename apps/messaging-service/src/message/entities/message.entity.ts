@@ -78,7 +78,7 @@ export class Message {
    * messages from concurrent or retried sends.
    * @see MSG-HIGH-015 (no idempotency constraint on message processing)
    */
-  @Index('idx_messages_idempotency', ['tenantId', 'idempotencyKey'], { unique: true })
+  @Index('idx_messages_tenant_idempotency_lookup', ['tenantId', 'channelId', 'senderId', 'idempotencyKey'])
   @Column({ type: 'uuid' })
   idempotencyKey: string;
 

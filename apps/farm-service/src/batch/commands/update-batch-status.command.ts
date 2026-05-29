@@ -7,14 +7,29 @@
  * @module Batch/Commands
  */
 import { ITenantCommand } from '@platform/cqrs';
+
 import { BatchStatus } from '../entities/batch.entity';
 
+export interface UpdateBatchStatusOptions {
+  readonly tenantId: string;
+  readonly batchId: string;
+  readonly newStatus: BatchStatus;
+  readonly updatedBy: string;
+  readonly reason?: string;
+}
+
 export class UpdateBatchStatusCommand implements ITenantCommand {
-  constructor(
-    public readonly tenantId: string,
-    public readonly batchId: string,
-    public readonly newStatus: BatchStatus,
-    public readonly reason?: string,
-    public readonly updatedBy?: string,
-  ) {}
+  public readonly tenantId: string;
+  public readonly batchId: string;
+  public readonly newStatus: BatchStatus;
+  public readonly updatedBy: string;
+  public readonly reason?: string;
+
+  constructor(options: UpdateBatchStatusOptions) {
+    this.tenantId = options.tenantId;
+    this.batchId = options.batchId;
+    this.newStatus = options.newStatus;
+    this.updatedBy = options.updatedBy;
+    this.reason = options.reason;
+  }
 }

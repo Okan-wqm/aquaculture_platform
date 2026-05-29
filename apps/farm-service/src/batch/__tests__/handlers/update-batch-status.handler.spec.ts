@@ -3,11 +3,14 @@
  *
  * IP-3: CQRS handler test coverage — status FSM transitions.
  */
-import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { UpdateBatchStatusHandler } from '../../handlers/update-batch-status.handler';
+import { createMockDataSource } from '@aquaculture/testing';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { OutboxPublisher } from '@platform/outbox';
+import { Repository } from 'typeorm';
+
 import { UpdateBatchStatusCommand } from '../../commands/update-batch-status.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
-import { createMockDataSource } from '@aquaculture/testing';
+import { UpdateBatchStatusHandler } from '../../handlers/update-batch-status.handler';
 
 describe('UpdateBatchStatusHandler', () => {
   let handler: UpdateBatchStatusHandler;
@@ -19,14 +22,15 @@ describe('UpdateBatchStatusHandler', () => {
   // event is emitted exactly once per status change.
   const mockOutboxPublisher = {
     enqueue: jest.fn().mockResolvedValue(undefined),
-  };
+  } as Pick<OutboxPublisher, 'enqueue'>;
+  const mockBatchRepository = {} as Repository<Batch>;
 
   beforeEach(() => {
     jest.clearAllMocks();
     handler = new UpdateBatchStatusHandler(
-      mockDataSource as any,
-      {} as any, // batchRepository (not used directly — handler uses queryRunner.manager)
-      mockOutboxPublisher as any,
+      mockDataSource,
+      mockBatchRepository,
+      mockOutboxPublisher as unknown as OutboxPublisher,
     );
   });
 
@@ -44,13 +48,31 @@ describe('UpdateBatchStatusHandler', () => {
     };
   }
 
+  it('keeps actor and reason separate in the typed command payload', () => {
+    const command = new UpdateBatchStatusCommand({
+      tenantId: TENANT,
+      batchId: 'batch-1',
+      newStatus: BatchStatus.ACTIVE,
+      updatedBy: USER,
+      reason: 'quarantine complete',
+    });
+
+    expect(command.updatedBy).toBe(USER);
+    expect(command.reason).toBe('quarantine complete');
+  });
+
   it('should transition QUARANTINE → ACTIVE', async () => {
     const batch = makeBatch(BatchStatus.QUARANTINE);
     mockManager.findOne.mockResolvedValueOnce(batch);
     mockManager.save.mockResolvedValueOnce({ ...batch, status: BatchStatus.ACTIVE });
 
     const result = await handler.execute(
-      new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.ACTIVE, USER),
+      new UpdateBatchStatusCommand({
+        tenantId: TENANT,
+        batchId: 'batch-1',
+        newStatus: BatchStatus.ACTIVE,
+        updatedBy: USER,
+      }),
     );
 
     expect(result.status).toBe(BatchStatus.ACTIVE);
@@ -63,7 +85,14 @@ describe('UpdateBatchStatusHandler', () => {
     mockManager.findOne.mockResolvedValueOnce(batch);
 
     await expect(
-      handler.execute(new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.HARVESTED, USER)),
+      handler.execute(
+        new UpdateBatchStatusCommand({
+          tenantId: TENANT,
+          batchId: 'batch-1',
+          newStatus: BatchStatus.HARVESTED,
+          updatedBy: USER,
+        }),
+      ),
     ).rejects.toThrow(BadRequestException);
 
     expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
@@ -73,7 +102,14 @@ describe('UpdateBatchStatusHandler', () => {
     mockManager.findOne.mockResolvedValueOnce(null);
 
     await expect(
-      handler.execute(new UpdateBatchStatusCommand(TENANT, 'nonexistent', BatchStatus.ACTIVE, USER)),
+      handler.execute(
+        new UpdateBatchStatusCommand({
+          tenantId: TENANT,
+          batchId: 'nonexistent',
+          newStatus: BatchStatus.ACTIVE,
+          updatedBy: USER,
+        }),
+      ),
     ).rejects.toThrow(NotFoundException);
   });
 
@@ -81,7 +117,14 @@ describe('UpdateBatchStatusHandler', () => {
     mockManager.findOne.mockRejectedValueOnce(new Error('DB error'));
 
     await expect(
-      handler.execute(new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.ACTIVE, USER)),
+      handler.execute(
+        new UpdateBatchStatusCommand({
+          tenantId: TENANT,
+          batchId: 'batch-1',
+          newStatus: BatchStatus.ACTIVE,
+          updatedBy: USER,
+        }),
+      ),
     ).rejects.toThrow();
 
     expect(mockQueryRunner.release).toHaveBeenCalled();

@@ -5,6 +5,7 @@
  *
  * @module Batch
  */
+import { Role } from '@aquaculture/backend-common/decorators';
 import {
   Controller,
   Get,
@@ -21,18 +22,23 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
+import { CommandBus } from '@platform/cqrs';
 import { Request } from 'express';
 
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { BatchStatus } from '../entities/batch.entity';
+import { CreateHarvestRecordCommand } from '../../harvest/commands/create-harvest-record.command';
+import { QualityGrade } from '../../harvest/entities/harvest-record.entity';
+import { AllocateToTankCommand } from '../commands/allocate-to-tank.command';
+import { BatchCloseReason, CloseBatchCommand } from '../commands/close-batch.command';
+import { CreateBatchCommand, CreateBatchPayload } from '../commands/create-batch.command';
+import { RecordCullCommand, CullReason } from '../commands/record-cull.command';
+import { RecordMortalityCommand, MortalityReason } from '../commands/record-mortality.command';
+import { TransferBatchCommand } from '../commands/transfer-batch.command';
+import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
+import { UpdateBatchCommand, UpdateBatchPayload } from '../commands/update-batch.command';
+import { BatchInputType, BatchStatus } from '../entities/batch.entity';
 import { AllocationType } from '../entities/tank-allocation.entity';
-import { OperationType } from '../entities/tank-operation.entity';
-import {
-  BatchService,
-  CreateBatchInput,
-  AllocateBatchInput,
-  RecordOperationInput,
-} from '../services/batch.service';
+import { BatchService } from '../services/batch.service';
 
 /**
  * Interface for batch list filters
@@ -43,23 +49,12 @@ interface BatchListFilters {
   isActive?: boolean;
 }
 
-/**
- * Interface for batch update payload
- */
-interface BatchUpdatePayload {
-  name?: string;
-  description?: string;
-  status?: BatchStatus;
-  expectedHarvestDate?: Date;
-  notes?: string;
-  updatedBy: string;
-}
-
 interface AuthenticatedFarmRequest extends Request {
   tenantId?: string;
   user?: {
     sub?: string;
     tenantId?: string | null;
+    roles?: Role[];
   };
 }
 
@@ -75,6 +70,10 @@ function currentUserId(req: AuthenticatedFarmRequest): string {
   return req.user?.sub ?? 'system';
 }
 
+function currentUserRoles(req: AuthenticatedFarmRequest): Role[] {
+  return Array.isArray(req.user?.roles) ? req.user.roles : [];
+}
+
 // ============================================================================
 // DTOs
 // ============================================================================
@@ -82,7 +81,7 @@ function currentUserId(req: AuthenticatedFarmRequest): string {
 class CreateBatchDto {
   batchNumber: string;
   speciesId: string;
-  inputType: string;
+  inputType: BatchInputType;
   initialQuantity: number;
   initialAvgWeightG: number;
   stockedAt: string;
@@ -166,7 +165,10 @@ class BatchListQueryDto {
 @UseGuards(JwtAuthGuard)
 @Controller('batches')
 export class BatchController {
-  constructor(private readonly batchService: BatchService) {}
+  constructor(
+    private readonly batchService: BatchService,
+    private readonly commandBus: CommandBus,
+  ) {}
 
   // -------------------------------------------------------------------------
   // BATCH CRUD
@@ -177,12 +179,14 @@ export class BatchController {
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async createBatch(@Req() req: AuthenticatedFarmRequest, @Body() dto: CreateBatchDto): Promise<unknown> {
+  async createBatch(
+    @Req() req: AuthenticatedFarmRequest,
+    @Body() dto: CreateBatchDto,
+  ): Promise<unknown> {
     const tenantId = requireTenantId(req);
     const userId = currentUserId(req);
 
-    const input: CreateBatchInput = {
-      tenantId,
+    const payload: CreateBatchPayload = {
       batchNumber: dto.batchNumber,
       speciesId: dto.speciesId,
       inputType: dto.inputType,
@@ -193,10 +197,9 @@ export class BatchController {
       purchaseCost: dto.purchaseCost,
       currency: dto.currency,
       notes: dto.notes,
-      createdBy: userId || 'system',
     };
 
-    const batch = await this.batchService.createBatch(input);
+    const batch = await this.commandBus.execute(new CreateBatchCommand(tenantId, payload, userId));
 
     return {
       success: true,
@@ -265,19 +268,36 @@ export class BatchController {
     const tenantId = requireTenantId(req);
     const userId = currentUserId(req);
 
-    const updates: BatchUpdatePayload = {
+    const updates: UpdateBatchPayload = {
       name: dto.name,
       description: dto.description,
-      status: dto.status,
       notes: dto.notes,
-      updatedBy: userId || 'system',
     };
 
     if (dto.expectedHarvestDate) {
       updates.expectedHarvestDate = new Date(dto.expectedHarvestDate);
     }
 
-    const batch = await this.batchService.updateBatch(id, tenantId, updates);
+    const hasMetadataUpdate = Object.values(updates).some((value) => value !== undefined);
+
+    let batch: unknown;
+    if (hasMetadataUpdate) {
+      batch = await this.commandBus.execute(new UpdateBatchCommand(tenantId, id, updates, userId));
+    }
+
+    if (dto.status !== undefined) {
+      batch = await this.commandBus.execute(
+        new UpdateBatchStatusCommand({
+          tenantId,
+          batchId: id,
+          newStatus: dto.status,
+          updatedBy: userId,
+          reason: dto.notes,
+        }),
+      );
+    }
+
+    batch ??= await this.batchService.findBatchById(id, tenantId);
 
     return {
       success: true,
@@ -297,7 +317,15 @@ export class BatchController {
     const tenantId = requireTenantId(req);
     const userId = currentUserId(req);
 
-    await this.batchService.deleteBatch(id, tenantId, userId || 'system');
+    await this.commandBus.execute(
+      new CloseBatchCommand({
+        tenantId,
+        batchId: id,
+        reason: BatchCloseReason.CANCELLED,
+        closedBy: userId,
+        userRoles: currentUserRoles(req),
+      }),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -317,18 +345,22 @@ export class BatchController {
     const tenantId = requireTenantId(req);
     const userId = currentUserId(req);
 
-    const input: AllocateBatchInput = {
-      tenantId,
-      batchId,
-      tankId: dto.tankId,
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      allocationType: dto.allocationType,
-      allocatedBy: userId || 'system',
-      notes: dto.notes,
-    };
-
-    const allocation = await this.batchService.allocateBatchToTank(input);
+    const allocation = await this.commandBus.execute(
+      new AllocateToTankCommand(
+        tenantId,
+        batchId,
+        {
+          tankId: dto.tankId,
+          quantity: dto.quantity,
+          avgWeightG: dto.avgWeightG,
+          allocationType: dto.allocationType,
+          allocatedAt: new Date(),
+          notes: dto.notes,
+        },
+        userId,
+        currentUserRoles(req),
+      ),
+    );
 
     return {
       success: true,
@@ -412,7 +444,10 @@ export class BatchController {
 @UseGuards(JwtAuthGuard)
 @Controller('tank-operations')
 export class TankOperationsController {
-  constructor(private readonly batchService: BatchService) {}
+  constructor(
+    private readonly batchService: BatchService,
+    private readonly commandBus: CommandBus,
+  ) {}
 
   /**
    * POST /api/tank-operations/mortality - Ölüm kaydı
@@ -426,25 +461,27 @@ export class TankOperationsController {
     const tenantId = requireTenantId(req);
     const userId = currentUserId(req);
 
-    const input: RecordOperationInput = {
-      tenantId,
-      tankId: dto.tankId,
-      batchId: dto.batchId,
-      operationType: OperationType.MORTALITY,
-      operationDate: new Date(dto.operationDate),
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      reason: dto.reason,
-      detail: dto.detail,
-      performedBy: userId || 'system',
-      notes: dto.notes,
-    };
-
-    const operation = await this.batchService.recordOperation(input);
+    const batch = await this.commandBus.execute(
+      new RecordMortalityCommand(
+        tenantId,
+        dto.batchId,
+        {
+          tankId: dto.tankId,
+          quantity: dto.quantity,
+          avgWeightG: dto.avgWeightG,
+          reason: (dto.reason as MortalityReason | undefined) ?? MortalityReason.UNKNOWN,
+          detail: dto.detail,
+          observedAt: new Date(dto.operationDate),
+          observedBy: userId,
+          notes: dto.notes,
+        },
+        userId,
+      ),
+    );
 
     return {
       success: true,
-      data: operation,
+      data: batch,
     };
   }
 
@@ -460,25 +497,26 @@ export class TankOperationsController {
     const tenantId = requireTenantId(req);
     const userId = currentUserId(req);
 
-    const input: RecordOperationInput = {
-      tenantId,
-      tankId: dto.tankId,
-      batchId: dto.batchId,
-      operationType: OperationType.CULL,
-      operationDate: new Date(dto.operationDate),
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      reason: dto.reason,
-      detail: dto.detail,
-      performedBy: userId || 'system',
-      notes: dto.notes,
-    };
-
-    const operation = await this.batchService.recordOperation(input);
+    const batch = await this.commandBus.execute(
+      new RecordCullCommand(
+        tenantId,
+        dto.batchId,
+        {
+          tankId: dto.tankId,
+          quantity: dto.quantity,
+          avgWeightG: dto.avgWeightG,
+          reason: (dto.reason as CullReason | undefined) ?? CullReason.OTHER,
+          detail: dto.detail,
+          culledAt: new Date(dto.operationDate),
+          notes: dto.notes,
+        },
+        userId,
+      ),
+    );
 
     return {
       success: true,
-      data: operation,
+      data: batch,
     };
   }
 
@@ -494,41 +532,26 @@ export class TankOperationsController {
     const tenantId = requireTenantId(req);
     const userId = currentUserId(req);
 
-    // Source tank'tan çıkış
-    const transferOut: RecordOperationInput = {
-      tenantId,
-      tankId: dto.tankId,
-      batchId: dto.batchId,
-      operationType: OperationType.TRANSFER_OUT,
-      operationDate: new Date(dto.operationDate),
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      destinationTankId: dto.destinationTankId,
-      reason: dto.reason,
-      performedBy: userId || 'system',
-      notes: dto.notes,
-    };
-
-    await this.batchService.recordOperation(transferOut);
-
-    // Destination tank'a giriş
-    const transferIn: RecordOperationInput = {
-      tenantId,
-      tankId: dto.destinationTankId,
-      batchId: dto.batchId,
-      operationType: OperationType.TRANSFER_IN,
-      operationDate: new Date(dto.operationDate),
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      performedBy: userId || 'system',
-      notes: dto.notes,
-    };
-
-    const operation = await this.batchService.recordOperation(transferIn);
+    const batch = await this.commandBus.execute(
+      new TransferBatchCommand(
+        tenantId,
+        dto.batchId,
+        {
+          sourceTankId: dto.tankId,
+          destinationTankId: dto.destinationTankId,
+          quantity: dto.quantity,
+          avgWeightG: dto.avgWeightG,
+          transferReason: dto.reason,
+          transferredAt: new Date(dto.operationDate),
+          notes: dto.notes,
+        },
+        userId,
+      ),
+    );
 
     return {
       success: true,
-      data: operation,
+      data: batch,
       message: `${dto.quantity} adet ${dto.tankId} → ${dto.destinationTankId} transfer edildi`,
     };
   }
@@ -545,23 +568,35 @@ export class TankOperationsController {
     const tenantId = requireTenantId(req);
     const userId = currentUserId(req);
 
-    const input: RecordOperationInput = {
-      tenantId,
-      tankId: dto.tankId,
-      batchId: dto.batchId,
-      operationType: OperationType.HARVEST,
-      operationDate: new Date(dto.operationDate),
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      performedBy: userId || 'system',
-      notes: dto.notes,
-    };
+    const averageWeight =
+      dto.avgWeightG ??
+      (dto.totalWeightKg !== undefined && dto.quantity > 0
+        ? (dto.totalWeightKg * 1000) / dto.quantity
+        : 0);
+    const totalBiomass = dto.totalWeightKg ?? (dto.quantity * averageWeight) / 1000;
 
-    const operation = await this.batchService.recordOperation(input);
+    const harvest = await this.commandBus.execute(
+      new CreateHarvestRecordCommand(
+        tenantId,
+        {
+          batchId: dto.batchId,
+          tankId: dto.tankId,
+          quantityHarvested: dto.quantity,
+          averageWeight,
+          totalBiomass,
+          qualityGrade: QualityGrade.GRADE_A,
+          harvestDate: new Date(dto.operationDate),
+          pricePerKg: dto.pricePerKg,
+          buyerName: dto.buyer,
+          notes: dto.notes,
+        },
+        userId,
+      ),
+    );
 
     return {
       success: true,
-      data: operation,
+      data: harvest,
     };
   }
 

@@ -67,6 +67,16 @@ class DetectionRuleTests(unittest.TestCase):
         findings = self._findings_for("secret_leak_in_yaml_or_md")
         self.assertTrue(any(f["label"] == "aws_access_key" for f in findings))
 
+    def test_findings_include_contract_evidence(self) -> None:
+        _write(self.repo, ".github/workflows/perm.yml",
+               "name: x\npermissions: write-all\njobs:\n  build:\n    runs-on: ubuntu-latest\n")
+        result = scan(self.repo)
+        finding = result["findings"][0]
+        self.assertTrue(finding.get("evidence"))
+        self.assertEqual(finding["evidence"][0]["path"], finding["path"])
+        self.assertIsInstance(finding["evidence"][0].get("line"), int)
+        self.assertEqual(result["evidence_sources"], [finding["path"]])
+
     def test_untrusted_checkout_fires_only_on_workflow_run(self) -> None:
         _write(self.repo, ".github/workflows/safe.yml", """
 on:

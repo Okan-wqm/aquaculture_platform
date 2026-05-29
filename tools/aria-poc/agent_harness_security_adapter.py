@@ -251,6 +251,29 @@ def _check_agent_self_modification(rel_path: str, content: str) -> list[dict[str
     return []
 
 
+def _evidence_from_ref(ref: str) -> dict:
+    path = ref
+    line = None
+    if ":" in ref:
+        candidate_path, candidate_line = ref.rsplit(":", 1)
+        if candidate_line.isdigit():
+            path = candidate_path
+            line = int(candidate_line)
+    evidence = {"path": path}
+    if line is not None:
+        evidence["line"] = line
+    return evidence
+
+
+def _finalize_findings(findings: list[dict]) -> list[dict]:
+    for index, finding in enumerate(findings):
+        evidence = _evidence_from_ref(str(finding.get("ref") or finding.get("path") or ""))
+        finding.setdefault("id", f"{finding.get('rule', 'finding')}:{index}:{evidence['path']}")
+        finding.setdefault("path", evidence["path"])
+        finding.setdefault("evidence", [evidence])
+    return findings
+
+
 def scan(repo_root: Path) -> dict[str, Any]:
     """Run all 7 rules across the scanned glob set; return ARIA envelope."""
     findings: list[dict[str, Any]] = []
@@ -272,11 +295,12 @@ def scan(repo_root: Path) -> dict[str, Any]:
             _check_agent_self_modification,
         ):
             findings.extend(fn(rel, content))
+    findings = _finalize_findings(findings)
     return {
         "observations": [],
         "findings": findings,
-        "read_paths": read_paths[:200],  # cap to keep envelope small
-        "evidence_sources": [f["ref"] for f in findings],
+        "read_paths": read_paths,
+        "evidence_sources": sorted({ev["path"] for f in findings for ev in f["evidence"]}),
         "cost_units": len(read_paths),
         "metadata": {
             "rule_count": 7,

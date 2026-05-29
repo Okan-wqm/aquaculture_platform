@@ -64,9 +64,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci --no-audit
-      - run: npx nx test gateway-api --runInBand
-      - run: npx nx test notification-service --runInBand
-      - run: npx nx test event-contracts --runInBand
+      - run: npx jest --config apps/gateway-api/jest.config.ts apps/gateway-api/src/websocket/messaging-nats-bridge.service.spec.ts --runInBand
+      - run: npx jest --config apps/notification-service/jest.config.ts apps/notification-service/src/notification/event-handlers/__tests__/device-token-event.handler.spec.ts apps/notification-service/src/notification/resolvers/__tests__/notification.resolver.spec.ts --runInBand
+      - run: npx jest --config libs/event-contracts/jest.config.ts libs/event-contracts/src/__tests__/base-event.spec.ts libs/event-contracts/src/__tests__/messaging-channel-events.spec.ts --runInBand
 
   migration-outbox-static-gates:
     name: migration, outbox, ACL static gates

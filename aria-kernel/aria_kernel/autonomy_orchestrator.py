@@ -77,6 +77,7 @@ DEFAULT_MAX_CYCLES: int = 1
 DEFAULT_MAX_ITERATIONS_PER_PHASE: int = 10
 _DAEMON_LOCK_TIMEOUT_SECONDS: float = 2.0
 _ORCHESTRATOR_ACTION_KIND: str = "agent_claim"
+_ORCHESTRATOR_DRAIN_POLL_INTERVAL_SECONDS: float = 0.0
 
 
 def _iso_now() -> str:
@@ -219,12 +220,25 @@ def run_autonomy_orchestrator(
         from .autonomous_planner_dispatcher import (
             run_planner_dispatch_daemon,
         )
-        planner_drainer = run_planner_dispatch_daemon
+
+        def planner_drainer(**kwargs: Any) -> dict[str, Any]:
+            kwargs.setdefault(
+                "poll_interval_seconds",
+                _ORCHESTRATOR_DRAIN_POLL_INTERVAL_SECONDS,
+            )
+            return run_planner_dispatch_daemon(**kwargs)
+
     if worker_drainer is None:
         from .autonomous_worker_scheduler import (
             run_worker_scheduler_daemon,
         )
-        worker_drainer = run_worker_scheduler_daemon
+
+        def worker_drainer(**kwargs: Any) -> dict[str, Any]:
+            kwargs.setdefault(
+                "poll_interval_seconds",
+                _ORCHESTRATOR_DRAIN_POLL_INTERVAL_SECONDS,
+            )
+            return run_worker_scheduler_daemon(**kwargs)
     if bridge_drainer is None:
         bridge_drainer = _default_bridge_drainer
 

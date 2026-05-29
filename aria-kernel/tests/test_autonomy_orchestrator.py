@@ -1,8 +1,9 @@
 """Plan 026R §F.1 LOAD-BEARING — autonomy orchestrator state machine.
 
-8 tests:
+9 tests:
 
 * Full chain happy path → cycles_completed=N + all phases recorded.
+* Default embedded drains preserve iteration bounds without idle sleeps.
 * ARIA_STOP exits clean with reason=aria_stop, no cycle ran.
 * Frozen profile exits clean with reason=profile_frozen.
 * max_cycles cap honored.
@@ -19,6 +20,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from aria_kernel.autonomy_orchestrator import run_autonomy_orchestrator
 from aria_kernel.autonomy_state import (
@@ -114,6 +116,55 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertIn("bridge_drained", phases)
         self.assertIn("worker_dispatch_drained", phases)
         self.assertIn("max_cycles_reached", phases)
+
+    def test_default_embedded_drainers_preserve_bounds_without_idle_sleep(self) -> None:
+        captured: dict[str, dict[str, Any]] = {}
+
+        def fake_planner_daemon(**kwargs: Any) -> dict[str, Any]:
+            captured["planner"] = kwargs
+            return {
+                "iterations": 10,
+                "claims_dispatched": 0,
+                "exits_clean": True,
+                "exit_reason": "max_iterations",
+            }
+
+        def fake_worker_daemon(**kwargs: Any) -> dict[str, Any]:
+            captured["worker"] = kwargs
+            return {
+                "iterations": 10,
+                "assignments_dispatched": 0,
+                "retries_attempted": 0,
+                "merges_completed": 0,
+                "exits_clean": True,
+                "exit_reason": "max_iterations",
+            }
+
+        with patch(
+            "aria_kernel.autonomous_planner_dispatcher.run_planner_dispatch_daemon",
+            fake_planner_daemon,
+        ), patch(
+            "aria_kernel.autonomous_worker_scheduler.run_worker_scheduler_daemon",
+            fake_worker_daemon,
+        ):
+            result = run_autonomy_orchestrator(
+                base_dir=self.base,
+                workspace_root=str(self.tmp),
+                max_cycles=1,
+                max_iterations_per_phase=10,
+                cycle_runner=_fake_cycle_runner,
+                bridge_drainer=_fake_bridge_drainer,
+            )
+
+        self.assertEqual(result["cycles_completed"], 1)
+        self.assertEqual(captured["planner"]["max_iterations"], 10)
+        self.assertEqual(captured["worker"]["max_iterations"], 10)
+        self.assertEqual(
+            captured["planner"]["poll_interval_seconds"], 0.0,
+        )
+        self.assertEqual(
+            captured["worker"]["poll_interval_seconds"], 0.0,
+        )
 
     def test_aria_stop_exits_before_cycle_starts(self) -> None:
         ensure_tools_dir(self.base)

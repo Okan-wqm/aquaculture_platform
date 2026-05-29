@@ -13,10 +13,15 @@ Review candidates before applying. Failed, degraded, or evidence-error cycles re
 ## Apply
 
 ```bash
+aria-kernel runtime verify-artifacts
 aria-kernel runtime retention apply --retain-hot-cycles 20 --acknowledge
+aria-kernel runtime verify-artifacts
+aria-kernel integrity verify
 ```
 
 The command writes `retention/events.jsonl` with original path, archive path, hash, size, cycle id, reason, and reviewed status.
+
+If a retention source is missing before archive copy, treat it as an incident. Do not silently skip it in promotion evidence; restore or quarantine the affected artifact before continuing.
 
 ## Restore
 

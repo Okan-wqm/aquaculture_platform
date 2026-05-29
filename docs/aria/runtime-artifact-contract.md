@@ -22,6 +22,17 @@ Any output that is summarized, truncated, deduplicated, redacted, migrated, arch
 
 If those fields cannot be produced, the run must not remain `ok`.
 
+Summary fields that claim bounded output must also preserve audit cardinality:
+
+- `source_count`: number of source records before bounding.
+- `emitted_count`: number of records represented in stdout or thin ledger rows.
+- `suppressed_count`: number intentionally omitted from bounded output.
+- `truncated_count`: number shortened for size.
+- `reason_code`: stable machine-readable reason for each omission/truncation class.
+- `artifact_ref`, `sha256`, and `verification_status`: pointer back to complete evidence.
+
+These fields must be derived from produced evidence, not defaulted for a green status. A zero value is valid only when the runtime can prove no record was suppressed or truncated.
+
 ## Ledgers
 
 - `runs.jsonl`: run summary row.
@@ -43,3 +54,7 @@ aria-kernel integrity verify
 ```
 
 Both must pass before autonomous follow-on phases are trusted.
+
+## Promotion Boundary
+
+`--output full --artifact <path>` is an operator export, not a replacement for indexed audit evidence. A full export may help review, but `ok` status still depends on the hash-indexed runtime artifact graph under `run-artifacts/`.

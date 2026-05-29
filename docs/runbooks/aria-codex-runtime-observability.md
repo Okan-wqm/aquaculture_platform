@@ -31,9 +31,9 @@ Investigate when any of these change abruptly:
 - verification backlog
 - abnormal truncation or suppression rate
 
-## 10-Cycle Soak Gate
+## v2-Shadow Soak Gate
 
-Before enabling v2 as source of truth:
+Before treating `v2` as a candidate:
 
 - 10 consecutive cycles complete.
 - Every cycle reports all expected tools `ok`.
@@ -42,3 +42,15 @@ Before enabling v2 as source of truth:
 - artifact hash re-read is `ok`.
 - summary stdout stays under 32KB.
 - missing/corrupt/path-escape negative tests fail closed.
+
+Any bug fix resets the count to 0. A cycle with fewer recorded tools than expected is acceptable only when the orchestrator explicitly documents the selection and no hidden non-ok tool exists.
+
+## Short v2 Smoke
+
+After a clean `v2-shadow` soak, run 2-3 isolated cycles with `ARIA_RUN_LEDGER_FORMAT=v2`. Verify artifacts and integrity after every cycle, then exercise retention dry-run, apply, restore, rollback, and final verification.
+
+This smoke proves candidate mechanics only. It does not make `v2` source of truth.
+
+## Real v2 Promotion
+
+Real promotion requires ADR-backed operator approval and an evidence bundle containing the run ledgers, by-cycle indexes, raw finding pointers, artifact index, manifest, retention events, artifact inventory, `verify-artifacts` output, `integrity verify` output, and the operator approval record. `v2-shadow` remains default until that bundle passes review.

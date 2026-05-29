@@ -54,6 +54,22 @@ Runtime artifact commands:
 
 Covered runtime ledgers become part of tools integrity when present: `run-artifacts/artifact-index.jsonl`, `run-artifacts/manifest.jsonl`, `retention/events.jsonl`, `observability/alerts.jsonl`, and `observability/artifact-inventory.jsonl`.
 
+### v2 Promotion Contract
+
+`ARIA_RUN_LEDGER_FORMAT=v2` is a promotion ceremony, not a single environment-variable flip. `v2-shadow` remains the default until an operator-approved evidence bundle proves that bounded stdout did not shrink audit capacity.
+
+Promotion requires:
+
+- 10 consecutive isolated `v2-shadow` cycles with every expected tool either recorded as `ok` or explicitly failed closed.
+- `runtime verify-artifacts` and `integrity verify` after every cycle.
+- A short isolated `v2` smoke after shadow soak, followed by retention dry-run, apply, restore, rollback, and final verification.
+- Parity evidence that raw finding counts, emitted finding counts, artifact references, hashes, suppressed counts, and truncated counts did not regress between `v1`/`v2-shadow` readers.
+- Negative evidence tests for missing artifact, corrupt artifact, hash mismatch, path escape, artifact write failure, restore failure, summary over 32KB, and lifecycle failure before planner/worker drains.
+
+Promotion is blocked if any consumer reads `runs.jsonl` directly instead of `aria_kernel.runs_reader`, any artifact hash status is not `ok`, any raw finding pointer cannot resolve to artifact payload, or any omission/truncation/suppression lacks a count, reason code, artifact ref, hash, and verification status.
+
+The current implementation records `suppressed_count` and `truncated_count` in the summary contract. Real `v2` source-of-truth promotion remains blocked until those counters are derived from runtime evidence and covered by tests; hard-coded zero counters are smoke evidence only.
+
 ## 0.2 — Phase-2A Learning Pass Contract
 
 Each cycle runs an ordered learning pass before normal cycle work:

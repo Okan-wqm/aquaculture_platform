@@ -131,6 +131,8 @@ export async function createE2eTestApp(
     publishTo: jest.fn().mockResolvedValue(undefined),
     // IEventSubscriber
     subscribe: jest.fn().mockResolvedValue(undefined),
+    subscribeWildcard: jest.fn().mockResolvedValue(undefined),
+    subscribeForTenant: jest.fn().mockResolvedValue(undefined),
     subscribeTo: jest.fn().mockResolvedValue(undefined),
     unsubscribe: jest.fn().mockResolvedValue(undefined),
     unsubscribeFrom: jest.fn().mockResolvedValue(undefined),

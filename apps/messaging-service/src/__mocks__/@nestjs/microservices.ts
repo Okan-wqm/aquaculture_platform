@@ -79,3 +79,19 @@ export function EventPattern(_pattern: string): ClassDecorator & MethodDecorator
 export function Payload(): ParameterDecorator {
   return () => undefined;
 }
+
+export function Ctx(): ParameterDecorator {
+  return () => undefined;
+}
+
+export class NatsContext {
+  constructor(private readonly args: unknown[] = []) {}
+
+  getSubject(): string {
+    return String(this.args[0] ?? '');
+  }
+
+  getMessage(): unknown {
+    return this.args[1];
+  }
+}

@@ -12,14 +12,17 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
-  Unique,
 } from 'typeorm';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { Message } from './message.entity';
 
 @ObjectType()
 @Entity('message_reactions')
-@Unique('uq_reaction_message_user_emoji', ['messageId', 'userId', 'emoji'])
+@Index(
+  'idx_message_reactions_tenant_message_user_emoji',
+  ['tenantId', 'messageId', 'messageCreatedAt', 'userId', 'emoji'],
+  { unique: true },
+)
 @Index('idx_reactions_message', ['messageId'])
 @Index('idx_reactions_tenant', ['tenantId'])
 export class MessageReaction {
@@ -55,6 +58,7 @@ export class MessageReaction {
 
   @ManyToOne(() => Message, (msg) => msg.reactions, { onDelete: 'CASCADE' })
   @JoinColumn([
+    { name: 'tenantId', referencedColumnName: 'tenantId' },
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])

@@ -1,13 +1,4 @@
-import {
-  Resolver,
-  Query,
-  Mutation,
-  Args,
-  Int,
-  ID,
-  ObjectType,
-  Field,
-} from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, Int, ID, ObjectType, Field } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -146,9 +137,7 @@ export class NotificationResolver {
    */
   @Query(() => Int, { name: 'deadLetterCount' })
   @Roles(Role.SUPER_ADMIN)
-  async deadLetterCount(
-    @Tenant() tenantId: string,
-  ): Promise<number> {
+  async deadLetterCount(@Tenant() tenantId: string): Promise<number> {
     const result = await this.dlqService.getDeadLetterEvents(tenantId, 0, 0);
     return result.total;
   }
@@ -166,44 +155,59 @@ export class NotificationResolver {
     // Validate platform
     const validPlatforms = ['web', 'android', 'ios'];
     if (!validPlatforms.includes(platform)) {
-      this.logger.warn(
-        `Invalid platform "${platform}" for device token registration`,
-      );
+      this.logger.warn(`Invalid platform "${platform}" for device token registration`);
       return false;
     }
 
     try {
-      // Check if token already exists for this user
-      const existing = await this.deviceTokenRepository.findOne({
-        where: { userId: user.sub, token },
-      });
+      await this.deviceTokenRepository.manager.transaction(async (manager) => {
+        const repository = manager.getRepository(DeviceToken);
+        await manager.query(
+          `SELECT id
+             FROM notification.device_tokens
+            WHERE token = $1
+            FOR UPDATE`,
+          [token],
+        );
 
-      if (existing) {
-        // Update lastSeenAt
-        existing.lastSeenAt = new Date();
-        existing.platform = platform;
-        existing.tenantId = tenantId;
-        await this.deviceTokenRepository.save(existing);
-      } else {
-        // Create new token record
-        const deviceToken = this.deviceTokenRepository.create({
+        await repository
+          .createQueryBuilder()
+          .delete()
+          .from(DeviceToken)
+          .where('"token" = :token', { token })
+          .andWhere('("tenant_id" <> :tenantId OR "user_id" <> :userId)', {
+            tenantId,
+            userId: user.sub,
+          })
+          .execute();
+
+        const existing = await repository.findOne({
+          where: { tenantId, userId: user.sub, token },
+        });
+
+        if (existing) {
+          existing.lastSeenAt = new Date();
+          existing.platform = platform;
+          await repository.save(existing);
+          return;
+        }
+
+        const deviceToken = repository.create({
           userId: user.sub,
           tenantId,
           token,
           platform,
           lastSeenAt: new Date(),
         });
-        await this.deviceTokenRepository.save(deviceToken);
-      }
+        await repository.save(deviceToken);
+      });
 
       this.logger.debug(
         `Device token registered for user ${user.sub.substring(0, 8)}... on platform ${platform}`,
       );
       return true;
     } catch (error) {
-      this.logger.error(
-        `Failed to register device token: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to register device token: ${(error as Error).message}`);
       return false;
     }
   }

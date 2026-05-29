@@ -39,10 +39,7 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import Redis from 'ioredis';
-import {
-  BypassRlsService,
-  runInTenantTransaction,
-} from '@aquaculture/backend-common/database';
+import { BypassRlsService, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { TenantAiSetting } from '../entities/tenant-ai-setting.entity';
 import { UserAiConsent } from '../entities/user-ai-consent.entity';
@@ -121,8 +118,7 @@ export class AiPrivacyService {
       this.dataSource,
       'messaging',
       tenantId,
-      (queryRunner) =>
-        queryRunner.manager.findOne(TenantAiSetting, { where: { tenantId } }),
+      (queryRunner) => queryRunner.manager.findOne(TenantAiSetting, { where: { tenantId } }),
     );
     const enabled = setting?.aiEnabled ?? false;
     await this.safeRedisSetEx(cacheKey, CACHE_TTL_SECONDS, String(enabled));
@@ -162,16 +158,12 @@ export class AiPrivacyService {
    * write so the new value is observable on the next read.
    */
   async setTenantAiEnabled(tenantId: string, enabled: boolean): Promise<void> {
-    await runInTenantTransaction(
-      this.dataSource,
-      'messaging',
-      tenantId,
-      (queryRunner) =>
-        queryRunner.manager.upsert(
-          TenantAiSetting,
-          { tenantId, aiEnabled: enabled },
-          { conflictPaths: ['tenantId'] },
-        ),
+    await runInTenantTransaction(this.dataSource, 'messaging', tenantId, (queryRunner) =>
+      queryRunner.manager.upsert(
+        TenantAiSetting,
+        { tenantId, aiEnabled: enabled },
+        { conflictPaths: ['tenantId'] },
+      ),
     );
     await this.safeRedisDel(`${TENANT_KEY_PREFIX}${tenantId}`);
     this.logger.log(`Tenant ${tenantId} AI flag set to: ${enabled}`);
@@ -180,35 +172,25 @@ export class AiPrivacyService {
   /**
    * Update user-level AI consent. Each user controls their own opt-in.
    * Invalidates the Redis cache. When consent is REVOKED, surgically
-   * clears any embeddings the platform retained for the user's messages
+   * clears any derived AI artifacts the platform retained for the user's messages
    * (GDPR Article 17 / right-to-be-forgotten compliance — once consent
    * is withdrawn, prior derived artifacts must also disappear).
    */
-  async setUserAiConsent(
-    tenantId: string,
-    userId: string,
-    consented: boolean,
-  ): Promise<void> {
-    await runInTenantTransaction(
-      this.dataSource,
-      'messaging',
-      tenantId,
-      (queryRunner) =>
-        queryRunner.manager.upsert(
-          UserAiConsent,
-          { tenantId, userId, consented },
-          { conflictPaths: ['tenantId', 'userId'] },
-        ),
+  async setUserAiConsent(tenantId: string, userId: string, consented: boolean): Promise<void> {
+    await runInTenantTransaction(this.dataSource, 'messaging', tenantId, (queryRunner) =>
+      queryRunner.manager.upsert(
+        UserAiConsent,
+        { tenantId, userId, consented },
+        { conflictPaths: ['tenantId', 'userId'] },
+      ),
     );
     await this.safeRedisDel(`${USER_KEY_PREFIX}${tenantId}:${userId}`);
 
     if (!consented) {
-      await this.sweepUserEmbeddings(tenantId, userId);
+      await this.sweepUserDerivedArtifacts(tenantId, userId);
     }
 
-    this.logger.log(
-      `User ${userId} in tenant ${tenantId} AI consent set to: ${consented}`,
-    );
+    this.logger.log(`User ${userId} in tenant ${tenantId} AI consent set to: ${consented}`);
   }
 
   /**
@@ -249,17 +231,30 @@ export class AiPrivacyService {
    * the permanent failure. Removed entirely; the actual sweep target
    * is the `messages.embedding` vector column above.
    */
-  private async sweepUserEmbeddings(tenantId: string, userId: string): Promise<void> {
+  private async sweepUserDerivedArtifacts(tenantId: string, userId: string): Promise<void> {
     try {
       await this.bypassRls.withBypass(
-        `ai-privacy:embedding-sweep:tenant=${tenantId}:user=${userId}`,
+        `ai-privacy:derived-artifact-sweep:tenant=${tenantId}:user=${userId}`,
         async () => {
           const result = await runInTenantTransaction(
             this.dataSource,
             'messaging',
             tenantId,
-            (queryRunner) =>
-              queryRunner.query(
+            async (queryRunner) => {
+              const userMessages: Array<{ id: string }> = await queryRunner.query(
+                `SELECT m.id
+                     FROM "messages" m
+                     JOIN "channels" c
+                       ON c."id" = m."channelId"
+                      AND c."tenantId" = m."tenantId"
+                    WHERE m."tenantId" = $1
+                      AND c."tenantId" = $1
+                      AND m."senderId" = $2`,
+                [tenantId, userId],
+              );
+              const messageIds = userMessages.map((message) => message.id);
+
+              const updateResult = await queryRunner.query(
                 `UPDATE "messages" m
                  SET "embedding" = NULL
                  FROM "channels" c
@@ -268,7 +263,31 @@ export class AiPrivacyService {
                    AND m."senderId" = $2
                    AND m."embedding" IS NOT NULL`,
                 [tenantId, userId],
-              ),
+              );
+
+              if (messageIds.length > 0) {
+                await queryRunner.query(
+                  `DELETE FROM "message_analysis"
+                   WHERE "tenantId" = $1
+                     AND "messageId" = ANY($2::uuid[])`,
+                  [tenantId, messageIds],
+                );
+                await queryRunner.query(
+                  `DELETE FROM "message_entity_references"
+                   WHERE "tenantId" = $1
+                     AND "messageId" = ANY($2::uuid[])`,
+                  [tenantId, messageIds],
+                );
+                await queryRunner.query(
+                  `DELETE FROM "knowledge_entries"
+                   WHERE "tenantId" = $1
+                     AND "sourceMessageId" = ANY($2::uuid[])`,
+                  [tenantId, messageIds],
+                );
+              }
+
+              return updateResult;
+            },
           );
 
           // pg driver returns [rows, rowCount] for UPDATE.

@@ -18,7 +18,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagingQueryKeys } from '@/utils/messaging-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { MessageUser } from '@/types/messaging';
@@ -81,7 +81,7 @@ export function useTenantUsers() {
   const { isAuthenticated, tenantId } = useAuth();
 
   const query = useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'messaging', 'tenantUsers', tenantId),
+    queryKey: messagingQueryKeys.tenantUsers(tenantId),
     queryFn: fetchTenantUsers,
     enabled: isAuthenticated && !!tenantId,
     staleTime: 60_000,

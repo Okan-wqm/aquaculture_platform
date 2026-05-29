@@ -1,4 +1,5 @@
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagingQueryKeys } from '@/utils/messaging-query-keys';
 import type { OperationType } from '@/types';
 import type { QueryClient } from '@tanstack/react-query';
 
@@ -17,27 +18,51 @@ const SYNC_INVALIDATION_SEGMENTS: Partial<Record<OperationType, readonly (readon
   createLeaveRequest: [['leaveRequests'], ['leaveBalances']],
   completeTask: [['myTasks'], ['taskStats'], ['dailyOpsCounts']],
   startTask: [['myTasks'], ['taskStats'], ['dailyOpsCounts']],
-  sendMessage: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
-  editMessage: [['messaging', 'channels'], ['messaging', 'messages']],
-  deleteMessage: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
-  markMessagesRead: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
+};
+
+const MESSAGING_INVALIDATION_KEYS: Partial<
+  Record<OperationType, (tenantId: string) => readonly (readonly unknown[])[]>
+> = {
+  sendMessage: (tenantId) => [
+    messagingQueryKeys.channels(tenantId),
+    messagingQueryKeys.allMessages(tenantId),
+    messagingQueryKeys.unreadCount(tenantId),
+  ],
+  editMessage: (tenantId) => [
+    messagingQueryKeys.channels(tenantId),
+    messagingQueryKeys.allMessages(tenantId),
+  ],
+  deleteMessage: (tenantId) => [
+    messagingQueryKeys.channels(tenantId),
+    messagingQueryKeys.allMessages(tenantId),
+    messagingQueryKeys.unreadCount(tenantId),
+  ],
+  markMessagesRead: (tenantId) => [
+    messagingQueryKeys.channels(tenantId),
+    messagingQueryKeys.allMessages(tenantId),
+    messagingQueryKeys.unreadCount(tenantId),
+  ],
 };
 
 export function getSyncedOperationInvalidationKeys(
   tenantId: string,
   operationTypes: readonly OperationType[],
 ): readonly (readonly unknown[])[] {
-  const uniqueSegments = new Map<string, readonly unknown[]>();
+  const uniqueKeys = new Map<string, readonly unknown[]>();
+  const addKey = (queryKey: readonly unknown[]) => {
+    uniqueKeys.set(JSON.stringify(queryKey), queryKey);
+  };
 
   for (const operationType of operationTypes) {
     for (const segments of SYNC_INVALIDATION_SEGMENTS[operationType] ?? []) {
-      uniqueSegments.set(JSON.stringify(segments), segments);
+      addKey(createTenantQueryKey(tenantId, ...segments));
+    }
+    for (const queryKey of MESSAGING_INVALIDATION_KEYS[operationType]?.(tenantId) ?? []) {
+      addKey(queryKey);
     }
   }
 
-  return Array.from(uniqueSegments.values()).map((segments) =>
-    createTenantQueryKey(tenantId, ...segments),
-  );
+  return Array.from(uniqueKeys.values());
 }
 
 export async function invalidateSyncedOperationQueries(

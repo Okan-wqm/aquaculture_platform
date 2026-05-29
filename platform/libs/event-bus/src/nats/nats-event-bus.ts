@@ -21,6 +21,7 @@ import {
   DiscardPolicy,
   Consumer,
   ConnectionOptions,
+  headers,
 } from 'nats';
 import * as os from 'os';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
@@ -43,9 +44,7 @@ import type { EventBusModuleOptions } from './nats.module';
  * Designed for 10K+ tenant scale with proper isolation
  */
 @Injectable()
-export class NatsEventBus
-  implements IEventBus, OnModuleInit, OnModuleDestroy
-{
+export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NatsEventBus.name);
   private connection: NatsConnection | null = null;
   private jetStream: JetStreamClient | null = null;
@@ -60,8 +59,7 @@ export class NatsEventBus
     options?: SubscriptionOptions;
   }> = [];
   private lastConnectedAt: Date | null = null;
-  private connectionState: 'connected' | 'disconnected' | 'reconnecting' =
-    'disconnected';
+  private connectionState: 'connected' | 'disconnected' | 'reconnecting' = 'disconnected';
 
   // Configuration
   // ADR-015: TLS + auth fields are NOT stored on the instance — the shared
@@ -90,34 +88,16 @@ export class NatsEventBus
   ) {
     this.upcasterRegistry = upcasterRegistry;
     this.requireBroker = moduleOptions?.required ?? false;
-    this.natsUrl = this.configService.get<string>(
-      'NATS_URL',
-      'nats://localhost:4222',
-    );
-    this.streamName = this.configService.get<string>(
-      'NATS_STREAM_NAME',
-      'AQUACULTURE_EVENTS',
-    );
+    this.natsUrl = this.configService.get<string>('NATS_URL', 'nats://localhost:4222');
+    this.streamName = this.configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS');
     // ARCH-020: Use SERVICE_NAME for stable consumer identity across pod restarts.
     // PID-based names caused orphan consumers and duplicate message processing.
     // Same SERVICE_NAME across scaled instances enables JetStream queue-group
     // semantics: messages are load-balanced, not duplicated.
-    const serviceName = this.configService.get<string>(
-      'SERVICE_NAME',
-      os.hostname(),
-    );
-    this.clientId = this.configService.get<string>(
-      'NATS_CLIENT_ID',
-      `aquaculture-${serviceName}`,
-    );
-    this.maxReconnectAttempts = this.configService.get<number>(
-      'NATS_MAX_RECONNECT_ATTEMPTS',
-      10,
-    );
-    this.reconnectTimeWaitMs = this.configService.get<number>(
-      'NATS_RECONNECT_TIME_WAIT_MS',
-      2000,
-    );
+    const serviceName = this.configService.get<string>('SERVICE_NAME', os.hostname());
+    this.clientId = this.configService.get<string>('NATS_CLIENT_ID', `aquaculture-${serviceName}`);
+    this.maxReconnectAttempts = this.configService.get<number>('NATS_MAX_RECONNECT_ATTEMPTS', 10);
+    this.reconnectTimeWaitMs = this.configService.get<number>('NATS_RECONNECT_TIME_WAIT_MS', 2000);
     // ADR-015: TLS / auth config is read inside `connect()` via the shared
     // `buildNatsConnectionOptions()` factory. Production security enforcement
     // (no-auth throw) lives in the factory so every NATS consumer on the
@@ -150,15 +130,15 @@ export class NatsEventBus
       if (mustHaveBroker) {
         this.logger.error(
           `CRITICAL: Failed to connect to NATS (required=${this.requireBroker}, ` +
-          `production=${isProduction}). Service startup aborted. ` +
-          `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            `production=${isProduction}). Service startup aborted. ` +
+            `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         throw error;
       }
       this.logger.warn(
         `Failed to connect to NATS on startup (non-production, optional). ` +
-        `Service will continue without event bus. ` +
-        `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          `Service will continue without event bus. ` +
+          `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       this.scheduleReconnect();
     }
@@ -258,17 +238,14 @@ export class NatsEventBus
       // so packet-capture / log-grep investigations aren't misled.
       const authModeDescription: Record<typeof factoryOptions.authMode, string> = {
         'mtls-cert': 'cert CN is identity; verify_and_map on server',
-        'token': 'service-account token (CONNECT frame)',
+        token: 'service-account token (CONNECT frame)',
         'user-pass': 'dev/legacy fallback (CONNECT frame user/password)',
-        'none': 'unauthenticated (dev/local only; production throws)',
+        none: 'unauthenticated (dev/local only; production throws)',
       };
-      this.logger.log(
-        `NATS auth mode selected: ${factoryOptions.authMode}`,
-        {
-          authMode: factoryOptions.authMode,
-          description: authModeDescription[factoryOptions.authMode],
-        },
-      );
+      this.logger.log(`NATS auth mode selected: ${factoryOptions.authMode}`, {
+        authMode: factoryOptions.authMode,
+        description: authModeDescription[factoryOptions.authMode],
+      });
 
       this.connection = await connect(connectionOptions);
 
@@ -384,9 +361,7 @@ export class NatsEventBus
    */
   async publishCore(subject: string, payload: Uint8Array): Promise<void> {
     if (this.connection === null) {
-      throw new Error(
-        `NATS core publish to "${subject}" failed: connection not established`,
-      );
+      throw new Error(`NATS core publish to "${subject}" failed: connection not established`);
     }
     this.connection.publish(subject, payload);
     // `publish` on a core NATS connection returns void synchronously
@@ -427,10 +402,7 @@ export class NatsEventBus
     return `events.${segment}.${event.eventType}`;
   }
 
-  async publish<TEvent extends IEvent>(
-    event: TEvent,
-    options?: PublishOptions,
-  ): Promise<void> {
+  async publish<TEvent extends IEvent>(event: TEvent, options?: PublishOptions): Promise<void> {
     await this.publishTo(this.deriveSubject(event), event, options);
   }
 
@@ -450,6 +422,9 @@ export class NatsEventBus
     try {
       const payload = this.serializeEvent(event);
       const subject = this.normalizeSubject(topic);
+      const hdrs = headers();
+      hdrs.set('x-aqua-producer-service', this.clientId);
+      hdrs.set('x-correlation-id', event.correlationId ?? event.eventId);
 
       // NOTE: Intentionally NO `expect: { lastMsgID: ... }` option here.
       // `expect.lastMsgID` is a CAS-style assertion — it succeeds only on
@@ -462,14 +437,12 @@ export class NatsEventBus
       // idempotency guarantee the outbox worker relies on for retries.
       await this.jetStream.publish(subject, this.codec.encode(payload), {
         msgID: event.eventId,
+        headers: hdrs,
       });
 
       this.logger.debug(`Published event ${event.eventType} to ${subject}`);
     } catch (error) {
-      this.logger.error(
-        `Failed to publish event ${event.eventType}`,
-        error,
-      );
+      this.logger.error(`Failed to publish event ${event.eventType}`, error);
       throw error;
     }
   }
@@ -568,16 +541,12 @@ export class NatsEventBus
    */
   private assertSafeTenantSegment(tenantId: string): void {
     if (typeof tenantId !== 'string' || tenantId.length === 0) {
-      throw new TypeError(
-        `subscribeForTenant: tenantId must be a non-empty string`,
-      );
+      throw new TypeError(`subscribeForTenant: tenantId must be a non-empty string`);
     }
     // /[\s.*>]/ — whitespace OR any NATS subject metacharacter
     if (/[\s.*>]/.test(tenantId)) {
       const masked =
-        tenantId.length > 8
-          ? `${tenantId.substring(0, 8)}…`
-          : tenantId.substring(0, 8);
+        tenantId.length > 8 ? `${tenantId.substring(0, 8)}…` : tenantId.substring(0, 8);
       throw new TypeError(
         `subscribeForTenant: tenantId contains forbidden characters ` +
           `(NATS subject metacharacters or whitespace). ` +
@@ -603,9 +572,7 @@ export class NatsEventBus
     if (!this.jetStream) {
       // JetStream is not yet connected.  Queue the subscription so it will
       // be activated once the connection is established.
-      this.logger.warn(
-        `NATS JetStream not connected yet. Queuing subscription for ${subject}`,
-      );
+      this.logger.warn(`NATS JetStream not connected yet. Queuing subscription for ${subject}`);
       if (!this.pendingSubscriptions.some((p) => p.subject === subject)) {
         this.pendingSubscriptions.push({ subject, options });
       }
@@ -652,9 +619,7 @@ export class NatsEventBus
       return;
     }
 
-    this.logger.log(
-      `Activating ${this.pendingSubscriptions.length} pending subscription(s)...`,
-    );
+    this.logger.log(`Activating ${this.pendingSubscriptions.length} pending subscription(s)...`);
 
     // Drain the queue (splice so new entries during iteration are not lost)
     const pending = this.pendingSubscriptions.splice(0);
@@ -668,9 +633,7 @@ export class NatsEventBus
         this.logger.log(`Activated pending subscription for ${subject}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(
-          `Failed to activate pending subscription for ${subject}: ${message}`,
-        );
+        this.logger.error(`Failed to activate pending subscription for ${subject}: ${message}`);
         failures.push({ subject, message });
       }
     }
@@ -678,12 +641,8 @@ export class NatsEventBus
     // IMPORTANT: fail-closed — surface ALL activation failures as a single
     // error so the boot-time decision (throw vs continue) is made by the caller.
     if (failures.length > 0) {
-      const summary = failures
-        .map((f) => `  - ${f.subject}: ${f.message}`)
-        .join('\n');
-      throw new Error(
-        `Failed to activate ${failures.length} pending subscription(s):\n${summary}`,
-      );
+      const summary = failures.map((f) => `  - ${f.subject}: ${f.message}`).join('\n');
+      throw new Error(`Failed to activate ${failures.length} pending subscription(s):\n${summary}`);
     }
   }
 
@@ -739,10 +698,7 @@ export class NatsEventBus
   /**
    * Create a subscription for a subject
    */
-  private async createSubscription(
-    subject: string,
-    options?: SubscriptionOptions,
-  ): Promise<void> {
+  private async createSubscription(subject: string, options?: SubscriptionOptions): Promise<void> {
     if (!this.jetStream || !this.jetStreamManager) {
       return;
     }
@@ -753,10 +709,7 @@ export class NatsEventBus
       // Create or get a pull-based consumer
       const consumerConfig: Partial<ConsumerConfig> = {
         durable_name: consumerName,
-        deliver_policy:
-          options?.startFrom === 'beginning'
-            ? DeliverPolicy.All
-            : DeliverPolicy.New,
+        deliver_policy: options?.startFrom === 'beginning' ? DeliverPolicy.All : DeliverPolicy.New,
         ack_policy: AckPolicy.Explicit,
         ack_wait: (options?.ackWait ?? 30) * 1000000000, // Convert to nanoseconds
         max_deliver: options?.maxRetries ?? 3,
@@ -788,10 +741,7 @@ export class NatsEventBus
   /**
    * Process messages from a pull-based consumer
    */
-  private processMessagesFromConsumer(
-    subject: string,
-    consumer: Consumer,
-  ): void {
+  private processMessagesFromConsumer(subject: string, consumer: Consumer): void {
     const abortController = new AbortController();
     this.abortControllers.set(subject, abortController);
 
@@ -801,6 +751,14 @@ export class NatsEventBus
           callback: async (msg) => {
             try {
               const event = this.deserializeEvent(this.codec.decode(msg.data));
+              if (!this.validateSubjectPayload(msg.subject, event)) {
+                this.logger.error(
+                  `Dropping event with subject/payload mismatch: subject=${msg.subject} ` +
+                    `payloadType=${event.eventType} payloadTenant=${event.tenantId ?? '<none>'}`,
+                );
+                msg.term();
+                return;
+              }
               const handlers = this.handlers.get(subject) ?? [];
 
               // SECURITY: Handler failures must NOT be swallowed while the
@@ -904,6 +862,34 @@ export class NatsEventBus
   }
 
   /**
+   * NATS subject is part of the trust boundary. The publisher derives
+   * `events.{tenantId}.{eventType}` from the event object; consumers verify
+   * that the wire subject still matches the decoded payload before any handler
+   * can route or mutate tenant data.
+   */
+  private validateSubjectPayload(subject: string, event: IEvent): boolean {
+    const tokens = subject.split('.');
+    if (tokens.length !== 3 || tokens[0] !== 'events') {
+      return true;
+    }
+
+    const [, subjectTenantId, subjectEventType] = tokens;
+    if (!subjectTenantId || !subjectEventType) {
+      return false;
+    }
+
+    if (event.eventType !== subjectEventType) {
+      return false;
+    }
+
+    if (subjectTenantId === 'system') {
+      return event.tenantId === undefined || event.tenantId === 'system';
+    }
+
+    return event.tenantId === subjectTenantId;
+  }
+
+  /**
    * Normalize subject to match stream configuration
    */
   private normalizeSubject(topic: string): string {
@@ -964,11 +950,7 @@ export class NatsEventBus
 /**
  * Helper function to create an event with metadata
  */
-export function createEvent(
-  eventType: string,
-  tenantId: string,
-  metadata?: EventMetadata,
-): IEvent {
+export function createEvent(eventType: string, tenantId: string, metadata?: EventMetadata): IEvent {
   return {
     eventId: crypto.randomUUID(),
     eventType,

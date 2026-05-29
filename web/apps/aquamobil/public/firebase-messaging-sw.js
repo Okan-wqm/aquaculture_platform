@@ -22,7 +22,9 @@
 // SECURITY: Pin exact version — never use ranges or "latest"
 const FIREBASE_VERSION = '10.8.0';
 importScripts(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app-compat.js`);
-importScripts(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-messaging-compat.js`);
+importScripts(
+  `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-messaging-compat.js`,
+);
 
 firebase.initializeApp({
   apiKey: self.__FIREBASE_CONFIG__?.apiKey,
@@ -32,6 +34,8 @@ firebase.initializeApp({
 });
 
 const messaging = firebase.messaging();
+const APP_BASENAME = '/mobile';
+const MAX_NOTIFICATION_REF_LENGTH = 128;
 
 /**
  * SECURITY: FE-HIGH-009 — Validate notification click URL before navigating.
@@ -80,14 +84,34 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
-  const url = event.notification.data?.url || event.notification.data?.route;
+  const rawNotificationRef = event.notification.data?.notificationRef;
+  const notificationRef =
+    typeof rawNotificationRef === 'string' &&
+    rawNotificationRef.length > 0 &&
+    rawNotificationRef.length <= MAX_NOTIFICATION_REF_LENGTH
+      ? rawNotificationRef
+      : undefined;
+  const url = notificationRef
+    ? `${APP_BASENAME}/messages?notificationRef=${encodeURIComponent(notificationRef)}`
+    : event.notification.data?.url || event.notification.data?.route;
 
   if (url && isAllowedNotificationUrl(url)) {
     event.waitUntil(
-      self.clients.matchAll({ type: 'window' }).then((clientList) => {
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
         // Focus existing window if available
         for (const client of clientList) {
-          if (client.url === url && 'focus' in client) {
+          if (
+            notificationRef &&
+            client.url.includes(`${APP_BASENAME}/messages`) &&
+            'focus' in client
+          ) {
+            client.postMessage({
+              type: 'NAVIGATE_TO_NOTIFICATION_REF',
+              notificationRef,
+            });
+            return client.focus();
+          }
+          if (!notificationRef && client.url === url && 'focus' in client) {
             return client.focus();
           }
         }
@@ -95,12 +119,10 @@ self.addEventListener('notificationclick', (event) => {
         if (self.clients.openWindow) {
           return self.clients.openWindow(url);
         }
-      })
+      }),
     );
   } else {
     // No URL or blocked URL — open app root
-    event.waitUntil(
-      self.clients.openWindow('/')
-    );
+    event.waitUntil(self.clients.openWindow(APP_BASENAME));
   }
 });

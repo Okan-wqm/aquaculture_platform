@@ -92,10 +92,15 @@ describe('MessagingPushService', () => {
         eventType: 'ChatPushRequested',
         tenantId: basePayload.tenantId,
         recipientUserId: 'user-a',
-        notificationRef: basePayload.eventId,
+        notificationRef: expect.any(String),
         badge: 3,
         notificationType: 'CHAT_MESSAGE',
       }),
+    );
+    expect(mockRedis.setex).toHaveBeenCalledWith(
+      expect.stringContaining(`msg:push:ref:${basePayload.tenantId}:`),
+      900,
+      expect.stringContaining('"recipientUserId":"user-a"'),
     );
   });
 
@@ -185,7 +190,8 @@ describe('MessagingPushService', () => {
     await service.handleMessageSent(basePayload);
 
     const emittedPayload = mockEventBus.publish.mock.calls[0]?.[0];
-    expect(emittedPayload.notificationRef).toBe(basePayload.eventId);
+    expect(emittedPayload.notificationRef).toEqual(expect.any(String));
+    expect(emittedPayload.notificationRef).not.toBe(basePayload.eventId);
     expect(JSON.stringify(emittedPayload)).not.toContain('content');
     expect(JSON.stringify(emittedPayload)).not.toContain(basePayload.channelId);
     expect(JSON.stringify(emittedPayload)).not.toContain(basePayload.messageId);

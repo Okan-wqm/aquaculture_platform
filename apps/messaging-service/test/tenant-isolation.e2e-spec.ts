@@ -250,12 +250,25 @@ describe('Tenant Isolation (E2E) — SECURITY-CRITICAL', () => {
 
   // ── Outbox Isolation ──────────────────────────────────────────────────
 
-  it('outbox events contain correct tenantId', async () => {
+  it('outbox events are source-owned and contain correct tenantId', async () => {
     const schemaA = getTenantSchemaName(TENANT_A);
 
-    // Check outbox entries in TENANT_A schema
+    const tenantOutbox: { exists: boolean }[] = await dataSource.query(
+      `SELECT EXISTS (
+        SELECT 1 FROM pg_tables
+        WHERE schemaname = $1 AND tablename = 'messaging_outbox'
+      ) AS exists`,
+      [schemaA],
+    );
+    expect(tenantOutbox[0]?.exists).toBe(false);
+
+    // Check outbox entries in the messaging source schema.
     const outboxRows: { payload: string; eventType: string }[] = await dataSource.query(
-      `SELECT payload::text, "eventType" FROM "${schemaA}"."messaging_outbox" LIMIT 5`,
+      `SELECT payload::text, "eventType"
+       FROM "messaging"."messaging_outbox"
+       WHERE "tenantId" = $1
+       LIMIT 5`,
+      [TENANT_A],
     );
 
     // Every outbox event payload must reference TENANT_A

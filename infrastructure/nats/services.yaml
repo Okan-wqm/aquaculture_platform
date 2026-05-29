@@ -65,30 +65,29 @@ services:
   - name: auth_service
     description: Authentication — tenant and user lifecycle, JWT issuance, invitations, password reset
     publish:
-      - "AQUACULTURE_EVENTS.UserRegistered.>"
-      - "AQUACULTURE_EVENTS.UserLoggedIn.>"
-      - "AQUACULTURE_EVENTS.InvitationAccepted.>"
-      - "AQUACULTURE_EVENTS.PasswordResetRequested.>"
-      - "AQUACULTURE_EVENTS.PasswordResetCompleted.>"
-      - "AQUACULTURE_EVENTS.TenantCreated.>"
-      - "AQUACULTURE_EVENTS.TenantUpdated.>"
-      - "AQUACULTURE_EVENTS.TenantSuspended.>"
-      - "AQUACULTURE_EVENTS.TenantActivated.>"
-      - "AQUACULTURE_EVENTS.TenantStatusChanged.>"
-      - "AQUACULTURE_EVENTS.TenantModulesAssigned.>"
-      - "AQUACULTURE_EVENTS.UserInvited.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.UserRegistered.>'
+      - 'AQUACULTURE_EVENTS.UserLoggedIn.>'
+      - 'AQUACULTURE_EVENTS.InvitationAccepted.>'
+      - 'AQUACULTURE_EVENTS.PasswordResetRequested.>'
+      - 'AQUACULTURE_EVENTS.PasswordResetCompleted.>'
+      - 'AQUACULTURE_EVENTS.TenantCreated.>'
+      - 'AQUACULTURE_EVENTS.TenantUpdated.>'
+      - 'AQUACULTURE_EVENTS.TenantSuspended.>'
+      - 'AQUACULTURE_EVENTS.TenantActivated.>'
+      - 'AQUACULTURE_EVENTS.TenantStatusChanged.>'
+      - 'AQUACULTURE_EVENTS.TenantModulesAssigned.>'
+      - 'AQUACULTURE_EVENTS.UserInvited.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "AQUACULTURE_EVENTS.>"
-      # NestJS microservice transport — admin-api → auth-service RPC.
-      # AuthAdminNatsHandler handles `request.auth.admin.createUser` and
-      # `request.auth.admin.resetUserPassword`. This replaces the
-      # admin-api raw-SQL writes against `auth.users` that CRITICAL-001
-      # flagged (docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md).
-      - "request.auth.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.>'
+      # NestJS microservice transport — admin-api → auth-service RPC and
+      # messaging-service read-side tenant user validation. Keep this narrow:
+      # do not grant broad request.auth.> responder access.
+      - 'request.auth.admin.>'
+      - 'auth.queries.ValidateTenantUsers'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # farm-service: batch / pond / feeding / equipment / water quality
@@ -96,22 +95,23 @@ services:
   - name: farm_service
     description: Farm domain — batches, feedings, water quality, mortality/cull, ponds, equipment, feed inventory
     publish:
-      - "AQUACULTURE_EVENTS.Farm*.>"
-      - "AQUACULTURE_EVENTS.Batch*.>"
-      - "AQUACULTURE_EVENTS.Feeding*.>"
-      - "AQUACULTURE_EVENTS.WaterQuality*.>"
-      - "AQUACULTURE_EVENTS.Mortality*.>"
-      - "AQUACULTURE_EVENTS.Cull*.>"
-      - "AQUACULTURE_EVENTS.Pond*.>"
-      - "AQUACULTURE_EVENTS.Task*.>"
-      - "AQUACULTURE_EVENTS.Equipment*.>"
-      - "AQUACULTURE_EVENTS.FeedInventory*.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.Farm*.>'
+      - 'AQUACULTURE_EVENTS.Batch*.>'
+      - 'AQUACULTURE_EVENTS.Feeding*.>'
+      - 'AQUACULTURE_EVENTS.WaterQuality*.>'
+      - 'AQUACULTURE_EVENTS.Mortality*.>'
+      - 'AQUACULTURE_EVENTS.Cull*.>'
+      - 'AQUACULTURE_EVENTS.Pond*.>'
+      - 'AQUACULTURE_EVENTS.Task*.>'
+      - 'AQUACULTURE_EVENTS.Equipment*.>'
+      - 'AQUACULTURE_EVENTS.FeedInventory*.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "AQUACULTURE_EVENTS.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.>'
+      - 'request.farm.getTankRegistry'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # sensor-service: IoT/edge device readings, VFDs, LoRa, automation
@@ -119,25 +119,25 @@ services:
   - name: sensor_service
     description: Sensor/edge devices, VFD readings, LoRa, automation, ST Language runtime
     publish:
-      - "AQUACULTURE_EVENTS.Sensor*.>"
-      - "AQUACULTURE_EVENTS.Device*.>"
-      - "AQUACULTURE_EVENTS.Edge*.>"
-      - "AQUACULTURE_EVENTS.IoConfig*.>"
-      - "AQUACULTURE_EVENTS.LoRa*.>"
-      - "AQUACULTURE_EVENTS.WaterQuality*.>"
-      - "AQUACULTURE_EVENTS.Automation*.>"
+      - 'AQUACULTURE_EVENTS.Sensor*.>'
+      - 'AQUACULTURE_EVENTS.Device*.>'
+      - 'AQUACULTURE_EVENTS.Edge*.>'
+      - 'AQUACULTURE_EVENTS.IoConfig*.>'
+      - 'AQUACULTURE_EVENTS.LoRa*.>'
+      - 'AQUACULTURE_EVENTS.WaterQuality*.>'
+      - 'AQUACULTURE_EVENTS.Automation*.>'
       # ST Language response subjects (IDE bridge)
-      - "st.language.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'st.language.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "AQUACULTURE_EVENTS.>"
+      - 'AQUACULTURE_EVENTS.>'
       # NestJS microservice transport: request-reply to sensor-service
-      - "request.sensor.>"
+      - 'request.sensor.>'
       # ST Language server: WebSocket-to-NATS bridge for IDE features
-      - "st.language.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'st.language.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # sensor-ingestion: Rust sidecar (ADR-025 / ADR-027) — co-equal producer of
@@ -151,27 +151,27 @@ services:
       # Matches platform/libs/event-bus/src/nats/nats-event-bus.ts:310-312
       # deriveSubject `events.{tenantId}.{eventType}` — same JetStream
       # `events.>` stream the NestJS publisher targets, byte-equivalent.
-      - "events.>"
+      - 'events.>'
       # Legacy pattern kept for downstream consumers that still subscribe
       # to the AQUACULTURE_EVENTS namespace. Remove once every consumer
       # has migrated to the `events.>` stream.
-      - "AQUACULTURE_EVENTS.SensorReading.>"
+      - 'AQUACULTURE_EVENTS.SensorReading.>'
       # Cache-miss lookup — request-reply from sidecar to sensor-service.
       # sensor-service subscribes `request.sensor.>`, the sidecar sends
       # `request.sensor.lookup.by-topic` with a reply-to inbox. Lands
       # alongside the singleflight cache work (ADR-029 ingestion plan).
-      - "request.sensor.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'request.sensor.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
       # Dynamic IngestBackend policy — admin-api publishes policy change
       # events on this subject hierarchy; the sidecar hot-swaps the
       # ArcSwap<IngestBackendPolicy> on every message (ADR-027 + ADR-031).
       # Boot-time authoritative snapshot is fetched via request-reply on
       # `policy.ingest_backend.snapshot` (replies arrive on `_INBOX.>`).
-      - "policy.ingest_backend.>"
-      - "_INBOX.>"
-      - "$JS.API.>"
+      - 'policy.ingest_backend.>'
+      - '_INBOX.>'
+      - '$JS.API.>'
 
   # ---------------------------------------------------------------------------
   # gateway-api + admin-api-service (shared account)
@@ -182,35 +182,76 @@ services:
       tenant lifecycle events; gateway publishes its own events + forwards
       ST Language IDE requests.
     publish:
-      - "AQUACULTURE_EVENTS.Gateway*.>"
-      - "AQUACULTURE_EVENTS.Tenant*.>"
-      - "AQUACULTURE_EVENTS.Admin*.>"
+      - 'AQUACULTURE_EVENTS.Gateway*.>'
+      - 'AQUACULTURE_EVENTS.Tenant*.>'
+      - 'AQUACULTURE_EVENTS.Admin*.>'
       # ST Language bridge: forward IDE requests to sensor-service
-      - "st.language.>"
+      - 'st.language.>'
       # Request-reply for cross-service queries
-      - "request.>"
+      - 'request.messaging.verifyMembership'
+      - 'request.messaging.markRead'
+      - 'request.messaging.resolveNotificationRef'
+      - 'request.messaging.admin.complianceStats'
+      - 'request.messaging.admin.getLegalHolds'
+      - 'request.messaging.admin.createLegalHold'
+      - 'request.messaging.admin.releaseLegalHold'
+      - 'request.messaging.admin.getRetentionPolicies'
+      - 'request.messaging.admin.updateRetentionPolicy'
+      - 'request.messaging.admin.getAuditLog'
+      - 'request.messaging.admin.triggerExport'
+      - 'request.messaging.admin.getPersonas'
+      - 'request.auth.admin.>'
+      - 'request.billing.admin.>'
       # Dynamic IngestBackend policy change events — admin-api is the
       # authoritative publisher; sensor-ingestion + sensor-service
       # subscribe. ADR-027 (per-tenant toggle) + ADR-031 (request-reply
       # bootstrap snapshot via `policy.ingest_backend.snapshot`).
-      - "policy.ingest_backend.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'policy.ingest_backend.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "AQUACULTURE_EVENTS.>"
+      - 'AQUACULTURE_EVENTS.>'
       # WebSocket real-time bridges
-      - "events.>"
+      - 'events.*.BatchCreated'
+      - 'events.*.BatchHarvested'
+      - 'events.*.BatchTransferred'
+      - 'events.*.BatchStatusChanged'
+      - 'events.*.BatchClosed'
+      - 'events.*.BatchAllocatedToTank'
+      - 'events.*.MortalityRecorded'
+      - 'events.*.CullRecorded'
+      - 'events.*.FeedingRecorded'
+      - 'events.*.FeedInventoryLow'
+      - 'events.*.ChannelMessageSent'
+      - 'events.*.MessageUpdated'
+      - 'events.*.MessageDeleted'
+      - 'events.*.MessageForwarded'
+      - 'events.*.ReactionAdded'
+      - 'events.*.ReactionRemoved'
+      - 'events.*.MessagePinned'
+      - 'events.*.MessageUnpinned'
+      - 'events.*.ChannelCreated'
+      - 'events.*.ChannelMemberAdded'
+      - 'events.*.ChannelMemberRemoved'
+      - 'events.*.MessageRead'
+      - 'events.*.EdgeDeviceIoData'
+      - 'events.*.EdgeDeviceAlarm'
+      - 'events.SensorReading'
+      - 'events.AutomationProgramSaved.>'
+      - 'events.AutomationProgramDeployed.>'
+      - 'events.AutomationTagsUpdated.>'
+      - 'events.AutomationFBDefinitionsChanged.>'
       # IngestBackend snapshot responder — admin-api answers the Rust
       # sidecar's cold-start request on `policy.ingest_backend.snapshot`
       # (request-reply per ADR-031). Responses land on requester's
       # `_INBOX.>` automatically; the subscribe here lets admin-api
       # receive the request side of the pair.
-      - "policy.ingest_backend.snapshot"
+      - 'policy.ingest_backend.snapshot'
       # ST Language responses
-      - "st.language.>"
+      - 'st.language.>'
       # Request-reply inbox
-      - "_INBOX.>"
-      - "$JS.API.>"
+      - '_INBOX.>'
+      - '$JS.API.>'
 
   # ---------------------------------------------------------------------------
   # notification-service: outbound push/email/SMS
@@ -218,17 +259,43 @@ services:
   - name: notification_service
     description: Outbound push / email / SMS notifications, delivery tracking
     publish:
-      - "AQUACULTURE_EVENTS.NotificationSent.>"
-      - "AQUACULTURE_EVENTS.NotificationDelivered.>"
-      - "AQUACULTURE_EVENTS.NotificationFailed.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.NotificationSent.>'
+      - 'AQUACULTURE_EVENTS.NotificationDelivered.>'
+      - 'AQUACULTURE_EVENTS.NotificationFailed.>'
+      - 'events.*.AlertTriggered'
+      - 'events.*.TaskCreated'
+      - 'events.*.TaskAssigned'
+      - 'events.*.TaskStatusChanged'
+      - 'events.*.TaskCompleted'
+      - 'events.*.TaskOverdue'
+      - 'events.*.MessageSent'
+      - 'events.*.ChatPushRequested'
+      - 'events.*.AnnouncementPublished'
+      - 'events.*.BulkThreadsCreated'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "AQUACULTURE_EVENTS.PasswordResetRequested.>"
-      - "AQUACULTURE_EVENTS.UserInvited.>"
-      - "AQUACULTURE_EVENTS.Notification*.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.PasswordResetRequested.>'
+      - 'AQUACULTURE_EVENTS.UserInvited.>'
+      - 'AQUACULTURE_EVENTS.Notification*.>'
+      - 'events.*.PasswordResetRequested'
+      - 'events.*.UserInvited'
+      - 'events.*.UserDeleted'
+      - 'events.*.InvoiceOverdue'
+      - 'events.*.PaymentFailed'
+      - 'events.*.SubscriptionCreated'
+      - 'events.*.AlertTriggered'
+      - 'events.*.TaskCreated'
+      - 'events.*.TaskAssigned'
+      - 'events.*.TaskStatusChanged'
+      - 'events.*.TaskCompleted'
+      - 'events.*.TaskOverdue'
+      - 'events.*.MessageSent'
+      - 'events.*.ChatPushRequested'
+      - 'events.*.AnnouncementPublished'
+      - 'events.*.BulkThreadsCreated'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # billing-service: subscriptions, invoices, payments, Stripe webhooks
@@ -236,23 +303,23 @@ services:
   - name: billing_service
     description: Subscriptions, invoicing, Stripe payment processing
     publish:
-      - "AQUACULTURE_EVENTS.Subscription*.>"
-      - "AQUACULTURE_EVENTS.Invoice*.>"
-      - "AQUACULTURE_EVENTS.Payment*.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.Subscription*.>'
+      - 'AQUACULTURE_EVENTS.Invoice*.>'
+      - 'AQUACULTURE_EVENTS.Payment*.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "AQUACULTURE_EVENTS.TenantCreated.>"
-      - "AQUACULTURE_EVENTS.TenantStatusChanged.>"
-      - "AQUACULTURE_EVENTS.Subscription*.>"
-      - "AQUACULTURE_EVENTS.Invoice*.>"
-      - "AQUACULTURE_EVENTS.Payment*.>"
+      - 'AQUACULTURE_EVENTS.TenantCreated.>'
+      - 'AQUACULTURE_EVENTS.TenantStatusChanged.>'
+      - 'AQUACULTURE_EVENTS.Subscription*.>'
+      - 'AQUACULTURE_EVENTS.Invoice*.>'
+      - 'AQUACULTURE_EVENTS.Payment*.>'
       # Platform-admin billing mutations are owned by billing-service.
       # admin-api may expose REST facade routes, but writes must enter
       # billing through these audited command subjects.
-      - "request.billing.admin.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'request.billing.admin.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # alert-engine: rule-based alerting from sensor readings
@@ -262,14 +329,14 @@ services:
   - name: alert_engine
     description: Sensor-reading → alert-rule evaluation, alert lifecycle events
     publish:
-      - "AQUACULTURE_EVENTS.Alert*.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.Alert*.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "AQUACULTURE_EVENTS.SensorReading.>"
-      - "AQUACULTURE_EVENTS.Alert*.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.SensorReading.>'
+      - 'AQUACULTURE_EVENTS.Alert*.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # hr-service: employees, leave, attendance, certifications, payroll
@@ -277,18 +344,18 @@ services:
   - name: hr_service
     description: HR domain — employees, leave, attendance, certifications, payroll, scheduling
     publish:
-      - "AQUACULTURE_EVENTS.Employee*.>"
-      - "AQUACULTURE_EVENTS.Leave*.>"
-      - "AQUACULTURE_EVENTS.Attendance*.>"
-      - "AQUACULTURE_EVENTS.Certification*.>"
-      - "AQUACULTURE_EVENTS.Payroll*.>"
-      - "AQUACULTURE_EVENTS.Schedule*.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.Employee*.>'
+      - 'AQUACULTURE_EVENTS.Leave*.>'
+      - 'AQUACULTURE_EVENTS.Attendance*.>'
+      - 'AQUACULTURE_EVENTS.Certification*.>'
+      - 'AQUACULTURE_EVENTS.Payroll*.>'
+      - 'AQUACULTURE_EVENTS.Schedule*.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "AQUACULTURE_EVENTS.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # messaging-service: channels, messages, retention, compliance
@@ -296,19 +363,57 @@ services:
   - name: messaging_service
     description: Messaging domain — channels, messages, retention policies, compliance audit
     publish:
-      - "AQUACULTURE_EVENTS.Message*.>"
-      - "AQUACULTURE_EVENTS.Channel*.>"
-      - "AQUACULTURE_EVENTS.RetentionPolicy*.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.Message*.>'
+      - 'AQUACULTURE_EVENTS.Channel*.>'
+      - 'AQUACULTURE_EVENTS.RetentionPolicy*.>'
+      - 'events.*.ChannelCreated'
+      - 'events.*.ChannelUpdated'
+      - 'events.*.ChannelArchived'
+      - 'events.*.ChannelMemberAdded'
+      - 'events.*.ChannelMemberRemoved'
+      - 'events.*.ChannelMessageSent'
+      - 'events.*.ChatPushRequested'
+      - 'events.*.MessageRead'
+      - 'events.*.MessageUpdated'
+      - 'events.*.MessageDeleted'
+      - 'events.*.MessagePinned'
+      - 'events.*.MessageUnpinned'
+      - 'events.*.MessageForwarded'
+      - 'events.*.ReactionAdded'
+      - 'events.*.ReactionRemoved'
+      - 'events.*.RetentionPolicyChanged'
+      - 'events.*.LegalHoldToggled'
+      - 'events.*.UserDataAnonymized'
+      - 'events.*.GdprAnonymizeRequested'
+      - 'events.*.StorageWarning'
+      - 'events.*.SentimentAlert'
+      - 'auth.queries.ValidateTenantUsers'
+      - 'request.farm.getTankRegistry'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "AQUACULTURE_EVENTS.>"
+      - 'AQUACULTURE_EVENTS.>'
       # NestJS microservice transport: request-reply subjects
-      - "request.messaging.>"
+      - 'request.messaging.verifyMembership'
+      - 'request.messaging.getChannelMembers'
+      - 'request.messaging.getMessageBatch'
+      - 'request.messaging.markRead'
+      - 'request.messaging.aiConsentAllowed'
+      - 'request.messaging.resolveNotificationRef'
+      - 'request.messaging.admin.complianceStats'
+      - 'request.messaging.admin.getLegalHolds'
+      - 'request.messaging.admin.createLegalHold'
+      - 'request.messaging.admin.releaseLegalHold'
+      - 'request.messaging.admin.getRetentionPolicies'
+      - 'request.messaging.admin.updateRetentionPolicy'
+      - 'request.messaging.admin.getAuditLog'
+      - 'request.messaging.admin.triggerExport'
+      - 'request.messaging.admin.getPersonas'
       # @EventPattern subscriptions from auth/admin
-      - "events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.*.UserDeleted'
+      - 'events.*.TenantProvisioned'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # hydroponics-service: grow cycles, hydroponics operations
@@ -316,14 +421,14 @@ services:
   - name: hydroponics_service
     description: Hydroponics domain — grow cycles, nutrient dosing, climate control
     publish:
-      - "AQUACULTURE_EVENTS.Hydroponics*.>"
-      - "AQUACULTURE_EVENTS.GrowCycle*.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.Hydroponics*.>'
+      - 'AQUACULTURE_EVENTS.GrowCycle*.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "AQUACULTURE_EVENTS.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'AQUACULTURE_EVENTS.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # observability-service: migration audit sink + security events sink
@@ -358,10 +463,10 @@ services:
   - name: observability_service
     description: Observability — migration audit sink, security events sink, Prometheus/OTEL exporter
     publish:
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'

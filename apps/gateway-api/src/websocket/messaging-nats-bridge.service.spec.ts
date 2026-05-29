@@ -10,6 +10,7 @@ describe('MessagingNatsBridgeService', () => {
     broadcastMessageDeleted: jest.fn(),
     broadcastReadReceipt: jest.fn(),
     broadcastChannelEvent: jest.fn(),
+    evictUserFromChannel: jest.fn(),
   };
 
   let service: MessagingNatsBridgeService;
@@ -40,12 +41,39 @@ describe('MessagingNatsBridgeService', () => {
       'messageForwarded',
       expect.objectContaining({
         eventType: 'MessageForwarded',
-        tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         channelId: 'channel-1',
         messageId: 'msg-1',
         senderId: 'user-1',
-        sourceMessageId: 'msg-source',
-        sourceChannelId: 'channel-source',
+      }),
+    );
+    const payload = messagingGateway.broadcastChannelEvent.mock.calls[0]?.[3];
+    expect(payload).not.toHaveProperty('sourceMessageId');
+    expect(payload).not.toHaveProperty('sourceChannelId');
+  });
+
+  it('evicts removed members before broadcasting the removal event', () => {
+    (service as any).handleEvent({
+      eventId: 'evt-removed',
+      eventType: 'ChannelMemberRemoved',
+      timestamp: '2026-05-27T00:00:00.000Z',
+      tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      channelId: 'channel-1',
+      userId: 'user-removed',
+    });
+
+    expect(messagingGateway.evictUserFromChannel).toHaveBeenCalledWith(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'channel-1',
+      'user-removed',
+    );
+    expect(messagingGateway.broadcastChannelEvent).toHaveBeenCalledWith(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'channel-1',
+      'channelMemberRemoved',
+      expect.objectContaining({
+        eventType: 'ChannelMemberRemoved',
+        channelId: 'channel-1',
+        userId: 'user-removed',
       }),
     );
   });

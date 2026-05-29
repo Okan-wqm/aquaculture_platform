@@ -19,7 +19,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagingQueryKeys } from '@/utils/messaging-query-keys';
 import { useAuth } from './useAuth';
 import type {
   NewMessageEvent,
@@ -127,7 +127,7 @@ export function useMessageSocket() {
         const qc = queryClientRef.current;
         // Update messages cache for this channel
         qc.setQueryData(
-          ['messaging', 'messages', event.channelId, tenantId],
+          messagingQueryKeys.messages(tenantId, event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages?.length) return old;
             const firstPage = old.pages[0];
@@ -158,15 +158,15 @@ export function useMessageSocket() {
           },
         );
         // Invalidate channel list to update lastMessage / unread counts
-        qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+        qc.invalidateQueries({ queryKey: messagingQueryKeys.channels(tenantId) });
         // Increment unread count
-        qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        qc.invalidateQueries({ queryKey: messagingQueryKeys.unreadCount(tenantId) });
       });
 
       socket.on('messageUpdated', (data: unknown) => {
         const event = data as MessageUpdatedEvent;
         queryClientRef.current.setQueryData(
-          ['messaging', 'messages', event.channelId, tenantId],
+          messagingQueryKeys.messages(tenantId, event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {
@@ -185,7 +185,7 @@ export function useMessageSocket() {
       socket.on('messageDeleted', (data: unknown) => {
         const event = data as MessageDeletedEvent;
         queryClientRef.current.setQueryData(
-          ['messaging', 'messages', event.channelId, tenantId],
+          messagingQueryKeys.messages(tenantId, event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {
@@ -205,10 +205,10 @@ export function useMessageSocket() {
         const event = data as ReadReceiptEvent;
         const qc = queryClientRef.current;
         // Invalidate unread count
-        qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        qc.invalidateQueries({ queryKey: messagingQueryKeys.unreadCount(tenantId) });
         // Update receipt in message cache
         qc.setQueryData(
-          ['messaging', 'messages', event.channelId, tenantId],
+          messagingQueryKeys.messages(tenantId, event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {

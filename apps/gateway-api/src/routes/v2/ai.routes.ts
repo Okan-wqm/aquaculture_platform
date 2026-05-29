@@ -8,8 +8,12 @@
  * and request timeout to prevent open-relay abuse.
  */
 
-import { Module, Controller, All, Req, Res, Logger } from '@nestjs/common';
+import { Module, Controller, All, Req, Res, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ClientsModule, ClientProxy, Transport } from '@nestjs/microservices';
+import { JwtService } from '@nestjs/jwt';
+import { firstValueFrom, timeout as rxTimeout } from 'rxjs';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { Request, Response } from 'express';
 import * as http from 'http';
 
@@ -43,6 +47,7 @@ const DANGEROUS_PATH_PATTERNS = /(\.\.|\/\/|[;|&`$])/;
  * Request timeout in milliseconds.
  */
 const REQUEST_TIMEOUT_MS = 30_000;
+const AI_CONSENT_TIMEOUT_MS = 3_000;
 
 @Controller('api/v2/ai')
 export class AiRoutesController {
@@ -56,11 +61,13 @@ export class AiRoutesController {
   private readonly openDurationMs = 30_000;
   private lastFailureTime = 0;
 
-  constructor(private readonly configService: ConfigService) {
-    this.aiServiceUrl = this.configService.get<string>(
-      'AI_SERVICE_URL',
-      'http://localhost:3008',
-    );
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
+    @Inject('NATS_SERVICE')
+    private readonly natsClient: ClientProxy,
+  ) {
+    this.aiServiceUrl = this.configService.get<string>('AI_SERVICE_URL', 'http://localhost:3008');
   }
 
   // Express v5 path-to-regexp v8: bare '*' wildcard is no longer valid.
@@ -85,6 +92,11 @@ export class AiRoutesController {
       // Transition to half-open: allow one probe request
       this.circuitState = CircuitState.HALF_OPEN;
       this.logger.log('Circuit breaker transitioning to HALF_OPEN');
+    }
+
+    const consentAllowed = await this.assertAiConsent(req, res);
+    if (!consentAllowed) {
+      return;
     }
 
     const targetUrl = `${this.aiServiceUrl}${requestPath}`;
@@ -181,14 +193,66 @@ export class AiRoutesController {
 
     if (this.failureCount >= this.failureThreshold) {
       this.circuitState = CircuitState.OPEN;
-      this.logger.warn(
-        `Circuit breaker opened after ${this.failureCount} consecutive failures`,
+      this.logger.warn(`Circuit breaker opened after ${this.failureCount} consecutive failures`);
+    }
+  }
+
+  private async assertAiConsent(req: Request, res: Response): Promise<boolean> {
+    const tenantId = req.headers['x-tenant-id'];
+    const authorization = req.headers.authorization;
+    if (typeof tenantId !== 'string' || typeof authorization !== 'string') {
+      res.status(401).json({ error: 'Authentication required' });
+      return false;
+    }
+
+    const token = authorization.startsWith('Bearer ')
+      ? authorization.slice('Bearer '.length)
+      : null;
+    if (!token) {
+      res.status(401).json({ error: 'Authentication required' });
+      return false;
+    }
+
+    let payload: Record<string, unknown>;
+    try {
+      payload = await this.jwtService.verifyAsync<Record<string, unknown>>(token);
+    } catch {
+      res.status(401).json({ error: 'Invalid token' });
+      return false;
+    }
+
+    const userId = payload['sub'];
+    if (typeof userId !== 'string' || userId.length === 0) {
+      res.status(401).json({ error: 'Invalid token' });
+      return false;
+    }
+
+    try {
+      const allowed = await firstValueFrom(
+        this.natsClient
+          .send<boolean>('request.messaging.aiConsentAllowed', {
+            tenantId,
+            userId,
+            purpose: 'gateway-ai-proxy',
+          })
+          .pipe(rxTimeout(AI_CONSENT_TIMEOUT_MS)),
       );
+      if (!allowed) {
+        res.status(403).json({ error: 'AI consent required' });
+        return false;
+      }
+      return true;
+    } catch (error) {
+      this.logger.warn(`AI consent check failed closed: ${(error as Error).message}`);
+      res.status(503).json({ error: 'AI consent check unavailable' });
+      return false;
     }
   }
 
   // Exposed for testing
-  /** @internal */ getCircuitState(): CircuitState { return this.circuitState; }
+  /** @internal */ getCircuitState(): CircuitState {
+    return this.circuitState;
+  }
   /** @internal */ resetCircuit(): void {
     this.circuitState = CircuitState.CLOSED;
     this.failureCount = 0;
@@ -200,6 +264,15 @@ export class AiRoutesController {
  * AI Routes Module
  */
 @Module({
+  imports: [
+    ClientsModule.register([
+      {
+        name: 'NATS_SERVICE',
+        transport: Transport.NATS,
+        options: buildNatsTransportOptions('gateway-api'),
+      },
+    ]),
+  ],
   controllers: [AiRoutesController],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class

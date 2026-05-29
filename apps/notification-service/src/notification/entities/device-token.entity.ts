@@ -1,17 +1,12 @@
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  Unique,
-} from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, Unique, Index } from 'typeorm';
 
 /**
  * Device Token Entity
  * Stores FCM/push notification device tokens for users
  */
 @Entity('device_tokens', { schema: 'notification' })
-@Unique(['userId', 'token'])
+@Unique('uq_device_tokens_tenant_user_token', ['tenantId', 'userId', 'token'])
+@Index('uq_device_tokens_token', ['token'], { unique: true })
 export class DeviceToken {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

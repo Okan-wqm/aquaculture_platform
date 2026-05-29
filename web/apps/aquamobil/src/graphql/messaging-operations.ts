@@ -316,6 +316,16 @@ export const MARK_MESSAGES_READ = `
   }
 `;
 
+/** Resolve an opaque push notification reference after authentication. */
+export const RESOLVE_NOTIFICATION_REF = `
+  mutation ResolveNotificationRef($notificationRef: String!) {
+    resolveNotificationRef(notificationRef: $notificationRef) {
+      channelId
+      messageId
+    }
+  }
+`;
+
 /** Request a presigned URL for media upload. */
 export const REQUEST_MEDIA_UPLOAD = `
   mutation RequestMediaUpload($input: RequestMediaUploadInput!) {

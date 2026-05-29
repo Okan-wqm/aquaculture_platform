@@ -34,6 +34,11 @@ registerEnumType(ChannelType, { name: 'ChannelType' });
 @Index('idx_channels_type', ['type'])
 @Index('idx_channels_created_by', ['createdBy'])
 @Index('idx_channels_tenant', ['tenantId'])
+@Index('idx_channels_tenant_id', ['tenantId', 'id'], { unique: true })
+@Index('idx_channels_tenant_dm_pair', ['tenantId', 'dmPairKey'], {
+  unique: true,
+  where: '"dmPairKey" IS NOT NULL',
+})
 export class Channel {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -86,7 +91,7 @@ export class Channel {
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
-  @Column({ type: 'varchar', length: 73, nullable: true, unique: true })
+  @Column({ type: 'varchar', length: 73, nullable: true })
   dmPairKey: string | null;
 
   /** AI persona ID for AI channels (e.g., 'expert-v1', 'operator-v1'). Null = general AI chat. */

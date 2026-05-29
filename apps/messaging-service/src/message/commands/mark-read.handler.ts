@@ -59,6 +59,12 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
 
       // 2. Transactional: update channel member lastReadAt + create/update receipt + outbox
       // 2a. Update channel_members.lastReadAt
+      const messageCreatedAt = new Date(message.createdAt);
+      const currentLastReadAt = member.lastReadAt ? new Date(member.lastReadAt) : null;
+      if (currentLastReadAt !== null && currentLastReadAt.getTime() >= messageCreatedAt.getTime()) {
+        return;
+      }
+
       await manager.update(
         ChannelMember,
         {
@@ -69,30 +75,22 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
         { lastReadAt: message.createdAt },
       );
 
-      // 2b. Upsert MessageReceipt
-      const existingReceipt = await manager.findOne(MessageReceipt, {
-        where: {
-          tenantId,
-          messageId: message.id,
-          userId,
-        },
-      });
-
+      // 2b. Insert-winner read receipt idempotency.
+      // The receipt-key table serializes concurrent markRead calls for the
+      // same tenant/message/user before any receipt row is inserted.
       const now = new Date();
+      const receiptKeyParams = [tenantId, message.id, message.createdAt, userId];
+      const readIdempotencyKey = `MessageRead:${tenantId}:${message.id}:${messageCreatedAt.toISOString()}:${userId}`;
+      const insertedKeyRows = (await manager.query(
+        `INSERT INTO "message_read_receipt_keys"
+           ("tenantId", "messageId", "messageCreatedAt", "userId")
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT ("tenantId", "messageId", "messageCreatedAt", "userId") DO NOTHING
+         RETURNING 1`,
+        receiptKeyParams,
+      )) as Array<{ '?column?': number }>;
 
-      if (existingReceipt) {
-        existingReceipt.status = ReceiptStatus.READ;
-        existingReceipt.readAt = now;
-        await manager.save(MessageReceipt, existingReceipt);
-      } else {
-        await manager.query(
-          `INSERT INTO "message_read_receipt_keys"
-             ("tenantId", "messageId", "messageCreatedAt", "userId")
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT ("tenantId", "messageId", "messageCreatedAt", "userId") DO NOTHING`,
-          [tenantId, message.id, message.createdAt, userId],
-        );
-
+      if (insertedKeyRows.length > 0) {
         const receipt = manager.create(MessageReceipt, {
           id: uuidv4(),
           tenantId,
@@ -105,25 +103,71 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
           receiptCreatedAt: now,
         });
         await manager.save(MessageReceipt, receipt);
+      } else {
+        await manager.query(
+          `SELECT 1
+           FROM "message_read_receipt_keys"
+           WHERE "tenantId" = $1
+             AND "messageId" = $2
+             AND "messageCreatedAt" = $3
+             AND "userId" = $4
+           FOR UPDATE`,
+          receiptKeyParams,
+        );
+
+        const updatedRows = (await manager.query(
+          `UPDATE "message_receipts"
+           SET "status" = $5,
+               "readAt" = $6,
+               "deliveredAt" = COALESCE("deliveredAt", $6)
+           WHERE "tenantId" = $1
+             AND "messageId" = $2
+             AND "messageCreatedAt" = $3
+             AND "userId" = $4
+           RETURNING "id"`,
+          [...receiptKeyParams, ReceiptStatus.READ, now],
+        )) as Array<{ id: string }>;
+
+        if (updatedRows.length === 0) {
+          const receipt = manager.create(MessageReceipt, {
+            id: uuidv4(),
+            tenantId,
+            messageId: message.id,
+            messageCreatedAt: message.createdAt,
+            userId,
+            status: ReceiptStatus.READ,
+            deliveredAt: now,
+            readAt: now,
+            receiptCreatedAt: now,
+          });
+          await manager.save(MessageReceipt, receipt);
+        }
       }
 
       // 2c. Outbox event
       // SECURITY: tenantId MUST be set at entity level for NATS subject routing.
-      await this.outboxPublisher.enqueue({
-        ...createBaseEvent('MessageRead', tenantId),
-        channelId,
-        messageId: message.id,
-        userId,
-        readAt: now.toISOString(),
-      },  manager);
+      if (insertedKeyRows.length > 0) {
+        await this.outboxPublisher.enqueue(
+          {
+            ...createBaseEvent('MessageRead', tenantId),
+            channelId,
+            messageId: message.id,
+            userId,
+            readAt: now.toISOString(),
+          },
+          manager,
+          {
+            aggregateId: message.id,
+            idempotencyKey: readIdempotencyKey,
+          },
+        );
+      }
     });
 
     // 3. Update Redis unread count (decrement or recalculate)
     await this.safeRedisRecalculateUnread(userId, channelId, tenantId);
 
-    this.logger.debug(
-      `Marked read: user=${userId}, channel=${channelId}, upTo=${messageId}`,
-    );
+    this.logger.debug(`Marked read: user=${userId}, channel=${channelId}, upTo=${messageId}`);
     return true;
   }
 
@@ -142,9 +186,10 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
         this.dataSource,
         'messaging',
         tenantId,
-        async (queryRunner) => queryRunner.manager.findOne(ChannelMember, {
-          where: { tenantId, channelId, userId },
-        }),
+        async (queryRunner) =>
+          queryRunner.manager.findOne(ChannelMember, {
+            where: { tenantId, channelId, userId },
+          }),
       );
       if (!member || !member.lastReadAt) return;
 
@@ -153,14 +198,15 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
         this.dataSource,
         'messaging',
         tenantId,
-        async (queryRunner) => queryRunner.manager
-          .createQueryBuilder(Message, 'm')
-        .where('m."tenantId" = :tenantId', { tenantId })
-        .andWhere('m."channelId" = :channelId', { channelId })
-        .andWhere('m."createdAt" > :lastReadAt', { lastReadAt: member.lastReadAt })
-        .andWhere('m."senderId" != :userId', { userId })
-        .andWhere('m."isDeleted" = false')
-          .getCount(),
+        async (queryRunner) =>
+          queryRunner.manager
+            .createQueryBuilder(Message, 'm')
+            .where('m."tenantId" = :tenantId', { tenantId })
+            .andWhere('m."channelId" = :channelId', { channelId })
+            .andWhere('m."createdAt" > :lastReadAt', { lastReadAt: member.lastReadAt })
+            .andWhere('m."senderId" != :userId', { userId })
+            .andWhere('m."isDeleted" = false')
+            .getCount(),
       );
 
       const redisKey = `unread:${tenantId}:${userId}:${channelId}`;

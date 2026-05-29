@@ -69,7 +69,7 @@ function handlePushEvent(event: PushEvent): void {
   let payload: {
     title?: string;
     body?: string;
-    data?: { type?: string; channelId?: string; messageId?: string };
+    data?: { type?: string; notificationRef?: string };
     badge?: number;
   };
 
@@ -90,11 +90,10 @@ function handlePushEvent(event: PushEvent): void {
     body: payload.body ?? 'You have a new message',
     icon: '/icons/messaging-icon-192.png',
     badge: '/icons/messaging-badge-72.png',
-    tag: `chat-${payload.data.channelId ?? 'unknown'}`,
+    tag: `chat-${payload.data.notificationRef ?? 'unknown'}`,
     renotify: true,
     data: {
-      channelId: payload.data.channelId,
-      messageId: payload.data.messageId,
+      notificationRef: payload.data.notificationRef,
     },
     actions: [
       { action: 'open', title: 'Open' },
@@ -114,8 +113,7 @@ function handlePushEvent(event: PushEvent): void {
 // Notification Click Handler
 // ============================================================================
 
-/** UUID v4 pattern for validating channelId from push notification data. */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_NOTIFICATION_REF_LENGTH = 128;
 
 /**
  * Navigate to the messaging channel when a notification is clicked.
@@ -125,16 +123,19 @@ function handleNotificationClick(event: NotificationEvent): void {
 
   if (event.action === 'dismiss') return;
 
-  const rawChannelId = (event.notification.data as { channelId?: string })?.channelId;
-  // SEC: Validate channelId against UUID pattern before constructing the URL.
-  // An attacker-controlled push payload could inject arbitrary path segments
-  // without this guard. Fall back to /messages if the value is not a valid UUID.
-  const channelId = rawChannelId && UUID_PATTERN.test(rawChannelId) ? rawChannelId : undefined;
+  const rawNotificationRef = (event.notification.data as { notificationRef?: string })
+    ?.notificationRef;
+  const notificationRef =
+    typeof rawNotificationRef === 'string' &&
+    rawNotificationRef.length > 0 &&
+    rawNotificationRef.length <= MAX_NOTIFICATION_REF_LENGTH
+      ? rawNotificationRef
+      : undefined;
   // WHY: openWindow() operates on absolute browser paths, not React Router
   // relative paths. The APP_BASENAME prefix ensures the URL resolves to the
   // AquaMobil SPA so React Router can handle the /messages/* route.
-  const targetUrl = channelId
-    ? `${APP_BASENAME}/messages/${channelId}`
+  const targetUrl = notificationRef
+    ? `${APP_BASENAME}/messages?notificationRef=${encodeURIComponent(notificationRef)}`
     : `${APP_BASENAME}/messages`;
 
   event.waitUntil(
@@ -145,8 +146,8 @@ function handleNotificationClick(event: NotificationEvent): void {
         // from other apps that might also have /messages in their URL.
         if (client.url.includes(`${APP_BASENAME}/messages`) && 'focus' in client) {
           client.postMessage({
-            type: 'NAVIGATE_TO_CHANNEL',
-            channelId,
+            type: 'NAVIGATE_TO_NOTIFICATION_REF',
+            notificationRef,
           });
           return (client as WindowClient).focus();
         }
@@ -221,12 +222,14 @@ async function staleWhileRevalidateStrategy(request: Request): Promise<Response>
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
 
-  const fetchPromise = fetch(request.clone()).then((networkResponse) => {
-    if (networkResponse.ok) {
-      cache.put(request, networkResponse.clone());
-    }
-    return networkResponse;
-  }).catch(() => undefined);
+  const fetchPromise = fetch(request.clone())
+    .then((networkResponse) => {
+      if (networkResponse.ok) {
+        cache.put(request, networkResponse.clone());
+      }
+      return networkResponse;
+    })
+    .catch(() => undefined);
 
   if (cached) {
     // Serve from cache immediately, revalidate in background
@@ -265,9 +268,5 @@ sw.addEventListener('message', ((event: ExtendableMessageEvent) => {
 
 async function clearMessagingCaches(): Promise<void> {
   const keys = await caches.keys();
-  await Promise.all(
-    keys
-      .filter((k) => k.startsWith('messaging-'))
-      .map((k) => caches.delete(k)),
-  );
+  await Promise.all(keys.filter((k) => k.startsWith('messaging-')).map((k) => caches.delete(k)));
 }

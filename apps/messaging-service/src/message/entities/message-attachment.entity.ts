@@ -102,6 +102,7 @@ export class MessageAttachment {
 
   @ManyToOne(() => Message, (msg) => msg.attachments, { onDelete: 'CASCADE' })
   @JoinColumn([
+    { name: 'tenantId', referencedColumnName: 'tenantId' },
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])

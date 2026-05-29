@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagingQueryKeys } from '@/utils/messaging-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
@@ -70,7 +70,7 @@ export function useChannels(socketRef?: React.RefObject<{ on: (event: string, ha
 
   // WHY 2026-04-29: every tenant-scoped React Query key must use the common
   // factory so tenant switches and sync invalidation target the same cache tree.
-  const queryKey = createTenantQueryKey(tenantId, 'messaging', 'channels', offset);
+  const queryKey = messagingQueryKeys.channelPage(tenantId, offset);
 
   const query = useQuery({
     queryKey,
@@ -104,7 +104,7 @@ export function useChannels(socketRef?: React.RefObject<{ on: (event: string, ha
     if (!socket) return;
 
     const handleChannelUpdated = () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      queryClient.invalidateQueries({ queryKey: messagingQueryKeys.channels(tenantId) });
     };
 
     socket.on('channelUpdated', handleChannelUpdated);

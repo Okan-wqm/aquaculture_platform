@@ -101,6 +101,7 @@ export class MessageAnalysis {
 
   @ManyToOne(() => Message, { onDelete: 'CASCADE' })
   @JoinColumn([
+    { name: 'tenantId', referencedColumnName: 'tenantId' },
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])

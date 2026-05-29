@@ -14,7 +14,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagingQueryKeys } from '@/utils/messaging-query-keys';
 import {
   ArrowLeft,
   Search,
@@ -197,7 +197,7 @@ export function NewChatPage() {
 
   // Fetch available AI personas for the current tenant
   const { data: aiPersonas = [] } = useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'messaging', 'aiPersonas'),
+    queryKey: messagingQueryKeys.aiPersonas(tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ availableAiPersonas: AiPersona[] }>(
         AVAILABLE_AI_PERSONAS,

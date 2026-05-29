@@ -43,10 +43,20 @@ interface ConnectedClient {
   lastTyping: Map<string, number>;
 }
 
-interface JoinChannelPayload { channelId: string }
-interface LeaveChannelPayload { channelId: string }
-interface TypingPayload { channelId: string }
-interface MarkReadPayload { channelId: string; messageId: string }
+interface JoinChannelPayload {
+  channelId: string;
+}
+interface LeaveChannelPayload {
+  channelId: string;
+}
+interface TypingPayload {
+  channelId: string;
+  isTyping?: boolean;
+}
+interface MarkReadPayload {
+  channelId: string;
+  messageId: string;
+}
 
 const PRESENCE_TTL_SECONDS = 300;
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -69,9 +79,7 @@ const TYPING_THROTTLE_MS = 3_000;
   namespace: '/messaging',
   transports: ['websocket', 'polling'],
 })
-export class MessagingGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+export class MessagingGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
@@ -102,13 +110,17 @@ export class MessagingGateway
     private readonly configService: ConfigService,
     @Optional()
     @Inject('REDIS_SERVICE')
-    private readonly redisService?: { getClient(): { set(key: string, value: string, mode: string, ttl: number): Promise<string>; del(key: string): Promise<number> } },
+    private readonly redisService?: {
+      getClient(): {
+        set(key: string, value: string, mode: string, ttl: number): Promise<string>;
+        del(key: string): Promise<number>;
+      };
+    },
     @Optional()
     @Inject('NATS_SERVICE')
     private readonly natsClient?: ClientProxy,
   ) {
-    this.isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   /**
@@ -165,6 +177,7 @@ export class MessagingGateway
 
       // Join tenant room for presence broadcasts
       void client.join(`tenant:${tenantId}`);
+      void client.join(`user:${tenantId}:${userId}`);
 
       // Update presence in Redis
       await this.setPresence(tenantId, userId, 'online');
@@ -181,9 +194,7 @@ export class MessagingGateway
       }, REAUTH_INTERVAL_MS);
       this.reAuthTimers.set(client.id, reAuthTimer);
 
-      this.logger.log(
-        `Client ${client.id} connected — user ${userId}, tenant ${tenantId}`,
-      );
+      this.logger.log(`Client ${client.id} connected — user ${userId}, tenant ${tenantId}`);
 
       client.emit('connected', {
         message: 'Connected to messaging',
@@ -264,17 +275,12 @@ export class MessagingGateway
     clientData.channels.add(payload.channelId);
     void client.join(room);
 
-    this.logger.debug(
-      `Client ${client.id} joined channel ${payload.channelId}`,
-    );
+    this.logger.debug(`Client ${client.id} joined channel ${payload.channelId}`);
     return { success: true };
   }
 
   @SubscribeMessage('leaveChannel')
-  handleLeaveChannel(
-    client: Socket,
-    payload: LeaveChannelPayload,
-  ): { success: boolean } {
+  handleLeaveChannel(client: Socket, payload: LeaveChannelPayload): { success: boolean } {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false };
@@ -288,17 +294,15 @@ export class MessagingGateway
     clientData.channels.delete(payload.channelId);
     void client.leave(room);
 
-    this.logger.debug(
-      `Client ${client.id} left channel ${payload.channelId}`,
-    );
+    this.logger.debug(`Client ${client.id} left channel ${payload.channelId}`);
     return { success: true };
   }
 
   @SubscribeMessage('typing')
-  handleTyping(
+  async handleTyping(
     client: Socket,
     payload: TypingPayload,
-  ): { success: boolean; reason?: string } {
+  ): Promise<{ success: boolean; reason?: string }> {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false, reason: 'Not authenticated' };
@@ -306,6 +310,16 @@ export class MessagingGateway
 
     if (!payload?.channelId || typeof payload.channelId !== 'string') {
       return { success: false, reason: 'Invalid channelId' };
+    }
+
+    const isMember = await this.verifyChannelMembership(
+      payload.channelId,
+      clientData.userId,
+      clientData.tenantId,
+    );
+    if (!isMember) {
+      clientData.channels.delete(payload.channelId);
+      return { success: false, reason: 'Not a member of this channel' };
     }
 
     // Throttle: max 1 typing event per 3 seconds per user per channel
@@ -323,6 +337,7 @@ export class MessagingGateway
     client.to(`channel:${clientData.tenantId}:${payload.channelId}`).emit('typing', {
       userId: clientData.userId,
       channelId: payload.channelId,
+      isTyping: payload.isTyping !== false,
       timestamp: new Date().toISOString(),
     });
 
@@ -330,10 +345,10 @@ export class MessagingGateway
   }
 
   @SubscribeMessage('markRead')
-  handleMarkRead(
+  async handleMarkRead(
     client: Socket,
     payload: MarkReadPayload,
-  ): { success: boolean; reason?: string } {
+  ): Promise<{ success: boolean; reason?: string }> {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false, reason: 'Not authenticated' };
@@ -343,13 +358,25 @@ export class MessagingGateway
       return { success: false, reason: 'Invalid payload' };
     }
 
-    // Broadcast read receipt to channel
-    this.server.to(`channel:${clientData.tenantId}:${payload.channelId}`).emit('readReceipt', {
-      userId: clientData.userId,
-      channelId: payload.channelId,
-      messageId: payload.messageId,
-      timestamp: new Date().toISOString(),
-    });
+    const isMember = await this.verifyChannelMembership(
+      payload.channelId,
+      clientData.userId,
+      clientData.tenantId,
+    );
+    if (!isMember) {
+      clientData.channels.delete(payload.channelId);
+      return { success: false, reason: 'Not a member of this channel' };
+    }
+
+    const persisted = await this.persistMarkRead(
+      clientData.tenantId,
+      clientData.userId,
+      payload.channelId,
+      payload.messageId,
+    );
+    if (!persisted) {
+      return { success: false, reason: 'Unable to persist read receipt' };
+    }
 
     return { success: true };
   }
@@ -393,12 +420,19 @@ export class MessagingGateway
     this.server.to(`channel:${tenantId}:${channelId}`).emit('newMessage', message);
   }
 
-  broadcastMessageUpdated(tenantId: string, channelId: string, message: Record<string, unknown>): void {
+  broadcastMessageUpdated(
+    tenantId: string,
+    channelId: string,
+    message: Record<string, unknown>,
+  ): void {
     this.server.to(`channel:${tenantId}:${channelId}`).emit('messageUpdated', message);
   }
 
   broadcastMessageDeleted(tenantId: string, channelId: string, data: { messageId: string }): void {
-    this.server.to(`channel:${tenantId}:${channelId}`).emit('messageDeleted', data);
+    this.server.to(`channel:${tenantId}:${channelId}`).emit('messageDeleted', {
+      channelId,
+      ...data,
+    });
   }
 
   broadcastReadReceipt(tenantId: string, channelId: string, data: Record<string, unknown>): void {
@@ -412,6 +446,32 @@ export class MessagingGateway
     data: Record<string, unknown>,
   ): void {
     this.server.to(`channel:${tenantId}:${channelId}`).emit(eventName, data);
+  }
+
+  evictUserFromChannel(tenantId: string, channelId: string, userId: string): number {
+    let evicted = 0;
+    const room = `channel:${tenantId}:${channelId}`;
+
+    for (const clientData of this.clients.values()) {
+      if (
+        clientData.tenantId !== tenantId ||
+        clientData.userId !== userId ||
+        !clientData.channels.has(channelId)
+      ) {
+        continue;
+      }
+
+      clientData.channels.delete(channelId);
+      void clientData.socket.leave(room);
+      clientData.socket.emit('channelRemoved', { channelId });
+      evicted += 1;
+    }
+
+    if (evicted > 0) {
+      this.logger.log(`Evicted ${evicted} socket(s) for user ${userId} from channel ${channelId}`);
+    }
+
+    return evicted;
   }
 
   getConnectedClientCount(): number {
@@ -433,9 +493,7 @@ export class MessagingGateway
     if (!clientData) return;
 
     if (clientData.reAuthFailures >= MAX_REAUTH_FAILURES) {
-      this.logger.warn(
-        `Client ${clientId} exceeded max re-auth failures, disconnecting`,
-      );
+      this.logger.warn(`Client ${clientId} exceeded max re-auth failures, disconnecting`);
       clientData.socket.emit('error', { code: 4401, message: 'Re-authentication failed' });
       clientData.socket.disconnect();
     }
@@ -566,6 +624,35 @@ export class MessagingGateway
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(`Membership verification failed: ${message}`);
+      return false;
+    }
+  }
+
+  private async persistMarkRead(
+    tenantId: string,
+    userId: string,
+    channelId: string,
+    messageId: string,
+  ): Promise<boolean> {
+    if (!this.natsClient) {
+      this.logger.warn('NATS client not available — markRead persistence skipped');
+      return false;
+    }
+    try {
+      const result = await firstValueFrom(
+        this.natsClient
+          .send<boolean>('request.messaging.markRead', {
+            tenantId,
+            userId,
+            channelId,
+            messageId,
+          })
+          .pipe(timeout(MessagingGateway.NATS_VERIFY_TIMEOUT_MS)),
+      );
+      return !!result;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`markRead persistence failed: ${message}`);
       return false;
     }
   }

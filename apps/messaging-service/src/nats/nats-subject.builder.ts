@@ -6,9 +6,9 @@
  * hierarchy to enable per-tenant filtering and prevent cross-tenant event
  * subscription.
  *
- * Subject format: `messaging.{tenantId}.{eventType}`
- * Subscribe pattern: `messaging.{tenantId}.>` (all events for a tenant)
- *                    `messaging.*.{eventType}` (all tenants for an event type)
+ * Subject format: `events.{tenantId}.{eventType}`
+ * Subscribe pattern: `events.{tenantId}.*` (all events for a tenant)
+ *                    `events.*.{eventType}` (all tenants for an event type)
  *
  * @see MSG-HIGH-051 (NATS subject missing tenantId segment)
  */
@@ -32,7 +32,7 @@ export function buildMessagingSubject(
   if (!eventType) {
     throw new Error('Cannot build NATS subject without eventType');
   }
-  return `messaging.${tenantId}.${eventType}`;
+  return `events.${tenantId}.${eventType}`;
 }
 
 /**
@@ -42,7 +42,7 @@ export function buildMessagingSubject(
  * @returns NATS subscribe pattern
  */
 export function buildTenantSubscribePattern(tenantId: string): string {
-  return `messaging.${tenantId}.>`;
+  return `events.${tenantId}.*`;
 }
 
 /**
@@ -52,7 +52,7 @@ export function buildTenantSubscribePattern(tenantId: string): string {
  * @returns NATS subscribe pattern
  */
 export function buildEventTypeSubscribePattern(eventType: string): string {
-  return `messaging.*.${eventType}`;
+  return `events.*.${eventType}`;
 }
 
 /**
@@ -64,8 +64,8 @@ export function buildEventTypeSubscribePattern(eventType: string): string {
  */
 export function extractTenantFromSubject(subject: string): string | undefined {
   const segments = subject.split('.');
-  // Expected: messaging.{tenantId}.{eventType}
-  if (segments.length >= 3 && segments[0] === 'messaging') {
+  // Expected: events.{tenantId}.{eventType}
+  if (segments.length === 3 && segments[0] === 'events') {
     const tenantId = segments[1];
     if (tenantId && tenantId !== '*' && tenantId !== '>') {
       return tenantId;

@@ -12,7 +12,6 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
-  Unique,
 } from 'typeorm';
 import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import { Channel } from './channel.entity';
@@ -82,7 +81,9 @@ registerEnumType(NotificationPreference, {
 
 @ObjectType()
 @Entity('channel_members')
-@Unique('uq_channel_member', ['channelId', 'userId'])
+@Index('idx_channel_members_tenant_channel_user', ['tenantId', 'channelId', 'userId'], {
+  unique: true,
+})
 @Index('idx_channel_members_user_id', ['userId'])
 @Index('idx_channel_members_channel_id', ['channelId'])
 @Index('idx_channel_members_tenant', ['tenantId'])
@@ -132,6 +133,9 @@ export class ChannelMember {
   leftAt: Date | null;
 
   @ManyToOne(() => Channel, (channel) => channel.members, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'channelId' })
+  @JoinColumn([
+    { name: 'tenantId', referencedColumnName: 'tenantId' },
+    { name: 'channelId', referencedColumnName: 'id' },
+  ])
   channel: Channel;
 }

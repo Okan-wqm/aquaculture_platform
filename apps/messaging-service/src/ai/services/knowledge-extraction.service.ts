@@ -249,6 +249,17 @@ export class KnowledgeExtractionService {
     tankRegistry: TankRegistryEntry[],
     queryRunner: QueryRunner,
   ): Promise<void> {
+    const canCreateDerivedKnowledge = await this.privacyService.canAnalyzeMessage(
+      msg.tenantId,
+      msg.senderId,
+    );
+    if (!canCreateDerivedKnowledge) {
+      this.logger.debug(
+        `Skipping knowledge extraction for message ${msg.id}: privacy gate denied`,
+      );
+      return;
+    }
+
     const content = msg.content;
     const contentLower = content.toLowerCase();
 

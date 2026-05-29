@@ -31,10 +31,7 @@ export { MigrationLogger } from './migration-logger';
 
 // Migration ledger SSoT. Keep every runner/gate/tenant seeding path on the
 // same TypeORM ledger table name.
-export {
-  MIGRATION_LEDGER_TABLE,
-  tenantMigrationLedgerTable,
-} from './migration-ledger';
+export { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
 
 // Tenant migration ledger privilege SSoT. aqua-db-migrate creates/backfills
 // tenant ledgers; runtime services only need read access for SchemaVersionGate.
@@ -86,10 +83,7 @@ export type {
 // by migration-runner.service.ts (boot-time fan-out), aqua-db-migrate
 // orchestrator (deploy-time fan-out), and schema-propagation.spec.ts
 // (CI invariant). See tenant-aware-schemas.ts for rationale.
-export {
-  TENANT_AWARE_SCHEMAS,
-  TENANT_SCHEMA_NAME_RE,
-} from './tenant-aware-schemas';
+export { TENANT_AWARE_SCHEMAS, TENANT_SCHEMA_NAME_RE } from './tenant-aware-schemas';
 
 // Tenant Schema Sync (auto-provisioning)
 export * from './tenant-schema-sync.service';
@@ -165,6 +159,11 @@ export type {
   AssertDependencyResult,
 } from './assert-expand-contract-dependency';
 
+// Migration execution metadata — lets source-schema infrastructure migrations
+// be recorded, not executed, during tenant fan-out.
+export { isSourceOnlyMigration } from './migration-execution-metadata';
+export type { MigrationExecutionMetadata } from './migration-execution-metadata';
+
 // Schema drift validator — OnApplicationBootstrap provider factory that
 // compares entity metadata against information_schema on every boot and
 // fails fast on divergence (uuid→text drift, wrong schema, nullability
@@ -180,16 +179,8 @@ export type { SchemaDriftModuleOptions } from './schema-drift/schema-drift.modul
 // Drift-class registry — single source of truth for validator ↔ primitive
 // parity. See docs/plans/2026-04-21-db-migrate-enterprise-refactor.md §R11
 // + libs/backend-common/src/database/schema-drift/drift-classes.ts docblock.
-export {
-  DRIFT_CLASSES,
-  DRIFT_CLASS_LIST,
-  isDriftClassId,
-} from './schema-drift/drift-classes';
-export type {
-  DriftClassId,
-  DriftClassSpec,
-  DriftSeverity,
-} from './schema-drift/drift-classes';
+export { DRIFT_CLASSES, DRIFT_CLASS_LIST, isDriftClassId } from './schema-drift/drift-classes';
+export type { DriftClassId, DriftClassSpec, DriftSeverity } from './schema-drift/drift-classes';
 export {
   expectedEntityDbType,
   isUuidTypeDrift,
@@ -222,10 +213,7 @@ export type {
 // Phase 4 PR-gate foundation — pairwise snapshot diff + severity
 // partitioning. Pure, side-effect-free; consumed by the CI diff
 // script that compares pre-merge vs post-migrate shadow snapshots.
-export {
-  diffSnapshots,
-  partitionBySeverity,
-} from './schema-drift/diff-snapshots';
+export { diffSnapshots, partitionBySeverity } from './schema-drift/diff-snapshots';
 export type {
   SnapshotChange,
   SnapshotChangeKind,
@@ -234,14 +222,8 @@ export type {
 
 // Phase 7 R14 — snapshot PII scrubber. Produces a redacted copy of a
 // SchemaSnapshot suitable for cross-region upload or public channels.
-export {
-  scrubSnapshot,
-  DEFAULT_PII_COLUMN_NAMES,
-} from './schema-drift/snapshot-scrubber';
-export type {
-  ScrubbedSnapshot,
-  ScrubOptions,
-} from './schema-drift/snapshot-scrubber';
+export { scrubSnapshot, DEFAULT_PII_COLUMN_NAMES } from './schema-drift/snapshot-scrubber';
+export type { ScrubbedSnapshot, ScrubOptions } from './schema-drift/snapshot-scrubber';
 
 // Phase 3 primitives — declarative schema healers for drift classes
 // A-G. Each primitive composes over withDdlSafety and sql.* branded

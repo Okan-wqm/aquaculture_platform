@@ -15,7 +15,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { X, Search, Forward, Hash, Users, MessageCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagingQueryKeys } from '@/utils/messaging-query-keys';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -115,8 +115,8 @@ export function ForwardModal({
     },
     onSuccess: () => {
       // Invalidate message queries for the target channel
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      queryClient.invalidateQueries({ queryKey: messagingQueryKeys.allMessages(tenantId) });
+      queryClient.invalidateQueries({ queryKey: messagingQueryKeys.channels(tenantId) });
       onClose();
     },
   });

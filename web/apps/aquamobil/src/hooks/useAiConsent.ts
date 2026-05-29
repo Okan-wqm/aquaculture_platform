@@ -19,7 +19,7 @@
 
 import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagingQueryKeys } from '@/utils/messaging-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 
@@ -104,7 +104,7 @@ export function useAiConsent(): UseAiConsentReturn {
   const queryClient = useQueryClient();
 
   const query = useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'messaging', 'ai-consent', tenantId),
+    queryKey: messagingQueryKeys.aiConsent(tenantId),
     queryFn: fetchAiConsentStatus,
     enabled: isAuthenticated && !!tenantId,
     staleTime: 5 * 60 * 1000,
@@ -115,7 +115,7 @@ export function useAiConsent(): UseAiConsentReturn {
     mutationFn: (consented: boolean) => mutateAiConsent(consented),
     onSuccess: (data) => {
       queryClient.setQueryData(
-        ['messaging', 'ai-consent', tenantId],
+        messagingQueryKeys.aiConsent(tenantId),
         (prev: AiConsentStatus | undefined) =>
           prev ? { ...prev, hasConsented: data.hasConsented } : prev,
       );

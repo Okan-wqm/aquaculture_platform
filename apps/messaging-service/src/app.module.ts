@@ -17,17 +17,10 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { EventBusModule } from '@platform/event-bus';
 import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { APP_GUARD, Reflector } from '@nestjs/core';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
-import {
-  fieldExtensionsEstimator,
-  getComplexity,
-  simpleEstimator,
-} from 'graphql-query-complexity';
+import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
@@ -82,10 +75,14 @@ import { MessageAttachment } from './message/entities/message-attachment.entity'
 import { MessageReceipt } from './message/entities/message-receipt.entity';
 import { MessageReaction } from './message/entities/message-reaction.entity';
 import { PinnedMessage } from './message/entities/pinned-message.entity';
+import { MessageSendIdempotency } from './message/entities/message-send-idempotency.entity';
+import { MessageReadReceiptKey } from './message/entities/message-read-receipt-key.entity';
 import { MessagingOutbox } from './outbox/messaging-outbox.entity';
 import { RetentionPolicy } from './compliance/entities/retention-policy.entity';
 import { LegalHold } from './compliance/entities/legal-hold.entity';
 import { ComplianceAuditLog } from './compliance/entities/compliance-audit-log.entity';
+import { TenantPrincipal } from './principal/tenant-principal.entity';
+import { TenantIsolationRemediationLog } from './principal/tenant-isolation-remediation-log.entity';
 
 // AI entities (ADR-012 section 12)
 import { MessageAnalysis } from './ai/entities/message-analysis.entity';
@@ -102,6 +99,10 @@ import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 import { Baseline1800000000000 } from './migrations/1800000000000-Baseline';
 import { CreateMessagingOutboxTable1800200000000 } from './migrations/1800200000000-CreateMessagingOutboxTable';
 import { AddUserAiConsentTenantUserUnique1800300000000 } from './migrations/1800300000000-AddUserAiConsentTenantUserUnique';
+import { AddMessagingOutboxNotifyTrigger1800350000000 } from './migrations/1800350000000-AddMessagingOutboxNotifyTrigger';
+import { HardenMessagingTenantIsolation1800400000000 } from './migrations/1800400000000-HardenMessagingTenantIsolation';
+import { ValidateMessagingTenantIsolationConstraints1800410000000 } from './migrations/1800410000000-ValidateMessagingTenantIsolationConstraints';
+import { ConvertMessagingOutboxIdToUuid1800420000000 } from './migrations/1800420000000-ConvertMessagingOutboxIdToUuid';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -157,10 +158,14 @@ const complexityCache = new Map<string, number>();
             MessageReceipt,
             MessageReaction,
             PinnedMessage,
+            MessageSendIdempotency,
+            MessageReadReceiptKey,
             MessagingOutbox,
             RetentionPolicy,
             LegalHold,
             ComplianceAuditLog,
+            TenantPrincipal,
+            TenantIsolationRemediationLog,
             MessageAnalysis,
             MessageEntityReference,
             KnowledgeEntry,
@@ -174,6 +179,10 @@ const complexityCache = new Map<string, number>();
             Baseline1800000000000,
             CreateMessagingOutboxTable1800200000000,
             AddUserAiConsentTenantUserUnique1800300000000,
+            AddMessagingOutboxNotifyTrigger1800350000000,
+            HardenMessagingTenantIsolation1800400000000,
+            ValidateMessagingTenantIsolationConstraints1800410000000,
+            ConvertMessagingOutboxIdToUuid1800420000000,
           ],
         }),
     }),
@@ -199,7 +208,7 @@ const complexityCache = new Map<string, number>();
           csrfPrevention: true,
           autoSchemaFile: {
             federation: 2,
-            path: join('/tmp', 'messaging-schema.graphql'),
+            path: join(process.cwd(), 'dist/graphql/subgraphs/messaging.graphql'),
           },
           validationRules: [depthLimit(10)],
           plugins: [
@@ -244,8 +253,7 @@ const complexityCache = new Map<string, number>();
           // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
           // WHY: messaging subgraph developer UI must not rely on deprecated Apollo Playground behavior.
           introspection:
-            !isProduction ||
-            configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
+            !isProduction || configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
           context: ({ req }: { req: Request }) => ({ req }),
         };
       },
@@ -332,10 +340,27 @@ const complexityCache = new Map<string, number>();
   ],
   providers: [
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
-    { provide: APP_GUARD, useFactory: (c: ConfigService): ServiceIdentityGuard => new ServiceIdentityGuard(c), inject: [ConfigService] },
-    { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService): TenantGuard => new TenantGuard(r, undefined, c), inject: [Reflector, ConfigService] },
-    { provide: APP_GUARD, useFactory: (r: Reflector): RolesGuard => new RolesGuard(r), inject: [Reflector] },
-    { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard => new ThrottlerGuard(r, c, s), inject: [Reflector, ConfigService, SlidingWindowStrategy] },
+    {
+      provide: APP_GUARD,
+      useFactory: (c: ConfigService): ServiceIdentityGuard => new ServiceIdentityGuard(c),
+      inject: [ConfigService],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector, c: ConfigService): TenantGuard => new TenantGuard(r, undefined, c),
+      inject: [Reflector, ConfigService],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector): RolesGuard => new RolesGuard(r),
+      inject: [Reflector],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard =>
+        new ThrottlerGuard(r, c, s),
+      inject: [Reflector, ConfigService, SlidingWindowStrategy],
+    },
 
     // Migration runner — runs pending TypeORM migrations on the messaging
     // source schema at OnApplicationBootstrap with search_path pinning.

@@ -101,15 +101,18 @@ export interface PasswordResetCompletedEvent extends BaseEvent {
  */
 export interface UserDeletedEvent extends BaseEvent {
   eventType: 'UserDeleted';
-  userId: string;
+  /** Canonical deletion target. BaseEvent.userId, when present, is the actor/requester. */
+  deletedUserId: string;
   /** Whether the row was hard-deleted (true) or anonymized in place (false). */
-  hardDelete: boolean;
+  hardDelete?: boolean;
   /** Whether downstream services should cascade their own per-user data erasure. */
-  cascadeRequested: boolean;
+  cascadeRequested?: boolean;
   /** Caller of the delete: user-initiated, admin action, or GDPR erasure. */
-  initiatedBy: 'user' | 'admin' | 'gdpr-erasure';
+  initiatedBy?: 'user' | 'admin' | 'gdpr-erasure';
   /** MANDATORY — KMS key id for crypto-shred completion of PII erasure. */
-  cryptoShredKeyId: string;
+  cryptoShredKeyId?: string;
+  /** Legacy/auth erasure discriminator retained for existing GDPR publisher payloads. */
+  erasureType?: 'gdpr_right_to_erasure' | string;
 }
 
 /**

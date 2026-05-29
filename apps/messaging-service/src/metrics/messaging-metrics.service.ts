@@ -19,13 +19,19 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
   private channelsCreatedTotal!: client.Counter;
   private mediaUploadsTotal!: client.Counter;
   private rateLimitHitsTotal!: client.Counter;
+  private subjectPayloadMismatchTotal!: client.Counter;
+  private websocketEvictionFailureTotal!: client.Counter;
+  private readinessFlapTotal!: client.Counter;
 
   // Histograms
   private messageLatency!: client.Histogram;
+  private sendMessageLatency!: client.Histogram;
 
   // Gauges
   private websocketConnections!: client.Gauge;
   private outboxPending!: client.Gauge;
+  private outboxOldestPendingAgeSeconds!: client.Gauge;
+  private dlqGrowth!: client.Gauge;
   private storageUsedBytes!: client.Gauge;
 
   // Dead-letter and GDPR metrics
@@ -70,6 +76,13 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
       registers: [this.registry],
     });
 
+    this.sendMessageLatency = new client.Histogram({
+      name: 'messaging_send_message_latency_seconds',
+      help: 'User-facing sendMessage mutation latency in seconds',
+      buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+      registers: [this.registry],
+    });
+
     this.websocketConnections = new client.Gauge({
       name: 'messaging_websocket_connections',
       help: 'Current number of active WebSocket connections',
@@ -79,6 +92,18 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
     this.outboxPending = new client.Gauge({
       name: 'messaging_outbox_pending',
       help: 'Number of unpublished outbox events',
+      registers: [this.registry],
+    });
+
+    this.outboxOldestPendingAgeSeconds = new client.Gauge({
+      name: 'messaging_outbox_oldest_pending_age_seconds',
+      help: 'Age in seconds of the oldest unpublished outbox event',
+      registers: [this.registry],
+    });
+
+    this.dlqGrowth = new client.Gauge({
+      name: 'messaging_dlq_growth',
+      help: 'Observed messaging dead-letter queue growth over the canary window',
       registers: [this.registry],
     });
 
@@ -100,6 +125,24 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
       name: 'messaging_rate_limit_hits_total',
       help: 'Total number of rate limit hits',
       labelNames: ['action'],
+      registers: [this.registry],
+    });
+
+    this.subjectPayloadMismatchTotal = new client.Counter({
+      name: 'messaging_subject_payload_mismatch_total',
+      help: 'NATS events rejected because subject tenant/type mismatched payload',
+      registers: [this.registry],
+    });
+
+    this.websocketEvictionFailureTotal = new client.Counter({
+      name: 'messaging_websocket_eviction_failure_total',
+      help: 'Failed gateway websocket membership evictions or cache invalidations',
+      registers: [this.registry],
+    });
+
+    this.readinessFlapTotal = new client.Counter({
+      name: 'messaging_readiness_flap_total',
+      help: 'Readiness status transitions for messaging release canaries',
       registers: [this.registry],
     });
 
@@ -136,6 +179,10 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
     this.messageLatency.observe(durationSeconds);
   }
 
+  observeSendMessageLatency(durationSeconds: number): void {
+    this.sendMessageLatency.observe(durationSeconds);
+  }
+
   /** Set the current number of WebSocket connections. */
   setWebsocketConnections(count: number): void {
     this.websocketConnections.set(count);
@@ -144,6 +191,14 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
   /** Set the number of pending outbox events. */
   setOutboxPending(count: number): void {
     this.outboxPending.set(count);
+  }
+
+  setOutboxOldestPendingAge(seconds: number): void {
+    this.outboxOldestPendingAgeSeconds.set(seconds);
+  }
+
+  setDlqGrowth(count: number): void {
+    this.dlqGrowth.set(count);
   }
 
   /** Increment media_uploads_total counter. */
@@ -159,6 +214,18 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
   /** Increment rate_limit_hits_total counter. */
   incrementRateLimitHits(action: string): void {
     this.rateLimitHitsTotal.inc({ action });
+  }
+
+  incrementSubjectPayloadMismatch(): void {
+    this.subjectPayloadMismatchTotal.inc();
+  }
+
+  incrementWebsocketEvictionFailure(): void {
+    this.websocketEvictionFailureTotal.inc();
+  }
+
+  incrementReadinessFlap(): void {
+    this.readinessFlapTotal.inc();
   }
 
   /**

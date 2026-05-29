@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
@@ -44,7 +45,7 @@ describe('AiChatBridgeService', () => {
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
   let outboxPublisher: { enqueue: jest.Mock };
-  let aiEgressGate: { assertAllowed: jest.Mock };
+  let aiEgressGate: { assertAllowed: jest.Mock; isAllowed: jest.Mock };
 
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const aiChannelId = fakeUuid('ch');
@@ -62,14 +63,15 @@ describe('AiChatBridgeService', () => {
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
-    aiEgressGate = { assertAllowed: jest.fn().mockResolvedValue(undefined) };
+    aiEgressGate = {
+      assertAllowed: jest.fn().mockResolvedValue(undefined),
+      isAllowed: jest.fn().mockResolvedValue(true),
+    };
 
     // Setup createQueryBuilder for context message fetching
     const qb = createMockQueryBuilder<Message>();
     (qb.getMany as jest.Mock).mockResolvedValue([]);
-    messageRepo.createQueryBuilder.mockReturnValue(
-      qb as unknown as SelectQueryBuilder<Message>,
-    );
+    messageRepo.createQueryBuilder.mockReturnValue(qb as unknown as SelectQueryBuilder<Message>);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -134,7 +136,11 @@ describe('AiChatBridgeService', () => {
     natsClient.send.mockReturnValue(of(aiResponse));
 
     await service.handleAiChannelMessage(
-      tenantId, aiChannelId, messageId, 'What is water quality?', senderId,
+      tenantId,
+      aiChannelId,
+      messageId,
+      'What is water quality?',
+      senderId,
     );
 
     expect(natsClient.send).toHaveBeenCalledWith(
@@ -157,9 +163,7 @@ describe('AiChatBridgeService', () => {
     const aiResponse = { content: 'Here is the answer.', metadata: null };
     natsClient.send.mockReturnValue(of(aiResponse));
 
-    await service.handleAiChannelMessage(
-      tenantId, aiChannelId, messageId, 'Question', senderId,
-    );
+    await service.handleAiChannelMessage(tenantId, aiChannelId, messageId, 'Question', senderId);
 
     expect(queryRunner.query).toHaveBeenCalledWith(
       `SELECT pg_catalog.set_config('search_path', $1, true)`,
@@ -196,14 +200,14 @@ describe('AiChatBridgeService', () => {
 
     // The service uses catchError and returns a fallback AiChatResponse
     // When the NATS call fails, catchError returns a fallback object
-    natsClient.send.mockReturnValue(of({
-      content: 'AI is temporarily unavailable. Please try again later.',
-      metadata: { error: true, fallback: true },
-    }));
-
-    await service.handleAiChannelMessage(
-      tenantId, aiChannelId, messageId, 'Question', senderId,
+    natsClient.send.mockReturnValue(
+      of({
+        content: 'AI is temporarily unavailable. Please try again later.',
+        metadata: { error: true, fallback: true },
+      }),
     );
+
+    await service.handleAiChannelMessage(tenantId, aiChannelId, messageId, 'Question', senderId);
 
     // Should still persist a response (the fallback)
     expect(queryRunner.manager.save).toHaveBeenCalledWith(
@@ -222,9 +226,7 @@ describe('AiChatBridgeService', () => {
     });
     channelRepo.findOne.mockResolvedValue(groupChannel);
 
-    await service.handleAiChannelMessage(
-      tenantId, groupChannelId, messageId, 'Hello', senderId,
-    );
+    await service.handleAiChannelMessage(tenantId, groupChannelId, messageId, 'Hello', senderId);
 
     expect(natsClient.send).not.toHaveBeenCalled();
     expect(queryRunner.manager.save).not.toHaveBeenCalled();
@@ -233,9 +235,7 @@ describe('AiChatBridgeService', () => {
   it('returns early when channel is not found', async () => {
     channelRepo.findOne.mockResolvedValue(null);
 
-    await service.handleAiChannelMessage(
-      tenantId, fakeUuid('ch'), messageId, 'Hello', senderId,
-    );
+    await service.handleAiChannelMessage(tenantId, fakeUuid('ch'), messageId, 'Hello', senderId);
 
     expect(natsClient.send).not.toHaveBeenCalled();
   });
@@ -258,22 +258,15 @@ describe('AiChatBridgeService', () => {
 
     const qb = createMockQueryBuilder<Message>();
     (qb.getMany as jest.Mock).mockResolvedValue(contextMessages);
-    messageRepo.createQueryBuilder.mockReturnValue(
-      qb as unknown as SelectQueryBuilder<Message>,
-    );
+    messageRepo.createQueryBuilder.mockReturnValue(qb as unknown as SelectQueryBuilder<Message>);
 
     natsClient.send.mockReturnValue(of({ content: 'Reply', metadata: null }));
 
-    await service.handleAiChannelMessage(
-      tenantId, aiChannelId, messageId, 'Question', senderId,
-    );
+    await service.handleAiChannelMessage(tenantId, aiChannelId, messageId, 'Question', senderId);
 
     // Verify queryBuilder was used with take(50)
     expect(qb.take).toHaveBeenCalledWith(50);
-    expect(qb.orderBy).toHaveBeenCalledWith(
-      expect.stringContaining('createdAt'),
-      'DESC',
-    );
+    expect(qb.orderBy).toHaveBeenCalledWith(expect.stringContaining('createdAt'), 'DESC');
 
     // Verify context was included in the NATS request
     const sendArgs = natsClient.send.mock.calls[0];
@@ -312,11 +305,37 @@ describe('AiChatBridgeService', () => {
         confirmedBy: senderId,
       }),
     );
+    expect(aiEgressGate.assertAllowed).toHaveBeenCalledWith(tenantId, senderId, 'ai-action');
     expect(messageRepo.update).toHaveBeenCalledWith(
       { tenantId, id: actionMsgId },
       expect.objectContaining({
         metadata: expect.objectContaining({ status: 'confirmed' }),
       }),
     );
+  });
+
+  it('does not send AI action payload when consent gate denies', async () => {
+    const actionMsgId = fakeUuid('msg');
+    const actionMsg = createMockMessage({
+      id: actionMsgId,
+      senderId: AI_USER_ID,
+      metadata: { status: 'proposed', actionType: 'create_alert', params: {} },
+    });
+    messageRepo.findOne.mockResolvedValue(actionMsg);
+    channelMemberRepo.findOne.mockResolvedValue({
+      tenantId,
+      channelId: actionMsg.channelId,
+      userId: senderId,
+      role: ChannelMemberRole.MEMBER,
+      leftAt: null,
+    } as ChannelMember);
+    aiEgressGate.assertAllowed.mockRejectedValue(new ForbiddenException('denied'));
+
+    await expect(service.confirmAiAction(tenantId, actionMsgId, senderId)).rejects.toThrow(
+      ForbiddenException,
+    );
+
+    expect(natsClient.send).not.toHaveBeenCalled();
+    expect(messageRepo.update).not.toHaveBeenCalled();
   });
 });

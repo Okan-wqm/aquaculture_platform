@@ -35,6 +35,12 @@ describe('MarkReadHandler', () => {
     unreadCountBuilder.getCount.mockResolvedValue(0);
 
     queryRunner.manager.createQueryBuilder.mockReturnValue(unreadCountBuilder);
+    queryRunner.manager.query.mockImplementation((sql: string) => {
+      if (sql.includes('INSERT INTO "message_read_receipt_keys"')) {
+        return Promise.resolve([{ '?column?': 1 }]);
+      }
+      return Promise.resolve([]);
+    });
     queryRunner.manager.findOne.mockImplementation((entity: unknown) => {
       if (entity === Message) {
         return Promise.resolve({
@@ -99,6 +105,65 @@ describe('MarkReadHandler', () => {
         userId,
       }),
       queryRunner.manager,
+      {
+        aggregateId: messageId,
+        idempotencyKey: `MessageRead:${tenantId}:${messageId}:${messageCreatedAt.toISOString()}:${userId}`,
+      },
     );
+  });
+
+  it('does not emit another MessageRead event when the watermark already covers the message', async () => {
+    const queryRunner = createMockQueryRunner();
+    const dataSource = createMockDataSource(queryRunner);
+    const redis = createMockRedis();
+    const outboxPublisher = createMockOutboxPublisher();
+    const tenantPrincipalService = {
+      upsertActiveUsers: jest.fn().mockResolvedValue(undefined),
+    };
+    const unreadCountBuilder = createMockQueryBuilder<Message>();
+    unreadCountBuilder.getCount.mockResolvedValue(0);
+
+    queryRunner.manager.createQueryBuilder.mockReturnValue(unreadCountBuilder);
+    queryRunner.manager.findOne.mockImplementation((entity: unknown) => {
+      if (entity === Message) {
+        return Promise.resolve({
+          id: messageId,
+          tenantId,
+          channelId,
+          senderId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          createdAt: messageCreatedAt,
+          isDeleted: false,
+        } as Message);
+      }
+      if (entity === ChannelMember) {
+        return Promise.resolve({
+          id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+          tenantId,
+          channelId,
+          userId,
+          lastReadAt: messageCreatedAt,
+        } as ChannelMember);
+      }
+      return Promise.resolve(null);
+    });
+
+    const handler = new MarkReadHandler(
+      dataSource as unknown as DataSource,
+      redis as unknown as Redis,
+      outboxPublisher as unknown as OutboxPublisher,
+      tenantPrincipalService as unknown as TenantPrincipalService,
+    );
+
+    await expect(
+      handler.execute(new MarkReadCommand(tenantId, userId, channelId, messageId)),
+    ).resolves.toBe(true);
+
+    expect(queryRunner.manager.update).not.toHaveBeenCalled();
+    expect(queryRunner.manager.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO "message_read_receipt_keys"'),
+      expect.any(Array),
+    );
+    expect(queryRunner.manager.save).not.toHaveBeenCalled();
+    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
   });
 });

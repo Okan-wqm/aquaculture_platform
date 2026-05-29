@@ -14,11 +14,14 @@
  *
  * @see ADR-012 section 10 (Observability)
  */
-import { Controller, Inject, Logger, Optional } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Inject, Logger, Optional, Res } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
-import { StandardHealthController } from '@aquaculture/backend-common/health';
+import { ReadinessResponse, StandardHealthController } from '@aquaculture/backend-common/health';
+import { Public } from '@aquaculture/backend-common/decorators';
+import { SkipThrottle } from '@aquaculture/backend-common/security';
+import { Response } from 'express';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 
@@ -47,9 +50,25 @@ export class HealthController extends StandardHealthController {
    * skipped rather than reported as errors. This avoids false 'degraded'
    * status when the provider is simply not in the current module scope.
    *
-   * A failing Redis or NATS check results in 'degraded' status (HTTP 200),
-   * not 'not_ready' (HTTP 503) -- only total failure of ALL checks triggers 503.
+   * A failing Redis or NATS check is release-critical for messaging and
+   * must return HTTP 503, not HTTP 200 degraded.
    */
+  @Get('ready')
+  @Public()
+  @SkipThrottle()
+  override async readiness(@Res() res: Response): Promise<void> {
+    const checks: Record<string, 'ok' | 'error'> = {
+      database: await this.checkDatabase(),
+      ...(await this.getAdditionalChecks()),
+    };
+    const hasError = Object.values(checks).some((value) => value === 'error');
+    const body: ReadinessResponse = {
+      status: hasError ? 'not_ready' : 'ok',
+      checks: checks as ReadinessResponse['checks'],
+    };
+    res.status(hasError ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.OK).json(body);
+  }
+
   protected override async getAdditionalChecks(): Promise<Record<string, 'ok' | 'error'>> {
     const checks: Record<string, 'ok' | 'error'> = {};
 
@@ -59,9 +78,7 @@ export class HealthController extends StandardHealthController {
         await this.redis.ping();
         checks['redis'] = 'ok';
       } catch (error) {
-        this.healthLogger.warn(
-          `Redis health check failed: ${(error as Error).message}`,
-        );
+        this.healthLogger.warn(`Redis health check failed: ${(error as Error).message}`);
         checks['redis'] = 'error';
       }
     }
@@ -72,9 +89,7 @@ export class HealthController extends StandardHealthController {
         await this.natsClient.connect();
         checks['nats'] = 'ok';
       } catch (error) {
-        this.healthLogger.warn(
-          `NATS health check failed: ${(error as Error).message}`,
-        );
+        this.healthLogger.warn(`NATS health check failed: ${(error as Error).message}`);
         checks['nats'] = 'error';
       }
     }

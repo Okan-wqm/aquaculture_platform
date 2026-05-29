@@ -11,6 +11,7 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { Message } from '../message/entities/message.entity';
 import { PartitionModule } from '../partition/partition.module';
+import { PresenceModule } from '../presence/presence.module';
 // ComplianceModule imported: MessagingNatsHandler.handleUserDeleted now calls
 // LegalHoldService.isUnderLegalHold() to protect held channels from anonymization.
 // ComplianceModule exports LegalHoldService so it can be injected here.
@@ -28,6 +29,7 @@ import { MessagingAdminNatsHandler } from './messaging-admin-nats.handler';
     TypeOrmModule.forFeature([ChannelMember, Message]),
     CqrsModule,
     PartitionModule,
+    PresenceModule,
     ComplianceModule,
     AiModule,
   ],

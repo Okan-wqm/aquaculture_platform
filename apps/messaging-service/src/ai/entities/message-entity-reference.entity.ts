@@ -35,7 +35,13 @@ registerEnumType(DomainEntityType, { name: 'DomainEntityType' });
 @ObjectType()
 @Entity('message_entity_references')
 @Check(`"entityType" IN ('tank', 'batch', 'site', 'species', 'parameter')`)
-@Unique('uq_message_entity', ['messageId', 'entityType', 'entityId'])
+@Unique('uq_message_entity', [
+  'tenantId',
+  'messageId',
+  'messageCreatedAt',
+  'entityType',
+  'entityId',
+])
 @Index('idx_entity_refs_entity', ['entityType', 'entityId'])
 @Index('idx_entity_refs_message', ['messageId'])
 @Index('idx_entity_refs_tenant', ['tenantId'])
@@ -71,7 +77,13 @@ export class MessageEntityReference {
   @Field(() => Float)
   // DecimalTransformer: entity reference confidence score (0.00-1.00) used in AI relevance ranking.
   // String comparison of scores produces wrong ordering in entity disambiguation.
-  @Column({ type: 'numeric', precision: 3, scale: 2, default: 1.0, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'numeric',
+    precision: 3,
+    scale: 2,
+    default: 1.0,
+    transformer: new DecimalTransformer(),
+  })
   confidence: number;
 
   @Field()
@@ -80,6 +92,7 @@ export class MessageEntityReference {
 
   @ManyToOne(() => Message, { onDelete: 'CASCADE' })
   @JoinColumn([
+    { name: 'tenantId', referencedColumnName: 'tenantId' },
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])

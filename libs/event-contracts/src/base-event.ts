@@ -159,9 +159,7 @@ export interface BaseEvent {
  * The architectural-arbiter approves additions; compliance-expert
  * is the CATCHER for the per-event PII categorisation decision.
  */
-export const PII_BEARING_EVENT_TYPES: readonly string[] = [
-  'PasswordResetRequested',
-] as const;
+export const PII_BEARING_EVENT_TYPES: readonly string[] = ['PasswordResetRequested'] as const;
 
 // ==================== Shared Literal Types ====================
 
@@ -194,16 +192,29 @@ export type BillingCycle = 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
 export function createBaseEvent<T extends BaseEvent>(
   eventType: T['eventType'],
   tenantId: string,
-  overrides?: Partial<Pick<BaseEvent, 'correlationId' | 'causationId' | 'userId' | 'version' | 'aggregateId' | 'aggregateType'>>,
-): Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'> & { eventType: T['eventType'] } & Partial<BaseEvent> {
+  overrides?: Partial<
+    Pick<
+      BaseEvent,
+      'correlationId' | 'causationId' | 'userId' | 'version' | 'aggregateId' | 'aggregateType'
+    >
+  >,
+): Pick<
+  BaseEvent,
+  'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'
+> & { eventType: T['eventType'] } & Partial<BaseEvent> {
+  const eventId = crypto.randomUUID() as EventId;
   return {
-    eventId: crypto.randomUUID() as EventId,
+    eventId,
     eventType,
     timestamp: new Date().toISOString(),
     tenantId,
     version: 1,
     aggregateId: '',
     aggregateType: '',
+    correlationId: eventId,
     ...overrides,
-  } as Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'> & { eventType: T['eventType'] } & Partial<BaseEvent>;
+  } as Pick<
+    BaseEvent,
+    'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'
+  > & { eventType: T['eventType'] } & Partial<BaseEvent>;
 }

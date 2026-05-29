@@ -17,7 +17,7 @@
 
 import { useCallback, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagingQueryKeys } from '@/utils/messaging-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { DIRECT_CHANNEL, CREATE_CHANNEL } from '@/graphql/messaging-operations';
@@ -43,7 +43,7 @@ export function useCreateChannel() {
       return result.directChannel;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      queryClient.invalidateQueries({ queryKey: messagingQueryKeys.channels(tenantId) });
       setError(null);
     },
     onError: (err: Error) => {
@@ -68,7 +68,7 @@ export function useCreateChannel() {
       return result.createChannel;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      queryClient.invalidateQueries({ queryKey: messagingQueryKeys.channels(tenantId) });
       setError(null);
     },
     onError: (err: Error) => {
@@ -94,7 +94,7 @@ export function useCreateChannel() {
       return result.createChannel;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      queryClient.invalidateQueries({ queryKey: messagingQueryKeys.channels(tenantId) });
       setError(null);
     },
     onError: (err: Error) => {

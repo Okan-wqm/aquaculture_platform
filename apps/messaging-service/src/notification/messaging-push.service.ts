@@ -9,6 +9,7 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { DataSource, IsNull } from 'typeorm';
 import Redis from 'ioredis';
+import { randomUUID } from 'crypto';
 
 import { IEventBus } from '@platform/event-bus';
 import { ChatPushRequestedEvent, createBaseEvent } from '@platform/event-contracts';
@@ -20,6 +21,7 @@ import { REDIS_CLIENT } from '../shared/redis.provider';
 
 /** Deduplication window: max 1 push per user per channel within this period (seconds). */
 const DEDUP_TTL_SECONDS = 30;
+const NOTIFICATION_REF_TTL_SECONDS = 15 * 60;
 
 interface ChannelMessageSentPayload {
   eventId: string;
@@ -124,13 +126,26 @@ export class MessagingPushService implements OnModuleInit {
 
         const unreadCount = await this.getUnreadCount(tenantId, channelId, member.userId);
 
+        const notificationRef = randomUUID();
+        await this.safeRedisSetEx(
+          `msg:push:ref:${tenantId}:${notificationRef}`,
+          NOTIFICATION_REF_TTL_SECONDS,
+          JSON.stringify({
+            tenantId,
+            recipientUserId: member.userId,
+            channelId,
+            messageId,
+            createdAt: new Date().toISOString(),
+          }),
+        );
+
         const pushEvent: ChatPushRequestedEvent = {
           ...createBaseEvent<ChatPushRequestedEvent>('ChatPushRequested', tenantId, {
             aggregateId: payload.eventId,
             aggregateType: 'ChatPushRequest',
           }),
           recipientUserId: member.userId,
-          notificationRef: payload.eventId,
+          notificationRef,
           badge: unreadCount,
           notificationType: 'CHAT_MESSAGE',
         };

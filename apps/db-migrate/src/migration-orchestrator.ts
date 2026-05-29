@@ -60,7 +60,9 @@ import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/Postgres
 import type { MixedList } from 'typeorm/common/MixedList';
 import {
   assertExpandContractDependency,
+  isSourceOnlyMigration,
   MIGRATION_LEDGER_TABLE,
+  TENANT_SCHEMA_NAME_RE,
 } from '@aquaculture/backend-common/database';
 
 /**
@@ -243,6 +245,20 @@ async function runPostConditionProbe(
   }
 }
 
+async function ensureMigrationLedgerTable(
+  queryRunner: QueryRunner,
+  schema: string,
+  migrationsTableName: string,
+): Promise<void> {
+  await queryRunner.query(`
+    CREATE TABLE IF NOT EXISTS "${schema}"."${migrationsTableName}" (
+      "id" SERIAL NOT NULL PRIMARY KEY,
+      "timestamp" BIGINT NOT NULL,
+      "name" VARCHAR NOT NULL
+    )
+  `);
+}
+
 async function withLockedMigrationSession<T>(
   opts: RunSchemaOptions,
   work: (session: MigrationSession) => Promise<T>,
@@ -333,13 +349,7 @@ async function withLockedMigrationSession<T>(
  * pool into schema N+1).
  */
 export async function runSchemaMigrations(opts: RunSchemaOptions): Promise<RunSchemaResult> {
-  const {
-    schema,
-    migrations,
-    entities,
-    log,
-    migrationsTableName = MIGRATION_LEDGER_TABLE,
-  } = opts;
+  const { schema, migrations, entities, log, migrationsTableName = MIGRATION_LEDGER_TABLE } = opts;
 
   const started = Date.now();
   log({
@@ -390,8 +400,7 @@ export async function runSchemaMigrations(opts: RunSchemaOptions): Promise<RunSc
       await queryRunner.query(`SET search_path TO "${schema}", public`);
 
       const migrationCtor =
-        typeof migration.instance === 'object' &&
-        migration.instance !== null
+        typeof migration.instance === 'object' && migration.instance !== null
           ? (migration.instance as { constructor: Function }).constructor
           : undefined;
       if (migrationCtor !== undefined) {
@@ -400,6 +409,38 @@ export async function runSchemaMigrations(opts: RunSchemaOptions): Promise<RunSc
           migrationClass: migrationCtor,
           environment: process.env['AQUA_ENV'] ?? process.env['NODE_ENV'] ?? 'development',
         });
+      }
+
+      if (TENANT_SCHEMA_NAME_RE.test(schema) && isSourceOnlyMigration(migration)) {
+        await queryRunner.startTransaction();
+        try {
+          await ensureMigrationLedgerTable(queryRunner, schema, migrationsTableName);
+          await executor.insertMigration(migration);
+          await queryRunner.commitTransaction();
+          applied.push(migration.name);
+          log({
+            level: 'info',
+            message: 'Source-only migration recorded',
+            context: 'DbMigrate',
+            schema,
+            migration: migration.name,
+          });
+          continue;
+        } catch (err: unknown) {
+          if (queryRunner.isTransactionActive) {
+            await queryRunner.rollbackTransaction();
+          }
+          const msg = err instanceof Error ? err.message : String(err);
+          log({
+            level: 'error',
+            message: 'Source-only migration record failed',
+            context: 'DbMigrate',
+            schema,
+            migration: migration.name,
+            error: msg,
+          });
+          throw err;
+        }
       }
 
       // Tier-1 architectural correctness: a migration class may
@@ -495,9 +536,7 @@ export async function rollbackSchemaMigrations(
   const { count } = rollback;
 
   if (!Number.isInteger(count) || count < 1) {
-    throw new Error(
-      `[db-migrate] Rollback count must be a positive integer; received ${count}.`,
-    );
+    throw new Error(`[db-migrate] Rollback count must be a positive integer; received ${count}.`);
   }
 
   const started = Date.now();

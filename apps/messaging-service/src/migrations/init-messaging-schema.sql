@@ -25,6 +25,7 @@ SET search_path TO messaging;
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS messaging.channels (
     "id"           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "tenantId"     UUID NOT NULL,
     "type"         VARCHAR(20) NOT NULL DEFAULT 'group',
     "name"         VARCHAR(255),
     "description"  TEXT,
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS messaging.channels (
     "isArchived"   BOOLEAN NOT NULL DEFAULT FALSE,
     "createdAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     "updatedAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "dmPairKey"    VARCHAR(73) UNIQUE,
+    "dmPairKey"    VARCHAR(73),
 
     CONSTRAINT "chk_channels_type"
         CHECK ("type" IN ('direct', 'group', 'ai')),
@@ -44,6 +45,13 @@ CREATE TABLE IF NOT EXISTS messaging.channels (
         )
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_channels_tenant_id"
+    ON messaging.channels ("tenantId", "id");
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_channels_tenant_dm_pair"
+    ON messaging.channels ("tenantId", "dmPairKey")
+    WHERE "dmPairKey" IS NOT NULL;
+CREATE INDEX IF NOT EXISTS "idx_channels_tenant"
+    ON messaging.channels ("tenantId");
 CREATE INDEX IF NOT EXISTS "idx_channels_type"
     ON messaging.channels ("type");
 CREATE INDEX IF NOT EXISTS "idx_channels_created_by"
@@ -57,8 +65,8 @@ CREATE INDEX IF NOT EXISTS "idx_channels_is_archived"
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS messaging.channel_members (
     "id"                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    "channelId"                UUID NOT NULL
-        REFERENCES messaging.channels("id") ON DELETE CASCADE,
+    "tenantId"                 UUID NOT NULL,
+    "channelId"                UUID NOT NULL,
     "userId"                   UUID NOT NULL,
     "role"                     VARCHAR(20) NOT NULL DEFAULT 'member',
     "notificationPreference"   VARCHAR(20) NOT NULL DEFAULT 'all',
@@ -71,9 +79,14 @@ CREATE TABLE IF NOT EXISTS messaging.channel_members (
     CONSTRAINT "chk_notification_pref"
         CHECK ("notificationPreference" IN ('all', 'mentions', 'none')),
     CONSTRAINT "uq_channel_member"
-        UNIQUE ("channelId", "userId")
+        UNIQUE ("tenantId", "channelId", "userId"),
+    CONSTRAINT "fk_channel_members_channel_tenant"
+        FOREIGN KEY ("tenantId", "channelId")
+        REFERENCES messaging.channels ("tenantId", "id") ON DELETE CASCADE
 );
 
+CREATE INDEX IF NOT EXISTS "idx_channel_members_tenant"
+    ON messaging.channel_members ("tenantId");
 CREATE INDEX IF NOT EXISTS "idx_channel_members_user_id"
     ON messaging.channel_members ("userId");
 CREATE INDEX IF NOT EXISTS "idx_channel_members_channel_id"
@@ -89,6 +102,7 @@ CREATE INDEX IF NOT EXISTS "idx_channel_members_active"
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS messaging.messages (
     "id"              UUID NOT NULL DEFAULT gen_random_uuid(),
+    "tenantId"        UUID NOT NULL,
     "channelId"       UUID NOT NULL,
     "senderId"        UUID NOT NULL,
     "content"         TEXT,
@@ -104,7 +118,10 @@ CREATE TABLE IF NOT EXISTS messaging.messages (
     PRIMARY KEY ("id", "createdAt"),
 
     CONSTRAINT "chk_content_type"
-        CHECK ("contentType" IN ('text', 'image', 'file', 'voice', 'system'))
+        CHECK ("contentType" IN ('text', 'image', 'file', 'voice', 'system')),
+    CONSTRAINT "fk_messages_channel_tenant"
+        FOREIGN KEY ("tenantId", "channelId")
+        REFERENCES messaging.channels ("tenantId", "id") ON DELETE CASCADE
 ) PARTITION BY RANGE ("createdAt");
 
 -- Monthly partitions for 2026
@@ -136,6 +153,12 @@ CREATE TABLE IF NOT EXISTS messaging.messages_2026_12 PARTITION OF messaging.mes
 -- Indexes propagate to all partitions automatically
 CREATE INDEX IF NOT EXISTS "idx_messages_channel_created"
     ON messaging.messages ("channelId", "createdAt" DESC);
+CREATE INDEX IF NOT EXISTS "idx_messages_tenant"
+    ON messaging.messages ("tenantId");
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_messages_tenant_id_created"
+    ON messaging.messages ("tenantId", "id", "createdAt");
+CREATE INDEX IF NOT EXISTS "idx_messages_tenant_idempotency_lookup"
+    ON messaging.messages ("tenantId", "channelId", "senderId", "idempotencyKey");
 CREATE INDEX IF NOT EXISTS "idx_messages_sender"
     ON messaging.messages ("senderId", "createdAt" DESC);
 CREATE INDEX IF NOT EXISTS "idx_messages_parent"
@@ -148,10 +171,108 @@ CREATE INDEX IF NOT EXISTS "idx_messages_content_search"
 
 
 -- ============================================================================
--- 4. message_attachments — media files attached to messages
+-- 4. tenant_principals and idempotency ledgers
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS messaging.tenant_principals (
+    "tenantId" UUID NOT NULL,
+    "userId" UUID NOT NULL,
+    "kind" VARCHAR(20) NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT TRUE,
+    "source" VARCHAR(20) NOT NULL,
+    "lastValidatedAt" TIMESTAMPTZ,
+    "deactivatedAt" TIMESTAMPTZ,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT "pk_tenant_principals" PRIMARY KEY ("tenantId", "userId"),
+    CONSTRAINT "chk_tenant_principals_kind"
+        CHECK ("kind" IN ('USER', 'ANONYMOUS', 'SYSTEM_AI')),
+    CONSTRAINT "chk_tenant_principals_source"
+        CHECK ("source" IN ('AUTH', 'SYSTEM', 'REMEDIATION'))
+);
+
+CREATE INDEX IF NOT EXISTS "idx_tenant_principals_kind_active"
+    ON messaging.tenant_principals ("tenantId", "kind", "isActive");
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_channels_created_by_tenant_principals'
+          AND conrelid = 'messaging.channels'::regclass
+    ) THEN
+        ALTER TABLE messaging.channels
+            ADD CONSTRAINT "fk_channels_created_by_tenant_principals"
+            FOREIGN KEY ("tenantId", "createdBy")
+            REFERENCES messaging.tenant_principals ("tenantId", "userId")
+            NOT VALID;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_channel_members_user_tenant_principals'
+          AND conrelid = 'messaging.channel_members'::regclass
+    ) THEN
+        ALTER TABLE messaging.channel_members
+            ADD CONSTRAINT "fk_channel_members_user_tenant_principals"
+            FOREIGN KEY ("tenantId", "userId")
+            REFERENCES messaging.tenant_principals ("tenantId", "userId")
+            NOT VALID;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_messages_sender_tenant_principals'
+          AND conrelid = 'messaging.messages'::regclass
+    ) THEN
+        ALTER TABLE messaging.messages
+            ADD CONSTRAINT "fk_messages_sender_tenant_principals"
+            FOREIGN KEY ("tenantId", "senderId")
+            REFERENCES messaging.tenant_principals ("tenantId", "userId")
+            NOT VALID;
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS messaging.message_send_idempotency (
+    "tenantId" UUID NOT NULL,
+    "channelId" UUID NOT NULL,
+    "senderId" UUID NOT NULL,
+    "idempotencyKey" UUID NOT NULL,
+    "messageId" UUID NOT NULL,
+    "messageCreatedAt" TIMESTAMPTZ NOT NULL,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT "pk_message_send_idempotency"
+        PRIMARY KEY ("tenantId", "channelId", "senderId", "idempotencyKey"),
+    CONSTRAINT "fk_message_send_idempotency_message"
+        FOREIGN KEY ("tenantId", "messageId", "messageCreatedAt")
+        REFERENCES messaging.messages ("tenantId", "id", "createdAt") ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "idx_message_send_idempotency_message"
+    ON messaging.message_send_idempotency ("tenantId", "messageId", "messageCreatedAt");
+
+CREATE TABLE IF NOT EXISTS messaging.message_read_receipt_keys (
+    "tenantId" UUID NOT NULL,
+    "messageId" UUID NOT NULL,
+    "messageCreatedAt" TIMESTAMPTZ NOT NULL,
+    "userId" UUID NOT NULL,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT "pk_message_read_receipt_keys"
+        PRIMARY KEY ("tenantId", "messageId", "messageCreatedAt", "userId"),
+    CONSTRAINT "fk_message_read_receipt_keys_message"
+        FOREIGN KEY ("tenantId", "messageId", "messageCreatedAt")
+        REFERENCES messaging.messages ("tenantId", "id", "createdAt") ON DELETE CASCADE,
+    CONSTRAINT "fk_message_read_receipt_keys_user_tenant_principals"
+        FOREIGN KEY ("tenantId", "userId")
+        REFERENCES messaging.tenant_principals ("tenantId", "userId")
+);
+
+
+-- ============================================================================
+-- 5. message_attachments — media files attached to messages
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS messaging.message_attachments (
     "id"                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "tenantId"          UUID NOT NULL,
     "messageId"         UUID NOT NULL,
     "messageCreatedAt"  TIMESTAMPTZ NOT NULL,
     "storageKey"        VARCHAR(512) NOT NULL,
@@ -165,10 +286,12 @@ CREATE TABLE IF NOT EXISTS messaging.message_attachments (
     "createdAt"         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT "fk_attachment_message"
-        FOREIGN KEY ("messageId", "messageCreatedAt")
-        REFERENCES messaging.messages ("id", "createdAt") ON DELETE CASCADE
+        FOREIGN KEY ("tenantId", "messageId", "messageCreatedAt")
+        REFERENCES messaging.messages ("tenantId", "id", "createdAt") ON DELETE CASCADE
 );
 
+CREATE INDEX IF NOT EXISTS "idx_attachments_tenant"
+    ON messaging.message_attachments ("tenantId");
 -- Composite index matching the (messageId, messageCreatedAt) FK shape —
 -- accelerates cascade delete triggers AND referential integrity checks
 -- (vs a single-column (messageId) index which forces per-row re-check
@@ -182,6 +305,7 @@ CREATE INDEX IF NOT EXISTS "idx_attachments_message_composite"
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS messaging.message_receipts (
     "id"                  UUID NOT NULL DEFAULT gen_random_uuid(),
+    "tenantId"            UUID NOT NULL,
     "messageId"           UUID NOT NULL,
     "messageCreatedAt"    TIMESTAMPTZ NOT NULL,
     "userId"              UUID NOT NULL,
@@ -195,7 +319,13 @@ CREATE TABLE IF NOT EXISTS messaging.message_receipts (
     CONSTRAINT "chk_receipt_status"
         CHECK ("status" IN ('delivered', 'read')),
     CONSTRAINT "uq_receipt_message_user"
-        UNIQUE ("messageId", "userId", "receiptCreatedAt")
+        UNIQUE ("tenantId", "messageId", "userId", "receiptCreatedAt"),
+    CONSTRAINT "fk_receipt_message"
+        FOREIGN KEY ("tenantId", "messageId", "messageCreatedAt")
+        REFERENCES messaging.messages ("tenantId", "id", "createdAt") ON DELETE CASCADE,
+    CONSTRAINT "fk_message_receipts_user_tenant_principals"
+        FOREIGN KEY ("tenantId", "userId")
+        REFERENCES messaging.tenant_principals ("tenantId", "userId")
 ) PARTITION BY RANGE ("receiptCreatedAt");
 
 -- Monthly partitions for 2026
@@ -226,6 +356,8 @@ CREATE TABLE IF NOT EXISTS messaging.message_receipts_2026_12 PARTITION OF messa
 
 CREATE INDEX IF NOT EXISTS "idx_receipts_user_status"
     ON messaging.message_receipts ("userId", "status");
+CREATE INDEX IF NOT EXISTS "idx_receipts_tenant"
+    ON messaging.message_receipts ("tenantId");
 -- Composite FK-shaped index; see AddCompositeFkIndexesOnMessageChildren1781600000000.
 CREATE INDEX IF NOT EXISTS "idx_receipts_message_composite"
     ON messaging.message_receipts ("messageId", "messageCreatedAt");
@@ -236,6 +368,7 @@ CREATE INDEX IF NOT EXISTS "idx_receipts_message_composite"
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS messaging.message_reactions (
     "id"                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "tenantId"          UUID NOT NULL,
     "messageId"         UUID NOT NULL,
     "messageCreatedAt"  TIMESTAMPTZ NOT NULL,
     "userId"            UUID NOT NULL,
@@ -243,13 +376,18 @@ CREATE TABLE IF NOT EXISTS messaging.message_reactions (
     "createdAt"         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT "uq_reaction_message_user_emoji"
-        UNIQUE ("messageId", "userId", "emoji"),
+        UNIQUE ("tenantId", "messageId", "messageCreatedAt", "userId", "emoji"),
 
     CONSTRAINT "fk_reaction_message"
-        FOREIGN KEY ("messageId", "messageCreatedAt")
-        REFERENCES messaging.messages ("id", "createdAt") ON DELETE CASCADE
+        FOREIGN KEY ("tenantId", "messageId", "messageCreatedAt")
+        REFERENCES messaging.messages ("tenantId", "id", "createdAt") ON DELETE CASCADE,
+    CONSTRAINT "fk_message_reactions_user_tenant_principals"
+        FOREIGN KEY ("tenantId", "userId")
+        REFERENCES messaging.tenant_principals ("tenantId", "userId")
 );
 
+CREATE INDEX IF NOT EXISTS "idx_reactions_tenant"
+    ON messaging.message_reactions ("tenantId");
 -- Composite FK-shaped index; see AddCompositeFkIndexesOnMessageChildren1781600000000.
 CREATE INDEX IF NOT EXISTS "idx_reactions_message_composite"
     ON messaging.message_reactions ("messageId", "messageCreatedAt");
@@ -260,21 +398,29 @@ CREATE INDEX IF NOT EXISTS "idx_reactions_message_composite"
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS messaging.pinned_messages (
     "id"                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    "channelId"         UUID NOT NULL
-        REFERENCES messaging.channels("id") ON DELETE CASCADE,
+    "tenantId"          UUID NOT NULL,
+    "channelId"         UUID NOT NULL,
     "messageId"         UUID NOT NULL,
     "messageCreatedAt"  TIMESTAMPTZ NOT NULL,
     "pinnedBy"          UUID NOT NULL,
     "pinnedAt"          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT "uq_pin_channel_message"
-        UNIQUE ("channelId", "messageId"),
+        UNIQUE ("tenantId", "channelId", "messageId", "messageCreatedAt"),
+    CONSTRAINT "fk_pin_channel"
+        FOREIGN KEY ("tenantId", "channelId")
+        REFERENCES messaging.channels ("tenantId", "id") ON DELETE CASCADE,
 
     CONSTRAINT "fk_pin_message"
-        FOREIGN KEY ("messageId", "messageCreatedAt")
-        REFERENCES messaging.messages ("id", "createdAt") ON DELETE CASCADE
+        FOREIGN KEY ("tenantId", "messageId", "messageCreatedAt")
+        REFERENCES messaging.messages ("tenantId", "id", "createdAt") ON DELETE CASCADE,
+    CONSTRAINT "fk_pinned_messages_user_tenant_principals"
+        FOREIGN KEY ("tenantId", "pinnedBy")
+        REFERENCES messaging.tenant_principals ("tenantId", "userId")
 );
 
+CREATE INDEX IF NOT EXISTS "idx_pins_tenant"
+    ON messaging.pinned_messages ("tenantId");
 CREATE INDEX IF NOT EXISTS "idx_pins_channel"
     ON messaging.pinned_messages ("channelId", "pinnedAt" DESC);
 -- Composite FK-shaped index — pinned_messages had NO messageId index at all
@@ -287,27 +433,37 @@ CREATE INDEX IF NOT EXISTS "idx_pins_message_composite"
 -- ============================================================================
 -- 8. messaging_outbox — transactional outbox for NATS event delivery
 --
--- `id BIGINT GENERATED BY DEFAULT AS IDENTITY` is the modern replacement
--- for the legacy `BIGSERIAL` macro — same behaviour (auto-increment
--- sequence) but the sequence is integrated with the column, which means
--- `CREATE TABLE ... LIKE` / `pg_dump` / renames preserve the link
--- automatically. See ConvertMessagingOutboxToIdentity1781200000000 for
--- the conversion migration that brings already-deployed environments
--- onto the new style; this template is what fresh deploys pick up.
+-- Source-only infrastructure table. Tenant schemas must never contain
+-- messaging_outbox; the migration runner records source-only migrations
+-- in tenant ledgers without executing this DDL.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS messaging.messaging_outbox (
-    "id"           BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    "eventType"    VARCHAR(100) NOT NULL,
-    "payload"      JSONB NOT NULL,
-    "createdAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "publishedAt"  TIMESTAMPTZ,
-    "retryCount"   INTEGER NOT NULL DEFAULT 0,
-    "lastError"    TEXT
+    "id"               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "eventType"        VARCHAR(100) NOT NULL,
+    "tenantId"         UUID,
+    "aggregateId"      UUID,
+    "payload"          JSONB NOT NULL,
+    "createdAt"        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "publishedAt"      TIMESTAMPTZ,
+    "retryCount"       INTEGER NOT NULL DEFAULT 0,
+    "lastError"        TEXT,
+    "nextAttemptAt"    TIMESTAMPTZ,
+    "idempotencyKey"   VARCHAR(255),
+    "isDeadLettered"   BOOLEAN NOT NULL DEFAULT FALSE,
+    "leasedAt"         TIMESTAMPTZ,
+    "leasedBy"         VARCHAR(128)
 );
 
 CREATE INDEX IF NOT EXISTS "idx_outbox_poll"
     ON messaging.messaging_outbox ("createdAt" ASC)
-    WHERE "publishedAt" IS NULL;
+    WHERE "publishedAt" IS NULL AND "isDeadLettered" = FALSE;
+
+CREATE INDEX IF NOT EXISTS "idx_outbox_tenant"
+    ON messaging.messaging_outbox ("tenantId");
+
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_outbox_idempotency"
+    ON messaging.messaging_outbox ("tenantId", "idempotencyKey")
+    WHERE "idempotencyKey" IS NOT NULL;
 
 
 -- ============================================================================
@@ -317,6 +473,7 @@ CREATE INDEX IF NOT EXISTS "idx_outbox_poll"
 -- message_analysis — sentiment, entity, topic analysis results
 CREATE TABLE IF NOT EXISTS messaging.message_analysis (
     "id"                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "tenantId"          UUID NOT NULL,
     "messageId"         UUID NOT NULL,
     "messageCreatedAt"  TIMESTAMPTZ NOT NULL,
     "analysisType"      VARCHAR(20) NOT NULL,
@@ -328,10 +485,12 @@ CREATE TABLE IF NOT EXISTS messaging.message_analysis (
         CHECK ("analysisType" IN ('sentiment', 'entity', 'topic')),
 
     CONSTRAINT "fk_analysis_message"
-        FOREIGN KEY ("messageId", "messageCreatedAt")
-        REFERENCES messaging.messages ("id", "createdAt") ON DELETE CASCADE
+        FOREIGN KEY ("tenantId", "messageId", "messageCreatedAt")
+        REFERENCES messaging.messages ("tenantId", "id", "createdAt") ON DELETE CASCADE
 );
 
+CREATE INDEX IF NOT EXISTS "idx_analysis_tenant"
+    ON messaging.message_analysis ("tenantId");
 CREATE INDEX IF NOT EXISTS "idx_analysis_message"
     ON messaging.message_analysis ("messageId");
 CREATE INDEX IF NOT EXISTS "idx_analysis_type"
@@ -343,6 +502,7 @@ CREATE INDEX IF NOT EXISTS "idx_analysis_sentiment"
 -- message_entity_references — links messages to domain entities
 CREATE TABLE IF NOT EXISTS messaging.message_entity_references (
     "id"                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "tenantId"          UUID NOT NULL,
     "messageId"         UUID NOT NULL,
     "messageCreatedAt"  TIMESTAMPTZ NOT NULL,
     "entityType"        VARCHAR(30) NOT NULL,
@@ -353,13 +513,15 @@ CREATE TABLE IF NOT EXISTS messaging.message_entity_references (
     CONSTRAINT "chk_entity_type"
         CHECK ("entityType" IN ('tank', 'batch', 'site', 'species', 'parameter')),
     CONSTRAINT "uq_message_entity"
-        UNIQUE ("messageId", "entityType", "entityId"),
+        UNIQUE ("tenantId", "messageId", "messageCreatedAt", "entityType", "entityId"),
 
     CONSTRAINT "fk_entity_ref_message"
-        FOREIGN KEY ("messageId", "messageCreatedAt")
-        REFERENCES messaging.messages ("id", "createdAt") ON DELETE CASCADE
+        FOREIGN KEY ("tenantId", "messageId", "messageCreatedAt")
+        REFERENCES messaging.messages ("tenantId", "id", "createdAt") ON DELETE CASCADE
 );
 
+CREATE INDEX IF NOT EXISTS "idx_entity_refs_tenant"
+    ON messaging.message_entity_references ("tenantId");
 CREATE INDEX IF NOT EXISTS "idx_entity_refs_entity"
     ON messaging.message_entity_references ("entityType", "entityId");
 CREATE INDEX IF NOT EXISTS "idx_entity_refs_message"
@@ -368,6 +530,7 @@ CREATE INDEX IF NOT EXISTS "idx_entity_refs_message"
 -- knowledge_entries — extracted operational knowledge
 CREATE TABLE IF NOT EXISTS messaging.knowledge_entries (
     "id"                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "tenantId"                 UUID NOT NULL,
     "sourceMessageId"          UUID,
     "sourceMessageCreatedAt"   TIMESTAMPTZ,
     "category"                 VARCHAR(50) NOT NULL,
@@ -378,10 +541,13 @@ CREATE TABLE IF NOT EXISTS messaging.knowledge_entries (
     "createdAt"                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT "fk_knowledge_message"
-        FOREIGN KEY ("sourceMessageId", "sourceMessageCreatedAt")
-        REFERENCES messaging.messages ("id", "createdAt") ON DELETE SET NULL
+        FOREIGN KEY ("tenantId", "sourceMessageId", "sourceMessageCreatedAt")
+        REFERENCES messaging.messages ("tenantId", "id", "createdAt")
+        ON DELETE SET NULL ("sourceMessageId", "sourceMessageCreatedAt")
 );
 
+CREATE INDEX IF NOT EXISTS "idx_knowledge_tenant"
+    ON messaging.knowledge_entries ("tenantId");
 CREATE INDEX IF NOT EXISTS "idx_knowledge_category"
     ON messaging.knowledge_entries ("category", "createdAt" DESC);
 

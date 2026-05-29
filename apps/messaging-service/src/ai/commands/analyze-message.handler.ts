@@ -53,8 +53,6 @@ export class AnalyzeMessageHandler
       this.logger.debug(
         `Skipping AI analysis for message ${messageId}: privacy gate denied`,
       );
-      // Still forward to AI chat bridge (AI channels don't require analysis consent)
-      await this.safeHandleAiChannel(tenantId, channelId, messageId, content, senderId);
       return;
     }
 

@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { RESOLVE_NOTIFICATION_REF } from '@/graphql/messaging-operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 
 /**
  * Service worker message event types that trigger in-app navigation.
@@ -22,14 +24,26 @@ interface NavigateToChannelMessage {
   channelId?: string;
 }
 
+interface NavigateToNotificationRefMessage {
+  type: 'NAVIGATE_TO_NOTIFICATION_REF';
+  notificationRef?: string;
+}
+
 /** Union of all SW navigation message types. Extend as new event types are added. */
-type SwNavigationMessage = NavigateToChannelMessage;
+type SwNavigationMessage = NavigateToChannelMessage | NavigateToNotificationRefMessage;
 
 /** Type guard: narrows unknown MessageEvent data to a known SW navigation message. */
 function isSwNavigationMessage(data: unknown): data is SwNavigationMessage {
   if (typeof data !== 'object' || data === null) return false;
   const msg = data as { type?: unknown };
-  return msg.type === 'NAVIGATE_TO_CHANNEL';
+  return msg.type === 'NAVIGATE_TO_CHANNEL' || msg.type === 'NAVIGATE_TO_NOTIFICATION_REF';
+}
+
+interface ResolveNotificationRefResponse {
+  resolveNotificationRef: {
+    channelId: string;
+    messageId: string;
+  } | null;
 }
 
 /**
@@ -46,6 +60,35 @@ export function useSwNavigation(): void {
   const navigate = useNavigate();
 
   useEffect(() => {
+    const resolveAndNavigate = (notificationRef?: string): void => {
+      if (!notificationRef) {
+        navigate('/messages');
+        return;
+      }
+
+      void graphqlRequest<ResolveNotificationRefResponse>(RESOLVE_NOTIFICATION_REF, {
+        notificationRef,
+      })
+        .then((data) => {
+          const resolved = data.resolveNotificationRef;
+          if (!resolved) {
+            navigate('/messages', { replace: true });
+            return;
+          }
+          navigate(`/messages/${resolved.channelId}`, { replace: true });
+        })
+        .catch(() => {
+          navigate('/messages', { replace: true });
+        });
+    };
+
+    const initialNotificationRef = new URLSearchParams(window.location.search).get(
+      'notificationRef',
+    );
+    if (initialNotificationRef) {
+      resolveAndNavigate(initialNotificationRef);
+    }
+
     if (!('serviceWorker' in navigator)) return;
 
     const handleMessage = (event: MessageEvent): void => {
@@ -56,12 +99,13 @@ export function useSwNavigation(): void {
           // WHY: navigate() uses React Router relative paths (relative to
           // basename). The SW already focused this window — we just need to
           // route to the correct page within the SPA.
-          const path = event.data.channelId
-            ? `/messages/${event.data.channelId}`
-            : '/messages';
+          const path = event.data.channelId ? `/messages/${event.data.channelId}` : '/messages';
           navigate(path);
           break;
         }
+        case 'NAVIGATE_TO_NOTIFICATION_REF':
+          resolveAndNavigate(event.data.notificationRef);
+          break;
         // Future SW navigation events go here as additional cases.
       }
     };

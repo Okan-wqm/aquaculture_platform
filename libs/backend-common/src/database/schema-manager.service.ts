@@ -492,6 +492,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'message_receipts',
       'message_reactions',
       'pinned_messages',
+      'tenant_principals',
+      'message_send_idempotency',
+      'message_read_receipt_keys',
+      'tenant_isolation_remediation_log',
       // AI tables (migration 1711800000001)
       'message_analysis',
       'message_entity_references',

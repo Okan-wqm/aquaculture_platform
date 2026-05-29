@@ -14,6 +14,7 @@ interface MessagingNatsEvent {
   eventType: string;
   timestamp: string | Date;
   tenantId: string;
+  correlationId?: string;
   channelId?: string;
   messageId?: string;
   userId?: string;
@@ -22,13 +23,17 @@ interface MessagingNatsEvent {
   [key: string]: unknown;
 }
 
+const TENANT_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_MESSAGING_EVENT_PAYLOAD_BYTES = 64 * 1024;
+const PRODUCER_SERVICE_HEADER = 'x-aqua-producer-service';
+const CORRELATION_ID_HEADER = 'x-correlation-id';
+
 // ============================================================================
 // NATS Event Subjects
 // ============================================================================
 
 const MESSAGING_SUBJECTS = [
   'events.*.ChannelMessageSent',
-  'events.*.MessageSent',
   'events.*.MessageUpdated',
   'events.*.MessageDeleted',
   'events.*.MessageForwarded',
@@ -97,24 +102,70 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     if (!this.connection) return;
 
     for (const subject of MESSAGING_SUBJECTS) {
-      // Use a queue group so that when multiple gateway instances run,
-      // each NATS message is delivered to exactly one instance (load-balanced).
-      const sub = this.connection.subscribe(subject, { queue: 'gateway-messaging' });
+      const expectedEventType = subject.split('.')[2];
+      if (!expectedEventType) {
+        this.logger.error(`Malformed messaging bridge subscription subject: ${subject}`);
+        continue;
+      }
+
+      // Membership removals must reach every gateway pod so each process
+      // clears its local socket membership cache before the next broadcast.
+      const useQueueGroup = expectedEventType !== 'ChannelMemberRemoved';
+      const sub = useQueueGroup
+        ? this.connection.subscribe(subject, { queue: 'gateway-messaging' })
+        : this.connection.subscribe(subject);
       this.subscriptions.push(sub);
-      this.logger.log(`Subscribed to ${subject} (queue: gateway-messaging)`);
+      this.logger.log(
+        useQueueGroup
+          ? `Subscribed to ${subject} (queue: gateway-messaging)`
+          : `Subscribed to ${subject} (fanout: all gateway pods)`,
+      );
 
       (async () => {
         for await (const msg of sub) {
           try {
-            const data = this.sc.decode(msg.data);
-            const event = JSON.parse(data) as MessagingNatsEvent;
-
-            if (!this.isValidEvent(event)) {
-              this.logger.warn(`Invalid messaging NATS event on ${subject}, dropping`);
+            const subjectRoute = this.parseSubject(msg.subject, expectedEventType);
+            if (!subjectRoute) {
+              this.logger.warn(`Dropping messaging event with malformed subject: ${msg.subject}`);
               continue;
             }
 
-            this.handleEvent(event);
+            if (msg.data.length > MAX_MESSAGING_EVENT_PAYLOAD_BYTES) {
+              this.logger.warn(
+                `Dropping messaging event over ${MAX_MESSAGING_EVENT_PAYLOAD_BYTES} bytes: ${msg.subject}`,
+              );
+              continue;
+            }
+
+            const producerService = msg.headers?.get(PRODUCER_SERVICE_HEADER);
+            const correlationId = msg.headers?.get(CORRELATION_ID_HEADER);
+            if (!producerService || !correlationId) {
+              this.logger.warn(
+                `Dropping messaging event without producer identity/correlation headers: ${msg.subject}`,
+              );
+              continue;
+            }
+
+            const data = this.sc.decode(msg.data);
+            const event = JSON.parse(data) as MessagingNatsEvent;
+
+            if (
+              !this.isValidEvent(
+                event,
+                subjectRoute.tenantId,
+                subjectRoute.eventType,
+                correlationId,
+              )
+            ) {
+              this.logger.warn(`Invalid messaging NATS event on ${msg.subject}, dropping`);
+              continue;
+            }
+
+            this.handleEvent({
+              ...event,
+              tenantId: subjectRoute.tenantId,
+              eventType: subjectRoute.eventType,
+            });
           } catch (error) {
             this.logger.warn(`Failed to process ${subject}: ${(error as Error).message}`);
           }
@@ -134,16 +185,11 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
 
     switch (event.eventType) {
       case 'ChannelMessageSent':
-      case 'MessageSent':
-        this.messagingGateway.broadcastNewMessage(event.tenantId, channelId, {
-          ...event,
-          ...event.data,
-          messageId: event.messageId,
+        this.messagingGateway.broadcastNewMessage(
+          event.tenantId,
           channelId,
-          tenantId: event.tenantId,
-          userId: event.userId ?? event.senderId,
-          timestamp: event.timestamp,
-        });
+          this.serializeNewMessage(event, channelId),
+        );
         break;
 
       case 'MessageForwarded':
@@ -151,7 +197,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
           event.tenantId,
           channelId,
           'messageForwarded',
-          event,
+          this.serializeMessageForwarded(event, channelId),
         );
         break;
 
@@ -160,7 +206,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
           event.tenantId,
           channelId,
           'reactionAdded',
-          event,
+          this.serializeReaction(event, channelId),
         );
         break;
 
@@ -169,7 +215,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
           event.tenantId,
           channelId,
           'reactionRemoved',
-          event,
+          this.serializeReaction(event, channelId),
         );
         break;
 
@@ -178,7 +224,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
           event.tenantId,
           channelId,
           'messagePinned',
-          event,
+          this.serializePinEvent(event, channelId),
         );
         break;
 
@@ -187,57 +233,64 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
           event.tenantId,
           channelId,
           'messageUnpinned',
-          event,
+          this.serializePinEvent(event, channelId),
         );
         break;
 
       case 'MessageUpdated':
-        this.messagingGateway.broadcastMessageUpdated(event.tenantId, channelId, {
-          messageId: event.messageId,
+        this.messagingGateway.broadcastMessageUpdated(
+          event.tenantId,
           channelId,
-          tenantId: event.tenantId,
-          userId: event.userId,
-          timestamp: event.timestamp,
-          ...event.data,
-        });
+          this.serializeMessageUpdated(event, channelId),
+        );
         break;
 
       case 'MessageDeleted':
-        this.messagingGateway.broadcastMessageDeleted(event.tenantId, channelId, {
-          messageId: event.messageId ?? '',
-        });
+        this.messagingGateway.broadcastMessageDeleted(
+          event.tenantId,
+          channelId,
+          this.serializeMessageDeleted(event, channelId),
+        );
         break;
 
       case 'MessageRead':
-        this.messagingGateway.broadcastReadReceipt(event.tenantId, channelId, {
-          userId: event.userId,
+        this.messagingGateway.broadcastReadReceipt(
+          event.tenantId,
           channelId,
-          messageId: event.messageId,
-          timestamp: event.timestamp,
-        });
+          this.serializeReadReceipt(event, channelId),
+        );
         break;
 
       case 'ChannelCreated':
         // ChannelCreated events notify channel members of new channels
-        this.messagingGateway.broadcastMessageUpdated(event.tenantId, channelId, {
-          eventType: event.eventType,
+        this.messagingGateway.broadcastMessageUpdated(
+          event.tenantId,
           channelId,
-          tenantId: event.tenantId,
-          userId: event.userId,
-          timestamp: event.timestamp,
-        });
+          this.serializeChannelEvent(event, channelId),
+        );
+        break;
+
+      case 'ChannelMemberRemoved':
+        if (typeof event.userId !== 'string') {
+          this.logger.warn('ChannelMemberRemoved missing userId, dropping');
+          return;
+        }
+        this.messagingGateway.evictUserFromChannel(event.tenantId, channelId, event.userId);
+        this.messagingGateway.broadcastChannelEvent(
+          event.tenantId,
+          channelId,
+          'channelMemberRemoved',
+          this.serializeChannelEvent(event, channelId),
+        );
         break;
 
       case 'ChannelMemberAdded':
-      case 'ChannelMemberRemoved':
-        // These events can trigger UI updates for channel member lists
-        this.messagingGateway.broadcastMessageUpdated(event.tenantId, channelId, {
-          eventType: event.eventType,
+        this.messagingGateway.broadcastChannelEvent(
+          event.tenantId,
           channelId,
-          tenantId: event.tenantId,
-          userId: event.userId,
-          timestamp: event.timestamp,
-        });
+          'channelMemberAdded',
+          this.serializeChannelEvent(event, channelId),
+        );
         break;
 
       default:
@@ -269,9 +322,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
               try {
                 sub.unsubscribe();
               } catch (error) {
-                this.logger.debug(
-                  `Stale subscription cleanup error: ${(error as Error).message}`,
-                );
+                this.logger.debug(`Stale subscription cleanup error: ${(error as Error).message}`);
               }
             }
             this.subscriptions = [];
@@ -299,14 +350,146 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     }
   }
 
-  private isValidEvent(event: MessagingNatsEvent): boolean {
+  private parseSubject(
+    subject: string,
+    expectedEventType: string,
+  ): { tenantId: string; eventType: string } | null {
+    const [prefix, tenantId, eventType, ...extra] = subject.split('.');
+    if (
+      prefix !== 'events' ||
+      !tenantId ||
+      !eventType ||
+      extra.length > 0 ||
+      eventType !== expectedEventType ||
+      !TENANT_ID_REGEX.test(tenantId)
+    ) {
+      return null;
+    }
+    return { tenantId, eventType };
+  }
+
+  private isValidEvent(
+    event: MessagingNatsEvent,
+    subjectTenantId: string,
+    subjectEventType: string,
+    correlationId?: string,
+  ): boolean {
     return (
       typeof event === 'object' &&
       event !== null &&
-      typeof event.eventType === 'string' &&
-      typeof event.tenantId === 'string' &&
+      typeof event.eventId === 'string' &&
+      event.eventId.length > 0 &&
+      typeof event.correlationId === 'string' &&
+      event.correlationId.length > 0 &&
+      (!correlationId || event.correlationId === correlationId) &&
+      event.eventType === subjectEventType &&
+      event.tenantId === subjectTenantId &&
       (typeof event.timestamp === 'string' || event.timestamp instanceof Date)
     );
+  }
+
+  private serializeNewMessage(
+    event: MessagingNatsEvent,
+    channelId: string,
+  ): Record<string, unknown> {
+    return {
+      channelId,
+      message: {
+        id: event.messageId,
+        channelId,
+        senderId: event.senderId,
+        content: null,
+        contentType: event.contentType,
+        parentId: null,
+        forwardedFrom: null,
+        isDeleted: false,
+        createdAt: event.createdAt ?? event.timestamp,
+        editedAt: null,
+        metadata: event.isAiResponse ? { isAiResponse: true } : null,
+        attachments: event.hasAttachments ? undefined : [],
+        receipts: [],
+      },
+    };
+  }
+
+  private serializeMessageUpdated(
+    event: MessagingNatsEvent,
+    channelId: string,
+  ): Record<string, unknown> {
+    return {
+      channelId,
+      message: {
+        id: event.messageId,
+        channelId,
+        senderId: event.senderId,
+        editedAt: event.editedAt ?? event.timestamp,
+      },
+    };
+  }
+
+  private serializeMessageDeleted(
+    event: MessagingNatsEvent,
+    _channelId: string,
+  ): { messageId: string } {
+    return { messageId: typeof event.messageId === 'string' ? event.messageId : '' };
+  }
+
+  private serializeReadReceipt(
+    event: MessagingNatsEvent,
+    channelId: string,
+  ): Record<string, unknown> {
+    return {
+      channelId,
+      userId: event.userId,
+      messageId: event.messageId,
+      readAt: event.readAt ?? event.timestamp,
+    };
+  }
+
+  private serializeMessageForwarded(
+    event: MessagingNatsEvent,
+    channelId: string,
+  ): Record<string, unknown> {
+    return {
+      eventType: 'MessageForwarded',
+      channelId,
+      messageId: event.messageId,
+      senderId: event.senderId,
+      contentType: event.contentType,
+      createdAt: event.createdAt ?? event.timestamp,
+    };
+  }
+
+  private serializeReaction(event: MessagingNatsEvent, channelId: string): Record<string, unknown> {
+    return {
+      eventType: event.eventType,
+      channelId,
+      messageId: event.messageId,
+      userId: event.userId,
+      emoji: event.emoji,
+    };
+  }
+
+  private serializePinEvent(event: MessagingNatsEvent, channelId: string): Record<string, unknown> {
+    return {
+      eventType: event.eventType,
+      channelId,
+      messageId: event.messageId,
+      pinnedBy: event.pinnedBy,
+      unpinnedBy: event.unpinnedBy,
+    };
+  }
+
+  private serializeChannelEvent(
+    event: MessagingNatsEvent,
+    channelId: string,
+  ): Record<string, unknown> {
+    return {
+      eventType: event.eventType,
+      channelId,
+      userId: event.userId,
+      timestamp: event.timestamp,
+    };
   }
 
   isConnected(): boolean {

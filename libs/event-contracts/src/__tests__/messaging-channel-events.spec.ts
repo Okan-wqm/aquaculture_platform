@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
+import { createBaseEvent, type UserDeletedEvent } from '../index';
 
 describe('messaging channel event contract', () => {
   const repoRoot = process.cwd();
@@ -31,13 +32,31 @@ describe('messaging channel event contract', () => {
 
     const offenders = channelMessagingDirs
       .flatMap(readSourceFiles)
-      .filter(({ source }) =>
-        /createBaseEvent\(\s*['"]MessageSent['"]/.test(source) ||
-        /eventType:\s*['"]MessageSent['"]/.test(source) ||
-        /events\.\*\.MessageSent/.test(source),
+      .filter(
+        ({ source }) =>
+          /createBaseEvent\(\s*['"]MessageSent['"]/.test(source) ||
+          /eventType:\s*['"]MessageSent['"]/.test(source) ||
+          /events\.\*\.MessageSent/.test(source),
       )
       .map(({ path }) => path.replace(`${repoRoot}/`, ''));
 
     expect(offenders).toEqual([]);
+  });
+
+  it('keeps UserDeleted requester separate from the deleted user target', () => {
+    const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const requesterId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const deletedUserId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+    const event: UserDeletedEvent = {
+      ...createBaseEvent<UserDeletedEvent>('UserDeleted', tenantId, {
+        userId: requesterId,
+      }),
+      deletedUserId,
+    };
+
+    expect(event.userId).toBe(requesterId);
+    expect(event.deletedUserId).toBe(deletedUserId);
+    expect(event.userId).not.toBe(event.deletedUserId);
   });
 });

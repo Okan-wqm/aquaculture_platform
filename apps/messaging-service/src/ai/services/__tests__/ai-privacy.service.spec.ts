@@ -151,12 +151,10 @@ describe('AiPrivacyService', () => {
     queryRunner.manager.findOne.mockResolvedValueOnce({ aiEnabled: true } as TenantAiSetting);
 
     expect(await service.isTenantAiEnabled(TENANT_A)).toBe(true);
-    expect(queryRunner.manager.findOne).toHaveBeenCalledWith(TenantAiSetting, { where: { tenantId: TENANT_A } });
-    expect(redisClient.setex).toHaveBeenCalledWith(
-      `ai:tenant:${TENANT_A}`,
-      60,
-      'true',
-    );
+    expect(queryRunner.manager.findOne).toHaveBeenCalledWith(TenantAiSetting, {
+      where: { tenantId: TENANT_A },
+    });
+    expect(redisClient.setex).toHaveBeenCalledWith(`ai:tenant:${TENANT_A}`, 60, 'true');
   });
 
   it('isTenantAiEnabled: missing row defaults to false (deny-by-default)', async () => {
@@ -222,7 +220,7 @@ describe('AiPrivacyService', () => {
     expect(bypassRls.withBypass).not.toHaveBeenCalled();
   });
 
-  it('setUserAiConsent: revoking consent triggers embedding sweep wrapped in BypassRls', async () => {
+  it('setUserAiConsent: revoking consent triggers derived artifact sweep wrapped in BypassRls', async () => {
     queryRunner.query.mockImplementation(async (sql: string) => {
       if (sql.includes(`set_config('search_path'`)) {
         return undefined;
@@ -234,18 +232,18 @@ describe('AiPrivacyService', () => {
 
     // Bypass invoked with auditable label
     expect(bypassRls.withBypass).toHaveBeenCalledWith(
-      expect.stringMatching(/^ai-privacy:embedding-sweep:tenant=.+:user=.+$/),
+      expect.stringMatching(/^ai-privacy:derived-artifact-sweep:tenant=.+:user=.+$/),
       expect.any(Function),
     );
     // Sweep query must remain tenant-routed through search_path.
-    expect(queryRunner.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE "messages"'),
-      [TENANT_A, userId],
-    );
-    expect(queryRunner.query).toHaveBeenCalledWith(
-      expect.stringContaining('FROM "channels"'),
-      [TENANT_A, userId],
-    );
+    expect(queryRunner.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE "messages"'), [
+      TENANT_A,
+      userId,
+    ]);
+    expect(queryRunner.query).toHaveBeenCalledWith(expect.stringContaining('FROM "channels"'), [
+      TENANT_A,
+      userId,
+    ]);
   });
 
   it('setUserAiConsent: sweep failure does NOT roll back consent change (logged + escalated)', async () => {

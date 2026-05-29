@@ -326,6 +326,11 @@ export async function setupTenantSchemas(
   // Ensure the messaging source schema exists and has tables
   // (SourceSchemaBootstrapService runs on app init, but migrations may need to run first)
   const sourceSchema = 'messaging';
+  const sourceOnlyTables = new Set([
+    'migrations',
+    'messaging_outbox',
+    'embeddings_metadata',
+  ]);
 
   for (const tenantId of tenantIds) {
     const schemaName = getTenantSchemaName(tenantId);
@@ -339,6 +344,8 @@ export async function setupTenantSchemas(
     );
 
     for (const { tablename } of tables) {
+      if (sourceOnlyTables.has(tablename)) continue;
+
       // Skip partition children — they'll be created separately
       const isPartition: { is_partition: boolean }[] = await dataSource.query(
         `SELECT EXISTS (
@@ -507,11 +514,13 @@ export async function cleanupTenantData(
     'retention_policies',
     'legal_holds',
     'compliance_audit_log',
-    'messaging_outbox',
     'message_analysis',
     'message_entity_references',
     'knowledge_entries',
-    'embeddings_metadata',
+    'tenant_principals',
+    'message_send_idempotency',
+    'message_read_receipt_keys',
+    'tenant_isolation_remediation_log',
   ];
 
   for (const table of tables) {

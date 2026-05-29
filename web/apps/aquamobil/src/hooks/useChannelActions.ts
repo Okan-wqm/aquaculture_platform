@@ -17,7 +17,7 @@
 
 import { useCallback, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagingQueryKeys } from '@/utils/messaging-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import {
@@ -47,10 +47,10 @@ export function useChannelActions(channelId: string | undefined) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId),
+        queryKey: messagingQueryKeys.channel(tenantId, channelId),
       });
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+        queryKey: messagingQueryKeys.channels(tenantId),
       });
       setError(null);
     },
@@ -67,10 +67,10 @@ export function useChannelActions(channelId: string | undefined) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+        queryKey: messagingQueryKeys.channels(tenantId),
       });
       queryClient.removeQueries({
-        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId),
+        queryKey: messagingQueryKeys.channel(tenantId, channelId),
       });
       setError(null);
     },
@@ -83,10 +83,10 @@ export function useChannelActions(channelId: string | undefined) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+        queryKey: messagingQueryKeys.channels(tenantId),
       });
       queryClient.removeQueries({
-        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId),
+        queryKey: messagingQueryKeys.channel(tenantId, channelId),
       });
       setError(null);
     },
@@ -103,10 +103,10 @@ export function useChannelActions(channelId: string | undefined) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId),
+        queryKey: messagingQueryKeys.channel(tenantId, channelId),
       });
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+        queryKey: messagingQueryKeys.channels(tenantId),
       });
       setError(null);
     },

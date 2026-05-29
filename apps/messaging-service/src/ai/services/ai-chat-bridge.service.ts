@@ -134,7 +134,7 @@ export class AiChatBridgeService {
     if (!filterResult.safe) {
       this.logger.warn(
         `SECURITY: Jailbreak attempt blocked in AI channel ${channelId} by user ${senderId}. ` +
-        `Patterns: ${filterResult.flaggedPatterns.join(', ')}`,
+          `Patterns: ${filterResult.flaggedPatterns.join(', ')}`,
       );
       await this.persistAiResponse(tenantId, channelId, {
         content: 'Your message was flagged by our safety system and cannot be processed.',
@@ -189,9 +189,7 @@ export class AiChatBridgeService {
     // @see MSG-HIGH-032 (output PII filter)
     const piiResult = this.outputPiiScanner.redact(response.content, tenantId);
     if (piiResult.scanResult.hasPii) {
-      this.logger.warn(
-        `SECURITY: PII detected in AI response for channel ${channelId}, redacting`,
-      );
+      this.logger.warn(`SECURITY: PII detected in AI response for channel ${channelId}, redacting`);
       response.content = piiResult.redactedText;
     }
 
@@ -248,6 +246,8 @@ export class AiChatBridgeService {
       this.logger.warn(`AI action ${actionMessageId} is not in proposed state`);
       return false;
     }
+
+    await this.aiEgressGate.assertAllowed(tenantId, userId, 'ai-action');
 
     // Execute the action via NATS
     const response = await firstValueFrom(
@@ -314,13 +314,24 @@ export class AiChatBridgeService {
       .take(MAX_CONTEXT_MESSAGES)
       .getMany();
 
-    // Reverse to chronological order
-    return messages.reverse().map((m) => ({
-      senderId: m.senderId,
-      content: m.content ?? '',
-      createdAt: m.createdAt.toISOString(),
-      isAi: m.senderId === AI_USER_ID,
-    }));
+    const chronological = messages.reverse();
+    const allowedMessages: ContextMessage[] = [];
+
+    for (const message of chronological) {
+      const isAi = message.senderId === AI_USER_ID;
+      if (!isAi && !(await this.aiEgressGate.isAllowed(tenantId, message.senderId, 'ai-chat'))) {
+        continue;
+      }
+
+      allowedMessages.push({
+        senderId: message.senderId,
+        content: message.content ?? '',
+        createdAt: message.createdAt.toISOString(),
+        isAi,
+      });
+    }
+
+    return allowedMessages;
   }
 
   /**
@@ -379,16 +390,19 @@ export class AiChatBridgeService {
       });
       await manager.save(Message, message);
 
-      await this.outboxPublisher.enqueue({
-        ...createBaseEvent('ChannelMessageSent', tenantId),
-        channelId,
-        messageId,
-        senderId: AI_USER_ID,
-        contentType: MessageContentType.SYSTEM,
-        hasAttachments: false,
-        createdAt: now.toISOString(),
-        isAiResponse: true,
-      },  manager);
+      await this.outboxPublisher.enqueue(
+        {
+          ...createBaseEvent('ChannelMessageSent', tenantId),
+          channelId,
+          messageId,
+          senderId: AI_USER_ID,
+          contentType: MessageContentType.SYSTEM,
+          hasAttachments: false,
+          createdAt: now.toISOString(),
+          isAiResponse: true,
+        },
+        manager,
+      );
     });
 
     this.logger.debug(`AI response persisted: ${messageId} in channel ${channelId}`);
@@ -398,24 +412,19 @@ export class AiChatBridgeService {
    * Forward AI chat request via NATS request-reply pattern.
    * Returns a fallback response on failure.
    */
-  private async forwardViaNats(
-    request: AiChatRequest,
-    messageId: string,
-  ): Promise<AiChatResponse> {
+  private async forwardViaNats(request: AiChatRequest, messageId: string): Promise<AiChatResponse> {
     const response = await firstValueFrom(
-      this.natsClient
-        .send<AiChatResponse>('request.ai.chat', request)
-        .pipe(
-          timeout(AI_CHAT_TIMEOUT_MS),
-          catchError((err: unknown) => {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            this.logger.warn(`AI chat NATS request failed for ${messageId}: ${errMsg}`);
-            return of({
-              content: 'AI is temporarily unavailable. Please try again later.',
-              metadata: { error: true, fallback: true },
-            } satisfies AiChatResponse);
-          }),
-        ),
+      this.natsClient.send<AiChatResponse>('request.ai.chat', request).pipe(
+        timeout(AI_CHAT_TIMEOUT_MS),
+        catchError((err: unknown) => {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`AI chat NATS request failed for ${messageId}: ${errMsg}`);
+          return of({
+            content: 'AI is temporarily unavailable. Please try again later.',
+            metadata: { error: true, fallback: true },
+          } satisfies AiChatResponse);
+        }),
+      ),
     );
     return response;
   }
@@ -440,9 +449,7 @@ export class AiChatBridgeService {
     // @see MSG-CRITICAL-029 (DNS rebinding defense)
     const ssrfResult = await this.ssrfValidator.validateUrl(url);
     if (!ssrfResult.safe) {
-      this.logger.warn(
-        `SECURITY: Rejected AI service URL: ${url} (SSRF: ${ssrfResult.reason})`,
-      );
+      this.logger.warn(`SECURITY: Rejected AI service URL: ${url} (SSRF: ${ssrfResult.reason})`);
       return this.forwardViaNats(request, request.messageId);
     }
 
@@ -471,9 +478,7 @@ export class AiChatBridgeService {
       return body;
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      this.logger.warn(
-        `Custom AI service at ${url} failed (${errMsg}), falling back to NATS`,
-      );
+      this.logger.warn(`Custom AI service at ${url} failed (${errMsg}), falling back to NATS`);
       return this.forwardViaNats(request, request.messageId);
     }
   }

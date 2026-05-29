@@ -33,6 +33,15 @@ registerEnumType(MessageContentType, { name: 'MessageContentType' });
 @Index('idx_messages_channel_created', ['channelId', 'createdAt'])
 @Index('idx_messages_sender', ['senderId', 'createdAt'])
 @Index('idx_messages_tenant', ['tenantId'])
+@Index('idx_messages_tenant_id_created', ['tenantId', 'id', 'createdAt'], {
+  unique: true,
+})
+@Index('idx_messages_tenant_idempotency_lookup', [
+  'tenantId',
+  'channelId',
+  'senderId',
+  'idempotencyKey',
+])
 export class Message {
   @Field(() => ID)
   @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
@@ -78,7 +87,6 @@ export class Message {
    * messages from concurrent or retried sends.
    * @see MSG-HIGH-015 (no idempotency constraint on message processing)
    */
-  @Index('idx_messages_tenant_idempotency_lookup', ['tenantId', 'channelId', 'senderId', 'idempotencyKey'])
   @Column({ type: 'uuid' })
   idempotencyKey: string;
 

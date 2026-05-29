@@ -24,7 +24,7 @@
 
 import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagingQueryKeys } from '@/utils/messaging-query-keys';
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
 import { useOfflineQueue } from './useOfflineQueue';
@@ -62,7 +62,7 @@ export function useSendMessage(channelId: string | undefined) {
   // WHY 2026-04-29: useMessages reads this exact tenant-prefixed key. Optimistic
   // writes, cancellation, rollback, and invalidation must target the same cache
   // tree or sent messages can vanish until a full refetch.
-  const messageQueryKey = createTenantQueryKey(tenantId, 'messaging', 'messages', channelId);
+  const messageQueryKey = messagingQueryKeys.messages(tenantId, channelId);
 
   const mutation = useMutation({
     mutationFn: async (params: SendMessageParams & { _idempotencyKey: string }) => {

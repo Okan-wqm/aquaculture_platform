@@ -23,6 +23,7 @@ import { AuthEventHandler } from './event-handlers/auth-event.handler';
 import { BillingEventHandler } from './event-handlers/billing-event.handler';
 import { TaskEventHandler } from './event-handlers/task-event.handler';
 import { MessagingEventHandler } from './event-handlers/messaging-event.handler';
+import { DeviceTokenEventHandler } from './event-handlers/device-token-event.handler';
 
 // Resolvers
 import { NotificationResolver } from './resolvers/notification.resolver';
@@ -64,6 +65,7 @@ import { NotificationResolver } from './resolvers/notification.resolver';
     BillingEventHandler,
     TaskEventHandler,
     MessagingEventHandler,
+    DeviceTokenEventHandler,
 
     // Resolvers
     NotificationResolver,

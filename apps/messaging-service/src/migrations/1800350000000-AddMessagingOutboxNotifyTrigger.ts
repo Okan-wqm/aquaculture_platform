@@ -1,7 +1,11 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import type { MigrationExecutionMetadata } from '@aquaculture/backend-common/database';
 
-export class AddMessagingOutboxNotifyTrigger1800350000000 implements MigrationInterface {
+export class AddMessagingOutboxNotifyTrigger1800350000000
+  implements MigrationInterface, MigrationExecutionMetadata
+{
   name = 'AddMessagingOutboxNotifyTrigger1800350000000';
+  readonly sourceOnly = true;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

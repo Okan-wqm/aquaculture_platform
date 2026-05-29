@@ -81,7 +81,13 @@ export class KnowledgeEntry {
   @Field(() => Float)
   // DecimalTransformer: confidence score (0.00-1.00) is used in AI relevance ranking.
   // String comparison of scores produces wrong ordering in knowledge retrieval.
-  @Column({ type: 'numeric', precision: 3, scale: 2, default: 1.0, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'numeric',
+    precision: 3,
+    scale: 2,
+    default: 1.0,
+    transformer: new DecimalTransformer(),
+  })
   confidence: number;
 
   @Field(() => String, { nullable: true })
@@ -94,6 +100,7 @@ export class KnowledgeEntry {
 
   @ManyToOne(() => Message, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn([
+    { name: 'tenantId', referencedColumnName: 'tenantId' },
     { name: 'sourceMessageId', referencedColumnName: 'id' },
     { name: 'sourceMessageCreatedAt', referencedColumnName: 'createdAt' },
   ])

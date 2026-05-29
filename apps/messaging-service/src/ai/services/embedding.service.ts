@@ -117,24 +117,22 @@ export class EmbeddingService implements OnModuleDestroy {
     this.logger.debug(`Processing ${messages.length} messages for embedding`);
 
     // Filter by privacy gates — use explicit tenantId from channel join
-    const senderIds = [...new Set(messages.map((m) => m.senderId))];
+    const senderKeys = [
+      ...new Set(messages.map((m) => `${m.tenantId}:${m.senderId}`)),
+    ];
     const consentMap = new Map<string, boolean>();
-    const senderTenantMap = new Map<string, string>();
-    for (const msg of messages) {
-      if (!senderTenantMap.has(msg.senderId) && msg.tenantId) {
-        senderTenantMap.set(msg.senderId, msg.tenantId);
-      }
-    }
-    for (const senderId of senderIds) {
-      const tenantId = senderTenantMap.get(senderId) ?? '_current';
+    for (const senderKey of senderKeys) {
+      const separator = senderKey.indexOf(':');
+      const tenantId = senderKey.slice(0, separator);
+      const senderId = senderKey.slice(separator + 1);
       const canAnalyze = await this.privacyService
         .canAnalyzeMessage(tenantId, senderId)
         .catch(() => false);
-      consentMap.set(senderId, canAnalyze);
+      consentMap.set(senderKey, canAnalyze);
     }
 
     const consentedMessages = messages.filter(
-      (m) => consentMap.get(m.senderId) ?? false,
+      (m) => consentMap.get(`${m.tenantId}:${m.senderId}`) ?? false,
     );
 
     if (consentedMessages.length === 0) {

@@ -12,7 +12,6 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
-  Unique,
 } from 'typeorm';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { Channel } from '../../channel/entities/channel.entity';
@@ -20,7 +19,11 @@ import { Message } from './message.entity';
 
 @ObjectType()
 @Entity('pinned_messages')
-@Unique('uq_pin_channel_message', ['channelId', 'messageId'])
+@Index(
+  'idx_pinned_messages_tenant_channel_message',
+  ['tenantId', 'channelId', 'messageId', 'messageCreatedAt'],
+  { unique: true },
+)
 @Index('idx_pins_channel', ['channelId', 'pinnedAt'])
 @Index('idx_pins_tenant', ['tenantId'])
 export class PinnedMessage {
@@ -55,11 +58,15 @@ export class PinnedMessage {
   pinnedAt: Date;
 
   @ManyToOne(() => Channel, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'channelId' })
+  @JoinColumn([
+    { name: 'tenantId', referencedColumnName: 'tenantId' },
+    { name: 'channelId', referencedColumnName: 'id' },
+  ])
   channel: Channel;
 
   @ManyToOne(() => Message, { onDelete: 'CASCADE' })
   @JoinColumn([
+    { name: 'tenantId', referencedColumnName: 'tenantId' },
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])

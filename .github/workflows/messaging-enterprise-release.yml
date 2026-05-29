@@ -1,0 +1,255 @@
+name: Messaging Enterprise Release
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/messaging-service/**'
+      - 'apps/gateway-api/src/websocket/**'
+      - 'apps/notification-service/**'
+      - 'libs/event-contracts/**'
+      - 'platform/libs/event-bus/**'
+      - 'platform/libs/outbox/**'
+      - 'infrastructure/nats/**'
+      - 'infrastructure/docker/nats/**'
+      - 'infrastructure/deploy/service-criticality.yaml'
+      - 'scripts/ci/check-aquamobil-messaging-cache-keys.mjs'
+      - 'scripts/ci/check-aquamobil-messaging-contracts.mjs'
+      - 'scripts/ci/check-messaging-canary-metrics.mjs'
+      - 'scripts/ci/check-messaging-source-outbox.mjs'
+      - 'scripts/nats/messaging-acl-smoke.mjs'
+      - 'web/apps/aquamobil/**'
+      - 'docs/runbooks/messaging-enterprise-release.md'
+      - 'docs/security/messaging-ai-egress-inventory.md'
+      - '.github/workflows/messaging-enterprise-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: messaging-enterprise-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20.11'
+  PREFLIGHT_NODE_VERSION: '22'
+  NX_DAEMON: 'false'
+  NX_NO_CLOUD: 'true'
+
+jobs:
+  messaging-build-test:
+    name: messaging tests/build/type-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit
+      - run: npx nx test messaging-service --runInBand
+      - run: npx nx build messaging-service
+      - run: npx tsc --noEmit -p apps/messaging-service/tsconfig.app.json
+
+  gateway-notification-contracts:
+    name: gateway, notification, event contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit
+      - run: npx nx test gateway-api --runInBand
+      - run: npx nx test notification-service --runInBand
+      - run: npx nx test event-contracts --runInBand
+
+  migration-outbox-static-gates:
+    name: migration, outbox, ACL static gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aqua
+          POSTGRES_PASSWORD: aqua
+          POSTGRES_DB: aqua
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aqua -d aqua"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --ignore-scripts --no-audit
+      - run: python3 -m pip install --quiet 'pyyaml==6.0.2'
+      - name: Determine commit range
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE=$(git rev-parse HEAD~1)
+            HEAD="${{ github.sha }}"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+      - run: |
+          ./node_modules/.bin/ts-node --project tools/gates/tsconfig.json \
+            tools/gates/migration-sql-lint.ts \
+            --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+      - run: npm run gates:messaging-tenant-routing
+      - name: Seed real DB schema proof for source-only outbox
+        env:
+          DATABASE_URL: postgres://aqua:aqua@127.0.0.1:5432/aqua
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          CREATE SCHEMA IF NOT EXISTS messaging;
+          CREATE SCHEMA IF NOT EXISTS tenant_aaaaaaaaaaaa4aaa;
+          CREATE SCHEMA IF NOT EXISTS tenant_bbbbbbbbbbbb4bbb;
+          CREATE TABLE messaging.messaging_outbox (
+            "id" uuid PRIMARY KEY DEFAULT gen_random_uuid()
+          );
+          SQL
+      - run: npm run gates:messaging-source-outbox
+        env:
+          DATABASE_URL: postgres://aqua:aqua@127.0.0.1:5432/aqua
+          REQUIRE_DB_PROOF: 'true'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.PREFLIGHT_NODE_VERSION }}
+      - run: node scripts/ci/preflight-validate.ts docker-compose.yml docker-compose.prod.yml docker-compose.droplet.yml
+      - run: scripts/nats/generate-nats-conf.py
+      - run: git diff --exit-code infrastructure/docker/nats/nats.conf
+
+  nats-mtls-acl-smoke:
+    name: real NATS mTLS ACL smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --ignore-scripts --no-audit
+      - run: python3 -m pip install --quiet 'pyyaml==6.0.2'
+      - run: infrastructure/docker/scripts/generate-internal-certs.sh --force
+      - name: Run NATS with production ACL and mTLS config
+        run: |
+          docker rm -f nats-messaging-acl-smoke >/dev/null 2>&1 || true
+          docker run -d \
+            --name nats-messaging-acl-smoke \
+            -p 4222:4222 \
+            -p 8222:8222 \
+            -v "$PWD/infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro" \
+            -v "$PWD/infrastructure/docker/nats/nats-tls-enabled.conf:/etc/nats/nats-tls.conf:ro" \
+            -v "$PWD/certs/nats:/etc/nats/certs:ro" \
+            nats:2.10.24-alpine \
+            --config /etc/nats/nats.conf
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8222/varz >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs nats-messaging-acl-smoke
+          exit 1
+      - run: npm run smoke:nats-messaging-acl
+        env:
+          NATS_SMOKE_URL: tls://127.0.0.1:4222
+          NATS_SMOKE_CERT_DIR: certs/nats
+      - if: always()
+        run: docker rm -f nats-messaging-acl-smoke >/dev/null 2>&1 || true
+
+  aquamobil-contracts:
+    name: AquaMobil messaging contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit
+      - run: npm run gates:aquamobil-messaging-cache-keys
+      - run: npm run gates:aquamobil-messaging-contracts
+      - run: npm --workspace @aquaculture/aquamobil run typecheck
+
+  release-evidence-required:
+    name: production promotion evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - messaging-build-test
+      - gateway-notification-contracts
+      - migration-outbox-static-gates
+      - nats-mtls-acl-smoke
+      - aquamobil-contracts
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert staging evidence or explicit bypass approval
+        env:
+          STAGED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const evidencePath = 'artifacts/messaging-enterprise-release/evidence.json';
+          const bypassPath = 'artifacts/messaging-enterprise-release/bypass-approval.json';
+          const stagedSha = process.env.STAGED_SHA;
+
+          function readJson(path) {
+            return JSON.parse(fs.readFileSync(path, 'utf8'));
+          }
+
+          if (fs.existsSync(bypassPath)) {
+            const bypass = readJson(bypassPath);
+            for (const key of ['execApprover', 'securityApprover', 'timestamp', 'reason', 'scope', 'expiry']) {
+              if (!bypass[key]) throw new Error(`bypass missing ${key}`);
+            }
+            process.exit(0);
+          }
+
+          if (!fs.existsSync(evidencePath)) {
+            throw new Error('missing structured messaging release evidence.json');
+          }
+
+          const evidence = readJson(evidencePath);
+          if (evidence.stagedSha !== stagedSha) {
+            throw new Error(`evidence stagedSha ${evidence.stagedSha} does not match ${stagedSha}`);
+          }
+          for (const key of [
+            'smokeCommand',
+            'smokeOutput',
+            'dashboardCaptures',
+            'dbValidation',
+            'natsSmoke',
+            'aiDenialProof',
+            'rollbackManifest',
+            'ownerSignoff',
+          ]) {
+            if (!evidence[key]) throw new Error(`evidence missing ${key}`);
+          }
+          NODE

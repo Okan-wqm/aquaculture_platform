@@ -1,8 +1,4 @@
-import {
-  createBaseEvent,
-  type BaseEvent,
-  type EventId,
-} from '../base-event';
+import { createBaseEvent, type BaseEvent, type EventId } from '../base-event';
 
 /**
  * BaseEvent contract — invariants pinned at unit-test layer
@@ -67,9 +63,7 @@ describe('createBaseEvent — canonical contract invariants', () => {
 
     it('timestamp matches strict ISO 8601 with millisecond precision', () => {
       const event = createBaseEvent<TestEvent>('TestEvent', 'tenant-1');
-      expect(event.timestamp).toMatch(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
-      );
+      expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     });
 
     it('timestamp is parseable by Date.parse without ambiguity', () => {
@@ -91,6 +85,7 @@ describe('createBaseEvent — canonical contract invariants', () => {
       expect(event.version).toBe(1);
       expect(event.aggregateId).toBe('');
       expect(event.aggregateType).toBe('');
+      expect(event.correlationId).toBe(event.eventId);
     });
 
     it('overrides take precedence over defaults', () => {

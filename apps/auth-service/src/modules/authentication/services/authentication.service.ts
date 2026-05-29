@@ -320,6 +320,20 @@ export class AuthenticationService {
       // instead of full tokens. The user must complete MFA verification
       // via the verifyMfaLogin mutation to receive full auth tokens.
       // ----------------------------------------------------------------
+      if (user.mfaEnabled && !this.mfaService?.isMfaAvailable()) {
+        await this.ensureMinDuration(startTime);
+        this.logger.error(`Login blocked: MFA enabled but unavailable for userId=${user.id}`);
+        await this.logSecurityEvent('LOGIN_BLOCKED_MFA_UNAVAILABLE', {
+          userId: user.id,
+          tenantId: user.tenantId,
+          ipAddress,
+          userAgent,
+          success: false,
+          reason: 'MFA enabled but MFA_ENCRYPTION_KEY is unavailable',
+        }, AuditLogSeverity.CRITICAL);
+        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+      }
+
       if (user.mfaEnabled && this.mfaService?.isMfaAvailable()) {
         // Save login attempt state but DON'T set lastLoginAt yet
         // (it will be set after MFA verification succeeds)

@@ -156,7 +156,10 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
       imports: [ConfigModule, GraphQLContextModule],
       inject: [ConfigService, GraphQLContextFactory],
       useFactory: (configService: ConfigService, contextFactory: GraphQLContextFactory) => ({
-        autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+        autoSchemaFile: {
+          federation: 2,
+          path: join(process.cwd(), 'dist/graphql/subgraphs/farm.graphql'),
+        },
         /** SEC-CSRF: Apollo CSRF prevention. Rejects simple-CORS GraphQL
          *  requests that cannot carry a custom header — defense against
          *  cross-site GraphQL execution from a victim's browser. The

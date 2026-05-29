@@ -46,6 +46,7 @@ secrets:
   redisUrl: "redis://localhost:6379"
   natsUrl: "tls://nats:4222"
   passwordPepper: "ci-dummy-pepper-not-for-real-use"
+  mfaEncryptionKey: "ci-dummy-mfa-encryption-key-not-for-runtime"
 
   # PEM-shape values are only validated for non-empty by the chart's
   # `required` guard; their content is not consumed at template time.
@@ -60,3 +61,11 @@ secrets:
 
   stripeWebhookSecret: "whsec_ci_dummy_not_for_real_use"
   stripeApiKey: "sk_test_ci_dummy_not_for_real_use"
+
+postgresql:
+  auth:
+    password: "ci-dummy-postgresql-password-not-for-runtime"
+
+redis:
+  auth:
+    password: "ci-dummy-redis-password-not-for-runtime"

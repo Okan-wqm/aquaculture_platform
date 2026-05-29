@@ -199,7 +199,7 @@ const complexityCache = new Map<string, number>();
           csrfPrevention: true,
           autoSchemaFile: {
             federation: 2,
-            path: join('/tmp', 'messaging-schema.graphql'),
+            path: join(process.cwd(), 'dist/graphql/subgraphs/messaging.graphql'),
           },
           validationRules: [depthLimit(10)],
           plugins: [

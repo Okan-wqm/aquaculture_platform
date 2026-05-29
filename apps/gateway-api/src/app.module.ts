@@ -30,6 +30,7 @@ import {
   fieldExtensionsEstimator,
 } from 'graphql-query-complexity';
 
+import { FEDERATED_SUBGRAPHS } from './config/federated-subgraphs.generated';
 import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
 import { AuthenticatedDataSource } from './federation/authenticated-data-source';
 import type { GatewayContext, RequestWithUser } from './federation/authenticated-data-source';
@@ -237,56 +238,10 @@ function positiveIntConfig(
            *   notification (BUG-4 FIX), messaging (ADR-012)
            */
           supergraphSdl: new RetryableIntrospectAndCompose({
-            subgraphs: [
-              {
-                name: 'auth',
-                url: configService.get('AUTH_SERVICE_URL', 'http://localhost:3001/graphql'),
-              },
-              {
-                name: 'farm',
-                url: configService.get('FARM_SERVICE_URL', 'http://localhost:3002/graphql'),
-              },
-              {
-                name: 'sensor',
-                url: configService.get('SENSOR_SERVICE_URL', 'http://localhost:3003/graphql'),
-              },
-              {
-                name: 'alert',
-                url: configService.get('ALERT_SERVICE_URL', 'http://localhost:3004/graphql'),
-              },
-              {
-                name: 'hr',
-                url: configService.get('HR_SERVICE_URL', 'http://localhost:3005/graphql'),
-              },
-              {
-                name: 'billing',
-                url: configService.get('BILLING_SERVICE_URL', 'http://localhost:3006/graphql'),
-              },
-              {
-                name: 'hydroponics',
-                url: configService.get('HYDROPONICS_SERVICE_URL', 'http://localhost:4007/graphql'),
-              },
-              {
-                name: 'config',
-                url: configService.get('CONFIG_SERVICE_URL', 'http://localhost:3007/graphql'),
-              },
-              // BUG-4 FIX: notification-service exposes a federation-compatible GraphQL
-              // endpoint (myNotifications, unreadNotificationCount, markNotificationAsRead,
-              // markAllNotificationsAsRead, registerDeviceToken).  It was previously
-              // excluded with an incorrect comment.  The service uses ApolloFederationDriver
-              // and must be included for mobile notification queries to resolve.
-              {
-                name: 'notification',
-                url: configService.get('NOTIFICATION_SERVICE_URL', 'http://localhost:4008/graphql'),
-              },
-              // ADR-012: messaging-service is a federated subgraph for tenant-internal
-              // WhatsApp-like messaging. Added to docker-compose depends_on and
-              // health.service.ts serviceUrls map as part of ARCH-GW-001.
-              {
-                name: 'messaging',
-                url: configService.get('MESSAGING_SERVICE_URL', 'http://messaging-service:3000/graphql'),
-              },
-            ],
+            subgraphs: FEDERATED_SUBGRAPHS.map((subgraph) => ({
+              name: subgraph.name,
+              url: configService.get(subgraph.urlEnv, subgraph.localUrl),
+            })),
             pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
             maxRetries: positiveIntConfig(
               configService,

@@ -60,13 +60,20 @@ jobs:
               - 'tools/executors/cargo/**'
               - 'scripts/deploy/**'
               - 'scripts/ci/**'
+              - 'scripts/graphql/**'
+              - 'scripts/apollo-router/**'
               - '.github/workflows/deploy-digitalocean.yml'
               - '.github/workflows/deploy-staging.yml'
               - '.github/workflows/ci-affected.yml'
               - '.github/actions/**'
               - 'infrastructure/deploy/**'
+              - 'infrastructure/apollo-router/**'
               - 'docker-compose.droplet.yml'
               - 'docker-compose.prod.yml'
+              - '.gitignore'
+              - '.nxignore'
+              - 'codegen.ts'
+              - 'web/shared-ui/src/generated/**'
               # CI install-chain tooling — the Nx graph probe + ESLint
               # plugin loader resolve against these paths on every run.
               # A broken `tools/eslint-rules/` tsconfig or a miswired
@@ -497,6 +504,21 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Phase A1 — GraphQL registry generated artifacts
+        run: |
+          node scripts/graphql/validate-registry.mjs
+          node scripts/graphql/generate-registry-artifacts.mjs
+          git diff --exit-code \
+            apps/gateway-api/src/config/federated-subgraphs.generated.ts \
+            infrastructure/apollo-router/supergraph-config.generated.yaml \
+            infrastructure/apollo-router/codegen-schema.generated.json
+
+      - name: Phase A1 — GraphQL contract drift report
+        run: node scripts/ci/check-graphql-contract-drift.mjs
+
+      - name: Phase A1 — auth schema write ownership
+        run: node scripts/ci/check-auth-db-ownership.mjs
+
       - name: Setup Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
         with:
@@ -613,6 +635,7 @@ jobs:
             --set-string secrets.jwtPrivateKey=ci-dummy-jwt-private-key \
             --set-string secrets.jwtPublicKey=ci-dummy-jwt-public-key \
             --set-string secrets.passwordPepper=ci-dummy-password-pepper \
+            --set-string secrets.mfaEncryptionKey=ci-dummy-mfa-encryption-key-not-for-runtime \
             --set-string secrets.stripeWebhookSecret=ci-dummy-stripe-webhook \
             --set-string secrets.stripeApiKey=ci-dummy-stripe-api-key \
             --skip-tests \
@@ -640,6 +663,7 @@ jobs:
             --set-string secrets.jwtPrivateKey=ci-dummy-jwt-private-key \
             --set-string secrets.jwtPublicKey=ci-dummy-jwt-public-key \
             --set-string secrets.passwordPepper=ci-dummy-password-pepper \
+            --set-string secrets.mfaEncryptionKey=ci-dummy-mfa-encryption-key-not-for-runtime \
             --set-string secrets.stripeWebhookSecret=ci-dummy-stripe-webhook \
             --set-string secrets.stripeApiKey=ci-dummy-stripe-api-key \
             --set-string postgresql.auth.password=ci-dummy-postgres-pw \

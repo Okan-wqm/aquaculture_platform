@@ -198,10 +198,11 @@ export interface ServiceBootstrapOptions {
 
   /**
    * Additional env var names to resolve via file-mounted secrets before
-   * NestFactory.create. See the default `PLATFORM_SECRET_ENV_VARS` list in
-   * this file — that covers JWT, DB/Redis/NATS passwords, and the common
-   * inter-service secrets. Services only need to extend this list for
-   * service-specific secrets (e.g. `['STRIPE_SIGNING_SECRET']`).
+   * NestFactory.create. The default `PLATFORM_SECRET_ENV_VARS` list in this
+   * file is intentionally limited to platform-wide dependencies. Services
+   * must opt in to their own private secrets at the boot site so ownership is
+   * explicit (for example, auth-service owns JWT_PRIVATE_KEY,
+   * PASSWORD_PEPPER, MFA_ENCRYPTION_KEY, and SUPER_ADMIN_PASSWORD).
    *
    * Each entry `X` is resolved as follows: if `X_FILE` is set and readable,
    * the file's contents are injected into `process.env.X`. Otherwise the
@@ -522,11 +523,9 @@ function resolvePort(
  * without edits to 15 main.ts files.
  */
 const PLATFORM_SECRET_ENV_VARS: readonly string[] = [
-  'JWT_PRIVATE_KEY',
   'JWT_PUBLIC_KEY',
   'JWT_SECRET',
   'INTERNAL_SERVICE_SECRET',
-  'PASSWORD_PEPPER',
   'POSTGRES_PASSWORD',
   'REDIS_PASSWORD',
   // NATS per-service passwords REMOVED (ADR-015).
@@ -542,8 +541,6 @@ const PLATFORM_SECRET_ENV_VARS: readonly string[] = [
   // credentials from the container's env directly — they don't need the
   // secrets-provider file-mount path.
   'ENCRYPTION_KEY',
-  'MFA_ENCRYPTION_KEY',
-  'SUPER_ADMIN_PASSWORD',
   'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET',
   'SMTP_PASS',

@@ -214,7 +214,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
         const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
         return {
-          autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+          autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/sensor.graphql') },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
            *  The gateway already blocks batching, but subgraphs must also enforce this as
            *  defense-in-depth in case a subgraph becomes directly accessible. */

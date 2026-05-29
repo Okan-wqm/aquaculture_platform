@@ -8,9 +8,6 @@
  * - Privacy: GDPR consent management (view/toggle/withdraw consents, history)
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import ConsentSettingsPage from './ConsentSettingsPage';
 import {
   useAuthContext,
   Button,
@@ -22,6 +19,32 @@ import {
   ToastContainer,
   graphqlClient,
 } from '@aquaculture/shared-ui';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+
+import { QrCode } from '../components/QrCode';
+import {
+  CHANGE_MY_PASSWORD,
+  DISABLE_MFA,
+  GET_MY_NOTIFICATION_PREFERENCES,
+  MY_SECURITY_SETTINGS,
+  MY_WEBAUTHN_CREDENTIALS,
+  REGENERATE_MFA_RECOVERY_CODES,
+  REMOVE_WEBAUTHN_CREDENTIAL,
+  SETUP_MFA,
+  UPDATE_MY_NOTIFICATION_PREFERENCES,
+  UPDATE_MY_PROFILE,
+  VERIFY_MFA_SETUP,
+} from '../graphql/settings.operations';
+import {
+  type ThemePreference,
+  getStoredThemePreference,
+  persistThemePreference,
+  resolveThemePreference,
+  subscribeToSystemThemePreference,
+} from '../utils/theme';
+
+import ConsentSettingsPage from './ConsentSettingsPage';
 
 // ============================================================================
 // Types
@@ -41,6 +64,17 @@ interface MfaSetupData {
   qrCodeUri: string;
   recoveryCodes: string[];
 }
+
+interface MySecuritySettingsData {
+  mfaEnabled: boolean;
+  mfaAvailable: boolean;
+  mfaUnavailableReason?: string | null;
+}
+
+const PASSWORD_POLICY_REGEX =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,128}$/;
+const PASSWORD_POLICY_MESSAGE =
+  'Use at least 8 characters with uppercase, lowercase, number, and special character.';
 
 // ============================================================================
 // Tab Configuration
@@ -134,7 +168,6 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
       const newErrors: Record<string, string> = {};
       if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
       if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
-      if (!formData.email.trim()) newErrors.email = 'Email is required';
 
       if (Object.keys(newErrors).length > 0) {
         setErrors(newErrors);
@@ -145,22 +178,10 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
       setSuccessMessage('');
 
       try {
-        const UPDATE_PROFILE_MUTATION = `
-          mutation UpdateProfile($input: UpdateProfileInput!) {
-            updateProfile(input: $input) {
-              id
-              email
-              firstName
-              lastName
-            }
-          }
-        `;
-
-        await graphqlClient.request(UPDATE_PROFILE_MUTATION, {
+        await graphqlClient.request(UPDATE_MY_PROFILE, {
           input: {
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
-            email: formData.email.trim(),
           },
         });
 
@@ -203,7 +224,9 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
 
       {/* Profile Form */}
       <Card>
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={(event) => {
+          void handleSubmit(event);
+        }} className="p-6 space-y-5">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Personal Information</h3>
 
           {successMessage && (
@@ -244,10 +267,10 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
             type="email"
             name="email"
             value={formData.email}
-            onChange={handleChange}
             placeholder="email@example.com"
-            error={errors.email}
-            required
+            helperText="Email changes require a verified email workflow."
+            readOnly
+            disabled
           />
 
           <div className="flex justify-end pt-2">
@@ -298,27 +321,12 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
   const [isLoadingCredentials, setIsLoadingCredentials] = useState(false);
   const [webAuthnError, setWebAuthnError] = useState('');
 
-  // Fetch WebAuthn credentials on mount
-  useEffect(() => {
-    fetchWebAuthnCredentials();
-  }, []);
-
   const fetchWebAuthnCredentials = useCallback(async () => {
     setIsLoadingCredentials(true);
     try {
-      const CREDENTIALS_QUERY = `
-        query MyWebAuthnCredentials {
-          myWebAuthnCredentials {
-            credentialId
-            deviceName
-            createdAt
-            lastUsedAt
-          }
-        }
-      `;
       const response = await graphqlClient.request<{
         myWebAuthnCredentials: WebAuthnCredential[];
-      }>(CREDENTIALS_QUERY);
+      }>(MY_WEBAUTHN_CREDENTIALS);
       setWebAuthnCredentials(response?.myWebAuthnCredentials || []);
     } catch {
       // Silently fail -- credentials may not be supported
@@ -326,6 +334,56 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       setIsLoadingCredentials(false);
     }
   }, []);
+
+  // Fetch WebAuthn credentials on mount
+  useEffect(() => {
+    void fetchWebAuthnCredentials();
+  }, [fetchWebAuthnCredentials]);
+
+  const [securitySettings, setSecuritySettings] = useState<MySecuritySettingsData>({
+    mfaEnabled: false,
+    mfaAvailable: false,
+    mfaUnavailableReason: 'Security settings have not loaded yet.',
+  });
+  const [isLoadingSecuritySettings, setIsLoadingSecuritySettings] = useState(true);
+  const [securitySettingsError, setSecuritySettingsError] = useState('');
+
+  const refreshSecuritySettings = useCallback(async () => {
+    setIsLoadingSecuritySettings(true);
+    setSecuritySettingsError('');
+    try {
+      const response = await graphqlClient.request<{
+        mySecuritySettings: MySecuritySettingsData;
+      }>(MY_SECURITY_SETTINGS);
+      if (response?.mySecuritySettings) {
+        setSecuritySettings(response.mySecuritySettings);
+      } else {
+        setSecuritySettings({
+          mfaEnabled: false,
+          mfaAvailable: false,
+          mfaUnavailableReason: 'Security settings are unavailable.',
+        });
+        setSecuritySettingsError('Security settings are unavailable.');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load security settings';
+      setSecuritySettings({
+        mfaEnabled: false,
+        mfaAvailable: false,
+        mfaUnavailableReason: message,
+      });
+      setSecuritySettingsError(message);
+    } finally {
+      setIsLoadingSecuritySettings(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSecuritySettings();
+  }, [user, refreshSecuritySettings]);
+
+  const mfaEnabled = securitySettings.mfaEnabled;
+  const mfaAvailable = securitySettings.mfaAvailable;
 
   // ── Password Change ─────────────────────────────────────────────────────
 
@@ -343,7 +401,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       const newErrors: Record<string, string> = {};
       if (!passwordForm.currentPassword) newErrors.currentPassword = 'Current password is required';
       if (!passwordForm.newPassword) newErrors.newPassword = 'New password is required';
-      if (passwordForm.newPassword.length < 8) newErrors.newPassword = 'Password must be at least 8 characters';
+      if (passwordForm.newPassword && !PASSWORD_POLICY_REGEX.test(passwordForm.newPassword)) {
+        newErrors.newPassword = PASSWORD_POLICY_MESSAGE;
+      }
       if (passwordForm.newPassword !== passwordForm.confirmPassword) {
         newErrors.confirmPassword = 'Passwords do not match';
       }
@@ -357,16 +417,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       setPasswordSuccess('');
 
       try {
-        const CHANGE_PASSWORD_MUTATION = `
-          mutation ChangePassword($input: ChangePasswordInput!) {
-            changePassword(input: $input) {
-              success
-              message
-            }
-          }
-        `;
-
-        await graphqlClient.request(CHANGE_PASSWORD_MUTATION, {
+        await graphqlClient.request(CHANGE_MY_PASSWORD, {
           input: {
             currentPassword: passwordForm.currentPassword,
             newPassword: passwordForm.newPassword,
@@ -393,19 +444,24 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
     setMfaSetupError('');
 
     try {
-      const SETUP_MFA_MUTATION = `
-        mutation SetupMfa {
-          setupMfa {
-            secret
-            qrCodeUri
-            recoveryCodes
-          }
-        }
-      `;
+      const settingsResponse = await graphqlClient.request<{
+        mySecuritySettings: MySecuritySettingsData;
+      }>(MY_SECURITY_SETTINGS);
+      const latestSettings = settingsResponse?.mySecuritySettings;
+      if (!latestSettings?.mfaAvailable) {
+        const reason = latestSettings?.mfaUnavailableReason || 'Two-factor authentication is unavailable.';
+        setSecuritySettings({
+          mfaEnabled: latestSettings?.mfaEnabled ?? false,
+          mfaAvailable: false,
+          mfaUnavailableReason: reason,
+        });
+        throw new Error(reason);
+      }
 
+      setSecuritySettings(latestSettings);
       const response = await graphqlClient.request<{
         setupMfa: MfaSetupData;
-      }>(SETUP_MFA_MUTATION);
+      }>(SETUP_MFA);
 
       if (response?.setupMfa) {
         setMfaSetupData(response.setupMfa);
@@ -433,16 +489,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       setMfaSetupError('');
 
       try {
-        const VERIFY_MFA_SETUP_MUTATION = `
-          mutation VerifyMfaSetup($input: VerifyMfaSetupInput!) {
-            verifyMfaSetup(input: $input) {
-              success
-              message
-            }
-          }
-        `;
-
-        await graphqlClient.request(VERIFY_MFA_SETUP_MUTATION, {
+        await graphqlClient.request(VERIFY_MFA_SETUP, {
           input: { code },
         });
 
@@ -454,6 +501,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         setMfaSetupCode('');
 
         await refreshAuth();
+        await refreshSecuritySettings();
         showToast({
           title: 'MFA Enabled',
           description: 'Two-factor authentication has been enabled on your account.',
@@ -466,7 +514,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         setIsSettingUpMfa(false);
       }
     },
-    [mfaSetupCode, mfaSetupData, refreshAuth, showToast]
+    [mfaSetupCode, mfaSetupData, refreshAuth, refreshSecuritySettings, showToast]
   );
 
   const handleCancelMfaSetup = useCallback(() => {
@@ -496,16 +544,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       setDisableMfaError('');
 
       try {
-        const DISABLE_MFA_MUTATION = `
-          mutation DisableMfa($input: DisableMfaInput!) {
-            disableMfa(input: $input) {
-              success
-              message
-            }
-          }
-        `;
-
-        await graphqlClient.request(DISABLE_MFA_MUTATION, {
+        await graphqlClient.request(DISABLE_MFA, {
           input: {
             password: disableMfaForm.password,
             code: disableMfaForm.code.trim(),
@@ -515,6 +554,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         setShowDisableMfa(false);
         setDisableMfaForm({ password: '', code: '' });
         await refreshAuth();
+        await refreshSecuritySettings();
         showToast({
           title: 'MFA Disabled',
           description: 'Two-factor authentication has been disabled.',
@@ -527,7 +567,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         setIsDisablingMfa(false);
       }
     },
-    [disableMfaForm, refreshAuth, showToast]
+    [disableMfaForm, refreshAuth, refreshSecuritySettings, showToast]
   );
 
   // ── Regenerate Recovery Codes ───────────────────────────────────────────
@@ -551,17 +591,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
       setRegenError('');
 
       try {
-        const REGEN_MUTATION = `
-          mutation RegenerateMfaRecoveryCodes($code: String!) {
-            regenerateMfaRecoveryCodes(code: $code) {
-              recoveryCodes
-            }
-          }
-        `;
-
         const response = await graphqlClient.request<{
           regenerateMfaRecoveryCodes: { recoveryCodes: string[] };
-        }>(REGEN_MUTATION, { code });
+        }>(REGENERATE_MFA_RECOVERY_CODES, { code });
 
         if (response?.regenerateMfaRecoveryCodes) {
           setRecoveryCodes(response.regenerateMfaRecoveryCodes.recoveryCodes);
@@ -589,16 +621,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
   const handleRemoveWebAuthn = useCallback(
     async (credentialId: string) => {
       try {
-        const REMOVE_MUTATION = `
-          mutation RemoveWebAuthnCredential($credentialId: String!) {
-            removeWebAuthnCredential(credentialId: $credentialId) {
-              success
-              message
-            }
-          }
-        `;
-
-        await graphqlClient.request(REMOVE_MUTATION, { credentialId });
+        await graphqlClient.request(REMOVE_WEBAUTHN_CREDENTIAL, { credentialId });
         setWebAuthnCredentials((prev) => prev.filter((c) => c.credentialId !== credentialId));
         showToast({ title: 'Credential Removed', description: 'Biometric credential has been removed.', variant: 'success' });
       } catch (err) {
@@ -609,44 +632,13 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
     [showToast]
   );
 
-  // Access user.mfaEnabled -- the AuthUser type doesn't include it, so we fetch via me query
-  const [mfaEnabled, setMfaEnabled] = useState(false);
-  useEffect(() => {
-    const fetchMfaStatus = async () => {
-      try {
-        const response = await graphqlClient.request<{
-          me: { user: { mfaEnabled: boolean } };
-        }>(`query { me { user { mfaEnabled } } }`);
-        setMfaEnabled(response?.me?.user?.mfaEnabled ?? false);
-      } catch {
-        // Silently fail
-      }
-    };
-    fetchMfaStatus();
-  }, []);
-
-  // Re-fetch MFA status after changes
-  const refreshMfaStatus = useCallback(async () => {
-    try {
-      const response = await graphqlClient.request<{
-        me: { user: { mfaEnabled: boolean } };
-      }>(`query { me { user { mfaEnabled } } }`);
-      setMfaEnabled(response?.me?.user?.mfaEnabled ?? false);
-    } catch {
-      // Silently fail
-    }
-  }, []);
-
-  // Refresh MFA status when refreshAuth completes (after enable/disable)
-  useEffect(() => {
-    refreshMfaStatus();
-  }, [user, refreshMfaStatus]);
-
   return (
     <div className="space-y-6">
       {/* Change Password */}
       <Card>
-        <form onSubmit={handlePasswordSubmit} className="p-6 space-y-5">
+        <form onSubmit={(event) => {
+          void handlePasswordSubmit(event);
+        }} className="p-6 space-y-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
               <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -690,7 +682,8 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
               name="newPassword"
               value={passwordForm.newPassword}
               onChange={handlePasswordChange}
-              placeholder="At least 8 characters"
+              placeholder="New password"
+              helperText="Min 8 chars with uppercase, lowercase, number, and @$!%*?&."
               error={passwordErrors.newPassword}
               autoComplete="new-password"
               required
@@ -733,14 +726,28 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
             </div>
             <span
               className={`px-3 py-1 rounded-full text-xs font-medium ${
-                mfaEnabled
+                mfaEnabled && mfaAvailable
                   ? 'bg-green-100 text-green-800'
+                  : mfaEnabled && !mfaAvailable
+                    ? 'bg-red-100 text-red-800'
                   : 'bg-gray-100 text-gray-600'
               }`}
             >
-              {mfaEnabled ? 'Enabled' : 'Disabled'}
+              {mfaEnabled ? (mfaAvailable ? 'Enabled' : 'Unavailable') : 'Disabled'}
             </span>
           </div>
+
+          {securitySettingsError && (
+            <Alert type="error" dismissible onDismiss={() => setSecuritySettingsError('')}>
+              {securitySettingsError}
+            </Alert>
+          )}
+
+          {!mfaAvailable && (
+            <Alert type="warning">
+              {securitySettings.mfaUnavailableReason || 'Two-factor authentication is unavailable in this environment.'}
+            </Alert>
+          )}
 
           {mfaSetupError && (
             <Alert type="error" dismissible onDismiss={() => setMfaSetupError('')}>
@@ -754,7 +761,14 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
                 Use an authenticator app (like Google Authenticator, Authy, or 1Password) to generate
                 one-time verification codes for additional security.
               </p>
-              <Button onClick={handleSetupMfa} loading={isSettingUpMfa} variant="primary">
+              <Button
+                onClick={() => {
+                  void handleSetupMfa();
+                }}
+                loading={isSettingUpMfa}
+                variant="primary"
+                disabled={isLoadingSecuritySettings || !mfaAvailable}
+              >
                 Enable Two-Factor Authentication
               </Button>
             </div>
@@ -763,12 +777,14 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
               <Button
                 onClick={() => setShowRegenModal(true)}
                 variant="outline"
+                disabled={isLoadingSecuritySettings || !mfaAvailable}
               >
                 Regenerate Recovery Codes
               </Button>
               <Button
                 onClick={() => setShowDisableMfa(true)}
                 variant="danger"
+                disabled={isLoadingSecuritySettings || !mfaAvailable}
               >
                 Disable MFA
               </Button>
@@ -830,7 +846,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleRemoveWebAuthn(credential.credentialId)}
+                    onClick={() => {
+                      void handleRemoveWebAuthn(credential.credentialId);
+                    }}
                     className="text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
                   >
                     Remove
@@ -849,24 +867,21 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         title="Set Up Two-Factor Authentication"
         size="md"
       >
-        <form onSubmit={handleVerifyMfaSetup} className="space-y-5">
+        <form onSubmit={(event) => {
+          void handleVerifyMfaSetup(event);
+        }} className="space-y-5">
           {mfaSetupData && (
             <>
               <div className="text-center">
                 <p className="text-sm text-gray-600 mb-4">
                   Scan this QR code with your authenticator app, then enter the 6-digit code below.
                 </p>
-                {/* QR Code -- rendered via otpauth URI as a text fallback */}
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(mfaSetupData.qrCodeUri)}`}
-                    alt="MFA QR Code"
-                    className="mx-auto w-48 h-48"
-                  />
+                  <QrCode value={mfaSetupData.qrCodeUri} className="mx-auto w-48 h-48" />
                 </div>
                 <details className="text-left">
                   <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
-                    Can't scan? Enter this key manually
+                    Can&apos;t scan? Enter this key manually
                   </summary>
                   <code className="block mt-2 p-2 bg-gray-100 rounded text-xs font-mono text-gray-800 break-all select-all">
                     {mfaSetupData.secret}
@@ -936,7 +951,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
             <button
               type="button"
               onClick={() => {
-                navigator.clipboard.writeText(recoveryCodes.join('\n'));
+                void navigator.clipboard.writeText(recoveryCodes.join('\n'));
                 showToast({ title: 'Copied', description: 'Recovery codes copied to clipboard.', variant: 'info' });
               }}
               className="text-sm text-blue-600 hover:text-blue-800 font-medium"
@@ -961,7 +976,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         title="Disable Two-Factor Authentication"
         size="sm"
       >
-        <form onSubmit={handleDisableMfa} className="space-y-4">
+        <form onSubmit={(event) => {
+          void handleDisableMfa(event);
+        }} className="space-y-4">
           <Alert type="warning">
             Disabling MFA will make your account less secure. You will need your password and a
             current TOTP code to proceed.
@@ -1032,7 +1049,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
         title="Regenerate Recovery Codes"
         size="sm"
       >
-        <form onSubmit={handleRegenerateRecoveryCodes} className="space-y-4">
+        <form onSubmit={(event) => {
+          void handleRegenerateRecoveryCodes(event);
+        }} className="space-y-4">
           <Alert type="warning">
             Regenerating recovery codes will invalidate all existing codes. Enter a TOTP code to confirm.
           </Alert>
@@ -1086,12 +1105,16 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
 // ============================================================================
 
 const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() => getStoredThemePreference());
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() =>
+    resolveThemePreference(getStoredThemePreference()),
+  );
   const [notifPrefs, setNotifPrefs] = useState({
     emailEnabled: true,
     smsEnabled: false,
     pushEnabled: false,
-    quietHoursStart: '' as string,
-    quietHoursEnd: '' as string,
+    quietHoursStart: '',
+    quietHoursEnd: '',
     quietHoursTimezone: 'Europe/Istanbul',
     alertNotifications: true,
     taskNotifications: true,
@@ -1100,23 +1123,22 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
   const [notifLoading, setNotifLoading] = useState(true);
   const [notifSaving, setNotifSaving] = useState(false);
 
+  useEffect(() => {
+    return subscribeToSystemThemePreference(
+      () => themePreference,
+      (theme) => setResolvedTheme(theme),
+    );
+  }, [themePreference]);
+
+  const updateThemePreference = (preference: ThemePreference): void => {
+    setThemePreference(preference);
+    setResolvedTheme(persistThemePreference(preference));
+    showToast({ title: 'Saved', description: 'Appearance preference updated.', variant: 'success' });
+  };
+
   // Load notification preferences on mount
   useEffect(() => {
-    graphqlClient.request<{ getMyNotificationPreferences: typeof notifPrefs }>(`
-      query GetMyNotificationPreferences {
-        getMyNotificationPreferences {
-          emailEnabled
-          smsEnabled
-          pushEnabled
-          quietHoursStart
-          quietHoursEnd
-          quietHoursTimezone
-          alertNotifications
-          taskNotifications
-          systemNotifications
-        }
-      }
-    `)
+    graphqlClient.request<{ getMyNotificationPreferences: typeof notifPrefs }>(GET_MY_NOTIFICATION_PREFERENCES)
       .then((data) => {
         const p = data.getMyNotificationPreferences;
         setNotifPrefs({
@@ -1137,28 +1159,14 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       .finally(() => setNotifLoading(false));
   }, []);
 
-  const updatePref = <K extends keyof typeof notifPrefs>(key: K, value: (typeof notifPrefs)[K]) => {
+  const updatePref = <K extends keyof typeof notifPrefs>(key: K, value: (typeof notifPrefs)[K]): void => {
     setNotifPrefs((prev) => ({ ...prev, [key]: value }));
   };
 
-  const saveNotifPrefs = async () => {
+  const saveNotifPrefs = async (): Promise<void> => {
     setNotifSaving(true);
     try {
-      await graphqlClient.request(`
-        mutation UpdateMyNotificationPreferences($input: UpdateNotificationPreferencesInput!) {
-          updateMyNotificationPreferences(input: $input) {
-            emailEnabled
-            smsEnabled
-            pushEnabled
-            quietHoursStart
-            quietHoursEnd
-            quietHoursTimezone
-            alertNotifications
-            taskNotifications
-            systemNotifications
-          }
-        }
-      `, {
+      await graphqlClient.request(UPDATE_MY_NOTIFICATION_PREFERENCES, {
         input: {
           emailEnabled: notifPrefs.emailEnabled,
           smsEnabled: notifPrefs.smsEnabled,
@@ -1224,25 +1232,28 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
 
           <div className="grid grid-cols-3 gap-3 max-w-md">
             {[
-              { id: 'light', label: 'Light', active: true },
-              { id: 'dark', label: 'Dark', active: false },
-              { id: 'system', label: 'System', active: false },
+              { id: 'light', label: 'Light' },
+              { id: 'dark', label: 'Dark' },
+              { id: 'system', label: 'System' },
             ].map((theme) => (
               <button
                 key={theme.id}
                 type="button"
+                onClick={() => updateThemePreference(theme.id as ThemePreference)}
                 className={`p-3 rounded-lg border-2 text-center text-sm font-medium transition-all ${
-                  theme.active
+                  themePreference === theme.id
                     ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 opacity-50 cursor-not-allowed'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
                 }`}
-                disabled={!theme.active}
+                aria-pressed={themePreference === theme.id}
               >
                 {theme.label}
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-400 mt-3">Dark mode and system theme coming soon.</p>
+          <p className="text-xs text-gray-400 mt-3">
+            Current theme: {resolvedTheme === 'dark' ? 'Dark' : 'Light'}
+          </p>
         </div>
       </Card>
 
@@ -1332,8 +1343,9 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                 <p className="text-xs text-gray-500 mb-3">Suppress non-critical notifications during specified hours.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Start</label>
+                    <label htmlFor="quiet-hours-start" className="block text-xs font-medium text-gray-600 mb-1">Start</label>
                     <input
+                      id="quiet-hours-start"
                       type="time"
                       value={notifPrefs.quietHoursStart}
                       onChange={(e) => updatePref('quietHoursStart', e.target.value)}
@@ -1341,8 +1353,9 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">End</label>
+                    <label htmlFor="quiet-hours-end" className="block text-xs font-medium text-gray-600 mb-1">End</label>
                     <input
+                      id="quiet-hours-end"
                       type="time"
                       value={notifPrefs.quietHoursEnd}
                       onChange={(e) => updatePref('quietHoursEnd', e.target.value)}
@@ -1350,8 +1363,9 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Timezone</label>
+                    <label htmlFor="quiet-hours-timezone" className="block text-xs font-medium text-gray-600 mb-1">Timezone</label>
                     <select
+                      id="quiet-hours-timezone"
                       value={notifPrefs.quietHoursTimezone}
                       onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
                       className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1370,7 +1384,9 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
 
               {/* Save button */}
               <Button
-                onClick={saveNotifPrefs}
+                onClick={() => {
+                  void saveNotifPrefs();
+                }}
                 disabled={notifSaving}
                 className="mt-2"
               >
@@ -1394,21 +1410,21 @@ const SettingsPage: React.FC = () => {
   const { toast, toasts, dismiss } = useToast();
 
   // Determine active tab from URL
-  const getActiveTab = (): SettingsTab => {
+  const getActiveTab = useCallback((): SettingsTab => {
     const path = location.pathname;
     if (path.includes('/settings/profile')) return 'profile';
     if (path.includes('/settings/security')) return 'security';
     if (path.includes('/settings/preferences')) return 'preferences';
     if (path.includes('/settings/privacy')) return 'privacy';
     return 'profile';
-  };
+  }, [location.pathname]);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(getActiveTab);
 
   // Sync tab with URL on navigation
   useEffect(() => {
     setActiveTab(getActiveTab());
-  }, [location.pathname]);
+  }, [getActiveTab]);
 
   const handleTabChange = useCallback(
     (tab: SettingsTab) => {

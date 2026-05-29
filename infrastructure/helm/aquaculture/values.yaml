@@ -432,6 +432,9 @@ secrets:
   # REQUIRED: HMAC pepper applied to user passwords before bcrypt (auth-service only).
   # Generate with: openssl rand -base64 48
   passwordPepper: ""
+  # REQUIRED: AES-256-GCM root key for MFA TOTP secrets (auth-service only).
+  # Generate with: openssl rand -hex 32
+  mfaEncryptionKey: ""
   # REQUIRED: NATS connection URL. Must start with tls:// in production
   # (mTLS is enforced by nats-tls-enabled.conf `verify: true`).
   # e.g. tls://nats:4222

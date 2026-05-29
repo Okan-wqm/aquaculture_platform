@@ -1,0 +1,45 @@
+# Generated from infrastructure/apollo-router/subgraphs.json.
+# Registry SHA256: 311a283c315190c6013c885e861de4aa9b3ab34a66490125ccca6f8fe0c19dec
+# Generator version: 1
+federation_version: =2.10.0
+subgraphs:
+  auth:
+    routing_url: "http://auth-service:3000/graphql"
+    schema:
+      file: "dist/graphql/subgraphs/auth.graphql"
+  farm:
+    routing_url: "http://farm-service:3000/graphql"
+    schema:
+      file: "dist/graphql/subgraphs/farm.graphql"
+  sensor:
+    routing_url: "http://sensor-service:3000/graphql"
+    schema:
+      file: "dist/graphql/subgraphs/sensor.graphql"
+  alert:
+    routing_url: "http://alert-engine:3000/graphql"
+    schema:
+      file: "dist/graphql/subgraphs/alert.graphql"
+  hr:
+    routing_url: "http://hr-service:3000/graphql"
+    schema:
+      file: "dist/graphql/subgraphs/hr.graphql"
+  billing:
+    routing_url: "http://billing-service:3000/graphql"
+    schema:
+      file: "dist/graphql/subgraphs/billing.graphql"
+  hydroponics:
+    routing_url: "http://hydroponics-service:3000/graphql"
+    schema:
+      file: "dist/graphql/subgraphs/hydroponics.graphql"
+  config:
+    routing_url: "http://config-service:3000/graphql"
+    schema:
+      file: "dist/graphql/subgraphs/config.graphql"
+  notification:
+    routing_url: "http://notification-service:3000/graphql"
+    schema:
+      file: "dist/graphql/subgraphs/notification.graphql"
+  messaging:
+    routing_url: "http://messaging-service:3000/graphql"
+    schema:
+      file: "dist/graphql/subgraphs/messaging.graphql"

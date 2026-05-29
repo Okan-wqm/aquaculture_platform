@@ -193,25 +193,47 @@ def read_runs_for_cycle(
     ]
 
 
+def verify_artifact_ref(
+    artifact_ref: Any,
+    *,
+    base_dir: str | Path | None = None,
+    expected_hash: str | None = None,
+) -> dict[str, Any]:
+    """Resolve an artifact ref and fail closed on every integrity defect."""
+    if not isinstance(artifact_ref, dict):
+        raise GovernanceError("run_artifact_ref_missing")
+    uri = artifact_ref.get("uri")
+    if not isinstance(uri, str) or not uri:
+        raise GovernanceError("run_artifact_ref_missing_uri")
+    path = _resolve_uri(ensure_tools_dir(base_dir), uri)
+    if not path.exists() or not path.is_file():
+        raise GovernanceError(f"run_artifact_missing:{uri}")
+    raw = path.read_bytes()
+    expected = expected_hash or artifact_ref.get("sha256")
+    actual = _sha256_bytes(raw)
+    if isinstance(expected, str) and expected and actual != expected:
+        raise GovernanceError(f"run_artifact_hash_mismatch:{uri}")
+    expected_size = artifact_ref.get("size_bytes")
+    if isinstance(expected_size, int) and expected_size >= 0 and expected_size != len(raw):
+        raise GovernanceError(f"run_artifact_size_mismatch:{uri}")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise GovernanceError(f"run_artifact_corrupt:{uri}") from exc
+    if not isinstance(payload, dict):
+        raise GovernanceError(f"run_artifact_corrupt:{uri}")
+    return payload
+
+
 def resolve_artifact_payload(
     artifact_ref: Any,
     *,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any] | None:
-    if not isinstance(artifact_ref, dict):
+    try:
+        return verify_artifact_ref(artifact_ref, base_dir=base_dir)
+    except GovernanceError:
         return None
-    uri = artifact_ref.get("uri")
-    if not isinstance(uri, str) or not uri:
-        return None
-    path = _resolve_uri(ensure_tools_dir(base_dir), uri)
-    if not path.exists() or not path.is_file():
-        return None
-    expected = artifact_ref.get("sha256")
-    raw = path.read_bytes()
-    if isinstance(expected, str) and expected and _sha256_bytes(raw) != expected:
-        return None
-    payload = json.loads(raw.decode("utf-8"))
-    return payload if isinstance(payload, dict) else None
 
 
 def resolve_finding_from_artifact(
@@ -442,6 +464,8 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
                 })
             if tool_status == "evidence_error":
                 evidence_errors += 1
+            suppressed_count += int(run.get("suppressed_count") or 0)
+            truncated_count += int(run.get("truncated_count") or 0)
             if run.get("artifact_status") in {"missing", "hash_mismatch", "write_failed"}:
                 non_ok_tools.append({
                     "cycle_id": cycle.get("cycle_id"),
@@ -558,14 +582,28 @@ def _relative_uri(root: Path, path: Path) -> str:
 
 
 def _resolve_uri(root: Path, uri: str) -> Path:
-    candidate = (root / uri).resolve()
+    _validate_relative_artifact_uri(uri)
+    raw_candidate = root / uri
+    if raw_candidate.is_symlink():
+        raise GovernanceError(f"run_artifact_path_escape:{uri}")
+    candidate = raw_candidate.resolve()
     try:
         candidate.relative_to(root.resolve())
     except ValueError as exc:
         raise GovernanceError(f"run_artifact_path_escape:{uri}") from exc
-    if candidate.is_symlink():
-        raise GovernanceError(f"run_artifact_path_escape:{uri}")
     return candidate
+
+
+def _validate_relative_artifact_uri(uri: str) -> None:
+    if not isinstance(uri, str) or not uri.strip():
+        raise GovernanceError("run_artifact_path_escape:<empty>")
+    lowered = uri.lower()
+    if "\\x00" in uri or "\\" in uri or Path(uri).is_absolute():
+        raise GovernanceError(f"run_artifact_path_escape:{uri}")
+    if any(token in lowered for token in ("%2e", "%2f", "%5c")):
+        raise GovernanceError(f"run_artifact_path_escape:{uri}")
+    if any(part in {"..", ""} for part in Path(uri).parts):
+        raise GovernanceError(f"run_artifact_path_escape:{uri}")
 
 
 def _assert_under_root(path: Path, root: Path) -> None:

@@ -310,6 +310,16 @@ def _runtime_artifact_payload(
         "repo_snapshot": envelope.get("repo_snapshot"),
         "no_silent_loss": {
             "reason_code": "artifact_backed_runtime_output",
+            "source_count": (len(raw_findings) if isinstance(raw_findings, list) else 0)
+            + (len(payload.get("raw_observations")) if isinstance(payload.get("raw_observations"), list) else 0),
+            "emitted_count": _count(envelope.get("emitted_findings")) + _count(envelope.get("emitted_observations")),
+            "suppressed_count": max(
+                ((len(raw_findings) if isinstance(raw_findings, list) else 0)
+                + (len(payload.get("raw_observations")) if isinstance(payload.get("raw_observations"), list) else 0))
+                - (_count(envelope.get("emitted_findings")) + _count(envelope.get("emitted_observations"))),
+                0,
+            ),
+            "truncated_count": int((envelope.get("runner") or {}).get("truncated_count") or 0) if isinstance(envelope.get("runner"), dict) else 0,
             "truncated": False,
             "summarized": True,
         },

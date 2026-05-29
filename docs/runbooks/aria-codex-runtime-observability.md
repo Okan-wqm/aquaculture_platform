@@ -35,15 +35,16 @@ Investigate when any of these change abruptly:
 
 Before treating `v2` as a candidate:
 
-- 10 consecutive cycles complete.
+- 10 consecutive artifact-bearing cycles complete from a clean commit SHA.
 - Every cycle reports all expected tools `ok`.
 - `0 evidence_error`.
 - final integrity is `ok`.
 - artifact hash re-read is `ok`.
+- verified artifact index and inventory are non-empty for every artifact-bearing cycle.
 - summary stdout stays under 32KB.
 - missing/corrupt/path-escape negative tests fail closed.
 
-Any bug fix resets the count to 0. A cycle with fewer recorded tools than expected is acceptable only when the orchestrator explicitly documents the selection and no hidden non-ok tool exists.
+Any bug fix resets the count to 0. A zero-artifact cycle is lifecycle-only and cannot be counted toward promotion. A cycle with fewer recorded tools than expected is acceptable only when the orchestrator explicitly documents the selection and no hidden non-ok tool exists.
 
 ## Short v2 Smoke
 

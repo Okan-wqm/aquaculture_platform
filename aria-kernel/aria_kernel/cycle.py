@@ -365,6 +365,16 @@ def run_enterprise_cycle(
                 "raw_observations_count": int(runner.get("raw_observations_count") or 0),
                 "emitted_findings_count": len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0,
                 "emitted_observations_count": len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0,
+                "source_count": int(runner.get("raw_findings_count") or 0) + int(runner.get("raw_observations_count") or 0),
+                "emitted_count": (len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0)
+                + (len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0),
+                "suppressed_count": max(
+                    (int(runner.get("raw_findings_count") or 0) + int(runner.get("raw_observations_count") or 0))
+                    - ((len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0)
+                    + (len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0)),
+                    0,
+                ),
+                "truncated_count": int(runner.get("truncated_count") or 0),
             },
         )
     # Plan 026R §E.7 — pass workspace_root so update_memory's FATES

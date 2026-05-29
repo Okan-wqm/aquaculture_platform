@@ -29,7 +29,7 @@ If a retention source is missing before archive copy, treat it as an incident. D
 aria-kernel runtime restore-artifact --artifact-ref <artifact-id-or-uri>
 ```
 
-Restore verifies the artifact hash before reporting success.
+Restore verifies the artifact hash before reporting success. Promotion evidence must remove or move the hot artifact first, then restore from archive, so the test proves archive recovery rather than a no-op hot-path read.
 
 ## Rollback
 
@@ -37,7 +37,7 @@ Restore verifies the artifact hash before reporting success.
 aria-kernel runtime rollback-retention --manifest-id <manifest-id>
 ```
 
-Rollback copies archived artifacts back to their original paths and re-verifies hashes. It must not delete archived evidence.
+Rollback copies archived artifacts back to their original paths and re-verifies hashes. Promotion evidence must remove or move the hot artifact before rollback and then run `runtime verify-artifacts`; rollback must not delete archived evidence.
 
 ## Incident Checks
 

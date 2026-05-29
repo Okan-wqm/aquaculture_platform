@@ -43,14 +43,19 @@ def read_runs_rows(
     for row in read_strict_jsonl(
         path, on_corruption=on_corruption, base_dir=base_dir,
     ):
-        normalized = upcast_run_row(row)
+        normalized = upcast_run_row(row, base_dir=base_dir)
         if tool_id is not None and normalized.get("tool_id") != tool_id:
             continue
         yield normalized
 
 
-def upcast_run_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Return a v2-compatible run row without mutating the source row."""
+def upcast_run_row(row: dict[str, Any], *, base_dir: Path | None = None) -> dict[str, Any]:
+    """Return a v2-compatible run row without mutating the source row.
+
+    When ``base_dir`` is supplied, artifact-backed rows are verified at
+    read time. This keeps new v2/v2-shadow rows fail-closed while legacy
+    artifact-less rows remain readable as legacy evidence.
+    """
     if not isinstance(row, dict):
         return {}
     normalized = dict(row)
@@ -67,7 +72,24 @@ def upcast_run_row(row: dict[str, Any]) -> dict[str, Any]:
         normalized["runner"] = runner
     runner.setdefault("raw_findings_count", len(runner.get("raw_findings_sample") or []) if isinstance(runner.get("raw_findings_sample"), list) else 0)
     runner.setdefault("raw_observations_count", 0)
+    if base_dir is not None:
+        _verify_artifact_backing(normalized, base_dir=base_dir)
     return normalized
+
+
+def _verify_artifact_backing(row: dict[str, Any], *, base_dir: Path) -> None:
+    artifact_ref = row.get("artifact_ref")
+    ledger_format = str(row.get("run_ledger_format") or "")
+    artifact_status = str(row.get("artifact_status") or "")
+    requires_artifact = ledger_format in {"v2", "v2-shadow"} or artifact_status == "present" or isinstance(artifact_ref, dict)
+    if not requires_artifact:
+        return
+    if artifact_status != "present" or not isinstance(artifact_ref, dict):
+        from .tool_registry import GovernanceError
+        raise GovernanceError(f"run_artifact_not_present:{row.get('run_id')}")
+    from .runtime_artifacts import verify_artifact_ref
+    verify_artifact_ref(artifact_ref, base_dir=base_dir, expected_hash=row.get("artifact_hash"))
+    row["artifact_hash_verified"] = True
 
 
 def raw_findings_count(row: dict[str, Any]) -> int:

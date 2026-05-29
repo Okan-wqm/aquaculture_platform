@@ -131,6 +131,7 @@ export default {
         '<rootDir>/skills-catalog.spec.ts',
         '<rootDir>/boundary-allowlist-invariants.spec.ts',
         '<rootDir>/farm-service-tenant-isolation.spec.ts',
+        '<rootDir>/cqrs-class-reference-registration.spec.ts',
         '<rootDir>/strip-internal-headers-mounted.spec.ts',
         '<rootDir>/spec-module-mode.spec.ts',
         '<rootDir>/aria-workflow-sha-pin.spec.ts',

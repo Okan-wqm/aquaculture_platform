@@ -6,15 +6,20 @@ set -euo pipefail
 # be a runtime availability dependency for production /graphql traffic.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-OUTPUT_PATH="${1:-${ROOT_DIR}/infrastructure/apollo-router/generated/supergraph.graphql}"
+OUTPUT_PATH="${1:-${ROOT_DIR}/dist/graphql/supergraph.graphql}"
+CONFIG_PATH="${ROOT_DIR}/infrastructure/apollo-router/supergraph-config.generated.yaml"
 
 if ! command -v rover >/dev/null 2>&1; then
   echo "rover CLI is required for supergraph composition." >&2
   exit 1
 fi
 
-node "${ROOT_DIR}/scripts/apollo-router/generate-supergraph-config.mjs" |
-  rover supergraph compose --config - > "${OUTPUT_PATH}"
+mkdir -p "$(dirname "${OUTPUT_PATH}")"
+
+node "${ROOT_DIR}/scripts/graphql/validate-registry.mjs"
+node "${ROOT_DIR}/scripts/graphql/generate-registry-artifacts.mjs"
+
+rover supergraph compose --config "${CONFIG_PATH}" > "${OUTPUT_PATH}"
 
 test -s "${OUTPUT_PATH}"
 echo "Composed supergraph: ${OUTPUT_PATH}"

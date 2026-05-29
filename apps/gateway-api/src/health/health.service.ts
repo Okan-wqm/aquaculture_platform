@@ -1,6 +1,8 @@
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+
+import { FEDERATED_SUBGRAPHS } from '../config/federated-subgraphs.generated';
 
 /**
  * Health check result for a single service (internal use)
@@ -79,75 +81,12 @@ export class HealthService {
      * ADR-012: messaging-service is a federated subgraph added in the messaging
      * service implementation. It must be included in health checks.
      */
-    this.serviceUrls = new Map([
-      [
-        'auth',
-        this.configService.get(
-          'AUTH_SERVICE_URL',
-          'http://localhost:3001/graphql',
-        ),
-      ],
-      [
-        'farm',
-        this.configService.get(
-          'FARM_SERVICE_URL',
-          'http://localhost:3002/graphql',
-        ),
-      ],
-      [
-        'sensor',
-        this.configService.get(
-          'SENSOR_SERVICE_URL',
-          'http://localhost:3003/graphql',
-        ),
-      ],
-      [
-        'alert',
-        this.configService.get(
-          'ALERT_SERVICE_URL',
-          'http://localhost:3004/graphql',
-        ),
-      ],
-      [
-        'hr',
-        this.configService.get('HR_SERVICE_URL', 'http://localhost:3005/graphql'),
-      ],
-      [
-        'billing',
-        this.configService.get(
-          'BILLING_SERVICE_URL',
-          'http://localhost:3006/graphql',
-        ),
-      ],
-      [
-        'hydroponics',
-        this.configService.get(
-          'HYDROPONICS_SERVICE_URL',
-          'http://localhost:4007/graphql',
-        ),
-      ],
-      [
-        'config',
-        this.configService.get(
-          'CONFIG_SERVICE_URL',
-          'http://localhost:3007/graphql',
-        ),
-      ],
-      [
-        'notification',
-        this.configService.get(
-          'NOTIFICATION_SERVICE_URL',
-          'http://localhost:4008/graphql',
-        ),
-      ],
-      [
-        'messaging',
-        this.configService.get(
-          'MESSAGING_SERVICE_URL',
-          'http://messaging-service:3000/graphql',
-        ),
-      ],
-    ]);
+    this.serviceUrls = new Map(
+      FEDERATED_SUBGRAPHS.map((subgraph) => [
+        subgraph.name,
+        this.configService.get(subgraph.urlEnv, subgraph.localUrl),
+      ]),
+    );
   }
 
   /**

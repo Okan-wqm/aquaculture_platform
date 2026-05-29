@@ -5,14 +5,16 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable @typescript-eslint/no-floating-promises */
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/explicit-function-return-type */
 import * as crypto from 'crypto';
 
+import { Role } from '@aquaculture/backend-common/decorators';
 import { BadRequestException, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Role } from '@aquaculture/backend-common/decorators';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../entities/user.entity';
@@ -119,6 +121,59 @@ describe('MfaService', () => {
     service = module.get<MfaService>(MfaService);
   });
 
+  describe('availability', () => {
+    const createServiceWithConfig = (config: Record<string, string | undefined>) =>
+      new MfaService(
+        mockUserRepository as any,
+        mockJwtService as any,
+        {
+          get: jest.fn((key: string, defaultValue?: string) => config[key] ?? defaultValue),
+        } as unknown as ConfigService,
+        mockAuditLogService as any,
+        mockTokenService as any,
+      );
+
+    it('throws during production startup when MFA_ENCRYPTION_KEY is missing', () => {
+      expect(() => createServiceWithConfig({ NODE_ENV: 'production' })).toThrow('MFA_ENCRYPTION_KEY');
+    });
+
+    it('throws during production startup when MFA_ENCRYPTION_KEY is malformed', () => {
+      expect(() =>
+        createServiceWithConfig({
+          NODE_ENV: 'production',
+          MFA_ENCRYPTION_KEY: 'not-a-hex-key',
+        }),
+      ).toThrow('64-character hex');
+    });
+
+    it('throws during staging startup when MFA_ENCRYPTION_KEY is malformed', () => {
+      expect(() =>
+        createServiceWithConfig({
+          NODE_ENV: 'development',
+          AQUA_ENV: 'staging',
+          MFA_ENCRYPTION_KEY: 'not-a-hex-key',
+        }),
+      ).toThrow('64-character hex');
+    });
+
+    it('disables MFA outside production when MFA_ENCRYPTION_KEY is missing', () => {
+      const unavailableService = createServiceWithConfig({ NODE_ENV: 'test' });
+
+      expect(unavailableService.isMfaAvailable()).toBe(false);
+      expect(unavailableService.getMfaUnavailableReason()).toBe('MFA_ENCRYPTION_KEY is not configured');
+    });
+
+    it('derives a development-only key for malformed non-production MFA_ENCRYPTION_KEY', () => {
+      const devService = createServiceWithConfig({
+        NODE_ENV: 'development',
+        MFA_ENCRYPTION_KEY: 'local-dev-key',
+      });
+
+      expect(devService.isMfaAvailable()).toBe(true);
+      expect(devService.getMfaUnavailableReason()).toBeNull();
+    });
+  });
+
   // ==========================================================================
   // setupMfa
   // ==========================================================================
@@ -154,7 +209,7 @@ describe('MfaService', () => {
       await service.setupMfa('user-uuid-123');
 
       expect(mockUserRepository.save).toHaveBeenCalledTimes(1);
-      const savedUser = mockUserRepository.save.mock.calls[0]![0] as User;
+      const savedUser = mockUserRepository.save.mock.calls[0]![0];
 
       // Secret should be stored (in test mode, it's plaintext base32)
       expect(savedUser.mfaSecret).toBeDefined();
@@ -381,6 +436,7 @@ describe('MfaService', () => {
         expect.objectContaining({ id: 'user-uuid-123' }),
         '127.0.0.1',
         undefined,
+        { mfaVerified: true },
       );
 
       // Failed attempts should be reset

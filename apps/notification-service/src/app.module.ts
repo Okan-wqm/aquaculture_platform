@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
+import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import {
@@ -103,7 +104,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        autoSchemaFile: { federation: 2 },
+        autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/notification.graphql') },
         /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
          *  The gateway already blocks batching, but subgraphs must also enforce this as
          *  defense-in-depth in case a subgraph becomes directly accessible. */

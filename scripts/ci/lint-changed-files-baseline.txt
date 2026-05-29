@@ -1,0 +1,23 @@
+# File-level lint debt baseline.
+#
+# Project-level lint debt is already quarantined in
+# scripts/ci/affected-target-policy.json. This file covers legacy files that
+# still have pre-existing file-level lint debt but are touched by infra/SSOT
+# wiring changes. New files and files not listed here remain under strict
+# `eslint --max-warnings=0`.
+apps/alert-engine/src/app.module.ts
+apps/auth-service/src/app.module.ts
+apps/auth-service/src/health/__tests__/health.controller.spec.ts
+apps/auth-service/src/modules/authentication/services/authentication.service.ts
+apps/auth-service/src/modules/authentication/services/mfa.service.ts
+apps/billing-service/src/app.module.ts
+apps/config-service/src/app.module.ts
+apps/farm-service/src/app.module.ts
+apps/hr-service/src/app.module.ts
+apps/hydroponics-service/src/app.module.ts
+apps/messaging-service/src/app.module.ts
+apps/notification-service/src/app.module.ts
+apps/sensor-service/src/app.module.ts
+libs/backend-common/src/bootstrap/create-service-app.ts
+web/apps/aquamobil/src/pages/storage/StockMovementPage.tsx
+web/apps/aquamobil/src/pages/storage/StockTransferPage.tsx

@@ -2,8 +2,8 @@
 // @ts-check
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 const repoRoot = resolve(process.cwd());
 
@@ -102,6 +102,10 @@ function projectRootFor(file) {
 }
 
 function tsconfigFor(file) {
+  if (file === 'codegen.ts') {
+    return firstExisting(['tsconfig.base.json']);
+  }
+
   const root = projectRootFor(file);
   if (!root) return null;
 
@@ -133,6 +137,43 @@ function tsconfigFor(file) {
   ];
 
   return firstExisting(isTestFile(file) ? testCandidates : productionCandidates);
+}
+
+function declarationFilesFor(tsconfig) {
+  const projectRoot = dirname(tsconfig);
+  if (projectRoot === '.') return [];
+
+  const declarations = [];
+  const root = join(repoRoot, projectRoot);
+  const ignoredDirectories = new Set([
+    '.git',
+    '.nx',
+    'coverage',
+    'dist',
+    'node_modules',
+    'tmp',
+  ]);
+
+  function walk(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!ignoredDirectories.has(entry.name)) {
+          walk(join(dir, entry.name));
+        }
+        continue;
+      }
+
+      if (entry.isFile() && entry.name.endsWith('.d.ts')) {
+        declarations.push(join(dir, entry.name));
+      }
+    }
+  }
+
+  if (existsSync(root)) {
+    walk(root);
+  }
+
+  return declarations;
 }
 
 /** @type {Map<string, string[]>} */
@@ -179,7 +220,10 @@ for (const tsconfig of tsconfigs.keys()) {
         compilerOptions: {
           noEmit: true,
         },
-        files: files.map((file) => join(repoRoot, file)),
+        files: [
+          ...declarationFilesFor(tsconfig),
+          ...files.map((file) => join(repoRoot, file)),
+        ],
         include: [],
       },
       null,

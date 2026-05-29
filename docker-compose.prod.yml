@@ -236,6 +236,8 @@ services:
       # SECURITY (HIGH-006): server-side password pepper, kept out of the DB.
       # Generate with: openssl rand -base64 48
       PASSWORD_PEPPER: "${PASSWORD_PEPPER:?PASSWORD_PEPPER is required}"
+      # MFA encryption key for TOTP secrets. Generate with: openssl rand -hex 32
+      MFA_ENCRYPTION_KEY: "${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}"
     volumes:
       - ./certs/jwt:/var/run/jwt:ro
       # SECURITY (HIGH-002): NATS mTLS certs for auth-service.

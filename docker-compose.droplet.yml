@@ -630,8 +630,8 @@ services:
       # Full architectural rationale + lazy-migration flow from legacy
       # unpeppered hashes: libs/backend-common/src/auth/password.util.ts.
       PASSWORD_PEPPER: "${PASSWORD_PEPPER:?PASSWORD_PEPPER is required in production — generate with openssl rand -base64 48 and store in .env on droplet}"
-      # MFA & WebAuthn (optional -- MFA disabled if not set)
-      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-}
+      # MFA encryption key is production-required; auth-service fails closed without it.
+      MFA_ENCRYPTION_KEY: "${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required in production — generate with openssl rand -hex 32}"
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-app.suderra.com}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-AquaCulture Platform}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}

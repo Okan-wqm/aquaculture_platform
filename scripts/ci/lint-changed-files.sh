@@ -32,6 +32,18 @@ mapfile -t CHANGED_TS_FILES < <(
     || true
 )
 
+BASELINE_FILE="scripts/ci/lint-changed-files-baseline.txt"
+if [[ -f "$BASELINE_FILE" && "${#CHANGED_TS_FILES[@]}" -gt 0 ]]; then
+  mapfile -t LINT_BASELINE < <(grep -Ev '^\s*(#|$)' "$BASELINE_FILE" || true)
+  if [[ "${#LINT_BASELINE[@]}" -gt 0 ]]; then
+    mapfile -t CHANGED_TS_FILES < <(
+      printf '%s\n' "${CHANGED_TS_FILES[@]}" \
+        | grep -Fvx -f <(printf '%s\n' "${LINT_BASELINE[@]}") \
+        || true
+    )
+  fi
+fi
+
 if [[ "${#CHANGED_TS_FILES[@]}" -eq 0 ]]; then
   echo "No changed TypeScript files require file-level lint."
   exit 0

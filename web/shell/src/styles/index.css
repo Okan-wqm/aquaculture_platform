@@ -7,6 +7,32 @@
 @tailwind utilities;
 
 /* ============================================================================
+   Theme Tokens
+   ============================================================================ */
+
+:root {
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f5f9;
+  --color-text: #111827;
+  --color-text-muted: #64748b;
+  --color-border: #dbe3ea;
+  --color-primary: #2563eb;
+  --color-primary-soft: #eff6ff;
+}
+
+html[data-theme='dark'] {
+  --color-bg: #101418;
+  --color-surface: #171d23;
+  --color-surface-muted: #202832;
+  --color-text: #e5edf5;
+  --color-text-muted: #9aa8b6;
+  --color-border: #33404d;
+  --color-primary: #60a5fa;
+  --color-primary-soft: #17243a;
+}
+
+/* ============================================================================
    Base Styles
    ============================================================================ */
 
@@ -17,7 +43,8 @@
   }
 
   body {
-    @apply bg-gray-50 text-gray-900;
+    background: var(--color-bg);
+    color: var(--color-text);
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 
@@ -30,6 +57,47 @@
   ::selection {
     @apply bg-primary-100 text-primary-900;
   }
+}
+
+html[data-theme='dark'] .bg-white,
+html[data-theme='dark'] .card {
+  background-color: var(--color-surface) !important;
+}
+
+html[data-theme='dark'] .bg-gray-50,
+html[data-theme='dark'] .bg-gray-100 {
+  background-color: var(--color-surface-muted) !important;
+}
+
+html[data-theme='dark'] .text-gray-900,
+html[data-theme='dark'] .text-gray-800,
+html[data-theme='dark'] .text-gray-700 {
+  color: var(--color-text) !important;
+}
+
+html[data-theme='dark'] .text-gray-600,
+html[data-theme='dark'] .text-gray-500,
+html[data-theme='dark'] .text-gray-400 {
+  color: var(--color-text-muted) !important;
+}
+
+html[data-theme='dark'] .border-gray-100,
+html[data-theme='dark'] .border-gray-200,
+html[data-theme='dark'] .border-gray-300 {
+  border-color: var(--color-border) !important;
+}
+
+html[data-theme='dark'] input,
+html[data-theme='dark'] select,
+html[data-theme='dark'] textarea {
+  background-color: var(--color-surface) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+html[data-theme='dark'] input:disabled {
+  background-color: var(--color-surface-muted) !important;
+  color: var(--color-text-muted) !important;
 }
 
 /* ============================================================================

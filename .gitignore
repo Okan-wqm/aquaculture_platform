@@ -145,6 +145,7 @@ secrets/
 .nx/
 sens-repo-temp/
 sens-repo/
+.codex-worktrees/
 
 vite.config.*.timestamp*NUL
 .worktrees

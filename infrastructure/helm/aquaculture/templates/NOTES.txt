@@ -8,6 +8,7 @@ The following values have no safe defaults and MUST be set explicitly:
 
   secrets.jwtPrivateKey    — RS256 private key PEM (auth-service only — sole issuer)
   secrets.jwtPublicKey     — RS256 public key PEM (distributed to every backend)
+  secrets.mfaEncryptionKey — MFA TOTP secret encryption key (auth-service only)
   secrets.databaseUrl      — PostgreSQL connection URL with credentials
   secrets.redisUrl         — Redis connection URL with credentials
   secrets.natsUrl          — NATS URL including auth token

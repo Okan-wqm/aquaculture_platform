@@ -30,11 +30,14 @@
 #   PASSWORD_PEPPER         — HMAC pepper applied before bcrypt on user passwords
 #                             (b0ec61f0; rotation invalidates every stored hash — see
 #                             docs/runbooks/secret-rotation.md#password-pepper)
+#   MFA_ENCRYPTION_KEY      — AES-256-GCM root key for auth-service TOTP secrets
+#                             (production auth-service fails closed without it)
 REQUIRED_ENV_SECRETS=(
   "POSTGRES_PASSWORD:openssl rand -base64 32"
   "REDIS_PASSWORD:openssl rand -base64 32"
   "INTERNAL_SERVICE_SECRET:openssl rand -base64 32"
   "PASSWORD_PEPPER:openssl rand -base64 48"
+  "MFA_ENCRYPTION_KEY:openssl rand -hex 32"
 )
 
 # Convenience helper: extract just the names, for preflight checks.

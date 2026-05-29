@@ -10,10 +10,12 @@ import { UserModuleAssignment } from './entities/user-module-assignment.entity';
 import { User } from './entities/user.entity';
 import { WebAuthnCredential } from './entities/webauthn-credential.entity';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { AccountResolver } from './resolvers/account.resolver';
 import { AuthResolver } from './resolvers/auth.resolver';
 import { MfaResolver } from './resolvers/mfa.resolver';
 import { NotificationPreferencesResolver } from './resolvers/notification-preferences.resolver';
 import { WebAuthnResolver } from './resolvers/webauthn.resolver';
+import { AccountService } from './services/account.service';
 import { AuthenticationService } from './services/authentication.service';
 import { MfaService } from './services/mfa.service';
 import { TokenService } from './services/token.service';
@@ -32,17 +34,19 @@ import { WebAuthnService } from './services/webauthn.service';
     AuditModule,
   ],
   providers: [
+    AccountService,
     TokenService,
     MfaService,
     WebAuthnService,
     AuthenticationService,
+    AccountResolver,
     AuthResolver,
     MfaResolver,
     NotificationPreferencesResolver,
     WebAuthnResolver,
     JwtAuthGuard,
   ],
-  exports: [AuthenticationService, TokenService, MfaService, WebAuthnService, JwtAuthGuard, TypeOrmModule],
+  exports: [AccountService, AuthenticationService, TokenService, MfaService, WebAuthnService, JwtAuthGuard, TypeOrmModule],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class AuthenticationModule {}

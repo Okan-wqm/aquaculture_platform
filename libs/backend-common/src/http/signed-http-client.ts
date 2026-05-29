@@ -150,6 +150,10 @@ export interface SignedFetchOptions extends RequestInit {
    */
   secret?: string;
   /**
+   * Gateway-signed user assertion to bind into the service HMAC.
+   */
+  userAssertion?: string;
+  /**
    * Optional canonical CircuitBreakerService integration
    * (CIRCUIT-MEDIUM-004 cure). When provided, the actual fetch is
    * wrapped in `breaker.service.execute({ serviceName: breaker.serviceName,
@@ -191,6 +195,7 @@ export function buildSignedInternalHeaders(args: {
    * a tamperer cannot append a body to a "empty" GET and pass verification.
    */
   body: string | Buffer;
+  userAssertion?: string;
   secret?: string;
 }): Record<string, string> {
   const secret = args.secret ?? process.env['INTERNAL_SERVICE_SECRET'];
@@ -208,6 +213,7 @@ export function buildSignedInternalHeaders(args: {
     method: args.method,
     path: args.path,
     body: args.body,
+    userAssertion: args.userAssertion,
   });
   const headers: Record<string, string> = {
     'X-Service-Identity': v2['X-Service-Identity'],
@@ -217,6 +223,7 @@ export function buildSignedInternalHeaders(args: {
     'X-Service-Method': v2['X-Service-Method'],
     'X-Service-Path': v2['X-Service-Path'],
     'X-Service-Body-Hash': v2['X-Service-Body-Hash'],
+    'X-Service-User-Assertion-Hash': v2['X-Service-User-Assertion-Hash'],
   };
   if (args.tenantId) {
     // Only forward the tenant header when there is one — the signature was
@@ -230,7 +237,7 @@ export function buildSignedInternalHeaders(args: {
 /**
  * Drop-in replacement for `fetch` that attaches v2 signed identity + tenant
  * headers. Existing Content-Type/Authorization headers from `options.headers`
- * are preserved; the seven X-Service-* headers are always overwritten with
+ * are preserved; the eight X-Service-* headers are always overwritten with
  * the freshly-minted values to prevent replay of stale signatures.
  *
  * # Body normalisation for HMAC
@@ -263,6 +270,7 @@ export async function signedFetch(
     method,
     path,
     body,
+    userAssertion: options.userAssertion,
     secret: options.secret,
   });
 
@@ -286,12 +294,17 @@ export async function signedFetch(
     serviceName: _s,
     tenantId: _t,
     secret: _sec,
+    userAssertion: _ua,
     headers: _h,
     circuitBreaker,
     circuitBreakerOptions,
     ...init
   } = options;
-  void _s; void _t; void _sec; void _h;
+  void _s;
+  void _t;
+  void _sec;
+  void _ua;
+  void _h;
 
   const finalInit = { ...init, headers: merged };
 

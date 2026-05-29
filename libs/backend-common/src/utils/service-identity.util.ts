@@ -1,5 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 
+import { hashVerifiedUserAssertion } from './verified-user-assertion.util';
+
 /**
  * Service Identity Headers — HMAC-signed headers for inter-service authentication.
  *
@@ -19,7 +21,8 @@ import { createHash, createHmac, timingSafeEqual } from 'crypto';
  * <UPPERCASE method> \n
  * <path WITHOUT query string> \n
  * <sha256(body) hex; '' for empty body> \n
- * <tenantId; '' for non-tenant paths>
+ * <tenantId; '' for non-tenant paths> \n
+ * <sha256(X-Verified-User-Assertion) hex; sha256('') when absent>
  * ```
  *
  * Method, path, and body are bound so that a captured signature cannot be
@@ -57,7 +60,7 @@ import { createHash, createHmac, timingSafeEqual } from 'crypto';
  *
  * # Header set
  *
- * v2 emits 7 headers (vs. v1's 3):
+ * v2 emits 8 headers (vs. v1's 3):
  *
  *   - X-Service-Identity      — service name (e.g. 'gateway-api')
  *   - X-Service-Timestamp     — ISO-8601 UTC; v2 standardises here
@@ -66,6 +69,7 @@ import { createHash, createHmac, timingSafeEqual } from 'crypto';
  *   - X-Service-Method        — upper-case HTTP verb
  *   - X-Service-Path          — request path without query string
  *   - X-Service-Body-Hash     — sha256(body) hex; '' for empty body
+ *   - X-Service-User-Assertion-Hash — sha256 of the gateway user assertion
  *
  * The receiver reads these and re-builds the canonical string, so the
  * verifier knows exactly which method/path/body the SIGNER claimed to
@@ -125,10 +129,11 @@ export interface ServiceIdentityHeaders {
 }
 
 /**
- * v2 header set — seven headers, current.
+ * v2 header set — eight headers, current.
  *
- * The four new headers (Sig-Version, Method, Path, Body-Hash) carry the
- * canonical-input components the receiver needs to re-derive the HMAC.
+ * The five new headers (Sig-Version, Method, Path, Body-Hash,
+ * User-Assertion-Hash) carry the canonical-input components the receiver
+ * needs to re-derive the HMAC.
  * They are NOT trust-anchored — the trust comes from the signature
  * binding the same values into the canonical input. A tamperer who edits
  * X-Service-Method on the wire will see a re-derived canonical that
@@ -142,6 +147,7 @@ export interface ServiceIdentityHeadersV2 {
   'X-Service-Method': string;
   'X-Service-Path': string;
   'X-Service-Body-Hash': string;
+  'X-Service-User-Assertion-Hash': string;
 }
 
 // ─── v2 generator + verifier (primary path) ────────────────────────────────
@@ -178,6 +184,7 @@ function buildCanonicalV2(input: {
   path: string;
   bodyHash: string;
   tenantId: string;
+  userAssertionHash: string;
 }): string {
   return [
     SIG_VERSION_V2,
@@ -187,6 +194,7 @@ function buildCanonicalV2(input: {
     input.path,
     input.bodyHash,
     input.tenantId,
+    input.userAssertionHash,
   ].join(CANONICAL_DELIM);
 }
 
@@ -199,7 +207,7 @@ function buildCanonicalV2(input: {
  * that are not yet migrated do not break the build during the W0.A
  * rolling-deploy window.
  *
- * WHAT: Returns the 7 v2 headers. Empty body produces `sha256('')` —
+ * WHAT: Returns the 8 v2 headers. Empty body produces `sha256('')` —
  * never falls back to a literal empty string because that would let a
  * tamperer append a body to a "empty" GET and pass verification.
  *
@@ -220,9 +228,11 @@ export function generateServiceIdentityHeadersV2(args: {
   method: string;
   path: string;
   body: string | Buffer;
+  userAssertion?: string;
 }): ServiceIdentityHeadersV2 {
   const timestamp = new Date().toISOString();
   const bodyHash = sha256Hex(args.body);
+  const userAssertionHash = hashVerifiedUserAssertion(args.userAssertion);
   const canonical = buildCanonicalV2({
     timestamp,
     serviceName: args.serviceName,
@@ -230,6 +240,7 @@ export function generateServiceIdentityHeadersV2(args: {
     path: args.path,
     bodyHash,
     tenantId: args.tenantId,
+    userAssertionHash,
   });
   const signature = createHmac('sha256', args.secret).update(canonical).digest('hex');
   return {
@@ -240,6 +251,7 @@ export function generateServiceIdentityHeadersV2(args: {
     'X-Service-Method': args.method.toUpperCase(),
     'X-Service-Path': args.path,
     'X-Service-Body-Hash': bodyHash,
+    'X-Service-User-Assertion-Hash': userAssertionHash,
   };
 }
 
@@ -264,10 +276,12 @@ export function verifyServiceIdentityV2(args: {
   method: string;
   path: string;
   bodyHash: string;
+  userAssertionHash?: string;
   // What the receiver actually observes (for cross-check)
   observedMethod: string;
   observedPath: string;
   observedBody: string | Buffer;
+  observedUserAssertion?: string;
   // Trust inputs
   secret: string;
   expectedTenantId: string;
@@ -287,6 +301,9 @@ export function verifyServiceIdentityV2(args: {
   if (args.path !== args.observedPath) return false;
   const observedBodyHash = sha256Hex(args.observedBody);
   if (args.bodyHash !== observedBodyHash) return false;
+  const expectedUserAssertionHash = args.userAssertionHash ?? hashVerifiedUserAssertion();
+  if (expectedUserAssertionHash !== hashVerifiedUserAssertion(args.observedUserAssertion))
+    return false;
 
   // Step 3: HMAC. Re-derive canonical from the SIGNED claims (not the
   // observed values — equivalent here since they matched) and compare.
@@ -299,15 +316,13 @@ export function verifyServiceIdentityV2(args: {
         path: args.path,
         bodyHash: args.bodyHash,
         tenantId: args.expectedTenantId,
+        userAssertionHash: args.userAssertionHash ?? hashVerifiedUserAssertion(),
       }),
     )
     .digest('hex');
 
   if (expected.length !== args.signature.length) return false;
-  return timingSafeEqual(
-    Buffer.from(expected, 'utf8'),
-    Buffer.from(args.signature, 'utf8'),
-  );
+  return timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(args.signature, 'utf8'));
 }
 
 // ─── v1 generator + verifier (deprecated, kept for one release) ────────────
@@ -365,10 +380,7 @@ export function verifyServiceIdentity(
     .digest('hex');
 
   if (expected.length !== signature.length) return false;
-  return timingSafeEqual(
-    Buffer.from(expected, 'utf8'),
-    Buffer.from(signature, 'utf8'),
-  );
+  return timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(signature, 'utf8'));
 }
 
 // ─── Unified request verifier (dispatches v1 vs v2) ─────────────────────────
@@ -380,7 +392,17 @@ export function verifyServiceIdentity(
  */
 export type VerificationOutcome =
   | { valid: true; version: 'v1' | 'v2' }
-  | { valid: false; reason: 'missing-headers' | 'unknown-version' | 'expired' | 'method-mismatch' | 'path-mismatch' | 'body-mismatch' | 'invalid-hmac' };
+  | {
+      valid: false;
+      reason:
+        | 'missing-headers'
+        | 'unknown-version'
+        | 'expired'
+        | 'method-mismatch'
+        | 'path-mismatch'
+        | 'body-mismatch'
+        | 'invalid-hmac';
+    };
 
 /**
  * One-stop verifier for an inbound request.
@@ -403,6 +425,7 @@ export function verifyServiceIdentityRequest(args: {
   observedMethod: string;
   observedPath: string;
   observedBody: string | Buffer;
+  observedUserAssertion?: string;
   secret: string;
   expectedTenantId: string;
   maxAgeMs?: number;
@@ -425,6 +448,7 @@ export function verifyServiceIdentityRequest(args: {
     const method = get('x-service-method');
     const path = get('x-service-path');
     const bodyHash = get('x-service-body-hash');
+    const userAssertionHash = get('x-service-user-assertion-hash') ?? hashVerifiedUserAssertion();
     if (!method || !path || bodyHash === undefined) {
       return { valid: false, reason: 'missing-headers' };
     }
@@ -435,9 +459,11 @@ export function verifyServiceIdentityRequest(args: {
       method,
       path,
       bodyHash,
+      userAssertionHash,
       observedMethod: args.observedMethod,
       observedPath: args.observedPath,
       observedBody: args.observedBody,
+      observedUserAssertion: args.observedUserAssertion,
       secret: args.secret,
       expectedTenantId: args.expectedTenantId,
       maxAgeMs: args.maxAgeMs,

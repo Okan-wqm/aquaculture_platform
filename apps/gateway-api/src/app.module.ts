@@ -214,6 +214,9 @@ function positiveIntConfig(
       useFactory: (configService: ConfigService) => {
         // Capture INTERNAL_SERVICE_SECRET for HMAC signing in buildService closure
         const internalServiceSecret = configService.get<string>('INTERNAL_SERVICE_SECRET');
+        const userAssertionSecret =
+          configService.get<string>('VERIFIED_USER_ASSERTION_SECRET') ??
+          configService.get<string>('GATEWAY_USER_ASSERTION_SECRET');
 
         return {
         gateway: {
@@ -299,8 +302,13 @@ function positiveIntConfig(
               3000,
             ),
           }),
-          buildService({ url }) {
-            return new AuthenticatedDataSource({ url, secret: internalServiceSecret });
+          buildService({ name, url }) {
+            return new AuthenticatedDataSource({
+              url,
+              secret: internalServiceSecret,
+              userAssertionSecret,
+              assertionAudience: `${name}-service`,
+            });
           },
         },
         server: {

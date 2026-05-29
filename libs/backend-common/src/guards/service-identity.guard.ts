@@ -88,6 +88,7 @@ export class ServiceIdentityGuard implements CanActivate {
       observedMethod: req.method ?? 'POST',
       observedPath: this.canonicalisePath(req),
       observedBody,
+      observedUserAssertion: this.getHeader(req, 'x-verified-user-assertion'),
       secret: this.secret,
       expectedTenantId: tenantHeader,
     });

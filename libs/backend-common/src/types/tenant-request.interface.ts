@@ -28,6 +28,17 @@ export interface VerifiedServiceIdentity {
   verifiedAt: string;
 }
 
+export interface FarmVerifiedIdentity {
+  callerServiceName: string;
+  actorUserId?: string;
+  actorTenantId?: string;
+  effectiveTenantId?: string;
+  roles: string[];
+  mfaVerified?: boolean;
+  assertionId?: string;
+  verifiedAt: string;
+}
+
 /**
  * Canonical TenantRequest interface.
  *
@@ -47,4 +58,6 @@ export interface TenantRequest extends Request {
   user?: JwtUser;
   /** HMAC-verified service identity attached by the service identity boundary. */
   verifiedIdentity?: VerifiedServiceIdentity;
+  /** Unified farm identity built only from verified service/user assertions. */
+  farmVerifiedIdentity?: FarmVerifiedIdentity;
 }

@@ -3,7 +3,7 @@
  *
  * Removes gateway-forwarded user/tenant headers unless the request carries a
  * verified internal service identity. This middleware must run before any
- * middleware that parses x-user-payload or tenant context.
+ * middleware that verifies user assertions or derives tenant context.
  */
 
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -20,6 +20,8 @@ const INTERNAL_HEADERS_TO_STRIP = [
   'x-user-id',
   'x-user-roles',
   'x-tenant-id',
+  'x-act-as-tenant',
+  'x-verified-user-assertion',
 ] as const;
 
 interface InternalHeaderRequest extends Request {
@@ -79,6 +81,7 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
         observedMethod: req.method ?? 'GET',
         observedPath: this.canonicalisePath(req),
         observedBody: this.serializeBodyForHash(req.body),
+        observedUserAssertion: this.getHeader(req, 'x-verified-user-assertion'),
         secret: this.serviceSecret,
         expectedTenantId: tenantId,
       });

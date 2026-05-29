@@ -1,10 +1,16 @@
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
-import { verifyServiceIdentityRequest } from '@aquaculture/backend-common/utils';
+import {
+  VERIFIED_USER_ASSERTION_HEADER,
+  verifyServiceIdentityRequest,
+  verifyVerifiedUserAssertion,
+} from '@aquaculture/backend-common/utils';
 import { AuthenticatedDataSource } from './authenticated-data-source';
 import type { GatewayContext } from './authenticated-data-source';
 
 const SECRET = 'gateway-subgraph-hmac-test-secret';
+const USER_ASSERTION_SECRET = 'gateway-user-assertion-test-secret';
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
+const OTHER_TENANT_ID = '22222222-2222-4222-8222-222222222222';
 
 function createHeaderCollector(): {
   headers: { set: (key: string, value: string) => void };
@@ -40,7 +46,12 @@ function createContext(tenantId = ''): GatewayContext {
   };
 }
 
-function createCapturingDataSource(): {
+function createCapturingDataSource(
+  config: {
+    userAssertionSecret?: string;
+    assertionAudience?: string;
+  } = {},
+): {
   dataSource: AuthenticatedDataSource;
   calls: Array<{ url: string; init: RequestInit }>;
 } {
@@ -60,6 +71,8 @@ function createCapturingDataSource(): {
     dataSource: new AuthenticatedDataSource({
       url: 'http://auth-service:3000/graphql',
       secret: SECRET,
+      userAssertionSecret: config.userAssertionSecret,
+      assertionAudience: config.assertionAudience,
       fetcher,
     }),
     calls,
@@ -127,7 +140,10 @@ describe('AuthenticatedDataSource service identity signing', () => {
   });
 
   it('binds a verified tenant into the forwarded header and final fetch-body HMAC', async () => {
-    const { dataSource, calls } = createCapturingDataSource();
+    const { dataSource, calls } = createCapturingDataSource({
+      userAssertionSecret: USER_ASSERTION_SECRET,
+      assertionAudience: 'farm-service',
+    });
     const { headers, record } = createHeaderCollector();
     const request = {
       query: 'query Batches { batches { id } }',
@@ -151,6 +167,7 @@ describe('AuthenticatedDataSource service identity signing', () => {
     });
 
     const sent = calls[0]?.init;
+    const assertion = record[VERIFIED_USER_ASSERTION_HEADER.toLowerCase()];
     expect((sent?.headers as Record<string, string>)['X-Tenant-ID']).toBe(TENANT_ID);
     expect(
       verifyServiceIdentityRequest({
@@ -158,8 +175,160 @@ describe('AuthenticatedDataSource service identity signing', () => {
         observedMethod: 'POST',
         observedPath: '/graphql',
         observedBody: wireBody,
+        observedUserAssertion: assertion,
         secret: SECRET,
         expectedTenantId: TENANT_ID,
+      }),
+    ).toEqual({ valid: true, version: 'v2' });
+  });
+
+  it('does not sign a raw tenant header when no verified user assertion exists', async () => {
+    const { dataSource, calls } = createCapturingDataSource();
+    const wireBody = JSON.stringify({ query: '{ farms { id } }' });
+
+    await dataSource.fetcher('http://farm-service:3000/graphql', {
+      method: 'POST',
+      headers: { 'x-tenant-id': OTHER_TENANT_ID, 'content-type': 'application/json' },
+      body: wireBody,
+    });
+
+    const sent = calls[0]?.init;
+    const sentHeaders = lowerCaseHeaders(sent?.headers);
+    expect(sentHeaders['x-tenant-id']).toBeUndefined();
+    expect(
+      verifyServiceIdentityRequest({
+        headers: sentHeaders,
+        observedMethod: 'POST',
+        observedPath: '/graphql',
+        observedBody: wireBody,
+        secret: SECRET,
+        expectedTenantId: '',
+      }),
+    ).toEqual({ valid: true, version: 'v2' });
+  });
+
+  it('ignores X-Act-As-Tenant for regular users before minting the farm assertion', async () => {
+    const { dataSource, calls } = createCapturingDataSource({
+      userAssertionSecret: USER_ASSERTION_SECRET,
+      assertionAudience: 'farm-service',
+    });
+    const { headers, record } = createHeaderCollector();
+    const request = {
+      query: 'query Batches { batches { id } }',
+      http: { method: 'POST', url: 'http://farm-service:3000/graphql', headers },
+    };
+    const context: GatewayContext = {
+      req: {
+        headers: { 'x-act-as-tenant': OTHER_TENANT_ID },
+        user: {
+          sub: 'user-1',
+          email: 'user@example.test',
+          tenantId: TENANT_ID,
+          roles: ['MODULE_USER'],
+          iat: 1,
+          exp: 2,
+        },
+      },
+      res: { append: jest.fn() } as unknown as GatewayContext['res'],
+    };
+
+    dataSource.willSendRequest({ request, context } as unknown as Parameters<
+      AuthenticatedDataSource['willSendRequest']
+    >[0]);
+
+    const assertion = record[VERIFIED_USER_ASSERTION_HEADER.toLowerCase()];
+    expect(record['x-tenant-id']).toBe(TENANT_ID);
+    expect(record['x-act-as-tenant']).toBeUndefined();
+    expect(
+      verifyVerifiedUserAssertion({
+        assertion,
+        secret: USER_ASSERTION_SECRET,
+        audience: 'farm-service',
+      }),
+    ).toMatchObject({
+      valid: true,
+      payload: { actorTenantId: TENANT_ID, effectiveTenantId: TENANT_ID },
+    });
+
+    const wireBody = JSON.stringify({ query: request.query });
+    await dataSource.fetcher('http://farm-service:3000/graphql', {
+      method: 'POST',
+      headers: { ...record, 'content-type': 'application/json' },
+      body: wireBody,
+    });
+
+    expect(
+      verifyServiceIdentityRequest({
+        headers: lowerCaseHeaders(calls[0]?.init.headers),
+        observedMethod: 'POST',
+        observedPath: '/graphql',
+        observedBody: wireBody,
+        observedUserAssertion: assertion,
+        secret: SECRET,
+        expectedTenantId: TENANT_ID,
+      }),
+    ).toEqual({ valid: true, version: 'v2' });
+  });
+
+  it('encodes SUPER_ADMIN tenant impersonation only in the signed farm assertion', async () => {
+    const { dataSource, calls } = createCapturingDataSource({
+      userAssertionSecret: USER_ASSERTION_SECRET,
+      assertionAudience: 'farm-service',
+    });
+    const { headers, record } = createHeaderCollector();
+    const request = {
+      query: 'query Batches { batches { id } }',
+      http: { method: 'POST', url: 'http://farm-service:3000/graphql', headers },
+    };
+    const context: GatewayContext = {
+      req: {
+        headers: { 'x-act-as-tenant': OTHER_TENANT_ID },
+        user: {
+          sub: 'admin-1',
+          email: 'admin@example.test',
+          tenantId: TENANT_ID,
+          roles: ['SUPER_ADMIN'],
+          iat: 1,
+          exp: 2,
+        },
+      },
+      res: { append: jest.fn() } as unknown as GatewayContext['res'],
+    };
+
+    dataSource.willSendRequest({ request, context } as unknown as Parameters<
+      AuthenticatedDataSource['willSendRequest']
+    >[0]);
+
+    const assertion = record[VERIFIED_USER_ASSERTION_HEADER.toLowerCase()];
+    expect(record['x-tenant-id']).toBe(OTHER_TENANT_ID);
+    expect(record['x-act-as-tenant']).toBeUndefined();
+    expect(
+      verifyVerifiedUserAssertion({
+        assertion,
+        secret: USER_ASSERTION_SECRET,
+        audience: 'farm-service',
+      }),
+    ).toMatchObject({
+      valid: true,
+      payload: { actorTenantId: TENANT_ID, effectiveTenantId: OTHER_TENANT_ID },
+    });
+
+    const wireBody = JSON.stringify({ query: request.query });
+    await dataSource.fetcher('http://farm-service:3000/graphql', {
+      method: 'POST',
+      headers: { ...record, 'content-type': 'application/json' },
+      body: wireBody,
+    });
+
+    expect(
+      verifyServiceIdentityRequest({
+        headers: lowerCaseHeaders(calls[0]?.init.headers),
+        observedMethod: 'POST',
+        observedPath: '/graphql',
+        observedBody: wireBody,
+        observedUserAssertion: assertion,
+        secret: SECRET,
+        expectedTenantId: OTHER_TENANT_ID,
       }),
     ).toEqual({ valid: true, version: 'v2' });
   });

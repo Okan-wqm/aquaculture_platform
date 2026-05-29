@@ -1,10 +1,21 @@
 import crypto from 'crypto';
 
-import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NestMiddleware,
+  Logger,
+  Optional,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { trace, context } from '@opentelemetry/api';
 import { Request, Response, NextFunction } from 'express';
 
 import { TenantRequest as CanonicalTenantRequest } from '../types/tenant-request.interface';
+import {
+  VERIFIED_USER_ASSERTION_HEADER,
+  verifyVerifiedUserAssertion,
+} from '../utils/verified-user-assertion.util';
 
 /**
  * User payload from JWT (forwarded by gateway)
@@ -15,6 +26,7 @@ export interface UserPayload {
   tenantId: string;
   role?: string;
   roles?: string[];
+  mfaVerified?: boolean;
   modules?: string[];
   firstName?: string;
   lastName?: string;
@@ -47,34 +59,87 @@ export interface TenantContext {
 
 /**
  * User Context Middleware
- * Extracts user payload from gateway header (x-user-payload)
- * Must run BEFORE TenantContextMiddleware
+ * Builds user context only from the gateway-signed verified user assertion.
+ * Raw x-user-* headers are never parsed as identity sources.
  */
 @Injectable()
 export class UserContextMiddleware implements NestMiddleware {
   private readonly logger = new Logger(UserContextMiddleware.name);
 
-  use(req: TenantRequest, res: Response, next: NextFunction): void {
-    const userPayloadHeader = req.headers['x-user-payload'] as string;
+  constructor(@Optional() private readonly configService?: ConfigService) {}
 
-    if (userPayloadHeader) {
-      try {
-        const user = JSON.parse(userPayloadHeader) as UserPayload;
-        req.user = user;
-        // SEC-LOW-002 cure: log structured user identity WITHOUT the
-        // email PII. Previously this debug line printed the email
-        // address — even at DEBUG severity, structured-log
-        // aggregation pipelines may persist debug rows long enough
-        // for the PII to leak into a third-party retention. The
-        // userId (sub) is sufficient for trace correlation.
-        this.logger.debug(`User context set: userId=${user.sub} (tenant: ${user.tenantId})`);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Failed to parse x-user-payload header: ${message}`);
-      }
+  use(req: TenantRequest, res: Response, next: NextFunction): void {
+    const assertion = req.headers[VERIFIED_USER_ASSERTION_HEADER.toLowerCase()] as
+      | string
+      | undefined;
+
+    if (!assertion) {
+      next();
+      return;
     }
 
+    const secret = this.getAssertionSecret();
+    if (!secret) {
+      if (this.isProduction()) {
+        throw new UnauthorizedException('Verified user assertion secret is not configured');
+      }
+      this.logger.warn(
+        'Ignoring verified user assertion because no assertion secret is configured',
+      );
+      next();
+      return;
+    }
+
+    const outcome = verifyVerifiedUserAssertion({
+      assertion,
+      secret,
+      audience: this.configService?.get<string>('SERVICE_NAME', 'farm-service') ?? 'farm-service',
+      issuer: 'gateway-api',
+    });
+
+    if (!outcome.valid) {
+      this.logger.warn('Rejected verified user assertion: ' + outcome.reason);
+      throw new UnauthorizedException('Invalid verified user assertion');
+    }
+
+    const payload = outcome.payload;
+    const actorTenantId = payload.actorTenantId ?? payload.tenantId;
+    const effectiveTenantId = payload.effectiveTenantId ?? actorTenantId;
+    req.user = {
+      sub: payload.sub,
+      email: payload.email ?? '',
+      tenantId: actorTenantId ?? '',
+      roles: payload.roles,
+      mfaVerified: payload.mfaVerified,
+    };
+    req.tenantId = effectiveTenantId;
+    req.farmVerifiedIdentity = {
+      callerServiceName: req.verifiedIdentity?.serviceName ?? payload.iss,
+      actorUserId: payload.sub,
+      actorTenantId,
+      effectiveTenantId,
+      roles: payload.roles,
+      mfaVerified: payload.mfaVerified,
+      assertionId: payload.jti,
+      verifiedAt: new Date().toISOString(),
+    };
+
+    this.logger.debug('Verified user context set: userId=' + payload.sub);
     next();
+  }
+
+  private getAssertionSecret(): string | undefined {
+    return (
+      this.configService?.get<string>('VERIFIED_USER_ASSERTION_SECRET') ??
+      this.configService?.get<string>('GATEWAY_USER_ASSERTION_SECRET')
+    );
+  }
+
+  private isProduction(): boolean {
+    return (
+      this.configService?.get<string>('NODE_ENV', process.env['NODE_ENV'] ?? 'development') ===
+      'production'
+    );
   }
 }
 
@@ -102,18 +167,20 @@ export class TenantContextMiddleware implements NestMiddleware {
 
   private extractTenantContext(req: TenantRequest): TenantContext | null {
     // SECURITY (MT-CRITICAL-001 closure — 3rd cycle):
-    // JWT is the ONLY cryptographically verified source — always prefer it.
-    //
-    // 1. Try from JWT (if already decoded by auth middleware). The JWT
-    //    tenantId is the trust anchor: signed by auth-service, cannot be
-    //    spoofed by a Docker-network caller.
+    // Tenant context is accepted only from verified identity material.
+    // A gateway-signed user assertion may carry an effective tenant that
+    // differs from the actor tenant for audited SUPER_ADMIN access.
+    if (req.farmVerifiedIdentity?.effectiveTenantId) {
+      return { tenantId: req.farmVerifiedIdentity.effectiveTenantId, source: 'jwt' };
+    }
+
     if (req.user?.tenantId) {
       return { tenantId: req.user.tenantId, source: 'jwt' };
     }
 
-    // 2. Verified service identity fallback. StripInternalHeadersMiddleware
-    //    validates the HMAC before this middleware runs and attaches the
-    //    canonical identity object. Raw x-tenant-id is not authoritative.
+    // Verified service identity fallback. StripInternalHeadersMiddleware
+    // validates the HMAC before this middleware runs and attaches the
+    // canonical identity object. Raw x-tenant-id is not authoritative.
     if (req.verifiedIdentity?.tenantId) {
       return { tenantId: req.verifiedIdentity.tenantId, source: 'service-identity' };
     }

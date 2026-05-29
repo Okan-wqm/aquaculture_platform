@@ -501,16 +501,17 @@ export class AppModule implements NestModule {
     // Middleware execution order:
     // 1. StripInternalHeadersMiddleware - remove spoofable gateway headers unless service-signed
     // 2. CorrelationIdMiddleware - Add correlation ID for request tracing
-    // 3. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
-    // 4. TenantContextMiddleware - Extract tenant from JWT, verified service identity, or allowed subdomain
-    // 5. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
+    // 3. UserContextMiddleware - verify gateway-signed user assertion
+    // 4. TenantContextMiddleware - derive tenant from verified identity material
+    // 5. RequestContextMiddleware - populate AsyncLocalStorage with verified user/tenant
+    // 6. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
         StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
-        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware,
         TenantSchemaMiddleware,
       )
       .forRoutes('*');

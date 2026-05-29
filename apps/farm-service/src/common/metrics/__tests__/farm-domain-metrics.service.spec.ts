@@ -21,7 +21,7 @@ describe('FarmDomainMetricsService', () => {
     service.onModuleDestroy();
   });
 
-  it('records mutation duration with operation + outcome + tenant labels', async () => {
+  it('records mutation duration with operation + outcome labels and no tenant labels', async () => {
     service.recordMutation({
       operation: 'createBatch',
       durationSeconds: 0.12,
@@ -39,7 +39,8 @@ describe('FarmDomainMetricsService', () => {
     expect(dump).toContain('operation="createBatch"');
     expect(dump).toContain('outcome="success"');
     expect(dump).toContain('outcome="error"');
-    expect(dump).toContain('tenant="11111111"');
+    expect(dump).not.toContain('tenant=');
+    expect(dump).not.toContain('11111111-1111-4111-8111-111111111111');
   });
 
   it('records mutation errors with classified error_class', async () => {
@@ -86,12 +87,8 @@ describe('FarmDomainMetricsService', () => {
     service.incWithdrawalBlock({ surface: 'harvest_record' });
     const dump = await service.getMetrics();
     expect(dump).toContain('farm_withdrawal_block_total');
-    expect(dump).toMatch(
-      /farm_withdrawal_block_total\{[^}]*surface="close_batch"[^}]*} 1/,
-    );
-    expect(dump).toMatch(
-      /farm_withdrawal_block_total\{[^}]*surface="harvest_record"[^}]*} 2/,
-    );
+    expect(dump).toMatch(/farm_withdrawal_block_total\{[^}]*surface="close_batch"[^}]*} 1/);
+    expect(dump).toMatch(/farm_withdrawal_block_total\{[^}]*surface="harvest_record"[^}]*} 2/);
   });
 
   it('records backdate rejections by context', async () => {
@@ -100,25 +97,11 @@ describe('FarmDomainMetricsService', () => {
     service.incBackdateRejection({ context: 'feeding' });
     const dump = await service.getMetrics();
     expect(dump).toContain('farm_backdate_rejected_total');
-    expect(dump).toMatch(
-      /farm_backdate_rejected_total\{[^}]*context="feeding"[^}]*} 2/,
-    );
-    expect(dump).toMatch(
-      /farm_backdate_rejected_total\{[^}]*context="mortality"[^}]*} 1/,
-    );
+    expect(dump).toMatch(/farm_backdate_rejected_total\{[^}]*context="feeding"[^}]*} 2/);
+    expect(dump).toMatch(/farm_backdate_rejected_total\{[^}]*context="mortality"[^}]*} 1/);
   });
 
-  it('labels unknown tenant as "unknown" instead of empty string', async () => {
-    service.recordMutation({
-      operation: 'noTenant',
-      durationSeconds: 0.01,
-      outcome: 'success',
-    });
-    const dump = await service.getMetrics();
-    expect(dump).toContain('tenant="unknown"');
-  });
-
-  it('truncates tenant UUIDs to the first 8 chars to bound label cardinality', async () => {
+  it('does not emit tenant labels or tenant prefixes', async () => {
     service.recordMutation({
       operation: 'cardinalityCheck',
       durationSeconds: 0.01,
@@ -126,7 +109,8 @@ describe('FarmDomainMetricsService', () => {
       tenantId: 'abcdef12-3456-4789-8abc-def123456789',
     });
     const dump = await service.getMetrics();
-    expect(dump).toContain('tenant="abcdef12"');
+    expect(dump).not.toContain('tenant=');
+    expect(dump).not.toContain('abcdef12');
     expect(dump).not.toContain('abcdef12-3456-4789-8abc-def123456789');
   });
 

@@ -23,6 +23,7 @@
 - Direct `eventBus.publish` in write paths.
 - Raw `createQueryRunner` in handlers.
 - Raw `x-tenant-id` authority reads.
+- Tenant UUID or tenant-derived Prometheus labels.
 - New raw `@InjectRepository` application wiring.
 
 ## Drift Checks

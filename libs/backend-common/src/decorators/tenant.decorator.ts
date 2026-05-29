@@ -5,49 +5,52 @@ import { TenantRequest } from '../types/tenant-request.interface';
 /**
  * Tenant Context Decorator — extracts the authenticated tenant ID from the request.
  *
- * SECURITY (C-03): This decorator ONLY reads from two trusted sources:
- *   1. `req.user.tenantId` — set by JwtAuthGuard from the verified JWT claim.
- *   2. `req.tenantId` — set by TenantGuard after validation.
+ * SECURITY (C-03): This decorator ONLY reads from trusted server-set sources:
+ *   1. `req.farmVerifiedIdentity.effectiveTenantId` — gateway-signed farm identity.
+ *   2. `req.tenantId` — set by tenant middleware or TenantGuard.
+ *   3. `req.user.tenantId` — set from verified JWT/assertion context.
  *
  * Headers (X-Tenant-Id), query parameters, and request body are NEVER consulted.
  * Those sources are attacker-controlled and were previously exploitable when
  * combined with @SkipTenantGuard() to inject arbitrary tenant IDs.
  */
-export const Tenant = createParamDecorator(
-  (data: unknown, ctx: ExecutionContext): string => {
-    const contextType = ctx.getType<string>();
+export const Tenant = createParamDecorator((data: unknown, ctx: ExecutionContext): string => {
+  const contextType = ctx.getType<string>();
 
-    if (contextType === 'graphql') {
-      const gqlCtx = GqlExecutionContext.create(ctx);
-      const request = gqlCtx.getContext().req as TenantRequest;
-      return extractTenantId(request);
-    }
-
-    const request = ctx.switchToHttp().getRequest<TenantRequest>();
+  if (contextType === 'graphql') {
+    const gqlCtx = GqlExecutionContext.create(ctx);
+    const request = gqlCtx.getContext().req as TenantRequest;
     return extractTenantId(request);
-  },
-);
+  }
+
+  const request = ctx.switchToHttp().getRequest<TenantRequest>();
+  return extractTenantId(request);
+});
 
 /**
  * Extract tenant ID exclusively from trusted, server-set sources.
  *
- * SECURITY: Only two sources are trusted:
- *   - `req.user.tenantId`: Decoded from a cryptographically verified JWT by JwtAuthGuard.
- *   - `req.tenantId`: Explicitly set by TenantGuard after validating the user's
- *     JWT tenantId claim (or SUPER_ADMIN's X-Act-As-Tenant header).
+ * SECURITY: Only server-set sources are trusted:
+ *   - `req.farmVerifiedIdentity.effectiveTenantId`: Signed gateway assertion.
+ *   - `req.tenantId`: Explicitly set by tenant middleware or TenantGuard.
+ *   - `req.user.tenantId`: Decoded from verified JWT/assertion context.
  *
  * All other sources (headers, query params, body) are untrusted and intentionally
  * excluded to prevent tenant spoofing attacks.
  */
 function extractTenantId(request: TenantRequest): string {
-  // 1. Prefer JWT claim — cryptographically verified by JwtAuthGuard
-  if (request.user?.tenantId) {
-    return request.user.tenantId;
+  // Prefer the effective tenant set by TenantGuard/FarmVerifiedIdentity.
+  // This preserves audited X-Act-As-Tenant behavior for SUPER_ADMIN.
+  if (request.farmVerifiedIdentity?.effectiveTenantId) {
+    return request.farmVerifiedIdentity.effectiveTenantId;
   }
 
-  // 2. Fall back to TenantGuard-validated value
   if (request.tenantId) {
     return request.tenantId;
+  }
+
+  if (request.user?.tenantId) {
+    return request.user.tenantId;
   }
 
   throw new BadRequestException(
@@ -86,7 +89,12 @@ export const OptionalTenant = createParamDecorator(
  * Returns undefined when no tenant context is available.
  */
 function extractTenantIdSafe(request: TenantRequest): string | undefined {
-  return request.user?.tenantId || request.tenantId || undefined;
+  return (
+    request.farmVerifiedIdentity?.effectiveTenantId ||
+    request.tenantId ||
+    request.user?.tenantId ||
+    undefined
+  );
 }
 
 /**

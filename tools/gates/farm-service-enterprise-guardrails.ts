@@ -85,6 +85,14 @@ const RULES: readonly Rule[] = [
     excludePath: /^apps\/farm-service\/src\/(database|outbox|common\/database|app\.module\.ts)/,
   },
   {
+    id: 'no-prometheus-tenant-labels',
+    message:
+      'Farm Prometheus metrics must not expose tenant IDs or tenant-derived labels; use bounded labels only.',
+    pattern: /labelNames\s*:\s*\[[^\]]*['"]tenant(?:Id|_id)?['"]/,
+    includePath: FARM_RUNTIME_CODE,
+    excludePath: FARM_TEST_CODE,
+  },
+  {
     id: 'no-new-raw-repository-injection',
     message:
       'New farm application code must use tenant-scoped repository ports instead of raw InjectRepository wiring.',

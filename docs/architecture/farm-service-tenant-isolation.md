@@ -4,11 +4,11 @@
 
 Tenant identity is accepted from verified identity context only:
 
-1. JWT payload forwarded by a signed service request.
-2. Tenant context set by middleware after internal header stripping.
-3. Audited super-admin impersonation flow with durable audit evidence.
+1. Gateway-signed `FarmVerifiedIdentity` built from `x-verified-user-assertion`.
+2. Tenant context set by middleware after internal header stripping and service HMAC verification.
+3. Audited super-admin impersonation encoded as assertion `effectiveTenantId` with durable audit evidence.
 
-Raw controller headers, GraphQL variables, body fields, query strings, and client-selected schema names are not tenant authority.
+Raw controller headers, `x-tenant-id`, `x-act-as-tenant`, GraphQL variables, body fields, query strings, and client-selected schema names are not tenant authority.
 
 ## Database Boundary
 

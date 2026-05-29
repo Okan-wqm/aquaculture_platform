@@ -15,12 +15,11 @@ import type { Request } from 'express';
  * request that later tries to inject a spoofed X-Tenant-ID.
  *
  * Resolution order:
- *   1. `req.user.tenantId` — cryptographically verified (JWT-decoded by
- *      UserContextMiddleware). If present, this is the trust anchor.
- *   2. `x-tenant-id` request header — only used when no JWT context is
- *      available (pre-auth paths, cross-tenant admin, health probes that
- *      forward the header from edge monitoring).
- *   3. Empty string — "no tenant" is a valid, explicit answer.
+ *   1. `req.farmVerifiedIdentity.effectiveTenantId` — gateway-signed
+ *      effective tenant for farm/internal calls.
+ *   2. `req.tenantId` — server-set tenant context from middleware/guard.
+ *   3. `req.user.tenantId` — cryptographically verified JWT/assertion context.
+ *   4. Empty string — "no tenant" is a valid, explicit answer.
  *
  * In all cases the value is validated against a canonical UUID regex.
  * Any malformed input yields an empty string, which fails closed: a
@@ -29,8 +28,7 @@ import type { Request } from 'express';
  */
 
 /** Canonical UUID v1-v5 regex — matches what the gateway's willSendRequest uses. */
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Narrow interface for the parts of Express Request we consult. Defined
@@ -40,6 +38,8 @@ const UUID_REGEX =
  */
 interface RequestLike {
   headers?: Record<string, string | string[] | undefined>;
+  farmVerifiedIdentity?: { effectiveTenantId?: string | null } | null | undefined;
+  tenantId?: string | null | undefined;
   user?: { tenantId?: string | null } | null | undefined;
 }
 
@@ -51,22 +51,19 @@ interface RequestLike {
  *          REQUIRED `tenantId` option.
  */
 export function resolveTenantIdFromRequest(req: RequestLike | Request): string {
-  // 1. Trusted source: JWT-decoded user context.
-  const fromJwt = (req as RequestLike).user?.tenantId;
-  if (typeof fromJwt === 'string' && UUID_REGEX.test(fromJwt.trim())) {
-    return fromJwt.trim();
-  }
+  const request = req as RequestLike;
+  const candidates = [
+    request.farmVerifiedIdentity?.effectiveTenantId,
+    request.tenantId,
+    request.user?.tenantId,
+  ];
 
-  // 2. Header fallback — only trusted when no JWT is present.
-  const rawHeader = (req as RequestLike).headers?.['x-tenant-id'];
-  const headerValue = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
-  if (typeof headerValue === 'string') {
-    const trimmed = headerValue.trim();
-    if (UUID_REGEX.test(trimmed)) {
-      return trimmed;
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && UUID_REGEX.test(candidate.trim())) {
+      return candidate.trim();
     }
   }
 
-  // 3. No valid tenant — explicit opt-out.
+  // No valid tenant — explicit opt-out.
   return '';
 }

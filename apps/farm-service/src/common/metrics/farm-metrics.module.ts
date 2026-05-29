@@ -14,9 +14,11 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 
 import { FarmDomainMetricsService } from './farm-domain-metrics.service';
 import { FarmMetricsInterceptor } from './farm-metrics.interceptor';
+import { FarmMetricsController } from './farm-metrics.controller';
 
 @Global()
 @Module({
+  controllers: [FarmMetricsController],
   providers: [
     FarmDomainMetricsService,
     {

@@ -12,13 +12,12 @@ import { RequestContext, requestContextStorage } from './request-context';
  * It extracts:
  *  - correlationId  (X-Correlation-Id header, or auto-generated UUID)
  *  - traceId / spanId (from active OpenTelemetry span, or X-Trace-Id header)
- *  - tenantId       (X-Tenant-Id header, or from decoded JWT user payload)
- *  - userId         (from the x-user-payload header forwarded by the gateway)
+ *  - tenantId       (from verified farm identity, TenantGuard, or decoded JWT)
+ *  - userId         (from verified farm identity or decoded JWT)
  *  - method, url, ip  (standard Express request fields)
  *
- * This middleware should run as early as possible in the middleware chain
- * (before any business middleware) so that all subsequent code, including
- * the StructuredLoggerService, can read the context.
+ * This middleware should run after identity/tenant middleware and before any
+ * business handler so StructuredLoggerService sees verified request context.
  *
  * @example
  * ```ts
@@ -51,8 +50,18 @@ export class RequestContextMiddleware implements NestMiddleware {
     }
 
     // --- Tenant & User ---
-    const tenantId = (req.headers['x-tenant-id'] as string | undefined) || extractTenantFromUser(req);
-    const userId = extractUserIdFromPayload(req);
+    // Never seed ALS from raw gateway headers. Guards/middleware must first
+    // build the verified request identity and only then expose tenant/user here.
+    const verifiedReq = req as Request & {
+      tenantId?: string;
+      user?: { sub?: string; tenantId?: string };
+      farmVerifiedIdentity?: { actorUserId?: string; effectiveTenantId?: string };
+    };
+    const tenantId =
+      verifiedReq.farmVerifiedIdentity?.effectiveTenantId ??
+      verifiedReq.tenantId ??
+      verifiedReq.user?.tenantId;
+    const userId = verifiedReq.farmVerifiedIdentity?.actorUserId ?? verifiedReq.user?.sub;
 
     const requestContext: RequestContext = {
       correlationId,
@@ -75,37 +84,5 @@ export class RequestContextMiddleware implements NestMiddleware {
     requestContextStorage.run(requestContext, () => {
       next();
     });
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/*  Private helpers                                                    */
-/* ------------------------------------------------------------------ */
-
-/**
- * Try to extract tenantId from the x-user-payload header (set by gateway).
- */
-function extractTenantFromUser(req: Request): string | undefined {
-  const raw = req.headers['x-user-payload'] as string | undefined;
-  if (!raw) return undefined;
-  try {
-    const payload = JSON.parse(raw) as { tenantId?: string };
-    return payload.tenantId;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Try to extract userId (sub) from the x-user-payload header (set by gateway).
- */
-function extractUserIdFromPayload(req: Request): string | undefined {
-  const raw = req.headers['x-user-payload'] as string | undefined;
-  if (!raw) return undefined;
-  try {
-    const payload = JSON.parse(raw) as { sub?: string };
-    return payload.sub;
-  } catch {
-    return undefined;
   }
 }

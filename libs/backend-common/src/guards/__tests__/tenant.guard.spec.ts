@@ -36,6 +36,7 @@ describe('TenantGuard', () => {
   const createMockContext = (
     user?: JwtUser,
     headers: Record<string, string | undefined> = {},
+    requestOverrides: Record<string, unknown> = {},
   ): ExecutionContext => {
     const mockRequest = {
       user,
@@ -44,6 +45,7 @@ describe('TenantGuard', () => {
       url: '/api/test',
       ip: '127.0.0.1',
       tenantId: undefined as string | undefined,
+      ...requestOverrides,
     };
 
     return {
@@ -224,6 +226,41 @@ describe('TenantGuard', () => {
       await guard.canActivate(context);
 
       expect(auditLogService.recordAwait).not.toHaveBeenCalled();
+    });
+
+    it('should use signed farm identity instead of raw X-Act-As-Tenant when both are present', async () => {
+      const guard = createGuard();
+      const user = superAdminUser({ mfaVerified: true });
+      const context = createMockContext(
+        user,
+        { 'x-act-as-tenant': TENANT_A },
+        {
+          farmVerifiedIdentity: {
+            callerServiceName: 'gateway-api',
+            actorUserId: user.sub,
+            actorTenantId: TENANT_A,
+            effectiveTenantId: TENANT_B,
+            roles: [Role.SUPER_ADMIN],
+            mfaVerified: true,
+            assertionId: 'assertion-1',
+            verifiedAt: new Date().toISOString(),
+          },
+        },
+      );
+
+      await guard.canActivate(context);
+
+      const request = context.switchToHttp().getRequest();
+      expect(request.tenantId).toBe(TENANT_B);
+      expect(auditLogService.recordAwait).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resourceId: TENANT_B,
+          metadata: expect.objectContaining({
+            sourceTenantId: TENANT_A,
+            targetTenantId: TENANT_B,
+          }),
+        }),
+      );
     });
 
     it('should prefer request.ip over X-Forwarded-For in audit record (BULGU-7)', async () => {

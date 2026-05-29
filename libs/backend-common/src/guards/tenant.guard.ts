@@ -141,7 +141,8 @@ export class TenantGuard implements CanActivate {
           throw new BadRequestException('X-Act-As-Tenant header must be a valid UUID');
         }
 
-        const sourceTenantId = user?.tenantId ?? 'system';
+        const sourceTenantId =
+          request.farmVerifiedIdentity?.actorTenantId ?? user?.tenantId ?? 'system';
         const isCrossTenant = actAsTenant !== sourceTenantId;
 
         // SECURITY (H-13): MFA step-up enforcement for cross-tenant access
@@ -333,14 +334,27 @@ export class TenantGuard implements CanActivate {
   }
 
   /**
-   * Extract the X-Act-As-Tenant header for SUPER_ADMIN tenant impersonation.
+   * Extract the target tenant for SUPER_ADMIN impersonation.
    *
-   * SECURITY (C-04): This is the ONLY mechanism for super admins to specify a
-   * target tenant. The generic X-Tenant-Id header, query params, and request
-   * body are intentionally excluded to maintain a single auditable impersonation
-   * vector and eliminate confusion with attacker-controlled inputs.
+   * SECURITY (C-04): Farm's preferred source is the gateway-signed verified
+   * user assertion. The legacy raw X-Act-As-Tenant header remains supported
+   * for unit tests and older internal callers, but the farm gateway path no
+   * longer forwards it as the authority.
    */
   private extractActAsTenantHeader(request: TenantRequest): string | undefined {
+    const identity = request.farmVerifiedIdentity;
+    const actorTenantId = identity?.actorTenantId ?? request.user?.tenantId;
+    if (
+      identity?.effectiveTenantId &&
+      (!actorTenantId || identity.effectiveTenantId !== actorTenantId)
+    ) {
+      return identity.effectiveTenantId;
+    }
+
+    if (identity) {
+      return undefined;
+    }
+
     const header = request.headers['x-act-as-tenant'];
     return typeof header === 'string' ? header : undefined;
   }

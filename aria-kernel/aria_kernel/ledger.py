@@ -55,6 +55,17 @@ _TOOLS_GROUP_FILENAMES: dict[str, str] = {
     "cycles.jsonl": "cycles",
     "governance.jsonl": "governance",
 }
+_TOOLS_GROUP_OPTIONAL_FILENAMES: dict[str, str] = {
+    "run-artifacts/artifact-index.jsonl": "runtime_artifact_index",
+    "run-artifacts/manifest.jsonl": "runtime_artifact_manifest",
+    "retention/events.jsonl": "runtime_retention_events",
+    "observability/alerts.jsonl": "runtime_observability_alerts",
+    "observability/artifact-inventory.jsonl": "runtime_artifact_inventory",
+}
+_TOOLS_GROUP_ALL_FILENAMES: dict[str, str] = {
+    **_TOOLS_GROUP_FILENAMES,
+    **_TOOLS_GROUP_OPTIONAL_FILENAMES,
+}
 _ARIA_MEMORY_GROUP_FILENAMES: dict[str, str] = {
     "unknowns.jsonl": "unknowns",
     "missed_signals.jsonl": "missed_signals",
@@ -84,6 +95,31 @@ class LockRequirement:
     ledgers: dict[str, Path] | None
 
 
+def _tools_group_root_for_path(path: Path) -> Path | None:
+    for root in path.parents:
+        if not (root / "integrity_index.json").exists():
+            continue
+        try:
+            relative = path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if relative in _TOOLS_GROUP_ALL_FILENAMES:
+            return root
+    return None
+
+
+def _tools_group_ledgers(root: Path) -> dict[str, Path]:
+    ledgers = {
+        logical: root / relative
+        for relative, logical in _TOOLS_GROUP_FILENAMES.items()
+    }
+    for relative, logical in _TOOLS_GROUP_OPTIONAL_FILENAMES.items():
+        path = root / relative
+        if path.exists():
+            ledgers[logical] = path
+    return ledgers
+
+
 def _lock_requirements_for_path(path: Path) -> LockRequirement:
     """Plan 026R §A.1 SSoT — return required lock paths for a ledger path.
 
@@ -97,17 +133,12 @@ def _lock_requirements_for_path(path: Path) -> LockRequirement:
     used (parent dir + sibling existence) so callers + AST invariants always
     derive the same answer.
     """
-    if (
-        path.name in _TOOLS_GROUP_FILENAMES
-        and (path.parent / "integrity_index.json").exists()
-    ):
+    tools_root = _tools_group_root_for_path(path)
+    if tools_root is not None:
         return LockRequirement(
             file_lock_path=path,
-            index_group_lock_path=path.parent / "integrity_index.json",
-            ledgers={
-                logical: path.parent / fname
-                for fname, logical in _TOOLS_GROUP_FILENAMES.items()
-            },
+            index_group_lock_path=tools_root / "integrity_index.json",
+            ledgers=_tools_group_ledgers(tools_root),
         )
     if (
         path.parent.name == "aria-memory"

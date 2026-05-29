@@ -201,7 +201,7 @@ services:
       - 'request.messaging.admin.triggerExport'
       - 'request.messaging.admin.getPersonas'
       - 'request.auth.admin.>'
-      - 'request.billing.admin.>'
+      - "request.billing.admin.>"
       # Dynamic IngestBackend policy change events — admin-api is the
       # authoritative publisher; sensor-ingestion + sensor-service
       # subscribe. ADR-027 (per-tenant toggle) + ADR-031 (request-reply
@@ -317,7 +317,7 @@ services:
       # Platform-admin billing mutations are owned by billing-service.
       # admin-api may expose REST facade routes, but writes must enter
       # billing through these audited command subjects.
-      - 'request.billing.admin.>'
+      - "request.billing.admin.>"
       - '$JS.API.>'
       - '_INBOX.>'
 

@@ -43,12 +43,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      - run: npm ci --ignore-scripts --no-audit
+      - run: npm ci --no-audit
       - run: npx nx test messaging-service --runInBand
       - run: npx nx build messaging-service
       - run: npx tsc --noEmit -p apps/messaging-service/tsconfig.app.json
@@ -58,12 +58,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      - run: npm ci --ignore-scripts --no-audit
+      - run: npm ci --no-audit
       - run: npx nx test gateway-api --runInBand
       - run: npx nx test notification-service --runInBand
       - run: npx nx test event-contracts --runInBand
@@ -87,17 +87,17 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
-      - run: npm ci --ignore-scripts --no-audit
+      - run: npm ci --no-audit
       - run: python3 -m pip install --quiet 'pyyaml==6.0.2'
       - name: Determine commit range
         id: range
@@ -133,7 +133,7 @@ jobs:
         env:
           DATABASE_URL: postgres://aqua:aqua@127.0.0.1:5432/aqua
           REQUIRE_DB_PROOF: 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.PREFLIGHT_NODE_VERSION }}
       - run: node scripts/ci/preflight-validate.ts docker-compose.yml docker-compose.prod.yml docker-compose.droplet.yml
@@ -145,15 +145,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
-      - run: npm ci --ignore-scripts --no-audit
+      - run: npm ci --no-audit
       - run: python3 -m pip install --quiet 'pyyaml==6.0.2'
       - run: infrastructure/docker/scripts/generate-internal-certs.sh --force
       - name: Run NATS with production ACL and mTLS config
@@ -188,12 +188,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      - run: npm ci --ignore-scripts --no-audit
+      - run: npm ci --no-audit
       - run: npm run gates:aquamobil-messaging-cache-keys
       - run: npm run gates:aquamobil-messaging-contracts
       - run: npm --workspace @aquaculture/aquamobil run typecheck
@@ -209,7 +209,7 @@ jobs:
       - nats-mtls-acl-smoke
       - aquamobil-contracts
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Assert staging evidence or explicit bypass approval
         env:
           STAGED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

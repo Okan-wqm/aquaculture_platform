@@ -161,6 +161,7 @@ export class NotificationResolver {
 
     try {
       await this.deviceTokenRepository.manager.transaction(async (manager) => {
+        // eslint-disable-next-line no-restricted-syntax -- device-token registration intentionally revokes a raw token's previous active owner across tenant/user boundaries before assigning the single canonical owner in this transaction.
         const repository = manager.getRepository(DeviceToken);
         await manager.query(
           `SELECT id

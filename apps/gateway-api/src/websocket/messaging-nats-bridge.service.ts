@@ -1,7 +1,15 @@
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  assertSubjectMatchesEvent,
+  buildWildcardEventSubject,
+} from '@platform/event-bus';
+import {
+  isMessagingEventType,
+  validateMessagingEvent,
+} from '@platform/event-contracts';
 import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 
 import { MessagingGateway } from './messaging.gateway';
 
@@ -14,25 +22,32 @@ interface MessagingNatsEvent {
   eventType: string;
   timestamp: string | Date;
   tenantId: string;
+  version?: number;
   channelId?: string;
   messageId?: string;
   userId?: string;
   data?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 // ============================================================================
 // NATS Event Subjects
 // ============================================================================
 
-const MESSAGING_SUBJECTS = [
-  'events.MessageSent',
-  'events.MessageUpdated',
-  'events.MessageDeleted',
-  'events.ChannelCreated',
-  'events.ChannelMemberAdded',
-  'events.ChannelMemberRemoved',
-  'events.MessageRead',
+const MESSAGING_GATEWAY_EVENT_TYPES = [
+  'MessageSent',
+  'MessageForwarded',
+  'MessageUpdated',
+  'MessageDeleted',
+  'ChannelCreated',
+  'ChannelMemberAdded',
+  'ChannelMemberRemoved',
+  'MessageRead',
 ] as const;
+
+const MESSAGING_SUBJECTS = MESSAGING_GATEWAY_EVENT_TYPES.map((eventType) =>
+  buildWildcardEventSubject(eventType),
+);
 
 // ============================================================================
 // MessagingNatsBridgeService
@@ -76,7 +91,10 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
 
     try {
       this.connection = await connect(connectionOptions);
-      this.logger.log(`Messaging bridge connected to NATS at ${connectionOptions.servers}`);
+      const servers = Array.isArray(connectionOptions.servers)
+        ? connectionOptions.servers.join(',')
+        : (connectionOptions.servers ?? 'default');
+      this.logger.log(`Messaging bridge connected to NATS at ${servers}`);
 
       this.subscribeToMessagingEvents();
       this.handleConnectionEvents();
@@ -101,8 +119,8 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
             const data = this.sc.decode(msg.data);
             const event = JSON.parse(data) as MessagingNatsEvent;
 
-            if (!this.isValidEvent(event)) {
-              this.logger.warn(`Invalid messaging NATS event on ${subject}, dropping`);
+            if (!this.isValidEvent(event, msg.subject)) {
+              this.logger.warn(`Invalid messaging NATS event on ${msg.subject}, dropping`);
               continue;
             }
 
@@ -126,13 +144,15 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
 
     switch (event.eventType) {
       case 'MessageSent':
+      case 'MessageForwarded':
         this.messagingGateway.broadcastNewMessage(event.tenantId, channelId, {
           messageId: event.messageId,
           channelId,
           tenantId: event.tenantId,
-          userId: event.userId,
+          userId: this.stringField(event, 'userId') ?? this.stringField(event, 'senderId'),
           timestamp: event.timestamp,
-          ...event.data,
+          ...this.stripInternalForwardFields(event.data ?? {}),
+          ...this.pickPublicEventFields(event),
         });
         break;
 
@@ -173,8 +193,30 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
         });
         break;
 
-      case 'ChannelMemberAdded':
       case 'ChannelMemberRemoved':
+        {
+          const removedUserId =
+            this.stringField(event, 'userId') ??
+            this.stringField(event.data, 'userId');
+          if (removedUserId) {
+            this.messagingGateway.evictUserFromChannel(
+              event.tenantId,
+              channelId,
+              removedUserId,
+            );
+          }
+        }
+        // These events can trigger UI updates for channel member lists
+        this.messagingGateway.broadcastMessageUpdated(event.tenantId, channelId, {
+          eventType: event.eventType,
+          channelId,
+          tenantId: event.tenantId,
+          userId: event.userId,
+          timestamp: event.timestamp,
+        });
+        break;
+
+      case 'ChannelMemberAdded':
         // These events can trigger UI updates for channel member lists
         this.messagingGateway.broadcastMessageUpdated(event.tenantId, channelId, {
           eventType: event.eventType,
@@ -223,7 +265,9 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
             this.subscribeToMessagingEvents();
             break;
           case 'error':
-            this.logger.error(`Messaging NATS error: ${String(status.data)}`);
+            this.logger.error(
+              `Messaging NATS error: ${this.formatStatusData(status.data)}`,
+            );
             break;
         }
       }
@@ -244,17 +288,80 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     }
   }
 
-  private isValidEvent(event: MessagingNatsEvent): boolean {
-    return (
-      typeof event === 'object' &&
-      event !== null &&
-      typeof event.eventType === 'string' &&
-      typeof event.tenantId === 'string' &&
-      (typeof event.timestamp === 'string' || event.timestamp instanceof Date)
-    );
+  private isValidEvent(event: MessagingNatsEvent, subject: string): boolean {
+    if (
+      typeof event !== 'object' ||
+      event === null ||
+      typeof event.eventType !== 'string' ||
+      typeof event.tenantId !== 'string' ||
+      (typeof event.timestamp !== 'string' && !(event.timestamp instanceof Date))
+    ) {
+      return false;
+    }
+
+    if (!isMessagingEventType(event.eventType)) {
+      return false;
+    }
+
+    try {
+      assertSubjectMatchesEvent(subject, event);
+    } catch (error) {
+      this.logger.warn(
+        `Messaging event subject mismatch: ${(error as Error).message}`,
+      );
+      return false;
+    }
+
+    const validation = validateMessagingEvent(event.eventType, event);
+    if (!validation.valid) {
+      this.logger.warn(
+        `Messaging event contract validation failed for ${event.eventType}: ${validation.errors}`,
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  private pickPublicEventFields(event: MessagingNatsEvent): Record<string, unknown> {
+    const payload = this.stripInternalForwardFields(event);
+    delete payload['data'];
+    delete payload['eventId'];
+    delete payload['eventType'];
+    delete payload['version'];
+    delete payload['aggregateId'];
+    delete payload['aggregateType'];
+    delete payload['tenantId'];
+    delete payload['timestamp'];
+    return payload;
+  }
+
+  private stripInternalForwardFields(
+    value: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const {
+      sourceChannelId: _sourceChannelId,
+      sourceMessageId: _sourceMessageId,
+      ...rest
+    } = value;
+    return rest;
+  }
+
+  private stringField(
+    value: Record<string, unknown> | undefined,
+    key: string,
+  ): string | undefined {
+    const field = value?.[key];
+    return typeof field === 'string' ? field : undefined;
   }
 
   isConnected(): boolean {
     return this.connection !== null && !this.connection.isClosed();
+  }
+
+  private formatStatusData(data: unknown): string {
+    if (typeof data === 'string') return data;
+    if (data instanceof Error) return data.message;
+    return JSON.stringify(data) ?? 'unknown';
   }
 }

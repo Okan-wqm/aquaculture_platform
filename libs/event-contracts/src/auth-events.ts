@@ -101,7 +101,8 @@ export interface PasswordResetCompletedEvent extends BaseEvent {
  */
 export interface UserDeletedEvent extends BaseEvent {
   eventType: 'UserDeleted';
-  userId: string;
+  /** Canonical deletion target. BaseEvent.userId remains the actor/requester when present. */
+  deletedUserId: string;
   /** Whether the row was hard-deleted (true) or anonymized in place (false). */
   hardDelete: boolean;
   /** Whether downstream services should cascade their own per-user data erasure. */

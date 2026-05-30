@@ -6,11 +6,12 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { MessagingPushService } from '../messaging-push.service';
+
 import { ChannelMember, NotificationPreference } from '../../channel/entities/channel-member.entity';
-import { PresenceService } from '../../presence/presence.service';
 import { MessageService } from '../../message/services/message.service';
+import { PresenceService } from '../../presence/presence.service';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
+import { MessagingPushService } from '../messaging-push.service';
 
 describe('MessagingPushService', () => {
   let service: MessagingPushService;
@@ -37,6 +38,38 @@ describe('MessagingPushService', () => {
     setex: jest.fn().mockResolvedValue('OK'),
   };
 
+  interface PushCommandPayload {
+    userId: string;
+    title: string;
+    body: string;
+    data: {
+      type: string;
+      notificationRef: string;
+      channelId?: unknown;
+      messageId?: unknown;
+    };
+  }
+
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null;
+
+  const isPushCommandPayload = (value: unknown): value is PushCommandPayload =>
+    isRecord(value) &&
+    typeof value['userId'] === 'string' &&
+    typeof value['title'] === 'string' &&
+    typeof value['body'] === 'string' &&
+    isRecord(value['data']) &&
+    typeof value['data']['type'] === 'string' &&
+    typeof value['data']['notificationRef'] === 'string';
+
+  const getEmittedPushPayload = (index = 0): PushCommandPayload => {
+    const call: unknown = mockNatsClient.emit.mock.calls[index];
+    if (!Array.isArray(call) || !isPushCommandPayload(call[1])) {
+      throw new Error(`Missing push command payload at call ${index}`);
+    }
+    return call[1];
+  };
+
   const basePayload = {
     eventId: 'evt-1',
     tenantId: 'tenant-1',
@@ -51,6 +84,9 @@ describe('MessagingPushService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockRedis.get.mockResolvedValue(null);
+    mockRedis.setex.mockResolvedValue('OK');
+    mockMessageService.getUnreadCount.mockResolvedValue(3);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -85,9 +121,13 @@ describe('MessagingPushService', () => {
         userId: 'user-a',
         title: 'Alice',
         body: 'Sent you a message',
-        data: expect.objectContaining({ type: 'CHAT_MESSAGE' }),
+        data: {
+          type: 'CHAT_MESSAGE',
+          notificationRef: getEmittedPushPayload(0).data.notificationRef,
+        },
       }),
     );
+    expect(getEmittedPushPayload(0).data.notificationRef).toHaveLength(36);
   });
 
   it('should skip the message sender', async () => {
@@ -176,8 +216,10 @@ describe('MessagingPushService', () => {
 
     await service.handleMessageSent(basePayload);
 
-    const emittedPayload = mockNatsClient.emit.mock.calls[0]?.[1];
+    const emittedPayload = getEmittedPushPayload();
     expect(emittedPayload?.body).toBe('Sent you a message');
     expect(JSON.stringify(emittedPayload)).not.toContain('content');
+    expect(emittedPayload?.data).not.toHaveProperty('channelId');
+    expect(emittedPayload?.data).not.toHaveProperty('messageId');
   });
 });

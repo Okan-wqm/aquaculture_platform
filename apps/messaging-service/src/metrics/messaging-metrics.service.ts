@@ -19,13 +19,19 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
   private channelsCreatedTotal!: client.Counter;
   private mediaUploadsTotal!: client.Counter;
   private rateLimitHitsTotal!: client.Counter;
+  private dlqGrowthTotal!: client.Counter;
+  private subjectPayloadMismatchTotal!: client.Counter;
+  private websocketEvictionFailureTotal!: client.Counter;
+  private readinessFlapTotal!: client.Counter;
 
   // Histograms
   private messageLatency!: client.Histogram;
+  private sendMessageLatency!: client.Histogram;
 
   // Gauges
   private websocketConnections!: client.Gauge;
   private outboxPending!: client.Gauge;
+  private outboxOldestPendingAge!: client.Gauge;
   private storageUsedBytes!: client.Gauge;
 
   // Dead-letter and GDPR metrics
@@ -70,6 +76,13 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
       registers: [this.registry],
     });
 
+    this.sendMessageLatency = new client.Histogram({
+      name: 'messaging_send_message_latency_seconds',
+      help: 'User-facing send-message command latency in seconds',
+      buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+      registers: [this.registry],
+    });
+
     this.websocketConnections = new client.Gauge({
       name: 'messaging_websocket_connections',
       help: 'Current number of active WebSocket connections',
@@ -79,6 +92,12 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
     this.outboxPending = new client.Gauge({
       name: 'messaging_outbox_pending',
       help: 'Number of unpublished outbox events',
+      registers: [this.registry],
+    });
+
+    this.outboxOldestPendingAge = new client.Gauge({
+      name: 'messaging_outbox_oldest_pending_age_seconds',
+      help: 'Age in seconds of the oldest unpublished non-DLQ outbox event',
       registers: [this.registry],
     });
 
@@ -110,6 +129,30 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
       registers: [this.registry],
     });
 
+    this.dlqGrowthTotal = new client.Counter({
+      name: 'messaging_dlq_growth_total',
+      help: 'Total messaging events added to dead-letter handling',
+      registers: [this.registry],
+    });
+
+    this.subjectPayloadMismatchTotal = new client.Counter({
+      name: 'messaging_subject_payload_mismatch_total',
+      help: 'NATS messages dropped because subject and payload tenant/type differed',
+      registers: [this.registry],
+    });
+
+    this.websocketEvictionFailureTotal = new client.Counter({
+      name: 'messaging_websocket_eviction_failure_total',
+      help: 'Failures while evicting removed members from websocket channel rooms',
+      registers: [this.registry],
+    });
+
+    this.readinessFlapTotal = new client.Counter({
+      name: 'messaging_readiness_flap_total',
+      help: 'Messaging readiness state transitions between ready and not-ready',
+      registers: [this.registry],
+    });
+
     // @see MSG-HIGH-027 (GDPR erasure metric counter)
     this.gdprErasureTotal = new client.Counter({
       name: 'messaging_gdpr_erasure_total',
@@ -136,6 +179,11 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
     this.messageLatency.observe(durationSeconds);
   }
 
+  /** Observe user-facing send-message command latency in seconds. */
+  observeSendMessageLatency(durationSeconds: number): void {
+    this.sendMessageLatency.observe(durationSeconds);
+  }
+
   /** Set the current number of WebSocket connections. */
   setWebsocketConnections(count: number): void {
     this.websocketConnections.set(count);
@@ -144,6 +192,11 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
   /** Set the number of pending outbox events. */
   setOutboxPending(count: number): void {
     this.outboxPending.set(count);
+  }
+
+  /** Set age of the oldest pending outbox event in seconds. */
+  setOutboxOldestPendingAge(ageSeconds: number): void {
+    this.outboxOldestPendingAge.set(ageSeconds);
   }
 
   /** Increment media_uploads_total counter. */
@@ -167,6 +220,19 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
    */
   incrementDeadLetter(): void {
     this.deadLetterTotal.inc();
+    this.dlqGrowthTotal.inc();
+  }
+
+  incrementSubjectPayloadMismatch(): void {
+    this.subjectPayloadMismatchTotal.inc();
+  }
+
+  incrementWebsocketEvictionFailure(): void {
+    this.websocketEvictionFailureTotal.inc();
+  }
+
+  incrementReadinessFlap(): void {
+    this.readinessFlapTotal.inc();
   }
 
   /**

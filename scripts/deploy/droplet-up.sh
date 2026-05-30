@@ -494,7 +494,8 @@ run_readiness_sweep() {
     "gateway-api:3000" \
     "auth-service:3000" \
     "farm-service:3000" \
-    "sensor-service:3000"; do
+    "sensor-service:3000" \
+    "messaging-service:3000"; do
     local svc="${spec%%:*}"
     local port="${spec##*:}"
     if check_ready_endpoint "${svc}" "${port}"; then

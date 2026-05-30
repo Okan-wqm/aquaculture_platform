@@ -1,6 +1,6 @@
 /**
- * @TenantFanOut + @AllowTenantDelta — migration-class metadata for the
- * orchestrator's tenant fan-out logic.
+ * @TenantFanOut + @AllowTenantDelta + @SourceOnlyMigration — migration-class
+ * metadata for the orchestrator's tenant fan-out logic.
  * ============================================================================
  *
  * Plan v3 R21 + R24. Two small, composable decorators that let
@@ -21,6 +21,13 @@
  *       suppresses false-positives when a tenant's extra columns match
  *       this allowlist. Typical use: `'enterprise_'` prefix for
  *       tenant-scoped enterprise-tier customizations.
+ *
+ *   @SourceOnlyMigration({ reason })
+ *     - migration runs only on the service source schema.
+ *     - tenant ledgers record it as source-only skipped so it does not stay
+ *       pending forever.
+ *     - use for infrastructure tables such as `<service>_outbox` that are
+ *       deliberately not cloned into tenant_<uuid> schemas.
  *
  * # Why decorators on the MIGRATION CLASS, not config?
  *
@@ -49,6 +56,11 @@ export const TENANT_FANOUT_META_KEY = Symbol.for(
 export const ALLOW_TENANT_DELTA_META_KEY = Symbol.for(
   '@aquaculture/backend-common:allow-tenant-delta',
 );
+export const SOURCE_ONLY_MIGRATION_META_KEY = Symbol.for(
+  '@aquaculture/backend-common:source-only-migration',
+);
+
+type DecoratedClassTarget = Parameters<ClassDecorator>[0];
 
 export type TenantLockClass = 'catalog' | 'tenant-local';
 
@@ -74,7 +86,7 @@ export interface TenantFanOutMetadata extends TenantFanOutOptions {
   /** Resolved concurrency after clamp + catalog-class override. */
   readonly effectiveConcurrency: number;
   /** Original migration class for debug attribution. */
-  readonly target: Function;
+  readonly target: DecoratedClassTarget;
 }
 
 /**
@@ -99,7 +111,7 @@ export function TenantFanOut(opts: TenantFanOutOptions): ClassDecorator {
       );
     }
   }
-  return (target: Function): void => {
+  return (target): void => {
     Reflect.defineMetadata(TENANT_FANOUT_META_KEY, { ...opts, target }, target);
   };
 }
@@ -114,10 +126,10 @@ export function TenantFanOut(opts: TenantFanOutOptions): ClassDecorator {
  *   - clamps tenant-local concurrency to [1, 32]
  */
 export function getTenantFanOutMetadata(
-  ctor: Function,
+  ctor: DecoratedClassTarget,
 ): TenantFanOutMetadata | null {
   const raw = Reflect.getMetadata(TENANT_FANOUT_META_KEY, ctor) as
-    | (TenantFanOutOptions & { target?: Function })
+    | (TenantFanOutOptions & { target?: DecoratedClassTarget })
     | undefined;
   if (!raw) return null;
   const declared = raw.concurrency ?? 8;
@@ -147,7 +159,7 @@ export interface AllowTenantDeltaOptions {
 }
 
 export interface AllowTenantDeltaMetadata extends AllowTenantDeltaOptions {
-  readonly target: Function;
+  readonly target: DecoratedClassTarget;
 }
 
 /**
@@ -168,7 +180,7 @@ export function AllowTenantDelta(
       );
     }
   }
-  return (target: Function): void => {
+  return (target): void => {
     Reflect.defineMetadata(
       ALLOW_TENANT_DELTA_META_KEY,
       { ...opts, target },
@@ -183,7 +195,7 @@ export function AllowTenantDelta(
  * Class I drift check.
  */
 export function getAllowedTenantDeltaPrefixes(
-  ctor: Function,
+  ctor: DecoratedClassTarget,
 ): readonly string[] {
   const raw = Reflect.getMetadata(ALLOW_TENANT_DELTA_META_KEY, ctor) as
     | AllowTenantDeltaMetadata
@@ -195,10 +207,52 @@ export function getAllowedTenantDeltaPrefixes(
  * Convenience: does a tenant column name match any allowed prefix?
  */
 export function isTenantDeltaAllowed(
-  ctor: Function,
+  ctor: DecoratedClassTarget,
   columnName: string,
 ): boolean {
   const prefixes = getAllowedTenantDeltaPrefixes(ctor);
   if (prefixes.length === 0) return false;
   return prefixes.some((p) => columnName.startsWith(p));
+}
+
+// --------------------------------------------------------------------
+// @SourceOnlyMigration
+// --------------------------------------------------------------------
+
+export interface SourceOnlyMigrationOptions {
+  readonly reason: string;
+}
+
+export interface SourceOnlyMigrationMetadata extends SourceOnlyMigrationOptions {
+  readonly target: DecoratedClassTarget;
+}
+
+export function SourceOnlyMigration(
+  opts: SourceOnlyMigrationOptions,
+): ClassDecorator {
+  if (typeof opts.reason !== 'string' || opts.reason.trim().length === 0) {
+    throw new TypeError(
+      '@SourceOnlyMigration: reason must be a non-empty string',
+    );
+  }
+  return (target): void => {
+    Reflect.defineMetadata(
+      SOURCE_ONLY_MIGRATION_META_KEY,
+      { ...opts, target },
+      target,
+    );
+  };
+}
+
+export function getSourceOnlyMigrationMetadata(
+  ctor: DecoratedClassTarget,
+): SourceOnlyMigrationMetadata | null {
+  const raw = Reflect.getMetadata(SOURCE_ONLY_MIGRATION_META_KEY, ctor) as
+    | SourceOnlyMigrationMetadata
+    | undefined;
+  return raw ?? null;
+}
+
+export function isSourceOnlyMigration(ctor: DecoratedClassTarget): boolean {
+  return getSourceOnlyMigrationMetadata(ctor) !== null;
 }

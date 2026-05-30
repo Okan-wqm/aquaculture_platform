@@ -4,11 +4,16 @@ import Ajv, {
   type ValidateFunction,
 } from 'ajv';
 import addFormats from 'ajv-formats';
+
 import { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
 import {
   INGEST_BACKEND_POLICY_EVENT_SCHEMAS,
   type IngestBackendPolicyEventType,
 } from './ingest-backend-policy.schema';
+import {
+  MESSAGING_EVENT_SCHEMAS,
+  type MessagingEventType,
+} from './messaging-events.schema';
 import {
   SENSOR_EVENT_SCHEMAS,
   type SensorEventType,
@@ -93,6 +98,17 @@ const sensorValidators = new Map<SensorEventType, ValidateFunction>();
 for (const [eventType, schema] of Object.entries(SENSOR_EVENT_SCHEMAS)) {
   const validator = ajv.compile(schema as AnySchema);
   sensorValidators.set(eventType as SensorEventType, validator);
+}
+
+/**
+ * Messaging-domain validator cache. Used by gateway bridges and release gates
+ * to keep messaging's NATS payload contract in sync with the TypeScript union.
+ */
+const messagingValidators = new Map<MessagingEventType, ValidateFunction>();
+
+for (const [eventType, schema] of Object.entries(MESSAGING_EVENT_SCHEMAS)) {
+  const validator = ajv.compile(schema as AnySchema);
+  messagingValidators.set(eventType as MessagingEventType, validator);
 }
 
 /**
@@ -210,6 +226,10 @@ export type SensorEventValidationResult =
   | { valid: true }
   | { valid: false; errors: string };
 
+export type MessagingEventValidationResult =
+  | { valid: true }
+  | { valid: false; errors: string };
+
 /**
  * Validate a decoded NATS payload against the sensor event schema for
  * the given event type. Mirrors [`validateFarmEvent`]; the only
@@ -232,6 +252,33 @@ export function validateSensorEvent(
     return {
       valid: false,
       errors: `Unknown sensor event type: ${eventType}`,
+    };
+  }
+  if (typeof payload !== 'object' || payload === null) {
+    return {
+      valid: false,
+      errors: `Payload must be a JSON object (got ${typeof payload})`,
+    };
+  }
+  const isValid = validator(payload);
+  if (!isValid) {
+    return {
+      valid: false,
+      errors: formatFirstError(validator.errors),
+    };
+  }
+  return { valid: true };
+}
+
+export function validateMessagingEvent(
+  eventType: string,
+  payload: unknown,
+): MessagingEventValidationResult {
+  const validator = messagingValidators.get(eventType as MessagingEventType);
+  if (!validator) {
+    return {
+      valid: false,
+      errors: `Unknown messaging event type: ${eventType}`,
     };
   }
   if (typeof payload !== 'object' || payload === null) {

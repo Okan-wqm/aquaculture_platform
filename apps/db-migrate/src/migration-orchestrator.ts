@@ -55,13 +55,20 @@
  * signal to decide whether to unblock service containers. Breaking that
  * contract is a contract change — review like an event shape change.
  */
-import { DataSource, MigrationExecutor, MigrationInterface, QueryRunner } from 'typeorm';
-import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
-import type { MixedList } from 'typeorm/common/MixedList';
 import {
   assertExpandContractDependency,
+  isSourceOnlyMigration,
   MIGRATION_LEDGER_TABLE,
 } from '@aquaculture/backend-common/database';
+import {
+  DataSource,
+  Migration,
+  MigrationExecutor,
+  MigrationInterface,
+  QueryRunner,
+} from 'typeorm';
+import type { MixedList } from 'typeorm/common/MixedList';
+import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 
 /**
  * Safe SQL identifier regex — must match the regex used by
@@ -69,6 +76,33 @@ import {
  * so validation semantics across the two runners never diverge.
  */
 const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const TENANT_SCHEMA_RE = /^tenant_[a-f0-9]{16}$/;
+
+type MigrationTarget =
+  Parameters<typeof assertExpandContractDependency>[0]['migrationClass'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function rowsFromQueryResult(value: unknown): readonly Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function booleanColumn(
+  rows: readonly Record<string, unknown>[],
+  column: string,
+): boolean {
+  return rows[0]?.[column] === true;
+}
+
+function stringColumn(
+  row: Record<string, unknown> | undefined,
+  column: string,
+): string | null {
+  const value = row?.[column];
+  return typeof value === 'string' ? value : null;
+}
 
 /** Hash used for pg_try_advisory_lock keys (one 64-bit int per schema). */
 function advisoryLockKey(schema: string): string {
@@ -82,9 +116,9 @@ export interface RunSchemaOptions {
   /** Target schema (source schema). Must be a safe SQL identifier. */
   schema: string;
   /** TypeORM migrations path(s) or class list. */
-  migrations: MixedList<string | Function>;
+  migrations: MixedList<string | MigrationTarget>;
   /** Optional TypeORM entity glob(s), required by entity-driven migrations. */
-  entities?: MixedList<string | Function>;
+  entities?: MixedList<string | MigrationTarget>;
   /** Database connection parameters. */
   database: {
     host: string;
@@ -133,7 +167,7 @@ interface MigrationSession {
 }
 
 interface PostConditionAwareMigration {
-  postCondition?(queryRunner: QueryRunner): Promise<boolean | void>;
+  postCondition?(queryRunner: QueryRunner): Promise<unknown>;
 }
 
 function assertSafeSchema(schema: string): void {
@@ -183,28 +217,32 @@ async function readLedgerHead(
   schema: string,
   migrationsTableName: string,
 ): Promise<MigrationLedgerHead | null> {
-  const existsRows: Array<{ exists: boolean }> = await queryRunner.query(
+  const existsRowsResult: unknown = await queryRunner.query(
     `SELECT EXISTS (
        SELECT 1
          FROM information_schema.tables
         WHERE table_schema = $1
           AND table_name = $2
-     ) AS exists`,
+    ) AS exists`,
     [schema, migrationsTableName],
   );
-  if (!existsRows[0]?.exists) return null;
+  if (!booleanColumn(rowsFromQueryResult(existsRowsResult), 'exists')) {
+    return null;
+  }
 
-  const rows: Array<{ timestamp: string; name: string }> = await queryRunner.query(
+  const rowsResult: unknown = await queryRunner.query(
     `SELECT "timestamp"::text AS timestamp, "name"
        FROM "${schema}"."${migrationsTableName}"
       ORDER BY "timestamp" DESC, "id" DESC
       LIMIT 1`,
   );
-  const row = rows[0];
-  if (!row) return null;
+  const row = rowsFromQueryResult(rowsResult)[0];
+  const timestamp = stringColumn(row, 'timestamp');
+  const name = stringColumn(row, 'name');
+  if (timestamp === null || name === null) return null;
   return {
-    timestamp: row.timestamp,
-    name: row.name,
+    timestamp,
+    name,
   };
 }
 
@@ -223,7 +261,7 @@ async function runPostConditionProbe(
     return;
   }
 
-  let result: boolean | void;
+  let result: unknown;
   try {
     result = await candidate.postCondition(queryRunner);
   } catch (probeErr) {
@@ -241,6 +279,30 @@ async function runPostConditionProbe(
         `DDL did not satisfy its declared invariant. Rolling back.`,
     );
   }
+}
+
+async function recordSourceOnlySkip(
+  queryRunner: QueryRunner,
+  schema: string,
+  migrationsTableName: string,
+  migration: Migration,
+): Promise<void> {
+  await queryRunner.query(
+    `CREATE TABLE IF NOT EXISTS "${schema}"."${migrationsTableName}" (
+       "id" SERIAL NOT NULL PRIMARY KEY,
+       "timestamp" bigint NOT NULL,
+       "name" varchar NOT NULL
+     )`,
+  );
+  await queryRunner.query(
+    `INSERT INTO "${schema}"."${migrationsTableName}" ("timestamp", "name")
+     SELECT $1, $2
+     WHERE NOT EXISTS (
+       SELECT 1 FROM "${schema}"."${migrationsTableName}"
+        WHERE "timestamp" = $1 AND "name" = $2
+     )`,
+    [migration.timestamp, migration.name],
+  );
 }
 
 async function withLockedMigrationSession<T>(
@@ -266,10 +328,10 @@ async function withLockedMigrationSession<T>(
     const lockDeadline = Date.now() + lockTimeoutSeconds * 1000;
     let locked = false;
     while (Date.now() < lockDeadline) {
-      const rows: Array<{ locked: boolean }> = await queryRunner.query(
+      const rowsResult: unknown = await queryRunner.query(
         `SELECT pg_try_advisory_lock(${lockKey}) AS locked`,
       );
-      if (rows[0]?.locked) {
+      if (booleanColumn(rowsFromQueryResult(rowsResult), 'locked')) {
         locked = true;
         break;
       }
@@ -292,9 +354,12 @@ async function withLockedMigrationSession<T>(
     try {
       // ── Pin search_path at session level (NOT `SET LOCAL`) ──
       await queryRunner.query(`SET search_path TO "${schema}", public`);
-      const schemaRows: Array<{ current_schema: string }> =
+      const schemaRowsResult: unknown =
         await queryRunner.query(`SELECT current_schema()`);
-      const observed = schemaRows[0]?.current_schema;
+      const observed = stringColumn(
+        rowsFromQueryResult(schemaRowsResult)[0],
+        'current_schema',
+      );
       if (observed !== schema) {
         throw new Error(
           `[db-migrate] search_path pin verification failed for "${schema}" — ` +
@@ -392,7 +457,7 @@ export async function runSchemaMigrations(opts: RunSchemaOptions): Promise<RunSc
       const migrationCtor =
         typeof migration.instance === 'object' &&
         migration.instance !== null
-          ? (migration.instance as { constructor: Function }).constructor
+          ? (migration.instance as { constructor: MigrationTarget }).constructor
           : undefined;
       if (migrationCtor !== undefined) {
         await assertExpandContractDependency({
@@ -400,6 +465,24 @@ export async function runSchemaMigrations(opts: RunSchemaOptions): Promise<RunSc
           migrationClass: migrationCtor,
           environment: process.env['AQUA_ENV'] ?? process.env['NODE_ENV'] ?? 'development',
         });
+
+        if (TENANT_SCHEMA_RE.test(schema) && isSourceOnlyMigration(migrationCtor)) {
+          await recordSourceOnlySkip(
+            queryRunner,
+            schema,
+            migrationsTableName,
+            migration,
+          );
+          applied.push(`${migration.name} (source-only skipped)`);
+          log({
+            level: 'info',
+            message: 'Migration source-only skipped',
+            context: 'DbMigrate',
+            schema,
+            migration: migration.name,
+          });
+          continue;
+        }
       }
 
       // Tier-1 architectural correctness: a migration class may

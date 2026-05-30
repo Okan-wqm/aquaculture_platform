@@ -1,20 +1,10 @@
-import {
-  Injectable,
-  Logger,
-  OnApplicationBootstrap,
-  Type,
-} from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 
-import {
-  MIGRATION_LEDGER_TABLE,
-  tenantMigrationLedgerTable,
-} from './migration-ledger';
-import {
-  createMigrationRunnerService,
-  type MigrationRunnerOptions,
-} from './migration-runner';
+import { resolveDbMigrateAuthoritativeFromConfig } from './db-migrate-authority';
+import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
+import { createMigrationRunnerService, type MigrationRunnerOptions } from './migration-runner';
 import { TENANT_AWARE_SCHEMAS } from './tenant-aware-schemas';
 
 /**
@@ -134,8 +124,7 @@ export function createSchemaVersionGate(
     );
   }
 
-  const tenantAware =
-    options?.tenantAware ?? TENANT_AWARE_SCHEMAS.has(sourceSchema);
+  const tenantAware = options?.tenantAware ?? TENANT_AWARE_SCHEMAS.has(sourceSchema);
   const forcedMode = options?.mode ?? 'auto';
 
   // The runner factory is invoked at module-init time so the resulting
@@ -145,9 +134,7 @@ export function createSchemaVersionGate(
 
   @Injectable()
   class SchemaVersionGate implements OnApplicationBootstrap {
-    private readonly logger = new Logger(
-      `SchemaVersionGate[${sourceSchema}]`,
-    );
+    private readonly logger = new Logger(`SchemaVersionGate[${sourceSchema}]`);
 
     constructor(
       private readonly dataSource: DataSource,
@@ -173,10 +160,7 @@ export function createSchemaVersionGate(
           `aqua-db-migrate is the authoritative writer; this service only verifies.`,
       );
 
-      const migrationsRun = this.configService.get<string>(
-        'DATABASE_MIGRATIONS_RUN',
-        'false',
-      );
+      const migrationsRun = this.configService.get<string>('DATABASE_MIGRATIONS_RUN', 'false');
       if (migrationsRun === 'true') {
         throw new Error(
           `SECURITY: DATABASE_MIGRATIONS_RUN=true is incompatible with ` +
@@ -203,18 +187,11 @@ export function createSchemaVersionGate(
       if (tenantAware) {
         const tenantSchemas = await this.listTenantSchemas();
         if (tenantSchemas.length === 0) {
-          this.logger.log(
-            `No tenant schemas present — source schema probe is sufficient`,
-          );
+          this.logger.log(`No tenant schemas present — source schema probe is sufficient`);
         } else {
-          this.logger.log(
-            `Probing ${tenantSchemas.length} tenant schema ledger(s)`,
-          );
+          this.logger.log(`Probing ${tenantSchemas.length} tenant schema ledger(s)`);
           for (const tenantSchema of tenantSchemas) {
-            await this.probeSchema(
-              tenantSchema,
-              tenantMigrationLedgerTable(sourceSchema),
-            );
+            await this.probeSchema(tenantSchema, tenantMigrationLedgerTable(sourceSchema));
           }
         }
       }
@@ -236,19 +213,7 @@ export function createSchemaVersionGate(
       if (forcedMode === 'gate' || forcedMode === 'runner') {
         return forcedMode;
       }
-      const explicit = this.configService.get<string>(
-        'DB_MIGRATE_AUTHORITATIVE',
-      );
-      if (explicit === 'true') return 'gate';
-      if (explicit === 'false') return 'runner';
-
-      const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
-      const aquaEnv = this.configService.get<string>('AQUA_ENV', nodeEnv);
-      const isProductionLike =
-        nodeEnv === 'production' ||
-        aquaEnv === 'production' ||
-        aquaEnv === 'staging';
-      return isProductionLike ? 'gate' : 'runner';
+      return resolveDbMigrateAuthoritativeFromConfig(this.configService) ? 'gate' : 'runner';
     }
 
     /**
@@ -336,10 +301,7 @@ export function createSchemaVersionGate(
      * Probe a single schema's migrations ledger. Throws if the
      * ledger is empty, the table doesn't exist, or the query fails.
      */
-    private async probeSchema(
-      schema: string,
-      ledgerTable: string,
-    ): Promise<void> {
+    private async probeSchema(schema: string, ledgerTable: string): Promise<void> {
       // Schema identifier already validated at factory level OR
       // produced from tenant-schema regex match below. Re-asserting
       // the regex here defends against future code paths that might

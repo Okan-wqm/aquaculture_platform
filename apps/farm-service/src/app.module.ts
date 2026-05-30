@@ -39,10 +39,12 @@ import {
   RlsModule,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
+  resolveDbMigrateAuthoritative,
 } from '@aquaculture/backend-common/database';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
+const farmSchemaDdlOwnedByDbMigrate = resolveDbMigrateAuthoritative(process.env);
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -449,7 +451,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     RlsModule.forPoolService({
       serviceName: 'farm',
       autoApply: false,
-      syncTenantSchemas: true,
+      syncTenantSchemas: !farmSchemaDdlOwnedByDbMigrate,
       excludeTables: ['farm_outbox', 'audit_logs', 'audit_log'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
@@ -509,8 +511,8 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
-    // DB-level write guards on source schema (defense-in-depth)
-    SourceSchemaWriteGuardService,
+    // DB-level write guards on source schema (dev/local only; db-migrate owns production DDL)
+    ...(farmSchemaDdlOwnedByDbMigrate ? [] : [SourceSchemaWriteGuardService]),
     WatchdogCronService,
   ],
 })

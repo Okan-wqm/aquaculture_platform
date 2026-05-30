@@ -19,6 +19,7 @@ import {
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
+  resolveDbMigrateAuthoritative,
   RlsModule,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
@@ -62,6 +63,7 @@ const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
  * aqua-db-migrate.
  */
 const AiMigrationRunnerService = createSchemaVersionGate('ai');
+const aiSchemaDdlOwnedByDbMigrate = resolveDbMigrateAuthoritative(process.env);
 import { EventBusModule } from '@platform/event-bus';
 import { HealthModule } from './health/health.module';
 import { ToolRegistryModule } from './tools/tool-registry.module';
@@ -246,7 +248,7 @@ const complexityCache = new Map<string, number>();
      */
     RlsModule.forPoolService({
       serviceName: 'ai',
-      syncTenantSchemas: true,
+      syncTenantSchemas: !aiSchemaDdlOwnedByDbMigrate,
       excludeTables: ['ai_outbox'],
     }),
     /**
@@ -258,7 +260,7 @@ const complexityCache = new Map<string, number>();
      * tenant-sync services. The audit-column bootstrap follows the same
      * lifecycle and is idempotent.
      */
-    AuditColumnsModule.forRoot({ serviceName: 'ai' }),
+    ...(aiSchemaDdlOwnedByDbMigrate ? [] : [AuditColumnsModule.forRoot({ serviceName: 'ai' })]),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'ai' }),
   ],
@@ -297,8 +299,8 @@ const complexityCache = new Map<string, number>();
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
-    // DB-level write guards on source schema (defense-in-depth)
-    SourceSchemaWriteGuardService,
+    // DB-level write guards on source schema (dev/local only; db-migrate owns production DDL)
+    ...(aiSchemaDdlOwnedByDbMigrate ? [] : [SourceSchemaWriteGuardService]),
   ],
 })
 export class AppModule implements NestModule {

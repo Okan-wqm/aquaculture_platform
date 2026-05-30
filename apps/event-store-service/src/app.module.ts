@@ -9,6 +9,7 @@ import {
   SchemaDriftModule,
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
+  resolveDbMigrateAuthoritative,
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { InternalApiKeyGuard } from './guards/internal-api-key.guard';
@@ -23,6 +24,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 // 1781000000000-CreateEventStoreTables and 1800000000000-AddFindingsTable.
 
 const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
+const eventStoreSchemaDdlOwnedByDbMigrate = resolveDbMigrateAuthoritative(process.env);
 
 @Module({
   imports: [
@@ -60,14 +62,16 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     HealthModule,
     /**
      * SECURITY (HIGH-004): Tenant RLS on event-store projections.
-     * stored_events and projection tables carry tenant_id; autoApply runs
-     * the helper at OnApplicationBootstrap so policies are idempotently
-     * installed on every cold start.
+     * Production DDL is owned by aqua-db-migrate; local/dev keeps
+     * autoApply as a bootstrap convenience when the authoritative
+     * migration container is not active. stored_events is intentionally
+     * excluded because it is the cross-service append log; projection
+     * tables remain RLS-protected.
      */
     RlsModule.forPoolService({
       serviceName: 'event-store',
-      autoApply: true,
-      excludeTables: ['stored_events', 'projection_checkpoint'],
+      autoApply: !eventStoreSchemaDdlOwnedByDbMigrate,
+      excludeTables: ['stored_events'],
     }),
     /**
      * ADR-012: runtime schema-drift validator. Schema owner is `event_store`;

@@ -59,6 +59,7 @@ import {
   applyTenantRlsToSchema,
   convertAuditColumnsToTimestamptz,
   grantTenantMigrationLedgerReadAccess,
+  installSourceSchemaWriteGuards,
   MIGRATION_LEDGER_TABLE,
   tenantMigrationLedgerTable,
   TENANT_AWARE_SCHEMAS,
@@ -67,14 +68,21 @@ import {
 import { DataSource, QueryRunner } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 
+import { parseArgs } from './cli-args';
 import {
+  rollbackSchemaMigrations,
   runSchemaMigrations,
   type MigrationLedgerHead,
+  type RollbackSchemaPlan,
   type RunSchemaOptions,
   type RunSchemaResult,
 } from './migration-orchestrator';
 import { runPlatformBootstrap, resolvePlatformBootstrapSqlDir } from './platform-bootstrap.service';
-import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
+import {
+  SCHEMA_REGISTRY,
+  type SchemaPostMigrationHardening,
+  type SchemaRegistryEntry,
+} from './schema-registry';
 
 /**
  * Resolve the bundle root so migration globs in schema-registry.ts
@@ -243,6 +251,13 @@ async function runSchemaPostMigrationHardening(
         ...(auditOptions.auditColumns !== undefined
           ? { auditColumns: auditOptions.auditColumns }
           : {}),
+      });
+    }
+
+    if (hardening.sourceWriteGuards === true) {
+      await installSourceSchemaWriteGuards(queryRunner, {
+        sourceSchema: schema,
+        logger: helperLogger,
       });
     }
 
@@ -604,6 +619,202 @@ async function writeReleaseLedgerMigrationState(
   }
 }
 
+type RollbackLedgerStatus = 'rollback_attempted' | 'rollback_verified' | 'rollback_failed';
+
+interface RollbackLedgerStateArgs {
+  releaseId: string;
+  gitSha: string;
+  operator: string;
+  schema: string;
+  service: string;
+  count: number;
+  status: RollbackLedgerStatus;
+  plan?: RollbackSchemaPlan;
+  afterHead?: MigrationLedgerHead | null;
+  durationMs?: number;
+  error?: string;
+}
+
+function resolveRollbackReleaseId(confirmRelease: string | undefined): string {
+  const releaseId = process.env['DEPLOY_RELEASE_ID'] ?? process.env['DEPLOY_SHA'];
+  if (releaseId === undefined || releaseId.length === 0) {
+    throw new Error(
+      '[db-migrate] Rollback requires DEPLOY_RELEASE_ID or DEPLOY_SHA so release-ledger evidence is bound to a concrete release.',
+    );
+  }
+  if (confirmRelease !== releaseId) {
+    throw new Error(
+      `[db-migrate] --confirm-release must match the active release id. ` +
+        `expected="${releaseId}" received="${confirmRelease ?? '<missing>'}".`,
+    );
+  }
+  return releaseId;
+}
+
+function resolveRollbackOperator(): string {
+  const operator =
+    process.env['DB_MIGRATE_OPERATOR'] ?? process.env['GHCR_ACTOR'] ?? process.env['GITHUB_ACTOR'];
+  if (operator !== undefined && operator.length > 0) {
+    return operator;
+  }
+
+  const nodeEnv = process.env['NODE_ENV'] ?? 'development';
+  const aquaEnv = process.env['AQUA_ENV'] ?? nodeEnv;
+  const productionLike =
+    nodeEnv === 'production' || aquaEnv === 'production' || aquaEnv === 'staging';
+  if (productionLike) {
+    throw new Error(
+      '[db-migrate] Production rollback requires DB_MIGRATE_OPERATOR, GHCR_ACTOR, or GITHUB_ACTOR.',
+    );
+  }
+
+  const localOperator = process.env['USER'];
+  if (localOperator === undefined || localOperator.length === 0) {
+    throw new Error(
+      '[db-migrate] Rollback requires DB_MIGRATE_OPERATOR, GHCR_ACTOR, GITHUB_ACTOR, or USER.',
+    );
+  }
+  return localOperator;
+}
+
+function rollbackHeadPayload(head: MigrationLedgerHead | null | undefined): string {
+  return JSON.stringify(headToJson(head ?? null));
+}
+
+async function writeReleaseLedgerRollbackState(
+  database: RunSchemaOptions['database'],
+  args: RollbackLedgerStateArgs,
+): Promise<void> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  const expectedHeadJson = rollbackHeadPayload(args.plan?.targetHead);
+  const appliedHeadJson = rollbackHeadPayload(
+    args.status === 'rollback_verified' ? args.afterHead : args.plan?.beforeHead,
+  );
+  const metadata = {
+    rollback: {
+      releaseId: args.releaseId,
+      schema: args.schema,
+      service: args.service,
+      count: args.count,
+      operator: args.operator,
+      status: args.status,
+      beforeHead: args.plan?.beforeHead ?? null,
+      targetHead: args.plan?.targetHead ?? null,
+      afterHead: args.afterHead ?? null,
+      revertedMigrations: args.plan?.revertedMigrations ?? [],
+      durationMs: args.durationMs,
+      error: args.error,
+      recordedAt: new Date().toISOString(),
+    },
+  };
+
+  try {
+    await queryRunner.connect();
+    await queryRunner.query(
+      `INSERT INTO platform.release_ledger (
+         release_id,
+         git_sha,
+         expected_heads,
+         applied_heads,
+         deploy_metadata,
+         status,
+         operator,
+         schema_may_be_forward,
+         rollback_attempted,
+         rollback_verified,
+         rollback_failed,
+         failure_phase,
+         completed_at
+       ) VALUES (
+         $1,
+         $2,
+         jsonb_build_object('schemas', jsonb_build_object($3::text, $4::jsonb)),
+         jsonb_build_object('schemas', jsonb_build_object($3::text, $5::jsonb)),
+         $6::jsonb,
+         $7,
+         $8,
+         $9,
+         $10,
+         $11,
+         $12,
+         $13,
+         CASE WHEN $7 IN ('rollback_verified', 'rollback_failed') THEN NOW() ELSE NULL END
+       )
+       ON CONFLICT (release_id) DO UPDATE SET
+         git_sha = EXCLUDED.git_sha,
+         expected_heads = jsonb_set(
+           jsonb_set(
+             COALESCE(platform.release_ledger.expected_heads, '{}'::jsonb),
+             '{schemas}',
+             COALESCE(platform.release_ledger.expected_heads->'schemas', '{}'::jsonb),
+             true
+           ),
+           ARRAY['schemas', $3::text],
+           $4::jsonb,
+           true
+         ),
+         applied_heads = jsonb_set(
+           jsonb_set(
+             COALESCE(platform.release_ledger.applied_heads, '{}'::jsonb),
+             '{schemas}',
+             COALESCE(platform.release_ledger.applied_heads->'schemas', '{}'::jsonb),
+             true
+           ),
+           ARRAY['schemas', $3::text],
+           $5::jsonb,
+           true
+         ),
+         deploy_metadata =
+           COALESCE(platform.release_ledger.deploy_metadata, '{}'::jsonb) ||
+           EXCLUDED.deploy_metadata,
+         status = EXCLUDED.status,
+         operator = EXCLUDED.operator,
+         schema_may_be_forward = EXCLUDED.schema_may_be_forward,
+         rollback_attempted =
+           platform.release_ledger.rollback_attempted OR EXCLUDED.rollback_attempted,
+         rollback_verified =
+           platform.release_ledger.rollback_verified OR EXCLUDED.rollback_verified,
+         rollback_failed =
+           platform.release_ledger.rollback_failed OR EXCLUDED.rollback_failed,
+         failure_phase = EXCLUDED.failure_phase,
+         completed_at =
+           CASE WHEN EXCLUDED.status IN ('rollback_verified', 'rollback_failed')
+             THEN EXCLUDED.completed_at
+             ELSE platform.release_ledger.completed_at
+           END,
+         updated_at = NOW()`,
+      [
+        args.releaseId,
+        args.gitSha,
+        args.schema,
+        expectedHeadJson,
+        appliedHeadJson,
+        JSON.stringify(metadata),
+        args.status,
+        args.operator,
+        args.status !== 'rollback_verified',
+        true,
+        args.status === 'rollback_verified',
+        args.status === 'rollback_failed',
+        args.status === 'rollback_failed' ? 'schema_rollback' : null,
+      ],
+    );
+    log({
+      level: args.status === 'rollback_failed' ? 'error' : 'warn',
+      message: 'Release ledger rollback state recorded',
+      context: 'DbMigrateRollback',
+      releaseId: args.releaseId,
+      schema: args.schema,
+      status: args.status,
+    });
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
 async function listTenantSchemas(database: RunSchemaOptions['database']): Promise<string[]> {
   const dataSource = createControlDataSource(database);
 
@@ -622,11 +833,223 @@ async function listTenantSchemas(database: RunSchemaOptions['database']): Promis
   }
 }
 
+function registrySchemasForError(): string {
+  return SCHEMA_REGISTRY.map((entry) => entry.schema).join(', ');
+}
+
+function registryEntryForSchema(schema: string): SchemaRegistryEntry {
+  const entry = SCHEMA_REGISTRY.find((candidate) => candidate.schema === schema);
+  if (entry === undefined) {
+    throw new Error(
+      `[db-migrate] --schema "${schema}" is not a SCHEMA_REGISTRY entry. ` +
+        `Valid schemas: ${registrySchemasForError()}.`,
+    );
+  }
+  return entry;
+}
+
+function resolveRegistryMigrationAssets(
+  entry: SchemaRegistryEntry,
+  root: string,
+): Pick<RunSchemaOptions, 'migrations' | 'entities'> {
+  const migrations = entry.migrationsGlob.map((glob) => resolve(root, glob));
+  const entities = entry.entitiesGlob?.map((glob) => resolve(root, glob));
+  return {
+    migrations,
+    ...(entities !== undefined ? { entities } : {}),
+  };
+}
+
+export async function runRollbackMode(
+  database: RunSchemaOptions['database'],
+  root: string,
+  args: { down: number; schema: string; confirmRelease?: string },
+): Promise<number> {
+  let releaseId: string;
+  let operator: string;
+  try {
+    releaseId = resolveRollbackReleaseId(args.confirmRelease);
+    operator = resolveRollbackOperator();
+  } catch (err: unknown) {
+    log({
+      level: 'error',
+      message: err instanceof Error ? err.message : String(err),
+      context: 'DbMigrateRollback',
+    });
+    return 2;
+  }
+
+  let entry: SchemaRegistryEntry;
+  try {
+    entry = registryEntryForSchema(args.schema);
+  } catch (err: unknown) {
+    log({
+      level: 'error',
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return 2;
+  }
+
+  if (TENANT_AWARE_SCHEMAS.has(entry.schema)) {
+    log({
+      level: 'error',
+      message:
+        `[db-migrate] Rollback refused for tenant-aware schema "${entry.schema}". ` +
+        `PR-1 rollback supports source-schema-only services; tenant fan-out rollback requires a separate contract.`,
+      context: 'DbMigrateRollback',
+      schema: entry.schema,
+    });
+    return 2;
+  }
+
+  if (entry.postMigrationHardening !== undefined) {
+    log({
+      level: 'error',
+      message:
+        `[db-migrate] Rollback refused for schema "${entry.schema}" because it declares ` +
+        `postMigrationHardening. Hardening rollback must be modeled before down() can run.`,
+      context: 'DbMigrateRollback',
+      schema: entry.schema,
+    });
+    return 2;
+  }
+
+  const assets = resolveRegistryMigrationAssets(entry, root);
+  const gitSha = process.env['DEPLOY_SHA'] ?? 'unknown';
+  let rollbackPlan: RollbackSchemaPlan | undefined;
+
+  return await withReleaseMigrationLock(database, async () => {
+    try {
+      const bootstrap = await runPlatformBootstrap({
+        database,
+        sqlDir: resolvePlatformBootstrapSqlDir(root),
+        log,
+      });
+      log({
+        level: 'info',
+        message: 'Platform bootstrap verified before rollback',
+        context: 'DbMigrateRollback',
+        schemaCount: bootstrap.schemaCount,
+      });
+
+      log({
+        level: 'warn',
+        message: 'Operator-directed schema rollback starting',
+        context: 'DbMigrateRollback',
+        schema: entry.schema,
+        service: entry.service,
+        count: args.down,
+        releaseId,
+        operator,
+      });
+
+      const result = await rollbackSchemaMigrations(
+        {
+          schema: entry.schema,
+          migrations: assets.migrations,
+          ...(assets.entities !== undefined ? { entities: assets.entities } : {}),
+          database,
+          log,
+        },
+        {
+          count: args.down,
+          onPlan: async (plan) => {
+            rollbackPlan = plan;
+            await writeReleaseLedgerRollbackState(database, {
+              releaseId,
+              gitSha,
+              operator,
+              schema: entry.schema,
+              service: entry.service,
+              count: args.down,
+              status: 'rollback_attempted',
+              plan,
+            });
+          },
+        },
+      );
+
+      await writeReleaseLedgerRollbackState(database, {
+        releaseId,
+        gitSha,
+        operator,
+        schema: entry.schema,
+        service: entry.service,
+        count: args.down,
+        status: 'rollback_verified',
+        plan: rollbackPlan,
+        afterHead: result.afterHead,
+        durationMs: result.durationMs,
+      });
+
+      log({
+        level: 'warn',
+        message: 'Operator-directed schema rollback complete',
+        context: 'DbMigrateRollback',
+        schema: entry.schema,
+        service: entry.service,
+        reverted: result.reverted,
+        beforeHead: result.beforeHead,
+        targetHead: result.targetHead,
+        afterHead: result.afterHead,
+        durationMs: result.durationMs,
+      });
+      return 0;
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err.message : String(err);
+      try {
+        await writeReleaseLedgerRollbackState(database, {
+          releaseId,
+          gitSha,
+          operator,
+          schema: entry.schema,
+          service: entry.service,
+          count: args.down,
+          status: 'rollback_failed',
+          plan: rollbackPlan,
+          error,
+        });
+      } catch (ledgerErr: unknown) {
+        log({
+          level: 'error',
+          message: 'Release ledger rollback_failed write FAILED',
+          context: 'DbMigrateRollback',
+          schema: entry.schema,
+          error: ledgerErr instanceof Error ? ledgerErr.message : String(ledgerErr),
+        });
+      }
+      log({
+        level: 'error',
+        message: 'Operator-directed schema rollback FAILED',
+        context: 'DbMigrateRollback',
+        schema: entry.schema,
+        service: entry.service,
+        error,
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return 1;
+    }
+  });
+}
+
 async function main(): Promise<number> {
+  let cliArgs: ReturnType<typeof parseArgs>;
+  try {
+    cliArgs = parseArgs(process.argv.slice(2));
+  } catch (err: unknown) {
+    log({
+      level: 'error',
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return 2;
+  }
+  const rollbackRequested = cliArgs.down !== undefined;
+
   log({
     level: 'info',
     message: 'aqua-db-migrate starting',
     schemaCount: SCHEMA_REGISTRY.length,
+    mode: rollbackRequested ? 'rollback' : 'up',
   });
 
   // Production hard-fail boundary — mirrors
@@ -634,14 +1057,14 @@ async function main(): Promise<number> {
   // in production almost certainly misconfigured the stack; refuse.
   const nodeEnv = envOr('NODE_ENV', 'development');
   const migrationsRun = envOr('DATABASE_MIGRATIONS_RUN', 'true') === 'true';
-  if (!migrationsRun && nodeEnv === 'production') {
+  if (!migrationsRun && nodeEnv === 'production' && !rollbackRequested) {
     log({
       level: 'error',
       message: 'SECURITY: DATABASE_MIGRATIONS_RUN must not be false in production',
     });
     return 2;
   }
-  if (!migrationsRun) {
+  if (!migrationsRun && !rollbackRequested) {
     log({
       level: 'warn',
       message:
@@ -687,6 +1110,35 @@ async function main(): Promise<number> {
     message: 'Bundle root resolved',
     root,
   });
+
+  if (rollbackRequested) {
+    const rollbackCount = cliArgs.down;
+    if (cliArgs.schema === undefined) {
+      log({
+        level: 'error',
+        message: '[db-migrate] --down N requires --schema <name>.',
+      });
+      return 2;
+    }
+    if (rollbackCount === undefined) {
+      log({
+        level: 'error',
+        message: '[db-migrate] Internal CLI state error: rollback mode without --down count.',
+      });
+      return 2;
+    }
+    if (!migrationsRun) {
+      log({
+        level: 'warn',
+        message: 'DATABASE_MIGRATIONS_RUN=false ignored for explicit --down rollback mode.',
+      });
+    }
+    return await runRollbackMode(database, root, {
+      down: rollbackCount,
+      schema: cliArgs.schema,
+      confirmRelease: cliArgs.confirmRelease,
+    });
+  }
 
   return await withReleaseMigrationLock(database, async () => {
     // ── Phase 0 — Platform Bootstrap Atom (ADR-031) ─────────────────────────
@@ -795,11 +1247,7 @@ async function main(): Promise<number> {
                 log,
                 migrationsTableName: tenantMigrationLedgerTable(entry.schema),
               });
-              const grant = await grantTenantLedgerReadAccess(
-                database,
-                entry.schema,
-                tenantSchema,
-              );
+              const grant = await grantTenantLedgerReadAccess(database, entry.schema, tenantSchema);
               log({
                 level: 'info',
                 message: 'Tenant migration ledger read grant asserted',
@@ -897,16 +1345,18 @@ async function main(): Promise<number> {
 }
 
 // Top-level error sink. We never want an unhandled rejection to exit 0.
-main()
-  .then((code) => {
-    process.exit(code);
-  })
-  .catch((err: unknown) => {
-    log({
-      level: 'error',
-      message: 'Unhandled error in aqua-db-migrate',
-      error: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
+if (require.main === module) {
+  main()
+    .then((code) => {
+      process.exit(code);
+    })
+    .catch((err: unknown) => {
+      log({
+        level: 'error',
+        message: 'Unhandled error in aqua-db-migrate',
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      process.exit(1);
     });
-    process.exit(1);
-  });
+}

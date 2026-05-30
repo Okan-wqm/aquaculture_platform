@@ -1255,6 +1255,8 @@ services:
       NODE_ENV: production
       PORT: 3009
       NODE_OPTIONS: '--max-old-space-size=256'
+      DB_MIGRATE_AUTHORITATIVE: "true"
+      DATABASE_MIGRATIONS_RUN: "false"
       # INTERNAL_API_KEY must be set; guard rejects all requests in production without it
       INTERNAL_API_KEY: ${OBSERVABILITY_INTERNAL_API_KEY:?OBSERVABILITY_INTERNAL_API_KEY required}
       # INFRA-DB-ENV-001: previously DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD/DB_NAME.

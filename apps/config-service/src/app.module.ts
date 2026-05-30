@@ -13,6 +13,7 @@ import {
   AuditColumnsModule,
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
+  resolveDbMigrateAuthoritative,
   RlsModule,
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
@@ -52,6 +53,7 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
  * Closes: docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-069
  */
 const ConfigMigrationRunnerService = createSchemaVersionGate('config');
+const configSchemaDdlOwnedByDbMigrate = resolveDbMigrateAuthoritative(process.env);
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -103,7 +105,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/config.graphql') },
+      autoSchemaFile: {
+        federation: 2,
+        path: join(process.cwd(), 'dist/graphql/subgraphs/config.graphql'),
+      },
       /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
        *  The gateway already blocks batching, but subgraphs must also enforce this as
        *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -154,7 +159,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      */
     RlsModule.forPoolService({
       serviceName: 'config',
-      autoApply: true,
+      autoApply: !configSchemaDdlOwnedByDbMigrate,
     }),
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
@@ -166,7 +171,9 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      * TIMESTAMPTZ). Closes NEW-H1 on the same OnApplicationBootstrap
      * hook.
      */
-    AuditColumnsModule.forRoot({ serviceName: 'config' }),
+    ...(configSchemaDdlOwnedByDbMigrate
+      ? []
+      : [AuditColumnsModule.forRoot({ serviceName: 'config' })]),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'config' }),
   ],

@@ -60,13 +60,7 @@ import {
   isSourceOnlyMigration,
   MIGRATION_LEDGER_TABLE,
 } from '@aquaculture/backend-common/database';
-import {
-  DataSource,
-  Migration,
-  MigrationExecutor,
-  MigrationInterface,
-  QueryRunner,
-} from 'typeorm';
+import { DataSource, Migration, MigrationExecutor, MigrationInterface, QueryRunner } from 'typeorm';
 import type { MixedList } from 'typeorm/common/MixedList';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 
@@ -78,8 +72,7 @@ import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/Postgres
 const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const TENANT_SCHEMA_RE = /^tenant_[a-f0-9]{16}$/;
 
-type MigrationTarget =
-  Parameters<typeof assertExpandContractDependency>[0]['migrationClass'];
+type MigrationTarget = Parameters<typeof assertExpandContractDependency>[0]['migrationClass'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -89,17 +82,11 @@ function rowsFromQueryResult(value: unknown): readonly Record<string, unknown>[]
   return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
-function booleanColumn(
-  rows: readonly Record<string, unknown>[],
-  column: string,
-): boolean {
+function booleanColumn(rows: readonly Record<string, unknown>[], column: string): boolean {
   return rows[0]?.[column] === true;
 }
 
-function stringColumn(
-  row: Record<string, unknown> | undefined,
-  column: string,
-): string | null {
+function stringColumn(row: Record<string, unknown> | undefined, column: string): string | null {
   const value = row?.[column];
   return typeof value === 'string' ? value : null;
 }
@@ -153,12 +140,28 @@ export interface MigrationLedgerHead {
 export interface RollbackSchemaOptions {
   /** Number of latest executed migrations to revert. */
   count: number;
+  /**
+   * Called after the executed ledger has been read and before any down()
+   * migration runs. Used by the CLI to write release-ledger evidence
+   * before DDL starts.
+   */
+  onPlan?(plan: RollbackSchemaPlan): Promise<void>;
 }
 
 export interface RollbackSchemaResult {
   schema: string;
+  beforeHead: MigrationLedgerHead | null;
+  targetHead: MigrationLedgerHead | null;
+  afterHead: MigrationLedgerHead | null;
   reverted: string[];
   durationMs: number;
+}
+
+export interface RollbackSchemaPlan {
+  schema: string;
+  beforeHead: MigrationLedgerHead | null;
+  targetHead: MigrationLedgerHead | null;
+  revertedMigrations: string[];
 }
 
 interface MigrationSession {
@@ -177,6 +180,16 @@ function assertSafeSchema(schema: string): void {
         `Must match /^[a-zA-Z_][a-zA-Z0-9_]*$/.`,
     );
   }
+}
+
+function migrationToLedgerHead(
+  migration: Pick<Migration, 'timestamp' | 'name'> | undefined,
+): MigrationLedgerHead | null {
+  if (migration === undefined) return null;
+  return {
+    timestamp: String(migration.timestamp),
+    name: migration.name,
+  };
 }
 
 function createMigrationDataSource(opts: RunSchemaOptions): DataSource {
@@ -354,12 +367,8 @@ async function withLockedMigrationSession<T>(
     try {
       // ── Pin search_path at session level (NOT `SET LOCAL`) ──
       await queryRunner.query(`SET search_path TO "${schema}", public`);
-      const schemaRowsResult: unknown =
-        await queryRunner.query(`SELECT current_schema()`);
-      const observed = stringColumn(
-        rowsFromQueryResult(schemaRowsResult)[0],
-        'current_schema',
-      );
+      const schemaRowsResult: unknown = await queryRunner.query(`SELECT current_schema()`);
+      const observed = stringColumn(rowsFromQueryResult(schemaRowsResult)[0], 'current_schema');
       if (observed !== schema) {
         throw new Error(
           `[db-migrate] search_path pin verification failed for "${schema}" — ` +
@@ -398,13 +407,7 @@ async function withLockedMigrationSession<T>(
  * pool into schema N+1).
  */
 export async function runSchemaMigrations(opts: RunSchemaOptions): Promise<RunSchemaResult> {
-  const {
-    schema,
-    migrations,
-    entities,
-    log,
-    migrationsTableName = MIGRATION_LEDGER_TABLE,
-  } = opts;
+  const { schema, migrations, entities, log, migrationsTableName = MIGRATION_LEDGER_TABLE } = opts;
 
   const started = Date.now();
   log({
@@ -455,8 +458,7 @@ export async function runSchemaMigrations(opts: RunSchemaOptions): Promise<RunSc
       await queryRunner.query(`SET search_path TO "${schema}", public`);
 
       const migrationCtor =
-        typeof migration.instance === 'object' &&
-        migration.instance !== null
+        typeof migration.instance === 'object' && migration.instance !== null
           ? (migration.instance as { constructor: MigrationTarget }).constructor
           : undefined;
       if (migrationCtor !== undefined) {
@@ -467,12 +469,7 @@ export async function runSchemaMigrations(opts: RunSchemaOptions): Promise<RunSc
         });
 
         if (TENANT_SCHEMA_RE.test(schema) && isSourceOnlyMigration(migrationCtor)) {
-          await recordSourceOnlySkip(
-            queryRunner,
-            schema,
-            migrationsTableName,
-            migration,
-          );
+          await recordSourceOnlySkip(queryRunner, schema, migrationsTableName, migration);
           applied.push(`${migration.name} (source-only skipped)`);
           log({
             level: 'info',
@@ -578,9 +575,7 @@ export async function rollbackSchemaMigrations(
   const { count } = rollback;
 
   if (!Number.isInteger(count) || count < 1) {
-    throw new Error(
-      `[db-migrate] Rollback count must be a positive integer; received ${count}.`,
-    );
+    throw new Error(`[db-migrate] Rollback count must be a positive integer; received ${count}.`);
   }
 
   const started = Date.now();
@@ -603,6 +598,16 @@ export async function rollbackSchemaMigrations(
       );
     }
 
+    const beforeHead = migrationToLedgerHead(executed[0]);
+    const targetHead = migrationToLedgerHead(executed[count]);
+    const plannedReverts = executed.slice(0, count).map((migration) => migration.name);
+    await rollback.onPlan?.({
+      schema,
+      beforeHead,
+      targetHead,
+      revertedMigrations: plannedReverts,
+    });
+
     const reverted: string[] = [];
     for (let i = 0; i < count; i += 1) {
       await queryRunner.query(`SET search_path TO "${schema}", public`);
@@ -621,16 +626,41 @@ export async function rollbackSchemaMigrations(
       });
     }
 
+    const afterHead = await readLedgerHead(
+      queryRunner,
+      schema,
+      opts.migrationsTableName ?? MIGRATION_LEDGER_TABLE,
+    );
+    if (
+      (targetHead === null && afterHead !== null) ||
+      (targetHead !== null &&
+        (afterHead === null ||
+          afterHead.timestamp !== targetHead.timestamp ||
+          afterHead.name !== targetHead.name))
+    ) {
+      throw new Error(
+        `[db-migrate] Rollback final head mismatch for "${schema}": ` +
+          `target=${targetHead ? `${targetHead.name}@${targetHead.timestamp}` : '<empty>'} ` +
+          `after=${afterHead ? `${afterHead.name}@${afterHead.timestamp}` : '<empty>'}.`,
+      );
+    }
+
     log({
       level: 'warn',
       message: 'Schema migration rollback complete',
       context: 'DbMigrate',
       schema,
       reverted,
+      beforeHead,
+      targetHead,
+      afterHead,
     });
 
     return {
       schema,
+      beforeHead,
+      targetHead,
+      afterHead,
       reverted,
       durationMs: Date.now() - started,
     };

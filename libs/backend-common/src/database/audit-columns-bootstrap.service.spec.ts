@@ -74,6 +74,16 @@ function makeMockDataSource(opts: {
 }
 
 describe('AuditColumnsBootstrap', () => {
+  const originalDbMigrateAuthoritative = process.env.DB_MIGRATE_AUTHORITATIVE;
+
+  afterEach(() => {
+    if (originalDbMigrateAuthoritative === undefined) {
+      Reflect.deleteProperty(process.env, 'DB_MIGRATE_AUTHORITATIVE');
+    } else {
+      process.env.DB_MIGRATE_AUTHORITATIVE = originalDbMigrateAuthoritative;
+    }
+  });
+
   describe('happy path', () => {
     it('connects, runs the helper, and releases on success', async () => {
       // Replies for the helper's discovery sequence:
@@ -134,14 +144,8 @@ describe('AuditColumnsBootstrap', () => {
       // Operators alert on this exact substring (see Phase 2 deploy
       // guide §4.1). Test guards against accidental wording changes.
       const errorLogs = errorSpy.mock.calls.map((c) => String(c[0]));
-      expect(
-        errorLogs.some((log) =>
-          log.includes('audit_columns.bootstrap.failed'),
-        ),
-      ).toBe(true);
-      expect(
-        errorLogs.some((log) => log.includes('service="notification"')),
-      ).toBe(true);
+      expect(errorLogs.some((log) => log.includes('audit_columns.bootstrap.failed'))).toBe(true);
+      expect(errorLogs.some((log) => log.includes('service="notification"'))).toBe(true);
 
       errorSpy.mockRestore();
     });
@@ -159,6 +163,20 @@ describe('AuditColumnsBootstrap', () => {
 
       // No QueryRunner created at all — disabled path is a hard
       // short-circuit, not "create runner then skip work".
+      expect(mock.createdRunners).toBe(0);
+      expect(mock.releasedRunners).toBe(0);
+    });
+  });
+
+  describe('db-migrate authority guard', () => {
+    it('fails before creating a QueryRunner in authoritative mode', async () => {
+      process.env.DB_MIGRATE_AUTHORITATIVE = 'true';
+      const mock = makeMockDataSource({ replies: [] });
+      const bootstrap = new AuditColumnsBootstrap(mock.ds, {
+        serviceName: 'config',
+      });
+
+      await expect(bootstrap.onApplicationBootstrap()).rejects.toThrow(/Runtime DDL operation/i);
       expect(mock.createdRunners).toBe(0);
       expect(mock.releasedRunners).toBe(0);
     });

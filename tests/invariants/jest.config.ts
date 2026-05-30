@@ -151,6 +151,7 @@ export default {
         '<rootDir>/migration-glob-contract.spec.ts',
         '<rootDir>/db-migrate-entity-metadata-contract.spec.ts',
         '<rootDir>/postgres-ddl-contract.spec.ts',
+        '<rootDir>/authoritative-runtime-ddl-contract.spec.ts',
         '<rootDir>/service-criticality-profile-contract.spec.ts',
         '<rootDir>/farm-service-migration-array-completeness.spec.ts',
         '<rootDir>/three-store-invariants.spec.ts',

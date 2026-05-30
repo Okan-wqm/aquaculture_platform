@@ -13,6 +13,7 @@ import {
   SchemaDriftModule,
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
+  resolveDbMigrateAuthoritative,
 } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
@@ -44,6 +45,7 @@ import { SystemModule } from './modules/system-module/system-module.module';
 import { TenantModule } from './modules/tenant/tenant.module';
 
 const AuthMigrationRunnerService = createSchemaVersionGate('auth');
+const authSchemaDdlOwnedByDbMigrate = resolveDbMigrateAuthoritative(process.env);
 
 @Module({
   imports: [
@@ -95,7 +97,10 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
         return {
-          autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/auth.graphql') },
+          autoSchemaFile: {
+            federation: 2,
+            path: join(process.cwd(), 'dist/graphql/subgraphs/auth.graphql'),
+          },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
            *  The gateway already blocks batching, but subgraphs must also enforce this as
            *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -329,7 +334,7 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
      */
     RlsModule.forPoolService({
       serviceName: 'auth',
-      autoApply: true,
+      autoApply: !authSchemaDdlOwnedByDbMigrate,
       excludeTables: ['auth_outbox', 'audit_log', 'audit_logs', 'users', 'tenants'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */

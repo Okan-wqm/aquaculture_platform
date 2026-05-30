@@ -1,9 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import {
-  applyTenantRlsToSchema,
-  ApplyTenantRlsOptions,
-} from './apply-tenant-rls.helper';
+import { applyTenantRlsToSchema, ApplyTenantRlsOptions } from './apply-tenant-rls.helper';
+import { assertRuntimeDdlAllowed } from '../db-migrate-authority';
 
 /**
  * RlsSchemaBootstrap
@@ -11,20 +9,17 @@ import {
  *
  * Startup-time installer for tenant Row-Level Security policies.
  *
- * # Why a runtime bootstrap instead of a TypeORM migration?
+ * # Why does this runtime bootstrap still exist?
  *
- * The global-schema services (billing, ai, notification, alert, config,
- * event-store) currently have **no migration runner wired in** — TypeORM
- * `synchronize` was removed in commit `5ce2b127` for production safety, but
- * a replacement migration system has not yet been added (out of scope for
- * this RLS work). Tables are created by deploy scripts and `SourceSchemaBootstrapService`.
+ * Production-like environments use `db-migrate` as the single source of truth
+ * for schema changes and post-migration hardening. In that mode this provider
+ * fails fast before opening a query runner so application startup cannot
+ * mutate schema state.
  *
- * Adding a migration runner to six services to deliver RLS would be a major
- * scope expansion and would change the deploy story for each service.
- * Instead, we follow the **same pattern as `SourceSchemaBootstrapService`**:
- * a small `OnApplicationBootstrap` provider that runs the idempotent helper
- * once per process, after the rest of the application is wired but before
- * any HTTP handler can serve a request.
+ * Local and test environments may run without authoritative `db-migrate`
+ * ownership. For those environments this bootstrap keeps the historical
+ * developer workflow intact by installing tenant RLS policies after the
+ * service has started wiring its modules.
  *
  * # Why `OnApplicationBootstrap` and not `OnModuleInit`?
  *
@@ -53,11 +48,12 @@ import {
  *
  * # Failure handling
  *
- * RLS install failures are LOGGED but **not fatal** — the service still
- * boots. Rationale: if startup hard-fails on RLS install, a partial outage
- * (one badly-named table, a missing extension, anything) takes down the
- * whole service. The risk of a brief window without RLS during recovery is
- * lower than the risk of a global outage.
+ * In authoritative mode runtime RLS installation is fatal by contract because
+ * schema hardening must be performed by `db-migrate`.
+ *
+ * In non-authoritative local/test mode, RLS install failures are logged but
+ * not fatal. Rationale: if startup hard-fails on a local schema edge case,
+ * developers cannot boot the service to inspect the underlying state.
  *
  * **Operational note**: this means RLS install errors MUST be alerted on
  * via the `rls.bootstrap.failed` log event so an operator notices the
@@ -65,11 +61,9 @@ import {
  *
  * # When NOT to use this bootstrap
  *
- * Services with their own migration runner (currently only `farm-service`,
- * `sensor-service`, `hr-service`, `messaging-service`) should install RLS
- * via a regular TypeORM migration instead — that gives the deploy pipeline
- * a single, sequenced source of truth for schema state. The bootstrap is
- * for services that don't have that pipeline (yet).
+ * Do not register this provider for production-like schema ownership. Services
+ * must rely on `db-migrate` registry hardening when `DB_MIGRATE_AUTHORITATIVE`
+ * resolves to true.
  */
 
 @Injectable()
@@ -97,13 +91,16 @@ export class RlsSchemaBootstrap implements OnApplicationBootstrap {
       return;
     }
 
+    assertRuntimeDdlAllowed({
+      serviceName: this.options.serviceName,
+      operation: 'RLS schema auto-apply',
+    });
+
     const queryRunner = this.dataSource.createQueryRunner();
 
     try {
       await queryRunner.connect();
-      this.logger.log(
-        `Installing tenant RLS policies for service "${this.options.serviceName}"`,
-      );
+      this.logger.log(`Installing tenant RLS policies for service "${this.options.serviceName}"`);
 
       await applyTenantRlsToSchema(queryRunner, {
         excludeTables: this.options.excludeTables,
@@ -113,9 +110,7 @@ export class RlsSchemaBootstrap implements OnApplicationBootstrap {
         logger: this.logger,
       });
 
-      this.logger.log(
-        `Tenant RLS policies installed for "${this.options.serviceName}"`,
-      );
+      this.logger.log(`Tenant RLS policies installed for "${this.options.serviceName}"`);
     } catch (err) {
       // SECURITY-OPS: this is the alerting hook. The literal substring
       // "rls.bootstrap.failed" should be matched in log dashboards / alert

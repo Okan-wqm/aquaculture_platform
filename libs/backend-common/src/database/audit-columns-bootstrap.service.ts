@@ -4,6 +4,7 @@ import {
   convertAuditColumnsToTimestamptz,
   ConvertAuditColumnsOptions,
 } from './convert-audit-columns-to-timestamptz.helper';
+import { assertRuntimeDdlAllowed } from './db-migrate-authority';
 
 /**
  * AuditColumnsBootstrap
@@ -88,13 +89,16 @@ export class AuditColumnsBootstrap implements OnApplicationBootstrap {
       return;
     }
 
+    assertRuntimeDdlAllowed({
+      serviceName: this.options.serviceName,
+      operation: 'audit-column TIMESTAMPTZ conversion',
+    });
+
     const queryRunner = this.dataSource.createQueryRunner();
 
     try {
       await queryRunner.connect();
-      this.logger.log(
-        `Running audit-column conversion for service "${this.options.serviceName}"`,
-      );
+      this.logger.log(`Running audit-column conversion for service "${this.options.serviceName}"`);
 
       await convertAuditColumnsToTimestamptz(queryRunner, {
         excludeTables: this.options.excludeTables,
@@ -104,9 +108,7 @@ export class AuditColumnsBootstrap implements OnApplicationBootstrap {
         logger: this.logger,
       });
 
-      this.logger.log(
-        `Audit-column conversion complete for "${this.options.serviceName}"`,
-      );
+      this.logger.log(`Audit-column conversion complete for "${this.options.serviceName}"`);
     } catch (err) {
       // Operator alerting hook: the literal substring
       // "audit_columns.bootstrap.failed" is the recommended pattern in

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import type { EntitySchema, MixedList } from 'typeorm';
 
+import { resolveDbMigrateAuthoritativeFromConfig } from './db-migrate-authority';
 import { MIGRATION_LEDGER_TABLE } from './migration-ledger';
 import { buildDatabaseSslConfig } from './ssl-config';
 
@@ -229,7 +230,23 @@ export function createServiceTypeOrmConfig(
   const migrationsRun =
     opts.migrationsRunFromEnv != null
       ? opts.migrationsRunFromEnv(configService)
-      : opts.migrationsRun ?? false;
+      : (opts.migrationsRun ?? false);
+  const synchronize = configService.get('DATABASE_SYNC', 'false') === 'true';
+  const schemaDdlOwnedByDbMigrate = resolveDbMigrateAuthoritativeFromConfig(configService);
+  if (schemaDdlOwnedByDbMigrate && migrationsRun) {
+    throw new Error(
+      `SECURITY: migrationsRun=true is incompatible with ` +
+        `DB_MIGRATE_AUTHORITATIVE=true for service "${opts.serviceName}". ` +
+        `aqua-db-migrate is the schema SOT; set DATABASE_MIGRATIONS_RUN=false.`,
+    );
+  }
+  if (schemaDdlOwnedByDbMigrate && synchronize) {
+    throw new Error(
+      `SECURITY: DATABASE_SYNC=true is incompatible with ` +
+        `DB_MIGRATE_AUTHORITATIVE=true for service "${opts.serviceName}". ` +
+        `Runtime schema synchronization is forbidden in authoritative deployments.`,
+    );
+  }
 
   // Hot-path: read env once into a local; ConfigService.get does a string-
   // parse on each call which adds up across 13 services × N reads.
@@ -268,7 +285,7 @@ export function createServiceTypeOrmConfig(
     autoLoadEntities: opts.entities == null,
     entities: opts.entities,
     subscribers: opts.subscribers,
-    synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
+    synchronize,
     migrationsRun,
     migrations: opts.migrations,
     migrationsTableName: MIGRATION_LEDGER_TABLE,

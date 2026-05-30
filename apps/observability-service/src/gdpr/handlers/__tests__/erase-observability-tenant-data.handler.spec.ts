@@ -4,9 +4,7 @@ import { EraseObservabilityTenantDataCommand } from '../../commands/erase-observ
 import { EraseObservabilityTenantDataHandler } from '../erase-observability-tenant-data.handler';
 import type { MigrationEventEntity } from '../../../database/entities/migration-event.entity';
 
-function makeRepoMock(
-  countByHash: Map<string, number>,
-): {
+function makeRepoMock(countByHash: Map<string, number>): {
   repo: jest.Mocked<Repository<MigrationEventEntity>>;
   deleteCalls: Array<{ tenantIdHash: string }>;
 } {
@@ -15,12 +13,10 @@ function makeRepoMock(
     count: jest.fn(async (opts: { where: { tenantIdHash: string } }) => {
       return countByHash.get(opts.where.tenantIdHash) ?? 0;
     }),
-    delete: jest.fn(
-      async (criteria: { tenantIdHash: string }) => {
-        deleteCalls.push(criteria);
-        return { affected: countByHash.get(criteria.tenantIdHash) ?? 0 };
-      },
-    ),
+    delete: jest.fn(async (criteria: { tenantIdHash: string }) => {
+      deleteCalls.push(criteria);
+      return { affected: countByHash.get(criteria.tenantIdHash) ?? 0 };
+    }),
   } as unknown as jest.Mocked<Repository<MigrationEventEntity>>;
   return { repo, deleteCalls };
 }
@@ -32,7 +28,7 @@ describe('EraseObservabilityTenantDataHandler', () => {
 
     // First compute the hash so we can seed the mock.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { hmacTenantHash } = require('@aquaculture/backend-common') as {
+    const { hmacTenantHash } = require('@aquaculture/backend-common/utils') as {
       hmacTenantHash: (s: string) => string;
     };
     const hash = hmacTenantHash('tenant_1234567890abcdef');

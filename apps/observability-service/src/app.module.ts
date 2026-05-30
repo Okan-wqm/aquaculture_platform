@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
   RlsModule,
   SchemaDriftModule,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
@@ -17,6 +18,10 @@ import { MigrationAuditModule } from './migration-audit/migration-audit.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { RetentionBootstrapModule } from './retention/retention-bootstrap.module';
 import { InternalApiGuard } from './guards/internal-api.guard';
+
+const ObservabilitySchemaVersionGate = createSchemaVersionGate('observability', {
+  tenantAware: false,
+});
 
 @Module({
   imports: [
@@ -49,6 +54,8 @@ import { InternalApiGuard } from './guards/internal-api.guard';
           // events, schema-object history, emergency overrides, migration
           // backfill progress) — none of them ran on a fresh deploy.
           migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
+          migrationsRunFromEnv: (cs) =>
+            cs.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     PrometheusModule,
@@ -95,6 +102,7 @@ import { InternalApiGuard } from './guards/internal-api.guard';
     SchemaDriftModule.forRoot({ serviceName: 'observability' }),
   ],
   providers: [
+    ObservabilitySchemaVersionGate,
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
     {
       provide: APP_GUARD,

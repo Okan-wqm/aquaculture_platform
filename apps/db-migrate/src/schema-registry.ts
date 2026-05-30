@@ -136,6 +136,8 @@ export interface SchemaPostMigrationHardening {
         excludeTables?: readonly string[];
         auditColumns?: readonly string[];
       };
+  /** Install source-schema write guard triggers from MODULE_SCHEMAS. */
+  sourceWriteGuards?: true;
   /** Operator-visible reason emitted in db-migrate logs. */
   reason: string;
 }
@@ -151,6 +153,16 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'auth-service',
     schema: 'auth',
     migrationsGlob: ['apps/auth-service/src/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      tenantRls: {
+        excludeTables: ['auth_outbox', 'audit_log', 'audit_logs', 'users', 'tenants'],
+      },
+      reason:
+        'auth owns identity-adjacent tenant tables. Production RLS policy ' +
+        'installation is owned by aqua-db-migrate; auth-service runtime must ' +
+        'not need table-owner DDL privileges. users/tenants stay excluded by ' +
+        'the documented identity discovery contract.',
+    },
     reason:
       'Tenant trust root. auth.tenants is referenced (by tenantId FK) from ' +
       'every other service, so its migrations MUST settle before downstream ' +
@@ -162,6 +174,13 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'farm-service',
     schema: 'farm',
     migrationsGlob: ['apps/farm-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      sourceWriteGuards: true,
+      reason:
+        'farm is schema-per-tenant. Source-schema write guard triggers must ' +
+        'be installed by aqua-db-migrate so farm-service does not mutate DDL ' +
+        'during authoritative production boot.',
+    },
     reason:
       'Primary aquaculture domain — highest fan-out of downstream ' +
       'consumers (alert-engine, billing, sensor aggregates).',
@@ -170,6 +189,13 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'sensor-service',
     schema: 'sensor',
     migrationsGlob: ['apps/sensor-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      sourceWriteGuards: true,
+      reason:
+        'sensor is schema-per-tenant and ingestion-heavy. Source write ' +
+        'guards are production DDL and must be installed by db-migrate, ' +
+        'not by sensor-service startup.',
+    },
     reason:
       'Feeds telemetry into farm-service batch/harvest pipelines. ' +
       'Installs TimescaleDB hypertables + continuous aggregates — ' +
@@ -181,6 +207,14 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     schema: 'hr',
     migrationsGlob: ['apps/hr-service/src/database/migrations/[0-9]*{.ts,.js}'],
     entitiesGlob: ['apps/hr-service/src/**/*.entity.{ts,js}'],
+    postMigrationHardening: {
+      auditColumns: true,
+      sourceWriteGuards: true,
+      reason:
+        'hr is schema-per-tenant and audit-sensitive. Production audit ' +
+        'column conversion and source write guard triggers are db-migrate ' +
+        'responsibilities, not runtime service boot work.',
+    },
     reason:
       'Schema-per-tenant service. Source-schema migrations clone into ' +
       'every tenant_<uuid> schema at tenant onboarding — running before ' +
@@ -193,6 +227,13 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
       'apps/messaging-service/src/migrations/[0-9]*{.ts,.js}',
       'apps/messaging-service/src/database/migrations/[0-9]*{.ts,.js}',
     ],
+    postMigrationHardening: {
+      sourceWriteGuards: true,
+      reason:
+        'messaging is schema-per-tenant. Source write guard trigger DDL is ' +
+        'installed centrally by db-migrate so runtime service credentials ' +
+        'do not own production DDL.',
+    },
     reason:
       'Schema-per-tenant. RLS policies reference auth.tenants (ADR-011/014); ' +
       'must migrate after auth and before cross-service audit triggers.',
@@ -201,10 +242,15 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'hydroponics-service',
     schema: 'hydroponics',
     migrationsGlob: ['apps/hydroponics-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      sourceWriteGuards: true,
+      reason:
+        'hydroponics is schema-per-tenant. Source-schema write guards are ' +
+        'part of the db-migrate hardening contract in authoritative deploys.',
+    },
     reason:
-      'Schema-per-tenant, farm-adjacent domain. No migration files yet — ' +
-      'entry kept as forward declaration so the first migration addition ' +
-      'does not require a compose-graph change.',
+      'Schema-per-tenant, farm-adjacent domain. Runs after core farm ' +
+      'schemas so its configuration table sees the settled platform baseline.',
   },
 
   // ── Event consumers ────────────────────────────────────────────────
@@ -212,6 +258,12 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'alert-engine',
     schema: 'alert',
     migrationsGlob: ['apps/alert-engine/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      sourceWriteGuards: true,
+      reason:
+        'alert is schema-per-tenant. Runtime source write guard trigger ' +
+        'installation is disabled in authoritative deploys and handled here.',
+    },
     reason:
       'Consumes sensor + farm events. Alert rule definitions reference ' +
       'metric column names — must migrate after sensor/farm to avoid ' +
@@ -239,6 +291,14 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'notification-service',
     schema: 'notification',
     migrationsGlob: ['apps/notification-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      tenantRls: true,
+      auditColumns: true,
+      reason:
+        'notification is a global tenant-scoped schema. Production RLS and ' +
+        'audit-column hardening must run in db-migrate, not notification ' +
+        'service startup.',
+    },
     reason:
       'Cross-domain event sink. Notification log references tenantId; ' +
       'runs after auth + domain schemas.',
@@ -247,6 +307,14 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'ai-service',
     schema: 'ai',
     migrationsGlob: ['apps/ai-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      auditColumns: true,
+      sourceWriteGuards: true,
+      reason:
+        'ai is schema-per-tenant and stores tenant conversation context. ' +
+        'Production audit-column conversion and source write guards belong ' +
+        'to db-migrate.',
+    },
     reason:
       'Schema-per-tenant AI context. Reads across domains for conversation ' +
       'context — last in the consumer tier to see all upstream columns.',
@@ -265,6 +333,14 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'config-service',
     schema: 'config',
     migrationsGlob: ['apps/config-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      tenantRls: true,
+      auditColumns: true,
+      reason:
+        'config is a global tenant-scoped schema. Production RLS and ' +
+        'audit-column hardening are db-migrate responsibilities so ' +
+        'config-service does not perform DDL at startup.',
+    },
     reason:
       'Dynamic configuration keys. Wave 4-A.2 (2026-05-08) canonicalized ' +
       'the dedicated `config` schema + `config_service` role per ADR-011 ' +
@@ -273,19 +349,24 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'observability-service',
     schema: 'observability',
-    migrationsGlob: [
-      // no migrations yet; placeholder for the first migration addition
-      'apps/observability-service/src/database/migrations/[0-9]*{.ts,.js}',
-    ],
+    migrationsGlob: ['apps/observability-service/src/database/migrations/[0-9]*{.ts,.js}'],
     reason:
-      'Metrics aggregation storage. No migrations today (relies on ' +
-      'bootstrapping via search_path); entry kept so the first migration ' +
-      'does not require a compose-graph change.',
+      'Metrics aggregation storage and migration audit history. Runs late ' +
+      'because it observes migration and drift signals emitted by other schemas.',
   },
   {
     service: 'event-store-service',
     schema: 'event_store',
     migrationsGlob: ['apps/event-store-service/src/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      tenantRls: {
+        excludeTables: ['stored_events'],
+      },
+      reason:
+        'event_store projection tables are tenant-scoped and need RLS, ' +
+        'but stored_events is the cross-service append log. Production RLS ' +
+        'policy DDL is installed by db-migrate, not event-store startup.',
+    },
     reason:
       'Cross-service event persistence. Schema ordering is irrelevant ' +
       'at DDL level (no FKs into domain schemas); placed last so any ' +

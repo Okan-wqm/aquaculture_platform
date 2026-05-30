@@ -612,14 +612,16 @@ services:
       SERVICE_NAME: observability-service
       NODE_ENV: production
       PORT: 3009
+      DB_MIGRATE_AUTHORITATIVE: "true"
+      DATABASE_MIGRATIONS_RUN: "false"
       # INTERNAL_API_KEY must be set; guard rejects all requests in production without it
       INTERNAL_API_KEY: ${OBSERVABILITY_INTERNAL_API_KEY:?OBSERVABILITY_INTERNAL_API_KEY required}
-      # observability-service reads DB_* env vars (not DATABASE_*)
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USERNAME: ${POSTGRES_USER:-aquaculture}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_NAME: aquaculture
+      # Platform-standard DATABASE_* contract enforced by createServiceTypeOrmConfig.
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_NAME: aquaculture
     depends_on:
       postgres:
         condition: service_healthy

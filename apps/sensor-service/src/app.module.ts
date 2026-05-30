@@ -58,6 +58,7 @@ import { SensorMetricsModule } from './metrics/metrics.module';
 import {
   createTenantConnectionBootstrap,
   createSchemaVersionGate,
+  resolveDbMigrateAuthoritative,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
   SchemaDriftModule,
@@ -66,6 +67,7 @@ import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middle
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
 const SensorSchemaVersionGate = createSchemaVersionGate('sensor');
+const sensorSchemaDdlOwnedByDbMigrate = resolveDbMigrateAuthoritative(process.env);
 import { Process } from './process/entities/process.entity';
 import { ScadaPackage } from './process/entities/scada-package.entity';
 import { UnifiedTag } from './process/entities/unified-tag.entity';
@@ -214,7 +216,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
         const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
         return {
-          autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/sensor.graphql') },
+          autoSchemaFile: {
+            federation: 2,
+            path: join(process.cwd(), 'dist/graphql/subgraphs/sensor.graphql'),
+          },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
            *  The gateway already blocks batching, but subgraphs must also enforce this as
            *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -337,7 +342,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
      */
     RlsModule.forPoolService({
       serviceName: 'sensor',
-      syncTenantSchemas: true,
+      syncTenantSchemas: !sensorSchemaDdlOwnedByDbMigrate,
       excludeTables: ['sensor_outbox'],
     }),
 
@@ -420,8 +425,8 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
-    // DB-level write guards on source schema (defense-in-depth)
-    SourceSchemaWriteGuardService,
+    // DB-level write guards on source schema (dev/local only; db-migrate owns production DDL)
+    ...(sensorSchemaDdlOwnedByDbMigrate ? [] : [SourceSchemaWriteGuardService]),
   ],
 })
 export class AppModule implements NestModule {

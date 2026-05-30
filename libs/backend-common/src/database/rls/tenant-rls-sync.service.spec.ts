@@ -96,8 +96,7 @@ function makeMockDataSource(opts: {
               throw new Error('simulated connect failure');
             }
           }
-          const replies =
-            currentSchema && opts.perSchemaReplies?.[currentSchema];
+          const replies = currentSchema && opts.perSchemaReplies?.[currentSchema];
           if (replies && replyIdx < replies.length) {
             const r = replies[replyIdx++];
             return r;
@@ -130,6 +129,16 @@ function makeMockDataSource(opts: {
 }
 
 describe('TenantRlsSyncService', () => {
+  const originalDbMigrateAuthoritative = process.env.DB_MIGRATE_AUTHORITATIVE;
+
+  afterEach(() => {
+    if (originalDbMigrateAuthoritative === undefined) {
+      Reflect.deleteProperty(process.env, 'DB_MIGRATE_AUTHORITATIVE');
+    } else {
+      process.env.DB_MIGRATE_AUTHORITATIVE = originalDbMigrateAuthoritative;
+    }
+  });
+
   describe('onApplicationBootstrap', () => {
     it('runs no-op gracefully when no tenant schemas exist', async () => {
       const mock = makeMockDataSource({ schemas: [] });
@@ -145,20 +154,23 @@ describe('TenantRlsSyncService', () => {
     });
 
     it('iterates discovered tenant schemas, one QueryRunner per schema', async () => {
-      const schemas = [
-        'tenant_4b529829ea7948da',
-        'tenant_5c640940fb805aeb',
-      ];
+      const schemas = ['tenant_4b529829ea7948da', 'tenant_5c640940fb805aeb'];
       // Each schema's discovery query returns one BaseEntity-shaped table
       // → 4 DDLs run per table → 4 helper replies per schema
       const perSchemaReplies: Record<string, unknown[]> = {
         [schemas[0]!]: [
           [{ table_name: 'batches', column_name: 'tenant_id' }],
-          undefined, undefined, undefined, undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
         ],
         [schemas[1]!]: [
           [{ table_name: 'batches', column_name: 'tenant_id' }],
-          undefined, undefined, undefined, undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
         ],
       };
       const mock = makeMockDataSource({ schemas, perSchemaReplies });
@@ -183,11 +195,17 @@ describe('TenantRlsSyncService', () => {
       const perSchemaReplies: Record<string, unknown[]> = {
         [schemas[0]!]: [
           [{ table_name: 'batches', column_name: 'tenant_id' }],
-          undefined, undefined, undefined, undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
         ],
         [schemas[2]!]: [
           [{ table_name: 'batches', column_name: 'tenant_id' }],
-          undefined, undefined, undefined, undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
         ],
       };
       const mock = makeMockDataSource({
@@ -224,6 +242,19 @@ describe('TenantRlsSyncService', () => {
       // No discovery, no runners.
       expect(mock.createdRunners).toBe(0);
       expect(mock.releasedRunners).toBe(0);
+    });
+
+    it('fails before tenant discovery in authoritative mode', async () => {
+      process.env.DB_MIGRATE_AUTHORITATIVE = 'true';
+      const mock = makeMockDataSource({
+        schemas: ['tenant_4b529829ea7948da'],
+      });
+      const service = new TenantRlsSyncService(mock.ds, {
+        serviceName: 'farm',
+      });
+
+      await expect(service.onApplicationBootstrap()).rejects.toThrow(/Runtime DDL operation/i);
+      expect(mock.createdRunners).toBe(0);
     });
   });
 });

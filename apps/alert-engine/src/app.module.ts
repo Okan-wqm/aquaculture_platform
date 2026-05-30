@@ -16,6 +16,7 @@ import {
   createSchemaVersionGate,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
+  resolveDbMigrateAuthoritative,
 } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
@@ -48,6 +49,7 @@ const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
  * reviving the hand-applied-psql anti-pattern.
  */
 const AlertMigrationRunnerService = createSchemaVersionGate('alert');
+const alertSchemaDdlOwnedByDbMigrate = resolveDbMigrateAuthoritative(process.env);
 import { EventBusModule } from '@platform/event-bus';
 import { AlertModule } from './alert/alert.module';
 import { HealthModule } from './health/health.module';
@@ -103,7 +105,10 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/alert.graphql') },
+        autoSchemaFile: {
+          federation: 2,
+          path: join(process.cwd(), 'dist/graphql/subgraphs/alert.graphql'),
+        },
         /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
          *  The gateway already blocks batching, but subgraphs must also enforce this as
          *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -170,7 +175,7 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     /** SECURITY (HIGH-004): Tenant RLS (schema-per-tenant alert). */
     RlsModule.forPoolService({
       serviceName: 'alert',
-      syncTenantSchemas: true,
+      syncTenantSchemas: !alertSchemaDdlOwnedByDbMigrate,
       excludeTables: ['alert_outbox'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
@@ -220,8 +225,8 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
-    // DB-level write guards on source schema (defense-in-depth)
-    SourceSchemaWriteGuardService,
+    // DB-level write guards on source schema (dev/local only; db-migrate owns production DDL)
+    ...(alertSchemaDdlOwnedByDbMigrate ? [] : [SourceSchemaWriteGuardService]),
   ],
 })
 export class AppModule implements NestModule {

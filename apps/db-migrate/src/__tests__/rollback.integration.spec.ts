@@ -5,10 +5,7 @@ import {
 } from '@platform/migration-harness';
 import { QueryRunner, MigrationInterface } from 'typeorm';
 
-import {
-  rollbackSchemaMigrations,
-  runSchemaMigrations,
-} from '../migration-orchestrator';
+import { rollbackSchemaMigrations, runSchemaMigrations } from '../migration-orchestrator';
 
 /**
  * ORPHAN-020 integration suite — live Postgres round-trip for the
@@ -35,9 +32,7 @@ class RollbackMarker1700000000000 implements MigrationInterface {
   name = 'RollbackMarker1700000000000';
 
   async up(qr: QueryRunner): Promise<void> {
-    await qr.query(
-      `CREATE TABLE IF NOT EXISTS rollback_marker (id serial PRIMARY KEY)`,
-    );
+    await qr.query(`CREATE TABLE IF NOT EXISTS rollback_marker (id serial PRIMARY KEY)`);
   }
 
   async down(qr: QueryRunner): Promise<void> {
@@ -103,8 +98,35 @@ describe('rollbackSchemaMigrations — live PG round-trip', () => {
     await verifyQr1.release();
 
     // ── Down 1 ──
-    const down = await rollbackSchemaMigrations(opts, { count: 1 });
+    let observedPlan:
+      | {
+          beforeHead: { timestamp: string; name: string } | null;
+          targetHead: { timestamp: string; name: string } | null;
+          revertedMigrations: string[];
+        }
+      | undefined;
+    const down = await rollbackSchemaMigrations(opts, {
+      count: 1,
+      onPlan: async (plan) => {
+        observedPlan = plan;
+      },
+    });
     expect(down.reverted).toEqual(['RollbackMarker1700000000000']);
+    expect(observedPlan).toEqual({
+      schema,
+      beforeHead: {
+        timestamp: '1700000000000',
+        name: 'RollbackMarker1700000000000',
+      },
+      targetHead: null,
+      revertedMigrations: ['RollbackMarker1700000000000'],
+    });
+    expect(down.beforeHead).toEqual({
+      timestamp: '1700000000000',
+      name: 'RollbackMarker1700000000000',
+    });
+    expect(down.targetHead).toBeNull();
+    expect(down.afterHead).toBeNull();
     const verifyQr2 = ctx.dataSource.createQueryRunner();
     expect(await tableExists(verifyQr2, schema)).toBe(false);
     await verifyQr2.release();
@@ -132,12 +154,10 @@ describe('rollbackSchemaMigrations — live PG round-trip', () => {
       lockTimeoutSeconds: 5,
     };
 
-    await expect(
-      rollbackSchemaMigrations(opts, { count: 0 }),
-    ).rejects.toThrow(/positive integer/i);
-    await expect(
-      rollbackSchemaMigrations(opts, { count: -3 }),
-    ).rejects.toThrow(/positive integer/i);
+    await expect(rollbackSchemaMigrations(opts, { count: 0 })).rejects.toThrow(/positive integer/i);
+    await expect(rollbackSchemaMigrations(opts, { count: -3 })).rejects.toThrow(
+      /positive integer/i,
+    );
   });
 
   it('refuses to roll back more migrations than exist', async () => {
@@ -159,9 +179,9 @@ describe('rollbackSchemaMigrations — live PG round-trip', () => {
 
     // Apply 1 migration, try to roll back 2.
     await runSchemaMigrations(opts);
-    await expect(
-      rollbackSchemaMigrations(opts, { count: 2 }),
-    ).rejects.toThrow(/cannot roll back 2/i);
+    await expect(rollbackSchemaMigrations(opts, { count: 2 })).rejects.toThrow(
+      /cannot roll back 2/i,
+    );
 
     // And the one that WAS applied is still present — the refusal
     // aborted before any undo ran.

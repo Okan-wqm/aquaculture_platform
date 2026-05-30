@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { resolveDbMigrateAuthoritative } from './db-migrate-authority';
 import { getMigrationRunnerCompletion } from './migration-runner';
 
 /**
@@ -85,7 +86,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
     if (schemas.length === 0) {
       this.logger.warn(
         'No source schema found in connection search_path — skipping bootstrap. ' +
-        'Ensure the TypeORM connection has options: \'-c search_path=<schema>,public\'',
+          "Ensure the TypeORM connection has options: '-c search_path=<schema>,public'",
       );
       return;
     }
@@ -93,8 +94,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
     const sourceSchema = schemas[0] as string;
     this.logger.log(`Verifying source schema "${sourceSchema}" post-migration state...`);
 
-    const migrationRunnerCompletion =
-      getMigrationRunnerCompletion(sourceSchema);
+    const migrationRunnerCompletion = getMigrationRunnerCompletion(sourceSchema);
     if (migrationRunnerCompletion) {
       this.logger.log(
         `Waiting for MigrationRunnerService[${sourceSchema}] before source schema verification...`,
@@ -151,7 +151,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
   ): Promise<void> {
     // Dynamic import to avoid circular dependency
     const { MODULE_SCHEMAS } = await import('./schema-manager.service');
-    const mod = MODULE_SCHEMAS.find(m => m.sourceSchema === sourceSchema);
+    const mod = MODULE_SCHEMAS.find((m) => m.sourceSchema === sourceSchema);
     if (!mod) {
       this.logger.debug(
         `No MODULE_SCHEMAS entry for source schema "${sourceSchema}" — ` +
@@ -160,8 +160,8 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
       return;
     }
 
-    const existingSet = new Set(existingTables.map(t => t.table_name));
-    const missing = mod.tables.filter(t => !existingSet.has(t));
+    const existingSet = new Set(existingTables.map((t) => t.table_name));
+    const missing = mod.tables.filter((t) => !existingSet.has(t));
 
     if (missing.length === 0) {
       this.logger.log(
@@ -261,7 +261,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
     // Dynamic import to avoid circular dependency between
     // source-schema-bootstrap.service and schema-manager.service.
     const { MODULE_SCHEMAS } = await import('./schema-manager.service');
-    const mod = MODULE_SCHEMAS.find(m => m.sourceSchema === sourceSchema);
+    const mod = MODULE_SCHEMAS.find((m) => m.sourceSchema === sourceSchema);
     if (!mod) {
       this.logger.debug(
         `No MODULE_SCHEMAS entry for source schema "${sourceSchema}" — skipping strict-ownership enforcement.`,
@@ -298,8 +298,8 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
       [sourceSchema],
     );
 
-    const actual = rows.map(r => r.table_name);
-    const orphans = actual.filter(name => !legitimate.has(name));
+    const actual = rows.map((r) => r.table_name);
+    const orphans = actual.filter((name) => !legitimate.has(name));
 
     if (orphans.length === 0) {
       this.logger.log(
@@ -307,6 +307,15 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
           `(${actual.length} table(s) present, all declared in MODULE_SCHEMAS[${mod.moduleName}]).`,
       );
       return;
+    }
+
+    if (resolveDbMigrateAuthoritative()) {
+      throw new Error(
+        `Source schema "${sourceSchema}" has ${orphans.length} orphan table(s): ` +
+          `${orphans.join(', ')}. Runtime orphan DROP is forbidden when ` +
+          `DB_MIGRATE_AUTHORITATIVE=true; remove the orphan tables through ` +
+          `a reviewed db-migrate migration or post-migration hardening step.`,
+      );
     }
 
     this.logger.warn(
@@ -317,9 +326,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
 
     for (const orphan of orphans) {
       try {
-        await this.dataSource.query(
-          `DROP TABLE IF EXISTS "${sourceSchema}"."${orphan}" CASCADE`,
-        );
+        await this.dataSource.query(`DROP TABLE IF EXISTS "${sourceSchema}"."${orphan}" CASCADE`);
         this.logger.log(
           `Dropped orphan table "${sourceSchema}"."${orphan}" (CASCADE removed any attached FKs, RLS policies, and indexes).`,
         );

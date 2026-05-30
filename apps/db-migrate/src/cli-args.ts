@@ -30,6 +30,11 @@ export interface ParsedArgs {
    * schema registry entry (blast-radius containment).
    */
   schema?: string;
+  /**
+   * Explicit release acknowledgement. Must match DEPLOY_RELEASE_ID or
+   * DEPLOY_SHA before rollback DDL can start.
+   */
+  confirmRelease?: string;
 }
 
 /**
@@ -39,7 +44,8 @@ export interface ParsedArgs {
  *
  * Accepted forms:
  *   (no flags)                           — up all (default)
- *   --down N --schema <name>             — roll back N migrations on ONE schema
+ *   --down N --schema <name> --confirm-release <release>
+ *                                        — roll back N migrations on ONE schema
  *
  * Anything else (bare `--down N`, `--schema` without `--down`,
  * invalid N, unknown flags) throws — the caller surfaces the
@@ -50,31 +56,45 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (flag === '--down') {
+      if (args.down !== undefined) {
+        throw new Error('[db-migrate] Duplicate CLI flag: --down');
+      }
       const raw = argv[i + 1];
-      if (raw === undefined) {
-        throw new Error(
-          '[db-migrate] --down requires an integer argument: --down <N>',
-        );
+      if (raw === undefined || raw.startsWith('--')) {
+        throw new Error('[db-migrate] --down requires an integer argument: --down <N>');
       }
       const parsed = Number.parseInt(raw, 10);
       if (!Number.isInteger(parsed) || parsed < 1 || !/^\d+$/.test(raw)) {
-        throw new Error(
-          `[db-migrate] --down argument must be a positive integer; got "${raw}".`,
-        );
+        throw new Error(`[db-migrate] --down argument must be a positive integer; got "${raw}".`);
       }
       args.down = parsed;
       i += 1;
     } else if (flag === '--schema') {
+      if (args.schema !== undefined) {
+        throw new Error('[db-migrate] Duplicate CLI flag: --schema');
+      }
       const raw = argv[i + 1];
-      if (raw === undefined || raw.length === 0) {
-        throw new Error(
-          '[db-migrate] --schema requires a schema name: --schema <name>',
-        );
+      if (raw === undefined || raw.length === 0 || raw.startsWith('--')) {
+        throw new Error('[db-migrate] --schema requires a schema name: --schema <name>');
       }
       args.schema = raw;
       i += 1;
+    } else if (flag === '--confirm-release') {
+      if (args.confirmRelease !== undefined) {
+        throw new Error('[db-migrate] Duplicate CLI flag: --confirm-release');
+      }
+      const raw = argv[i + 1];
+      if (raw === undefined || raw.length === 0 || raw.startsWith('--')) {
+        throw new Error(
+          '[db-migrate] --confirm-release requires a release id: --confirm-release <DEPLOY_RELEASE_ID>',
+        );
+      }
+      args.confirmRelease = raw;
+      i += 1;
     } else if (flag !== undefined && flag.startsWith('--')) {
       throw new Error(`[db-migrate] Unknown CLI flag: ${flag}`);
+    } else if (flag !== undefined) {
+      throw new Error(`[db-migrate] Unexpected positional argument: ${flag}`);
     }
   }
   if (args.down !== undefined && args.schema === undefined) {
@@ -84,9 +104,13 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     );
   }
   if (args.down === undefined && args.schema !== undefined) {
-    throw new Error(
-      '[db-migrate] --schema is only accepted alongside --down.',
-    );
+    throw new Error('[db-migrate] --schema is only accepted alongside --down.');
+  }
+  if (args.down !== undefined && args.confirmRelease === undefined) {
+    throw new Error('[db-migrate] --down N requires --confirm-release <DEPLOY_RELEASE_ID>.');
+  }
+  if (args.down === undefined && args.confirmRelease !== undefined) {
+    throw new Error('[db-migrate] --confirm-release is only accepted alongside --down.');
   }
   return args;
 }

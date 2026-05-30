@@ -13,8 +13,8 @@
 # NOTE: Uses Debian-based image because mosquitto-go-auth (Go c-shared)
 # is incompatible with Alpine's musl libc (golang/go#54805).
 #
-# SECURITY: Pin base image by digest for immutable, reproducible builds.
-FROM debian:bookworm-slim@sha256:b0b3b8e4e0f0c1a1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4
+# Built only in GitHub Actions and deployed by immutable GHCR digest/tag.
+FROM debian:bookworm-slim
 
 # Install Mosquitto and dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

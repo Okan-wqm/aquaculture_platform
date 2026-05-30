@@ -87,6 +87,7 @@ services:
           cpus: '0.2'
 
   mosquitto:
+    image: ghcr.io/okan-wqm/aquaculture_platform/mosquitto:${IMAGE_TAG:-staging}
     container_name: aqua-mosquitto-staging
     deploy:
       resources:

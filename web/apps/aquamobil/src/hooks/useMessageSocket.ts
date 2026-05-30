@@ -17,10 +17,12 @@
  * @returns socketRef — ref to the underlying socket instance for use by other hooks
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { MutableRefObject } from 'react';
+
 import { useAuth } from './useAuth';
+
 import type {
   NewMessageEvent,
   MessageUpdatedEvent,
@@ -29,6 +31,8 @@ import type {
   Message,
   MessagePage,
 } from '@/types/messaging';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+
 
 // WHY: io is dynamically imported from socket.io-client. If the package is not
 // installed, the hook gracefully degrades to a disconnected state. The import
@@ -57,6 +61,18 @@ interface ResolveNotificationRefAck extends Partial<ResolvedNotificationRef> {
   reason?: string;
 }
 
+interface UseMessageSocketResult {
+  isConnected: boolean;
+  joinChannel: (channelId: string) => void;
+  leaveChannel: (channelId: string) => void;
+  emitTyping: (channelId: string, isTyping: boolean) => void;
+  emitMarkRead: (channelId: string, messageId: string) => void;
+  resolveNotificationRef: (
+    notificationRef: string,
+  ) => Promise<ResolvedNotificationRef | null>;
+  socketRef: MutableRefObject<SocketInstance | null>;
+}
+
 const NOTIFICATION_REF_TIMEOUT_MS = 5_000;
 
 async function getIo(): Promise<typeof ioFactory> {
@@ -70,7 +86,7 @@ async function getIo(): Promise<typeof ioFactory> {
   }
 }
 
-export function useMessageSocket() {
+export function useMessageSocket(): UseMessageSocketResult {
   const { accessToken, isAuthenticated, tenantId, refreshAuth } = useAuth();
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
@@ -103,11 +119,11 @@ export function useMessageSocket() {
     let mounted = true;
     let socket: SocketInstance | null = null;
 
-    const connect = async () => {
+    const connect = async (): Promise<void> => {
       const io = await getIo();
       if (!io || !mounted) return;
 
-      socket = io('/messaging', {
+      const nextSocket = io('/messaging', {
         auth: { token: accessToken },
         transports: ['websocket', 'polling'],
         reconnection: true,
@@ -117,25 +133,26 @@ export function useMessageSocket() {
         forceNew: false,
       });
 
-      socketRef.current = socket;
+      socket = nextSocket;
+      socketRef.current = nextSocket;
 
       // --- Connection events ---
-      socket.on('connect', () => {
+      nextSocket.on('connect', () => {
         if (!mounted) return;
         setIsConnected(true);
         // Rejoin all previously joined channels
         for (const channelId of joinedChannelsRef.current) {
-          socket!.emit('joinChannel', { channelId });
+          nextSocket.emit('joinChannel', { channelId });
         }
       });
 
-      socket.on('disconnect', () => {
+      nextSocket.on('disconnect', () => {
         if (mounted) setIsConnected(false);
       });
 
       // --- Domain events ---
 
-      socket.on('newMessage', (data: unknown) => {
+      nextSocket.on('newMessage', (data: unknown) => {
         const event = data as NewMessageEvent;
         const qc = queryClientRef.current;
         // Update messages cache for this channel
@@ -171,12 +188,12 @@ export function useMessageSocket() {
           },
         );
         // Invalidate channel list to update lastMessage / unread counts
-        qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
         // Increment unread count
-        qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
       });
 
-      socket.on('messageUpdated', (data: unknown) => {
+      nextSocket.on('messageUpdated', (data: unknown) => {
         const event = data as MessageUpdatedEvent;
         queryClientRef.current.setQueryData(
           createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
@@ -195,7 +212,7 @@ export function useMessageSocket() {
         );
       });
 
-      socket.on('messageDeleted', (data: unknown) => {
+      nextSocket.on('messageDeleted', (data: unknown) => {
         const event = data as MessageDeletedEvent;
         queryClientRef.current.setQueryData(
           createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
@@ -214,11 +231,11 @@ export function useMessageSocket() {
         );
       });
 
-      socket.on('readReceipt', (data: unknown) => {
+      nextSocket.on('readReceipt', (data: unknown) => {
         const event = data as ReadReceiptEvent;
         const qc = queryClientRef.current;
         // Invalidate unread count
-        qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
         // Update receipt in message cache
         qc.setQueryData(
           createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
@@ -259,21 +276,20 @@ export function useMessageSocket() {
       // React state + module-level authStore synchronously. We read the
       // new token from our accessTokenRef (updated on every render) and
       // also update socket.auth so reconnections use the fresh token.
-      socket.on('reAuth', async () => {
-        try {
-          await refreshAuthRef.current();
+      nextSocket.on('reAuth', () => {
+        void refreshAuthRef.current().then(() => {
           const newToken = accessTokenRef.current;
           if (socketRef.current && newToken) {
             socketRef.current.auth = { token: newToken };
             socketRef.current.emit('reAuthResponse', { token: newToken });
           }
-        } catch {
+        }).catch(() => {
           // Auth refresh failed — socket will likely disconnect
-        }
+        });
       });
     };
 
-    connect();
+    void connect();
 
     return () => {
       mounted = false;

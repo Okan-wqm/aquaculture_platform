@@ -148,7 +148,7 @@ function handleNotificationClick(event: NotificationEvent): void {
             type: 'NAVIGATE_TO_NOTIFICATION_REF',
             notificationRef,
           });
-          return (client as WindowClient).focus();
+          return (client).focus();
         }
       }
       // Otherwise open a new window
@@ -223,7 +223,7 @@ async function staleWhileRevalidateStrategy(request: Request): Promise<Response>
 
   const fetchPromise = fetch(request.clone()).then((networkResponse) => {
     if (networkResponse.ok) {
-      cache.put(request, networkResponse.clone());
+      void cache.put(request, networkResponse.clone());
     }
     return networkResponse;
   }).catch(() => undefined);

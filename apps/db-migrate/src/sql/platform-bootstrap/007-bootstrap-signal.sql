@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS platform.release_ledger (
   tenant_schema_set     JSONB        NOT NULL DEFAULT '[]'::jsonb,
   tenant_fanout         JSONB        NOT NULL DEFAULT '{}'::jsonb,
   image_digests         JSONB        NOT NULL DEFAULT '{}'::jsonb,
+  deploy_metadata       JSONB        NOT NULL DEFAULT '{}'::jsonb,
+  rollback_manifest_sha256 TEXT,
+  schema_may_be_forward BOOLEAN      NOT NULL DEFAULT false,
+  rollback_skipped_reason TEXT,
   status                VARCHAR(40)  NOT NULL,
   failure_phase         VARCHAR(120),
   rollback_attempted    BOOLEAN      NOT NULL DEFAULT false,
@@ -97,6 +101,10 @@ ALTER TABLE platform.release_ledger
   ADD COLUMN IF NOT EXISTS applied_heads JSONB NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS tenant_schema_set JSONB NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS tenant_fanout JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS deploy_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS rollback_manifest_sha256 TEXT,
+  ADD COLUMN IF NOT EXISTS schema_may_be_forward BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS rollback_skipped_reason TEXT,
   ADD COLUMN IF NOT EXISTS rollback_attempted BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS rollback_verified BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS rollback_failed BOOLEAN NOT NULL DEFAULT false;
@@ -129,3 +137,9 @@ GRANT SELECT ON platform.release_ledger TO PUBLIC;
 
 COMMENT ON TABLE platform.release_ledger IS
   'Canonical deploy record: git SHA, image digests, migration manifest hash, expected/applied heads, tenant fan-out, rollback verification state, status, failure phase, and operator. Supersedes deployed/production as release truth.';
+
+COMMENT ON COLUMN platform.release_ledger.deploy_metadata IS
+  'Deploy/runtime metadata such as capacity snapshots, image-pull manifests, GC decisions, and safety reserves.';
+
+COMMENT ON COLUMN platform.release_ledger.schema_may_be_forward IS
+  'True when db-migrate may have applied forward schema changes before an app rollback or deploy failure.';

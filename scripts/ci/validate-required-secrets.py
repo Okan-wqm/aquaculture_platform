@@ -5,8 +5,8 @@ Validate infrastructure/deploy/required-secrets.yaml ↔ compose ${VAR:?} SSoT.
 # Purpose
 
 This script is the Tier-1 Make-Impossible gate for the "compose file
-references a required env var that is not declared in the deploy secret
-manifest" failure mode. It is invoked from:
+references a required env var that is not declared in the deploy manifest"
+failure mode. It is invoked from:
 
   - `.github/workflows/ci-affected.yml` pre-flight job (at PR merge time)
   - Future: `.github/workflows/deploy-digitalocean.yml` pre-flight step
@@ -18,15 +18,15 @@ manifest" failure mode. It is invoked from:
 For every compose file listed in `required-secrets.yaml[compose_files]`:
 
   1. Scan with regex for `${VAR:?...}` mandatory interpolations
-  2. Every unique VAR found MUST have a matching entry in
-     `required-secrets.yaml[secrets]`. Otherwise: DRIFT → exit 1 with an
-     explicit "missing: STRIPE_SECRET_KEY" style error.
-  3. Every entry in `required-secrets.yaml[secrets]` MUST appear in at
-     least one compose file's `${VAR:?...}` block. Stale entries are also
-     DRIFT → exit 1.
-  4. Each secret's `required_by:` list MUST match the actual set of
-     compose files the regex scan found it in. Drift between declared
-     ownership and actual usage → exit 1.
+  2. Every unique VAR found MUST have a matching entry in either
+     `required-secrets.yaml[secrets]` or
+     `required-secrets.yaml[runtime_required_env]`. Otherwise: DRIFT →
+     exit 1 with an explicit "missing: STRIPE_SECRET_KEY" style error.
+  3. Every entry in both sections MUST appear in at least one compose
+     file's `${VAR:?...}` block. Stale entries are also DRIFT → exit 1.
+  4. Each entry's `required_by:` list MUST match the actual set of compose
+     files the regex scan found it in. Drift between declared ownership
+     and actual usage → exit 1.
 
 # Why no ci-test.env check
 
@@ -78,7 +78,9 @@ MANIFEST = REPO_ROOT / "infrastructure" / "deploy" / "required-secrets.yaml"
 #   ${NAME}           (optional, empty-if-unset)
 #   ${NAME-default}   (optional-with-default, colon-less variant)
 # By design: only `:?` fails compose at parse time, so only `:?` vars are
-# "required secrets" that deploy must validate presence of.
+# "required deploy inputs" that the manifest must classify as either
+# operator-provisioned secrets or non-secret runtime values supplied by
+# deployment automation.
 REQUIRED_VAR_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*):\?")
 
 
@@ -110,22 +112,30 @@ def load_manifest() -> dict[str, Any]:
     if not isinstance(data.get("secrets"), list) or not data["secrets"]:
         die(f"{MANIFEST.relative_to(REPO_ROOT)} missing non-empty `secrets` list", 2)
 
-    # Schema check on each secret entry
-    for i, secret in enumerate(data["secrets"]):
-        if not isinstance(secret, dict):
-            die(f"secrets[{i}] is not a mapping", 2)
-        for key in ("name", "purpose", "required_by"):
-            if key not in secret:
-                die(f"secrets[{i}] missing key: {key!r}", 2)
-        if not isinstance(secret["required_by"], list) or not secret["required_by"]:
-            die(f"secrets[{i}].required_by must be a non-empty list", 2)
+    runtime_required_env = data.get("runtime_required_env", [])
+    if not isinstance(runtime_required_env, list):
+        die(f"{MANIFEST.relative_to(REPO_ROOT)} `runtime_required_env` must be a list", 2)
 
-    # Uniqueness of names
-    names = [s["name"] for s in data["secrets"]]
+    # Schema check on each manifest entry.
+    for section in ("secrets", "runtime_required_env"):
+        for i, entry in enumerate(data.get(section, [])):
+            if not isinstance(entry, dict):
+                die(f"{section}[{i}] is not a mapping", 2)
+            for key in ("name", "purpose", "required_by"):
+                if key not in entry:
+                    die(f"{section}[{i}] missing key: {key!r}", 2)
+            if not isinstance(entry["required_by"], list) or not entry["required_by"]:
+                die(f"{section}[{i}].required_by must be a non-empty list", 2)
+
+    # Uniqueness of names across both sections. A variable is either a
+    # secret or deployment runtime metadata, never both.
+    names = [s["name"] for s in data["secrets"]] + [
+        e["name"] for e in runtime_required_env
+    ]
     if len(names) != len(set(names)):
         seen: set[str] = set()
         dups = sorted({n for n in names if (n in seen) or seen.add(n)})  # type: ignore[func-returns-value]
-        die(f"duplicate secret names: {dups}", 2)
+        die(f"duplicate required env names: {dups}", 2)
 
     return data
 
@@ -140,8 +150,19 @@ def scan_compose_required_vars(compose_path: Path) -> set[str]:
 def main() -> int:
     manifest = load_manifest()
     compose_files = manifest["compose_files"]
-    declared_secrets: dict[str, dict[str, Any]] = {s["name"]: s for s in manifest["secrets"]}
-    declared_names = set(declared_secrets.keys())
+    sections: dict[str, dict[str, dict[str, Any]]] = {
+        "secrets": {s["name"]: s for s in manifest["secrets"]},
+        "runtime_required_env": {
+            e["name"]: e for e in manifest.get("runtime_required_env", [])
+        },
+    }
+    declared_entries: dict[str, dict[str, Any]] = {}
+    declared_sections_by_name: dict[str, str] = {}
+    for section, entries in sections.items():
+        for name, entry in entries.items():
+            declared_entries[name] = entry
+            declared_sections_by_name[name] = section
+    declared_names = set(declared_entries.keys())
 
     # Scan every compose file for its set of required vars.
     compose_vars: dict[str, set[str]] = {}
@@ -158,25 +179,27 @@ def main() -> int:
 
     # Rules 2 & 3: bidirectional drift between declaration and usage.
     undeclared = sorted(actually_used - declared_names)
-    stale = sorted(declared_names - actually_used)
     if undeclared:
         errors.append(
-            "missing entries in infrastructure/deploy/required-secrets.yaml[secrets] "
-            f"(found ${{VAR:?}} in compose but no manifest entry): {undeclared}"
+            "missing entries in infrastructure/deploy/required-secrets.yaml "
+            "(found ${VAR:?} in compose but no `secrets` or "
+            f"`runtime_required_env` entry): {undeclared}"
         )
-    if stale:
-        errors.append(
-            "stale entries in infrastructure/deploy/required-secrets.yaml[secrets] "
-            f"(declared but no compose file uses ${{VAR:?}}): {stale}"
-        )
+    for section, entries in sections.items():
+        stale = sorted(set(entries) - actually_used)
+        if stale:
+            errors.append(
+                f"stale entries in infrastructure/deploy/required-secrets.yaml[{section}] "
+                f"(declared but no compose file uses ${{VAR:?}}): {stale}"
+            )
 
     # Rule 4: `required_by` list matches actual usage per compose file.
     for name in sorted(declared_names & actually_used):
-        declared_required_by = set(declared_secrets[name]["required_by"])
+        declared_required_by = set(declared_entries[name]["required_by"])
         actually_in = {rel for rel, vars_ in compose_vars.items() if name in vars_}
         if declared_required_by != actually_in:
             errors.append(
-                f"secret `{name}` required_by drift:\n"
+                f"{declared_sections_by_name[name]} `{name}` required_by drift:\n"
                 f"  declared: {sorted(declared_required_by)}\n"
                 f"  actual:   {sorted(actually_in)}"
             )
@@ -196,9 +219,11 @@ def main() -> int:
         sys.stderr.write("\n")
         return 1
 
-    total = len(declared_names)
+    total_secrets = len(sections["secrets"])
+    total_runtime = len(sections["runtime_required_env"])
     sys.stdout.write(
-        f"OK: {total} required secrets validated across "
+        f"OK: {total_secrets} required secrets and {total_runtime} runtime "
+        f"required env vars validated across "
         f"{len(compose_files)} compose file(s).\n"
     )
     return 0

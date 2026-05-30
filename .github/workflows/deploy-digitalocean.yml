@@ -89,11 +89,10 @@ env:
   REGISTRY: ghcr.io
   TAG: ${{ github.sha }}
 
-# Cancel in-progress deploys for the same branch+trigger combination.
-# workflow_dispatch and workflow_run are in separate groups so a manual
-# trigger is never cancelled by an automated CI-triggered deploy.
+# Production has exactly one writer. Manual and automated deploys share a
+# concurrency group so they cannot mutate the droplet concurrently.
 concurrency:
-  group: deploy-${{ github.ref }}-${{ github.event_name }}
+  group: deploy-production-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -305,6 +304,7 @@ jobs:
           npm run gates:criticality-manifest
           npm run gates:signals-manifest
           npx nx test db-migrate
+          bash scripts/ci/validate-deploy-ssot.sh
 
       - name: Compose preflight (droplet + staging overlay)
         run: |
@@ -340,8 +340,10 @@ jobs:
       image_prefix: ${{ steps.vars.outputs.image_prefix }}
       has_backend_changes: ${{ steps.detect.outputs.has_backend }}
       has_frontend_changes: ${{ steps.detect.outputs.has_frontend }}
+      has_infra_image_changes: ${{ steps.detect.outputs.has_infra_image }}
       affected_backend: ${{ steps.detect.outputs.affected_backend }}
       affected_frontend_matrix: ${{ steps.detect.outputs.affected_frontend_matrix }}
+      affected_infra_image_matrix: ${{ steps.detect.outputs.affected_infra_image_matrix }}
       backend_csv: ${{ steps.detect.outputs.backend_csv }}
       nx_frontend_csv: ${{ steps.detect.outputs.nx_frontend_csv }}
       non_nx_frontend_csv: ${{ steps.detect.outputs.non_nx_frontend_csv }}
@@ -374,11 +376,13 @@ jobs:
           # the latest migration image before restarting service containers.
           ALL_BACKEND=(db-migrate gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service)
           ALL_FRONTEND=(shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil)
+          ALL_INFRA_IMAGES=(mosquitto)
           NX_FRONTEND=(shell dashboard farm-module admin-panel tenant-admin)
           NON_NX_FRONTEND=(sensor-module hr-module hydroponics-module)
 
           AFFECTED_BACKEND=()
           AFFECTED_FRONTEND=()
+          AFFECTED_INFRA_IMAGES=()
           FULL_DEPLOY=false
           DEPLOY_MODE="auto_selective"
           REQUESTED_SERVICES="${{ inputs.services || github.event.inputs.services || 'all' }}"
@@ -396,6 +400,9 @@ jobs:
               for f in "${ALL_FRONTEND[@]}"; do
                 [ "$f" = "$svc" ] && AFFECTED_FRONTEND+=("$svc") && break
               done
+              for i in "${ALL_INFRA_IMAGES[@]}"; do
+                [ "$i" = "$svc" ] && AFFECTED_INFRA_IMAGES+=("$svc") && break
+              done
             done
 
           # ── Case 2: explicit "all" from workflow_dispatch or workflow_call ──
@@ -403,6 +410,7 @@ jobs:
             echo "Mode: ALL"
             AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
             AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+            AFFECTED_INFRA_IMAGES=("${ALL_INFRA_IMAGES[@]}")
             FULL_DEPLOY=true
             DEPLOY_MODE="full"
 
@@ -417,6 +425,7 @@ jobs:
               echo "  No deployed/production tag found — full deploy"
               AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
               AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+              AFFECTED_INFRA_IMAGES=("${ALL_INFRA_IMAGES[@]}")
               FULL_DEPLOY=true
               DEPLOY_MODE="full"
             else
@@ -428,6 +437,7 @@ jobs:
                 echo "  git diff failed — full deploy"
                 AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
                 AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+                AFFECTED_INFRA_IMAGES=("${ALL_INFRA_IMAGES[@]}")
                 FULL_DEPLOY=true
                 DEPLOY_MODE="full"
               else
@@ -441,6 +451,7 @@ jobs:
                   echo "  Schema/shared/infra/workflow/package change detected — full deploy"
                   AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
                   AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+                  AFFECTED_INFRA_IMAGES=("${ALL_INFRA_IMAGES[@]}")
                   FULL_DEPLOY=true
                   DEPLOY_MODE="full"
                 else
@@ -450,6 +461,10 @@ jobs:
                       AFFECTED_BACKEND+=("$svc")
                     fi
                   done
+
+                  if echo "$CHANGED" | grep -q "^infrastructure/mosquitto/"; then
+                    AFFECTED_INFRA_IMAGES+=("mosquitto")
+                  fi
 
                   # WS10: db-migrate bundles every service's migration files
                   # (per apps/db-migrate/tsconfig.build.json). A migration
@@ -529,6 +544,21 @@ jobs:
             FE_MATRIX="[]"
           fi
 
+          if [ ${#AFFECTED_INFRA_IMAGES[@]} -gt 0 ]; then
+            INFRA_MATRIX="["
+            first=true
+            for image in "${AFFECTED_INFRA_IMAGES[@]}"; do
+              [ "$first" = true ] || INFRA_MATRIX+=","
+              first=false
+              case "$image" in
+                mosquitto) INFRA_MATRIX+="{\"image\":\"mosquitto\",\"dockerfile\":\"infrastructure/mosquitto/Dockerfile\",\"context\":\"infrastructure/mosquitto\"}" ;;
+              esac
+            done
+            INFRA_MATRIX+="]"
+          else
+            INFRA_MATRIX="[]"
+          fi
+
           # CSV for nx run-many (backend)
           BACKEND_CSV=$(IFS=,; echo "${AFFECTED_BACKEND[*]}")
 
@@ -548,15 +578,17 @@ jobs:
           NON_NX_FE_CSV=$(IFS=,; echo "${NON_NX_FE_AFFECTED[*]}")
 
           # Compose service names for selective pull/restart
-          DEPLOY_SERVICES="${AFFECTED_BACKEND[*]} ${AFFECTED_FRONTEND[*]}"
+          DEPLOY_SERVICES="${AFFECTED_BACKEND[*]} ${AFFECTED_INFRA_IMAGES[*]} ${AFFECTED_FRONTEND[*]}"
           DEPLOY_SERVICES=$(echo "$DEPLOY_SERVICES" | xargs)
 
           HAS_BACKEND=$( [ ${#AFFECTED_BACKEND[@]} -gt 0 ] && echo true || echo false )
           HAS_FRONTEND=$( [ ${#AFFECTED_FRONTEND[@]} -gt 0 ] && echo true || echo false )
+          HAS_INFRA_IMAGE=$( [ ${#AFFECTED_INFRA_IMAGES[@]} -gt 0 ] && echo true || echo false )
 
           # Summary
           echo "=== Affected Services ==="
           echo "  Backend (${#AFFECTED_BACKEND[@]}): ${AFFECTED_BACKEND[*]:-none}"
+          echo "  Infra images (${#AFFECTED_INFRA_IMAGES[@]}): ${AFFECTED_INFRA_IMAGES[*]:-none}"
           echo "  Frontend (${#AFFECTED_FRONTEND[@]}): ${AFFECTED_FRONTEND[*]:-none}"
           echo "  Full deploy: ${FULL_DEPLOY}"
           echo "  Deploy mode: ${DEPLOY_MODE}"
@@ -565,8 +597,10 @@ jobs:
           # Write outputs
           echo "has_backend=${HAS_BACKEND}" >> $GITHUB_OUTPUT
           echo "has_frontend=${HAS_FRONTEND}" >> $GITHUB_OUTPUT
+          echo "has_infra_image=${HAS_INFRA_IMAGE}" >> $GITHUB_OUTPUT
           echo "affected_backend=${BACKEND_JSON}" >> $GITHUB_OUTPUT
           echo "affected_frontend_matrix=${FE_MATRIX}" >> $GITHUB_OUTPUT
+          echo "affected_infra_image_matrix=${INFRA_MATRIX}" >> $GITHUB_OUTPUT
           echo "backend_csv=${BACKEND_CSV}" >> $GITHUB_OUTPUT
           echo "nx_frontend_csv=${NX_FE_CSV}" >> $GITHUB_OUTPUT
           echo "non_nx_frontend_csv=${NON_NX_FE_CSV}" >> $GITHUB_OUTPUT
@@ -955,6 +989,148 @@ jobs:
           cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2,mode=max,ignore-error=true
 
   # ===========================================================================
+  # Build infrastructure-owned app images (registry-only; never built on droplet)
+  # ===========================================================================
+  build-infra-images:
+    needs: [prepare]
+    if: needs.prepare.outputs.has_infra_image_changes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.affected_infra_image_matrix) }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to GHCR
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          for attempt in 1 2 3; do
+            echo "[ghcr-login] attempt ${attempt}/3"
+            echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" \
+              -u "${GHCR_USERNAME}" --password-stdin
+            rc=$?
+            if [ "$rc" -eq 0 ]; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          exit 1
+
+      - name: Build and push ${{ matrix.image }}
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:${{ env.TAG }}
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:latest
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2,mode=max,ignore-error=true
+
+  # ===========================================================================
+  # Verify immutable SHA images and build the digest manifest consumed by droplet
+  # ===========================================================================
+  verify-images:
+    needs:
+      [
+        prepare,
+        build-backend-images,
+        build-frontend-images,
+        build-infra-images,
+      ]
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      (needs.build-backend-images.result == 'success' || needs.build-backend-images.result == 'skipped') &&
+      (needs.build-frontend-images.result == 'success' || needs.build-frontend-images.result == 'skipped') &&
+      (needs.build-infra-images.result == 'success' || needs.build-infra-images.result == 'skipped') &&
+      needs.prepare.outputs.deploy_services != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      digest_manifest_b64: ${{ steps.manifest.outputs.digest_manifest_b64 }}
+    steps:
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to GHCR
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" -u "${GHCR_USERNAME}" --password-stdin
+
+      - name: Verify image manifests
+        id: manifest
+        run: |
+          set -euo pipefail
+          : > image-digests.tsv
+          for svc in ${{ needs.prepare.outputs.deploy_services }}; do
+            ref="${{ needs.prepare.outputs.image_prefix }}/${svc}:${{ github.sha }}"
+            echo "Verifying ${ref}"
+            inspect="$(docker buildx imagetools inspect "${ref}")"
+            digest="$(printf '%s\n' "${inspect}" | awk '/^Digest:/ {print $2; exit}')"
+            if [ -z "${digest}" ]; then
+              echo "::error::No digest found for ${ref}"
+              exit 1
+            fi
+            printf '%s\t%s\t%s\n' "${svc}" "${{ needs.prepare.outputs.image_prefix }}/${svc}" "${digest}" >> image-digests.tsv
+          done
+          echo "digest_manifest_b64=$(base64 -w0 image-digests.tsv)" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Verified deploy images"
+            echo ""
+            echo '```'
+            cat image-digests.tsv
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # Visible remote capacity preflight before the mutating SSH deploy
+  # ===========================================================================
+  capacity-preflight:
+    needs: [prepare, verify-images]
+    if: needs.verify-images.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - name: Capacity preflight on production droplet
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
+        env:
+          DEPLOY_SERVICES: ${{ needs.prepare.outputs.deploy_services }}
+          FULL_DEPLOY: ${{ needs.prepare.outputs.full_deploy }}
+          DEPLOY_MODE: ${{ needs.prepare.outputs.deploy_mode }}
+          DEPLOY_SHA: ${{ github.sha }}
+          IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          command_timeout: 8m
+          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_MODE,DEPLOY_SHA,IMAGE_PREFIX
+          script: |
+            set -e
+            cd /var/aqua-saas
+            git fetch --force --prune origin
+            git checkout -f "${DEPLOY_SHA}"
+            CAPACITY_GC_MODE=off bash scripts/deploy/droplet-capacity.sh gate
+
+  # ===========================================================================
   # Deploy to DigitalOcean Droplet (selective — affected services only)
   # ===========================================================================
   deploy:
@@ -965,6 +1141,9 @@ jobs:
         build-frontend-artifacts,
         build-backend-images,
         build-frontend-images,
+        build-infra-images,
+        verify-images,
+        capacity-preflight,
       ]
     # Only deploy if at least one image build succeeded (artifact jobs may be skipped when there are no changes)
     if: |
@@ -974,7 +1153,10 @@ jobs:
       (needs.build-frontend-artifacts.result == 'success' || needs.build-frontend-artifacts.result == 'skipped') &&
       (needs.build-backend-images.result == 'success' || needs.build-backend-images.result == 'skipped') &&
       (needs.build-frontend-images.result == 'success' || needs.build-frontend-images.result == 'skipped') &&
-      (needs.build-backend-images.result == 'success' || needs.build-frontend-images.result == 'success')
+      (needs.build-infra-images.result == 'success' || needs.build-infra-images.result == 'skipped') &&
+      needs.verify-images.result == 'success' &&
+      needs.capacity-preflight.result == 'success' &&
+      (needs.build-backend-images.result == 'success' || needs.build-frontend-images.result == 'success' || needs.build-infra-images.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 80
     environment: production
@@ -1003,6 +1185,7 @@ jobs:
           DEPLOY_MODE: ${{ needs.prepare.outputs.deploy_mode }}
           DEPLOY_SHA: ${{ github.sha }}
           IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
+          DEPLOY_IMAGE_DIGESTS_B64: ${{ needs.verify-images.outputs.digest_manifest_b64 }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # GITHUB_ACTOR is a reserved env var set by the runner; use a
           # distinct name here and let the remote script read it.
@@ -1014,7 +1197,7 @@ jobs:
           command_timeout: 75m # Sequential pulls on slow disk + service bootstrap for 22+ Docker images
           # envs: forwards these env vars from the GitHub runner into the
           # remote bash session on the droplet.
-          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_MODE,DEPLOY_SHA,IMAGE_PREFIX,GHCR_TOKEN,GHCR_ACTOR
+          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_MODE,DEPLOY_SHA,IMAGE_PREFIX,DEPLOY_IMAGE_DIGESTS_B64,GHCR_TOKEN,GHCR_ACTOR
           script: |
             # Pull the exact commit being deployed so scripts/deploy/droplet-up.sh
             # is loaded from the deploy's own source. Everything else is

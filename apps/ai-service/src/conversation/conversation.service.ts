@@ -1,6 +1,7 @@
 import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+
 import { AgentConversation } from './conversation.entity';
 
 /**
@@ -59,12 +60,14 @@ export class ConversationService {
     message: AgentConversation['messages'][0],
   ): Promise<void> {
     // SECURITY: tenantId + userId in WHERE prevents cross-tenant/cross-user mutation
-    const result = await this.conversationRepo.query(
+    const result: unknown = await this.conversationRepo.query(
       `UPDATE agent_conversations SET messages = messages || $1::jsonb, "updatedAt" = NOW() WHERE id = $2 AND "tenantId" = $3 AND "userId" = $4`,
       [JSON.stringify([message]), conversationId, tenantId, userId],
     );
     // result[1] is the affected row count for UPDATE queries
-    if (result[1] === 0) {
+    const affectedRows =
+      Array.isArray(result) && typeof result[1] === 'number' ? result[1] : 0;
+    if (affectedRows === 0) {
       throw new ForbiddenException(
         'Conversation not found or not owned by current user',
       );

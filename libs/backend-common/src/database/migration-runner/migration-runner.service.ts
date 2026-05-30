@@ -2,6 +2,22 @@ import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import { DataSource, Migration, MigrationExecutor, MigrationInterface, QueryRunner } from 'typeorm';
 
+import { assertExpandContractDependency } from '../assert-expand-contract-dependency';
+import {
+  NoopMigrationEventSink,
+  type MigrationEventSink,
+  type MigrationSinkEventType,
+} from '../migration-event-sink';
+import {
+  MIGRATION_LEDGER_TABLE,
+  tenantMigrationLedgerTable,
+} from '../migration-ledger';
+import {
+  TENANT_AWARE_SCHEMAS,
+  TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
+} from '../tenant-aware-schemas';
+import { isSourceOnlyMigration } from '../tenant-fanout.decorator';
+
 /**
  * Optional post-condition probe contract for TypeORM migrations.
  *
@@ -57,7 +73,7 @@ export interface PostConditionAwareMigration {
    * after `executeMigration()` returns successfully but before the
    * wrapper transaction commits. Return `false` or throw to abort.
    */
-  postCondition?(queryRunner: QueryRunner): Promise<boolean | void>;
+  postCondition?(queryRunner: QueryRunner): Promise<unknown>;
 }
 
 /**
@@ -147,22 +163,6 @@ export interface PostConditionAwareMigration {
 // (MA6). Local duplicates here, in the orchestrator, and in the
 // schema-propagation invariant test were prone to drift; the SSoT
 // export makes them impossible to diverge.
-import {
-  TENANT_AWARE_SCHEMAS,
-  TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
-} from '../tenant-aware-schemas';
-import {
-  MIGRATION_LEDGER_TABLE,
-  tenantMigrationLedgerTable,
-} from '../migration-ledger';
-import {
-  NoopMigrationEventSink,
-  type MigrationEventSink,
-  type MigrationSinkEventType,
-} from '../migration-event-sink';
-import { assertExpandContractDependency } from '../assert-expand-contract-dependency';
-import { isSourceOnlyMigration } from '../tenant-fanout.decorator';
-
 export interface MigrationRunnerOptions {
   /**
    * Explicit override for tenant fan-out. When omitted, defaults to
@@ -184,11 +184,37 @@ export interface MigrationRunnerOptions {
   eventSink?: MigrationEventSink;
 }
 
-const migrationRunnerCompletions = new Map<string, Promise<void>>();
+type MigrationTarget =
+  Parameters<typeof assertExpandContractDependency>[0]['migrationClass'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function rowsFromQueryResult(value: unknown): readonly Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function booleanColumn(
+  rows: readonly Record<string, unknown>[],
+  column: string,
+): boolean {
+  return rows[0]?.[column] === true;
+}
+
+function stringColumn(
+  row: Record<string, unknown> | undefined,
+  column: string,
+): string | null {
+  const value = row?.[column];
+  return typeof value === 'string' ? value : null;
+}
+
+const migrationRunnerCompletions = new Map<string, Promise<unknown>>();
 
 export function getMigrationRunnerCompletion(
   sourceSchema: string,
-): Promise<void> | undefined {
+): Promise<unknown> | undefined {
   return migrationRunnerCompletions.get(sourceSchema);
 }
 
@@ -404,9 +430,13 @@ export function createMigrationRunnerService(
             `SET search_path TO "${schema}", public`,
           );
 
-          const schemaRow: Array<{ current_schema: string }> =
+          const schemaRowsResult: unknown =
             await queryRunner.query(`SELECT current_schema()`);
-          const observedSchema = schemaRow[0]?.current_schema ?? '<unknown>';
+          const observedSchema =
+            stringColumn(
+              rowsFromQueryResult(schemaRowsResult)[0],
+              'current_schema',
+            ) ?? '<unknown>';
 
           if (observedSchema !== schema) {
             throw new Error(
@@ -484,12 +514,14 @@ export function createMigrationRunnerService(
             const migrationCtor =
               typeof migration.instance === 'object' &&
               migration.instance !== null
-                ? (migration.instance as { constructor: Function }).constructor
+                ? (migration.instance as { constructor: MigrationTarget })
+                    .constructor
                 : undefined;
             if (migrationCtor !== undefined) {
               const env =
                 this.configService.get<string>('AQUA_ENV') ??
-                this.configService.get<string>('NODE_ENV', 'development')!;
+                this.configService.get<string>('NODE_ENV') ??
+                'development';
               await assertExpandContractDependency({
                 dataSource: this.dataSource,
                 migrationClass: migrationCtor,
@@ -641,7 +673,7 @@ export function createMigrationRunnerService(
         return; // optional method
       }
 
-      let result: boolean | void;
+      let result: unknown;
       try {
         result = await candidate.postCondition(queryRunner);
       } catch (probeErr) {
@@ -711,11 +743,11 @@ export function createMigrationRunnerService(
     ): Promise<boolean> {
       const deadline = Date.now() + lockTimeoutSeconds * 1000;
       while (Date.now() < deadline) {
-        const rows: Array<{ locked: boolean }> = await queryRunner.query(
+        const rowsResult: unknown = await queryRunner.query(
           `SELECT pg_try_advisory_lock(hashtext('aqua-db-migrate:' || $1)) AS locked`,
           [schema],
         );
-        if (rows[0]?.locked) {
+        if (booleanColumn(rowsFromQueryResult(rowsResult), 'locked')) {
           return true;
         }
         this.logger.warn(

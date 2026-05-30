@@ -8,7 +8,7 @@ import {
 
 const uuid = '550e8400-e29b-41d4-a716-446655440000';
 
-function base(eventType: string) {
+function base(eventType: string): Record<string, string | number> {
   return {
     eventId: '11111111-1111-4111-8111-111111111111',
     eventType,

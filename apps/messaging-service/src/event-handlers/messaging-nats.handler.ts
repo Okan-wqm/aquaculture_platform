@@ -1,12 +1,13 @@
 import { Controller, Inject, Logger } from '@nestjs/common';
 import { MessagePattern, EventPattern, Payload } from '@nestjs/microservices';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, In, IsNull } from 'typeorm';
 import Redis from 'ioredis';
+import { Repository, DataSource, In, IsNull } from 'typeorm';
+
 import { ChannelMember } from '../channel/entities/channel-member.entity';
+import { LegalHoldService } from '../compliance/services/legal-hold.service';
 import { Message } from '../message/entities/message.entity';
 import { PartitionManagerService } from '../partition/partition-manager.service';
-import { LegalHoldService } from '../compliance/services/legal-hold.service';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 
 /** UUID representing an anonymised / deleted user. */
@@ -29,6 +30,27 @@ const TENANT_SCHEMA_REGEX =
 const TENANT_ID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const NOTIFICATION_REF_REGEX = TENANT_ID_REGEX;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function booleanColumn(rows: unknown, column: string): boolean {
+  if (!Array.isArray(rows) || !isRecord(rows[0])) {
+    return false;
+  }
+  return rows[0][column] === true;
+}
+
+function isMessageChannelRow(
+  value: unknown,
+): value is { id: string; channelId: string } {
+  return (
+    isRecord(value) &&
+    typeof value['id'] === 'string' &&
+    typeof value['channelId'] === 'string'
+  );
+}
 
 interface VerifyMembershipPayload {
   channelId: string;
@@ -296,7 +318,7 @@ export class MessagingNatsHandler {
         return null;
       }
 
-      const messageRows: Array<{ exists: boolean }> = await queryRunner.query(
+      const messageRows: unknown = await queryRunner.query(
         `SELECT EXISTS(
            SELECT 1
            FROM messages
@@ -304,10 +326,10 @@ export class MessagingNatsHandler {
              AND "channelId" = $2
              AND "createdAt" = $3::timestamptz
              AND "isDeleted" = false
-         ) AS exists`,
+        ) AS exists`,
         [record.messageId, record.channelId, record.messageCreatedAt],
       );
-      if (!messageRows[0]?.exists) {
+      if (!booleanColumn(messageRows, 'exists')) {
         return null;
       }
 
@@ -348,16 +370,19 @@ export class MessagingNatsHandler {
       await this.setTenantSchema(queryRunner, data.tenantId);
 
       // SECURITY: Verify user has actual presence in claimed tenant before destructive cascade
-      const userMessages = await queryRunner.query(
+      const userMessages: unknown = await queryRunner.query(
         `SELECT EXISTS(SELECT 1 FROM messages WHERE "senderId" = $1 LIMIT 1) AS has_messages`,
         [deletedUserId],
       );
-      const userMemberships = await queryRunner.query(
+      const userMemberships: unknown = await queryRunner.query(
         `SELECT EXISTS(SELECT 1 FROM channel_members WHERE "userId" = $1 LIMIT 1) AS has_memberships`,
         [deletedUserId],
       );
 
-      if (!userMessages[0]?.has_messages && !userMemberships[0]?.has_memberships) {
+      if (
+        !booleanColumn(userMessages, 'has_messages') &&
+        !booleanColumn(userMemberships, 'has_memberships')
+      ) {
         this.logger.log(
           `UserDeleted: deletedUserId=${deletedUserId} has no messaging footprint in tenant ${data.tenantId}, skipping cascade`,
         );
@@ -369,11 +394,14 @@ export class MessagingNatsHandler {
       // WHY: after we set senderId=ANONYMOUS_USER_ID, we can no longer identify
       // which messages belonged to this specific user — ANONYMOUS_USER_ID is shared
       // across all deleted users. We need the IDs up front to clean AI-derived tables.
-      const userMsgRows: Array<{ id: string; channelId: string }> = await queryRunner.query(
+      const userMsgRowsResult: unknown = await queryRunner.query(
         `SELECT id, "channelId" FROM messages WHERE "senderId" = $1`,
         [deletedUserId],
       );
-      const userMessageIds = userMsgRows.map(r => r.id);
+      const userMsgRows = Array.isArray(userMsgRowsResult)
+        ? userMsgRowsResult.filter(isMessageChannelRow)
+        : [];
+      const userMessageIds = userMsgRows.map((r) => r.id);
 
       // Determine which channels the user has messages in
       const channelRows = userMsgRows.reduce<Array<{ channelId: string }>>((acc, r) => {

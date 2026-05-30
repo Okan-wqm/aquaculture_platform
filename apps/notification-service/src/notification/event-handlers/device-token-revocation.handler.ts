@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import type { UserDeletedEvent } from '@platform/event-contracts';
 import { Repository } from 'typeorm';
+
 import { DeviceToken } from '../entities/device-token.entity';
 
 const UUID_REGEX =

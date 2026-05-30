@@ -39,7 +39,9 @@ describe('@TenantFanOut decorator', () => {
     // Decoration-time validation already rejects out-of-range values,
     // but the clamp is belt-and-braces for metadata injected via
     // Reflect.defineMetadata directly (e.g. migration-harness tests).
-    class RawMig {}
+    class RawMig {
+      readonly migrationName = 'RawMig';
+    }
     Reflect.defineMetadata(
       TENANT_FANOUT_META_KEY,
       { lockClass: 'tenant-local', concurrency: 999, target: RawMig },
@@ -49,7 +51,9 @@ describe('@TenantFanOut decorator', () => {
   });
 
   it('returns null for undecorated class', () => {
-    class Plain {}
+    class Plain {
+      readonly migrationName = 'PlainTenantFanOut';
+    }
     expect(getTenantFanOutMetadata(Plain)).toBeNull();
   });
 
@@ -95,7 +99,9 @@ describe('@AllowTenantDelta decorator', () => {
   });
 
   it('undecorated entity has empty prefix list', () => {
-    class Plain {}
+    class Plain {
+      readonly entityName = 'PlainTenantDelta';
+    }
     expect(getAllowedTenantDeltaPrefixes(Plain)).toEqual([]);
     expect(isTenantDeltaAllowed(Plain, 'anything')).toBe(false);
   });
@@ -137,7 +143,9 @@ describe('@SourceOnlyMigration decorator', () => {
   });
 
   it('returns null for undecorated classes', () => {
-    class Plain {}
+    class Plain {
+      readonly migrationName = 'PlainSourceOnly';
+    }
     expect(isSourceOnlyMigration(Plain)).toBe(false);
     expect(getSourceOnlyMigrationMetadata(Plain)).toBeNull();
   });

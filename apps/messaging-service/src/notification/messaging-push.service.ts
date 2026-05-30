@@ -6,16 +6,17 @@
  * SECURITY: Message content is NEVER included in push payloads.
  * @see ADR-012 section 5 (Push Notifications)
  */
+import { randomUUID } from 'crypto';
+
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
 import Redis from 'ioredis';
-import { randomUUID } from 'crypto';
+import { Repository, IsNull } from 'typeorm';
 
 import { ChannelMember, NotificationPreference } from '../channel/entities/channel-member.entity';
-import { PresenceService } from '../presence/presence.service';
 import { MessageService } from '../message/services/message.service';
+import { PresenceService } from '../presence/presence.service';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 
 /** Deduplication window: max 1 push per user per channel within this period (seconds). */
@@ -73,7 +74,7 @@ export class MessagingPushService implements OnModuleInit {
     private readonly redis: Redis,
   ) {}
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     this.logger.log('MessagingPushService initialized — listening for MessageSent events');
   }
 

@@ -1,14 +1,15 @@
 import {
+  MESSAGING_EVENT_REGISTRY,
+  type MessagingEventType,
+} from '../messaging-event-registry';
+
+import {
   BASE_EVENT_PROPERTIES,
   BASE_EVENT_REQUIRED,
   MAX_FREE_TEXT_LENGTH,
   MAX_SHORT_CODE_LENGTH,
   UUID_SCHEMA,
 } from './common.schema';
-import {
-  MESSAGING_EVENT_REGISTRY,
-  type MessagingEventType,
-} from '../messaging-event-registry';
 
 export type { MessagingEventType };
 
@@ -39,7 +40,7 @@ function eventSchema(
   eventType: MessagingEventType,
   properties: Record<string, unknown>,
   opts?: { allowAdditionalProperties?: boolean },
-) {
+): Record<string, unknown> {
   const contract = MESSAGING_EVENT_REGISTRY[eventType];
   const required = Array.from(
     new Set([...BASE_EVENT_REQUIRED, ...contract.requiredPayloadFields]),

@@ -4,19 +4,20 @@ import Ajv, {
   type ValidateFunction,
 } from 'ajv';
 import addFormats from 'ajv-formats';
+
 import { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
 import {
   INGEST_BACKEND_POLICY_EVENT_SCHEMAS,
   type IngestBackendPolicyEventType,
 } from './ingest-backend-policy.schema';
 import {
-  SENSOR_EVENT_SCHEMAS,
-  type SensorEventType,
-} from './sensor-events.schema';
-import {
   MESSAGING_EVENT_SCHEMAS,
   type MessagingEventType,
 } from './messaging-events.schema';
+import {
+  SENSOR_EVENT_SCHEMAS,
+  type SensorEventType,
+} from './sensor-events.schema';
 
 /**
  * @module EventContractsValidator

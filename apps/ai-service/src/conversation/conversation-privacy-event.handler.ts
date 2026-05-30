@@ -4,6 +4,7 @@ import type {
   GdprAnonymizeRequestedEvent,
   UserDeletedEvent,
 } from '@platform/event-contracts';
+
 import { ConversationService } from './conversation.service';
 
 const UUID_REGEX =

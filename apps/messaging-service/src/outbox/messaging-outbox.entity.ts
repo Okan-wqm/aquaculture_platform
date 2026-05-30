@@ -1,9 +1,9 @@
+import { OutboxEntityBase } from '@platform/outbox';
 import {
   Entity,
   PrimaryGeneratedColumn,
   Index,
 } from 'typeorm';
-import { OutboxEntityBase } from '@platform/outbox';
 
 /**
  * Concrete outbox entity for messaging-service.

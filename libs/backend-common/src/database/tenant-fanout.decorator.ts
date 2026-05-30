@@ -60,6 +60,8 @@ export const SOURCE_ONLY_MIGRATION_META_KEY = Symbol.for(
   '@aquaculture/backend-common:source-only-migration',
 );
 
+type DecoratedClassTarget = Parameters<ClassDecorator>[0];
+
 export type TenantLockClass = 'catalog' | 'tenant-local';
 
 export interface TenantFanOutOptions {
@@ -84,7 +86,7 @@ export interface TenantFanOutMetadata extends TenantFanOutOptions {
   /** Resolved concurrency after clamp + catalog-class override. */
   readonly effectiveConcurrency: number;
   /** Original migration class for debug attribution. */
-  readonly target: Function;
+  readonly target: DecoratedClassTarget;
 }
 
 /**
@@ -109,7 +111,7 @@ export function TenantFanOut(opts: TenantFanOutOptions): ClassDecorator {
       );
     }
   }
-  return (target: Function): void => {
+  return (target): void => {
     Reflect.defineMetadata(TENANT_FANOUT_META_KEY, { ...opts, target }, target);
   };
 }
@@ -124,10 +126,10 @@ export function TenantFanOut(opts: TenantFanOutOptions): ClassDecorator {
  *   - clamps tenant-local concurrency to [1, 32]
  */
 export function getTenantFanOutMetadata(
-  ctor: Function,
+  ctor: DecoratedClassTarget,
 ): TenantFanOutMetadata | null {
   const raw = Reflect.getMetadata(TENANT_FANOUT_META_KEY, ctor) as
-    | (TenantFanOutOptions & { target?: Function })
+    | (TenantFanOutOptions & { target?: DecoratedClassTarget })
     | undefined;
   if (!raw) return null;
   const declared = raw.concurrency ?? 8;
@@ -157,7 +159,7 @@ export interface AllowTenantDeltaOptions {
 }
 
 export interface AllowTenantDeltaMetadata extends AllowTenantDeltaOptions {
-  readonly target: Function;
+  readonly target: DecoratedClassTarget;
 }
 
 /**
@@ -178,7 +180,7 @@ export function AllowTenantDelta(
       );
     }
   }
-  return (target: Function): void => {
+  return (target): void => {
     Reflect.defineMetadata(
       ALLOW_TENANT_DELTA_META_KEY,
       { ...opts, target },
@@ -193,7 +195,7 @@ export function AllowTenantDelta(
  * Class I drift check.
  */
 export function getAllowedTenantDeltaPrefixes(
-  ctor: Function,
+  ctor: DecoratedClassTarget,
 ): readonly string[] {
   const raw = Reflect.getMetadata(ALLOW_TENANT_DELTA_META_KEY, ctor) as
     | AllowTenantDeltaMetadata
@@ -205,7 +207,7 @@ export function getAllowedTenantDeltaPrefixes(
  * Convenience: does a tenant column name match any allowed prefix?
  */
 export function isTenantDeltaAllowed(
-  ctor: Function,
+  ctor: DecoratedClassTarget,
   columnName: string,
 ): boolean {
   const prefixes = getAllowedTenantDeltaPrefixes(ctor);
@@ -222,7 +224,7 @@ export interface SourceOnlyMigrationOptions {
 }
 
 export interface SourceOnlyMigrationMetadata extends SourceOnlyMigrationOptions {
-  readonly target: Function;
+  readonly target: DecoratedClassTarget;
 }
 
 export function SourceOnlyMigration(
@@ -233,7 +235,7 @@ export function SourceOnlyMigration(
       '@SourceOnlyMigration: reason must be a non-empty string',
     );
   }
-  return (target: Function): void => {
+  return (target): void => {
     Reflect.defineMetadata(
       SOURCE_ONLY_MIGRATION_META_KEY,
       { ...opts, target },
@@ -243,7 +245,7 @@ export function SourceOnlyMigration(
 }
 
 export function getSourceOnlyMigrationMetadata(
-  ctor: Function,
+  ctor: DecoratedClassTarget,
 ): SourceOnlyMigrationMetadata | null {
   const raw = Reflect.getMetadata(SOURCE_ONLY_MIGRATION_META_KEY, ctor) as
     | SourceOnlyMigrationMetadata
@@ -251,6 +253,6 @@ export function getSourceOnlyMigrationMetadata(
   return raw ?? null;
 }
 
-export function isSourceOnlyMigration(ctor: Function): boolean {
+export function isSourceOnlyMigration(ctor: DecoratedClassTarget): boolean {
   return getSourceOnlyMigrationMetadata(ctor) !== null;
 }

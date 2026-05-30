@@ -1,8 +1,12 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
 import {
   pinSearchPath,
   SourceOnlyMigration,
 } from '@aquaculture/backend-common/database';
+import { MigrationInterface, QueryRunner } from 'typeorm';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
 
 @SourceOnlyMigration({
   reason:
@@ -97,25 +101,30 @@ export class CreateMessagingOutboxTable1800200000000
   }
 
   public async postCondition(queryRunner: QueryRunner): Promise<boolean> {
-    const idRows: Array<{ data_type: string }> = await queryRunner.query(
+    const idRows: unknown = await queryRunner.query(
       `SELECT data_type
          FROM information_schema.columns
         WHERE table_schema = 'messaging'
           AND table_name = 'messaging_outbox'
           AND column_name = 'id'`,
     );
-    if (idRows[0]?.data_type !== 'uuid') {
+    const idRow: unknown = Array.isArray(idRows) ? idRows[0] : undefined;
+    if (!isRecord(idRow) || idRow['data_type'] !== 'uuid') {
       return false;
     }
 
-    const tenantRows: Array<{ count: string }> = await queryRunner.query(
+    const tenantRows: unknown = await queryRunner.query(
       `SELECT count(*)::text AS count
          FROM information_schema.tables
         WHERE table_schema ~ '^tenant_[a-f0-9]{16}$'
           AND table_name = 'messaging_outbox'`,
     );
+    const tenantRow: unknown = Array.isArray(tenantRows)
+      ? tenantRows[0]
+      : undefined;
+    const tenantCount = isRecord(tenantRow) ? tenantRow['count'] : '0';
 
-    return Number(tenantRows[0]?.count ?? '0') === 0;
+    return Number(tenantCount) === 0;
   }
 
   public async down(_queryRunner: QueryRunner): Promise<void> {

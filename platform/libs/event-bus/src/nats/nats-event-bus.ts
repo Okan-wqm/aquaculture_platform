@@ -1,3 +1,7 @@
+import * as os from 'os';
+
+import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import {
   Injectable,
   OnModuleInit,
@@ -7,6 +11,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventUpcasterRegistry } from '@platform/event-contracts';
 import {
   connect,
   NatsConnection,
@@ -21,10 +26,10 @@ import {
   DiscardPolicy,
   Consumer,
   ConnectionOptions,
+  type JsMsg,
+  type StreamConfig,
 } from 'nats';
-import * as os from 'os';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
-import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
+
 import {
   IEventBus,
   IEvent,
@@ -40,8 +45,28 @@ import {
   buildWildcardEventSubject,
   assertSubjectMatchesEvent,
 } from '../subjects/tenant-event-subject';
-import { EventUpcasterRegistry } from '@platform/event-contracts';
+
+
 import type { EventBusModuleOptions } from './nats.module';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isIEvent(value: unknown): value is IEvent {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value['eventId'] === 'string' &&
+    typeof value['eventType'] === 'string' &&
+    typeof value['timestamp'] === 'string'
+  );
+}
 
 /**
  * NATS JetStream Event Bus Implementation
@@ -206,27 +231,29 @@ export class NatsEventBus
 
     this.reconnectAttemptCount += 1;
     const attempt = this.reconnectAttemptCount;
-    setTimeout(async () => {
-      if (this.connectionState === 'disconnected') {
-        this.logger.log(
-          `Attempting to reconnect to NATS (attempt ${attempt}/${this.maxReconnectAttempts})...`,
-        );
-        try {
-          await this.connect();
-          await this.setupStream();
-          await this.activatePendingSubscriptions();
-          this.reconnectAttemptCount = 0; // reset budget on success
-          this.logger.log('Successfully reconnected to NATS');
-        } catch (error) {
-          this.logger.warn(
-            `Reconnection attempt ${attempt}/${this.maxReconnectAttempts} failed: ${
-              error instanceof Error ? error.message : 'Unknown error'
-            }`,
-          );
-          this.scheduleReconnect();
-        }
-      }
+    setTimeout(() => {
+      void this.reconnect(attempt);
     }, this.reconnectTimeWaitMs);
+  }
+
+  private async reconnect(attempt: number): Promise<void> {
+    if (this.connectionState === 'disconnected') {
+      this.logger.log(
+        `Attempting to reconnect to NATS (attempt ${attempt}/${this.maxReconnectAttempts})...`,
+      );
+      try {
+        await this.connect();
+        await this.setupStream();
+        await this.activatePendingSubscriptions();
+        this.reconnectAttemptCount = 0; // reset budget on success
+        this.logger.log('Successfully reconnected to NATS');
+      } catch (error) {
+        this.logger.warn(
+          `Reconnection attempt ${attempt}/${this.maxReconnectAttempts} failed: ${errorMessage(error)}`,
+        );
+        this.scheduleReconnect();
+      }
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -403,13 +430,13 @@ export class NatsEventBus
     await this.connection.flush();
   }
 
-  async getHealth(): Promise<EventBusHealth> {
-    return {
+  getHealth(): Promise<EventBusHealth> {
+    return Promise.resolve({
       isHealthy: this.isConnected(),
       connectionState: this.connectionState,
       lastConnectedAt: this.lastConnectedAt ?? undefined,
       pendingMessages: this.consumers.size,
-    };
+    });
   }
 
   /**
@@ -570,10 +597,9 @@ export class NatsEventBus
 
     // Store handler regardless of connection state so it is ready when
     // the connection comes up.
-    if (!this.handlers.has(subject)) {
-      this.handlers.set(subject, []);
-    }
-    this.handlers.get(subject)!.push(handler as IEventHandler);
+    const handlers = this.handlers.get(subject) ?? [];
+    handlers.push(handler);
+    this.handlers.set(subject, handlers);
 
     if (!this.jetStream) {
       // JetStream is not yet connected.  Queue the subscription so it will
@@ -599,7 +625,7 @@ export class NatsEventBus
     await this.unsubscribeFrom(topic);
   }
 
-  async unsubscribeFrom(topic: string): Promise<void> {
+  unsubscribeFrom(topic: string): Promise<void> {
     const subject = this.normalizeSubject(topic);
     const controller = this.abortControllers.get(subject);
 
@@ -610,6 +636,7 @@ export class NatsEventBus
       this.handlers.delete(subject);
       this.logger.log(`Unsubscribed from ${subject}`);
     }
+    return Promise.resolve();
   }
 
   /**
@@ -696,7 +723,7 @@ export class NatsEventBus
    * max_bytes MUST be less than nats.conf max_file_store (2GB) to leave headroom
    * for metadata and potential additional streams.
    */
-  private getStreamConfig() {
+  private getStreamConfig(): Partial<StreamConfig> {
     return {
       subjects: ['events.>', 'commands.>', 'queries.>'],
       retention: RetentionPolicy.Limits,
@@ -770,45 +797,11 @@ export class NatsEventBus
     const abortController = new AbortController();
     this.abortControllers.set(subject, abortController);
 
-    const processLoop = async () => {
+    const processLoop = async (): Promise<void> => {
       try {
         const messages = await consumer.consume({
-          callback: async (msg) => {
-            try {
-              const event = this.deserializeEvent(this.codec.decode(msg.data));
-              const handlers = this.handlers.get(subject) ?? [];
-
-              // SECURITY: Handler failures must NOT be swallowed while the
-              // message is acked. A swallowed handler error permanently loses
-              // the event for that handler. Route failures to retry/DLQ instead.
-              let handlerFailed = false;
-              for (const handler of handlers) {
-                try {
-                  await handler.handle(event);
-                } catch (handlerError) {
-                  handlerFailed = true;
-                  this.logger.error(
-                    `Handler error for ${event.eventType} — message will be NAK'd for retry`,
-                    handlerError,
-                  );
-                }
-              }
-
-              if (handlerFailed) {
-                const redeliveryCount = msg.info?.redeliveryCount ?? 0;
-                const backoffMs = Math.min(1000 * Math.pow(2, redeliveryCount), 30000);
-                msg.nak(backoffMs);
-              } else {
-                msg.ack();
-              }
-            } catch (error) {
-              this.logger.error(`Message processing error on ${subject}`, error);
-              // Exponential backoff on NAK: redelivery delay doubles per attempt
-              // msg.info.redeliveryCount gives the number of times the message has been delivered
-              const redeliveryCount = msg.info?.redeliveryCount ?? 0;
-              const backoffMs = Math.min(1000 * Math.pow(2, redeliveryCount), 30000);
-              msg.nak(backoffMs);
-            }
+          callback: (msg) => {
+            void this.processConsumerMessage(subject, msg);
           },
         });
 
@@ -823,11 +816,55 @@ export class NatsEventBus
       }
     };
 
-    processLoop().catch((err) => {
-      if (!abortController.signal.aborted && !err.message?.includes('consumer closed')) {
+    processLoop().catch((err: unknown) => {
+      if (
+        !abortController.signal.aborted &&
+        !errorMessage(err).includes('consumer closed')
+      ) {
         this.logger.error(`Consumer loop error for ${subject}`, err);
       }
     });
+  }
+
+  private async processConsumerMessage(
+    subject: string,
+    msg: JsMsg,
+  ): Promise<void> {
+    try {
+      const event = this.deserializeEvent(this.codec.decode(msg.data));
+      const handlers = this.handlers.get(subject) ?? [];
+
+      // SECURITY: Handler failures must NOT be swallowed while the
+      // message is acked. A swallowed handler error permanently loses
+      // the event for that handler. Route failures to retry/DLQ instead.
+      let handlerFailed = false;
+      for (const handler of handlers) {
+        try {
+          await handler.handle(event);
+        } catch (handlerError) {
+          handlerFailed = true;
+          this.logger.error(
+            `Handler error for ${event.eventType} — message will be NAK'd for retry`,
+            handlerError,
+          );
+        }
+      }
+
+      if (handlerFailed) {
+        const redeliveryCount = msg.info?.redeliveryCount ?? 0;
+        const backoffMs = Math.min(1000 * Math.pow(2, redeliveryCount), 30000);
+        msg.nak(backoffMs);
+      } else {
+        msg.ack();
+      }
+    } catch (error) {
+      this.logger.error(`Message processing error on ${subject}`, error);
+      // Exponential backoff on NAK: redelivery delay doubles per attempt
+      // msg.info.redeliveryCount gives the number of times the message has been delivered
+      const redeliveryCount = msg.info?.redeliveryCount ?? 0;
+      const backoffMs = Math.min(1000 * Math.pow(2, redeliveryCount), 30000);
+      msg.nak(backoffMs);
+    }
   }
 
   /**
@@ -868,14 +905,21 @@ export class NatsEventBus
    * Closes: docs/reviews/platform-kernel-expert/2026-04-28-core-platform-review.md#PLAT-CRITICAL-002
    */
   private deserializeEvent(data: string): IEvent {
-    let parsed = JSON.parse(data);
+    let parsed: unknown = JSON.parse(data);
+    if (!isRecord(parsed)) {
+      throw new Error('Decoded NATS event payload must be a JSON object');
+    }
 
     // ARCH-C01: Apply upcasters to migrate legacy event schemas
     if (this.upcasterRegistry) {
       parsed = this.upcasterRegistry.upcast(parsed);
     }
 
-    return parsed as IEvent;
+    if (!isIEvent(parsed)) {
+      throw new Error('Decoded NATS event payload is missing base event fields');
+    }
+
+    return parsed;
   }
 
   /**
@@ -907,14 +951,15 @@ export class NatsEventBus
    * Setup connection event handlers
    */
   private setupConnectionHandlers(): void {
-    if (!this.connection) {
+    const connection = this.connection;
+    if (!connection) {
       return;
     }
 
     // Handle connection status changes
-    (async () => {
-      for await (const status of this.connection!.status()) {
-        switch (status.type) {
+    void (async (): Promise<void> => {
+      for await (const status of connection.status()) {
+        switch (String(status.type)) {
           case 'disconnect':
             this.connectionState = 'disconnected';
             this.logger.warn('Disconnected from NATS');
@@ -933,7 +978,7 @@ export class NatsEventBus
             break;
         }
       }
-    })().catch((err) => {
+    })().catch((err: unknown) => {
       this.logger.error('Status monitor error', err);
     });
   }

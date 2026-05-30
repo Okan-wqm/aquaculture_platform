@@ -7,8 +7,9 @@ import type {
   AnnouncementPublishedEvent,
   BulkThreadsCreatedEvent,
 } from '@platform/event-contracts';
-import { InAppNotificationService } from '../services/in-app.service';
+
 import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
+import { InAppNotificationService } from '../services/in-app.service';
 
 // UUID v4 regex for tenant ID validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -39,10 +40,23 @@ class Semaphore {
     this.active--;
     if (this.queue.length > 0 && this.active < this.limit) {
       this.active++;
-      const next = this.queue.shift()!;
-      next();
+      const next = this.queue.shift();
+      if (next !== undefined) {
+        next();
+      }
     }
   }
+}
+
+function createRetryEvent(
+  event: MessagingEvent,
+  retryCount: number,
+): MessagingEvent {
+  return {
+    ...event,
+    retryCount,
+    ...createBaseEvent<MessagingEvent>(event.eventType, event.tenantId),
+  } as MessagingEvent;
 }
 
 /**
@@ -109,17 +123,18 @@ export class MessagingEventHandler
 
     // Acquire semaphore slot before processing to enforce backpressure
     await this.semaphore.acquire();
+    let retryEvent: MessagingEvent | null = null;
 
     try {
       switch (eventType) {
         case 'MessageSent':
-          await this.handleMessageSent(event as MessageSentEvent);
+          await this.handleMessageSent(event);
           break;
         case 'AnnouncementPublished':
-          await this.handleAnnouncementPublished(event as AnnouncementPublishedEvent);
+          await this.handleAnnouncementPublished(event);
           break;
         case 'BulkThreadsCreated':
-          await this.handleBulkThreadsCreated(event as BulkThreadsCreatedEvent);
+          await this.handleBulkThreadsCreated(event);
           break;
         default:
           this.logger.warn(`Unknown messaging event type: ${eventType}`);
@@ -138,13 +153,9 @@ export class MessagingEventHandler
         );
 
         if (dlqResult.retry) {
-          await this.eventBus.publish({
-            ...(event as MessagingEvent),
-            retryCount: dlqResult.retryCount,
-            ...createBaseEvent(event.eventType, event.tenantId),
-          });
+          retryEvent = createRetryEvent(event, dlqResult.retryCount);
           this.logger.warn(
-            `Messaging event ${eventType} re-published for retry attempt ${dlqResult.retryCount}`,
+            `Messaging event ${eventType} scheduled for local retry attempt ${dlqResult.retryCount}`,
           );
         }
       } catch (dlqError) {
@@ -154,6 +165,10 @@ export class MessagingEventHandler
       }
     } finally {
       this.semaphore.release();
+    }
+
+    if (retryEvent !== null) {
+      await this.handle(retryEvent);
     }
   }
 

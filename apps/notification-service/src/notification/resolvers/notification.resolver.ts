@@ -1,3 +1,5 @@
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { Logger } from '@nestjs/common';
 import {
   Resolver,
   Query,
@@ -8,13 +10,12 @@ import {
   ObjectType,
   Field,
 } from '@nestjs/graphql';
-import { Logger, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
-import { InAppNotificationService } from '../services/in-app.service';
-import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
+
 import { DeviceToken } from '../entities/device-token.entity';
+import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
+import { InAppNotificationService } from '../services/in-app.service';
 
 /**
  * User context interface
@@ -86,7 +87,7 @@ export class NotificationResolver {
     );
 
     return notifications.map((log) => {
-      const metadata = log.metadata as Record<string, unknown> | undefined;
+      const metadata = log.metadata;
       const dataObj = metadata?.['data'] as Record<string, unknown> | undefined;
 
       return {

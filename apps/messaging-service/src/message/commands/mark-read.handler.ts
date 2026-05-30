@@ -1,17 +1,20 @@
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { Logger, NotFoundException, Inject } from '@nestjs/common';
-import { DataSource } from 'typeorm';
 import { randomUUID as uuidv4 } from 'crypto';
-import Redis from 'ioredis';
+
 
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
-import { OutboxPublisher } from '@platform/outbox';
+import { Logger, NotFoundException, Inject } from '@nestjs/common';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { createBaseEvent } from '@platform/event-contracts';
-import { MarkReadCommand } from './mark-read.command';
-import { Message } from '../entities/message.entity';
-import { MessageReceipt, ReceiptStatus } from '../entities/message-receipt.entity';
+import { OutboxPublisher } from '@platform/outbox';
+import Redis from 'ioredis';
+import { DataSource } from 'typeorm';
+
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
+import { MessageReceipt, ReceiptStatus } from '../entities/message-receipt.entity';
+import { Message } from '../entities/message.entity';
+
+import { MarkReadCommand } from './mark-read.command';
 
 /**
  * Handler for MarkReadCommand.

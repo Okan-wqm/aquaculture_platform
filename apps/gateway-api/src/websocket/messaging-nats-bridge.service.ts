@@ -1,7 +1,6 @@
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import {
   assertSubjectMatchesEvent,
   buildWildcardEventSubject,
@@ -10,6 +9,7 @@ import {
   isMessagingEventType,
   validateMessagingEvent,
 } from '@platform/event-contracts';
+import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
 
 import { MessagingGateway } from './messaging.gateway';
 
@@ -91,7 +91,10 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
 
     try {
       this.connection = await connect(connectionOptions);
-      this.logger.log(`Messaging bridge connected to NATS at ${connectionOptions.servers}`);
+      const servers = Array.isArray(connectionOptions.servers)
+        ? connectionOptions.servers.join(',')
+        : (connectionOptions.servers ?? 'default');
+      this.logger.log(`Messaging bridge connected to NATS at ${servers}`);
 
       this.subscribeToMessagingEvents();
       this.handleConnectionEvents();
@@ -262,7 +265,9 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
             this.subscribeToMessagingEvents();
             break;
           case 'error':
-            this.logger.error(`Messaging NATS error: ${String(status.data)}`);
+            this.logger.error(
+              `Messaging NATS error: ${this.formatStatusData(status.data)}`,
+            );
             break;
         }
       }
@@ -352,5 +357,11 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
 
   isConnected(): boolean {
     return this.connection !== null && !this.connection.isClosed();
+  }
+
+  private formatStatusData(data: unknown): string {
+    if (typeof data === 'string') return data;
+    if (data instanceof Error) return data.message;
+    return JSON.stringify(data) ?? 'unknown';
   }
 }

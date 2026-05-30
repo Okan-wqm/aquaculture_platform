@@ -6,9 +6,12 @@
  * @see ADR-012 section 8 (Event Handlers)
  */
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { AiModule } from '../ai/ai.module';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
+import { ComplianceModule } from '../compliance/compliance.module';
 import { Message } from '../message/entities/message.entity';
 import { PartitionModule } from '../partition/partition.module';
 import { PresenceModule } from '../presence/presence.module';
@@ -17,12 +20,11 @@ import { PresenceModule } from '../presence/presence.module';
 // ComplianceModule exports LegalHoldService so it can be injected here.
 // Also provides RetentionPolicyService, ComplianceAuditService, DataExportService
 // for the admin NATS handler.
-import { ComplianceModule } from '../compliance/compliance.module';
 // AiModule imported: MessagingAdminNatsHandler uses AiPersonasRegistryService
 // for the admin-panel AI personas configuration endpoint.
-import { AiModule } from '../ai/ai.module';
-import { MessagingNatsHandler } from './messaging-nats.handler';
+
 import { MessagingAdminNatsHandler } from './messaging-admin-nats.handler';
+import { MessagingNatsHandler } from './messaging-nats.handler';
 
 @Module({
   imports: [

@@ -1,32 +1,25 @@
-import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { ScheduleModule } from '@nestjs/schedule';
-
-// Entities
-import { NotificationLog } from './entities/notification-log.entity';
-import { DeviceToken } from './entities/device-token.entity';
-
-// Services
-import { EmailService } from './services/email.service';
-import { SmsService } from './services/sms.service';
-import { PushService } from './services/push.service';
-import { NotificationDispatcherService } from './services/notification-dispatcher.service';
-import { NotificationRetentionService } from './services/notification-retention.service';
-import { RetrySchedulerService } from './services/retry-scheduler.service';
-import { InAppNotificationService } from './services/in-app.service';
-import { DeadLetterQueueService } from './services/dead-letter-queue.service';
 import { AiSafetyCoreModule } from '@aquaculture/backend-common/ai-safety';
+import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Event Handlers
+import { DeviceToken } from './entities/device-token.entity';
+import { NotificationLog } from './entities/notification-log.entity';
 import { AlertTriggeredEventHandler } from './event-handlers/alert-triggered.handler';
 import { AuthEventHandler } from './event-handlers/auth-event.handler';
 import { BillingEventHandler } from './event-handlers/billing-event.handler';
-import { TaskEventHandler } from './event-handlers/task-event.handler';
-import { MessagingEventHandler } from './event-handlers/messaging-event.handler';
 import { DeviceTokenRevocationHandler } from './event-handlers/device-token-revocation.handler';
-
-// Resolvers
+import { MessagingEventHandler } from './event-handlers/messaging-event.handler';
+import { TaskEventHandler } from './event-handlers/task-event.handler';
 import { NotificationResolver } from './resolvers/notification.resolver';
+import { DeadLetterQueueService } from './services/dead-letter-queue.service';
+import { EmailService } from './services/email.service';
+import { InAppNotificationService } from './services/in-app.service';
+import { NotificationDispatcherService } from './services/notification-dispatcher.service';
+import { NotificationRetentionService } from './services/notification-retention.service';
+import { PushService } from './services/push.service';
+import { RetrySchedulerService } from './services/retry-scheduler.service';
+import { SmsService } from './services/sms.service';
 
 /**
  * Notification Module

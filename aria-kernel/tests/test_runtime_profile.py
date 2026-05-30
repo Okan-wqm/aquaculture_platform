@@ -54,20 +54,47 @@ def _seed_tools(prefix: str = "aria-rt-profile-") -> Path:
 
 
 class ProfileTaxonomyTests(unittest.TestCase):
-    def test_profiles_are_the_locked_4_mode_taxonomy(self) -> None:
-        self.assertEqual(set(PROFILES), {"observe", "standard", "strict", "frozen"})
+    def test_profiles_are_the_locked_5_mode_taxonomy(self) -> None:
+        # Plan ARIA-V3 §B2 — added ``autonomous`` to the previous
+        # 4-mode (observe/standard/strict/frozen) taxonomy. The
+        # autonomous profile gates the L3-snowball auto-merge path.
+        # Default stays standard; operator MUST set autonomous via
+        # ``aria-kernel profile set --profile autonomous --operator-
+        # approval-ref <ref>`` (Plan ARIA-V3 §B2 invariant I-V3-27).
+        self.assertEqual(
+            set(PROFILES),
+            {"observe", "standard", "strict", "frozen", "autonomous"},
+        )
 
     def test_default_profile_is_standard(self) -> None:
         self.assertEqual(DEFAULT_PROFILE, "standard")
 
     def test_action_permissions_table_is_locked(self) -> None:
+        # Plan ARIA-V3 §B2 §2a + §2j + I-V3-27a — ACTION_PERMISSIONS
+        # lists ``autonomous`` EXPLICITLY on every action_kind it
+        # permits (no inherit-from-strict). The explicit listing
+        # closes the test-runner missing-test-#6 invariant gap; a
+        # future refactor that drops autonomous from any cell must
+        # update this table directly.
         self.assertEqual(set(ACTION_PERMISSIONS.keys()), {
             "agent_claim", "change_committed", "change_validated", "pr_open",
         })
-        self.assertEqual(ACTION_PERMISSIONS["agent_claim"], frozenset({"standard", "strict"}))
-        self.assertEqual(ACTION_PERMISSIONS["change_committed"], frozenset({"standard", "strict"}))
-        self.assertEqual(ACTION_PERMISSIONS["change_validated"], frozenset({"standard", "strict"}))
-        self.assertEqual(ACTION_PERMISSIONS["pr_open"], frozenset({"strict"}))
+        self.assertEqual(
+            ACTION_PERMISSIONS["agent_claim"],
+            frozenset({"standard", "strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["change_committed"],
+            frozenset({"standard", "strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["change_validated"],
+            frozenset({"standard", "strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["pr_open"],
+            frozenset({"strict", "autonomous"}),
+        )
 
     def test_plan_020_write_surfaces_includes_22_locked_entries(self) -> None:
         # Plan 020 v3.3 Phase 1.B + Plan 026R §A.4 PLAN_020_WRITE_SURFACES

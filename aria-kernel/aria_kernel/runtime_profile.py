@@ -83,7 +83,13 @@ from .tool_registry import (
 )
 
 # Ordered tuple of valid profiles (used for membership + CLI choices).
-PROFILES: tuple[str, ...] = ("observe", "standard", "strict", "frozen")
+# Plan ARIA-V3 §B2 — ``autonomous`` profile added explicitly. This is
+# the L3-snowball auto-merge profile that gates the kernel's
+# self-closing loop. Default stays ``standard``; operator MUST set
+# via ``aria-kernel profile set --profile autonomous --operator-approval-ref <ref>``.
+PROFILES: tuple[str, ...] = (
+    "observe", "standard", "strict", "frozen", "autonomous",
+)
 DEFAULT_PROFILE: str = "standard"
 
 PROFILE_STATE_FILENAME = "runtime-profile.json"
@@ -104,11 +110,23 @@ PROFILE_HISTORY_FILENAME = "runtime-profile-history.jsonl"
 # Why pr_open is strict-only:
 #   PR open is the strict pipeline tail; operators that want to commit but
 #   not auto-PR should remain on standard (commit gate open, PR gate closed).
+# Plan ARIA-V3 §B2 — ``autonomous`` listed EXPLICITLY on every action
+# kind it permits (no inherit-from-strict semantics — closes
+# test-runner missing-test-#6 invariant gap). Tier-1: a future
+# refactor that drops ``autonomous`` from any cell must update this
+# table directly; the action_permissions test asserts the table is
+# the SSoT.
+#
+# autonomous permits:
+#   - agent_claim       — must claim its target before mutating
+#   - change_committed  — auto-commit allowed under L3 + classifier-pass
+#   - change_validated  — auto-validate chain allowed
+#   - pr_open           — auto-PR-open allowed under L3 + breaker-ok
 ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
-    "agent_claim": frozenset({"standard", "strict"}),
-    "change_committed": frozenset({"standard", "strict"}),
-    "change_validated": frozenset({"standard", "strict"}),
-    "pr_open": frozenset({"strict"}),
+    "agent_claim": frozenset({"standard", "strict", "autonomous"}),
+    "change_committed": frozenset({"standard", "strict", "autonomous"}),
+    "change_validated": frozenset({"standard", "strict", "autonomous"}),
+    "pr_open": frozenset({"strict", "autonomous"}),
 }
 
 # ---------------------------------------------------------------------

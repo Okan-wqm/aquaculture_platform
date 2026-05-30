@@ -4,6 +4,7 @@ description: Produces API reference chapters for sens-api-gateway — Rust API (
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 3
 ---
 
 # API Reference Writer — Lane-C Producer

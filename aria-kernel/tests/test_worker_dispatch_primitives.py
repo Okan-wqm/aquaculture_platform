@@ -95,19 +95,13 @@ class WorkerDispatchPrimitivesTests(unittest.TestCase):
     def test_next_pending_assignment_picks_first_pending_skips_others(self) -> None:
         self._seed_dispatch_row(
             assignment_id="A-1", pressure_event_id="P-1",
+            state="picked_up",
         )
         self._seed_dispatch_row(
             assignment_id="A-2", pressure_event_id="P-2",
             state="completed",
         )
-        # Mark A-1 as picked_up via governance — should be skipped now.
-        self._seed_governance(
-            "dispatch_request_state_changed",
-            {
-                "pressure_event_id": "P-1",
-                "to_state": "picked_up",
-            },
-        )
+        # Plan 026R derives live worker state by assignment_id, not governance.
         self._seed_dispatch_row(
             assignment_id="A-3", pressure_event_id="P-3",
         )

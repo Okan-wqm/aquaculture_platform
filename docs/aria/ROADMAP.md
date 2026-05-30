@@ -1,3 +1,5 @@
+<!-- ARIA-CURRENT-STATE-NOTICE: This document may contain historical state. For normative current state, see docs/aria/CURRENT_STATE.md and executable contracts. -->
+
 # ARIA Roadmap
 
 ## Current PoC State

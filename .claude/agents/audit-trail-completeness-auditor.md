@@ -4,6 +4,7 @@ description: Cross-cutting reviewer for audit log completeness on every regulate
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Audit-Trail Completeness Auditor -- Regulated-Action Log Coverage Reviewer

@@ -4,6 +4,7 @@ description: Per-tenant cost attribution pipeline reviewer. Covers Prometheus co
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Tenant Cost Attribution Agent -- Per-Tenant Cost Pipeline Reviewer

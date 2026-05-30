@@ -173,6 +173,11 @@ class V13ContractTests(unittest.TestCase):
         invalid = self.base / "not-a-repo"
         invalid.mkdir()
         stderr = StringIO()
+        # Plan ARIA-V2 I-31 — --reason must be ≥10 non-whitespace chars
+        # (audit trail discipline). Original test used "bad root" (8
+        # chars) which is now rejected at parse time. Using a longer
+        # reason that still triggers the downstream repo_resolution_failed
+        # check exercises the exit code path the test was validating.
         with redirect_stderr(stderr):
             code = main(
                 [
@@ -184,7 +189,7 @@ class V13ContractTests(unittest.TestCase):
                     str(invalid),
                     "--acknowledge",
                     "--reason",
-                    "bad root",
+                    "bad-root regression test fixture",
                 ],
             )
         self.assertEqual(code, 14)
@@ -383,7 +388,12 @@ class V13ContractTests(unittest.TestCase):
         for candidate in (workflow, full_workflow):
             self.assertIn("rm -rf ./.aria-ci/tools ./.aria-ci/workspaces", candidate)
             self.assertIn("mkdir -p ./.aria-ci", candidate)
-        self.assertIn("integrity migrate-tools-v1-to-v2 --tools-dir ./.aria-ci/tools", workflow)
+        # Plan ARIA-V2 §3.8 renamed the CI migration call from
+        # ``migrate-tools-v1-to-v2`` to the idempotent umbrella
+        # ``migrate-tools-bootstrap`` so the workflow handles any
+        # starting contract version (v0/v1/v2) and chains forward
+        # to v3 without operator intervention.
+        self.assertIn("integrity migrate-tools-bootstrap --tools-dir ./.aria-ci/tools", workflow)
         self.assertIn("discovery run --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools", workflow)
         self.assertNotIn("--tools-dir ./aria-tools --cycle-id ci-", workflow)
 

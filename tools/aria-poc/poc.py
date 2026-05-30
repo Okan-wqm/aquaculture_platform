@@ -21,11 +21,20 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-EXCLUDED_DIRS: set[str] = {
-    "agent-workspace", "node_modules", ".git", "dist", "build",
-    "coverage", ".next", ".nx", "target", "tmp", "out-tsc",
-    ".aria-poc", ".turbo", ".cache",
-}
+# Plan ARIA-V2 §3.6 — guarantee that ``tools.shared.excluded_paths`` is
+# importable regardless of how the PoC is invoked (standalone script
+# from any CWD, ``python3 -m unittest discover ...``, or imported
+# inside CI). Computing the repo root from ``__file__`` is the
+# Tier-1 architectural fix: the import resolution becomes a
+# function of file layout, not operator-environment PYTHONPATH.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from tools.shared.excluded_paths import (
+    BASE_EXCLUDED_DIRS as EXCLUDED_DIRS,
+    augmented_excluded_paths,
+)
 
 LANGUAGE_BY_EXT: dict[str, str] = {
     ".ts": "typescript", ".tsx": "typescript",
@@ -764,6 +773,39 @@ def detect_sql_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
 # Cross-service flag: TS path'in apps/X'i ile SQL path'in apps/X'i farklı
 # mı? (categorically more critical — PR-cycle agent'ları yakalayamaz).
 # Sıralama: cross-service ilk, sonra similarity desc.
+def _dedup_enums(enums: list[dict]) -> list[dict]:
+    """Plan ARIA-V2 §3.6 + I-20 — pre-Cartesian dedup pass.
+
+    Collapses entries with the same normalized concept name AND the
+    same value set (case-insensitive, sorted) into a single survivor.
+    The survivor carries ``dedup_collapsed_refs: [refs of duplicates]``
+    so later phases (and audit) can trace what was suppressed.
+
+    Why pre-Cartesian: ``find_drifts`` walks every ts × sql pair under
+    a shared normalized name. M identical ts rows produce M times the
+    drifts of any one. Without dedup, a repo with a re-exported enum
+    inflates the MECHANICAL_DRIFTS list by a multiplicative factor
+    (ARIA-V-003 reproduction: 126 vs ~10 on actual evidence).
+
+    Dedup key: ``(normalize_concept_name(name), tuple(sorted(lower_values(values))))``.
+    Insertion order of the first occurrence is preserved.
+    """
+    by_key: dict[tuple, dict] = {}
+    for entry in enums:
+        key = (
+            normalize_concept_name(entry.get("name", "")),
+            tuple(sorted(lower_values(entry.get("values", [])))),
+        )
+        existing = by_key.get(key)
+        if existing is None:
+            survivor = dict(entry)
+            survivor["dedup_collapsed_refs"] = []
+            by_key[key] = survivor
+        else:
+            existing["dedup_collapsed_refs"].append(entry.get("ref", ""))
+    return list(by_key.values())
+
+
 def find_drifts(ts_enums: list[dict], sql_enums: list[dict],
                 jaccard_threshold: float = 0.3) -> tuple[list[dict], list[dict]]:
     """Returns (drifts_above_threshold, drifts_filtered_out).
@@ -775,7 +817,15 @@ def find_drifts(ts_enums: list[dict], sql_enums: list[dict],
     Jaccard similarity on lowercase value sets must exceed `jaccard_threshold`
     to count as same concept. Below-threshold matches are still recorded
     (for transparency / skill calibration) but split into a separate list.
+
+    Plan ARIA-V2 §3.6 + I-20: pre-Cartesian ``_dedup_enums`` pass
+    collapses semantically-identical inputs (same normalized name +
+    same value set) into a single representative carrying
+    ``dedup_collapsed_refs``; this is the architectural fix for
+    ARIA-V-003 (drift inflation from re-exported enums).
     """
+    ts_enums = _dedup_enums(ts_enums)
+    sql_enums = _dedup_enums(sql_enums)
     by_norm_ts: dict[str, list[dict]] = {}
     for e in ts_enums:
         by_norm_ts.setdefault(normalize_concept_name(e["name"]), []).append(e)

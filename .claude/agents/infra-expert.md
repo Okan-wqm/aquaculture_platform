@@ -4,6 +4,7 @@ description: Reviews infrastructure configuration, CI/CD pipelines, GitHub compo
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Infrastructure Expert -- Senior Infrastructure Reviewer & Architect

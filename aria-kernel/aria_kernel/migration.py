@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -12,8 +13,8 @@ from typing import Any, Iterator
 
 from .feedback import normalize_feedback_event, pressure_evidence_fingerprint, slug
 from .ledger import read_jsonl, rewrite_jsonl, verify_jsonl, write_index
-from .tool_registry import GovernanceError, append_tools_governance, covered_tool_ledgers, tools_contract_version, update_tools_index
-from .workspace import WorkspacePaths, default_actor, record_workspace_governance, repo_hash, workspace_paths
+from .tool_registry import GovernanceError, SCHEMA_VERSION as TOOLS_SCHEMA_VERSION, append_tools_governance, covered_tool_ledgers, tools_contract_version, update_tools_index
+from .workspace import WorkspacePaths, canonical_identity, canonical_identity_source, default_actor, record_workspace_governance, repo_hash, workspace_paths
 
 
 MIGRATION_PHASES = ("started", "copied", "validated", "finalized")
@@ -270,6 +271,242 @@ def rollback_tools_v2_to_v1(
             },
         )
         return {"schema_version": 2, "rollback": "tools_v2_to_v1", "from_backup": backup.as_posix(), "force_discard": force_discard_since_migration}
+
+
+def migrate_tools_v2_to_v3(
+    *,
+    tools_dir: str | Path,
+    workspace_root: str | Path,
+    acknowledge: bool,
+    reason: str,
+) -> dict[str, Any]:
+    """Plan ARIA-V2 §3.8 + I-34 — migrate aria-tools/ from contract v2 to v3.
+
+    Frozen-profile-aware: under ``ARIA_RUNTIME_PROFILE=frozen`` the
+    write is rejected via the standard ``tool_governance`` gate so
+    the no-write invariant cannot be accidentally bypassed through
+    a contract upgrade.
+
+    v2→v3 rebinds the tools root from environment-bound ``bound_repo_hash``
+    (mixed-in filesystem path + remote URL) to environment-independent
+    ``bound_canonical_identity`` (canonical remote URL only).
+
+    Emits THREE separate audit events per AUDITTRAIL-MED-007 Rec E,
+    linked via a shared ``migration_event_id``:
+      1. ``tools_root_rebound_for_v3_identity_recipe`` — new binding
+      2. ``tools_root_schema_stripped`` — committed file mutation
+      3. ``aria_tools_contract_version_bumped`` — version field change
+
+    Idempotent: re-running on a v3 tree returns ``already_at_target``.
+    """
+    if not acknowledge or not reason.strip():
+        raise ValueError("v2-to-v3 tools migration requires --acknowledge and --reason")
+    root = Path(tools_dir)
+    # Plan ARIA-V2 I-34 — frozen-profile guard. Migration is a high-
+    # impact write to aria-tools/repo_identity.json + governance.jsonl;
+    # the tool_governance gate rejects under frozen.
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("tool_governance", base_dir=str(root))
+    repo_root = _resolve_repo_root(workspace_root)
+    if not (root / "repo_identity.json").exists():
+        raise GovernanceError("tools_v2_to_v3_no_identity: aria-tools/repo_identity.json missing")
+    identity = _read_json(root / "repo_identity.json")
+    current_version = int(identity.get("aria_tools_contract_version") or identity.get("schema_version") or 1)
+    if current_version >= TOOLS_SCHEMA_VERSION:
+        return {
+            "schema_version": TOOLS_SCHEMA_VERSION,
+            "migration": "tools_v2_to_v3",
+            "status": "already_at_target",
+            "current_version": current_version,
+        }
+    if current_version < 2:
+        raise GovernanceError(
+            f"tools_v2_to_v3_requires_v2_first: current={current_version} — "
+            "run migrate_tools_v1_to_v2 first, or use migrate_tools_bootstrap"
+        )
+    legacy_bound = identity.get("bound_repo_hash")
+    new_canonical = canonical_identity(repo_root)
+    identity_source = canonical_identity_source(repo_root)
+    actor = default_actor()
+    migration_event_id = f"MIG-tools-v2-v3-{hashlib.sha256(f'{root}{actor}{_now()}'.encode()).hexdigest()[:16]}"
+    pre_strip_hash = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    # Event 1: rebind for v3 recipe
+    append_tools_governance(
+        root,
+        "tools_root_rebound_for_v3_identity_recipe",
+        {
+            "migration_event_id": migration_event_id,
+            "legacy_bound_repo_hash": legacy_bound,
+            "new_bound_canonical_identity": new_canonical,
+            "bound_repo_root": str(repo_root),
+            "identity_source": identity_source["source"],
+            "reason": reason,
+            "acknowledged_by": actor,
+        },
+    )
+    if identity_source["source"] != "remote_url":
+        append_tools_governance(
+            root,
+            "canonical_identity_offline_fallback",
+            {
+                "migration_event_id": migration_event_id,
+                "identity_source": identity_source["source"],
+                "seed_summary": identity_source["normalized"][:64],
+                "canonical_identity": new_canonical,
+            },
+        )
+    # Event 2: schema strip (committed file mutation)
+    new_identity = {
+        "aria_tools_contract_version": TOOLS_SCHEMA_VERSION,
+        "schema_version": TOOLS_SCHEMA_VERSION,
+        "bound_canonical_identity": new_canonical,
+        "bound_repo_hash": new_canonical,  # legacy mirror for tolerance
+        "bound_repo_root": str(repo_root),
+    }
+    _atomic_write_json(root / "repo_identity.json", new_identity)
+    post_strip_hash = hashlib.sha256(json.dumps(new_identity, sort_keys=True).encode()).hexdigest()
+    append_tools_governance(
+        root,
+        "tools_root_schema_stripped",
+        {
+            "migration_event_id": migration_event_id,
+            "pre_strip_content_hash": f"sha256:{pre_strip_hash}",
+            "post_strip_content_hash": f"sha256:{post_strip_hash}",
+            "reason": reason,
+            "acknowledged_by": actor,
+        },
+    )
+    # Event 3: contract version bump
+    append_tools_governance(
+        root,
+        "aria_tools_contract_version_bumped",
+        {
+            "migration_event_id": migration_event_id,
+            "from_version": current_version,
+            "to_version": TOOLS_SCHEMA_VERSION,
+            "reason": reason,
+            "acknowledged_by": actor,
+        },
+    )
+    update_tools_index(root)
+    return {
+        "schema_version": TOOLS_SCHEMA_VERSION,
+        "migration": "tools_v2_to_v3",
+        "status": "completed",
+        "migration_event_id": migration_event_id,
+        "legacy_bound_repo_hash": legacy_bound,
+        "new_bound_canonical_identity": new_canonical,
+        "identity_source": identity_source["source"],
+    }
+
+
+def migrate_tools_bootstrap(
+    *,
+    tools_dir: str | Path,
+    workspace_root: str | Path,
+    acknowledge: bool,
+    reason: str,
+) -> dict[str, Any]:
+    """Plan ARIA-V2 §3.8 — idempotent umbrella migration to v3.
+
+    Detects current contract version and applies the necessary chain:
+      * v0/v1 → v1→v2 (existing) → v2→v3 (new)
+      * v2    → v2→v3
+      * v3    → no-op, status ``already_at_target``
+
+    This is the recommended CLI for operators; ``migrate-tools-v1-to-v2``
+    and ``migrate-tools-v2-to-v3`` remain available for surgical use.
+    """
+    if not acknowledge or not reason.strip():
+        raise ValueError("bootstrap tools migration requires --acknowledge and --reason")
+    root = Path(tools_dir)
+    # Plan ARIA-V2 I-34 — frozen-profile guard at the umbrella entry
+    # point too; chained migrations would otherwise mutate before the
+    # underlying step's gate fires.
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("tool_governance", base_dir=str(root))
+    current_version = tools_contract_version(root) if root.exists() else 0
+    chain = []
+    if current_version < 2:
+        v2_result = migrate_tools_v1_to_v2(
+            tools_dir=tools_dir,
+            workspace_root=workspace_root,
+            acknowledge=acknowledge,
+            reason=reason,
+        )
+        chain.append({"step": "v1_to_v2", "result": v2_result})
+    new_version = tools_contract_version(root)
+    if new_version < 3:
+        v3_result = migrate_tools_v2_to_v3(
+            tools_dir=tools_dir,
+            workspace_root=workspace_root,
+            acknowledge=acknowledge,
+            reason=reason,
+        )
+        chain.append({"step": "v2_to_v3", "result": v3_result})
+    final_version = tools_contract_version(root)
+    return {
+        "schema_version": TOOLS_SCHEMA_VERSION,
+        "migration": "tools_bootstrap",
+        "status": "completed" if chain else "already_at_target",
+        "starting_version": current_version,
+        "final_version": final_version,
+        "chain": chain,
+    }
+
+
+def rollback_tools_v3_to_v2(
+    *,
+    tools_dir: str | Path,
+    acknowledge: bool,
+    reason: str,
+) -> dict[str, Any]:
+    """Plan ARIA-V2 §3.8 — reverse migration for rollback parity.
+
+    Strips ``bound_canonical_identity`` from ``aria-tools/repo_identity.json``
+    and downgrades ``aria_tools_contract_version`` from 3 to 2. The
+    legacy ``bound_repo_hash`` field is preserved so the v2 codepath
+    continues to work after rollback. Operator-driven only — every
+    rollback emits ``aria_tools_contract_version_rolled_back`` audit row.
+    """
+    if not acknowledge or not reason.strip():
+        raise ValueError("v3-to-v2 tools rollback requires --acknowledge and --reason")
+    root = Path(tools_dir)
+    if not (root / "repo_identity.json").exists():
+        raise GovernanceError("rollback_no_identity: aria-tools/repo_identity.json missing")
+    identity = _read_json(root / "repo_identity.json")
+    current_version = int(identity.get("aria_tools_contract_version") or identity.get("schema_version") or 1)
+    if current_version != 3:
+        return {
+            "schema_version": current_version,
+            "rollback": "tools_v3_to_v2",
+            "status": "not_at_v3",
+            "current_version": current_version,
+        }
+    actor = default_actor()
+    rolled_back = {
+        "aria_tools_contract_version": 2,
+        "schema_version": 2,
+        "bound_repo_hash": identity.get("bound_repo_hash") or identity.get("bound_canonical_identity"),
+        "bound_repo_root": identity.get("bound_repo_root"),
+    }
+    _atomic_write_json(root / "repo_identity.json", rolled_back)
+    append_tools_governance(
+        root,
+        "aria_tools_contract_version_rolled_back",
+        {
+            "from_version": 3,
+            "to_version": 2,
+            "reason": reason,
+            "acknowledged_by": actor,
+        },
+    )
+    update_tools_index(root)
+    return {
+        "schema_version": 2,
+        "rollback": "tools_v3_to_v2",
+        "status": "completed",
+    }
 
 
 def _migrate_workspace_ledgers(paths: WorkspacePaths) -> None:

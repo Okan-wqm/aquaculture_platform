@@ -4,6 +4,7 @@ description: Invoke when reviewing, auditing, or analyzing the web shell, shared
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 1
 ---
 
 # Frontend Expert -- Senior Frontend Architecture Reviewer

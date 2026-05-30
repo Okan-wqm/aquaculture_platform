@@ -71,6 +71,7 @@ _DAEMON_AGENT_KIND: str = "agent_claim"  # piggy-back on existing profile gate
 def run_worker_scheduler_daemon(
     *,
     base_dir: str | Path,
+    github_adapter: Any,
     workspace_root: str | Path | None = None,
     max_iterations: int | None = None,
     poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
@@ -159,10 +160,16 @@ def run_worker_scheduler_daemon(
                     {"iteration_n": iterations, "daemon_id": daemon_id},
                 )
 
+                # Plan ARIA-V3 §A2 — pass the adapter through to the
+                # worker hook so dispatch_one_pending_worker_assignment's
+                # required github_adapter parameter is satisfied for
+                # every iteration. The fake invoke_worker test fixtures
+                # use **kwargs and ignore unknown kwargs cleanly.
                 result = invoke_worker(
                     base_dir=root,
                     agent_id=daemon_agent_id,
                     lease_seconds=lease_seconds,
+                    github_adapter=github_adapter,
                 )
                 status = result.get("status")
 

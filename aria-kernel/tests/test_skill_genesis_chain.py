@@ -14,6 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.auto_action_gate import gate_from_test_fixture
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.skill_genesis import (
     draft_skill,
@@ -22,6 +23,19 @@ from aria_kernel.skill_genesis import (
     sandbox_skill,
 )
 from aria_kernel.tool_registry import GovernanceError
+
+
+def _v3_test_gate():
+    """Plan ARIA-V3 §A4 + §2l — autonomous-equivalent gate for unit
+    tests so the materialise path auto-mints + consumes without
+    requiring an operator ack token.
+    """
+    return gate_from_test_fixture(
+        profile="autonomous",
+        lane="L3-snowball",
+        classifier_passed=True,
+        policy_requires_acknowledge=False,
+    )
 
 
 class SkillGenesisChainTests(unittest.TestCase):
@@ -95,8 +109,8 @@ class SkillGenesisChainTests(unittest.TestCase):
                 draft_id=draft["draft_id"],
                 assignment_id="as-x",
                 workspace_root=self.tmp,
+                gate=_v3_test_gate(),
                 base_dir=self.base,
-                acknowledge=True,
             )
         self.assertIn(
             "skill_materialize_requires_passing_sandbox",
@@ -132,8 +146,8 @@ class SkillGenesisChainTests(unittest.TestCase):
                 draft_id=draft["draft_id"],
                 assignment_id="as-y",
                 workspace_root=self.tmp,
+                gate=_v3_test_gate(),
                 base_dir=self.base,
-                acknowledge=True,
             )
         self.assertIn(
             "skill_materialize_requires_passing_sandbox",

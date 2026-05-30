@@ -4,6 +4,7 @@ description: Independent meta-auditor that verifies author-authored `// tier-N:`
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Root-Cause Auditor -- Tier-Claim & Arbiter-Ruling Verifier

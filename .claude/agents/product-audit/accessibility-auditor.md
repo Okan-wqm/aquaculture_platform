@@ -4,6 +4,7 @@ description: Reviews keyboard reachability, focus management, semantic naming, l
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Accessibility Auditor -- Operability and Assistive-Tech Review Authority

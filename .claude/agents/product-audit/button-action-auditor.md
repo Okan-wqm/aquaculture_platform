@@ -4,6 +4,7 @@ description: Reviews product buttons and non-form actions across `web/**` to ver
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Button Action Auditor -- Action Truthfulness Reviewer

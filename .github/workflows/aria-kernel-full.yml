@@ -1,17 +1,33 @@
 name: aria-kernel-full
 
+# Plan ARIA-V2 §3.7 (Phase 6) — same hygiene as aria-kernel.yml plus
+# paths-ignore on docs/** + aria-tools/reports/daily/** so the aria-bot
+# daily-anchor commit does not retrigger the full workflow (INFRA-MED-001
+# compute-fanout mitigation).
+
 on:
   workflow_dispatch:
   push:
     branches:
       - snowball
-    paths:
-      - "aria-kernel/**"
-      - "docs/aria/**"
-      - ".github/workflows/aria-kernel*.yml"
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "aria-tools/reports/daily/**"
+      # Plan ARIA-V3 §B3 + INFRA-HIGH-008 — SPEC + ADR edits MUST
+      # retrigger kernel tests so a Plan ARIA-V3 SPEC §0.2 / §5.4 /
+      # §8.1 amendment cannot drift from the kernel's invariant
+      # suite. The bang-prefix entries are negation patterns
+      # (un-ignore), so ``docs/aria/**`` and ``docs/adr/**`` paths
+      # bypass the broader ``docs/**`` ignore.
+      - "!docs/aria/**"
+      - "!docs/adr/**"
+
+permissions:
+  contents: read
 
 concurrency:
-  group: aria-kernel-full-${{ github.ref }}
+  group: aria-kernel-full-${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,6 +36,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
@@ -27,12 +45,35 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-      - run: npm ci
-      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'
+      - run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+      # Plan ARIA-V2 §Phase 1 CRITICAL-020 — install kernel deps
+      # (pyyaml etc.) from pyproject.toml SSoT.
+      - name: Install aria-kernel package
+        run: python3 -m pip install --upgrade pip && python3 -m pip install -e aria-kernel
+      - name: Run aria-kernel unit + invariant tests
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
+      # Plan ARIA-V2 §3.6 + CRITICAL-013 — tools/aria-poc + tools/shared
+      # invariants run under the same quality gate.
+      - name: Run tools/aria-poc invariant tests (Plan ARIA-V2 §3.6)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/aria-poc/invariants -p '*test*.py'
+      - name: Run tools/shared invariant tests (Plan ARIA-V2 §3.6)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/shared/invariants -p '*test*.py'
+      # Plan ARIA-V5 §3e v2 R1 — pedagogy lint over all 81 agents
+      # (warn mode, allowlist respected). The 30-day allowlist
+      # expiry serves as a forcing function for follow-up narrative
+      # work; entries automatically force-clear after expiry.
+      - name: Run pedagogy lint (Plan ARIA-V5 §3e)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel.pedagogy_lint --agents-dir .claude/agents --allowlist tests/invariants/agent-pedagogy.allowlist.json --format text
+      # Plan ARIA-V6 §3 V6.5 (C5) — specialist-review dry-run validates
+      # the Lane-A inventory + role mapping. Warn-mode at C5; flip to
+      # --strict in a follow-up commit once the Lane-A inventory is
+      # fully populated.
+      - name: Specialist-review dry-run (Plan ARIA-V6 §3 V6.5)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel specialist-review dry-run --agents-dir .claude/agents
       - name: Reset CI-local ARIA state
         run: |
           rm -rf ./.aria-ci/tools ./.aria-ci/workspaces
           mkdir -p ./.aria-ci
-      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity migrate-tools-v1-to-v2 --tools-dir ./.aria-ci/tools --workspace-root . --acknowledge --reason "ci bootstrap"
+      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity migrate-tools-bootstrap --tools-dir ./.aria-ci/tools --workspace-root . --acknowledge --reason "ci bootstrap (Plan ARIA-V2 §3.8 idempotent umbrella)"
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel discovery run --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools --cycle-id ci-${{ github.run_id }} --snapshot-mode committed
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools

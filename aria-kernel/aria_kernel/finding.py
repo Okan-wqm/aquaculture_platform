@@ -49,7 +49,27 @@ CLAIM_TYPES: dict[str, dict[str, Any]] = {
     "contradiction": {"min_severity": "MEDIUM", "min_evidence": 2},
     "test_disagreement": {"min_severity": "MEDIUM", "min_evidence": 1},
     "regression": {"min_severity": "HIGH", "min_evidence": 2},
+    # V10.5 Phase 1 (per ADR-0002) — runtime state-machine anomaly observed
+    # by ARIA-Watchdog. Semantically distinct from convention_inconsistency
+    # (which is naming/format drift in code surface); operational_anomaly
+    # is for stall / bridge_warning_repeat / rejection_repeat / phase_asymmetry
+    # patterns detected at runtime.
+    "operational_anomaly": {"min_severity": "LOW", "min_evidence": 3},
 }
+
+# V10.5 Phase 1 (per ADR-0002 + AISAFETY-HIGH-008) — closed allowlist for
+# originating_skill field. emit_finding rejects unknown values to prevent
+# external callers (e.g. report_ingestion) from forging "aria-watchdog:*"
+# prefix and bypassing topology guards in the V10.6 self-feed source.
+ORIGINATING_SKILL_ALLOWLIST: frozenset[str] = frozenset({
+    "manual:operator",
+    "aria-watchdog:stall",
+    "aria-watchdog:bridge_warning_repeat",
+    "report_ingestion:external_pr",
+    # V10.6 detectors registered here when F-AUTO-V10.6-EXTRA-DETECTORS lands:
+    # "aria-watchdog:rejection_repeat",
+    # "aria-watchdog:phase_asymmetry",
+})
 
 SEVERITY_RANK = {"INFORMATIONAL": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
 SCHEMA_VERSION = 1
@@ -98,6 +118,21 @@ def _allocate_finding_id(repo_root: Path) -> str:
     last = existing[-1]
     last_num = int(last.split("-", 1)[1])
     return f"F-{last_num + 1:03d}"
+
+
+def _validate_originating_skill(originating_skill: str) -> None:
+    """V10.5 Phase 1 (AISAFETY-HIGH-008 + ADR-0002) — closed-allowlist check.
+
+    Rejects originating_skill values outside ORIGINATING_SKILL_ALLOWLIST so
+    external callers cannot forge an "aria-watchdog:*" prefix and bypass
+    V10.6 self-feed topology guards.
+    """
+    if originating_skill not in ORIGINATING_SKILL_ALLOWLIST:
+        raise GovernanceError(
+            f"originating_skill {originating_skill!r} not in "
+            f"ORIGINATING_SKILL_ALLOWLIST (V10.5 ADR-0002). Allowed values: "
+            f"{sorted(ORIGINATING_SKILL_ALLOWLIST)!r}"
+        )
 
 
 def _validate_inputs(
@@ -269,9 +304,13 @@ def emit_finding(
     PLAN_020_WRITE_SURFACES.
     """
     from .runtime_profile import enforce_profile_for_write
+    from .file_lock import with_exclusive_lock
     enforce_profile_for_write("finding", base_dir=base_dir)
     repo_path = Path(repo_root).resolve()
     tools_root = ensure_tools_binding(base_dir, workspace_root=repo_path)
+
+    # V10.5 Phase 1 (AISAFETY-HIGH-008 + ADR-0002) — originating_skill allowlist.
+    _validate_originating_skill(originating_skill)
 
     _validate_inputs(
         claim_type=claim_type,
@@ -284,7 +323,15 @@ def emit_finding(
         interpretations=interpretations,
     )
 
-    finding_id = _allocate_finding_id(repo_path)
+    # V10.5 Phase 1 (ARCH-CRIT-002 fix) — fcntl lock on _allocate_finding_id
+    # + write to prevent TOCTOU race when watchdog daemon emits concurrently
+    # with planner-dispatch / ci_executor. Pre-V10.5 two concurrent emitters
+    # could allocate the same F-{N:03d} ID → second writer overwrites first.
+    findings_dir = _findings_dir(repo_path)
+    findings_dir.mkdir(parents=True, exist_ok=True)
+    alloc_lock_path = findings_dir / ".alloc.lock"
+    with with_exclusive_lock(alloc_lock_path, timeout_seconds=5.0):
+        finding_id = _allocate_finding_id(repo_path)
     chain_id = _evidence_chain_id(evidences)
     record: dict[str, Any] = {
         "$schema": "aria/finding/v1",

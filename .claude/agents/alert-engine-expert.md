@@ -4,6 +4,7 @@ description: Reviews apps/alert-engine correctness — rule evaluation performan
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Alert-Engine Expert -- Rule Evaluation + Escalation Reviewer

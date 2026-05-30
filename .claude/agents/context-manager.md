@@ -4,6 +4,7 @@ description: Meta-reviewer invoked by the orchestrator when multiple expert agen
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Context Manager -- Meta-Reviewer & Report Synthesizer

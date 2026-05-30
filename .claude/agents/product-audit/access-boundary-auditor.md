@@ -4,6 +4,7 @@ description: Reviews whether buttons, forms, pages, APIs, exports, live surfaces
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Access Boundary Auditor -- Role and Permission Review Authority

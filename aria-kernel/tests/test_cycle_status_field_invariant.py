@@ -305,10 +305,21 @@ class RealLegacyLedgerSpotCheckTests(unittest.TestCase):
         sha_before = hashlib.sha256(legacy_path.read_bytes()).hexdigest()
 
         rows = load_jsonl(legacy_path)
-        self.assertGreater(
-            len(rows), 0,
-            "legacy ledger exists but is empty; this test cannot validate.",
-        )
+        # Plan ARIA-V2 Phase 1 gitignored aria-tools/cycles.jsonl so
+        # fresh CI checkouts no longer carry the historical legacy
+        # rows. Tests that import modules calling ensure_tools_dir()
+        # at default base_dir touch the file empty during discovery,
+        # so the file exists but has zero rows. Empty-but-present is
+        # semantically the same as absent for this live spot-check —
+        # no rows means no upcast to validate. Tier-3: extend the
+        # skip semantic that already governs the absent case.
+        if not rows:
+            self.skipTest(
+                f"legacy ledger at {legacy_path} is empty; nothing to "
+                "spot-check (Plan ARIA-V2 Phase 1 gitignored the "
+                "historical ledger; CI fresh checkouts touch the file "
+                "empty during test discovery)."
+            )
         upcast = upcast_cycle_rows(rows)
         self.assertEqual(len(upcast), len(rows))
 

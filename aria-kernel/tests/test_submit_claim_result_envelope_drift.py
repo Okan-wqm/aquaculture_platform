@@ -209,10 +209,30 @@ def _concurrent_submit_worker(
     envelope_path: str,
     result_queue: multiprocessing.Queue,  # type: ignore[type-arg]
 ) -> None:
-    # Re-import inside the child process; the parent's module state is
-    # not shared after fork on POSIX-with-spawn or on Windows.
-    from aria_kernel.agent_invocations import submit_claim_result as _submit
-    from aria_kernel.tool_registry import GovernanceError as _GovError
+    # Plan ARIA-V2 ORPHAN-MEDIUM-075 — outer try wraps the inner import
+    # + invocation so a spawn-bootstrap import crash (e.g. transient
+    # filesystem error in cold-import of aria_kernel.*) still puts an
+    # outcome on the queue. Pre-fix the import failure killed the
+    # child before reaching the inner ``try``; the parent saw an
+    # empty queue and the test failed with ``outcomes == []`` instead
+    # of a structured error report. Tier-1: making the child's crash
+    # mode reach the audit channel is architecturally correct (the
+    # queue exists to record outcomes, not to be bypassed on crash).
+    try:
+        from aria_kernel.agent_invocations import submit_claim_result as _submit
+        from aria_kernel.tool_registry import GovernanceError as _GovError
+    except BaseException as exc:  # noqa: BLE001 — spawn-import surface
+        try:
+            result_queue.put(
+                (
+                    "unexpected",
+                    f"import_failed:{type(exc).__name__}: {exc}",
+                    False,
+                ),
+            )
+        except BaseException:  # noqa: BLE001 — queue itself broken
+            pass
+        return
 
     try:
         outcome = _submit(
@@ -226,8 +246,17 @@ def _concurrent_submit_worker(
         result_queue.put(("ok", outcome["status"], outcome.get("idempotent", False)))
     except _GovError as exc:
         result_queue.put(("error", str(exc), False))
-    except Exception as exc:  # pragma: no cover — surface unexpected failure
-        result_queue.put(("unexpected", f"{type(exc).__name__}: {exc}", False))
+    except BaseException as exc:  # noqa: BLE001 — surface every failure mode
+        try:
+            result_queue.put(
+                (
+                    "unexpected",
+                    f"{type(exc).__name__}: {exc}",
+                    False,
+                ),
+            )
+        except BaseException:  # noqa: BLE001 — queue broken; nothing more we can do
+            pass
 
 
 class ConcurrentSubmitRaceTests(_SubmitFixture):
@@ -283,10 +312,39 @@ class ConcurrentSubmitRaceTests(_SubmitFixture):
         for p in procs:
             p.join(timeout=30)
             self.assertFalse(p.is_alive(), "concurrent submit child hung")
+        # Plan ARIA-V2 ORPHAN-MEDIUM-075 — surface child exit codes so a
+        # silent crash (SIGKILL, OOM, segfault, OS-level abort) cannot
+        # produce an opaque ``outcomes == []`` failure. A non-zero
+        # exitcode means the child died WITHOUT reaching the try block's
+        # broad ``except``, which is itself architecturally meaningful
+        # information operators need at audit time.
+        exit_codes = [p.exitcode for p in procs]
+        self.assertTrue(
+            all(code == 0 for code in exit_codes),
+            msg=f"concurrent submit child(ren) exited non-zero: {exit_codes}",
+        )
 
+        # Plan ARIA-V2 ORPHAN-MEDIUM-075 fix — ``multiprocessing.Queue.empty()``
+        # is unreliable across pipe-buffered IPC: under full-suite timing
+        # pressure the parent observes ``empty() == True`` BEFORE the
+        # children's pipe-flush completes, leaving ``outcomes == []``
+        # even after every child ``p.join(timeout=30)`` returned. The
+        # architecturally correct primitive is blocking ``get(timeout=N)``
+        # called exactly ``len(procs)`` times — each call drains one
+        # pipe message and returns once the bytes are on the parent
+        # side. Pipes are FIFO + acknowledged so 5 puts produce 5 gets.
+        import queue as _stdlib_queue
         outcomes: list[tuple[str, str, bool]] = []
-        while not result_queue.empty():
-            outcomes.append(result_queue.get_nowait())
+        for _ in range(len(procs)):
+            try:
+                outcomes.append(result_queue.get(timeout=10))
+            except _stdlib_queue.Empty:
+                # A timeout here means a child genuinely failed to put
+                # anything on the queue — a real crash-before-try in
+                # the spawn'd worker. Surface the partial set so the
+                # subsequent assertion gives operators full context
+                # (Plan-026R debug discipline — don't truncate evidence).
+                break
         self.assertEqual(len(outcomes), 5, outcomes)
 
         accepted = [o for o in outcomes if o[0] == "ok" and o[1] == "accepted"]

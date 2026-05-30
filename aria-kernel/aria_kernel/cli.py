@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -39,12 +40,15 @@ from aria_kernel.discovery import run_discovery
 from aria_kernel.feedback import add_feedback, build_feedback_event, import_feedback, list_feedback
 from aria_kernel.integrity import verify_integrity
 from aria_kernel.migration import (
+    migrate_tools_bootstrap,
     migrate_tools_v1_to_v2,
+    migrate_tools_v2_to_v3,
+    rollback_tools_v3_to_v2,
     migrate_workspace_v1_to_v2,
     rollback_tools_v2_to_v1,
     rollback_workspace_v2_to_v1,
 )
-from aria_kernel.memory import withdraw_belief
+from aria_kernel.memory import rebuild_fates, reset_memory, withdraw_belief
 from aria_kernel.plan_round_controller import advance_plan_rounds
 from aria_kernel.promotion_controller import promote_converged_plan_to_dispatch
 from aria_kernel.plan_convergence import (
@@ -65,6 +69,7 @@ from aria_kernel.report_ingestion import (
     list_ingested_findings,
     report_ingestion_scan,
 )
+from aria_kernel.registry_compiler import compile_registry
 from aria_kernel.skill_genesis import (
     approve_skill_pr,
     draft_skill,
@@ -212,6 +217,14 @@ def add_subparser(
 _TOOLS_DIR_REQUIRED_COMMANDS: frozenset[tuple[str, ...]] = frozenset({
     ("integrity", "migrate-tools-v1-to-v2"),
     ("integrity", "rollback-tools-v2-to-v1"),
+    # Plan ARIA-V3.3 §2a — bootstrap-class commands MUST name the
+    # target tools dir explicitly because no walk-up can succeed
+    # before bootstrap has ever run. The CLI rejects a bare
+    # ``migrate-tools-bootstrap`` invocation BEFORE
+    # tool_registry.tools_dir is consulted, so operators get a clear
+    # ``--tools-dir is required`` error instead of the downstream
+    # ``tools_root_unresolvable`` GovernanceError.
+    ("integrity", "migrate-tools-bootstrap"),
 })
 
 
@@ -242,6 +255,8 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "planner_dispatch_command",
         "worker_dispatch_command",
         "worktree_command",
+        "ack_command",
+        "report_command",
         "agent_report_command",
         "triage_command",
         "agent_network_command",
@@ -294,6 +309,60 @@ def _parse_days(value: str) -> int:
     if days < 0:
         raise ValueError("days must be non-negative")
     return days
+
+
+# Plan ARIA-V2 §Phase 1 AUDITTRAIL-HIGH-005a + Rec C — every
+# operator-supplied ``--reason`` is now validated for:
+#   * non-whitespace length >= 10 chars (rejects "" / "   " / "short")
+#   * absence of PII tokens (email / phone / SSN-shaped strings)
+# Applied as an argparse ``type=`` validator so failures fire at parse
+# time with ArgumentTypeError, producing a clean CLI exit and an
+# auditable error message rather than reaching the audit row.
+_REASON_MIN_NON_WHITESPACE_CHARS = 10
+import re as _aria_re
+_REASON_PII_PATTERNS = (
+    # email
+    _aria_re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),
+    # north-american phone (xxx-xxx-xxxx, (xxx) xxx-xxxx, xxx.xxx.xxxx)
+    _aria_re.compile(r"\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}"),
+    # SSN (xxx-xx-xxxx)
+    _aria_re.compile(r"\d{3}-\d{2}-\d{4}"),
+)
+
+
+def _validate_reason(text: str) -> str:
+    """Plan ARIA-V2 AUDITTRAIL-HIGH-005a — ``--reason`` content validator.
+
+    Used as ``argparse.add_argument(..., type=_validate_reason)`` so the
+    CLI rejects empty / whitespace-only / too-short reasons + reasons
+    containing common PII shapes (email / phone / SSN). Returns the
+    stripped text so the downstream handler receives a clean string.
+
+    Rationale: audit rows carry ``reason`` as a free-text justification.
+    Without this validator, ``--reason ""`` and ``--reason " "`` are
+    accepted as legal CLI input but reduce the audit row's
+    ``justification`` field to mandatory-shape compliance theater.
+    Mirroring ``libs/backend-common/src/audit/audited-operation.decorator.ts``
+    discipline at the kernel CLI surface.
+    """
+    stripped = (text or "").strip()
+    non_whitespace = "".join(stripped.split())
+    if len(non_whitespace) < _REASON_MIN_NON_WHITESPACE_CHARS:
+        raise argparse.ArgumentTypeError(
+            f"--reason must contain at least {_REASON_MIN_NON_WHITESPACE_CHARS} "
+            f"non-whitespace characters (got {len(non_whitespace)!r}). "
+            "Audit rows require operator justification — empty or trivial "
+            "reasons reduce the audit trail to shape-only compliance."
+        )
+    for pattern in _REASON_PII_PATTERNS:
+        if pattern.search(stripped):
+            raise argparse.ArgumentTypeError(
+                "--reason must not contain PII tokens (email / phone / SSN). "
+                "Audit rows are operator-private but operator-only-visibility "
+                "is data-minimization-preserving; PII in justification text "
+                "expands the disclosure surface unnecessarily."
+            )
+    return stripped
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -358,13 +427,13 @@ def _main(argv: list[str] | None = None) -> int:
     migrate_parser = add_subparser(feedback_sub, "migrate-v1-to-v2")
     add_workspace_args(migrate_parser)
     migrate_parser.add_argument("--acknowledge", action="store_true")
-    migrate_parser.add_argument("--reason", required=True)
+    migrate_parser.add_argument("--reason", required=True, type=_validate_reason)
 
     rollback_parser = add_subparser(feedback_sub, "rollback-v2-to-v1")
     add_workspace_args(rollback_parser)
     rollback_parser.add_argument("--from-backup", required=True)
     rollback_parser.add_argument("--acknowledge", action="store_true")
-    rollback_parser.add_argument("--reason", required=True)
+    rollback_parser.add_argument("--reason", required=True, type=_validate_reason)
     rollback_parser.add_argument("--force-discard-since-migration", action="store_true")
 
     discovery_parser = add_subparser(sub, "discovery")
@@ -382,12 +451,28 @@ def _main(argv: list[str] | None = None) -> int:
     migrate_tools = add_subparser(integrity_sub, "migrate-tools-v1-to-v2")
     migrate_tools.add_argument("--workspace-root", required=True)
     migrate_tools.add_argument("--acknowledge", action="store_true")
-    migrate_tools.add_argument("--reason", required=True)
+    migrate_tools.add_argument("--reason", required=True, type=_validate_reason)
     rollback_tools = add_subparser(integrity_sub, "rollback-tools-v2-to-v1")
     rollback_tools.add_argument("--from-backup", required=True)
     rollback_tools.add_argument("--acknowledge", action="store_true")
-    rollback_tools.add_argument("--reason", required=True)
+    rollback_tools.add_argument("--reason", required=True, type=_validate_reason)
     rollback_tools.add_argument("--force-discard-since-migration", action="store_true")
+
+    # Plan ARIA-V2 §3.8 — v2→v3 migration + idempotent umbrella bootstrap
+    # + reverse rollback. ``migrate-tools-bootstrap`` is the recommended
+    # operator entry point — it detects current contract version and
+    # chains the necessary steps to reach v3.
+    migrate_tools_v3 = add_subparser(integrity_sub, "migrate-tools-v2-to-v3")
+    migrate_tools_v3.add_argument("--workspace-root", required=True)
+    migrate_tools_v3.add_argument("--acknowledge", action="store_true")
+    migrate_tools_v3.add_argument("--reason", required=True, type=_validate_reason)
+    migrate_tools_boot = add_subparser(integrity_sub, "migrate-tools-bootstrap")
+    migrate_tools_boot.add_argument("--workspace-root", required=True)
+    migrate_tools_boot.add_argument("--acknowledge", action="store_true")
+    migrate_tools_boot.add_argument("--reason", required=True, type=_validate_reason)
+    rollback_tools_v3 = add_subparser(integrity_sub, "rollback-tools-v3-to-v2")
+    rollback_tools_v3.add_argument("--acknowledge", action="store_true")
+    rollback_tools_v3.add_argument("--reason", required=True, type=_validate_reason)
 
     tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
@@ -397,12 +482,19 @@ def _main(argv: list[str] | None = None) -> int:
     tool_list.add_argument("--status", default=None)
     tool_quarantine = add_subparser(tool_sub, "quarantine")
     tool_quarantine.add_argument("--tool-id", required=True)
-    tool_quarantine.add_argument("--reason", required=True)
+    tool_quarantine.add_argument("--reason", required=True, type=_validate_reason)
     tool_run = add_subparser(tool_sub, "run")
     tool_run.add_argument("--tool-id", required=True)
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+
+    registry_parser = add_subparser(sub, "registry")
+    registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
+    registry_compile = add_subparser(registry_sub, "compile")
+    registry_compile.add_argument("--adapters-dir", default="tools/aria-adapters")
+    registry_compile.add_argument("--output", default="aria-tools/registry.json")
+    registry_compile.add_argument("--check", action="store_true")
 
     # Plan 020 Phase 8.C — validation matrix CLI.
     matrix_parser = add_subparser(sub, "validation-matrix")
@@ -551,7 +643,29 @@ def _main(argv: list[str] | None = None) -> int:
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
     memory_withdraw = add_subparser(memory_sub, "withdraw")
     memory_withdraw.add_argument("--belief-id", required=True)
-    memory_withdraw.add_argument("--reason", required=True)
+    memory_withdraw.add_argument("--reason", required=True, type=_validate_reason)
+
+    # Plan ARIA-V2 §3.3 — operator-grade audited recovery surface.
+    # ``memory rebuild-fates`` re-hashes every FATES.files entry from
+    # current disk state and rewrites FATES.json with the new hashes;
+    # ``memory reset`` moves the entire memory dir to a backup path
+    # and re-bootstraps empty memory state. Both emit governance
+    # events with operator actor + reason; both gated by frozen-
+    # profile guard via the standard tool_governance surface.
+    memory_rebuild = add_subparser(memory_sub, "rebuild-fates")
+    add_workspace_args(memory_rebuild)
+    memory_rebuild.add_argument("--cycle-id", required=True)
+    memory_rebuild.add_argument("--reason", required=True, type=_validate_reason)
+    memory_rebuild.add_argument("--acknowledge", action="store_true")
+
+    memory_reset = add_subparser(memory_sub, "reset")
+    add_workspace_args(memory_reset)
+    memory_reset.add_argument("--reason", required=True, type=_validate_reason)
+    memory_reset.add_argument("--acknowledge", action="store_true")
+    memory_reset.add_argument("--backup-to", required=True,
+        help="Plan ARIA-V2 §3.3 — destination directory for the "
+             "pre-reset memory state. Must be operator-supplied; "
+             "no default to prevent accidental data loss.")
 
     pressure_parser = add_subparser(sub, "pressure")
     pressure_sub = pressure_parser.add_subparsers(dest="pressure_command", required=True)
@@ -605,7 +719,7 @@ def _main(argv: list[str] | None = None) -> int:
     worker_mark.add_argument("--by", required=True)
     worker_cancel = add_subparser(worker_sub, "cancel")
     worker_cancel.add_argument("pressure_event_id")
-    worker_cancel.add_argument("--reason", required=True)
+    worker_cancel.add_argument("--reason", required=True, type=_validate_reason)
 
     # Plan 025 §D — autonomous scheduler family. ``planner-dispatch``
     # runs the in-kernel daemon that polls next_pending_request and
@@ -651,6 +765,24 @@ def _main(argv: list[str] | None = None) -> int:
     wd_run.add_argument("--max-workers", type=int, default=1)
     wd_run.add_argument("--lease-seconds", type=int, default=1800)
 
+    # V10.5 Phase 1 (per ADR-0002) — ARIA-Watchdog read-only observer daemon.
+    # Mirror of planner-dispatch/worker-dispatch shape (fcntl lock, ARIA_STOP,
+    # max_iterations, exit_reason taxonomy). Per-tick: read governance.jsonl +
+    # autonomy_state.jsonl, run 2 MVP detectors (stall + bridge_warning_repeat),
+    # emit sanitized findings via finding.emit_finding through the
+    # ORIGINATING_SKILL_ALLOWLIST gate. NO state mutation.
+    watchdog_parser = add_subparser(scheduler_sub, "watchdog")
+    watch_sub = watchdog_parser.add_subparsers(
+        dest="watchdog_command", required=True,
+    )
+    watch_run = add_subparser(watch_sub, "run")
+    add_workspace_args(watch_run)
+    watch_run.add_argument("--max-iterations", type=int, default=None)
+    watch_run.add_argument(
+        "--poll-interval-seconds", type=float, default=60.0,
+    )
+    watch_run.add_argument("--daemon-id", default="aria-watchdog")
+
     worktree_prune_parser = add_subparser(sub, "worktree-prune")
     add_workspace_args(worktree_prune_parser)
     worktree_prune_parser.add_argument("--acknowledge", action="store_true")
@@ -676,6 +808,29 @@ def _main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Skip the best-effort origin fetch (offline mode).",
     )
+
+    # Plan ARIA-V2 §3.9 + I-26 — daily report anchor CLI. Replaces the
+    # heredoc stub in aria-daily-report.yml with an audit-trust anchor
+    # that records governance.jsonl tail hash, sealed cycle IDs, and
+    # integrity_index_chain_root for the day. Committed daily anchor
+    # files become the audit-trust source after Phase 5 gitignored
+    # per-clone runtime ledgers.
+    report_parser = add_subparser(sub, "report",
+        help="Plan ARIA-V2 §3.9 — daily chain-tip anchor + audit reports.")
+    report_sub = report_parser.add_subparsers(dest="report_command", required=True)
+    rep_daily = add_subparser(report_sub, "daily",
+        help="Generate the daily chain-tip anchor and write it to a markdown file.")
+    rep_daily.add_argument("--emit-anchor", action="store_true",
+                            help="Write the YAML-frontmatter anchor to --output-path.")
+    rep_daily.add_argument("--date", required=True,
+                            help="YYYY-MM-DD (UTC) — date the anchor covers.")
+    rep_daily.add_argument("--output-path", required=True,
+                            help="Target markdown path under aria-tools/reports/daily/.")
+    rep_daily.add_argument("--workspace-root", default=".")
+    # ``--tools-dir`` is inherited from _TOOLS_DIR_PARENT (Plan 024 §F);
+    # ``add_subparser`` funnels every subcommand through that parent so
+    # an explicit add_argument here would collide. The handler reads
+    # ``args.tools_dir`` directly.
 
     agent_report_parser = add_subparser(sub, "agent-report")
     agent_report_sub = agent_report_parser.add_subparsers(dest="agent_report_command", required=True)
@@ -848,7 +1003,7 @@ def _main(argv: list[str] | None = None) -> int:
     )
     a_release.add_argument("--claim-id", required=True)
     a_release.add_argument("--agent-id", required=True)
-    a_release.add_argument("--reason", required=True)
+    a_release.add_argument("--reason", required=True, type=_validate_reason)
     # Plan 026R §B.1 — lease-bound release. The raw lease_token must
     # arrive via an environment variable (NEVER argv — argv is logged in
     # most CI/journald setups and would leak the token). Mirrors the
@@ -880,7 +1035,14 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(a_submit)
     a_submit.add_argument("--claim-id", required=True)
     a_submit.add_argument("--agent-id", required=True)
-    a_submit.add_argument("--lease-token", required=True)
+    a_submit.add_argument("--lease-token", required=False, default=None)
+    a_submit.add_argument(
+        "--lease-token-from-env",
+        required=False,
+        default=None,
+        metavar="ENV_VAR_NAME",
+        help="Name of an environment variable that holds the lease_token.",
+    )
     a_submit.add_argument("--output-path", required=True)
 
     a_reap = add_subparser(agent_sub, 
@@ -1154,6 +1316,115 @@ def _main(argv: list[str] | None = None) -> int:
         "--daemon-id", default="autonomy",
         help="fcntl single-instance lock id (default: autonomy).",
     )
+    # Plan ARIA-V7 §3 V7.7 — cycle deadline watchdog CLI flag.
+    auto_run.add_argument(
+        "--cycle-deadline-seconds", type=float, default=1800.0,
+        help="Per-cycle wall-clock deadline (default 1800s = 30 min). "
+             "When exceeded, orchestrator emits cycle_deadline_exceeded "
+             "phase + writes ARIA_STOP to halt the autonomy loop cleanly. "
+             "Set lower (e.g. 60) to verify the V7 phase progression "
+             "quickly without polling for Gate A/B/C consumer envelopes.",
+    )
+    # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — challenger-timeout + max-rounds
+    # + max-budget-usd-per-run exposed for operator tuning. Default
+    # numerics come from convergence_drainer.run_convergence_drainer
+    # signature + budget.DEFAULT_MAX_BUDGET_USD_PER_RUN.
+    auto_run.add_argument(
+        "--challenger-timeout-seconds", type=float, default=300.0,
+        help="Per-poll budget for state-machine waits inside "
+             "convergence_drainer (default 300s). Used by round-1 "
+             "challenger + cross_review polls and round-2+ revision "
+             "polls. Lower for fast smoke; raise for slow LLMs.",
+    )
+    auto_run.add_argument(
+        "--max-rounds", type=int, default=2,
+        help="Max convergence rounds per plan (default 2 for "
+             "autonomous cycles). Reduced from V5.1 default 4 because "
+             "V8 P+C+CR multiplies LLM cost per round.",
+    )
+    auto_run.add_argument(
+        "--max-budget-usd-per-run", type=float, default=20.00,
+        help="Per-run LLM budget cap in USD (default $20.00 — V8 era; "
+             "V9 v3 plan acceptance gate raises to $45 for 20-cycle "
+             "endurance because V9 implementer call adds ~$0.40/cycle "
+             "to V8's ~$0.70 baseline). convergence_drainer reserves "
+             "per-cycle estimate before minting envelopes; "
+             "ci_executor reconciles actual cost from response "
+             "usage block. Cap exhausted mid-cycle emits "
+             "budget_exhausted arbiter_verdict.",
+    )
+    # Plan ARIA-V9.7 — per-cycle hard cap kill-switch (ai HIGH-013).
+    # Per-cycle reservation; cycle that would exceed kills at next
+    # turn boundary, not after the turn completes (so refund/reserve
+    # discipline holds). $1.50 default = 20-cycle target $30 + 50%
+    # headroom.
+    auto_run.add_argument(
+        "--max-budget-usd-per-cycle", type=float, default=1.50,
+        help="Per-cycle LLM hard cap kill-switch in USD (default "
+             "$1.50). Cycle that would exceed: kernel emits "
+             "cycle_budget_exhausted refusal at next turn boundary. "
+             "Combined with --max-budget-usd-per-run, the two caps "
+             "bound both a single runaway cycle AND a slowly-creeping "
+             "run that accumulates over many small cycles. Closes "
+             "ai-safety HIGH-013 + perf CRIT-001.",
+    )
+    # Plan ARIA-V9.7 + V3.1-E — autonomous-profile precondition gate
+    # (ai MED-016 + 6-validator audit C-2 SOC2). All 5 PROFILES are
+    # available as choices; the CLI delegates the actual SOC2 audit
+    # row to `set_profile()` so every `--profile` override that
+    # differs from the persisted active profile produces a
+    # `runtime_profile_changed` governance event.
+    #
+    # default=None routes to the persisted profile resolved via
+    # `get_profile(base_dir=args.tools_dir)`. The CLI sets profile
+    # explicitly only when the operator passes the flag — this
+    # preserves V8 behavior (no flag → respect persisted state)
+    # while keeping the V3.1-E SSoT semantics (the orchestrator
+    # body receives a non-None value either way).
+    auto_run.add_argument(
+        "--profile", choices=list(PROFILES),
+        default=None,
+        help="Autonomy profile (default: strict). 'autonomous' "
+             "REQUIRES `--operator-approval-ref <ref>` and triggers "
+             "preflight.verify_preflight fail-fast on any failure "
+             "class. 'strict' soft-warns on preflight failure. "
+             "'standard'/'observe'/'frozen' skip preflight + run the "
+             "cycle under the profile's action-permission set. The "
+             "CLI flag itself overrides the persisted profile via "
+             "set_profile() so the runtime-profile-history.jsonl "
+             "audit row records the operator gesture (closes "
+             "6-validator audit C-2 SOC2 gap). Operator runbook "
+             "docs/runbooks/aria-github-app-setup.md documents Mode A "
+             "setup for the autonomous profile.",
+    )
+    # Plan ARIA-V3.1-E (E1) — required operator-approval-ref when the
+    # CLI override transitions TO `autonomous`. argparse rejects
+    # `--profile autonomous` without this flag.
+    auto_run.add_argument(
+        "--operator-approval-ref", default=None,
+        help="Operator approval reference recorded in runtime-profile-"
+             "history.jsonl when the CLI flag overrides the persisted "
+             "profile. REQUIRED when `--profile autonomous` is "
+             "specified — argparse fails fast on omission. For other "
+             "profiles, defaults to `cli-flag:<runid>` so every CLI "
+             "transition still produces an audit row (closes C-2 "
+             "SOC2 gap; matches set_profile() control-plane contract).",
+    )
+    # Plan ARIA-V3.1-E (E1) + B-9 — distinct V9 implementer poll
+    # budget. Separate from --challenger-timeout-seconds (which
+    # gates the convergence_drainer round-poll wait); the V9
+    # implementation phase has its own wall-clock budget
+    # (CONVERGED → PR-merge typically <30min).
+    auto_run.add_argument(
+        "--implementer-poll-seconds", type=float, default=1800.0,
+        help="V9 implementer phase wall-clock budget in seconds "
+             "(default 1800s = 30 min). Distinct from "
+             "--challenger-timeout-seconds (which gates the inner "
+             "convergence_drainer round-poll). Used by the V3.1-B "
+             "AutonomousV9ImplementationRunner to bound the "
+             "CONVERGED→PR-merge polling window. Closes HIGH-13 "
+             "poll-budget conflation.",
+    )
     auto_run.add_argument(
         "--output", choices=["summary", "full"], default="summary",
         help="Print bounded v2 summary by default; full requires --artifact.",
@@ -1241,7 +1512,7 @@ def _main(argv: list[str] | None = None) -> int:
     hr_record = add_subparser(hr_sub, "record")
     hr_record.add_argument("--request-id", required=True)
     hr_record.add_argument("--severity", default=None)
-    hr_record.add_argument("--reason", required=True)
+    hr_record.add_argument("--reason", required=True, type=_validate_reason)
     hr_list = add_subparser(hr_sub, "list")
     hr_list.add_argument("--include-resolved", action="store_true")
     hr_resolve = add_subparser(hr_sub, "resolve")
@@ -1260,6 +1531,97 @@ def _main(argv: list[str] | None = None) -> int:
     c_run.add_argument("--tool-id", required=True)
     c_run.add_argument("--cycle-id", default=None)
     c_run.add_argument("--min-confidence", type=float, default=None)
+
+    # Plan ARIA-V3 §A5 — ack ledger CLI surface. ``ack init`` + ``ack
+    # mint`` + ``ack rotate-key`` + ``ack revoke-key`` + ``ack verify``
+    # + ``ack list-keys``. The HMAC key custody runbook lives at
+    # docs/runbooks/aria-ack-key-rotation.md (Phase A0 deliverable).
+    ack_parser = add_subparser(sub, "ack")
+    ack_sub = ack_parser.add_subparsers(dest="ack_command", required=True)
+    ack_init = add_subparser(ack_sub, "init",
+        help="Mint the first HMAC key (Plan ARIA-V3 §A5).")
+    ack_init.add_argument("--reason", required=True, type=_validate_reason)
+    ack_init.add_argument("--operator-approval-ref", required=True)
+    ack_init.add_argument("--force", action="store_true",
+        help="DR-regenerate over an existing key (see runbook §4).")
+    ack_mint = add_subparser(ack_sub, "mint",
+        help="Operator-mint an ack token for a materialize.")
+    ack_mint.add_argument("--draft-id", required=True)
+    ack_mint.add_argument("--intent-id", required=True)
+    ack_mint.add_argument("--target-path", required=True)
+    ack_mint.add_argument("--kind", required=True, choices=["agent", "skill"])
+    ack_mint.add_argument("--reason", required=True, type=_validate_reason)
+    ack_mint.add_argument("--operator-approval-ref", required=True)
+    ack_mint.add_argument("--operator-user-id", required=True)
+    ack_mint.add_argument("--profile-state", default="standard")
+    ack_mint.add_argument("--commit-sha", default="HEAD")
+    ack_mint.add_argument("--parent-observation-id", default=None)
+    ack_rotate = add_subparser(ack_sub, "rotate-key",
+        help="Append a new HMAC key, retire the previous head.")
+    ack_rotate.add_argument("--reason", required=True, type=_validate_reason)
+    ack_rotate.add_argument("--operator-approval-ref", required=True)
+    ack_rotate.add_argument("--emergency", action="store_true",
+        help="Mark as emergency rotation (separate audit event).")
+    ack_verify = add_subparser(ack_sub, "verify",
+        help="Recompute HMAC over the rolling key list for last N rows.")
+    ack_verify.add_argument("--range", default="last-50",
+        help="``last-N`` or ``full``.")
+    ack_list_keys = add_subparser(ack_sub, "list-keys",
+        help="Print the rolling key list (secrets redacted).")
+
+    # Plan ARIA-V4 §2e — inter-agent question envelope CLI surface.
+    # ``aria-kernel question ask`` / ``answer`` / ``list``.
+    question_parser = add_subparser(sub, "question")
+    question_sub = question_parser.add_subparsers(
+        dest="question_command", required=True,
+    )
+    q_ask = add_subparser(question_sub, "ask",
+        help="Emit aria/agent-question/v1 row (Plan ARIA-V4 §2e).")
+    q_ask.add_argument("--asker-agent-id", required=True)
+    q_ask.add_argument("--target-agent-id", required=True)
+    q_ask.add_argument(
+        "--question-kind", required=True,
+        choices=["tier_classification", "extrapolation_check", "invariant_grounding"],
+    )
+    q_ask.add_argument("--rule-text", required=True, type=_validate_reason)
+    q_ask.add_argument(
+        "--hypothesised-tier", required=True, type=int,
+        choices=[1, 2, 3],
+    )
+    q_ask.add_argument(
+        "--evidence-ref", required=True, action="append",
+        help="file:line OR SPEC.md§X.Y — pass multiple times.",
+    )
+    q_ask.add_argument("--cycle-id", required=True)
+    q_answer = add_subparser(question_sub, "answer",
+        help="Emit aria/agent-question-response/v1 row.")
+    q_answer.add_argument("--question-id", required=True)
+    q_answer.add_argument("--answerer-agent-id", required=True)
+    q_answer.add_argument(
+        "--verdict", required=True,
+        choices=["agreed", "disagreed", "refused"],
+    )
+    q_answer.add_argument(
+        "--answered-tier", type=int, choices=[1, 2, 3], default=None,
+        help="Required when verdict in {agreed, disagreed}.",
+    )
+    q_answer.add_argument(
+        "--rationale", default="",
+        type=lambda s: _validate_reason(s) if s else "",
+    )
+    q_answer.add_argument(
+        "--counter-evidence-ref", action="append", default=[],
+    )
+    q_answer.add_argument(
+        "--refusal-reason", default=None,
+        choices=["scope", "evidence", "envelope", "operator_required"],
+    )
+    q_answer.add_argument("--cycle-id", required=True)
+    q_list = add_subparser(question_sub, "list",
+        help="List questions with optional filters.")
+    q_list.add_argument("--cycle-id", default=None)
+    q_list.add_argument("--asker-agent-id", default=None)
+    q_list.add_argument("--target-agent-id", default=None)
 
     agent_genesis_parser = add_subparser(sub, "agent-genesis")
     agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
@@ -1280,16 +1642,64 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(ag_materialize)
     ag_materialize.add_argument("--draft-id", required=True)
     ag_materialize.add_argument("--assignment-id", required=True)
-    ag_materialize.add_argument("--acknowledge", action="store_true")
+    # Plan ARIA-V3 §A4 + §2k — pre-V3 ``--acknowledge`` flag REMOVED.
+    # Operators MUST first mint an ack token via
+    # ``aria-kernel ack mint --draft-id ... --reason ...`` then pass
+    # the returned ``ack_id`` via ``--ack-token``.
+    ag_materialize.add_argument(
+        "--ack-token", required=True,
+        help="ack_id minted via `aria-kernel ack mint` (Plan ARIA-V3 §A5).",
+    )
     ag_materialize.add_argument("--run-invariants", action="store_true")
     ag_list = add_subparser(agent_genesis_sub, "list")
     ag_list.add_argument("--materializations", action="store_true")
+
+    # Plan ARIA-V6 §3 V6.5 (C5) — specialist-review dry-run for CI
+    # validation of the Lane-A inventory + role mapping.
+    specialist_review_parser = add_subparser(sub, "specialist-review")
+    specialist_review_sub = specialist_review_parser.add_subparsers(
+        dest="specialist_review_command", required=True,
+    )
+    sr_dry = add_subparser(specialist_review_sub, "dry-run")
+    sr_dry.add_argument(
+        "--agents-dir", default=".claude/agents",
+        help="Path to the .claude/agents directory (default: relative)",
+    )
+    sr_dry.add_argument(
+        "--strict", action="store_true",
+        help="Exit non-zero on inventory drift. C5 ships warn-mode "
+             "by default (--strict flip is a separate commit once "
+             "the Lane-A inventory is fully populated).",
+    )
 
     skill_genesis_parser = add_subparser(sub, "skill-genesis")
     skill_genesis_sub = skill_genesis_parser.add_subparsers(dest="skill_genesis_command", required=True)
     sg_request = add_subparser(skill_genesis_sub, "request")
     sg_request.add_argument("--capability-gap-key", required=True)
     sg_request.add_argument("--title", required=True)
+    # Plan ARIA-V6 §2d v2 — convergent authoring opt-in.
+    sg_request.add_argument(
+        "--convergent", action="store_true",
+        help="Route through convergent_skill_authoring loop (V6.2). "
+             "Requires --seed-file with the F-012-adapter-seeds.jsonl "
+             "row contents.",
+    )
+    sg_request.add_argument(
+        "--seed-file", default=None,
+        help="Path to a JSON file containing the seed dict "
+             "(declared_scope, claim_types, must_satisfy, "
+             "calibration_corpus_path, adapter_lang). Required with "
+             "--convergent.",
+    )
+    # Plan ARIA-V6 §2d v2 C3 — batch-mint convergent requests.
+    sg_seed = add_subparser(skill_genesis_sub, "seed")
+    sg_seed.add_argument("--from", dest="seeds_path", required=True,
+                         help="Path to F-012-adapter-seeds.jsonl")
+    sg_seed.add_argument(
+        "--convergent", action="store_true",
+        help="Mint each seed row as a convergent request. Required "
+             "for V6.2 routing.",
+    )
     sg_draft = add_subparser(skill_genesis_sub, "draft")
     sg_draft.add_argument("--request-id", required=True)
     sg_draft.add_argument("--name", required=True)
@@ -1310,7 +1720,11 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(sg_materialize)
     sg_materialize.add_argument("--draft-id", required=True)
     sg_materialize.add_argument("--assignment-id", required=True)
-    sg_materialize.add_argument("--acknowledge", action="store_true")
+    # Plan ARIA-V3 §A4 + §2k — pre-V3 ``--acknowledge`` flag REMOVED.
+    sg_materialize.add_argument(
+        "--ack-token", required=True,
+        help="ack_id minted via `aria-kernel ack mint` (Plan ARIA-V3 §A5).",
+    )
     sg_materialize.add_argument("--run-invariants", action="store_true")
     sg_list = add_subparser(skill_genesis_sub, "list")
     sg_list.add_argument("--kind", choices=["requests", "drafts", "sandbox", "materializations"], default="drafts")
@@ -1321,6 +1735,8 @@ def _main(argv: list[str] | None = None) -> int:
     worker_result_submit.add_argument("--assignment-id", default=None)
     worker_result_submit.add_argument("--from-worktree", required=True)
     worker_result_submit.add_argument("--validation-command", action="append", default=[])
+    worker_result_submit.add_argument("--lease-token-from-env", default=None, metavar="ENV_VAR_NAME",
+                                      help="Name of an environment variable that holds the worker lease_token.")
     worker_result_submit.add_argument("--lease-token", default=None)
     worker_result_submit.add_argument("--allow-legacy-no-token", action="store_true")
 
@@ -1340,26 +1756,46 @@ def _main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    # Plan 024 §F — post-parse path resolution + required-validation.
-    # (a) ENV var fallback: ARIA_TOOLS_DIR is the zero-effort default
-    #     when neither flag position carried a value. We always set
-    #     args.tools_dir on the Namespace (even to None) so downstream
-    #     dispatch sites can call args.tools_dir without AttributeError;
-    #     downstream resolvers (e.g. tool_registry.tools_dir(None))
-    #     already handle None by falling back to "aria-tools".
-    # (b) Required-validation: 2 commands genuinely require operator-
-    #     supplied --tools-dir (integrity migrate/rollback). Validation
-    #     in a single dict avoids 89 per-callsite required=True flags.
-    if not getattr(args, "tools_dir", None):
-        env_default = os.environ.get("ARIA_TOOLS_DIR")
-        args.tools_dir = env_default if env_default else None
-
+    # Plan 024 §F + Plan ARIA-V3.3 §2a — post-parse path resolution +
+    # required-validation. Resolution order at CLI entry:
+    #   1. --tools-dir flag (already parsed by argparse if passed)
+    #   2. ARIA_TOOLS_DIR env var
+    #   3. Walk-up from cwd to <ancestor>/aria-tools/repo_identity.json
+    # The required-commands check uses ONLY paths (1)+(2). Destructive
+    # integrity migrations refuse to accept a walk-up-discovered tools
+    # dir because the operator MUST name the target explicitly — a
+    # walk-up resolution would silently rollback whatever tools dir
+    # happened to be on the ancestor chain. Walk-up is a soft default
+    # for normal commands, not a substitute for explicit operator
+    # intent on destructive paths.
+    # Pre-V3.3, downstream ``tools_dir(None)`` silently fell back to
+    # ``Path("aria-tools")`` (CWD-relative), creating shadow
+    # ``aria-kernel/aria-tools/`` trees when the kernel was invoked
+    # from inside the aria-kernel subdir. V3.3 adds step (3) at the
+    # CLI boundary so args.tools_dir is either an absolute path or
+    # None, never a relative literal. If args.tools_dir remains None
+    # and the command needs a tools root, downstream
+    # tool_registry.tools_dir() raises ``tools_root_unresolvable``
+    # with the bootstrap remediation pointer.
     cmd_path = _command_path(args)
-    if cmd_path in _TOOLS_DIR_REQUIRED_COMMANDS and not args.tools_dir:
+    explicit_or_env = (
+        getattr(args, "tools_dir", None)
+        or os.environ.get("ARIA_TOOLS_DIR")
+    )
+    if cmd_path in _TOOLS_DIR_REQUIRED_COMMANDS and not explicit_or_env:
         parser.error(
             f"--tools-dir is required for command {' '.join(cmd_path)} "
             f"(or set ARIA_TOOLS_DIR env var)"
         )
+
+    if getattr(args, "tools_dir", None):
+        args.tools_dir = str(Path(args.tools_dir).resolve())
+    elif os.environ.get("ARIA_TOOLS_DIR"):
+        args.tools_dir = str(Path(os.environ["ARIA_TOOLS_DIR"]).resolve())
+    else:
+        from .tool_registry import _walk_up_to_bound_identity
+        discovered = _walk_up_to_bound_identity(Path.cwd())
+        args.tools_dir = str(discovered) if discovered is not None else None
 
     legacy_pressure_explain = (
         args.command == "pressure"
@@ -1476,6 +1912,35 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
+    if args.command == "integrity" and args.integrity_command == "migrate-tools-v2-to-v3":
+        result = migrate_tools_v2_to_v3(
+            tools_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            acknowledge=args.acknowledge,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "integrity" and args.integrity_command == "migrate-tools-bootstrap":
+        result = migrate_tools_bootstrap(
+            tools_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            acknowledge=args.acknowledge,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "integrity" and args.integrity_command == "rollback-tools-v3-to-v2":
+        result = rollback_tools_v3_to_v2(
+            tools_dir=args.tools_dir,
+            acknowledge=args.acknowledge,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "tool" and args.tool_command == "register":
         payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
         print(json.dumps(register_tool(payload, base_dir=args.tools_dir), indent=2, sort_keys=True))
@@ -1502,6 +1967,24 @@ def _main(argv: list[str] | None = None) -> int:
         # can pattern-match exit code for failure detection.
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
+
+    if args.command == "registry" and args.registry_command == "compile":
+        try:
+            result = compile_registry(
+                adapters_dir=args.adapters_dir,
+                output=args.output,
+                check=args.check,
+            )
+        except GovernanceError as exc:
+            print(json.dumps({"status": "failed", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps({
+            "status": "ok",
+            "tool_count": len(result.get("tools", [])),
+            "output": args.output,
+            "check": bool(args.check),
+        }, indent=2, sort_keys=True))
+        return 0
 
     # Plan 020 Phase 8.C — validation matrix CLI dispatch.
     if args.command == "validation-matrix" and args.validation_matrix_command == "check":
@@ -1721,6 +2204,30 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(withdraw_belief(belief_id=args.belief_id, reason=args.reason, base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
 
+    if args.command == "memory" and args.memory_command == "rebuild-fates":
+        result = rebuild_fates(
+            cycle_id=args.cycle_id,
+            workspace_root=args.workspace_root,
+            workspace_base=args.workspace_base,
+            base_dir=args.tools_dir,
+            reason=args.reason,
+            acknowledge=args.acknowledge,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "memory" and args.memory_command == "reset":
+        result = reset_memory(
+            workspace_root=args.workspace_root,
+            workspace_base=args.workspace_base,
+            backup_to=args.backup_to,
+            base_dir=args.tools_dir,
+            reason=args.reason,
+            acknowledge=args.acknowledge,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "pressure" and args.pressure_command == "explain":
         if args.cycle_id and args.pressure_id:
             print(json.dumps(explain_pressure(cycle_id=args.cycle_id, pressure_id=args.pressure_id, base_dir=args.tools_dir), indent=2, sort_keys=True))
@@ -1873,19 +2380,60 @@ def _main(argv: list[str] | None = None) -> int:
     ):
         # Plan 025 §E — autonomous worker scheduler daemon entry.
         # Mirrors the planner-dispatch wiring above.
+        # Plan ARIA-V3 §A2 — github_adapter is REQUIRED. Factory
+        # derives Recording (observe/standard/frozen) vs GhCli
+        # (strict/autonomous) from the runtime profile.
         from .autonomous_worker_scheduler import run_worker_scheduler_daemon
+        from .github_adapters import select_github_adapter
+        # Plan ARIA-V3.1 §2a — ``get_profile`` is imported at module
+        # level (line 105). A nested re-import here previously made
+        # ``get_profile`` LOCAL to ``_main`` for the WHOLE function
+        # body (Python scoping rule), which silently broke earlier
+        # callsites at line 1841/1850/1853 with UnboundLocalError.
         workspace = (
             paths.repo_root if paths is not None
             else Path(args.workspace_root).resolve()
         )
+        profile = get_profile(base_dir=args.tools_dir)
+        github_adapter = select_github_adapter(
+            profile=profile, base_dir=args.tools_dir, cwd=str(workspace),
+        )
         result = run_worker_scheduler_daemon(
             base_dir=args.tools_dir,
+            github_adapter=github_adapter,
             workspace_root=workspace,
             max_iterations=args.max_iterations,
             poll_interval_seconds=args.poll_interval_seconds,
             daemon_id=args.daemon_id,
             max_workers=args.max_workers,
             lease_seconds=args.lease_seconds,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("exits_clean") else 1
+
+    if (
+        args.command == "scheduler"
+        and args.scheduler_command == "watchdog"
+        and args.watchdog_command == "run"
+    ):
+        # V10.5 Phase 1 (per ADR-0002) — ARIA-Watchdog read-only observer
+        # daemon entry. Mirror of planner-dispatch/worker-dispatch shape
+        # (fcntl lock, ARIA_STOP, max_iterations, exit_reason taxonomy).
+        # Per-tick: read governance.jsonl + autonomy_state.jsonl, run
+        # 2 MVP detectors (stall + bridge_warning_repeat), emit sanitized
+        # findings via finding.emit_finding through ORIGINATING_SKILL_ALLOWLIST
+        # gate. NO state mutation; observer-only.
+        from .aria_watchdog import run_aria_watchdog_daemon
+        workspace = (
+            paths.repo_root if paths is not None
+            else Path(args.workspace_root).resolve()
+        )
+        result = run_aria_watchdog_daemon(
+            workspace_root=workspace,
+            tools_dir=args.tools_dir,
+            max_iterations=args.max_iterations,
+            poll_interval_seconds=args.poll_interval_seconds,
+            daemon_id=args.daemon_id,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("exits_clean") else 1
@@ -1910,6 +2458,28 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("gate_pass") else 1
+
+    # Plan ARIA-V2 §3.9 + I-26 — daily report anchor handler.
+    if args.command == "report" and args.report_command == "daily":
+        if not args.emit_anchor:
+            raise SystemExit(
+                "aria-kernel report daily currently requires --emit-anchor "
+                "(future flags will add --diff and --aggregate variants)."
+            )
+        from aria_kernel.report import emit_anchor_to_path
+        workspace_root = Path(args.workspace_root).resolve()
+        if args.tools_dir:
+            tools_root = Path(args.tools_dir).resolve()
+        else:
+            tools_root = workspace_root / "aria-tools"
+        result = emit_anchor_to_path(
+            date=args.date,
+            workspace_root=workspace_root,
+            tools_root=tools_root,
+            output_path=Path(args.output_path).resolve(),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "agent-report" and args.agent_report_command == "scan-registry":
         require_workspace_v2(paths)
@@ -2148,10 +2718,32 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
         if args.agent_command == "submit-result":
             workspace = paths.repo_root if paths is not None else Path(args.workspace_root).resolve()
+            lease_token = args.lease_token
+            if args.lease_token_from_env:
+                env_value = os.environ.get(args.lease_token_from_env)
+                if not env_value:
+                    print(
+                        f"lease-token-from-env: env var {args.lease_token_from_env!r} is not set",
+                        file=sys.stderr,
+                    )
+                    return 2
+                if lease_token is not None:
+                    print(
+                        "--lease-token and --lease-token-from-env are mutually exclusive",
+                        file=sys.stderr,
+                    )
+                    return 2
+                lease_token = env_value
+            if not lease_token:
+                print(
+                    "submit-result requires --lease-token or --lease-token-from-env",
+                    file=sys.stderr,
+                )
+                return 2
             result = submit_claim_result(
                 claim_id=args.claim_id,
                 agent_id=args.agent_id,
-                lease_token=args.lease_token,
+                lease_token=lease_token,
                 output_path=args.output_path,
                 workspace_root=workspace,
                 base_dir=args.tools_dir,
@@ -2683,6 +3275,118 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
+    # Plan ARIA-V3 §A5 — ack ledger dispatch.
+    if args.command == "ack":
+        from .ack_ledger import (
+            init_ack_ledger,
+            list_keys,
+            mint_operator_ack,
+            rotate_key,
+            verify_range,
+        )
+        if args.ack_command == "init":
+            result = init_ack_ledger(
+                base_dir=args.tools_dir,
+                reason=args.reason,
+                operator_approval_ref=args.operator_approval_ref,
+                force=args.force,
+            )
+        elif args.ack_command == "mint":
+            row = mint_operator_ack(
+                base_dir=args.tools_dir,
+                draft_id=args.draft_id,
+                intent_id=args.intent_id,
+                target_path=args.target_path,
+                kind=args.kind,
+                reason=args.reason,
+                operator_user_id=args.operator_user_id,
+                profile_name=args.profile_state,
+                profile_state_at_mint=args.profile_state,
+                commit_sha_at_mint=args.commit_sha,
+                parent_observation_id=args.parent_observation_id,
+            )
+            result = row.to_dict()
+        elif args.ack_command == "rotate-key":
+            result = rotate_key(
+                base_dir=args.tools_dir,
+                reason=args.reason,
+                operator_approval_ref=args.operator_approval_ref,
+                emergency=args.emergency,
+            )
+        elif args.ack_command == "verify":
+            raw_range = (args.range or "").strip()
+            last_n: int | None
+            if raw_range == "full":
+                last_n = None
+            elif raw_range.startswith("last-"):
+                try:
+                    last_n = int(raw_range[len("last-"):])
+                except ValueError:
+                    parser.error(
+                        f"--range must be 'full' or 'last-N'; got {raw_range!r}"
+                    )
+                    return 2
+            else:
+                parser.error(
+                    f"--range must be 'full' or 'last-N'; got {raw_range!r}"
+                )
+                return 2
+            result = verify_range(base_dir=args.tools_dir, last_n=last_n)
+        elif args.ack_command == "list-keys":
+            result = {"keys": list_keys(base_dir=args.tools_dir)}
+        else:
+            parser.error("unknown ack command")
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    # Plan ARIA-V4 §2e — inter-agent question envelope dispatch.
+    if args.command == "question":
+        from .agent_question import (
+            answer as question_answer,
+            ask as question_ask,
+            list_questions,
+        )
+        if args.question_command == "ask":
+            question = question_ask(
+                base_dir=args.tools_dir,
+                asker_agent_id=args.asker_agent_id,
+                target_agent_id=args.target_agent_id,
+                question_kind=args.question_kind,
+                rule_text=args.rule_text,
+                hypothesised_tier=args.hypothesised_tier,
+                evidence_refs=args.evidence_ref,
+                cycle_id=args.cycle_id,
+            )
+            result = question.to_dict()
+        elif args.question_command == "answer":
+            response = question_answer(
+                base_dir=args.tools_dir,
+                question_id=args.question_id,
+                answerer_agent_id=args.answerer_agent_id,
+                answered_tier=args.answered_tier,
+                rationale=args.rationale,
+                counter_evidence_refs=args.counter_evidence_ref,
+                verdict=args.verdict,
+                refusal_reason=args.refusal_reason,
+                cycle_id=args.cycle_id,
+            )
+            result = response.to_dict()
+        elif args.question_command == "list":
+            result = {
+                "questions": list_questions(
+                    base_dir=args.tools_dir,
+                    cycle_id=args.cycle_id,
+                    asker_agent_id=args.asker_agent_id,
+                    target_agent_id=args.target_agent_id,
+                ),
+            }
+        else:
+            parser.error("unknown question command")
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "agent-genesis":
         if args.agent_genesis_command == "draft":
             result = draft_agent_from_gap(gap_id=args.gap_id, base_dir=args.tools_dir)
@@ -2707,13 +3411,36 @@ def _main(argv: list[str] | None = None) -> int:
                 cycle_id=args.cycle_id,
             )
         elif args.agent_genesis_command == "materialize":
+            # Plan ARIA-V3 §A4 — construct AutoActionGate from the
+            # current runtime profile + lane + classifier; consume
+            # the operator-minted ack token via the gate's unified
+            # path.
+            #
+            # Plan ARIA-V3.1 §2a — ``get_profile`` is module-level
+            # imported at line 105; the previous nested re-import
+            # of ``get_profile`` was redundant AND shadowed the
+            # module-level binding for the entire ``_main`` body,
+            # silently breaking earlier callsites at lines 1841 /
+            # 1850 / 1853 with UnboundLocalError.
+            from .auto_action_gate import (
+                ClassifierDecision,
+                gate_from_policy,
+            )
+            current_profile = get_profile(base_dir=args.tools_dir)
+            v3_gate = gate_from_policy(
+                base_dir=args.tools_dir,
+                profile=current_profile,
+                lane=None,
+                classifier=ClassifierDecision(passed=True),
+            )
             result = materialize_agent_draft(
                 draft_id=args.draft_id,
                 assignment_id=args.assignment_id,
                 workspace_root=args.workspace_root,
+                gate=v3_gate,
                 base_dir=args.tools_dir,
-                acknowledge=args.acknowledge,
                 run_invariants=args.run_invariants,
+                ack_id=args.ack_token,
             )
         elif args.agent_genesis_command == "list":
             result = list_agent_materializations(base_dir=args.tools_dir) if args.materializations else list_agent_drafts(base_dir=args.tools_dir)
@@ -2722,9 +3449,90 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if not isinstance(result, dict) or result.get("status") != "rejected" else 1
 
+    if args.command == "specialist-review":
+        if args.specialist_review_command == "dry-run":
+            from .specialist_review_runner import (
+                _CROSS_CUTTING_SPECIALISTS,
+                _DOMAIN_TOUCH_MAP,
+                _TIER_1_SPECIALISTS,
+            )
+            from .agent_invocations import ROLES
+            agents_dir = Path(args.agents_dir).resolve()
+            inventory_findings: list[dict[str, Any]] = []
+            # Verify every specialist named in the touch-map exists as
+            # an agent .md file under .claude/agents.
+            all_specialists: set[str] = set(_CROSS_CUTTING_SPECIALISTS)
+            for agents in _DOMAIN_TOUCH_MAP.values():
+                all_specialists.update(agents)
+            all_specialists.update(_TIER_1_SPECIALISTS)
+            for agent_name in sorted(all_specialists):
+                if ":" in agent_name:
+                    # Plugin-namespaced agents (e.g. "frontend-mobile-
+                    # development:mobile-developer") live under a
+                    # different discovery path; skip filesystem check
+                    # for them at C5 warn-mode.
+                    continue
+                md_path = agents_dir / f"{agent_name}.md"
+                if not md_path.exists():
+                    inventory_findings.append({
+                        "severity": "WARN",
+                        "missing_agent": agent_name,
+                        "expected_path": str(md_path),
+                    })
+            role_present = "specialist_domain_review" in ROLES
+            if not role_present:
+                inventory_findings.append({
+                    "severity": "ERROR",
+                    "role_missing": "specialist_domain_review",
+                    "hint": "agent_invocations.ROLES must include the V6.1 role",
+                })
+            result = {
+                "schema_version": 1,
+                "agents_dir": str(agents_dir),
+                "specialists_inventoried": len(all_specialists),
+                "findings": inventory_findings,
+                "role_specialist_domain_review_present": role_present,
+                "status": "ok" if not inventory_findings else (
+                    "drift_detected" if args.strict else "warn_only"
+                ),
+            }
+            print(json.dumps(result, indent=2, sort_keys=True))
+            if args.strict and inventory_findings:
+                return 1
+            return 0
+        parser.error("unknown specialist-review command")
+        return 1
+
     if args.command == "skill-genesis":
         if args.skill_genesis_command == "request":
-            result = request_skill_genesis(capability_gap_key=args.capability_gap_key, title=args.title, base_dir=args.tools_dir)
+            seed_dict = None
+            if args.convergent:
+                if not args.seed_file:
+                    parser.error(
+                        "skill-genesis request --convergent requires "
+                        "--seed-file (Plan ARIA-V6 §2d v2)"
+                    )
+                seed_dict = json.loads(
+                    Path(args.seed_file).read_text(encoding="utf-8")
+                )
+            result = request_skill_genesis(
+                capability_gap_key=args.capability_gap_key,
+                title=args.title,
+                convergent=args.convergent,
+                seed=seed_dict,
+                base_dir=args.tools_dir,
+            )
+        elif args.skill_genesis_command == "seed":
+            from .skill_genesis import seed_adapter_requests
+            if not args.convergent:
+                parser.error(
+                    "skill-genesis seed currently requires --convergent "
+                    "(Plan ARIA-V6 §2d v2 C3)"
+                )
+            result = seed_adapter_requests(
+                seeds_path=args.seeds_path,
+                base_dir=args.tools_dir,
+            )
         elif args.skill_genesis_command == "draft":
             result = draft_skill(
                 request_id=args.request_id,
@@ -2754,13 +3562,30 @@ def _main(argv: list[str] | None = None) -> int:
                 base_dir=args.tools_dir,
             )
         elif args.skill_genesis_command == "materialize":
+            # Plan ARIA-V3 §A4 — gate-driven materialize. Same factory
+            # path as agent-genesis materialize.
+            #
+            # Plan ARIA-V3.1 §2a — ``get_profile`` is module-level
+            # imported at line 105; nested re-import removed.
+            from .auto_action_gate import (
+                ClassifierDecision,
+                gate_from_policy,
+            )
+            current_profile = get_profile(base_dir=args.tools_dir)
+            v3_gate = gate_from_policy(
+                base_dir=args.tools_dir,
+                profile=current_profile,
+                lane=None,
+                classifier=ClassifierDecision(passed=True),
+            )
             result = materialize_skill(
                 draft_id=args.draft_id,
                 assignment_id=args.assignment_id,
                 workspace_root=args.workspace_root,
+                gate=v3_gate,
                 base_dir=args.tools_dir,
-                acknowledge=args.acknowledge,
                 run_invariants=args.run_invariants,
+                ack_id=args.ack_token,
             )
         elif args.skill_genesis_command == "list":
             result = list_skill_genesis(base_dir=args.tools_dir, kind=args.kind)
@@ -2770,12 +3595,27 @@ def _main(argv: list[str] | None = None) -> int:
         return 0 if not isinstance(result, dict) or result.get("status") != "rejected" else 1
 
     if args.command == "worker-result" and args.worker_result_command == "submit":
+        lease_token = args.lease_token
+        if args.lease_token_from_env:
+            if lease_token:
+                print(
+                    "--lease-token and --lease-token-from-env are mutually exclusive",
+                    file=sys.stderr,
+                )
+                return 2
+            lease_token = os.environ.get(args.lease_token_from_env)
+            if not lease_token:
+                print(
+                    f"lease-token-from-env: env var {args.lease_token_from_env!r} is not set",
+                    file=sys.stderr,
+                )
+                return 2
         result = submit_worker_result(
             from_worktree=args.from_worktree,
             assignment_id=args.assignment_id,
             validation_commands=args.validation_command,
             tools_root=args.tools_dir,
-            lease_token=args.lease_token,
+            lease_token=lease_token,
             allow_legacy_no_token=args.allow_legacy_no_token,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
@@ -2792,13 +3632,155 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "autonomy" and args.autonomy_command == "run":
         # Plan 026R §F.1 — unified orchestrator entry point.
+        # Plan ARIA-V3 §A1 — auto_merge_runner is REQUIRED.
+        # Plan ARIA-V3 §A2 — github_adapter is REQUIRED.
+        # Plan ARIA-V5 §3c v2 — convergence_runner is REQUIRED (V5.1
+        # Tier-1). All three factories key off the runtime profile so
+        # the operator never passes any dependency explicitly.
         from .autonomy_orchestrator import run_autonomy_orchestrator
+        from .auto_merge_runners import select_auto_merge_runner
+        from .convergence_drainer import select_convergence_runner
+        from .github_adapters import select_github_adapter
+        from .review_runner import select_review_runner
+        from .specialist_review_runner import select_specialist_review_runner
+        # Plan ARIA-V7 §2i v2 Phase 7.1 — plan_synthesizer factory
+        # wired into the autonomy CLI. The synthesizer is REQUIRED
+        # on run_autonomy_orchestrator; without this wiring the
+        # autonomous loop crashes with TypeError at signature binding.
+        from .plan_synthesizer import select_plan_synthesizer
+        # Plan ARIA-V7 §2h v2 Phase 7.4 — skill_genesis_drainer
+        # factory. REQUIRED kwarg; consumes convergent=True requests
+        # from skill-genesis/requests.jsonl + invokes V6.2
+        # run_convergent_authoring per request.
+        from .skill_genesis_drainer import select_skill_genesis_drainer
+        # Plan ARIA-V3.1-D2 — factory wire for MemoryHook + CostTelemetryHook.
+        # The orchestrator's optional kwargs default to NoOp (V3.1-0
+        # scaffold); the CLI surface explicitly selects the production
+        # variant per profile so standard/strict/autonomous get the
+        # full V10 memory + cost-attribution pillar activation.
+        from .cycle_phases import (
+            select_cost_telemetry_hook,
+            select_memory_hook,
+            select_v9_implementation_runner,
+        )
+        # Plan ARIA-V3.1-E (E1+E2) — CLI flag is the SSoT for the
+        # cycle's profile when the operator passes it. Otherwise
+        # fall back to the persisted profile (V8 backward-compat).
+        # When the flag differs from the persisted active profile,
+        # route the transition through set_profile() so the SOC2
+        # audit row lands in runtime-profile-history.jsonl (closes
+        # 6-validator audit C-2). argparse already validated
+        # --operator-approval-ref is present when --profile=autonomous.
+        # `set_profile` + `get_profile` come from the module-level
+        # import at line 104 — no nested re-import (closes the v3_1
+        # nested-reimport-shadowing invariant).
+        _persisted_profile = get_profile(base_dir=args.tools_dir)
+        if args.profile == "autonomous" and not (args.operator_approval_ref or "").strip():
+            print(
+                "error: --profile autonomous requires --operator-approval-ref "
+                "(signed-ref string identifying the operator gesture).",
+                file=sys.stderr,
+            )
+            return 2
+        if args.profile is None:
+            # No explicit override — use persisted state as profile SSoT.
+            profile = _persisted_profile
+        else:
+            # Explicit override — record the SOC2 audit row when it
+            # differs from persisted, then use the operator-supplied
+            # value as profile SSoT for the orchestrator body.
+            if args.profile != _persisted_profile:
+                _approval_ref = (
+                    args.operator_approval_ref
+                    or f"cli-flag:{args.daemon_id}:{int(time.time())}"
+                )
+                set_profile(
+                    args.profile,
+                    operator_approval_ref=_approval_ref,
+                    base_dir=args.tools_dir,
+                    set_by="autonomy-cli",
+                )
+            profile = args.profile
+        auto_merge_runner = select_auto_merge_runner(profile=profile)
+        github_adapter = select_github_adapter(
+            profile=profile,
+            base_dir=args.tools_dir,
+            cwd=str(args.workspace_root),
+        )
+        # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — fail-fast validation:
+        # cycle_deadline must accommodate at least 3 envelope-mint
+        # waits × max_rounds × challenger_timeout. Otherwise the
+        # watchdog kills cycles before they can converge — silent
+        # primary_silent regression. The lower bound is computed
+        # against the round-2+ worst case (3 envelopes per round).
+        _v8_min_cycle_deadline = (
+            args.max_rounds * 3 * args.challenger_timeout_seconds
+        )
+        if args.cycle_deadline_seconds < _v8_min_cycle_deadline:
+            print(
+                f"error: --cycle-deadline-seconds {args.cycle_deadline_seconds} "
+                f"< max_rounds × 3 envelopes × challenger_timeout "
+                f"({args.max_rounds} × 3 × {args.challenger_timeout_seconds} "
+                f"= {_v8_min_cycle_deadline}). Increase deadline OR "
+                f"decrease max_rounds OR decrease challenger_timeout.",
+                file=sys.stderr,
+            )
+            return 2
+        # Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — surface the per-run
+        # budget cap to the orchestrator environment so child ci_executor
+        # subprocesses read it via MAX_BUDGET_USD_PER_RUN env var.
+        os.environ["MAX_BUDGET_USD_PER_RUN"] = str(args.max_budget_usd_per_run)
+        convergence_runner = select_convergence_runner(profile=profile)
+        review_runner = select_review_runner(profile=profile)
+        specialist_review_runner = select_specialist_review_runner(profile=profile)
+        plan_synthesizer = select_plan_synthesizer(profile=profile)
+        skill_genesis_drainer = select_skill_genesis_drainer(profile=profile)
+        # ORPHAN-HIGH-082 fix: CLI flags --challenger-timeout-seconds and
+        # --max-rounds are now plumbed all the way to the orchestrator
+        # (and from there to convergence_runner). Previously the
+        # arguments were parsed + validated above (line 3422-3434) but
+        # never passed downstream, so the drainer silently fell back to
+        # its 1800s + 4-rounds defaults regardless of operator input.
+        # This was the root cause of cycle 1 polling for 30 min instead
+        # of 5 min on the first observed run.
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
+            auto_merge_runner=auto_merge_runner,
+            github_adapter=github_adapter,
+            convergence_runner=convergence_runner,
+            review_runner=review_runner,
+            specialist_review_runner=specialist_review_runner,
+            plan_synthesizer=plan_synthesizer,
+            skill_genesis_drainer=skill_genesis_drainer,
             workspace_root=args.workspace_root,
             max_cycles=args.max_cycles,
             max_iterations_per_phase=args.max_iterations_per_phase,
+            max_rounds=args.max_rounds,
             daemon_id=args.daemon_id,
+            cycle_deadline_seconds=args.cycle_deadline_seconds,
+            challenger_timeout_seconds=args.challenger_timeout_seconds,
+            # Plan ARIA-V3.1-E — explicit profile + distinct
+            # implementer poll budget threaded to the orchestrator.
+            profile=profile,
+            implementer_poll_seconds=args.implementer_poll_seconds,
+            # Plan ARIA-V3.1-D2 — production MemoryHook +
+            # CostTelemetryHook factories. observe/frozen profiles
+            # get NoOp variants; standard/strict/autonomous get the
+            # V10 memory pillar + per-LLM cost-attribution activated.
+            memory_hook=select_memory_hook(profile=profile),
+            cost_telemetry_hook=select_cost_telemetry_hook(profile=profile),
+            # Plan ARIA-V10.5 Phase 7 — F-027 closure. Wire the V9
+            # implementation runner per profile so the orchestrator's
+            # post-CONVERGED phase actually mints aria-implementer
+            # subprocess. observe/standard/frozen → NoOp (V8 backward-
+            # compat); strict → policy_strict_no_implementation refusal;
+            # autonomous → production AutonomousV9ImplementationRunner
+            # (mint_signing_key + mint_installation_token + issue_
+            # implementation_envelope + poll + record_outcome + cleanup).
+            # Pre-F-027 the CLI never installed this factory's return
+            # value so the orchestrator always fell back to NoOp; the
+            # V9 implementation phase was structurally unreachable.
+            v9_implementation_runner=select_v9_implementation_runner(profile=profile),
         )
         if args.output == "full" and not args.artifact:
             contract = {

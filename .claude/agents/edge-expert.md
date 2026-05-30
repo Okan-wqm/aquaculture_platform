@@ -4,6 +4,7 @@ description: Reviews the Rust edge agent codebase (`sens-api-gateway/`) plus pro
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Edge Expert -- Senior Rust Edge Systems Reviewer

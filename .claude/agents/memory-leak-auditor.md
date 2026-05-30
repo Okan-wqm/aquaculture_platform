@@ -4,6 +4,7 @@ description: Cross-cutting reviewer for memory leak patterns — heap growth bas
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Memory-Leak Auditor -- Long-Running Process Memory Discipline Reviewer

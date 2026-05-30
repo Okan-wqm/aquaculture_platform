@@ -61,7 +61,17 @@ __all__ = [
 
 DEFAULT_POLL_INTERVAL_SECONDS: float = 30.0
 DEFAULT_DAEMON_ID: str = "planner-dispatch"
-DEFAULT_PLANNER_ROLES: tuple[str, ...] = ("primary_plan", "challenger_plan")
+DEFAULT_PLANNER_ROLES: tuple[str, ...] = (
+    "primary_plan",
+    "challenger_plan",
+    # Plan ARIA-V5 §2 V5.1 Phase 5.1 — cross_review role added so the
+    # planner_dispatch_daemon also claims primary↔challenger cross-
+    # review envelopes minted by ``convergence_drainer``. Pre-V5
+    # cross_review envelopes existed but were never claimed by the
+    # autonomy planner daemon — only operator-driven CLI flows
+    # consumed them.
+    "cross_review",
+)
 _DAEMON_LOCK_TIMEOUT_SECONDS: float = 2.0
 _DAEMON_AGENT_KIND: str = "agent_claim"  # piggy-back on existing profile gate
 

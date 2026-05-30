@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, load_jsonl
+from .file_lock import with_exclusive_lock
 from .tool_registry import append_tools_governance, ensure_tools_dir, update_tools_index, utc_now
 
 
@@ -77,17 +78,18 @@ def _resolve_active_claim_for_submit(
     active = active_claims[0]
     if active.get("lease_token_hash") != _hash_lease_token(lease_token):
         return "submit_worker_result_lease_token_mismatch"
-    # Lease-expiry check — mirror agent_invocations.
+    # Lease-expiry check — mirror agent_invocations, but fail closed
+    # for malformed/missing dispatch leases on the worker path.
     expires_raw = active.get("lease_expires_at")
-    if expires_raw:
-        try:
-            expires = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
-        except ValueError:
-            expires = None
-        if expires is not None:
-            now = datetime.now(timezone.utc)
-            if expires < now:
-                return "submit_worker_result_lease_expired"
+    if not expires_raw:
+        return "submit_worker_result_lease_expired"
+    try:
+        expires = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
+    except ValueError:
+        return "submit_worker_result_lease_expired"
+    now = datetime.now(timezone.utc)
+    if expires < now:
+        return "submit_worker_result_lease_expired"
     return active
 
 
@@ -109,7 +111,7 @@ def submit_worker_result(
     validation_commands: list[str] | None = None,
     tools_root: str | Path | None = None,
     lease_token: str | None = None,
-    allow_legacy_no_token: bool = True,
+    allow_legacy_no_token: bool = False,
 ) -> dict[str, Any]:
     """Submit a worker result for verification.
 
@@ -125,8 +127,9 @@ def submit_worker_result(
     * Lease-expiry fail-closed (mirror of agent_invocations:884-893):
       latest_active_claim.lease_expires_at < now → reject.
 
-    Legacy callers (lease_token=None) preserve the pre-§G.3 path so
-    existing fixtures don't break; new code MUST pass the token.
+    Tokenless callers are rejected. The worker submit path is a live
+    execution boundary, so preserving the pre-§G.3 path would leave the
+    canonical CLI fail-open.
     """
     root = ensure_tools_dir(tools_root)
     worktree = Path(from_worktree).resolve()
@@ -145,7 +148,8 @@ def submit_worker_result(
     required = set(str(command) for command in request.get("required_tests") or [])
     if any(command not in required for command in commands):
         return _reject(root, "validation_command_not_required", assignment_id=str(request["assignment_id"]), worktree=worktree, details={"required_tests": sorted(required), "commands": commands})
-    # Plan 026R §G.3 — lease-bound submit (when lease_token provided).
+    # Plan 026R §G.3 — lease-bound submit. Legacy tokenless callers
+    # require an explicit compatibility flag; the normal path fails closed.
     active_claim: dict[str, Any] | None = None
     if lease_token is None and not allow_legacy_no_token:
         return _reject(
@@ -158,15 +162,17 @@ def submit_worker_result(
                 root, "submit_worker_result_lease_token_required",
                 assignment_id=str(request["assignment_id"]), worktree=worktree,
             )
-        active_claim_or_reject = _resolve_active_claim_for_submit(
-            root, str(request["assignment_id"]), lease_token=lease_token,
-        )
-        if isinstance(active_claim_or_reject, str):
-            return _reject(
-                root, active_claim_or_reject,
-                assignment_id=str(request["assignment_id"]), worktree=worktree,
+        claims_path = root / "dispatch" / "claims.jsonl"
+        with with_exclusive_lock(claims_path):
+            active_claim_or_reject = _resolve_active_claim_for_submit(
+                root, str(request["assignment_id"]), lease_token=lease_token,
             )
-        active_claim = active_claim_or_reject
+            if isinstance(active_claim_or_reject, str):
+                return _reject(
+                    root, active_claim_or_reject,
+                    assignment_id=str(request["assignment_id"]), worktree=worktree,
+                )
+            active_claim = active_claim_or_reject
     base_sha = str(request["base_sha"])
     head_sha = _git(worktree, "rev-parse", "HEAD")
     diff = _git(worktree, "diff", f"{base_sha}...{head_sha}")
@@ -264,6 +270,7 @@ def _reject(root: Path, reason: str, *, assignment_id: str | None, worktree: Pat
         "state": "rejected",
         "reason": reason,
         "details": details or {},
+        "recorded_at": utc_now(),
     }
     stored = append_jsonl(root / "dispatch" / "worker-results.jsonl", row)
     update_tools_index(root)

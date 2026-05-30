@@ -1,21 +1,40 @@
 name: aria-kernel
 
+# Plan ARIA-V2 §3.7 (Phase 6) — workflow hygiene closures:
+#   * paths: filter removed from push block (snowball re-push must
+#     re-evaluate the kernel regardless of which files changed; the
+#     paths gate caused the validation cycle to skip re-runs that
+#     were architecturally meaningful — closes ARIA-V-007)
+#   * workflow_dispatch added so operators can manually re-fire
+#   * top-level permissions: contents: read (INFRA-HIGH-003)
+#   * actions/checkout: persist-credentials: false (INFRA-HIGH-004)
+#   * npm ci → npm ci --ignore-scripts --no-audit (INFRA-CRITICAL-001)
+#   * concurrency key unified across workflows (INFRA-HIGH-001)
+# Invariant lock: aria-kernel/tests/test_ci_workflow_invariants.py (I-25).
+
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "aria-kernel/**"
       - "docs/aria/**"
       - ".github/workflows/aria-kernel.yml"
+      # Plan ARIA-V2 §3.6 — tools/aria-poc + tools/shared are now
+      # kernel-quality-gate adjacent (I-19..I-22, I-39 land here).
+      - "tools/aria-poc/**"
+      - "tools/shared/**"
   push:
     branches:
       - snowball
-    paths:
-      - "aria-kernel/**"
-      - "docs/aria/**"
-      - ".github/workflows/aria-kernel.yml"
+
+# Plan ARIA-V2 §3.7 — top-level default-deny token surface.
+permissions:
+  contents: read
 
 concurrency:
-  group: aria-kernel-${{ github.ref }}
+  # Plan ARIA-V2 INFRA-HIGH-001 — unified key so PR + push on the same
+  # SHA share the group (no 2x CI minutes charge).
+  group: aria-kernel-${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -24,6 +43,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
@@ -31,12 +52,45 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-      - run: npm ci
-      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'
+      - run: npm ci --ignore-scripts --no-audit
+      # Plan ARIA-V2 §Phase 1 CRITICAL-020 — aria-kernel declares
+      # pyyaml>=6.0 in pyproject.toml (required by I-25 + I-26
+      # invariants for YAML workflow + frontmatter parsing).
+      # Architectural shape: pyproject.toml is the dep SSoT; CI
+      # installs from it editable so any future kernel-dep addition
+      # propagates without CI surgery.
+      - name: Install aria-kernel package (pyyaml + future deps)
+        run: python3 -m pip install --upgrade pip && python3 -m pip install -e aria-kernel
+      - name: Run aria-kernel unit + invariant tests
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
+      # Plan ARIA-V2 §3.6 + CRITICAL-013 — tests under tools/aria-poc/invariants
+      # and tools/shared/invariants are first-class invariants (I-19..I-22, I-39).
+      # Discovery must run them on every kernel-touching PR/push, otherwise
+      # PoC dedup regressions ship undetected.
+      - name: Run tools/aria-poc invariant tests (Plan ARIA-V2 §3.6)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/aria-poc/invariants -p '*test*.py'
+      - name: Run tools/shared invariant tests (Plan ARIA-V2 §3.6)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/shared/invariants -p '*test*.py'
+      # Plan ARIA-V5 §3e v2 R1 — pedagogy lint over all 81 agents.
+      # Warn-mode (no --strict flag) respects the allowlist at
+      # tests/invariants/agent-pedagogy.allowlist.json — current
+      # 80 entries expire 30 days from their added_at date. As
+      # operator writes narrative pairings, allowlist entries are
+      # removed; when allowlist is empty, this step naturally
+      # tightens. After all editorial work lands, a follow-up
+      # commit can add --strict to make allowlist-bypass impossible.
+      - name: Run pedagogy lint (Plan ARIA-V5 §3e)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel.pedagogy_lint --agents-dir .claude/agents --allowlist tests/invariants/agent-pedagogy.allowlist.json --format text
+      # Plan ARIA-V6 §3 V6.5 (C5) — specialist-review dry-run validates
+      # the Lane-A inventory + role mapping. Warn-mode at C5; flip to
+      # --strict in a follow-up commit once the Lane-A inventory is
+      # fully populated.
+      - name: Specialist-review dry-run (Plan ARIA-V6 §3 V6.5)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel specialist-review dry-run --agents-dir .claude/agents
       - name: Reset CI-local ARIA state
         run: |
           rm -rf ./.aria-ci/tools ./.aria-ci/workspaces
           mkdir -p ./.aria-ci
-      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity migrate-tools-v1-to-v2 --tools-dir ./.aria-ci/tools --workspace-root . --acknowledge --reason "ci bootstrap"
+      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity migrate-tools-bootstrap --tools-dir ./.aria-ci/tools --workspace-root . --acknowledge --reason "ci bootstrap (Plan ARIA-V2 §3.8 idempotent umbrella)"
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel discovery run --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools --cycle-id ci-${{ github.run_id }} --snapshot-mode committed
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools

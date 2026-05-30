@@ -39,14 +39,22 @@ class CyclePhaseTaxonomyTests(unittest.TestCase):
 
 class ExtendedPhaseDispatchTests(unittest.TestCase):
     def test_architecture_baseline_without_plan_id_skipped(self) -> None:
+        # Plan ARIA-V2 §3.4 + CRITICAL-009 — Path("aria-tools")
+        # cwd-relative literals removed; tempdir contract makes the
+        # test environment-independent and the I-40 grep regression
+        # net stays satisfied.
+        import tempfile
         from pathlib import Path
-        result = _run_extended_phases(
-            phases=("architecture_baseline",),
-            workspace_root=Path("."),
-            cycle_id="cyc-test",
-            base_dir=Path("aria-tools"),
-            plan_id=None,
-        )
+        with tempfile.TemporaryDirectory(prefix="aria-cycle-phase-m1-") as tmp:
+            tools_root = Path(tmp) / "aria-tools"
+            tools_root.mkdir()
+            result = _run_extended_phases(
+                phases=("architecture_baseline",),
+                workspace_root=Path(tmp),
+                cycle_id="cyc-test",
+                base_dir=tools_root,
+                plan_id=None,
+            )
         self.assertEqual(result["architecture_baseline"]["status"], "skipped")
         self.assertEqual(result["architecture_baseline"]["reason"], "plan_id_required")
 
@@ -57,14 +65,19 @@ class ExtendedPhaseDispatchTests(unittest.TestCase):
         # cycle_started_at degrade to no_op (closed-loop wiring is
         # opt-in via the cycle-level run_enterprise_cycle path which
         # always passes the kwarg).
+        # Plan ARIA-V2 §3.4 + CRITICAL-009 — tempdir-isolated.
+        import tempfile
         from pathlib import Path
-        result = _run_extended_phases(
-            phases=("validation_matrix",),
-            workspace_root=Path("."),
-            cycle_id="cyc-test",
-            base_dir=Path("aria-tools"),
-            plan_id=None,
-        )
+        with tempfile.TemporaryDirectory(prefix="aria-cycle-phase-m1-") as tmp:
+            tools_root = Path(tmp) / "aria-tools"
+            tools_root.mkdir()
+            result = _run_extended_phases(
+                phases=("validation_matrix",),
+                workspace_root=Path(tmp),
+                cycle_id="cyc-test",
+                base_dir=tools_root,
+                plan_id=None,
+            )
         self.assertEqual(result["validation_matrix"]["status"], "no_op")
         self.assertEqual(result["validation_matrix"]["total"], 0)
         self.assertEqual(
@@ -77,14 +90,19 @@ class ExtendedPhaseDispatchTests(unittest.TestCase):
         # "informational" notice; post-fix the phase iterates the
         # approved-for-apply proposals (none in this test fixture)
         # and returns no_op.
+        # Plan ARIA-V2 §3.4 + CRITICAL-009 — tempdir-isolated.
+        import tempfile
         from pathlib import Path
-        result = _run_extended_phases(
-            phases=("pr_lifecycle",),
-            workspace_root=Path("."),
-            cycle_id="cyc-test",
-            base_dir=Path("aria-tools"),
-            plan_id=None,
-        )
+        with tempfile.TemporaryDirectory(prefix="aria-cycle-phase-m1-") as tmp:
+            tools_root = Path(tmp) / "aria-tools"
+            tools_root.mkdir()
+            result = _run_extended_phases(
+                phases=("pr_lifecycle",),
+                workspace_root=Path(tmp),
+                cycle_id="cyc-test",
+                base_dir=tools_root,
+                plan_id=None,
+            )
         self.assertEqual(result["pr_lifecycle"]["status"], "no_op")
         self.assertEqual(result["pr_lifecycle"]["total"], 0)
 

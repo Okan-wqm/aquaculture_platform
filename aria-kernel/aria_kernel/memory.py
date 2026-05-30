@@ -49,17 +49,21 @@ def update_memory(
     downstream belief append are observation-class writes that the
     Plan 020 SCOPED no-write invariant now covers under frozen.
 
-    Plan 026R §E.7 — ``workspace_root`` is the canonical anchor for
-    the FATES hash recompute check. When provided, every entry in
-    ``FATES.files`` has its on-disk content re-hashed via the
-    ``evidence_validator._canonical_evidence_path`` helper (E.5
-    canonical resolver) and compared to the persisted ``content_hash``;
-    mismatch raises ``memory_fates_content_hash_mismatch`` so a file
-    tampered between discovery and memory-update surfaces here
-    rather than silently propagating. Path traversal / symlink-out-
-    of-workspace raises ``memory_fates_path_traversal_rejected``.
-    Legacy callers (workspace_root=None) skip the recompute for
-    backward-compat; new code MUST pass workspace_root.
+    Plan ARIA-V2 §3.3 — FATES integrity verification now operates on
+    the immutable snapshot (read from ``discovery/<cycle_id>/SNAPSHOT.json``
+    alongside ``FATES.json``). The snapshot's ``base_commit_sha`` +
+    ``snapshot_mode`` drive verification behavior:
+      * ``committed`` mode → bytes read via ``git show <sha>:<path>``
+        (immutable); mismatch raises ``memory_fates_content_hash_mismatch``.
+      * ``working_tree`` mode → drift is expected operator-edit, NOT
+        tamper. Emits ``memory_fates_working_tree_drift_observed``
+        governance event; does not raise.
+      * Legacy callers (no SNAPSHOT.json present) fall through to the
+        pre-§3.3 disk-read behavior preserved for backward-compat.
+
+    Pre-§3.3 behavior (Plan 026R §E.7 disk-read) is unchanged for
+    workspaces that don't yet have a discovery/<cycle_id>/SNAPSHOT.json
+    written alongside FATES.json — legacy ledgers continue to work.
     """
     from .runtime_profile import enforce_profile_for_write
     enforce_profile_for_write("observation", base_dir=base_dir)
@@ -69,12 +73,14 @@ def update_memory(
     completion = _read_json(discovery_dir / "COMPLETION_PROOF.json")
     diff = _read_json(root / "cycle-diff" / f"{cycle_id}.json")
     fates = _read_json(discovery_dir / "FATES.json")
-    if workspace_root is not None:
+    snapshot_path = discovery_dir / "SNAPSHOT.json"
+    snapshot = _read_json(snapshot_path) if snapshot_path.exists() else None
+    if snapshot is not None or workspace_root is not None:
         _verify_fates_integrity(
             fates,
+            snapshot=snapshot,
             workspace_root=workspace_root,
-            snapshot_mode=completion.get("snapshot_mode"),
-            base_commit_sha=completion.get("base_commit_sha"),
+            base_dir=base_dir,
         )
     observations_written = 0
     if include_discovery_beliefs:
@@ -131,6 +137,26 @@ def update_memory(
             confidence=0.85,
         )
         beliefs_written += 1
+    # Plan ARIA-V2 §3.5 + I-16 — surface MFEs missing project.json
+    # as a first-class belief so downstream architecture-baseline
+    # reviewers can decide whether to gate the gap. Discovery
+    # populates ``web_modules_missing_project_json`` in REPO_FINGERPRINT
+    # with concrete evidence paths.
+    missing_mfe_project_json = fingerprint.get("web_modules_missing_project_json") or []
+    if include_discovery_beliefs and isinstance(missing_mfe_project_json, list) and missing_mfe_project_json:
+        _record_belief(
+            root,
+            cycle_id=cycle_id,
+            belief_id="web-modules-missing-project-json",
+            claim=(
+                f"{len(missing_mfe_project_json)} MFE(s) under web/modules/ "
+                "lack project.json — Nx-aware tooling cannot enumerate them; "
+                "operator decides whether to add project.json or allowlist the gap."
+            ),
+            evidence_refs=list(missing_mfe_project_json),
+            confidence=1.0,
+        )
+        beliefs_written += 1
     if include_tool_candidates:
         quarantined_tool_ids = _quarantined_tool_ids(root)
         beliefs_written += _mark_quarantined_source_beliefs(root, cycle_id, quarantined_tool_ids)
@@ -140,6 +166,182 @@ def update_memory(
         "cycle_id": cycle_id,
         "observations_written": observations_written,
         "beliefs_written": beliefs_written,
+    }
+
+
+def rebuild_fates(
+    *,
+    cycle_id: str,
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+    workspace_base: str | Path | None = None,
+    reason: str,
+    acknowledge: bool,
+) -> dict[str, Any]:
+    """Plan ARIA-V2 §3.3 — audited rebuild of FATES.json content hashes.
+
+    Re-hashes every entry in ``discovery/<cycle_id>/FATES.json`` from
+    current on-disk content, rewrites FATES with the new hashes, and
+    emits ``memory_fates_rebuilt`` governance event carrying both
+    pre-state and post-state content_hash for each rebuilt file.
+
+    The frozen-profile gate at function entry rejects rebuild under
+    Plan 020 ``frozen`` profile via the ``tool_governance`` surface
+    (the rebuild is a high-impact write to a snapshot-anchored
+    artifact). Idempotent in the no-drift case: if no FATES entry
+    needs rebuild, the function emits an audit row with empty
+    ``rebuilt_files`` and returns.
+    """
+    if not acknowledge:
+        raise GovernanceError("memory_rebuild_fates_requires_acknowledge")
+    import hashlib
+    from .evidence_validator import _canonical_evidence_path
+    from .runtime_profile import enforce_profile_for_write
+    from .tool_registry import append_tools_governance
+    from .workspace import default_actor
+    enforce_profile_for_write("tool_governance", base_dir=base_dir)
+    root = ensure_tools_dir(base_dir)
+    discovery_dir = root / "discovery" / cycle_id
+    fates_path = discovery_dir / "FATES.json"
+    if not fates_path.exists():
+        raise GovernanceError(
+            f"memory_rebuild_fates_no_discovery: {fates_path} not found"
+        )
+    fates = _read_json(fates_path)
+    files = fates.get("files", []) if isinstance(fates, dict) else []
+    if not isinstance(files, list):
+        raise GovernanceError(
+            f"memory_rebuild_fates_malformed_fates: files is not a list"
+        )
+    workspace_path = Path(workspace_root)
+    rebuilt_files: list[dict[str, str]] = []
+    new_files: list[dict[str, Any]] = []
+    for entry in files:
+        if not isinstance(entry, dict):
+            new_files.append(entry)
+            continue
+        raw_path = entry.get("path")
+        stored_hash = entry.get("content_hash")
+        new_entry = dict(entry)
+        if isinstance(raw_path, str) and isinstance(stored_hash, str):
+            try:
+                _rel, absolute = _canonical_evidence_path(raw_path, workspace_path)
+            except GovernanceError:
+                new_files.append(new_entry)
+                continue
+            if absolute.exists() and absolute.is_file():
+                actual_hash = "sha256:" + hashlib.sha256(absolute.read_bytes()).hexdigest()
+                if actual_hash != stored_hash:
+                    new_entry["content_hash"] = actual_hash
+                    rebuilt_files.append({
+                        "path": raw_path,
+                        "pre_state_content_hash": stored_hash,
+                        "post_state_content_hash": actual_hash,
+                    })
+        new_files.append(new_entry)
+    new_fates = dict(fates)
+    new_fates["files"] = new_files
+    fates_path.write_text(json.dumps(new_fates, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    actor = default_actor()
+    append_tools_governance(
+        root,
+        "memory_fates_rebuilt",
+        {
+            "actor": actor,
+            "cycle_id": cycle_id,
+            "reason": reason,
+            "rebuilt_files": rebuilt_files,
+            "rebuilt_file_count": len(rebuilt_files),
+            "result": "SUCCESS",
+        },
+    )
+    return {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "rebuilt_file_count": len(rebuilt_files),
+        "rebuilt_files": rebuilt_files,
+        "result": "SUCCESS",
+    }
+
+
+def reset_memory(
+    *,
+    workspace_root: str | Path,
+    backup_to: str | Path,
+    base_dir: str | Path | None = None,
+    workspace_base: str | Path | None = None,
+    reason: str,
+    acknowledge: bool,
+) -> dict[str, Any]:
+    """Plan ARIA-V2 §3.3 — audited reset of the workspace memory dir.
+
+    Moves the workspace's memory directory to ``backup_to`` (operator-
+    supplied; no default — preventing accidental data loss) and
+    re-bootstraps an empty memory state. Emits ``memory_reset``
+    governance event with pre-reset FATES content_hash, backup path,
+    operator actor + reason, in the WORKSPACE governance ledger (NOT
+    tools governance — memory is workspace-owned per CONTRACTS.md §0.1).
+
+    Frozen-profile-gated via tool_governance surface (the reset is
+    destructive). Backup must NOT exist before reset (architectural
+    Tier-1 — Make impossible to overwrite existing backup).
+    """
+    if not acknowledge:
+        raise GovernanceError("memory_reset_requires_acknowledge")
+    import hashlib
+    import shutil
+    from .runtime_profile import enforce_profile_for_write
+    from .workspace import default_actor, record_workspace_governance, workspace_paths
+    enforce_profile_for_write("tool_governance", base_dir=base_dir)
+    backup_path = Path(backup_to)
+    if backup_path.exists():
+        raise GovernanceError(
+            f"memory_reset_backup_path_exists: {backup_path} already exists; "
+            "operator must supply a fresh path so existing backups cannot be overwritten"
+        )
+    paths = workspace_paths(
+        Path(workspace_root),
+        Path(workspace_base) if workspace_base else None,
+    )
+    if not paths.memory_dir.exists():
+        raise GovernanceError(
+            f"memory_reset_no_memory_dir: {paths.memory_dir} not found"
+        )
+    # Hash pre-reset state for audit row
+    pre_reset_bytes_parts: list[bytes] = []
+    for child in sorted(paths.memory_dir.rglob("*")):
+        if child.is_file():
+            pre_reset_bytes_parts.append(child.relative_to(paths.memory_dir).as_posix().encode("utf-8"))
+            pre_reset_bytes_parts.append(b"\n")
+            pre_reset_bytes_parts.append(child.read_bytes())
+            pre_reset_bytes_parts.append(b"\n")
+    pre_reset_hash = "sha256:" + hashlib.sha256(b"".join(pre_reset_bytes_parts)).hexdigest()
+    # Move memory dir to backup
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(paths.memory_dir), str(backup_path))
+    paths.memory_dir.mkdir(parents=True, exist_ok=True)
+    # Re-touch the empty ledgers so subsequent cycles can append
+    for ledger_path in paths.ledgers.values():
+        ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        ledger_path.touch(exist_ok=True)
+    actor = default_actor()
+    # Audit row lands in WORKSPACE governance ledger, not tools.
+    record_workspace_governance(
+        paths,
+        "memory_reset",
+        {
+            "actor": actor,
+            "reason": reason,
+            "pre_reset_fates_hash": pre_reset_hash,
+            "backup_path": str(backup_path),
+            "result": "SUCCESS",
+        },
+    )
+    return {
+        "schema_version": 1,
+        "pre_reset_fates_hash": pre_reset_hash,
+        "backup_path": str(backup_path),
+        "result": "SUCCESS",
     }
 
 
@@ -268,6 +470,49 @@ def validate_repo_evidence(
             raise GovernanceError("memory belief cannot use ARIA self-output as evidence")
 
 
+def _stamp_belief_freshness(
+    row: dict[str, Any],
+    *,
+    cycle_id: str,
+    repo_state: dict[str, Any],
+    status: str,
+    prior_verified_at: str | None = None,
+) -> None:
+    """Plan ARIA-V3.2 §2a (F-010 D1) — single chokepoint for
+    belief-row freshness stamping. EVERY writer that emits a row
+    to ``beliefs.jsonl`` (_record_belief, _apply_diff_to_existing_beliefs,
+    _mark_quarantined_source_beliefs) MUST call this helper BEFORE
+    ``append_jsonl``. The helper stamps:
+
+      * ``recorded_at`` + ``updated_at`` — both set to ``utc_now()``
+        every cycle (the row's age in this cycle).
+      * ``base_commit_sha`` + ``repo_state_id`` — refreshed to the
+        CURRENT cycle's repo_state. Pre-V3.2 the diff-decay +
+        quarantine paths inherited these from ``row = dict(belief)``,
+        leaving them frozen at the original verification SHA even
+        after evidence changed.
+      * ``last_seen_cycle`` — current cycle_id.
+      * ``verified_at`` — refreshed to ``utc_now()`` ONLY when
+        ``status == "supported"``. Other statuses preserve the
+        prior verification timestamp (audit-trail signal of "when
+        was this last verified") so the operator can see how long
+        ago the belief left the supported state.
+
+    Invariants I-V3.2-01..03b lock the contract. The helper is
+    pure — no I/O, no side effects beyond mutating ``row``.
+    """
+    now = utc_now()
+    row["recorded_at"] = now
+    row["updated_at"] = now
+    row["base_commit_sha"] = repo_state.get("base_commit_sha")
+    row["repo_state_id"] = repo_state.get("repo_state_id")
+    row["last_seen_cycle"] = cycle_id
+    if status == "supported":
+        row["verified_at"] = now
+    elif prior_verified_at is not None and "verified_at" not in row:
+        row["verified_at"] = prior_verified_at
+
+
 def _record_belief(
     root: Path,
     *,
@@ -318,27 +563,34 @@ def _record_belief(
     verification_status = "verified" if status == "supported" else status
     row = {
         "schema_version": 2,
-        "recorded_at": utc_now(),
-        "updated_at": utc_now(),
-        "repo_state_id": repo_state.get("repo_state_id"),
-        "base_commit_sha": repo_state.get("base_commit_sha"),
         "belief_id": belief_id,
         "claim": claim,
         "confidence": next_confidence,
         "status": status,
         "evidence_refs": evidence_refs,
         "first_seen_cycle": (existing or {}).get("first_seen_cycle", cycle_id),
-        "last_seen_cycle": cycle_id,
         "support_count": support_count,
         "contradiction_count": contradiction_count,
         "needs_revalidation_cycles": needs_revalidation_cycles,
         "evidence_state": evidence_state,
         "evidence_hashes": _evidence_hashes(root, cycle_id, evidence_refs),
         "verification_status": verification_status,
-        "verified_at": utc_now() if verification_status == "verified" else (existing or {}).get("verified_at"),
         "source_tool_ids": sorted(set(source_tool_ids or (existing or {}).get("source_tool_ids", []))),
         "glob_match_history": _next_glob_history(existing, cycle_id, evidence_state),
     }
+    # Plan ARIA-V3.2 §2a (F-010 D1) — route freshness fields through
+    # the single ``_stamp_belief_freshness`` chokepoint so every
+    # writer to beliefs.jsonl uses the same logic. Pre-V3.2 this
+    # writer had its own inline freshness stamping (verified_at logic
+    # was correct here); the diff-decay + quarantine writers below
+    # did NOT have it, causing multi-writer staleness drift.
+    _stamp_belief_freshness(
+        row,
+        cycle_id=cycle_id,
+        repo_state=repo_state,
+        status=status,
+        prior_verified_at=(existing or {}).get("verified_at"),
+    )
     append_jsonl(root / "memory" / "beliefs.jsonl", row)
     _record_learning_event(
         root,
@@ -406,9 +658,6 @@ def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, A
         }
         row.update(
             {
-                "recorded_at": utc_now(),
-                "updated_at": utc_now(),
-                "last_seen_cycle": cycle_id,
                 "status": status,
                 "needs_revalidation_cycles": revalidation_cycles,
                 "stale_reason": "evidence changed, disappeared, or glob no longer matches",
@@ -417,6 +666,30 @@ def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, A
                 "glob_match_history": _next_glob_history(belief, cycle_id, evidence_state, current_paths=current_paths),
             },
         )
+        # Plan ARIA-V3.2 §2a (F-010 D1) — route freshness fields
+        # through the single chokepoint. Pre-V3.2 this writer
+        # inherited ``base_commit_sha`` + ``repo_state_id`` from the
+        # prior belief row (via ``row = dict(belief)``), leaving them
+        # frozen at the original verification SHA. The unified
+        # ``_stamp_belief_freshness`` helper refreshes them to the
+        # current cycle's repo_state. ``verified_at`` is PRESERVED
+        # via prior_verified_at because status=needs_revalidation
+        # MUST NOT re-verify.
+        repo_state = _repo_state(root, cycle_id)
+        prior_verified_at = belief.get("verified_at")
+        _stamp_belief_freshness(
+            row,
+            cycle_id=cycle_id,
+            repo_state=repo_state,
+            status=status,
+            prior_verified_at=prior_verified_at,
+        )
+        # Pre-helper, the row pre-set its own verified_at via
+        # ``row = dict(belief)``. The helper preserves it when
+        # status != supported AND row doesn't already carry it; the
+        # dict-copy guarantees the field IS present so the helper
+        # is a no-op for verified_at here — which is the intended
+        # invariant (audit-trail signal "last verified at when").
         append_jsonl(root / "memory" / "beliefs.jsonl", row)
         _record_learning_event(
             root,
@@ -469,14 +742,26 @@ def _mark_quarantined_source_beliefs(root: Path, cycle_id: str, quarantined_tool
         row = dict(belief)
         row.update(
             {
-                "recorded_at": utc_now(),
-                "updated_at": utc_now(),
-                "last_seen_cycle": cycle_id,
                 "status": status,
                 "needs_revalidation_cycles": revalidation_cycles,
                 "revalidation_reason": "source tool is quarantined",
                 "quarantined_source_tool_ids": matched_tool_ids,
             },
+        )
+        # Plan ARIA-V3.2 §2a (F-010 D1) — same architectural pattern
+        # as the diff-decay writer above: route freshness fields
+        # through the single chokepoint to refresh base_commit_sha
+        # + repo_state_id to the current cycle. Pre-V3.2 the
+        # quarantine writer inherited stale freshness fields via
+        # ``row = dict(belief)``.
+        repo_state = _repo_state(root, cycle_id)
+        prior_verified_at = belief.get("verified_at")
+        _stamp_belief_freshness(
+            row,
+            cycle_id=cycle_id,
+            repo_state=repo_state,
+            status=status,
+            prior_verified_at=prior_verified_at,
         )
         append_jsonl(root / "memory" / "beliefs.jsonl", row)
         _record_uncertainty(
@@ -710,18 +995,78 @@ def _repo_state(root: Path, cycle_id: str) -> dict[str, Any]:
 
 
 def _verify_fates_integrity(
-    fates: dict[str, Any], *, workspace_root: str | Path,
+    fates: dict[str, Any],
+    *,
+    snapshot: dict[str, Any] | None = None,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     snapshot_mode: str | None = None,
     base_commit_sha: str | None = None,
 ) -> None:
-    """Plan 026R §E.7 — re-hash every FATES.files entry via the
-    canonical-path resolver and assert equality with the persisted
-    content_hash. Raise on mismatch / path traversal / symlink-out-
-    of-workspace.
+    """Plan ARIA-V2 §3.3 — verify FATES.files content_hash against the
+    immutable snapshot's git-tree bytes (committed mode) or emit a
+    drift governance event (working_tree mode).
+
+    Pre-§3.3 (Plan 026R §E.7) the function read files directly from
+    ``workspace_root``, which conflated "did the snapshot internally
+    agree with itself?" (the FATES invariant) with "did the working
+    tree change between discovery and memory write?" (a different and
+    weaker invariant). Working-tree edits during cycle execution
+    produced false-positive ``memory_fates_content_hash_mismatch``
+    errors that blocked operators from running cycles on dirty trees.
+
+    Post-§3.3 contract:
+      * ``committed`` snapshot mode → read bytes via
+        ``git show <base_commit_sha>:<path>`` (immutable git object).
+        Any working-tree edit between discovery and memory is invisible.
+        Mismatch indicates real tamper of the snapshot's recorded hash
+        and raises ``memory_fates_content_hash_mismatch``.
+      * ``working_tree`` snapshot mode → mismatch is EXPECTED operator
+        edit, not tamper. Emit ``memory_fates_working_tree_drift_observed``
+        governance event so audit trails capture the looser invariant,
+        do NOT raise.
+      * Legacy callers (no snapshot, just ``workspace_root``) fall
+        through to the pre-§3.3 disk-read behavior for backward-compat;
+        existing tests + callsites continue to function unchanged.
     """
     from .evidence_validator import _canonical_evidence_path
     files = fates.get("files", []) if isinstance(fates, dict) else []
     if not isinstance(files, list):
+        return
+
+    if snapshot is None and (snapshot_mode is not None or base_commit_sha is not None):
+        snapshot = {
+            "snapshot_mode": snapshot_mode,
+            "base_commit_sha": base_commit_sha,
+        }
+
+    snapshot_mode = (snapshot or {}).get("snapshot_mode") if snapshot else snapshot_mode
+    base_sha = (snapshot or {}).get("base_commit_sha") if snapshot else base_commit_sha
+
+    # Plan ARIA-V2 §3.3 — committed mode reads from immutable git tree
+    if snapshot is not None and snapshot_mode == "committed" and base_sha and workspace_root is not None:
+        _verify_fates_against_git_tree(
+            files,
+            base_sha=base_sha,
+            workspace_root=Path(workspace_root),
+        )
+        return
+
+    # Plan ARIA-V2 §3.3 — working_tree mode emits drift event, no raise
+    if snapshot is not None and snapshot_mode == "working_tree":
+        _emit_fates_working_tree_drift_observed(
+            files,
+            snapshot=snapshot,
+            workspace_root=workspace_root,
+            base_dir=base_dir,
+        )
+        return
+
+    # Legacy path: pre-§3.3 disk-read behavior preserved when no snapshot
+    # supplied. Existing callers that pass workspace_root alone continue
+    # to work; the legacy path's false-positive class is documented in
+    # Plan ARIA-V2 §Phase 2.
+    if workspace_root is None:
         return
     workspace_path = Path(workspace_root)
     for entry in files:
@@ -745,7 +1090,7 @@ def _verify_fates_integrity(
             relative_path=_rel,
             absolute_path=absolute,
             snapshot_mode=snapshot_mode,
-            base_commit_sha=base_commit_sha,
+            base_commit_sha=base_sha,
         )
         if actual_hash is None:
             # File deleted between discovery + memory; legitimate
@@ -759,6 +1104,111 @@ def _verify_fates_integrity(
                 f"actual={actual_hash!r}"
             )
 
+
+def _verify_fates_against_git_tree(
+    files: list[dict[str, Any]],
+    *,
+    base_sha: str,
+    workspace_root: Path,
+) -> None:
+    """Plan ARIA-V2 §3.3 committed-mode verifier — bytes come from the
+    immutable git tree at ``base_sha``, not the working tree. Any
+    working-tree edit between discovery and memory write is invisible
+    to this check.
+
+    Mismatch indicates real tamper of FATES.files content_hash relative
+    to what git records at the base commit — that IS a tamper and
+    raises ``memory_fates_content_hash_mismatch``.
+
+    Missing-in-git is silent (file deleted in commits since base_sha;
+    treated as legitimate evidence-staleness signal).
+    """
+    import hashlib
+    import subprocess
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        raw_path = entry.get("path")
+        stored_hash = entry.get("content_hash")
+        if not isinstance(raw_path, str) or not isinstance(stored_hash, str):
+            raise GovernanceError(
+                f"memory_fates_entry_malformed: {entry!r}"
+            )
+        try:
+            result = subprocess.run(
+                ["git", "show", f"{base_sha}:{raw_path}"],
+                cwd=workspace_root,
+                capture_output=True,
+                check=False,
+            )
+        except OSError as exc:
+            raise GovernanceError(
+                f"memory_fates_git_show_failed: path={raw_path!r} error={exc}"
+            )
+        if result.returncode != 0:
+            # File not in committed tree at base_sha (e.g. untracked
+            # in working_tree mode FATES, or deleted before base_sha)
+            # — silently skip, mirroring the legacy "file missing"
+            # branch of the pre-§3.3 verifier.
+            continue
+        actual_hash = "sha256:" + hashlib.sha256(result.stdout).hexdigest()
+        if actual_hash != stored_hash:
+            raise GovernanceError(
+                f"memory_fates_content_hash_mismatch: "
+                f"path={raw_path!r} stored={stored_hash!r} "
+                f"actual={actual_hash!r} base_sha={base_sha!r}"
+            )
+
+
+def _emit_fates_working_tree_drift_observed(
+    files: list[dict[str, Any]],
+    *,
+    snapshot: dict[str, Any],
+    workspace_root: str | Path | None,
+    base_dir: str | Path | None,
+) -> None:
+    """Plan ARIA-V2 §3.3 working_tree-mode observer — count drifted
+    files, emit a governance event, do NOT raise.
+
+    Working-tree mode by definition captured operator state at a
+    point in time. By the time memory runs, the operator may have
+    edited files further. That is not tamper; it is the looser
+    contract working_tree mode promised. We surface the drift as
+    an audit-visible observation and continue.
+    """
+    import hashlib
+    from .evidence_validator import _canonical_evidence_path
+    drifted_count = 0
+    if workspace_root is not None:
+        workspace_path = Path(workspace_root)
+        for entry in files:
+            if not isinstance(entry, dict):
+                continue
+            raw_path = entry.get("path")
+            stored_hash = entry.get("content_hash")
+            if not isinstance(raw_path, str) or not isinstance(stored_hash, str):
+                continue
+            try:
+                _rel, absolute = _canonical_evidence_path(raw_path, workspace_path)
+            except GovernanceError:
+                continue
+            if not absolute.exists() or not absolute.is_file():
+                continue
+            actual_hash = "sha256:" + hashlib.sha256(absolute.read_bytes()).hexdigest()
+            if actual_hash != stored_hash:
+                drifted_count += 1
+    if base_dir is not None:
+        from .tool_registry import append_tools_governance
+        append_tools_governance(
+            Path(base_dir),
+            "memory_fates_working_tree_drift_observed",
+            {
+                "snapshot_mode": "working_tree",
+                "drifted_file_count": drifted_count,
+                "base_commit_sha": (snapshot or {}).get("base_commit_sha"),
+                "dirty_snapshot": (snapshot or {}).get("dirty_snapshot"),
+            },
+        )
 
 def _fates_actual_hash(
     *,

@@ -4,6 +4,7 @@ description: WRITER-primary execution agent for GDPR Art 17 (right to erasure) c
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 1
 ---
 
 # GDPR Erasure Executor -- Cascade Implementation Agent

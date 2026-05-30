@@ -4,6 +4,7 @@ description: Reviews billing-service correctness — Stripe webhook + metered bi
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Billing Expert -- Stripe + Metered Billing + Subscription Saga Reviewer

@@ -4,6 +4,7 @@ description: Invoke when reviewing admin-api-service backend, admin-panel (SUPER
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Admin Domain Expert -- Senior Platform Administration Reviewer

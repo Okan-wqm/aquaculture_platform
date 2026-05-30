@@ -4,6 +4,7 @@ description: Invoked when reviewing, auditing, or analyzing the messaging domain
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Messaging & AI Domain Expert -- Senior Reviewer & Architect

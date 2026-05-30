@@ -149,3 +149,79 @@ sens-repo/
 
 vite.config.*.timestamp*NUL
 .worktrees
+
+# Plan ARIA-V2 §Phase 1 minimal entries (full sweep arrives in Phase 5).
+# Per-clone runtime binding state — committed schema-stamp form of
+# repo_identity.json stays tracked; runtime ledgers + lock files are
+# operator-private.
+aria-tools/*.lock
+aria-tools/integrity_index.json
+aria-tools/runs.jsonl
+aria-tools/cycles.jsonl
+aria-tools/governance.jsonl
+aria-tools/health.jsonl
+aria-tools/cycle-diffs.jsonl
+aria-tools/raw-findings.jsonl
+aria-tools/reflections.jsonl
+aria-tools/findings.jsonl
+aria-tools/reviews.jsonl
+aria-tools/operator-feedback.jsonl
+aria-tools/feedback-consensus-uncertainties.jsonl
+aria-tools/quarantine.jsonl
+aria-tools/migration_state.json
+aria-tools/diagnostics/
+
+# Plan ARIA-V2 §3.4 — full per-clone runtime state sweep (Phase 5).
+# GDPR rationale: ARIA_ACTOR defaults to <user>@<hostname> (personal
+# data per GDPR Art 4); operator --reason text is free-text PII-
+# adjacent. Storing the runtime ledgers only on the operator's
+# machine is data-minimization-correct, and the committed daily
+# anchor (Phase 6) replaces git history as the audit-trust source.
+# Tracked allowlist enforced by aria-kernel/tests/test_aria_tools_tracked_allowlist.py (I-23):
+#   - aria-tools/repo_identity.json     (v3 schema stamp, version fields only)
+#   - aria-tools/agent-evals/fixtures/   (eval fixtures)
+#   - aria-tools/reports/daily/          (daily chain-tip anchors, Phase 6)
+aria-tools/registry.json
+aria-tools/registry-stub-allowlist.json
+aria-tools/agent-invocations/
+aria-tools/agent-network/
+aria-tools/capability-gaps/
+aria-tools/change-ledger/
+aria-tools/cycle-diff/
+aria-tools/cycle-state/
+aria-tools/cycle-metrics/
+aria-tools/dashboards/
+aria-tools/discovery/
+aria-tools/dispatch/
+aria-tools/fitness/
+aria-tools/memory/
+aria-tools/observability/
+aria-tools/plans/
+aria-tools/pressure/
+aria-tools/problem_clusters.jsonl
+aria-tools/triage/
+aria-tools/workspaces/
+# Within aria-tools/agent-evals/ only the fixtures/ subdir is tracked.
+aria-tools/agent-evals/*
+!aria-tools/agent-evals/fixtures/
+!aria-tools/agent-evals/fixtures/**
+# Within aria-tools/reports/ only the committed daily anchors are tracked.
+aria-tools/reports/*
+!aria-tools/reports/daily/
+!aria-tools/reports/daily/**
+
+# Plan ARIA-V3 §A2 + §A5 + §B0 + §B2 — autonomous-loop runtime
+# state. Each entry is operator-local; never committed.
+# Tracked allowlist enforced by I-23 (test_aria_tools_tracked_allowlist).
+aria-tools/audit/
+aria-tools/acks/
+aria-tools/secrets/
+aria-tools/breakers/
+aria-tools/budget/
+aria-tools/locks/
+
+# Plan ARIA-V4 §2e — inter-agent question envelope ledger. Hash-
+# chained (gitignored per V2 I-23 update); operator-local audit
+# trail of cross-agent tier-classification questions.
+aria-tools/agent-questions.jsonl
+aria-tools/agent-questions.jsonl.lock

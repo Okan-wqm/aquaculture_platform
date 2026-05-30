@@ -398,13 +398,13 @@ describe('orchestrator routing coverage invariant', () => {
     const collectExempt = (dir: string): void => {
       if (!fs.existsSync(dir)) return;
       for (const f of fs.readdirSync(dir)) {
-        if (!f.endsWith('.md')) continue;
         const full = path.join(dir, f);
         const stat = fs.statSync(full);
         if (stat.isDirectory()) {
           collectExempt(full);
           continue;
         }
+        if (!f.endsWith('.md')) continue;
         const fileContent = fs.readFileSync(full, 'utf8');
         const nameMatch = fileContent.match(/^name:\s*([a-z][a-z-]+)/m);
         const dispatchMatch = fileContent.match(/^dispatch:\s*(cross-cutting|ad-hoc|maintenance)/m);

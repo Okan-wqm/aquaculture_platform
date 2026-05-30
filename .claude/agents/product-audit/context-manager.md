@@ -4,6 +4,7 @@ description: Meta-reviewer for test-audit cycles that compacts specialist report
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Test Audit Context Manager -- Meta-Reviewer and Report Synthesizer

@@ -7,31 +7,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .agent_surface import DERIVED_REQUEST_STATES, INVOCATION_ROLES
+from .bridge_exceptions import BridgeContractViolation
 from .file_lock import with_exclusive_lock
 from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
-ROLES = {
-    "primary_plan",
-    "challenger_plan",
-    "cross_review",
-    "gap_finding",
-    "implementation",
-    "verification",
-    "gap_closure",
-    "maintenance_utility",
-    # Plan 016 adds two roles routed through the strict v1 envelope.
-    "implementation_review",
-    # Plan 016 Faz C4 judge roles (envelope wraps existing
-    # feedback_store.generate_ai_consensus + plan_convergence logic).
-    "evidence_judgment",
-    "adversarial_judgment",
-    "consensus_arbitration",
-    "change_intelligence",
-    "goldset_curation",
-}
+ROLES = INVOCATION_ROLES
 STATUSES = {"completed", "rejected", "partial"}
 
 # Plan 016 lease defaults (30 minute lease, 30 minute heartbeat extension,
@@ -45,21 +29,7 @@ LEASE_TOKEN_BYTES = 24
 # derive_request_state(). The legacy `state` field on requests.jsonl rows
 # stays "pending" / "completed" / etc; this enumeration is the Plan 016
 # 10-state lifecycle as observed from the claims + results ledgers.
-DERIVED_STATES = (
-    "PENDING",
-    "CLAIMED",
-    "RUNNING",
-    "SUBMITTED",
-    "ACCEPTED",
-    "REJECTED",
-    "STALE",
-    "REQUEUED",
-    "HUMAN_REQUIRED",
-    "CANCELLED",
-    # Plan 026R §C.5 — bridge-aware acceptance states.
-    "ACCEPTED_PENDING_BRIDGE",
-    "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
-)
+DERIVED_STATES = DERIVED_REQUEST_STATES
 
 
 def create_agent_invocation_request(
@@ -84,7 +54,27 @@ def create_agent_invocation_request(
     context_repo_root: str | Path | None = None,
     context_window_tokens_override: int | None = None,
     role_cap_override: dict[str, float] | None = None,
+    plan_revision_hash: str | None = None,
+    # Plan ARIA-V3.1-B2 — V9 cycle + plan-source provenance threading.
+    # Additive optional fields (no schema_version bump needed; legacy
+    # readers ignore unknown keys, new readers see None for old rows).
+    # The V3.1-A pressure_source_type flows from CyclePlanEnvelope.metadata
+    # through the orchestrator into every agent invocation; cycle_id
+    # binds the request to its originating autonomy cycle for V10.4
+    # cost-attribution + V10.3-B endurance audit.
+    cycle_id: str | None = None,
+    pressure_source_type: str | None = None,
 ) -> dict[str, Any]:
+    # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
+    # envelope to a specific plan revision so I-V5.1-03 can assert
+    # primary + challenger envelopes share the same plan_revision_hash
+    # AND convergence_id. Pre-V5 the envelope carried convergence_id
+    # alone — primary↔challenger could refer to different revisions of
+    # the same plan and the cross-review collusion check at
+    # plan_convergence.py:473 would not catch it. The field is
+    # optional (None = "not applicable") so legacy callers continue
+    # to work; convergent_planning_bridge.py forwards a value on the
+    # convergent-plan flow.
     if role not in ROLES:
         raise GovernanceError(f"unknown invocation role: {role}")
     if not target_agent.strip():
@@ -171,6 +161,21 @@ def create_agent_invocation_request(
         "must_satisfy": list(must_satisfy or []),
         "allowed_scope": list(allowed_scope or []),
         "evidence_refs": list(evidence_refs or []),
+        # Plan ARIA-V5 §3c v2 (B1 fix) — plan_revision_hash binds the
+        # envelope to a specific plan revision so I-V5.1-03 can assert
+        # primary + challenger envelopes share the hash for the same
+        # convergence round. Defaults to None for non-convergent
+        # callers (the request_state_legacy_unmigrated reject still
+        # fires for legacy fields, not for this new optional field).
+        "plan_revision_hash": plan_revision_hash,
+        # Plan ARIA-V3.1-B2 — additive provenance fields. cycle_id
+        # binds the request to its originating autonomy cycle;
+        # pressure_source_type carries the V9.4 pressure ranking
+        # source (operator_feedback / failing_ci / orphan_finding /
+        # f_finding / git_diff) from CyclePlanEnvelope.metadata.
+        # Legacy rows return None on read — no upcaster needed.
+        "cycle_id": cycle_id,
+        "pressure_source_type": pressure_source_type,
     }
     # Plan 024 §B-2 — when the caller opted out of strict enforcement,
     # emit a governance event capturing target_agent + role + missing
@@ -569,6 +574,16 @@ def derive_request_state(
     if any(row.get("event") == "human_required" and row.get("request_id") == request_id for row in claims):
         return "HUMAN_REQUIRED"
 
+    # V10.5 Phase 3 (F-023, ADR-0001) — EXTERNAL_OUTAGE check AFTER
+    # HUMAN_REQUIRED to preserve HUMAN_REQUIRED stickiness. A transient
+    # Anthropic API 529 outage must NOT escape operator review. If the
+    # latest non-stale claim event for this request is api_backoff_exhausted,
+    # the request is in EXTERNAL_OUTAGE state (transient; reaped by
+    # external_outage_reaper after 30 min wall-clock).
+    latest_for_outage = _latest_claim_row(claims, request_id)
+    if latest_for_outage is not None and latest_for_outage.get("event") == "api_backoff_exhausted":
+        return "EXTERNAL_OUTAGE"
+
     # Otherwise inspect the latest claim's state.
     latest = _latest_claim_row(claims, request_id)
     if latest is None:
@@ -750,15 +765,33 @@ def claim_request(
     # (``claim_ledger_hash`` + ``request_ledger_hash``) feed §B.5's
     # metadata-tamper detection.
     envelope = request_for_check or {}
+    # Plan ARIA-V8.12 — extend the fused return with the additional
+    # envelope fields ci_executor needs to render a complete agent
+    # prompt. Pre-V8.12 fusion (Plan 026R §B.3) only carried 5 fields
+    # (expected_output_path, role, must_satisfy, allowed_scope,
+    # evidence_refs) which forced ci_executor to read `suggested_prompt`
+    # and `target_agent` from the claim row — but those fields are
+    # NOT persisted on the claim row (claims.jsonl carries only claim
+    # metadata, not envelope fields). The empty suggested_prompt
+    # cascaded into an empty `<untrusted_*>` body in the prompt file,
+    # and the cross-reviewer agent refused with `evidence_underspecified`.
     return {
         **row,
         "lease_token": lease_token,
-        # Envelope metadata (5 fields per plan §B.3):
+        # Envelope metadata (V8.12 extended set — all fields ci_executor's
+        # `_build_prompt_payload` renders into the agent prompt):
         "expected_output_path": envelope.get("expected_output_path"),
         "role": envelope.get("role"),
+        "target_agent": envelope.get("target_agent"),
+        "convergence_id": envelope.get("convergence_id"),
+        "suggested_prompt": envelope.get("suggested_prompt"),
         "must_satisfy": envelope.get("must_satisfy", []),
         "allowed_scope": envelope.get("allowed_scope", []),
+        "forbidden_scope": envelope.get("forbidden_scope", []),
         "evidence_refs": envelope.get("evidence_refs", []),
+        "impact_graph_refs": envelope.get("impact_graph_refs", []),
+        "validation_commands": envelope.get("validation_commands", []),
+        "plan_revision_hash": envelope.get("plan_revision_hash"),
         # Ledger-hash anchors (2 fields per plan §B.3 + §B.5):
         "claim_ledger_hash": claim_ledger_hash_value,
         "request_ledger_hash": request_ledger_hash_value,
@@ -1330,6 +1363,16 @@ def submit_claim_result(
                 response=envelope,
                 base_dir=base_dir,
             )
+        except BridgeContractViolation:
+            # Plan ARIA-V8 v2 §4 Phase 8.2 (B-V2-03) — typed contract
+            # violation surfaces operator-visibly. Do NOT swallow into
+            # agent_bridge_warning. Pre-V8 the wrapper swallowed every
+            # GovernanceError subclass into a warning + accepted the
+            # envelope; V8 makes the structural-contract violation a
+            # hard fail that propagates to the caller (convergence
+            # drainer / consumer) so the operator sees the contract
+            # breach in real time.
+            raise
         except GovernanceError as exc:
             bridged["bridge_errors"].append(f"plan_convergence_bridge: {exc}")
             append_tools_governance(

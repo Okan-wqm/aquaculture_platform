@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -7,7 +8,7 @@ import re
 import time
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -29,8 +30,47 @@ EVENT_TYPES = {
     "plan_evaluated",
     "plan_abandoned",
     "lock_reaped",
+    # Plan ARIA-V9.0-B — implementation-phase event types. Adding a
+    # new event type beyond this set is a one-way door (every row in
+    # events.jsonl is now signed by content_hash; renaming a kind
+    # invalidates audit history). The v3 plan's 5 phases:
+    #
+    #   CONVERGED  (V8 P+C+CR terminal)
+    #     -- implementation_requested -->        IMPLEMENTATION_REQUESTED
+    #     -- implementation_started -->          IMPLEMENTATION_IN_FLIGHT
+    #     -- implementation_outcome_recorded --> IMPLEMENTATION_RECORDED
+    #     -- implementation_merged -->           IMPLEMENTATION_MERGED   (terminal)
+    #     -- implementation_rejected -->         IMPLEMENTATION_REJECTED (terminal)
+    #
+    # Per-event-type validators below check payload shape; state
+    # preconditions (impossible-state reachability) live in
+    # _apply_event, where the reducer raises GovernanceError if the
+    # current state.state does not match the single legal predecessor
+    # for the event_type. Closes architectural-arbiter CRIT-003.
+    "implementation_requested",
+    "implementation_started",
+    "implementation_outcome_recorded",
+    "implementation_merged",
+    "implementation_rejected",
 }
-TERMINAL_STATES = {"CONVERGED", "HUMAN_REQUIRED", "ABANDONED"}
+TERMINAL_STATES = {
+    "CONVERGED",
+    "HUMAN_REQUIRED",
+    "ABANDONED",
+    # Plan ARIA-V9.0-B — V9 implementation-phase terminal states. The
+    # V8 model treats CONVERGED as terminal; V9 extends past CONVERGED
+    # through the implementation phase and terminates at one of these
+    # two states (merged on green CI, rejected on red CI or
+    # implementation refusal). CONVERGED REMAINS in TERMINAL_STATES
+    # so existing V8 invariants (active-plan filters, _derive_state
+    # early-return) keep their semantics; V9's
+    # ``request_implementation`` re-opens a CONVERGED plan by writing
+    # an ``implementation_requested`` event whose reducer ignores
+    # TERMINAL_STATES (the V9 transition graph permits exactly one
+    # legal escape from CONVERGED: into IMPLEMENTATION_REQUESTED).
+    "IMPLEMENTATION_MERGED",
+    "IMPLEMENTATION_REJECTED",
+}
 ANSWERED_STATES = {"ANSWERED", "TIMEOUT_ABORTED"}
 MAX_CROSS_REVIEW_ROUNDS = 5
 REQUIRED_CROSS_REVIEW_DIRECTIONS = {"primary_to_challenger", "challenger_to_primary"}
@@ -185,6 +225,164 @@ def record_critique(
         base_dir=base_dir,
         validator=lambda state, payload: _validate_critique(state, payload, workspace_root),
     )
+
+
+def submit_cross_review_v8(
+    *,
+    plan_id: str,
+    review: dict[str, Any],
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Plan ARIA-V8.2 — single-step V8 P+C+CR cross-review state transition.
+
+    The V8 P+C+CR architecture mints ONE aria-cross-reviewer envelope
+    per round that bidirectionally compares primary↔challenger plans.
+    The legacy 3-event kernel flow requires:
+
+        CHALLENGER_DRAFTED
+            ── request_cross_review(tasks=[per direction]) ──>
+        CROSS_REVIEW_REQUESTED
+            ── record_cross_review(per task) × 2 ──>
+        CROSS_REVIEWED
+
+    Until V8.2 the drainer minted only the envelope; the bridge had no
+    way to take the agent's single response through both transitions,
+    so every cross_review submission landed `cannot record cross-review
+    from state CHALLENGER_DRAFTED`. V8.2 wraps the 3 events into one
+    atomic kernel call:
+
+      1. Read latest_revision + current_round from plan state.
+      2. Synthesize deterministic task_packet_hash per
+         REQUIRED_CROSS_REVIEW_DIRECTIONS (both directions).
+      3. Call request_cross_review with both synthetic tasks
+         (CHALLENGER_DRAFTED → CROSS_REVIEW_REQUESTED).
+      4. Call record_cross_review per direction with the agent's
+         risks shared across both directions
+         (CROSS_REVIEW_REQUESTED → CROSS_REVIEWED after both ANSWERED).
+
+    The agent does NOT need to know about task_packet_hash or
+    direction — it produces verdict + risks. The kernel-side function
+    here owns the metadata synthesis (Tier-1: V8 simplification lives
+    in the kernel boundary, not in the agent prompt).
+
+    Args:
+        plan_id: target plan id (in CHALLENGER_DRAFTED state)
+        review: dict with at minimum `reviewer_agent` + `risks`.
+            Optional `verdict` is recorded as governance hint.
+        workspace_root: passed through to record_cross_review for
+            reviewer_names() validation.
+        base_dir: aria-tools root override.
+
+    Returns:
+        The final record_cross_review event (state CROSS_REVIEWED).
+
+    Raises:
+        GovernanceError if state ≠ CHALLENGER_DRAFTED, or if review
+        is malformed.
+    """
+    _validate_id(plan_id, "plan_id")
+    if not isinstance(review, dict):
+        raise GovernanceError("V8 cross-review must be a JSON object")
+
+    root = ensure_tools_dir(base_dir)
+    state = fold_plan_state(plan_id=plan_id, base_dir=root)
+    _require_state(state, {"CHALLENGER_DRAFTED"}, "submit V8 cross-review")
+
+    reviewer_agent = _require_non_empty(
+        review.get("reviewer_agent") or "aria-cross-reviewer",
+        "reviewer_agent",
+    )
+    risks = review.get("risks", [])
+    if not isinstance(risks, list):
+        raise GovernanceError("V8 cross-review risks must be a list")
+
+    latest_rev = state.get("latest_revision") or {}
+    target_revision_id = latest_rev.get("revision_id")
+    target_hash = latest_rev.get("content_hash")
+    if not target_revision_id or not target_hash:
+        raise GovernanceError(
+            f"V8 cross-review requires CHALLENGER_DRAFTED state with "
+            f"complete latest_revision metadata; got "
+            f"revision_id={target_revision_id!r} content_hash={target_hash!r}"
+        )
+
+    # Round-number: V8 cycle is the next round after the latest. Use
+    # current_round if known, otherwise infer from cross_reviews count + 1.
+    round_number = state.get("current_round")
+    if not isinstance(round_number, int) or round_number <= 0:
+        round_number = max(1, len(state.get("cross_reviews") or {}) + 1)
+
+    # Deterministic review_content_hash from canonical risk list.
+    review_content_hash = "sha256:" + hashlib.sha256(
+        _canonical_json({"risks": risks, "reviewer_agent": reviewer_agent}).encode("utf-8")
+    ).hexdigest()
+
+    sla_deadline = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+
+    # Synthesize one task per required cross-review direction.
+    # Direction list is sorted deterministically for reproducibility.
+    directions = sorted(REQUIRED_CROSS_REVIEW_DIRECTIONS)
+    tasks: list[dict[str, Any]] = []
+    for direction in directions:
+        packet_seed = f"{plan_id}|{target_revision_id}|{target_hash}|round={round_number}|dir={direction}"
+        packet_hash = "sha256:" + hashlib.sha256(packet_seed.encode("utf-8")).hexdigest()
+        direction_short = "p2c" if direction == "primary_to_challenger" else "c2p"
+        tasks.append({
+            "task_id": f"v8-cr-{round_number}-{direction_short}-{target_revision_id[-8:]}",
+            "task_packet_hash": packet_hash,
+            # `_validate_task` (legacy critic task contract) reads
+            # `target_agent`; `_validate_cross_review_task` (V8 cross-
+            # review path) reads `reviewer_agent`. Carry both so the
+            # task dict is accepted by either validator path.
+            "target_agent": reviewer_agent,
+            "reviewer_agent": reviewer_agent,
+            "target_revision_id": target_revision_id,
+            "target_plan_content_hash": target_hash,
+            "review_direction": direction,
+            "sla_deadline": sla_deadline,
+            "status_after": "PENDING",
+        })
+
+    # Phase 1 — request_cross_review transitions CHALLENGER_DRAFTED
+    # → CROSS_REVIEW_REQUESTED + persists both tasks.
+    request_cross_review(
+        plan_id=plan_id,
+        request={
+            "round_number": round_number,
+            "target_revision_id": target_revision_id,
+            "target_plan_content_hash": target_hash,
+            "tasks": tasks,
+        },
+        base_dir=root,
+    )
+
+    # Phase 2 — record_cross_review per task. After both directions
+    # answer, the state machine resolves to CROSS_REVIEWED.
+    last_event: dict[str, Any] = {}
+    for task in tasks:
+        last_event = record_cross_review(
+            plan_id=plan_id,
+            review={
+                "task_packet_hash": task["task_packet_hash"],
+                "target_revision_id": target_revision_id,
+                "target_plan_content_hash": target_hash,
+                "reviewer_agent": reviewer_agent,
+                "review_direction": task["review_direction"],
+                "review_content_hash": review_content_hash,
+                "status_after": "ANSWERED",
+                "risks": risks,
+                # agent_invocation_request_id intentionally omitted —
+                # V8 bypasses the per-task content-hash mismatch check
+                # because the agent submitted ONE envelope covering both
+                # directions; the legacy mismatch check was scoped to
+                # per-task envelopes.
+            },
+            workspace_root=workspace_root,
+            base_dir=root,
+        )
+
+    return last_event
 
 
 def reap_stale_tasks(
@@ -372,20 +570,389 @@ def abandon_plan(
         return _event_result(event, idempotent=False)
 
 
+# =============================================================================
+# Plan ARIA-V9.2 — implementation-phase public API
+# =============================================================================
+#
+# Five event writers mirroring the V8 ``start_plan`` /
+# ``submit_challenger_plan`` / ``record_revision`` pattern. Each
+# validator does TWO things:
+#
+#   1. Pre-append state-precondition check via ``_require_state``
+#      — failed precondition raises GovernanceError BEFORE the event
+#      lands on disk. Defense-in-depth complement to the reducer-side
+#      state precondition check in ``_apply_event`` (V9.0-B), which
+#      catches the same violation on the NEXT fold.
+#
+#   2. Payload-shape check — required fields, value ranges. Shape
+#      errors raise GovernanceError; the bad event never appends.
+#
+# These functions are the kernel-side surface invoked by V9.3
+# (convergence_drainer + cross_review_bridge.issue_implementation_envelope)
+# and V9.6 (auto_merge_runner). The aria-implementer agent never calls
+# them directly — the agent submits its response envelope; the kernel's
+# ``record_plan_result`` dispatcher in plan_convergence_bridge.py routes
+# the role="implementation" path through ``record_implementation_outcome``
+# (V9.3 lands the dispatcher arm).
+
+
+def request_implementation(
+    *,
+    plan_id: str,
+    implementer_agent: str,
+    converged_plan_revision_id: str,
+    converged_plan_content_hash: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """V9.2 — emit ``implementation_requested`` event.
+
+    State precondition: CONVERGED (only legal predecessor per V9.0-B
+    reducer). The new event transitions state to
+    IMPLEMENTATION_REQUESTED.
+
+    Idempotent on (plan_id, "request-implementation",
+    {implementer_agent, converged_plan_revision_id,
+     converged_plan_content_hash}) — re-requesting the same
+    implementation on the same plan is a no-op.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(implementer_agent, "implementer_agent")
+    _require_non_empty(converged_plan_revision_id, "converged_plan_revision_id")
+    _require_hash(converged_plan_content_hash, "converged_plan_content_hash")
+    payload = {
+        "implementer_agent": implementer_agent,
+        "converged_plan_revision_id": converged_plan_revision_id,
+        "converged_plan_content_hash": converged_plan_content_hash,
+    }
+    return _mutate(
+        plan_id=plan_id,
+        command_name="request-implementation",
+        canonical_payload=payload,
+        event_type="implementation_requested",
+        payload=payload,
+        base_dir=base_dir,
+        validator=lambda state: _require_state(
+            state, {"CONVERGED"}, "request implementation",
+        ),
+    )
+
+
+def record_implementation_started(
+    *,
+    plan_id: str,
+    claim_id: str,
+    implementer_agent: str,
+    started_at: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """V9.2 — emit ``implementation_started`` event.
+
+    State precondition: IMPLEMENTATION_REQUESTED. Agent has claimed
+    the lease.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(claim_id, "claim_id")
+    _require_non_empty(implementer_agent, "implementer_agent")
+    _require_non_empty(started_at, "started_at")
+    payload = {
+        "claim_id": claim_id,
+        "implementer_agent": implementer_agent,
+        "started_at": started_at,
+    }
+    return _mutate(
+        plan_id=plan_id,
+        command_name="record-implementation-started",
+        canonical_payload=payload,
+        event_type="implementation_started",
+        payload=payload,
+        base_dir=base_dir,
+        validator=lambda state: _require_state(
+            state, {"IMPLEMENTATION_REQUESTED"}, "record implementation started",
+        ),
+    )
+
+
+def record_implementation_outcome(
+    *,
+    plan_id: str,
+    claim_id: str,
+    pr_url: str,
+    diff_hash: str,
+    branch_tip_sha: str,
+    base_branch_sha: str,
+    validation_results: list[dict[str, Any]],
+    signer_key_fp: str,
+    completed_at: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """V9.2 — emit ``implementation_outcome_recorded`` event.
+
+    State precondition: IMPLEMENTATION_IN_FLIGHT. Agent has applied
+    the diff, run validations, opened the PR.
+
+    Validation_results entries are size-capped by V9.0-D
+    ``truncate_validation_result`` (caller-side per
+    MAX_VALIDATION_RESULT_BYTES = 4096). signer_key_fp MUST match the
+    cycle's ephemeral key from V9.0-C ``gh_token_factory.SigningKey``;
+    the kernel-side ``verify_commit_signature`` cross-check happens
+    via implementation_safety, not this validator (we don't want a
+    state-machine validator that requires git access).
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(claim_id, "claim_id")
+    _require_non_empty(pr_url, "pr_url")
+    _require_hash(diff_hash, "diff_hash")
+    _require_non_empty(branch_tip_sha, "branch_tip_sha")
+    _require_non_empty(base_branch_sha, "base_branch_sha")
+    _require_non_empty(signer_key_fp, "signer_key_fp")
+    _require_non_empty(completed_at, "completed_at")
+    if not isinstance(validation_results, list):
+        raise GovernanceError("validation_results must be a list")
+    payload = {
+        "claim_id": claim_id,
+        "pr_url": pr_url,
+        "diff_hash": diff_hash,
+        "branch_tip_sha": branch_tip_sha,
+        "base_branch_sha": base_branch_sha,
+        "validation_results": validation_results,
+        "signer_key_fp": signer_key_fp,
+        "completed_at": completed_at,
+    }
+    return _mutate(
+        plan_id=plan_id,
+        command_name="record-implementation-outcome",
+        canonical_payload=payload,
+        event_type="implementation_outcome_recorded",
+        payload=payload,
+        base_dir=base_dir,
+        validator=lambda state: _require_state(
+            state, {"IMPLEMENTATION_IN_FLIGHT"}, "record implementation outcome",
+        ),
+    )
+
+
+def record_implementation_merged(
+    *,
+    plan_id: str,
+    merge_sha: str,
+    merged_at: str,
+    idempotency_key_hash: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """V9.2 — emit ``implementation_merged`` event (terminal state
+    IMPLEMENTATION_MERGED).
+
+    State precondition: IMPLEMENTATION_RECORDED. CI green + auto-merge
+    succeeded.
+
+    ``idempotency_key_hash`` is sha256 of the V9.6 5-tuple
+    (plan_id, diff_hash, pr_number, base_branch, branch_tip_sha) —
+    re-running the auto-merge daemon against the same merged PR is
+    a no-op.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(merge_sha, "merge_sha")
+    _require_non_empty(merged_at, "merged_at")
+    _require_hash(idempotency_key_hash, "idempotency_key_hash")
+    payload = {
+        "merge_sha": merge_sha,
+        "merged_at": merged_at,
+        "idempotency_key_hash": idempotency_key_hash,
+    }
+    return _mutate(
+        plan_id=plan_id,
+        command_name="record-implementation-merged",
+        canonical_payload=payload,
+        event_type="implementation_merged",
+        payload=payload,
+        base_dir=base_dir,
+        validator=lambda state: _require_state(
+            state, {"IMPLEMENTATION_RECORDED"}, "record implementation merged",
+        ),
+    )
+
+
+def record_implementation_rejected(
+    *,
+    plan_id: str,
+    rejection_class: str,
+    rejected_at: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """V9.2 — emit ``implementation_rejected`` event (terminal state
+    IMPLEMENTATION_REJECTED).
+
+    State precondition: any of IMPLEMENTATION_REQUESTED,
+    IMPLEMENTATION_IN_FLIGHT, IMPLEMENTATION_RECORDED.
+
+    rejection_class MUST be in the V9.0-B canonical set (validated
+    by _validate_event on append; double-checked here for fail-fast).
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(rejection_class, "rejection_class")
+    _require_non_empty(rejected_at, "rejected_at")
+    payload = {
+        "rejection_class": rejection_class,
+        "rejected_at": rejected_at,
+    }
+    return _mutate(
+        plan_id=plan_id,
+        command_name="record-implementation-rejected",
+        canonical_payload=payload,
+        event_type="implementation_rejected",
+        payload=payload,
+        base_dir=base_dir,
+        validator=lambda state: _require_state(
+            state,
+            {
+                "IMPLEMENTATION_REQUESTED",
+                "IMPLEMENTATION_IN_FLIGHT",
+                "IMPLEMENTATION_RECORDED",
+            },
+            "record implementation rejected",
+        ),
+    )
+
+
+# =============================================================================
+# End Plan ARIA-V9.2 implementation-phase public API
+# =============================================================================
+
+
 def plan_status(*, plan_id: str, base_dir: str | Path | None = None) -> dict[str, Any]:
     _validate_id(plan_id, "plan_id")
     return fold_plan_state(plan_id=plan_id, base_dir=base_dir)
 
 
+# Plan ARIA-V8 §4 Phase 8.0 (B-V2-12) — fold_plan_state mtime+plan_id
+# cache. Pre-V8 the function did a full ledger scan + per-event
+# validate+apply on every call. Convergence_drainer polls it every
+# sleep_interval (5s) × deadline (1800s) = 360 calls per cycle wait.
+# A 30-cycle smoke with 3 waits per round × 2 rounds = 64,800 calls →
+# 15M JSON rows parsed. C0 adds a per-(events_path_mtime_ns, plan_id)
+# cache keyed on the events file's mtime; invalidated automatically
+# when _append_event() writes (mtime advances). Mirrors the cache
+# pattern in list_active_plans (line 296-313).
+#
+# WHY a module-level dict: thread-safe enough for the single-threaded
+# orchestrator loop. WHEN to invalidate: every write to events.jsonl
+# advances mtime; the next read sees the new mtime, recomputes, stores.
+_FOLD_PLAN_STATE_CACHE: dict[tuple[int, str, str], dict[str, Any]] = {}
+_FOLD_PLAN_STATE_CACHE_MAX_ENTRIES = 512
+
+
+def _events_file_size_bytes(root: Path) -> int:
+    """Use FILE SIZE as the cache invalidation key.
+
+    WHY NOT mtime: `ensure_tools_dir` calls `update_tools_index` which
+    touches integrity metadata on events.jsonl, advancing mtime even
+    when content is unchanged. Using size instead means the cache only
+    invalidates on REAL appends (events.jsonl grows monotonically).
+    """
+    p = events_path(root)
+    try:
+        return p.stat().st_size
+    except (FileNotFoundError, OSError):
+        return 0
+
+
 def fold_plan_state(*, plan_id: str, base_dir: str | Path | None = None) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
+    cache_key = (_events_file_size_bytes(root), str(root), plan_id)
+    cached = _FOLD_PLAN_STATE_CACHE.get(cache_key)
+    if cached is not None:
+        # Plan ARIA-V9.0-B — deepcopy on cache HIT.
+        #
+        # Pre-V9 the cache returned a SHALLOW dict-comprehension copy
+        # (`{k: v.copy() if isinstance(v, (dict, list)) else v ...}`).
+        # That copied the top-level dict + the FIRST level of nested
+        # dicts/lists but NOT recursively. The V8 reducer wrote
+        # `state["rounds"][N]["tasks"][hash] = {...}` two levels deep;
+        # callers mutating round.tasks[hash].critique corrupted the
+        # shared cache. V9 introduces `state["implementation"] = {...,
+        # "validation_results": [{"stdout": ..., "stderr": ...}, ...]}`
+        # which is 3 levels deep — the shallow strategy is unsafe.
+        #
+        # performance-expert PERF-MED-011 quantified ~50μs ×
+        # ~1800 poll-calls/cycle = ~90ms/cycle overhead; acceptable.
+        # ai-safety MED-019 + arch-arbiter MED-009 both reference this
+        # site. Closes performance PERF-CRIT-004 + PERF-MED-011.
+        return copy.deepcopy(cached)
     events = [row for row in load_jsonl(events_path(root)) if row.get("plan_id") == plan_id]
     state = _initial_state(plan_id)
     for event in events:
         _validate_event(event)
         _apply_event(state, event)
     _derive_state(state)
+    # Cap cache size — drop oldest entry when full (FIFO)
+    if len(_FOLD_PLAN_STATE_CACHE) >= _FOLD_PLAN_STATE_CACHE_MAX_ENTRIES:
+        _FOLD_PLAN_STATE_CACHE.pop(next(iter(_FOLD_PLAN_STATE_CACHE)))
+    # Plan ARIA-V9.0-B — deepcopy on cache WRITE (paired with HIT-side
+    # deepcopy above so cache entry can never share nested-mutable
+    # references with the live `state` dict the caller now owns).
+    _FOLD_PLAN_STATE_CACHE[cache_key] = copy.deepcopy(state)
     return state
+
+
+_ORPHAN_PENDING_STATES: frozenset[str] = frozenset({
+    "IMPLEMENTATION_REQUESTED",
+    "IMPLEMENTATION_IN_FLIGHT",
+})
+
+
+def scan_orphan_implementation_requests(
+    *,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """Plan ARIA-V3.1-B2 — find plans stuck in pre-terminal implementation
+    states (closes 6-validator H-12 orphan reaper).
+
+    A plan is "orphan" when its folded state is one of
+    `_ORPHAN_PENDING_STATES` (`IMPLEMENTATION_REQUESTED` —
+    request was minted but agent never claimed; or
+    `IMPLEMENTATION_IN_FLIGHT` — agent claimed but never returned).
+    Crash paths in the orchestrator OR the aria-implementer that
+    bypass try/finally cleanup leave plans in these states; the
+    next orchestrator startup uses this scanner to enumerate them
+    + transitions each to IMPLEMENTATION_REJECTED via
+    record_implementation_rejected("orchestrator_restart_reaped_orphan").
+
+    Returns list of dicts shaped:
+        {"plan_id": str, "state": str, "last_event_at": str | None}
+
+    Scans `plans/events.jsonl` exactly once + folds state per
+    distinct plan_id (O(N events + K plans × cached fold)).
+    """
+    root = ensure_tools_dir(base_dir)
+    events_file = root / "plans" / "events.jsonl"
+    if not events_file.exists():
+        return []
+    # Enumerate distinct plan_ids + track last_event_at per plan.
+    plan_ids: dict[str, str | None] = {}
+    for event in load_jsonl(events_file):
+        pid = event.get("plan_id")
+        if isinstance(pid, str) and pid:
+            ts = event.get("ts") or event.get("created_at")
+            if isinstance(ts, str):
+                plan_ids[pid] = ts
+            else:
+                plan_ids.setdefault(pid, None)
+    orphans: list[dict[str, Any]] = []
+    for plan_id, last_ts in plan_ids.items():
+        try:
+            state = fold_plan_state(plan_id=plan_id, base_dir=root)
+        except Exception:
+            # Bad row / unknown event_type — skip; the row-level
+            # integrity gate runs elsewhere.
+            continue
+        s = state.get("state") if isinstance(state, dict) else None
+        if isinstance(s, str) and s in _ORPHAN_PENDING_STATES:
+            orphans.append({
+                "plan_id": plan_id,
+                "state": s,
+                "last_event_at": last_ts,
+            })
+    return orphans
 
 
 def content_hash(payload: Any) -> str:
@@ -664,14 +1231,33 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             "source": "plan_started",
         }
     elif event_type == "challenger_plan_drafted":
+        # Plan ARIA-V8.18 — preserve plan_content in state reduction.
+        # Pre-V8.18 the reduction stored only revision metadata + agent
+        # identity but DISCARDED the actual plan_content dict from the
+        # ledger event. The convergence_drainer V8.3 lookup then read
+        # `state.challenger.plan_content` (also under the canonical
+        # `challenger` key, not the pre-V8.18 `challenger_plan` alias)
+        # to embed the challenger plan body into the cross_review
+        # envelope's `<untrusted_challenger_plan>` delimiter. With
+        # plan_content dropped, the drainer's fail-fast fallback fired
+        # ("challenger plan_content unavailable in plan state"), the
+        # cross-reviewer agent rightly refused with
+        # `evidence_underspecified`, and convergence stalled.
         state["state"] = "CHALLENGER_DRAFTED"
-        state["challenger_plan"] = {
+        challenger_record = {
             "challenger_revision_id": payload["challenger_revision_id"],
             "content_hash": payload["content_hash"],
             "source_revision_id": payload["source_revision_id"],
             "source_plan_content_hash": payload["source_plan_content_hash"],
             "challenger_agent": payload.get("challenger_agent"),
+            "plan_content": payload.get("plan_content"),
         }
+        state["challenger"] = challenger_record
+        # V8.18 — keep the legacy `challenger_plan` alias for any
+        # consumer that already read it pre-V8.18; both keys point at
+        # the same dict instance so a future drop of the legacy alias
+        # is a single-line removal (no parallel data path).
+        state["challenger_plan"] = challenger_record
     elif event_type == "critic_tasks_requested":
         round_number = payload["round_number"]
         state["current_round"] = round_number
@@ -743,6 +1329,23 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             "source": "revision_recorded",
             "round": payload["round"],
         }
+        # Plan ARIA-V10.4 Phase 3.H.11 (F-022) — advance current_round.
+        # Pre-fix the reducer set the new latest_revision but left
+        # current_round untouched at the round that PRODUCED the
+        # revision. The next P+C+CR cycle's submit_cross_review_v8 then
+        # read state["current_round"] = N and tried to register cross-
+        # review tasks for round N, which already existed in
+        # state["cross_reviews"][N] from the previous P+C+CR. The
+        # validator at _validate_cross_review_task_payload (line 1623)
+        # raised "round has already requested cross-review" and the
+        # bridge fold fired agent_bridge_warning — cycle 1 (cyc-
+        # 20260520T141138Z-auto) stalled at CHALLENGER_DRAFTED after
+        # F-021 finally let the revision land. Tier-1 architectural
+        # fix: revision_recorded is the natural state-machine seam
+        # where "next round begins" — advance current_round to
+        # payload["round"] + 1 so the next cross_review targets a
+        # fresh round number.
+        state["current_round"] = payload["round"] + 1
         resolved = set(state.get("resolved_review_risk_ids", []))
         resolved.update(str(item) for item in payload.get("addresses_review_risk_ids", []) if isinstance(item, str) and item)
         state["resolved_review_risk_ids"] = sorted(resolved)
@@ -752,6 +1355,106 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
     elif event_type == "plan_abandoned":
         state["state"] = "ABANDONED"
         state["terminal_state"] = "ABANDONED"
+    # Plan ARIA-V9.0-B — implementation-phase reducer transitions.
+    # Each event_type checks the single legal predecessor state and
+    # raises GovernanceError(invalid_transition: …) on out-of-order
+    # arrival. Tier-1 (make impossible to reach an out-of-order
+    # IMPLEMENTATION_RECORDED without first passing through
+    # IMPLEMENTATION_REQUESTED + IMPLEMENTATION_IN_FLIGHT). Closes
+    # architectural-arbiter CRIT-003 + MED-009.
+    elif event_type == "implementation_requested":
+        if state.get("state") != "CONVERGED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_requested expected=CONVERGED"
+            )
+        state["state"] = "IMPLEMENTATION_REQUESTED"
+        state["implementation"] = {
+            "implementer_agent": payload["implementer_agent"],
+            "converged_plan_revision_id": payload["converged_plan_revision_id"],
+            "converged_plan_content_hash": payload["converged_plan_content_hash"],
+            "claim_id": None,
+            "pr_url": None,
+            "diff_hash": None,
+            "branch_tip_sha": None,
+            "validation_results": [],
+            "signer_key_fp": None,
+            "base_branch_sha": None,
+            "started_at": None,
+            "completed_at": None,
+            "merged_at": None,
+            "rejected_at": None,
+            "rejection_class": None,
+        }
+    elif event_type == "implementation_started":
+        if state.get("state") != "IMPLEMENTATION_REQUESTED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_started expected=IMPLEMENTATION_REQUESTED"
+            )
+        state["state"] = "IMPLEMENTATION_IN_FLIGHT"
+        state["implementation"]["claim_id"] = payload["claim_id"]
+        # V9.0-B: payload.implementer_agent is the agent that actually
+        # claimed the lease; reducer preserves it for cross-check
+        # against the implementer_agent recorded at request time —
+        # mismatch is a downstream invariant test, not a kernel reject
+        # (the kernel cannot adjudicate agent-identity drift).
+        state["implementation"]["claimed_by_agent"] = payload["implementer_agent"]
+        state["implementation"]["started_at"] = payload.get("started_at")
+    elif event_type == "implementation_outcome_recorded":
+        if state.get("state") != "IMPLEMENTATION_IN_FLIGHT":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_outcome_recorded expected=IMPLEMENTATION_IN_FLIGHT"
+            )
+        state["state"] = "IMPLEMENTATION_RECORDED"
+        impl = state["implementation"]
+        impl["pr_url"] = payload["pr_url"]
+        impl["diff_hash"] = payload["diff_hash"]
+        impl["branch_tip_sha"] = payload["branch_tip_sha"]
+        impl["validation_results"] = payload.get("validation_results", [])
+        impl["signer_key_fp"] = payload["signer_key_fp"]
+        impl["base_branch_sha"] = payload["base_branch_sha"]
+        impl["completed_at"] = payload.get("completed_at")
+    elif event_type == "implementation_merged":
+        if state.get("state") != "IMPLEMENTATION_RECORDED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_merged expected=IMPLEMENTATION_RECORDED"
+            )
+        state["state"] = "IMPLEMENTATION_MERGED"
+        state["terminal_state"] = "IMPLEMENTATION_MERGED"
+        state["implementation"]["merge_sha"] = payload["merge_sha"]
+        state["implementation"]["merged_at"] = payload["merged_at"]
+        state["implementation"]["idempotency_key_hash"] = payload["idempotency_key_hash"]
+    elif event_type == "implementation_rejected":
+        # implementation_rejected has 3 legal predecessor states
+        # (REQUESTED / IN_FLIGHT / RECORDED) — the rejection_class
+        # value carries which transition fired so the audit trail is
+        # unambiguous downstream.
+        valid_predecessors = {
+            "IMPLEMENTATION_REQUESTED",
+            "IMPLEMENTATION_IN_FLIGHT",
+            "IMPLEMENTATION_RECORDED",
+        }
+        prior_state = state.get("state")
+        if prior_state not in valid_predecessors:
+            raise GovernanceError(
+                f"invalid_transition: from={prior_state} "
+                f"event=implementation_rejected expected=any of "
+                f"{sorted(valid_predecessors)}"
+            )
+        state["state"] = "IMPLEMENTATION_REJECTED"
+        state["terminal_state"] = "IMPLEMENTATION_REJECTED"
+        impl = state.setdefault("implementation", {})
+        impl["rejection_class"] = payload["rejection_class"]
+        impl["rejected_at"] = payload["rejected_at"]
+        # Record the predecessor explicitly for audit forensics — V9.6
+        # auto_merge runner reads rejected_from_state to attribute
+        # rejection reason to a specific transition (e.g. ci_check_red
+        # arriving in RECORDED vs in_flight_abandoned arriving in
+        # IN_FLIGHT).
+        impl["rejected_from_state"] = prior_state
 
 
 def _derive_state(state: dict[str, Any]) -> None:
@@ -1233,6 +1936,94 @@ def _validate_event(event: dict[str, Any]) -> None:
         for field in ("stale_lock_pid", "lock_age_seconds", "reaped_by_pid"):
             if not isinstance(payload.get(field), int):
                 raise GovernanceError(f"lock_reaped {field} must be an integer")
+    # Plan ARIA-V9.0-B — implementation-phase event payload validators.
+    # State preconditions live in _apply_event (the reducer), not here
+    # — _validate_event is shape-only because validation runs once per
+    # event-load whereas state preconditions depend on the cumulative
+    # fold result. Splitting the responsibilities avoids a chicken-egg
+    # dependency on fold_plan_state during a fold.
+    elif event_type == "implementation_requested":
+        _require_non_empty(payload.get("implementer_agent"), "implementer_agent")
+        _require_non_empty(payload.get("converged_plan_revision_id"), "converged_plan_revision_id")
+        _require_hash(payload.get("converged_plan_content_hash"), "converged_plan_content_hash")
+    elif event_type == "implementation_started":
+        _require_non_empty(payload.get("claim_id"), "claim_id")
+        _require_non_empty(payload.get("implementer_agent"), "implementer_agent")
+    elif event_type == "implementation_outcome_recorded":
+        _require_non_empty(payload.get("claim_id"), "claim_id")
+        _require_non_empty(payload.get("pr_url"), "pr_url")
+        _require_hash(payload.get("diff_hash"), "diff_hash")
+        _require_non_empty(payload.get("branch_tip_sha"), "branch_tip_sha")
+        if not isinstance(payload.get("validation_results", []), list):
+            raise GovernanceError("validation_results must be an array")
+        _require_non_empty(payload.get("signer_key_fp"), "signer_key_fp")
+        _require_non_empty(payload.get("base_branch_sha"), "base_branch_sha")
+    elif event_type == "implementation_merged":
+        _require_non_empty(payload.get("merge_sha"), "merge_sha")
+        _require_non_empty(payload.get("merged_at"), "merged_at")
+        # Idempotency-key is a 5-tuple per V9.6 (closes arb HIGH-006).
+        # Encoded here as a sha256 hash of the canonical tuple so the
+        # validator can _require_hash without re-implementing 5-field
+        # parsing.
+        _require_hash(payload.get("idempotency_key_hash"), "idempotency_key_hash")
+    elif event_type == "implementation_rejected":
+        # 6 valid rejection classes:
+        #   no_claim_timeout            (poll deadline in REQUESTED state)
+        #   in_flight_abandoned         (poll deadline in IN_FLIGHT state)
+        #   ci_check_timeout            (auto-merge poll deadline)
+        #   ci_check_red                (any required check NOT SUCCESS)
+        #   merge_policy_violation      (evaluate_auto_merge ineligible)
+        #   branch_tip_drift            (headRefOid != recorded branch_tip_sha)
+        #   content_hash_mismatch       (content_hash drift between mint + outcome)
+        #   secret_leak_detected        (verify_no_secret_in_diff fired)
+        #   kernel_self_modification_attempted (envelope-mint refusal)
+        #   bash_command_denylist_hit   (V9.0-D ALLOWED_BASH_COMMANDS miss)
+        #   path_escape_outside_workspace (V9.0-D verify_no_path_escape fired)
+        #   file_lock_conflict          (V9.5 check 11 — per_file_mutual_exclusion)
+        valid_rejection_classes = frozenset({
+            "no_claim_timeout",
+            "in_flight_abandoned",
+            "ci_check_timeout",
+            "ci_check_red",
+            "merge_policy_violation",
+            "branch_tip_drift",
+            "content_hash_mismatch",
+            "secret_leak_detected",
+            "kernel_self_modification_attempted",
+            "bash_command_denylist_hit",
+            "path_escape_outside_workspace",
+            "file_lock_conflict",
+            "validation_failed",
+            "forbidden_scope_violation",
+            "plan_evidence_stale",
+            "branch_collision",
+            "prompt_injection_detected",
+            "dependency_pinning_unsafe",
+            "implementer_turn_budget_exhausted",
+            "cycle_budget_exhausted",
+            "gh_api_scope_violation",
+            "autonomous_profile_preconditions_not_met",
+            # Plan ARIA-V3.1-B3 — orphan reaper rejection class.
+            # The orchestrator startup hook transitions a plan stuck
+            # in IMPLEMENTATION_REQUESTED or IMPLEMENTATION_IN_FLIGHT
+            # to IMPLEMENTATION_REJECTED with this class so the audit
+            # trail distinguishes crash-recovery reaping from real
+            # implementation failures (closes H-12).
+            "orchestrator_restart_reaped_orphan",
+            # Plan ARIA-V3.1-B-5 — commit signature verify mismatch
+            # raised by plan_convergence_bridge._dispatch_implementation
+            # BEFORE record_implementation_outcome would accept the row.
+            # The IMPL row never lands; if the agent's claim was
+            # IMPLEMENTATION_IN_FLIGHT, the orchestrator can reap
+            # with this canonical class.
+            "commit_signature_unverified",
+        })
+        if payload.get("rejection_class") not in valid_rejection_classes:
+            raise GovernanceError(
+                f"implementation_rejected rejection_class must be one of "
+                f"{sorted(valid_rejection_classes)}, got {payload.get('rejection_class')!r}"
+            )
+        _require_non_empty(payload.get("rejected_at"), "rejected_at")
 
 
 def _evaluate_state(state: dict[str, Any], round_number: int) -> dict[str, Any]:

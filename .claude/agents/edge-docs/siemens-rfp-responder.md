@@ -4,6 +4,7 @@ description: Produces the Siemens-specific RFP / vendor-assessment deliverables 
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 3
 ---
 
 # Siemens RFP Responder — Lane-C Producer

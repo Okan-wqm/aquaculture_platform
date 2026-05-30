@@ -4,4 +4,3 @@ export const adminRoutes = {
   analyticsReports: '/admin/analytics/reports',
   audit: '/admin/audit',
 } as const;
-

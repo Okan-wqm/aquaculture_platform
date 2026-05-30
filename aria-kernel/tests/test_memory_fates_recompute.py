@@ -1,9 +1,10 @@
 """Plan 026R §E.7 — memory update_memory FATES hash recompute.
 
-9 tests:
+10 tests:
 
 * _verify_fates_integrity passes when on-disk content matches.
 * _verify_fates_integrity raises on content_hash mismatch (tamper).
+* _verify_fates_integrity uses committed blobs for committed snapshots.
 * _verify_fates_integrity raises on path traversal.
 * _verify_fates_integrity tolerates deleted file (not a tamper).
 * _verify_fates_integrity raises on missing path field in entry.
@@ -15,6 +16,7 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -61,6 +63,26 @@ class VerifyFatesIntegrityTests(unittest.TestCase):
         with self.assertRaises(GovernanceError) as ctx:
             _verify_fates_integrity(fates, workspace_root=self.workspace)
         self.assertIn("content_hash_mismatch", str(ctx.exception))
+
+    def test_committed_snapshot_uses_committed_blob_when_worktree_dirty(self) -> None:
+        subprocess.run(["git", "init"], cwd=self.workspace, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "aria@example.test"], cwd=self.workspace, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "ARIA Test"], cwd=self.workspace, check=True, capture_output=True)
+        subprocess.run(["git", "add", "docs/a.md"], cwd=self.workspace, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "initial"], cwd=self.workspace, check=True, capture_output=True)
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.workspace, text=True).strip()
+        committed_hash = _hash(b"content-a")
+        self.docs_a.write_text("dirty-content", encoding="utf-8")
+        fates = {"files": [{"path": "docs/a.md", "content_hash": committed_hash}]}
+
+        _verify_fates_integrity(
+            fates,
+            workspace_root=self.workspace,
+            snapshot_mode="committed",
+            base_commit_sha=head,
+        )
+        with self.assertRaises(GovernanceError):
+            _verify_fates_integrity(fates, workspace_root=self.workspace)
 
     def test_raises_on_path_traversal(self) -> None:
         fates = {

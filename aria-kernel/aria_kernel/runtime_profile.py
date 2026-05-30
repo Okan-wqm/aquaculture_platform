@@ -149,6 +149,15 @@ PLAN_020_WRITE_SURFACES: frozenset[str] = frozenset({
     "tool_governance",         # §A.4 — tool_registry.append_tools_governance
     "critical_observation",    # §A.4 — critical_observation.record_critical_observation
     "human_required",          # §A.4 — human_required.record_human_required
+    "runtime_v2_promotion",
+    "plan_promotion_dispatch",
+    "worker_verification",
+    "worker_result",
+    "pr_lifecycle",
+    "pr_action",
+    "tool_registry",
+    "tool_lifecycle",
+    "skill_genesis",
 })
 
 

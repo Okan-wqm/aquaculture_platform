@@ -247,6 +247,8 @@ def approve_agent_pr(
     §E.2: synthetic_test_mode=true rejects unless the operator
     explicitly passes ``operator_synthetic_override=True``.
     """
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("agent_genesis", base_dir=base_dir)
     if not operator_approval_ref.strip():
         raise GovernanceError("operator approval ref is required")
     draft = _find_draft(draft_id, base_dir)
@@ -276,6 +278,8 @@ def prepare_agent_pr_lane(
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
 ) -> dict[str, Any]:
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("agent_genesis", base_dir=base_dir)
     draft = _find_draft(draft_id, base_dir)
     if draft.get("status") != "approved_for_agent_pr":
         raise GovernanceError("agent draft must be approved_for_agent_pr before PR lane preparation")
@@ -357,6 +361,10 @@ def materialize_agent_draft(
     if not target_path.startswith(".claude/agents/aria-") or not target_path.endswith(".md"):
         raise GovernanceError("target_path_not_agent_scoped")
     target = worktree / target_path
+    try:
+        target.resolve().relative_to(worktree.resolve())
+    except ValueError as exc:
+        raise GovernanceError("target_path_escapes_worktree") from exc
     touched = [target_path]
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")

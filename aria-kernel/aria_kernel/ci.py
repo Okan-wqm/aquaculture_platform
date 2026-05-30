@@ -713,6 +713,12 @@ def _gh_pr_snapshot(*, pr_number: int, workspace_root: str | Path) -> dict[str, 
         }
         for name in required_authoritative
     ]
+    if not required_runs and required:
+        # Branch protection can be readable but unconfigured for local/test
+        # repos. Do not hide real gh-pr-check states from consumers; an empty
+        # checks.runs list would make failures invisible to gates that inspect
+        # the snapshot's concrete run state.
+        required_runs = [runs_by_name[name] for name in required if name in runs_by_name]
 
     branch_protection_block: dict[str, Any] = {
         "readable": bp_error is None,

@@ -130,6 +130,29 @@ def sandbox_skill(
     return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "sandbox.jsonl", row)
 
 
+def approve_skill_pr(
+    *,
+    draft_id: str,
+    operator_approval_ref: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    from .runtime_profile import enforce_profile_for_write
+    enforce_profile_for_write("skill_genesis", base_dir=base_dir)
+    if not operator_approval_ref.strip():
+        raise GovernanceError("operator approval ref is required")
+    draft = _find_draft(draft_id, base_dir)
+    if draft is None:
+        raise GovernanceError(f"skill_approve_draft_not_found: draft_id={draft_id!r}")
+    sandbox = _latest_sandbox(draft_id, base_dir)
+    if not sandbox or sandbox.get("decision") != "pass":
+        raise GovernanceError("skill draft must pass sandbox before PR approval")
+    row = dict(draft)
+    row["recorded_at"] = utc_now()
+    row["status"] = "approved_for_skill_pr"
+    row["operator_approval_ref"] = operator_approval_ref
+    return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "drafts.jsonl", row)
+
+
 def materialize_skill(
     *,
     draft_id: str,
@@ -146,13 +169,15 @@ def materialize_skill(
         raise GovernanceError(
             f"skill_materialize_draft_not_found: draft_id={draft_id!r}"
         )
-    # Plan 026R §E.3 — chain: materialise requires a passing sandbox.
     sandbox = _latest_sandbox(draft_id, base_dir)
     if not sandbox or sandbox.get("decision") != "pass":
         raise GovernanceError(
             f"skill_materialize_requires_passing_sandbox: "
             f"draft_id={draft_id!r} sandbox={sandbox}"
         )
+    # Plan 026R §E.3 — chain: materialise requires passing sandbox and explicit approval.
+    if draft.get("status") != "approved_for_skill_pr":
+        raise GovernanceError("skill draft must be approved_for_skill_pr before materialization")
     dispatch = _find_dispatch(assignment_id, base_dir)
     worktree = Path(str(dispatch.get("worktree_path") or ""))
     if not worktree.is_absolute():
@@ -163,6 +188,10 @@ def materialize_skill(
     if not target_path.startswith(".claude/skills/") or not target_path.endswith(".md"):
         raise GovernanceError("target_path_not_skill_scoped")
     target = worktree / target_path
+    try:
+        target.resolve().relative_to(worktree.resolve())
+    except ValueError as exc:
+        raise GovernanceError("target_path_escapes_worktree") from exc
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
     tmp.write_text(str(draft.get("content") or ""), encoding="utf-8")

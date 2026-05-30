@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, load_jsonl, read_jsonl
+from .runs_reader import read_runs_rows
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
 from .workspace import WorkspacePaths, default_actor
@@ -128,7 +129,7 @@ def run_pressure(
                 recommended_action="review contradiction ledger",
             ),
         )
-    for run in load_jsonl(runs_path(root)):
+    for run in list(read_runs_rows(runs_path(root), base_dir=root)):
         if run.get("cycle_id") != cycle_id:
             continue
         status = run.get("status")
@@ -619,7 +620,7 @@ def _raw_finding_delta(run: dict[str, Any], cycle_id: str, root: Path) -> int:
     tool_id = run.get("tool_id")
     previous = [
         row
-        for row in load_jsonl(runs_path(root))
+        for row in list(read_runs_rows(runs_path(root), base_dir=root))
         if row.get("tool_id") == tool_id and row.get("cycle_id") != cycle_id and str(row.get("cycle_id")) < cycle_id
     ]
     if not previous:

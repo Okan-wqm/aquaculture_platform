@@ -50,15 +50,25 @@ LEARNING_HOOK_ORDER = (
     "skill_or_agent_genesis",
     "agent_fitness_score",
 )
+PRE_CYCLE_LEARNING_HOOKS = (
+    "decay_recompute",
+    "artifact_prune",
+    "vocabulary_reload_check",
+    "git_trailer_scan",
+)
+POST_EVIDENCE_LEARNING_HOOKS = tuple(
+    hook for hook in LEARNING_HOOK_ORDER if hook not in PRE_CYCLE_LEARNING_HOOKS
+)
 
 
-def run_learning_pass(
+def _run_learning_hooks(
     paths: WorkspacePaths,
     *,
     cycle_id: str,
     tools_root: str | Path | None = None,
     now: datetime | None = None,
     artifact_ttl_days: int = DEFAULT_ARTIFACT_TTL_DAYS,
+    hook_names: tuple[str, ...] = LEARNING_HOOK_ORDER,
 ) -> dict[str, Any]:
     """Run Phase-2A cycle learning hooks in contract order."""
 
@@ -83,6 +93,8 @@ def run_learning_pass(
         ("skill_or_agent_genesis", lambda: _skill_or_agent_genesis(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("agent_fitness_score", lambda: agent_fitness_score(cycle_id=cycle_id, base_dir=root)),
     )
+    selected = set(hook_names)
+    hooks = tuple((name, hook) for name, hook in hooks if name in selected)
     results: list[dict[str, Any]] = []
     for hook_name, hook in hooks:
         try:
@@ -94,6 +106,67 @@ def run_learning_pass(
             event = record_workspace_governance(paths, "learning_hook_failed", _hook_failure_details(hook_name, exc))
             results.append({"hook_name": hook_name, "status": "failed", "governance_event_id": event.get("event_id")})
     return {"schema_version": 1, "cycle_id": cycle_id, "hooks": results}
+
+
+def run_learning_pre_cycle(
+    paths: WorkspacePaths,
+    *,
+    cycle_id: str,
+    tools_root: str | Path | None = None,
+    now: datetime | None = None,
+    artifact_ttl_days: int = DEFAULT_ARTIFACT_TTL_DAYS,
+) -> dict[str, Any]:
+    return _run_learning_hooks(
+        paths,
+        cycle_id=cycle_id,
+        tools_root=tools_root,
+        now=now,
+        artifact_ttl_days=artifact_ttl_days,
+        hook_names=PRE_CYCLE_LEARNING_HOOKS,
+    )
+
+
+def run_learning_post_evidence_closure(
+    paths: WorkspacePaths,
+    *,
+    cycle_id: str,
+    tools_root: str | Path | None = None,
+    now: datetime | None = None,
+    artifact_ttl_days: int = DEFAULT_ARTIFACT_TTL_DAYS,
+) -> dict[str, Any]:
+    return _run_learning_hooks(
+        paths,
+        cycle_id=cycle_id,
+        tools_root=tools_root,
+        now=now,
+        artifact_ttl_days=artifact_ttl_days,
+        hook_names=POST_EVIDENCE_LEARNING_HOOKS,
+    )
+
+
+def run_learning_pass(
+    paths: WorkspacePaths,
+    *,
+    cycle_id: str,
+    tools_root: str | Path | None = None,
+    now: datetime | None = None,
+    artifact_ttl_days: int = DEFAULT_ARTIFACT_TTL_DAYS,
+) -> dict[str, Any]:
+    pre = run_learning_pre_cycle(
+        paths, cycle_id=cycle_id, tools_root=tools_root,
+        now=now, artifact_ttl_days=artifact_ttl_days,
+    )
+    post = run_learning_post_evidence_closure(
+        paths, cycle_id=cycle_id, tools_root=tools_root,
+        now=now, artifact_ttl_days=artifact_ttl_days,
+    )
+    return {
+        "schema_version": 2,
+        "cycle_id": cycle_id,
+        "pre_cycle": pre,
+        "post_evidence_closure": post,
+        "hooks": list(pre.get("hooks", [])) + list(post.get("hooks", [])),
+    }
 
 
 def _skipped(cycle_id: str, reason: str) -> dict[str, Any]:

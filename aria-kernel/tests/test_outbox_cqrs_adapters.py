@@ -53,6 +53,7 @@ class P { constructor(private eventBus: EventBus) {}
         rules = {f["rule"] for f in result["findings"]}
         self.assertIn("transactional_outbox_violation", rules)
         self.assertIn("outbox_entity_base_missing", rules)
+        self.assertEqual(set(result["evidence_sources"]), {path.relative_to(self.repo).as_posix()})
 
     def test_clean_outbox_pattern_no_finding(self) -> None:
         # Same scope-narrow rationale as above — fixture sits inside
@@ -97,6 +98,7 @@ import { Repository } from 'typeorm';
         rules = {f["rule"] for f in result["findings"]}
         self.assertIn("controller_skips_command_query_bus", rules)
         self.assertIn("controller_injects_repository_directly", rules)
+        self.assertEqual(set(result["evidence_sources"]), {path.relative_to(self.repo).as_posix()})
 
     def test_controller_with_command_bus_clean(self) -> None:
         path = self.repo / "apps" / "x-service" / "src" / "controllers" / "good.controller.ts"

@@ -97,7 +97,7 @@ class CliAutonomyRunTests(unittest.TestCase):
                 "autonomy", "run",
                 "--max-cycles", "1",
             ])
-        self.assertEqual(rc, 1)
+        self.assertEqual(rc, 3)
 
     def test_autonomy_status_prints_canonical_state(self) -> None:
         with redirect_stdout(io.StringIO()) as buf:

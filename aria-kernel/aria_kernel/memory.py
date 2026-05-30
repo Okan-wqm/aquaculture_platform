@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, load_jsonl
+from .runs_reader import read_runs_rows
 from .feedback_store import load_feedback
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
@@ -69,7 +70,12 @@ def update_memory(
     diff = _read_json(root / "cycle-diff" / f"{cycle_id}.json")
     fates = _read_json(discovery_dir / "FATES.json")
     if workspace_root is not None:
-        _verify_fates_integrity(fates, workspace_root=workspace_root)
+        _verify_fates_integrity(
+            fates,
+            workspace_root=workspace_root,
+            snapshot_mode=completion.get("snapshot_mode"),
+            base_commit_sha=completion.get("base_commit_sha"),
+        )
     observations_written = 0
     if include_discovery_beliefs:
         repo_state = _repo_state(root, cycle_id)
@@ -494,7 +500,7 @@ def _mark_quarantined_source_beliefs(root: Path, cycle_id: str, quarantined_tool
 def _ingest_memory_candidates(root: Path, cycle_id: str, quarantined_tool_ids: set[str] | None = None) -> int:
     quarantined_tool_ids = quarantined_tool_ids or set()
     written = 0
-    for run in load_jsonl(runs_path(root)):
+    for run in list(read_runs_rows(runs_path(root), base_dir=root)):
         if run.get("cycle_id") != cycle_id:
             continue
         for candidate in _array_of_dicts(run.get("memory_candidates")):
@@ -705,13 +711,14 @@ def _repo_state(root: Path, cycle_id: str) -> dict[str, Any]:
 
 def _verify_fates_integrity(
     fates: dict[str, Any], *, workspace_root: str | Path,
+    snapshot_mode: str | None = None,
+    base_commit_sha: str | None = None,
 ) -> None:
     """Plan 026R §E.7 — re-hash every FATES.files entry via the
     canonical-path resolver and assert equality with the persisted
     content_hash. Raise on mismatch / path traversal / symlink-out-
     of-workspace.
     """
-    import hashlib
     from .evidence_validator import _canonical_evidence_path
     files = fates.get("files", []) if isinstance(fates, dict) else []
     if not isinstance(files, list):
@@ -733,18 +740,50 @@ def _verify_fates_integrity(
                 f"memory_fates_path_traversal_rejected: "
                 f"path={raw_path!r} reason={exc}"
             )
-        if not absolute.exists() or not absolute.is_file():
+        actual_hash = _fates_actual_hash(
+            workspace_path=workspace_path,
+            relative_path=_rel,
+            absolute_path=absolute,
+            snapshot_mode=snapshot_mode,
+            base_commit_sha=base_commit_sha,
+        )
+        if actual_hash is None:
             # File deleted between discovery + memory; legitimate
             # signal but not a tamper — operator path follows the
             # missing-evidence belief invalidation flow.
             continue
-        actual_hash = "sha256:" + hashlib.sha256(absolute.read_bytes()).hexdigest()
         if actual_hash != stored_hash:
             raise GovernanceError(
                 f"memory_fates_content_hash_mismatch: "
                 f"path={raw_path!r} stored={stored_hash!r} "
                 f"actual={actual_hash!r}"
             )
+
+
+def _fates_actual_hash(
+    *,
+    workspace_path: Path,
+    relative_path: str,
+    absolute_path: Path,
+    snapshot_mode: str | None,
+    base_commit_sha: str | None,
+) -> str | None:
+    import hashlib
+    import subprocess
+
+    if snapshot_mode == "committed" and isinstance(base_commit_sha, str) and base_commit_sha.strip():
+        completed = subprocess.run(
+            ["git", "show", f"{base_commit_sha}:{relative_path}"],
+            cwd=workspace_path,
+            capture_output=True,
+            text=False,
+            check=False,
+        )
+        if completed.returncode == 0:
+            return "sha256:" + hashlib.sha256(completed.stdout).hexdigest()
+    if not absolute_path.exists() or not absolute_path.is_file():
+        return None
+    return "sha256:" + hashlib.sha256(absolute_path.read_bytes()).hexdigest()
 
 
 def _evidence_hashes(root: Path, cycle_id: str, evidence_refs: list[str]) -> list[str]:

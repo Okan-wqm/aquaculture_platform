@@ -8,6 +8,7 @@ from .agent_priors import related_agents_for_paths
 from .agent_network import latest_agent_network_hash
 from .fitness import list_fitness_reports
 from .ledger import append_jsonl, load_jsonl
+from .runs_reader import read_runs_rows
 from .memory import list_memory
 from .pressure import effective_workspace_pressures
 from .tool_health import runs_path
@@ -130,7 +131,7 @@ def _gaps_from_unowned_pressures(cycle_id: str, paths: Any, root: Path, index_ha
 
 def _gaps_from_shadow_runs(cycle_id: str, root: Path, base_dir: str | Path | None) -> list[dict[str, Any]]:
     gaps = []
-    for run in load_jsonl(runs_path(root)):
+    for run in list(read_runs_rows(runs_path(root), base_dir=root)):
         if run.get("cycle_id") != cycle_id or run.get("status") != "ok":
             continue
         raw_count = int(run.get("runner", {}).get("raw_findings_count") or 0)

@@ -76,6 +76,8 @@ export class EnforceSourceOnlyMessagingOutboxContract1800400000000
           END IF;
 
           ALTER TABLE messaging.messaging_outbox
+            ALTER COLUMN "id" DROP IDENTITY IF EXISTS;
+          ALTER TABLE messaging.messaging_outbox
             ALTER COLUMN "id" DROP DEFAULT;
           ALTER TABLE messaging.messaging_outbox
             ALTER COLUMN "id" TYPE UUID USING gen_random_uuid();

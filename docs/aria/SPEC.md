@@ -128,7 +128,7 @@ Everything v7.1 split across L1–L7 derives from these three. The kernel enforc
 ✗ Never manipulates customer data
 ✗ Never executes production database migrations
 ✗ Never flips production feature flags
-✗ Never auto-merges any pull request except the fail-closed Level 3 low-risk `snowball` lane defined in §8.1
+✗ Never auto-merges any pull request except the fail-closed Level 3 low-risk `snowball` lane defined in §8.1, and only when the `autonomous` runtime profile is active AND the cost + failure circuit breakers are in `ok` state (Plan ARIA-V3 §B2, ADR-033)
 ✗ Never modifies its own kernel files (enforced via hash-chain, §6)
 ✗ Never modifies aria-immutable/
 ✗ Never promotes its own trust level
@@ -317,6 +317,14 @@ The 38 agents in `.claude/agents/` are **prior art**, not competition. ARIA's po
 - **Capability ownership:** if an agent already owns a domain (e.g., `auth-security-expert`, `tenant-isolation-auditor`), ARIA's skills in that domain produce **complementary** findings (continuous-mode patterns the discrete agents miss between review cycles), not redundant ones.
 - **Prior findings:** `docs/audits/`, `docs/reviews/`, `docs/product-audits/` contents are TRUSTED priors that seed the contradiction ledger (current code vs. historical findings).
 
+**Plan ARIA-V3 §B2 + §B3 + ADR-033 amendment — autonomous-profile subprocess boundary:**
+
+The autonomous self-closing loop (Plan ARIA-V3 §B2) dispatches genesis drafting through `tools/aria-poc/worker_executor.py`, which subprocess-spawns the Claude Code CLI (`claude code agent --subagent-type aria-drafter ...`). By transitive call graph this IS kernel-initiated agent invocation, so the kernel-immutability rule above receives ONE narrow carve-out:
+
+- **Permitted under `autonomous` profile only:** the `worker_executor` subprocess boundary may spawn `claude code agent` against the `aria-drafter` subagent (and ONLY that subagent, per `.claude/agents/_maintenance/aria-drafter.md` locked-scope contract — see Plan ARIA-V3 §2d). Every other profile (`observe`, `standard`, `strict`, `frozen`) BLOCKS this path via the action-permission table (`runtime_profile.ACTION_PERMISSIONS`).
+- **Kernel-internal `Agent()` invocation remains forbidden:** the ARIA kernel Python modules MUST NOT import `claude.code.agent` nor invoke the `Agent()` tool directly. The subprocess boundary is the structural enforcement (invariant I-V3-31e verifies kernel-side imports + syntactic invocations are zero).
+- **Argv contract is load-bearing:** the `worker_executor` argv shape is locked by Plan ARIA-V3 §B1 invariant I-V3-21 against `tools/aria-poc/ci_executor_contract_proven.md` `proven_argv` block.
+
 ---
 
 ## 6 — Workspace & Bootstrap
@@ -502,6 +510,20 @@ LEVEL 3 — Low-Risk Auto-Merge (disabled by default)
                 checks, missing GitHub auth/API, changed PR head SHA,
                 unknown or mixed-risk diff, requested changes, or
                 unreadable unresolved conversation state all block merge.
+  Plan ARIA-V3 §B2 / ADR-033 amendment:
+                also requires runtime_profile == "autonomous" AND
+                cost_budget circuit breaker in "ok" state (Plan
+                ARIA-V3 §B0) AND failure circuit breaker in "ok"
+                state (Plan ARIA-V3 §B2 §2j; 6-kind taxonomy:
+                validator_rejection / sandbox_red / ci_red /
+                gh_api_failure / subprocess_timeout / operator_rollback)
+                AND a fresh cross-host lease held by the current
+                host (Plan ARIA-V3 §2n + INFRA-HIGH-004). Any
+                breaker tripped or lease blocked → fail closed.
+                The materialize chain emits three linked events
+                (draft_validated → ack_consumed → materialize_committed,
+                Plan ARIA-V3 §2g) sharing a single materialize_event_id
+                UUID for audit replay.
 
 NO FULL AUTONOMY.
 Hard Limits (§2 L3) hold at every level.

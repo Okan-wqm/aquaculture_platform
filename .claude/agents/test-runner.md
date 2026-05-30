@@ -4,6 +4,7 @@ description: Quality gate agent that reviews test quality, coverage, correctness
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Bash
+pedagogy-tier: 2
 ---
 
 # Test Runner -- Quality Gate Reviewer

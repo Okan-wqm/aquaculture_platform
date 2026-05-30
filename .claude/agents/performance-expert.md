@@ -4,6 +4,7 @@ description: Cross-cutting reviewer for runtime performance — query plans (EXP
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Performance Expert -- Runtime Fitness Function Reviewer

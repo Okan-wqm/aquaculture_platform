@@ -17,7 +17,46 @@ def run_reflection(
     cycle_id: str,
     base_dir: str | Path | None = None,
     repo_root: str | Path | None = None,
+    convergence_result: dict[str, Any] | None = None,
+    review_result: dict[str, Any] | None = None,
+    pedagogy_lint_result: dict[str, Any] | None = None,
+    skill_genesis_result: dict[str, Any] | None = None,
+    calibration_result: dict[str, Any] | None = None,
+    cycle_runner_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # Plan ARIA-V5 §3f v2 — reflection schema v1 → v2 additive bump.
+    # Three optional kwargs let the autonomy orchestrator inject its
+    # post-drain Gate A (convergence) and Gate B (review) verdicts
+    # plus the V5.3 pedagogy-lint snapshot into the reflection row.
+    # When ANY of the three is None, the corresponding sub-object is
+    # emitted as null in the JSON — direct CLI callers
+    # (``aria-kernel cycle run``) preserve the legacy v1 contract
+    # while the orchestrator path produces a v2-shaped row.
+    # Backward compatibility: all existing reflection consumers use
+    # ``.get(key, default)`` access (verified by Plan v2 §3f
+    # Validator 1); v1 readers tolerate the new fields transparently.
+    # Plan ARIA-V3.2 §2b hotfix (F-010 subfinding D2) — reflection
+    # MUST operate on an absolute ``base_dir`` so
+    # ``_gate_activity_summary`` reads from the canonical
+    # aria-tools/governance.jsonl, NOT a shadow tree created by
+    # tool_registry.tools_dir()'s CWD-relative fallback.
+    #
+    # The V3.2 first-attempt RAISED on relative paths, but the
+    # CLI's normal path (`cycle.py:397` → ``base_dir=root`` where
+    # ``root`` traces back to ``Path('aria-tools')``) passes a
+    # relative literal — the strict raise broke every cycle in
+    # the operator-replay path. The hotfix converts the strict
+    # raise to a non-destructive ``.resolve()`` so relative
+    # becomes absolute deterministically against the current cwd
+    # WITHOUT rejecting the call.
+    #
+    # The DEEPER CWD-shadow-tree class (when cwd is wrong) is the
+    # blast-radius case tracked under Plan ARIA-V3.3 §2 (F-010-D4).
+    # The Tier-1 ``tools_dir`` rewrite there does walk-up-to-find-
+    # bound-identity which closes the shadow-tree class entirely.
+    # Invariants I-V3.2-04..06 lock this hotfix's contract.
+    if base_dir is not None:
+        base_dir = Path(base_dir).resolve()
     root = ensure_tools_dir(base_dir)
     # Plan 026R §A.2 — hot-path consumers move from `load_jsonl` (silent
     # accept of tampered / hashless rows) to `load_jsonl_verified` which
@@ -44,7 +83,13 @@ def run_reflection(
     human_required = _human_required_summary(root)
     gate_activity = _gate_activity_summary(root)
     reflection = {
-        "schema_version": 1,
+        # Plan ARIA-V7 §3 Phase 7.7 — schema_version v2 → v3
+        # (additive bump). New optional sub-objects (skill_genesis,
+        # calibration, cycle_runner) carry the V7.4 + V7.6 + V7.1
+        # producer outputs. v2 readers tolerate the new fields
+        # via `.get(key, default)` access (validated by V5.4
+        # consumer audit; same pattern applies to v3).
+        "schema_version": 3,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "coverage": _coverage(root, cycle_id),
@@ -67,6 +112,21 @@ def run_reflection(
         "committed_debts": committed["debts"],
         "human_required": human_required,
         "gate_activity": gate_activity,
+        # Plan ARIA-V5 §3f v2 — convergence + review + pedagogy sub-
+        # objects. Direct CLI path (no orchestrator kwargs) emits
+        # null; orchestrator path populates with real verdicts so
+        # the daily report covers the full cycle including Gate A
+        # and Gate B outcomes.
+        "convergence": _build_convergence_telemetry(
+            convergence_result, review_result,
+        ),
+        "pedagogy": _build_pedagogy_telemetry(pedagogy_lint_result),
+        # Plan ARIA-V7 §3 Phase 7.7 — V7 producer telemetry. Direct
+        # CLI path (no orchestrator kwargs) emits null sentinels;
+        # orchestrator path populates with real producer outputs.
+        "skill_genesis": skill_genesis_result if skill_genesis_result else None,
+        "calibration": calibration_result if calibration_result else None,
+        "cycle_runner": cycle_runner_result if cycle_runner_result else None,
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -197,19 +257,132 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
     return {"open": len(items), "breaching_sla": breaching, "items": items[:5]}
 
 
+def _normalize_finding_status(row: dict[str, Any]) -> str | None:
+    """Plan ARIA-V3.1 §2b — schema normalization for finding rows.
+
+    Pre-V3.1 the corpus carries TWO schema variants:
+      * F-001..F-007 use ``status: "OPEN" | "WITHDRAWN" | "RESOLVED"``
+      * F-008..F-009 use ``state: "OPEN" | "RESOLVED"``
+    Both encode the same state-machine vocabulary; the aggregator
+    must read whichever field is populated. The normalised value is
+    written back to ``row["status"]`` so downstream consumers see one
+    field regardless of source schema.
+    """
+    status = row.get("status")
+    if status is None:
+        status = row.get("state")
+    if status is not None:
+        row["status"] = status
+    return status
+
+
+def _scan_findings_filesystem(findings_dir: Path) -> dict[str, Any]:
+    """Plan ARIA-V3.1 §2b — single-SSoT filesystem scan.
+
+    The previous ``_index.json`` snapshot pattern accumulated drift
+    (F-008 + F-009 invisible to the daily report; DEBT-001 stuck at
+    OPEN seven days after retirement). V3.1 pivots: each ``F-*.json``
+    file IS the authoritative state; the aggregator re-derives the
+    summary on every reflection cycle. ``_index.json`` remains for
+    external-tool consumption but is NEVER on the critical path.
+    """
+    empty = {"total": 0, "open": 0, "recent": []}
+    if not findings_dir.exists() or not findings_dir.is_dir():
+        return dict(empty)
+    rows: list[dict[str, Any]] = []
+    for path in sorted(findings_dir.glob("F-*.json")):
+        # Plan ARIA-V3.1 §2b — _index.json is gitignored from the
+        # scan (its filename does not match F-*.json), so a
+        # mistakenly-named index file cannot pollute the corpus.
+        try:
+            row = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(row, dict):
+            continue
+        _normalize_finding_status(row)
+        rows.append(row)
+    return {
+        "total": len(rows),
+        "open": sum(1 for r in rows if r.get("status") == "OPEN"),
+        "recent": sorted(
+            rows, key=lambda r: r.get("created_at", ""), reverse=True
+        )[:5],
+    }
+
+
+def _scan_debts_filesystem(debts_dir: Path) -> dict[str, Any]:
+    """Plan ARIA-V3.1 §2b — single-SSoT filesystem scan for debts.
+
+    Same pivot rationale as findings. Debts use a single
+    ``current_status`` field across the corpus, so no schema
+    normalization is required.
+    """
+    empty = {"total": 0, "open": 0, "overdue": 0, "recent": []}
+    if not debts_dir.exists() or not debts_dir.is_dir():
+        return dict(empty)
+    rows: list[dict[str, Any]] = []
+    for path in sorted(debts_dir.glob("DEBT-*.json")):
+        try:
+            row = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(row, dict):
+            continue
+        rows.append(row)
+    now = datetime.now(timezone.utc)
+    open_rows = [
+        r for r in rows
+        if r.get("current_status") in {"OPEN", "IN_PROGRESS"}
+    ]
+    overdue = 0
+    for row in open_rows:
+        due_iso = row.get("due_date")
+        if not due_iso:
+            continue
+        try:
+            due = datetime.fromisoformat(str(due_iso).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        if due < now:
+            overdue += 1
+    return {
+        "total": len(rows),
+        "open": len(open_rows),
+        "overdue": overdue,
+        "recent": sorted(
+            rows, key=lambda r: r.get("due_date", ""), reverse=False
+        )[:5],
+    }
+
+
 def _committed_findings_and_debts(
     tools_root: Path,
     *,
     repo_root_override: str | Path | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Load the operator-facing finding + debt indexes for the daily report.
+    """Plan ARIA-V3.1 §2b — filesystem-scan SSoT for findings + debts.
 
-    Counts are derived from `aria-findings/_index.json` + `aria-debts/_index.json`.
-    Overdue debt detection uses the recorded `due_date` against current time.
+    Pre-V3.1 this function read ``aria-findings/_index.json`` +
+    ``aria-debts/_index.json`` as authoritative snapshots. Both
+    indexes accumulated drift relative to disk (the V3 plan added
+    F-008 + F-009 + retired DEBT-2026-05-08-001, but the index
+    files were last regenerated 2026-05-08 and 2026-05-11 — the
+    fresh-run daily report under-reported by 2 findings + showed
+    a retired debt as still open).
 
-    `repo_root_override` lets a worktree-aware caller (e.g. cycle.py running on
-    snowball when tools-dir was first bound by main) point at the active
-    worktree directly. Without it, fall back to the recorded binding.
+    V3.1 pivots: each ``F-*.json`` and ``DEBT-*.json`` file IS the
+    authoritative state. The aggregator re-derives the summary
+    from a filesystem scan on every reflection cycle. The cost is
+    O(file count) per cycle (≤30 files in practice); the gain is
+    a single SSoT with no index-sync debt.
+
+    ``repo_root_override`` lets a worktree-aware caller (e.g.
+    cycle.py running on snowball when tools-dir was first bound by
+    main) point at the active worktree directly. Without it, fall
+    back to the recorded binding.
     """
     empty_findings = {"total": 0, "open": 0, "recent": []}
     empty_debts = {"total": 0, "open": 0, "overdue": 0, "recent": []}
@@ -221,52 +394,147 @@ def _committed_findings_and_debts(
     if repo_root is None:
         return {"findings": empty_findings, "debts": empty_debts}
 
-    findings_index = repo_root / "aria-findings" / "_index.json"
-    debts_index = repo_root / "aria-debts" / "_index.json"
-
-    findings_summary = dict(empty_findings)
-    if findings_index.exists():
-        try:
-            payload = json.loads(findings_index.read_text(encoding="utf-8"))
-            rows = payload.get("findings", []) if isinstance(payload, dict) else []
-            findings_summary["total"] = len(rows)
-            findings_summary["open"] = sum(1 for r in rows if r.get("status") == "OPEN")
-            findings_summary["recent"] = sorted(
-                rows, key=lambda r: r.get("created_at", ""), reverse=True
-            )[:5]
-        except (OSError, json.JSONDecodeError):
-            pass
-
-    debts_summary = dict(empty_debts)
-    if debts_index.exists():
-        try:
-            payload = json.loads(debts_index.read_text(encoding="utf-8"))
-            rows = payload.get("debts", []) if isinstance(payload, dict) else []
-            now = datetime.now(timezone.utc)
-            debts_summary["total"] = len(rows)
-            open_rows = [r for r in rows if r.get("current_status") in {"OPEN", "IN_PROGRESS"}]
-            debts_summary["open"] = len(open_rows)
-            overdue = 0
-            for row in open_rows:
-                due_iso = row.get("due_date")
-                if not due_iso:
-                    continue
-                try:
-                    due = datetime.fromisoformat(str(due_iso).replace("Z", "+00:00"))
-                except ValueError:
-                    continue
-                if due.tzinfo is None:
-                    due = due.replace(tzinfo=timezone.utc)
-                if due < now:
-                    overdue += 1
-            debts_summary["overdue"] = overdue
-            debts_summary["recent"] = sorted(
-                rows, key=lambda r: r.get("due_date", ""), reverse=False
-            )[:5]
-        except (OSError, json.JSONDecodeError):
-            pass
-
+    findings_summary = _scan_findings_filesystem(
+        repo_root / "aria-findings"
+    )
+    debts_summary = _scan_debts_filesystem(repo_root / "aria-debts")
     return {"findings": findings_summary, "debts": debts_summary}
+
+
+def _build_convergence_telemetry(
+    convergence_result: dict[str, Any] | None,
+    review_result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Plan ARIA-V5 §3f v2 — assemble the reflection ``convergence``
+    sub-object from orchestrator-supplied Gate A + Gate B results.
+
+    Returns ``None`` when BOTH inputs are None — preserves direct
+    CLI path's legitimately-skipped semantics. When either is
+    supplied, returns a v2-shaped sub-object with ``pre_impl``
+    (Gate A) + ``post_impl`` (Gate B) blocks.
+
+    Field schema (operator-facing, all int/str types):
+      pre_impl.rounds_count, arbiter_verdict, gaps_found_count,
+              plan_id, token_cost_estimate,
+              resumed_from_persistence, convergence_id
+      post_impl.rounds_count, review_verdict, gaps_found_count,
+                impl_artifacts_ref, auto_merge_blocked_by
+    """
+    if convergence_result is None and review_result is None:
+        return None
+    pre_impl: dict[str, Any] | None = None
+    if convergence_result is not None:
+        pre_impl = {
+            "rounds_count": int(convergence_result.get("rounds_count", 0)),
+            "arbiter_verdict": str(
+                convergence_result.get("arbiter_verdict", "split"),
+            ),
+            "gaps_found_count": len(
+                convergence_result.get("unsatisfied_items", []),
+            ),
+            "plan_id": convergence_result.get("plan_id"),
+            "token_cost_estimate": int(
+                convergence_result.get("token_cost_estimate", 0),
+            ),
+            "resumed_from_persistence": bool(
+                convergence_result.get("resumed_from_persistence", False),
+            ),
+            "convergence_id": convergence_result.get("convergence_id"),
+        }
+    post_impl: dict[str, Any] | None = None
+    if review_result is not None:
+        verdict = str(review_result.get("review_verdict", "gaps_open"))
+        post_impl = {
+            "rounds_count": int(review_result.get("rounds_count", 0)),
+            "review_verdict": verdict,
+            "gaps_found_count": len(review_result.get("gaps_found", [])),
+            "impl_artifacts_ref": review_result.get("impl_artifacts_ref"),
+            "auto_merge_blocked_by": (
+                None if verdict == "no_gaps" else f"review_{verdict}"
+            ),
+        }
+    return {"pre_impl": pre_impl, "post_impl": post_impl}
+
+
+def _build_pedagogy_telemetry(
+    pedagogy_lint_result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Plan ARIA-V5 §3f v2 — assemble the reflection ``pedagogy``
+    sub-object from V5.3 pedagogy-lint output.
+
+    Returns ``None`` until V5.3 (commit C4) wires the lint
+    runner. Once C4 lands, ``pedagogy_lint_result`` carries
+    ``lint_pass_rate`` (float), ``violation_count`` (int), and
+    ``agents_scanned`` (int) — the three operational metrics
+    surfaced via ``/aria-status`` per Plan v2 §7.
+    """
+    if pedagogy_lint_result is None:
+        return None
+    return {
+        "lint_pass_rate": float(
+            pedagogy_lint_result.get("lint_pass_rate", 0.0),
+        ),
+        "violation_count": int(
+            pedagogy_lint_result.get("violation_count", 0),
+        ),
+        "agents_scanned": int(
+            pedagogy_lint_result.get("agents_scanned", 0),
+        ),
+    }
+
+
+def _render_convergence_section(reflection: dict[str, Any]) -> list[str]:
+    """Plan ARIA-V5 §3f v2 — render the daily report's Convergence
+    section. Gated on ``schema_version >= 2`` AND a non-null
+    ``convergence`` sub-object. Returns an empty list otherwise so
+    the report layout is unchanged for v1-shaped rows.
+    """
+    if int(reflection.get("schema_version", 1)) < 2:
+        return []
+    convergence = reflection.get("convergence")
+    if not convergence:
+        return []
+    pre = convergence.get("pre_impl")
+    post = convergence.get("post_impl")
+    lines = ["## Convergence", ""]
+    if pre is not None:
+        lines.extend([
+            f"- Pre-impl rounds: {pre.get('rounds_count', 0)}",
+            f"- Arbiter verdict: {pre.get('arbiter_verdict', '?')}",
+            f"- Pre-impl gaps: {pre.get('gaps_found_count', 0)}",
+            f"- Plan: {pre.get('plan_id', '?')}",
+            f"- Resumed from persistence: {pre.get('resumed_from_persistence', False)}",
+            "",
+        ])
+    if post is not None:
+        lines.extend([
+            f"- Post-impl rounds: {post.get('rounds_count', 0)}",
+            f"- Review verdict: {post.get('review_verdict', '?')}",
+            f"- Post-impl gaps: {post.get('gaps_found_count', 0)}",
+            f"- Auto-merge blocked by: {post.get('auto_merge_blocked_by') or '(unblocked)'}",
+            "",
+        ])
+    return lines
+
+
+def _render_pedagogy_section(reflection: dict[str, Any]) -> list[str]:
+    """Plan ARIA-V5 §3f v2 — render the daily report's Pedagogy
+    section. Gated on ``schema_version >= 2`` AND a non-null
+    ``pedagogy`` sub-object (V5.3 lint emits this).
+    """
+    if int(reflection.get("schema_version", 1)) < 2:
+        return []
+    pedagogy = reflection.get("pedagogy")
+    if not pedagogy:
+        return []
+    return [
+        "## Pedagogy",
+        "",
+        f"- Lint pass rate: {pedagogy.get('lint_pass_rate', 0.0):.2%}",
+        f"- Violations: {pedagogy.get('violation_count', 0)}",
+        f"- Agents scanned: {pedagogy.get('agents_scanned', 0)}",
+        "",
+    ]
 
 
 def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
@@ -362,6 +630,12 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         f"- Merged: {reflection['auto_merge_summary'].get('merged', 0)}",
         f"- Failed: {reflection['auto_merge_summary'].get('failed', 0)}",
         "",
+        # Plan ARIA-V5 §3f v2 — Convergence + Pedagogy sections render
+        # only when reflection schema_version >= 2 AND the orchestrator
+        # supplied verdicts. Direct CLI path emits null sub-objects so
+        # the sections appear empty / are skipped entirely.
+        *_render_convergence_section(reflection),
+        *_render_pedagogy_section(reflection),
         "## Committed Findings",
         "",
         f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",

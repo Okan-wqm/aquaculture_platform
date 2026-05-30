@@ -73,7 +73,7 @@ def run_envelope(**overrides):
         "read_paths": ["src/app.ts"],
         "emitted_observations": [],
         "emitted_findings": [],
-        "evidence_validation": {"evidence_sources": ["src/app.ts"]},
+        "evidence_validation": {"valid": True, "evidence_sources": ["src/app.ts"]},
         "operator_feedback_refs": [],
         "duration_ms": 10,
         "cost_units": 1,

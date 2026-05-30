@@ -111,7 +111,7 @@ The test for every bug: *"If the upstream were correct, would this code need to 
 
 **Phrases BANNED as gating excuses:**
 
-- "for now" / "interim solution" / "temporary"
+- "for now" / "interim solution" / "interim" / "temporary"
 - "pragmatic" / "simpler approach" / "middle ground"
 - "for momentum" / "just this commit"
 - "follow-up commit will handle it" — follow-up must be in the SAME PR or a tracked plan phase, never a vague future

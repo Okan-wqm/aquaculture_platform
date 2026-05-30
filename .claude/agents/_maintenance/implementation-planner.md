@@ -4,6 +4,7 @@ description: Auxiliary post-review planning tool. Reads synthesized review outpu
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 3
 ---
 
 # Implementation Planner -- Review-to-Execution Package Generator

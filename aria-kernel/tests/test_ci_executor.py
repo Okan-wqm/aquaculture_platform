@@ -54,7 +54,7 @@ class LeaseTokenRedactionTests(unittest.TestCase):
         self.assertNotIn("'--lease-token', lease_token", src)
 
 
-class InvokeClaudeCodeTests(unittest.TestCase):
+class InvokeCodexCliTests(unittest.TestCase):
     def setUp(self) -> None:
         import tempfile
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-ci-"))
@@ -67,13 +67,13 @@ class InvokeClaudeCodeTests(unittest.TestCase):
         out_path = self.tmp / "response.json"
         prompt_path = self.tmp / "prompt.md"
         prompt_path.write_text("# Test prompt", encoding="utf-8")
-        # Plan 024 v3 §B-8 — invoke_claude_code now requires real
+        # Plan 024 v3 §B-8 — invoke_codex_cli requires real
         # lease identity (claim_id + agent_id) when in mock mode so
         # the envelope can pass the Plan 023 §A-5 lease binding +
         # Plan 024 §H-4 role match. Tests pass dummy real-shaped
         # values here.
         with patch.dict(os.environ, {ci_executor.MOCK_MODE_ENV_VAR: "1"}):
-            exit_code = ci_executor.invoke_claude_code(
+            exit_code = ci_executor.invoke_codex_cli(
                 request_id="REQ-test-1",
                 subagent_type="aria-evidence-judge",
                 prompt_file=prompt_path,
@@ -95,22 +95,30 @@ class InvokeClaudeCodeTests(unittest.TestCase):
         out_path = self.tmp / "response.json"
         prompt_path = self.tmp / "prompt.md"
         prompt_path.write_text("# Test prompt", encoding="utf-8")
-        with patch.dict(os.environ, {ci_executor.MOCK_MODE_ENV_VAR: "0"}):
-            with patch("ci_executor.shutil.which", return_value=None):
-                with self.assertRaises(ci_executor.ClaudeCodeUnavailable) as ctx:
-                    # Plan 025 §B — role is now a required keyword (no
-                    # default); pass a real-shaped role here. The
-                    # ClaudeCodeUnavailable branch does NOT consume role
-                    # but the function signature requires it.
-                    ci_executor.invoke_claude_code(
-                        request_id="REQ-test-2",
-                        subagent_type="aria-evidence-judge",
-                        prompt_file=prompt_path,
-                        output_path=out_path,
-                        timeout_seconds=300,
-                        role="evidence_judgment",
-                    )
-        self.assertIn("contract gap", str(ctx.exception))
+        with patch.dict(os.environ, {
+            ci_executor.MOCK_MODE_ENV_VAR: "0",
+            "CODEX_CLI_BINARY": "__aria_missing_codex_for_test__",
+        }):
+            with self.assertRaises(ci_executor.CodexCliUnavailable) as ctx:
+                # Plan 025 §B — role is now a required keyword (no
+                # default); pass a real-shaped role here. The
+                # CodexCliUnavailable branch does NOT consume role
+                # but the function signature requires it.
+                ci_executor.invoke_codex_cli(
+                    request_id="REQ-test-2",
+                    subagent_type="aria-evidence-judge",
+                    prompt_file=prompt_path,
+                    output_path=out_path,
+                    timeout_seconds=300,
+                    role="evidence_judgment",
+                )
+        # Plan ARIA-V3 §B1 — spike doc was promoted to proven-contract
+        # doc (DEBT-2026-05-08-001 retired by commit cf30da50). The
+        # CodexCliUnavailable message now cites the load-bearing
+        # proven-contract doc as the argv SSoT instead of the
+        # spike-era "contract gap" language.
+        self.assertIn("codex", str(ctx.exception))
+        self.assertIn("ci_executor_contract_proven.md", str(ctx.exception))
 
 
 if __name__ == "__main__":

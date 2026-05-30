@@ -4,6 +4,7 @@ description: Reviews and analyzes the HR domain (hr-service backend + hr-module 
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # HR Domain Expert -- Senior Reviewer & Architect

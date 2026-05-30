@@ -15,7 +15,7 @@ import threading
 import unittest
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from aria_kernel.autonomous_worker_scheduler import (
     run_worker_scheduler_daemon,
@@ -96,6 +96,7 @@ class WorkerSchedulerDaemonTests(unittest.TestCase):
         stub = _make_invoke_worker()
         result = run_worker_scheduler_daemon(
             base_dir=self.tools_root,
+            github_adapter=MagicMock(name="github_adapter"),
             workspace_root=self.tmp,
             max_iterations=2,
             poll_interval_seconds=5.0,
@@ -122,6 +123,7 @@ class WorkerSchedulerDaemonTests(unittest.TestCase):
         })
         result = run_worker_scheduler_daemon(
             base_dir=self.tools_root,
+            github_adapter=MagicMock(name="github_adapter"),
             workspace_root=self.tmp,
             max_iterations=1,
             invoke_worker=stub,
@@ -153,6 +155,7 @@ class WorkerSchedulerDaemonTests(unittest.TestCase):
         )
         result = run_worker_scheduler_daemon(
             base_dir=self.tools_root,
+            github_adapter=MagicMock(name="github_adapter"),
             workspace_root=self.tmp,
             max_iterations=2,
             invoke_worker=stub,
@@ -168,6 +171,7 @@ class WorkerSchedulerDaemonTests(unittest.TestCase):
         stub = _make_invoke_worker()
         result = run_worker_scheduler_daemon(
             base_dir=self.tools_root,
+            github_adapter=MagicMock(name="github_adapter"),
             workspace_root=self.tmp,
             max_iterations=10,
             invoke_worker=stub,
@@ -187,6 +191,7 @@ class WorkerSchedulerDaemonTests(unittest.TestCase):
             mock_gate.side_effect = GovernanceError("profile_violation: frozen")
             result = run_worker_scheduler_daemon(
                 base_dir=self.tools_root,
+                github_adapter=MagicMock(name="github_adapter"),
                 workspace_root=self.tmp,
                 max_iterations=5,
                 invoke_worker=stub,
@@ -216,6 +221,7 @@ class WorkerSchedulerDaemonTests(unittest.TestCase):
         def first_daemon() -> None:
             res = run_worker_scheduler_daemon(
                 base_dir=self.tools_root,
+                github_adapter=MagicMock(name="github_adapter"),
                 workspace_root=self.tmp,
                 max_iterations=1,
                 invoke_worker=slow_stub,
@@ -231,6 +237,7 @@ class WorkerSchedulerDaemonTests(unittest.TestCase):
         )
         second = run_worker_scheduler_daemon(
             base_dir=self.tools_root,
+            github_adapter=MagicMock(name="github_adapter"),
             workspace_root=self.tmp,
             max_iterations=1,
             invoke_worker=_make_invoke_worker(),
@@ -259,6 +266,7 @@ class WorkerSchedulerDaemonTests(unittest.TestCase):
         ])
         result = run_worker_scheduler_daemon(
             base_dir=self.tools_root,
+            github_adapter=MagicMock(name="github_adapter"),
             workspace_root=self.tmp,
             max_iterations=3,
             invoke_worker=stub,

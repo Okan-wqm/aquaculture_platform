@@ -4,6 +4,7 @@ description: Meta-agent that coordinates domain expert agents for comprehensive 
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Agent
+pedagogy-tier: 2
 ---
 
 # Review Orchestrator -- Multi-Agent Coordinator
@@ -108,6 +109,7 @@ These tools live at `.claude/agents/_maintenance/` and are intentionally OUTSIDE
 | gdpr-erasure-executor | WRITER execution agent for GDPR Art 17 cascade. Implements per-service eraseTenantData(tenantId, {dryRun}) handlers + outbox-emitted TenantErased proof event. Dispatched only via `implement:` token from compliance-expert or implementation-planner — never in an automatic review cycle. |
 | aria-primary-planner | ARIA convergent-gate primary planner. Consumes kernel-issued envelopes only; never dispatched during runtime review cycles. |
 | aria-challenger-planner | ARIA convergent-gate independent challenger and cross-review planner. Consumes kernel-issued envelopes only; never dispatched during runtime review cycles. |
+| aria-drafter | ARIA genesis draft materializer for agent/skill markdown bodies. Consumes kernel-issued DraftIntent envelopes only; never dispatched during runtime review cycles. |
 | aria-prompt-writer | ARIA-scoped prompt renderer for judges and maintenance agents. Consumes kernel-issued envelopes only; never dispatched during runtime review cycles. |
 
 ## Invocation Examples

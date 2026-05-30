@@ -4,6 +4,7 @@ description: Reviews tables, data grids, row actions, sorting, filtering, pagina
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Table Grid Auditor -- List and Grid Truth Reviewer

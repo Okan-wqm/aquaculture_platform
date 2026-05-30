@@ -4,6 +4,7 @@ description: Quality gate agent that performs read-only security audits on any c
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 1
 ---
 
 # Security Reviewer -- Enterprise Quality Gate Agent

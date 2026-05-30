@@ -5,6 +5,7 @@ model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Bash
 dispatch: cross-cutting
+pedagogy-tier: 2
 ---
 
 # Build Validator -- nx affected build + type-check quality gate

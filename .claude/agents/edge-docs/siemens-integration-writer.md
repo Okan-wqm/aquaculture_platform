@@ -4,6 +4,7 @@ description: Produces the Siemens-specific integration chapters — TIA Portal G
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 3
 ---
 
 # Siemens Integration Writer — Lane-C Producer

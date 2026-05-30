@@ -64,7 +64,7 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
       - name: Run linter (all projects)
         run: npm run lint:all -- --max-warnings=0
@@ -141,7 +141,7 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
       - name: Run all tests
         run: npm run test:all -- --coverage
@@ -193,7 +193,7 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
       - name: Build all projects
         run: npm run build:all
@@ -235,7 +235,7 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
       - name: Build frontend modules
         run: npx nx run-many --target=build --projects=dashboard,farm-module,hr-module,sensor-module,hydroponics-module,admin-panel,tenant-admin --parallel=4
@@ -287,7 +287,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
       # SEC-CI-020: Removed continue-on-error so audit failures block the build
       - name: Run security audit
@@ -331,7 +331,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
       # SEC-CI-020: Removed continue-on-error so license violations block the build
       - name: Check licenses

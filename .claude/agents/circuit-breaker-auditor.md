@@ -4,6 +4,7 @@ description: Cross-cutting reviewer for resilience pattern adoption — every ex
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Circuit-Breaker Auditor -- External-Dependency Resilience Reviewer

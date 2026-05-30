@@ -4,6 +4,7 @@ description: Reviews inbound webhook and callback endpoints for source authentic
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Webhook Ingress Auditor -- Inbound Event Trust Review Authority

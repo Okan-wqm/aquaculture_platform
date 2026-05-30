@@ -4,6 +4,7 @@ description: Reviews polling, SSE, notifications, sync status, job progress, liv
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Realtime Sync Auditor -- Live State and Refresh Reviewer

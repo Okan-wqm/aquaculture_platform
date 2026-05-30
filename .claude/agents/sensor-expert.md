@@ -4,6 +4,7 @@ description: Reviews sensor-service backend and sensor-module frontend code for 
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Sensor Domain Expert — Senior Reviewer & Industrial IoT Architect

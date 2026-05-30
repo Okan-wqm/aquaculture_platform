@@ -225,7 +225,19 @@ def run_enterprise_cycle(
     run_phases: tuple[str, ...] | None = None,
     pre_tool_phases: tuple[str, ...] | None = None,
     plan_id: str | None = None,
+    defer_reflection: bool = False,
 ) -> dict[str, Any]:
+    # Plan ARIA-V3.3 §2b — ``defer_reflection`` opt-in for the autonomy
+    # orchestrator. When True, the in-cycle ``run_reflection`` call
+    # (line ~397 below) is skipped and ``state["reflection"]`` is
+    # ``None``; the orchestrator invokes reflection itself AFTER its
+    # planner+bridge+worker+auto_merge drainer phases complete so the
+    # operator-visible daily report counts the full cycle (~25+ events)
+    # rather than the pre-drainer snapshot (~4 events) that the
+    # 2026-05-16 autonomous-loop audit surfaced as F-010-D2-POSTMORTEM.
+    # Default ``False`` preserves the direct CLI contract (``aria-
+    # kernel cycle run``) so non-orchestrator callers still receive a
+    # reflection payload in the state dict.
     # Plan 023 v3 §R-1 — pre_tool_phases kwarg runs extended phases
     # BEFORE the tool loop. Pre-Plan-023 all extended phases ran
     # AFTER tools, so architecture_baseline / validation_matrix_pre /
@@ -234,6 +246,29 @@ def run_enterprise_cycle(
     # fires first; failure aborts the cycle with cycle_aborted_by_
     # pre_phase. The legacy run_phases kwarg continues to run AFTER
     # tools (post-tool observation).
+    # Plan ARIA-V2 §3.4 + CRITICAL-009 fix — input validation runs at
+    # function entry BEFORE any side effect (discovery, memory write,
+    # ledger append, FATES integrity recompute). Pre-fix the unknown-
+    # phase check at line 391 fired AFTER ``update_memory`` had already
+    # raised ``memory_fates_content_hash_mismatch`` against the (mutating)
+    # governance.jsonl, so operators received the wrong error class for
+    # a structurally-detectable input mistake. Validating preconditions
+    # at entry is the Tier-1 architectural shape (impossible to ship a
+    # cycle that mutates ledgers under a malformed run_phases tuple).
+    if run_phases is not None:
+        _unknown_run = [p for p in tuple(run_phases) if p not in SUPPORTED_CYCLE_PHASES]
+        if _unknown_run:
+            raise ValueError(
+                f"unknown cycle phase(s): {_unknown_run}; "
+                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
+            )
+    if pre_tool_phases is not None:
+        _unknown_pre = [p for p in tuple(pre_tool_phases) if p not in SUPPORTED_CYCLE_PHASES]
+        if _unknown_pre:
+            raise ValueError(
+                f"unknown pre_tool_phases: {_unknown_pre}; "
+                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
+            )
     started = time.monotonic()
     # Plan 025 §C — UTC wall-clock of cycle start. Bounds the
     # change_committed window for validation_matrix phase so the
@@ -381,8 +416,8 @@ def run_enterprise_cycle(
     # cycle ledger and retain tool artifact evidence in the returned state.
     memory: dict[str, Any] = {}
     pressure: dict[str, Any] = {}
-    reflection: dict[str, Any] = {}
-    post_tool_failure: dict[str, Any] | None = None
+    reflection = None if defer_reflection else {}
+    post_tool_failure = None
     try:
         memory = update_memory(
             cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
@@ -394,7 +429,7 @@ def run_enterprise_cycle(
             pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
         except Exception as exc:
             post_tool_failure = {"phase": "pressure", "status": "failed", "error": str(exc)}
-    if post_tool_failure is None:
+    if post_tool_failure is None and not defer_reflection:
         try:
             reflection = run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
         except Exception as exc:

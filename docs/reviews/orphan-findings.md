@@ -3602,7 +3602,6 @@ Fix (Tier-1 Make-Impossible): platform DDL is now owned by the **Platform Bootst
 
 Status: RESOLVED on platform-bootstrap-atom branch (this commit).
 
-<<<<<<< HEAD
 ## ORPHAN-CRITICAL-076 — Phase 0 platform-bootstrap atom silently generates random passwords for missing service-role env vars; downstream services crash-loop with opaque "auth failed"
 
 Severity: CRITICAL. The Phase 0 atom (ADR-031) ships its first prod deploy at run #1113 (SHA `984eb61`) and the aqua-db-migrate container exits non-zero before service containers can start. The droplet log surfaced `aqua-db-migrate failed during full deploy — aborting BEFORE service containers start.` (`scripts/deploy/droplet-up.sh:80–85`). Two architectural gaps surface together:

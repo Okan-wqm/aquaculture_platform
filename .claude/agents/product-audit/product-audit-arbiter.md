@@ -4,6 +4,7 @@ description: Resolves cross-agent conflicts in test-audit cycles when one specia
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Test Audit Architectural Arbiter -- Cross-Agent Conflict Authority

@@ -3,7 +3,7 @@
 14 tests across 4 test classes:
 
 Constants + transition enum (3):
-* BRIDGE_REQUIRED_ROLES shape — 8 roles, frozenset, exported SSoT.
+* BRIDGE_REQUIRED_ROLES shape — 9 roles, frozenset, exported SSoT.
 * BRIDGE_TRANSITIONS shape — 4 values, ``pending`` NOT a transition.
 * bridge_status_for_role: pending vs not_required predicate.
 
@@ -61,9 +61,10 @@ class BridgeConstantsTests(unittest.TestCase):
                 "cross_review",
                 "change_intelligence",
                 "goldset_curation",
+                "implementation",
             }),
         )
-        self.assertEqual(len(BRIDGE_REQUIRED_ROLES), 8)
+        self.assertEqual(len(BRIDGE_REQUIRED_ROLES), 9)
 
     def test_bridge_transitions_closed_enum(self) -> None:
         self.assertEqual(

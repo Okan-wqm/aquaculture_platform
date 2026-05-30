@@ -4,6 +4,7 @@ description: Reviews whether buttons, forms, and backend handlers enforce valid 
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Workflow State Auditor -- Lifecycle Integrity Reviewer

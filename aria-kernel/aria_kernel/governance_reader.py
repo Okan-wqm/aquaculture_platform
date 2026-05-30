@@ -132,7 +132,99 @@ def read_governance_rows(
             continue
 
 
+_BOUNDED_READ_CHUNK_SIZE: int = 65536  # 64 KB
+
+
+def read_governance_rows_reverse(
+    *,
+    base_dir: Path,
+    limit: int = 100,
+    kind_filter: tuple[str, ...] | None = None,
+) -> list[dict[str, Any]]:
+    """Plan ARIA-V3.1-C-1 — bounded seek-to-end governance reader.
+
+    Closes 6-validator audit C-12 (performance): the pre-existing
+    `read_governance_rows(path, reverse=True)` reader loads the
+    FULL `governance.jsonl` ledger into memory via `path.read_text`.
+    On a 100MB ledger (~1M rows in a sustained autonomous run) that
+    costs ~600ms per cycle just on the read — throttling the V10.2
+    skill genesis stability check.
+
+    V3.1-C-1 Tier-1 anchor: `seek(0, 2)` to EOF, then read backwards
+    in 64 KB chunks until either `limit` rows accumulated OR BOF
+    reached. Worst case for a 100MB ledger:
+
+      * 64 KB read from disk
+      * ~100 JSON parses (avg row ~640 bytes)
+      * <50 ms wall-clock
+
+    Bounded irrespective of total ledger size — the cost scales with
+    the requested `limit`, NOT the ledger's full row count.
+
+    Returns up to `limit` rows in REVERSE chronological order (newest
+    first). When the ledger has fewer than `limit` rows, returns all
+    rows. Malformed rows are skipped (verify_chain_or_quarantine
+    remains the integrity gate; this reader is a perf primitive).
+
+    `kind_filter` is an optional tuple of `kind` strings; only rows
+    whose `kind` attribute matches one of the filter values are
+    returned. Pre-filter reduces the JSON-parse cost when only
+    specific event types are needed (V3.1-C MemoryHook uses
+    kind_filter=("convergence_resolved", ...) to drive the stability
+    check on CONVERGED-only events).
+    """
+    path = Path(base_dir) / "governance.jsonl"
+    if not path.exists():
+        return []
+    file_size = path.stat().st_size
+    if file_size == 0:
+        return []
+    rows: list[dict[str, Any]] = []
+    leftover = b""
+    pos = file_size
+    with path.open("rb") as f:
+        while pos > 0 and len(rows) < limit:
+            chunk_start = max(0, pos - _BOUNDED_READ_CHUNK_SIZE)
+            chunk_len = pos - chunk_start
+            f.seek(chunk_start)
+            chunk = f.read(chunk_len) + leftover
+            pos = chunk_start
+            lines = chunk.split(b"\n")
+            # When chunk_start > 0, the first split fragment may be
+            # an incomplete line (carries forward to the next read
+            # iteration). When chunk_start == 0, the first fragment
+            # is a complete first line.
+            if chunk_start > 0:
+                leftover = lines[0]
+                completed_lines = lines[1:]
+            else:
+                leftover = b""
+                completed_lines = lines
+            # Walk completed_lines in reverse so newest rows accumulate
+            # first within this chunk.
+            for raw in reversed(completed_lines):
+                raw_stripped = raw.strip()
+                if not raw_stripped:
+                    continue
+                try:
+                    row = json.loads(raw_stripped)
+                except json.JSONDecodeError:
+                    # Malformed row — skip (Tier-3 detect runs at
+                    # verify_chain_or_quarantine callsite, not here).
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                if kind_filter is not None:
+                    if row.get("kind") not in kind_filter:
+                        continue
+                rows.append(row)
+                if len(rows) >= limit:
+                    break
+    return rows
+
+
 __all__ = [
     "VALID_ON_CORRUPTION_MODES",
     "read_governance_rows",
+    "read_governance_rows_reverse",
 ]

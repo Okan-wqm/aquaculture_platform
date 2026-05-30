@@ -4,6 +4,7 @@ description: Cross-cutting reviewer for Anthropic Claude SDK safety + cost disci
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 3
 ---
 
 # AI-Safety Auditor -- Anthropic SDK Safety + Cost Reviewer

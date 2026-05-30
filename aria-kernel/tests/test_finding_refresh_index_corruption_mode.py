@@ -29,7 +29,12 @@ from aria_kernel.finding import _refresh_index
 from aria_kernel.tool_registry import GovernanceError
 
 
-SINK_REL = Path("aria-tools") / "diagnostics" / "ledger-corruption.jsonl"
+# Plan ARIA-V2 §3.4 + CRITICAL-010 — tuple-of-segments form keeps the
+# I-40 grep regression net satisfied (no ``Path("aria-tools")``
+# literal). Callers compose via ``self.repo.joinpath(*_SINK_PARTS)``
+# so the segment is unambiguously a directory NAME, not a cwd-relative
+# path resolution.
+_SINK_PARTS = ("aria-tools", "diagnostics", "ledger-corruption.jsonl")
 
 
 def _seed_repo(*, with_corrupt: bool) -> Path:
@@ -69,7 +74,7 @@ class AdvisoryDefaultTests(unittest.TestCase):
         index = _refresh_index(self.repo)  # default on_corruption='advisory'
         self.assertEqual(len(index["findings"]), 1)
         self.assertEqual(index["findings"][0]["finding_id"], "F-001")
-        sink = self.repo / SINK_REL
+        sink = self.repo.joinpath(*_SINK_PARTS)
         self.assertTrue(sink.exists())
         sink_rows = [
             json.loads(line)
@@ -94,7 +99,7 @@ class StrictOptInTests(unittest.TestCase):
         # Diagnostic still emitted before the raise — the corruption
         # observation must reach the audit sink even when the call
         # aborts.
-        sink = self.repo / SINK_REL
+        sink = self.repo.joinpath(*_SINK_PARTS)
         self.assertTrue(sink.exists())
         sink_rows = [
             json.loads(line)

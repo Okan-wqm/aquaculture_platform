@@ -50,10 +50,22 @@ from aria_kernel.tool_registry import GovernanceError  # noqa: E402
 
 class _SingleClaimBase(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = Path(tempfile.mkdtemp(prefix="aria-b5-"))
-        self.repo = self.tmp / "repo"
+        # Plan ARIA-V9.7+ — hermetic env isolation. Pop ARIA_TOOLS_DIR
+        # + ARIA_REPO_ROOT before each test so a prior-test pollution
+        # (e.g. test_fixture_runner_path_escape leaves them set under
+        # certain CI test-ordering paths) does NOT make ci_executor.main()
+        # resolve tools_dir to a stale tempdir and miss the claim row in
+        # _on_disk_anchors. Restore in tearDown.
+        self._saved_aria_tools_dir = os.environ.pop("ARIA_TOOLS_DIR", None)
+        self._saved_aria_repo_root = os.environ.pop("ARIA_REPO_ROOT", None)
+        # Resolve all paths via .resolve() so they match what
+        # ci_executor.main() computes from Path.cwd().resolve() under
+        # filesystems with symlinks (e.g. /tmp → /private/tmp on macOS,
+        # tmpfs vs overlayfs on some Linux CI runners).
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-b5-")).resolve()
+        self.repo = (self.tmp / "repo").resolve(strict=False)
         self.repo.mkdir()
-        self.tools = self.repo / "aria-tools"
+        self.tools = (self.repo / "aria-tools").resolve(strict=False)
         self._old_cwd = os.getcwd()
         os.chdir(self.repo)
         set_profile("standard", operator_approval_ref="t", base_dir=self.tools)
@@ -93,6 +105,15 @@ class _SingleClaimBase(unittest.TestCase):
         import shutil
         os.chdir(self._old_cwd)
         shutil.rmtree(self.tmp, ignore_errors=True)
+        # Plan ARIA-V9.7+ — restore env saved in setUp.
+        if self._saved_aria_tools_dir is not None:
+            os.environ["ARIA_TOOLS_DIR"] = self._saved_aria_tools_dir
+        else:
+            os.environ.pop("ARIA_TOOLS_DIR", None)
+        if self._saved_aria_repo_root is not None:
+            os.environ["ARIA_REPO_ROOT"] = self._saved_aria_repo_root
+        else:
+            os.environ.pop("ARIA_REPO_ROOT", None)
 
 
 class SingleClaimSerialiserTests(_SingleClaimBase):

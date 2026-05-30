@@ -4,6 +4,7 @@ description: Single source of truth for GDPR (Art 17 erasure, Art 20 portability
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 1
 ---
 
 # Compliance Expert -- GDPR + KVKK + SOC 2 SSoT

@@ -4,6 +4,7 @@ description: Reviews whether saved or changed records become visible in the corr
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # List Visibility Auditor -- Post-Write Visibility Reviewer

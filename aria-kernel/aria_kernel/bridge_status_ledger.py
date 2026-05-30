@@ -54,24 +54,9 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .agent_surface import BRIDGE_REQUIRED_ROLES
 from .ledger import append_jsonl, load_jsonl
 from .tool_registry import GovernanceError, utc_now
-
-
-# Plan 026R §C.5 — roles whose acceptance is INCOMPLETE without a
-# successful bridge. Acceptance writes ``bridge_status: "pending"``
-# on the results.jsonl row; the bridge run writes the first
-# transition row to ``agent-result-bridge-status.jsonl``.
-BRIDGE_REQUIRED_ROLES: frozenset[str] = frozenset({
-    "evidence_judgment",
-    "adversarial_judgment",
-    "consensus_arbitration",
-    "primary_plan",
-    "challenger_plan",
-    "cross_review",
-    "change_intelligence",
-    "goldset_curation",
-})
 
 
 # Plan 026R §C.5 — closed transition enum. ``pending`` is NOT here —

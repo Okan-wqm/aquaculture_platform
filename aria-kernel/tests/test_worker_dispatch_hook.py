@@ -53,6 +53,12 @@ class WorkerDispatchHookTests(unittest.TestCase):
         self._env.start()
         self.captured_argvs: list[list[str]] = []
         self.captured_envs: list[dict[str, str]] = []
+        # Plan ARIA-V3 §A2 — github_adapter is REQUIRED on the hook
+        # signature. A plain MagicMock satisfies the Protocol via
+        # duck-typing for the branches that do not exercise the
+        # merge path. Tests that need real adapter behaviour
+        # override this explicitly.
+        self.fake_github_adapter = MagicMock(name="github_adapter")
 
     def tearDown(self) -> None:
         import shutil
@@ -114,6 +120,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:1",
+                github_adapter=self.fake_github_adapter,
             )
         self.assertEqual(result["status"], "no_pending")
         self.assertEqual(result["governance_event_count"], 0)
@@ -131,6 +138,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:2",
+                github_adapter=self.fake_github_adapter,
                 max_retries=3,
             )
         self.assertEqual(result["status"], "max_retries_exceeded")
@@ -150,6 +158,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:3",
+                github_adapter=self.fake_github_adapter,
             )
         self.assertEqual(result["status"], "executor_failed")
         self.assertEqual(result["exit_code"], 1)
@@ -173,6 +182,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:4",
+                github_adapter=self.fake_github_adapter,
             )
         self.assertEqual(result["status"], "verified_pending_merge")
         self.assertIsNone(result["merge_result"])
@@ -228,6 +238,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:6",
+                github_adapter=self.fake_github_adapter,
                 max_retries=3,
             )
         self.assertEqual(result["status"], "retry_scheduled")
@@ -260,6 +271,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:7",
+                github_adapter=self.fake_github_adapter,
             )
         self.assertTrue(captured_lease["token"])
         for arg in self.captured_argvs[0]:

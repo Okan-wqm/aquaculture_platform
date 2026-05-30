@@ -94,7 +94,7 @@ def is_stable_shadow_run(run: dict[str, Any]) -> bool:
     if run.get("status") != "ok":
         return False
     validation = run.get("evidence_validation", {})
-    if validation.get("valid") is False:
+    if validation.get("valid") is not True:
         return False
     return not validation.get("repository_mutation_attempt")
 

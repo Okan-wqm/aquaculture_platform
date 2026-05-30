@@ -3,10 +3,10 @@
 Per-assignment counterpart to tools/aria-poc/ci_executor.py
 (planner). Receives ``assignment_id`` + ``target_agent`` on argv;
 lease token via ``ARIA_LEASE_TOKEN`` env var (NEVER argv). Mock
-mode (CLAUDE_CODE_MOCK=1) makes a deterministic no-op modification
+mode (CODEX_CLI_MOCK=1) makes a deterministic no-op modification
 + commit in the worktree + submits the worker result via the kernel
-``verification submit`` CLI. Live mode shells out to the Claude
-Code CLI with the worker prompt.
+``worker-result submit`` CLI. Live mode shells out to the Codex
+CLI with the worker prompt.
 
 Pre-fix the kernel had verification_gate primitives but no
 executor that knew how to read a dispatch assignment, run the work
@@ -20,32 +20,35 @@ Lease-token redaction discipline (mirrors ci_executor.py):
 * argv NEVER carries the raw token.
 * Stderr redacted at every subprocess return surface.
 
-Live-mode contract: the live ``claude`` CLI invocation shape is
-tracked under the same spike doc as the planner CLI
-(``tools/aria-poc/ci_executor_contract_spike.md``). Until the
-operator runs the live workflow against a real Claude Code OAuth
-token + verified CLI, the live branch raises ClaudeCodeUnavailable
-— the architectural seam is explicit, not silently disabled.
+Live-mode contract: the live ``codex`` CLI invocation shape is
+locked under the proven-contract doc that the planner CLI also
+references (``tools/aria-poc/ci_executor_contract_proven.md``).
+Plan ARIA-V3 §B1 promoted the spike to load-bearing status; the
+argv tuple below is verified against the doc's ``proven_argv``
+YAML block by invariant I-V3-21.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+from codex_runtime import (
+    CODEX_MOCK_ENV_VAR,
+    CodexAuthUnavailable,
+    CodexCliUnavailable,
+    CodexPolicyViolation,
+    CodexUsageUnavailable,
+    run_codex_exec,
+)
+
 
 LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
-MOCK_MODE_ENV_VAR = "CLAUDE_CODE_MOCK"
-
-
-class ClaudeCodeUnavailable(Exception):
-    """The `claude` binary is not on $PATH (CI env not provisioned)
-    AND mock mode is OFF."""
+MOCK_MODE_ENV_VAR = CODEX_MOCK_ENV_VAR
 
 
 def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
@@ -55,7 +58,7 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
 
 
 def _is_mock_mode() -> bool:
-    return os.environ.get(MOCK_MODE_ENV_VAR, "0") == "1"
+    return os.environ.get(MOCK_MODE_ENV_VAR, "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _resolve_assignment(
@@ -143,13 +146,17 @@ def _submit_worker_result(
     required_tests: list[str],
     lease_token: str | None,
 ) -> int:
-    """Submit the worker result via the kernel ``verification submit``
+    """Submit the worker result via the kernel ``worker-result submit``
     subcommand. Lease token redaction applied to stderr."""
+    if not lease_token:
+        sys.stderr.write("missing_lease_token_env: ARIA_LEASE_TOKEN\n")
+        return 1
     cmd = [
-        "python3", "-m", "aria_kernel", "verification", "submit",
+        "python3", "-m", "aria_kernel", "worker-result", "submit",
         "--from-worktree", str(worktree_path),
         "--assignment-id", assignment_id,
         "--tools-dir", str(tools_dir),
+        "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
     ]
     for vc in required_tests:
         cmd.extend(["--validation-command", vc])
@@ -216,30 +223,19 @@ def main(argv: list[str] | None = None) -> int:
             lease_token=lease_token,
         )
 
-    if shutil.which("claude") is None:
-        raise ClaudeCodeUnavailable(
-            "`claude` binary not on $PATH; the spike doc at "
-            "tools/aria-poc/ci_executor_contract_spike.md tracks the "
-            "remaining contract gap. Set CLAUDE_CODE_MOCK=1 to run the "
-            "worker against a deterministic mock."
-        )
-
-    # Live path — UNVERIFIED contract per spike doc. The operator runs
-    # this once against a real Claude Code CLI to confirm the prompt
-    # + flag set; the spike doc remains the SSoT until the operator
-    # captures the response artefact and updates "What is verified".
     prompt_file = (
         tools_dir / "dispatch" / "prompts" / f"{assignment_id}.md"
     )
-    cli_argv = [
-        "claude", "code", "agent",
-        "--subagent-type", parsed.target_agent,
-        "--prompt-file", str(prompt_file),
-        "--working-directory", str(worktree_path),
-    ]
-    completed = subprocess.run(
-        cli_argv, capture_output=True, text=True,
-    )
+    prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
+    try:
+        completed = run_codex_exec(
+            prompt_text=prompt_text,
+            timeout_seconds=int(assignment.get("timeout_seconds") or 1800),
+            cwd=worktree_path,
+        )
+    except (CodexAuthUnavailable, CodexCliUnavailable, CodexPolicyViolation, CodexUsageUnavailable) as exc:
+        sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
+        return 1
     if completed.returncode != 0:
         sys.stderr.write(
             _redact_lease_in_message(completed.stderr, lease_token) + "\n"

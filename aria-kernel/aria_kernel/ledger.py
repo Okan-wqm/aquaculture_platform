@@ -10,10 +10,12 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .file_lock import with_exclusive_lock
+from .state_manifest import surface_for_path
 
 
 __all__ = [
     "LedgerIntegrityError",
+    "StateTransaction",
     "append_jsonl",
     "file_hash",
     "load_index",
@@ -21,6 +23,7 @@ __all__ = [
     "load_jsonl_verified",
     "read_jsonl",
     "rewrite_jsonl",
+    "state_transaction",
     "verify_index_hashes",
     "verify_jsonl",
     "write_index",
@@ -160,6 +163,91 @@ def _lock_requirements_for_path(path: Path) -> LockRequirement:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class StateTransaction:
+    """Lock-bound ledger transaction helper.
+
+    A transaction owns all lock paths returned by
+    ``_transaction_lock_paths``. Callers can perform verified reads and
+    append hash-chained rows without re-acquiring the same per-file lock.
+    Raw secret material must still stay out of records; this primitive is
+    an atomicity boundary, not an artifact-safety scrubber.
+    """
+
+    paths: frozenset[Path]
+    verify_reads: bool = True
+
+    def _canonical_path(self, path: str | Path) -> Path:
+        resolved = Path(path).resolve()
+        if resolved not in self.paths:
+            raise LedgerIntegrityError(
+                f"state_transaction_path_not_locked: {resolved.as_posix()}"
+            )
+        return resolved
+
+    def load_jsonl(
+        self,
+        path: str | Path,
+        *,
+        verify: bool | None = None,
+    ) -> list[dict[str, Any]]:
+        resolved = self._canonical_path(path)
+        use_verify = self.verify_reads if verify is None else verify
+        return load_jsonl(resolved, verify=use_verify)
+
+    def append_jsonl(self, path: str | Path, record: dict[str, Any]) -> dict[str, Any]:
+        resolved = self._canonical_path(path)
+        return _append_jsonl_locked_body(resolved, record)
+
+
+def _state_group_lock_path(path: Path) -> Path | None:
+    match = surface_for_path(path)
+    if match is None:
+        return None
+    surface, base_dir = match
+    return base_dir / "locks" / "state-groups" / f"{surface.lock_group}.lock"
+
+
+def _transaction_lock_paths(paths: list[Path]) -> list[Path]:
+    group_locks: set[Path] = set()
+    index_locks: set[Path] = set()
+    file_locks: set[Path] = set()
+    for path in paths:
+        group_lock = _state_group_lock_path(path)
+        if group_lock is not None:
+            group_locks.add(group_lock.resolve())
+        req = _lock_requirements_for_path(path)
+        if req.index_group_lock_path is not None:
+            index_locks.add(req.index_group_lock_path.resolve())
+        file_locks.add(req.file_lock_path.resolve())
+    ordered: list[Path] = []
+    for bucket in (group_locks, index_locks, file_locks):
+        ordered.extend(sorted(bucket, key=lambda p: p.as_posix()))
+    return ordered
+
+
+@contextlib.contextmanager
+def state_transaction(
+    paths: list[str | Path] | tuple[str | Path, ...] | set[str | Path],
+    *,
+    verify_reads: bool = True,
+) -> Iterator[StateTransaction]:
+    """Acquire ordered locks for one or more declared state surfaces.
+
+    Lock order is deterministic across processes: manifest group locks,
+    integrity-index locks, then concrete file locks, each sorted by
+    absolute path.  Reads default to strict hash-chain verification.
+    """
+    concrete_paths = [Path(path).resolve() for path in paths]
+    if not concrete_paths:
+        raise LedgerIntegrityError("state_transaction_requires_paths")
+    lock_paths = _transaction_lock_paths(concrete_paths)
+    with contextlib.ExitStack() as stack:
+        for lock_path in lock_paths:
+            stack.enter_context(with_exclusive_lock(lock_path))
+        yield StateTransaction(frozenset(concrete_paths), verify_reads=verify_reads)
+
+
 def file_hash(path: Path) -> str:
     digest = hashlib.sha256()
     if path.exists():
@@ -221,6 +309,33 @@ def _record_hash(record: dict[str, Any], previous_hash: str | None = None) -> st
     return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _append_jsonl_locked_body(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = read_jsonl(path)
+    previous_hash = (
+        str(rows[-1].get("ledger_hash"))
+        if rows and rows[-1].get("ledger_hash")
+        else None
+    )
+    stored = dict(record)
+    stored["previous_ledger_hash"] = previous_hash
+    stored["ledger_hash"] = _record_hash(stored, previous_hash)
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    try:
+        os.write(
+            fd,
+            (
+                json.dumps(stored, sort_keys=True, separators=(",", ":"))
+                + "\n"
+            ).encode("utf-8"),
+        )
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    _refresh_adjacent_index_grouped(path, held_file_lock_path=path)
+    return stored
+
+
 def _append_jsonl_unlocked(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     """Plan 026R §A.1 — internal append helper.
 
@@ -257,30 +372,7 @@ def _append_jsonl_unlocked(path: Path, record: dict[str, Any]) -> dict[str, Any]
     hashes) cannot inject those stale values into the new chain link —
     the primitive is the sole authority over chain hash fields.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    rows = read_jsonl(path)
-    previous_hash = (
-        str(rows[-1].get("ledger_hash"))
-        if rows and rows[-1].get("ledger_hash")
-        else None
-    )
-    stored = dict(record)
-    stored["previous_ledger_hash"] = previous_hash
-    stored["ledger_hash"] = _record_hash(stored, previous_hash)
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-    try:
-        os.write(
-            fd,
-            (
-                json.dumps(stored, sort_keys=True, separators=(",", ":"))
-                + "\n"
-            ).encode("utf-8"),
-        )
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    _refresh_adjacent_index_grouped(path, held_file_lock_path=path)
-    return stored
+    return _append_jsonl_locked_body(path, record)
 
 
 def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
@@ -337,6 +429,68 @@ def _rewrite_jsonl_unlocked(path: Path, rows: list[dict[str, Any]]) -> None:
     _refresh_adjacent_index_grouped(path, held_file_lock_path=path)
 
 
+def _verify_jsonl_from_text(path: Path, content: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    rows: list[dict[str, Any]] = []
+    previous_hash: str | None = None
+    try:
+        for line_no, line in enumerate(content.splitlines(), start=1):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                return (
+                    {"path": path.as_posix(), "valid": False, "line": line_no, "reason": "row_not_object"},
+                    rows,
+                )
+            rows.append(row)
+            expected = row.get("ledger_hash")
+            if not expected:
+                return (
+                    {
+                        "path": path.as_posix(),
+                        "valid": False,
+                        "line": line_no,
+                        "reason": "ledger_hash_missing",
+                    },
+                    rows,
+                )
+            actual = _record_hash(row, previous_hash)
+            if expected != actual:
+                return (
+                    {
+                        "path": path.as_posix(),
+                        "valid": False,
+                        "line": line_no,
+                        "reason": "ledger_hash_mismatch",
+                        "expected": expected,
+                        "actual": actual,
+                    },
+                    rows,
+                )
+            if row.get("previous_ledger_hash") != previous_hash:
+                return (
+                    {
+                        "path": path.as_posix(),
+                        "valid": False,
+                        "line": line_no,
+                        "reason": "previous_hash_mismatch",
+                    },
+                    rows,
+                )
+            previous_hash = str(expected)
+    except json.JSONDecodeError as exc:
+        return (
+            {"path": path.as_posix(), "valid": False, "line": exc.lineno, "reason": str(exc)},
+            rows,
+        )
+    except OSError as exc:
+        return ({"path": path.as_posix(), "valid": False, "reason": str(exc)}, rows)
+    return (
+        {"path": path.as_posix(), "valid": True, "row_count": len(rows), "last_hash": previous_hash},
+        rows,
+    )
+
+
 def verify_jsonl(path: Path) -> dict[str, Any]:
     """Plan 026R §A.2 — unconditional strict hash-chain verifier.
 
@@ -358,47 +512,11 @@ def verify_jsonl(path: Path) -> dict[str, Any]:
     """
     if not path.exists():
         return {"path": path.as_posix(), "valid": True, "row_count": 0, "missing": True}
-    rows: list[dict[str, Any]] = []
-    previous_hash: str | None = None
     try:
-        for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            if not isinstance(row, dict):
-                return {"path": path.as_posix(), "valid": False, "line": line_no, "reason": "row_not_object"}
-            rows.append(row)
-            expected = row.get("ledger_hash")
-            if not expected:
-                return {
-                    "path": path.as_posix(),
-                    "valid": False,
-                    "line": line_no,
-                    "reason": "ledger_hash_missing",
-                }
-            actual = _record_hash(row, previous_hash)
-            if expected != actual:
-                return {
-                    "path": path.as_posix(),
-                    "valid": False,
-                    "line": line_no,
-                    "reason": "ledger_hash_mismatch",
-                    "expected": expected,
-                    "actual": actual,
-                }
-            if row.get("previous_ledger_hash") != previous_hash:
-                return {
-                    "path": path.as_posix(),
-                    "valid": False,
-                    "line": line_no,
-                    "reason": "previous_hash_mismatch",
-                }
-            previous_hash = str(expected)
-    except json.JSONDecodeError as exc:
-        return {"path": path.as_posix(), "valid": False, "line": exc.lineno, "reason": str(exc)}
+        result, _rows = _verify_jsonl_from_text(path, path.read_text(encoding="utf-8"))
     except OSError as exc:
         return {"path": path.as_posix(), "valid": False, "reason": str(exc)}
-    return {"path": path.as_posix(), "valid": True, "row_count": len(rows), "last_hash": previous_hash}
+    return result
 
 
 def load_jsonl_verified(path: Path) -> list[dict[str, Any]]:
@@ -416,13 +534,18 @@ def load_jsonl_verified(path: Path) -> list[dict[str, Any]]:
     """
     if not path.exists():
         return []
-    result = verify_jsonl(path)
+    try:
+        result, rows = _verify_jsonl_from_text(path, path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise LedgerIntegrityError(
+            f"strict verification failed for {path.as_posix()}: reason={exc}"
+        ) from exc
     if not result.get("valid", False):
         raise LedgerIntegrityError(
             f"strict verification failed for {path.as_posix()}: "
             f"reason={result.get('reason')} line={result.get('line')}"
         )
-    return read_jsonl(path)
+    return rows
 
 
 def load_index(path: Path) -> dict[str, Any]:
@@ -436,17 +559,30 @@ def load_index(path: Path) -> dict[str, Any]:
 
 
 def verify_index_hashes(index_path: Path, ledgers: dict[str, Path]) -> dict[str, Any]:
-    index = load_index(index_path)
-    for name, expected_hash in index.get("ledger_hashes", {}).items():
-        ledger = ledgers.get(name)
-        if ledger is None:
-            continue
-        actual_hash = file_hash(ledger)
-        if actual_hash != expected_hash:
+    with with_exclusive_lock(index_path):
+        index = load_index(index_path)
+        indexed_hashes = index.get("ledger_hashes", {})
+        if not isinstance(indexed_hashes, dict):
             raise LedgerIntegrityError(
-                f"Ledger integrity check failed for {name}: expected {expected_hash}, got {actual_hash}"
+                f"Ledger integrity index is malformed at {index_path.as_posix()}: ledger_hashes must be an object"
             )
-    return index
+        for name in sorted(ledgers):
+            if name not in indexed_hashes:
+                raise LedgerIntegrityError(
+                    f"Ledger integrity index missing required ledger entry: {name}"
+                )
+        for name in sorted(indexed_hashes):
+            if name not in ledgers:
+                raise LedgerIntegrityError(
+                    f"Ledger integrity index contains unknown ledger entry: {name}"
+                )
+            expected_hash = indexed_hashes[name]
+            actual_hash = file_hash(ledgers[name])
+            if actual_hash != expected_hash:
+                raise LedgerIntegrityError(
+                    f"Ledger integrity check failed for {name}: expected {expected_hash}, got {actual_hash}"
+                )
+        return index
 
 
 def write_index(index_path: Path, index: dict[str, Any], ledgers: dict[str, Path]) -> None:

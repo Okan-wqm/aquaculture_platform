@@ -80,11 +80,11 @@ def dispatch_one_pending_worker_assignment(
     *,
     base_dir: str | Path,
     agent_id: str,
+    github_adapter: Any,
     lease_seconds: int = DEFAULT_LEASE_SECONDS,
     max_retries: int = DEFAULT_MAX_RETRIES,
     target_agent: str | None = None,
     worker_executor_path: Path | None = None,
-    github_adapter: Any | None = None,
 ) -> dict[str, Any]:
     """Find one pending worker assignment and dispatch + verify it.
 
@@ -94,11 +94,17 @@ def dispatch_one_pending_worker_assignment(
     errors raise.
 
     ``github_adapter`` is the auto_merge.GitHubAdapter Protocol
-    instance. When None and a verified assignment has an associated
-    PR, the hook does NOT attempt merge — it returns
-    ``verified_pending_merge`` so an operator can review the PR
-    state before any auto-merge attempt. Tests inject
-    ``SnapshotGitHubAdapter`` to drive the merge_if_green path.
+    instance. Plan ARIA-V3 §A2 GAP-3 closure makes this REQUIRED
+    (pre-V3 a ``None`` default silently routed every verified
+    assignment to ``verified_pending_merge``). Profile-derived
+    selection lives in
+    ``aria_kernel.github_adapters.select_github_adapter``:
+    ``strict``/``autonomous`` → ``GhCliGitHubAdapter``; everything
+    else → ``RecordingGitHubAdapter`` (audit-only sink writing to
+    ``aria-tools/audit/intended-gh-calls.jsonl``). The hook still
+    returns ``verified_pending_merge`` for non-``auto_fix_safe``
+    triage tiers OR when ``pr_for_assignment`` returns None — that
+    branch is governance discipline, not adapter absence.
     """
     from .auto_merge import merge_if_green
     from .tool_registry import (
@@ -318,10 +324,15 @@ def dispatch_one_pending_worker_assignment(
         pr_number = pr_for_assignment(
             assignment_id=assignment_id, base_dir=root,
         )
+        # Plan ARIA-V3 §A2 — github_adapter is REQUIRED at the public
+        # surface; the ``is not None`` guard was removed because the
+        # type system now structurally prevents None reaching this
+        # branch. ``triage_tier == auto_fix_safe`` AND
+        # ``pr_number is not None`` remain the merge-eligibility gate
+        # (governance discipline, not adapter availability).
         if (
             triage_tier == "auto_fix_safe"
             and pr_number is not None
-            and github_adapter is not None
         ):
             merge_result = merge_if_green(
                 adapter=github_adapter, pr_number=pr_number,
@@ -355,7 +366,11 @@ def dispatch_one_pending_worker_assignment(
             {
                 "assignment_id": assignment_id, "claim_id": claim_id,
                 "pr_number": pr_number, "triage_tier": triage_tier,
-                "github_adapter_present": github_adapter is not None,
+                # Plan ARIA-V3 §A2 — adapter is REQUIRED; the audit
+                # row now records the adapter class name (Recording
+                # vs GhCli) so the operator can reconstruct profile
+                # state from the chain.
+                "github_adapter_kind": type(github_adapter).__name__,
             },
         )
         governance_count += 1

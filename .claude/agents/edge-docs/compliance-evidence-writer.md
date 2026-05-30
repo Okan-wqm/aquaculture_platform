@@ -4,6 +4,7 @@ description: Produces compliance evidence chapters a Siemens vendor-assessment a
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 3
 ---
 
 # Compliance Evidence Writer — Lane-C Producer

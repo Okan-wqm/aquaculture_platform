@@ -1,3 +1,5 @@
+<!-- ARIA-CURRENT-STATE-NOTICE: This document may contain historical state. For normative current state, see docs/aria/CURRENT_STATE.md and executable contracts. -->
+
 # ARIA Operational Identity (v1.0, aligned to SPEC v7.2)
 
 > **Purpose:** Defines WHO ARIA is and HOW ARIA behaves at runtime

@@ -139,4 +139,9 @@ export class ConversationService {
       { isActive: false },
     );
   }
+
+  async eraseForUser(tenantId: string, userId: string): Promise<number> {
+    const result = await this.conversationRepo.delete({ tenantId, userId });
+    return result.affected ?? 0;
+  }
 }

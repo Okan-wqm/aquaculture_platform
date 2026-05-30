@@ -39,23 +39,26 @@ export interface ThreadStatusChangedEvent extends BaseEvent {
 export interface MessageSentEvent extends BaseEvent {
   eventType: 'MessageSent';
   messageId: string;
-  threadId: string;
+  channelId: string;
   senderId: string;
-  senderType: string;
-  senderName: string;
-  isInternal: boolean;
+  contentType: string;
+  hasAttachments: boolean;
+  mentionedUserIds?: string[];
+  createdAt: string;
 }
 
 /**
  * Message Read Event
- * Published when one or more messages in a thread are marked as read.
+ * Published when one channel message is marked as read. The logical
+ * idempotency key is tenantId + messageId + messageCreatedAt + userId.
  */
 export interface MessageReadEvent extends BaseEvent {
   eventType: 'MessageRead';
-  threadId: string;
-  readBy: string;
-  readByRole: string;
-  messageIds: string[];
+  channelId: string;
+  messageId: string;
+  messageCreatedAt: string;
+  userId: string;
+  readAt: string;
 }
 
 // ==================== Bulk Operations ====================
@@ -213,6 +216,7 @@ export interface ReactionAddedEvent extends BaseEvent {
 
 export interface ReactionRemovedEvent extends BaseEvent {
   eventType: 'ReactionRemoved';
+  channelId: string;
   messageId: string;
   userId: string;
   emoji: string;

@@ -20,7 +20,7 @@ import { OutboxEntityBase } from '@platform/outbox';
  */
 @Entity({ name: 'messaging_outbox', schema: 'messaging', synchronize: false })
 @Index('idx_outbox_poll', ['createdAt'], {
-  where: '"publishedAt" IS NULL AND "nextAttemptAt" <= NOW()',
+  where: '"publishedAt" IS NULL AND "isDeadLettered" = false',
 })
 @Index('idx_outbox_tenant', ['tenantId'])
 @Index('idx_outbox_idempotency', ['tenantId', 'idempotencyKey'], {

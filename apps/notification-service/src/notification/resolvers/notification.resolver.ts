@@ -173,28 +173,36 @@ export class NotificationResolver {
     }
 
     try {
-      // Check if token already exists for this user
-      const existing = await this.deviceTokenRepository.findOne({
-        where: { userId: user.sub, token },
-      });
+      await this.deviceTokenRepository.manager.transaction(async (manager) => {
+        const existingForToken = await manager.find(DeviceToken, {
+          where: { token },
+          lock: { mode: 'pessimistic_write' },
+        });
+        const currentOwner = existingForToken.find(
+          (row) => row.userId === user.sub && row.tenantId === tenantId,
+        );
+        const previousOwners = existingForToken.filter((row) => row !== currentOwner);
 
-      if (existing) {
-        // Update lastSeenAt
-        existing.lastSeenAt = new Date();
-        existing.platform = platform;
-        existing.tenantId = tenantId;
-        await this.deviceTokenRepository.save(existing);
-      } else {
-        // Create new token record
-        const deviceToken = this.deviceTokenRepository.create({
+        if (previousOwners.length > 0) {
+          await manager.remove(DeviceToken, previousOwners);
+        }
+
+        if (currentOwner) {
+          currentOwner.lastSeenAt = new Date();
+          currentOwner.platform = platform;
+          await manager.save(DeviceToken, currentOwner);
+          return;
+        }
+
+        const deviceToken = manager.create(DeviceToken, {
           userId: user.sub,
           tenantId,
           token,
           platform,
           lastSeenAt: new Date(),
         });
-        await this.deviceTokenRepository.save(deviceToken);
-      }
+        await manager.save(DeviceToken, deviceToken);
+      });
 
       this.logger.debug(
         `Device token registered for user ${user.sub.substring(0, 8)}... on platform ${platform}`,

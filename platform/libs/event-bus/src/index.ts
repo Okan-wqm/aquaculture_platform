@@ -9,6 +9,7 @@ export type { IEventBus as EventBus } from './interfaces/event-bus.interface';
 export * from './nats/nats-event-bus';
 export * from './nats/nats.module';
 export * from './nats/nats-request-reply';
+export * from './subjects/tenant-event-subject';
 
 // Decorators
 export * from './decorators/event-handler.decorator';

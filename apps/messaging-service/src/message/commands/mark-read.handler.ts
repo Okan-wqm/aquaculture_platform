@@ -35,39 +35,63 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
   async execute(command: MarkReadCommand): Promise<boolean> {
     const { tenantId, userId, channelId, messageId } = command;
 
-    await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+    const didAdvance = await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       const { manager } = queryRunner;
 
       // 1. Find the target message
       const message = await manager.findOne(Message, {
         where: { tenantId, id: messageId },
       });
-      if (!message) {
+      if (!message || message.channelId !== channelId) {
         throw new NotFoundException(`Message ${messageId} not found.`);
+      }
+
+      const member = await manager.findOne(ChannelMember, {
+        where: { tenantId, channelId, userId },
+      });
+      if (!member || member.leftAt) {
+        throw new NotFoundException(`Channel member ${userId} not found.`);
+      }
+
+      if (
+        member.lastReadAt &&
+        member.lastReadAt.getTime() >= message.createdAt.getTime()
+      ) {
+        return false;
       }
 
       // 2. Transactional: update channel member lastReadAt + create/update receipt + outbox
       // 2a. Update channel_members.lastReadAt
-      await manager
+      const updateResult = await manager
         .createQueryBuilder()
         .update(ChannelMember)
         .set({ lastReadAt: message.createdAt })
-        .where('"tenantId" = :tenantId AND "channelId" = :channelId AND "userId" = :userId', {
-          tenantId,
-          channelId,
-          userId,
+        .where(
+          '"tenantId" = :tenantId AND "channelId" = :channelId AND "userId" = :userId',
+          { tenantId, channelId, userId },
+        )
+        .andWhere('"leftAt" IS NULL')
+        .andWhere('("lastReadAt" IS NULL OR "lastReadAt" < :messageCreatedAt)', {
+          messageCreatedAt: message.createdAt,
         })
         .execute();
+
+      if ((updateResult.affected ?? 0) === 0) {
+        return false;
+      }
 
       // 2b. Upsert MessageReceipt
       const existingReceipt = await manager.findOne(MessageReceipt, {
         where: {
+          tenantId,
           messageId: message.id,
+          messageCreatedAt: message.createdAt,
           userId,
         },
       });
 
       const now = new Date();
+      const messageCreatedAtIso = message.createdAt.toISOString();
 
       if (existingReceipt) {
         existingReceipt.status = ReceiptStatus.READ;
@@ -94,13 +118,25 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
         ...createBaseEvent('MessageRead', tenantId),
         channelId,
         messageId: message.id,
+        messageCreatedAt: messageCreatedAtIso,
         userId,
         readAt: now.toISOString(),
-      },  manager);
+      },  manager, {
+        aggregateId: message.id,
+        idempotencyKey: `MessageRead:${tenantId}:${message.id}:${messageCreatedAtIso}:${userId}`,
+      });
+
+      return true;
     });
 
-    // 3. Update Redis unread count (decrement or recalculate)
-    await this.safeRedisRecalculateUnread(userId, channelId, tenantId);
+    if (didAdvance) {
+      // 3. Update Redis unread count (decrement or recalculate)
+      await this.safeRedisRecalculateUnread(userId, channelId, tenantId);
+    } else {
+      this.logger.debug(
+        `Marked read no-op: user=${userId}, channel=${channelId}, upTo=${messageId}`,
+      );
+    }
 
     this.logger.debug(
       `Marked read: user=${userId}, channel=${channelId}, upTo=${messageId}`,

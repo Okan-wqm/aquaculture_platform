@@ -115,7 +115,7 @@ export function useAiConsent(): UseAiConsentReturn {
     mutationFn: (consented: boolean) => mutateAiConsent(consented),
     onSuccess: (data) => {
       queryClient.setQueryData(
-        ['messaging', 'ai-consent', tenantId],
+        createTenantQueryKey(tenantId, 'messaging', 'ai-consent', tenantId),
         (prev: AiConsentStatus | undefined) =>
           prev ? { ...prev, hasConsented: data.hasConsented } : prev,
       );

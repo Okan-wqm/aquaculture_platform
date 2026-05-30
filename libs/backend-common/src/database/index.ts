@@ -90,6 +90,15 @@ export {
   TENANT_AWARE_SCHEMAS,
   TENANT_SCHEMA_NAME_RE,
 } from './tenant-aware-schemas';
+export {
+  SourceOnlyMigration,
+  getSourceOnlyMigrationMetadata,
+  isSourceOnlyMigration,
+} from './tenant-fanout.decorator';
+export type {
+  SourceOnlyMigrationMetadata,
+  SourceOnlyMigrationOptions,
+} from './tenant-fanout.decorator';
 
 // Tenant Schema Sync (auto-provisioning)
 export * from './tenant-schema-sync.service';

@@ -46,6 +46,19 @@ type SocketInstance = {
 
 let ioFactory: ((url: string, opts: Record<string, unknown>) => SocketInstance) | null = null;
 
+export interface ResolvedNotificationRef {
+  channelId: string;
+  messageId: string;
+  messageCreatedAt: string;
+}
+
+interface ResolveNotificationRefAck extends Partial<ResolvedNotificationRef> {
+  success: boolean;
+  reason?: string;
+}
+
+const NOTIFICATION_REF_TIMEOUT_MS = 5_000;
+
 async function getIo(): Promise<typeof ioFactory> {
   if (ioFactory) return ioFactory;
   try {
@@ -127,7 +140,7 @@ export function useMessageSocket() {
         const qc = queryClientRef.current;
         // Update messages cache for this channel
         qc.setQueryData(
-          ['messaging', 'messages', event.channelId, tenantId],
+          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages?.length) return old;
             const firstPage = old.pages[0];
@@ -166,7 +179,7 @@ export function useMessageSocket() {
       socket.on('messageUpdated', (data: unknown) => {
         const event = data as MessageUpdatedEvent;
         queryClientRef.current.setQueryData(
-          ['messaging', 'messages', event.channelId, tenantId],
+          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {
@@ -185,7 +198,7 @@ export function useMessageSocket() {
       socket.on('messageDeleted', (data: unknown) => {
         const event = data as MessageDeletedEvent;
         queryClientRef.current.setQueryData(
-          ['messaging', 'messages', event.channelId, tenantId],
+          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {
@@ -208,7 +221,7 @@ export function useMessageSocket() {
         qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
         // Update receipt in message cache
         qc.setQueryData(
-          ['messaging', 'messages', event.channelId, tenantId],
+          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {
@@ -302,12 +315,51 @@ export function useMessageSocket() {
     }
   }, []);
 
+  const resolveNotificationRef = useCallback(
+    (notificationRef: string): Promise<ResolvedNotificationRef | null> =>
+      new Promise((resolve) => {
+        const socket = socketRef.current;
+        if (!socket?.connected) {
+          resolve(null);
+          return;
+        }
+
+        const timeoutId = window.setTimeout(() => {
+          resolve(null);
+        }, NOTIFICATION_REF_TIMEOUT_MS);
+
+        socket.emit(
+          'resolveNotificationRef',
+          { notificationRef },
+          (response: ResolveNotificationRefAck) => {
+            window.clearTimeout(timeoutId);
+            if (
+              response?.success &&
+              response.channelId &&
+              response.messageId &&
+              response.messageCreatedAt
+            ) {
+              resolve({
+                channelId: response.channelId,
+                messageId: response.messageId,
+                messageCreatedAt: response.messageCreatedAt,
+              });
+              return;
+            }
+            resolve(null);
+          },
+        );
+      }),
+    [],
+  );
+
   return {
     isConnected,
     joinChannel,
     leaveChannel,
     emitTyping,
     emitMarkRead,
+    resolveNotificationRef,
     socketRef,
   };
 }

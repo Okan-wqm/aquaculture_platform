@@ -3,6 +3,8 @@ export {
   type FarmEventValidationResult,
   validateSensorEvent,
   type SensorEventValidationResult,
+  validateMessagingEvent,
+  type MessagingEventValidationResult,
   validateIngestBackendPolicyEvent,
   type IngestBackendPolicyEventValidationResult,
 } from './validator';
@@ -15,6 +17,10 @@ export {
   INGEST_BACKEND_POLICY_EVENT_SCHEMAS,
   type IngestBackendPolicyEventType,
 } from './ingest-backend-policy.schema';
+export {
+  MESSAGING_EVENT_SCHEMAS,
+  type MessagingEventType,
+} from './messaging-events.schema';
 export {
   UUID_PATTERN,
   MAX_FREE_TEXT_LENGTH,

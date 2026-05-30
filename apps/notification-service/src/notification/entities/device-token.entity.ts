@@ -3,6 +3,7 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
+  Index,
   Unique,
 } from 'typeorm';
 
@@ -12,6 +13,7 @@ import {
  */
 @Entity('device_tokens', { schema: 'notification' })
 @Unique(['userId', 'token'])
+@Index('IDX_device_tokens_single_active_owner', ['token'], { unique: true })
 export class DeviceToken {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

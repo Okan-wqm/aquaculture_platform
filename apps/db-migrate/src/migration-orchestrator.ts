@@ -55,11 +55,18 @@
  * signal to decide whether to unblock service containers. Breaking that
  * contract is a contract change — review like an event shape change.
  */
-import { DataSource, MigrationExecutor, MigrationInterface, QueryRunner } from 'typeorm';
+import {
+  DataSource,
+  Migration,
+  MigrationExecutor,
+  MigrationInterface,
+  QueryRunner,
+} from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 import type { MixedList } from 'typeorm/common/MixedList';
 import {
   assertExpandContractDependency,
+  isSourceOnlyMigration,
   MIGRATION_LEDGER_TABLE,
 } from '@aquaculture/backend-common/database';
 
@@ -69,6 +76,7 @@ import {
  * so validation semantics across the two runners never diverge.
  */
 const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const TENANT_SCHEMA_RE = /^tenant_[a-f0-9]{16}$/;
 
 /** Hash used for pg_try_advisory_lock keys (one 64-bit int per schema). */
 function advisoryLockKey(schema: string): string {
@@ -243,6 +251,30 @@ async function runPostConditionProbe(
   }
 }
 
+async function recordSourceOnlySkip(
+  queryRunner: QueryRunner,
+  schema: string,
+  migrationsTableName: string,
+  migration: Migration,
+): Promise<void> {
+  await queryRunner.query(
+    `CREATE TABLE IF NOT EXISTS "${schema}"."${migrationsTableName}" (
+       "id" SERIAL NOT NULL PRIMARY KEY,
+       "timestamp" bigint NOT NULL,
+       "name" varchar NOT NULL
+     )`,
+  );
+  await queryRunner.query(
+    `INSERT INTO "${schema}"."${migrationsTableName}" ("timestamp", "name")
+     SELECT $1, $2
+     WHERE NOT EXISTS (
+       SELECT 1 FROM "${schema}"."${migrationsTableName}"
+        WHERE "timestamp" = $1 AND "name" = $2
+     )`,
+    [migration.timestamp, migration.name],
+  );
+}
+
 async function withLockedMigrationSession<T>(
   opts: RunSchemaOptions,
   work: (session: MigrationSession) => Promise<T>,
@@ -400,6 +432,24 @@ export async function runSchemaMigrations(opts: RunSchemaOptions): Promise<RunSc
           migrationClass: migrationCtor,
           environment: process.env['AQUA_ENV'] ?? process.env['NODE_ENV'] ?? 'development',
         });
+
+        if (TENANT_SCHEMA_RE.test(schema) && isSourceOnlyMigration(migrationCtor)) {
+          await recordSourceOnlySkip(
+            queryRunner,
+            schema,
+            migrationsTableName,
+            migration,
+          );
+          applied.push(`${migration.name} (source-only skipped)`);
+          log({
+            level: 'info',
+            message: 'Migration source-only skipped',
+            context: 'DbMigrate',
+            schema,
+            migration: migration.name,
+          });
+          continue;
+        }
       }
 
       // Tier-1 architectural correctness: a migration class may

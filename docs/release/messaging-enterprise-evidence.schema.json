@@ -1,0 +1,101 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aquaculture.dev/schemas/messaging-enterprise-evidence.json",
+  "title": "Messaging Enterprise Release Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "stagedSha",
+    "generatedAt",
+    "smoke",
+    "dbValidation",
+    "natsSmoke",
+    "aquamobilContracts",
+    "canaryMetrics",
+    "rollbackManifest",
+    "ownerSignoff"
+  ],
+  "properties": {
+    "stagedSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "smoke": {
+      "$ref": "#/definitions/commandEvidence"
+    },
+    "dbValidation": {
+      "$ref": "#/definitions/commandEvidence"
+    },
+    "natsSmoke": {
+      "$ref": "#/definitions/commandEvidence"
+    },
+    "aquamobilContracts": {
+      "$ref": "#/definitions/commandEvidence"
+    },
+    "canaryMetrics": {
+      "$ref": "#/definitions/commandEvidence"
+    },
+    "rollbackManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["imageTags", "migrationPosition", "operatorRunbook"],
+      "properties": {
+        "imageTags": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "migrationPosition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operatorRunbook": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ownerSignoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "timestamp", "decision"],
+      "properties": {
+        "owner": { "type": "string", "minLength": 1 },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "decision": { "enum": ["approved", "rejected"] }
+      }
+    },
+    "bypass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approver", "timestamp", "reason", "scope", "expiry"],
+      "properties": {
+        "approver": { "type": "string", "minLength": 1 },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "reason": { "type": "string", "minLength": 1 },
+        "scope": { "type": "string", "minLength": 1 },
+        "expiry": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "definitions": {
+    "commandEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "exitCode", "outputSha256", "capturedAt"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "exitCode": { "type": "integer", "minimum": 0 },
+        "outputSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "capturedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

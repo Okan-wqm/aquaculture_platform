@@ -1,6 +1,6 @@
 /**
- * @TenantFanOut + @AllowTenantDelta — migration-class metadata for the
- * orchestrator's tenant fan-out logic.
+ * @TenantFanOut + @AllowTenantDelta + @SourceOnlyMigration — migration-class
+ * metadata for the orchestrator's tenant fan-out logic.
  * ============================================================================
  *
  * Plan v3 R21 + R24. Two small, composable decorators that let
@@ -21,6 +21,13 @@
  *       suppresses false-positives when a tenant's extra columns match
  *       this allowlist. Typical use: `'enterprise_'` prefix for
  *       tenant-scoped enterprise-tier customizations.
+ *
+ *   @SourceOnlyMigration({ reason })
+ *     - migration runs only on the service source schema.
+ *     - tenant ledgers record it as source-only skipped so it does not stay
+ *       pending forever.
+ *     - use for infrastructure tables such as `<service>_outbox` that are
+ *       deliberately not cloned into tenant_<uuid> schemas.
  *
  * # Why decorators on the MIGRATION CLASS, not config?
  *
@@ -48,6 +55,9 @@ export const TENANT_FANOUT_META_KEY = Symbol.for(
 );
 export const ALLOW_TENANT_DELTA_META_KEY = Symbol.for(
   '@aquaculture/backend-common:allow-tenant-delta',
+);
+export const SOURCE_ONLY_MIGRATION_META_KEY = Symbol.for(
+  '@aquaculture/backend-common:source-only-migration',
 );
 
 export type TenantLockClass = 'catalog' | 'tenant-local';
@@ -201,4 +211,46 @@ export function isTenantDeltaAllowed(
   const prefixes = getAllowedTenantDeltaPrefixes(ctor);
   if (prefixes.length === 0) return false;
   return prefixes.some((p) => columnName.startsWith(p));
+}
+
+// --------------------------------------------------------------------
+// @SourceOnlyMigration
+// --------------------------------------------------------------------
+
+export interface SourceOnlyMigrationOptions {
+  readonly reason: string;
+}
+
+export interface SourceOnlyMigrationMetadata extends SourceOnlyMigrationOptions {
+  readonly target: Function;
+}
+
+export function SourceOnlyMigration(
+  opts: SourceOnlyMigrationOptions,
+): ClassDecorator {
+  if (typeof opts.reason !== 'string' || opts.reason.trim().length === 0) {
+    throw new TypeError(
+      '@SourceOnlyMigration: reason must be a non-empty string',
+    );
+  }
+  return (target: Function): void => {
+    Reflect.defineMetadata(
+      SOURCE_ONLY_MIGRATION_META_KEY,
+      { ...opts, target },
+      target,
+    );
+  };
+}
+
+export function getSourceOnlyMigrationMetadata(
+  ctor: Function,
+): SourceOnlyMigrationMetadata | null {
+  const raw = Reflect.getMetadata(SOURCE_ONLY_MIGRATION_META_KEY, ctor) as
+    | SourceOnlyMigrationMetadata
+    | undefined;
+  return raw ?? null;
+}
+
+export function isSourceOnlyMigration(ctor: Function): boolean {
+  return getSourceOnlyMigrationMetadata(ctor) !== null;
 }

@@ -34,6 +34,12 @@ import {
   PublishOptions,
   EventMetadata,
 } from '../interfaces/event-bus.interface';
+import {
+  buildSystemEventSubject,
+  buildTenantEventSubject,
+  buildWildcardEventSubject,
+  assertSubjectMatchesEvent,
+} from '../subjects/tenant-event-subject';
 import { EventUpcasterRegistry } from '@platform/event-contracts';
 import type { EventBusModuleOptions } from './nats.module';
 
@@ -423,8 +429,10 @@ export class NatsEventBus
    * are captured without stream reconfiguration.
    */
   private deriveSubject(event: IEvent): string {
-    const segment = event.tenantId ?? 'system';
-    return `events.${segment}.${event.eventType}`;
+    if (!event.tenantId) {
+      return buildSystemEventSubject(event.eventType);
+    }
+    return buildTenantEventSubject(event.tenantId, event.eventType);
   }
 
   async publish<TEvent extends IEvent>(
@@ -448,8 +456,11 @@ export class NatsEventBus
     }
 
     try {
-      const payload = this.serializeEvent(event);
       const subject = this.normalizeSubject(topic);
+      if (subject.startsWith('events.')) {
+        assertSubjectMatchesEvent(subject, event);
+      }
+      const payload = this.serializeEvent(event);
 
       // NOTE: Intentionally NO `expect: { lastMsgID: ... }` option here.
       // `expect.lastMsgID` is a CAS-style assertion — it succeeds only on
@@ -514,7 +525,7 @@ export class NatsEventBus
     eventType: string,
     handler: IEventHandler<TEvent>,
   ): Promise<void> {
-    const subject = `events.*.${eventType}`;
+    const subject = buildWildcardEventSubject(eventType);
     await this.subscribeTo(subject, handler);
   }
 
@@ -546,44 +557,8 @@ export class NatsEventBus
     tenantId: string,
     handler: IEventHandler<TEvent>,
   ): Promise<void> {
-    this.assertSafeTenantSegment(tenantId);
-    const subject = `events.${tenantId}.${eventType}`;
+    const subject = buildTenantEventSubject(tenantId, eventType);
     await this.subscribeTo(subject, handler);
-  }
-
-  /**
-   * Reject any tenantId value that would corrupt the NATS subject shape.
-   *
-   * WHAT rejected — empty string, anything containing `.` (segment delimiter),
-   * `*` (single-segment wildcard), `>` (tail wildcard), or any whitespace
-   * (CR / LF / tab / space). These are the characters that change subject
-   * routing semantics; everything else (including hyphens, the canonical UUID
-   * form) passes through untouched.
-   *
-   * WHY mask the value in the error — error messages are forwarded to log
-   * aggregation; surfacing the full attacker-controlled string would let it
-   * exfiltrate by injecting log noise. First 8 chars is enough for a human
-   * operator to correlate with the offending caller without echoing the full
-   * payload.
-   */
-  private assertSafeTenantSegment(tenantId: string): void {
-    if (typeof tenantId !== 'string' || tenantId.length === 0) {
-      throw new TypeError(
-        `subscribeForTenant: tenantId must be a non-empty string`,
-      );
-    }
-    // /[\s.*>]/ — whitespace OR any NATS subject metacharacter
-    if (/[\s.*>]/.test(tenantId)) {
-      const masked =
-        tenantId.length > 8
-          ? `${tenantId.substring(0, 8)}…`
-          : tenantId.substring(0, 8);
-      throw new TypeError(
-        `subscribeForTenant: tenantId contains forbidden characters ` +
-          `(NATS subject metacharacters or whitespace). ` +
-          `Value (masked, first 8 chars): "${masked}"`,
-      );
-    }
   }
 
   async subscribeTo<TEvent extends IEvent>(
@@ -620,7 +595,7 @@ export class NatsEventBus
 
   async unsubscribe(eventType: string): Promise<void> {
     // Match the wildcard subject used by subscribe()
-    const topic = `events.*.${eventType}`;
+    const topic = buildWildcardEventSubject(eventType);
     await this.unsubscribeFrom(topic);
   }
 
@@ -907,15 +882,18 @@ export class NatsEventBus
    * Normalize subject to match stream configuration
    */
   private normalizeSubject(topic: string): string {
-    // Ensure subject starts with valid prefix
     if (
-      !topic.startsWith('events.') &&
-      !topic.startsWith('commands.') &&
-      !topic.startsWith('queries.')
+      topic.startsWith('events.') ||
+      topic.startsWith('commands.') ||
+      topic.startsWith('queries.')
     ) {
-      return `events.${topic}`;
+      return topic;
     }
-    return topic;
+
+    throw new Error(
+      `NATS subject must be canonical and start with events., commands., or queries.; ` +
+        `got ${JSON.stringify(topic)}`,
+    );
   }
 
   /**

@@ -47,12 +47,21 @@ interface JoinChannelPayload { channelId: string }
 interface LeaveChannelPayload { channelId: string }
 interface TypingPayload { channelId: string }
 interface MarkReadPayload { channelId: string; messageId: string }
+interface ResolveNotificationRefPayload { notificationRef: string }
+interface ResolveNotificationRefResult {
+  channelId: string;
+  messageId: string;
+  messageCreatedAt: string;
+}
 
 const PRESENCE_TTL_SECONDS = 300;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const REAUTH_INTERVAL_MS = 5 * 60_000;
 const MAX_REAUTH_FAILURES = 3;
 const TYPING_THROTTLE_MS = 3_000;
+const CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT = 'messaging:channelMemberRemoved';
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * WebSocket Gateway for real-time messaging
@@ -123,6 +132,21 @@ export class MessagingGateway
    * for the app-level design rationale.
    */
   afterInit(_server: Server): void {
+    const clusterAwareServer = _server as Server & {
+      on(event: string, listener: (...args: unknown[]) => void): Server;
+    };
+    clusterAwareServer.on(
+      CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT,
+      (tenantId, channelId, userId) => {
+        if (
+          typeof tenantId === 'string' &&
+          typeof channelId === 'string' &&
+          typeof userId === 'string'
+        ) {
+          this.evictUserFromChannelLocal(tenantId, channelId, userId);
+        }
+      },
+    );
     this.logger.log('Messaging WebSocket Gateway initialized');
   }
 
@@ -165,6 +189,7 @@ export class MessagingGateway
 
       // Join tenant room for presence broadcasts
       void client.join(`tenant:${tenantId}`);
+      void client.join(`user:${tenantId}:${userId}`);
 
       // Update presence in Redis
       await this.setPresence(tenantId, userId, 'online');
@@ -354,6 +379,57 @@ export class MessagingGateway
     return { success: true };
   }
 
+  @SubscribeMessage('resolveNotificationRef')
+  async handleResolveNotificationRef(
+    client: Socket,
+    payload: ResolveNotificationRefPayload,
+  ): Promise<{
+    success: boolean;
+    reason?: string;
+    channelId?: string;
+    messageId?: string;
+    messageCreatedAt?: string;
+  }> {
+    const clientData = this.clients.get(client.id);
+    if (!clientData) {
+      return { success: false, reason: 'Not authenticated' };
+    }
+
+    if (!payload?.notificationRef || !UUID_REGEX.test(payload.notificationRef)) {
+      return { success: false, reason: 'Invalid notificationRef' };
+    }
+
+    if (!this.natsClient) {
+      this.logger.warn('NATS client not available — notificationRef cannot be resolved');
+      return { success: false, reason: 'Resolver unavailable' };
+    }
+
+    try {
+      const result = await firstValueFrom(
+        this.natsClient
+          .send<ResolveNotificationRefResult | null>(
+            'request.messaging.resolveNotificationRef',
+            {
+              notificationRef: payload.notificationRef,
+              tenantId: clientData.tenantId,
+              userId: clientData.userId,
+            },
+          )
+          .pipe(timeout(MessagingGateway.NATS_VERIFY_TIMEOUT_MS)),
+      );
+
+      if (!result) {
+        return { success: false, reason: 'Not found' };
+      }
+
+      return { success: true, ...result };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`notificationRef resolution failed: ${message}`);
+      return { success: false, reason: 'Resolver unavailable' };
+    }
+  }
+
   @SubscribeMessage('reAuthResponse')
   async handleReAuthResponse(
     client: Socket,
@@ -405,8 +481,54 @@ export class MessagingGateway
     this.server.to(`channel:${tenantId}:${channelId}`).emit('readReceipt', data);
   }
 
+  evictUserFromChannel(tenantId: string, channelId: string, userId: string): void {
+    if (!tenantId || !channelId || !userId) {
+      this.logger.warn(
+        'Cannot evict messaging socket from channel: tenantId, channelId and userId are required',
+      );
+      return;
+    }
+
+    this.evictUserFromChannelLocal(tenantId, channelId, userId);
+
+    const clusterAwareServer = this.server as Server & {
+      serverSideEmit?: (event: string, ...args: unknown[]) => void;
+    };
+    clusterAwareServer.serverSideEmit?.(
+      CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT,
+      tenantId,
+      channelId,
+      userId,
+    );
+
+    this.server
+      .in(`user:${tenantId}:${userId}`)
+      .socketsLeave(`channel:${tenantId}:${channelId}`);
+    this.server.to(`user:${tenantId}:${userId}`).emit('channelMemberRemoved', {
+      tenantId,
+      channelId,
+      userId,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   getConnectedClientCount(): number {
     return this.clients.size;
+  }
+
+  private evictUserFromChannelLocal(
+    tenantId: string,
+    channelId: string,
+    userId: string,
+  ): void {
+    const channelRoom = `channel:${tenantId}:${channelId}`;
+    for (const clientData of this.clients.values()) {
+      if (clientData.tenantId !== tenantId || clientData.userId !== userId) {
+        continue;
+      }
+      clientData.channels.delete(channelId);
+      void clientData.socket.leave(channelRoom);
+    }
   }
 
   private requestReAuth(clientId: string): void {

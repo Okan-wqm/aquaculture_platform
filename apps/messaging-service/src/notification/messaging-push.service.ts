@@ -11,6 +11,7 @@ import { ClientProxy } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import Redis from 'ioredis';
+import { randomUUID } from 'crypto';
 
 import { ChannelMember, NotificationPreference } from '../channel/entities/channel-member.entity';
 import { PresenceService } from '../presence/presence.service';
@@ -19,6 +20,8 @@ import { REDIS_CLIENT } from '../shared/redis.provider';
 
 /** Deduplication window: max 1 push per user per channel within this period (seconds). */
 const DEDUP_TTL_SECONDS = 30;
+/** Notification refs are short-lived, one-time pointers resolved after app auth. */
+const NOTIFICATION_REF_TTL_SECONDS = 10 * 60;
 
 /** Pattern to extract @mention user IDs from message metadata. */
 interface MessageSentPayload {
@@ -40,8 +43,7 @@ interface PushCommandPayload {
   body: string;
   data: {
     type: string;
-    channelId: string;
-    messageId: string;
+    notificationRef: string;
   };
   badge: number;
 }
@@ -135,16 +137,28 @@ export class MessagingPushService implements OnModuleInit {
 
         // Get unread count for badge
         const unreadCount = await this.messageService.getUnreadCount(member.userId, tenantId);
+        const notificationRef = randomUUID();
+        await this.safeRedisSetEx(
+          this.notificationRefKey(tenantId, member.userId, notificationRef),
+          NOTIFICATION_REF_TTL_SECONDS,
+          JSON.stringify({
+            tenantId,
+            userId: member.userId,
+            channelId,
+            messageId,
+            messageCreatedAt: payload.createdAt,
+          }),
+        );
 
-        // SECURITY: NEVER include message content in push payload
+        // SECURITY: NEVER include message content or direct channel/message IDs
+        // in push payload. The app resolves notificationRef after auth.
         const pushPayload: PushCommandPayload = {
           userId: member.userId,
           title: senderName,
           body: 'Sent you a message',
           data: {
             type: 'CHAT_MESSAGE',
-            channelId,
-            messageId,
+            notificationRef,
           },
           badge: unreadCount,
         };
@@ -184,5 +198,9 @@ export class MessagingPushService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(`Redis SETEX failed: ${(err as Error).message}`);
     }
+  }
+
+  private notificationRefKey(tenantId: string, userId: string, notificationRef: string): string {
+    return `msg:push:ref:${tenantId}:${userId}:${notificationRef}`;
   }
 }

@@ -167,15 +167,29 @@ export class MessagingEventHandler
    * SECURITY (H-2): Do NOT include message content in notification body.
    */
   private async handleMessageSent(event: MessageSentEvent): Promise<void> {
+    const legacyAdminEvent = event as MessageSentEvent &
+      Partial<{
+        isInternal: boolean;
+        threadId: string;
+        senderType: 'super_admin' | 'tenant_admin';
+      }>;
+
+    if (!legacyAdminEvent.threadId || !legacyAdminEvent.senderType) {
+      this.logger.debug(
+        `Skipping in-app notification for channel MessageSent ${event.messageId}; push fan-out is owned by messaging-service`,
+      );
+      return;
+    }
+
     // Skip internal admin notes -- no notification needed
-    if (event.isInternal) {
+    if (legacyAdminEvent.isInternal) {
       this.logger.debug(
         `Skipping notification for internal message ${event.messageId}`,
       );
       return;
     }
 
-    if (!event.messageId || !event.threadId) {
+    if (!event.messageId || !legacyAdminEvent.threadId) {
       this.logger.error(
         'MessageSent event missing required messageId or threadId. Skipping.',
       );
@@ -185,7 +199,7 @@ export class MessagingEventHandler
     // SECURITY (H-2): Generic notification text only -- no message content
     const title = 'New message received';
     const body =
-      event.senderType === 'super_admin'
+      legacyAdminEvent.senderType === 'super_admin'
         ? 'New message from platform support'
         : 'New message from tenant administrator';
 
@@ -194,7 +208,7 @@ export class MessagingEventHandler
     // notification that the recipient will pick up via their tenant scope.
     // For super_admin sender -> notify tenant (tenantId from event)
     // For tenant_admin sender -> notify platform admins (tenantId = 'system')
-    if (event.senderType === 'super_admin') {
+    if (legacyAdminEvent.senderType === 'super_admin') {
       await this.inAppService.createNotification(
         event.tenantId,
         event.tenantId, // tenant-scoped: tenant admin users will see this
@@ -202,12 +216,12 @@ export class MessagingEventHandler
         body,
         {
           type: 'MESSAGE',
-          threadId: event.threadId,
+          threadId: legacyAdminEvent.threadId,
           messageId: event.messageId,
-          senderType: event.senderType,
+          senderType: legacyAdminEvent.senderType,
         },
       );
-    } else if (event.senderType === 'tenant_admin') {
+    } else if (legacyAdminEvent.senderType === 'tenant_admin') {
       // Notify superadmins -- use 'system' as the pseudo-tenant for platform admins
       await this.inAppService.createNotification(
         'system',
@@ -216,16 +230,16 @@ export class MessagingEventHandler
         body,
         {
           type: 'MESSAGE',
-          threadId: event.threadId,
+          threadId: legacyAdminEvent.threadId,
           messageId: event.messageId,
-          senderType: event.senderType,
+          senderType: legacyAdminEvent.senderType,
           sourceTenantId: event.tenantId,
         },
       );
     }
 
     this.logger.debug(
-      `In-app notification created for MessageSent: thread ${event.threadId.substring(0, 8)}...`,
+      `In-app notification created for MessageSent: thread ${legacyAdminEvent.threadId.substring(0, 8)}...`,
     );
   }
 

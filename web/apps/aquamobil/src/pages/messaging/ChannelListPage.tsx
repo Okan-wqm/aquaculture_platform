@@ -12,8 +12,8 @@
  * computed name (not "Direct Message") for clarity.
  */
 
-import { useState, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   MessageSquare,
   Search,
@@ -24,6 +24,7 @@ import {
 import { clsx } from 'clsx';
 import { useChannels } from '@/hooks/useChannels';
 import { useAuth } from '@/hooks/useAuth';
+import { useMessageSocket } from '@/hooks/useMessageSocket';
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
 import { formatRelativeTime, getUserDisplayName } from '@/utils/messaging-helpers';
 import type { Channel } from '@/types/messaging';
@@ -180,13 +181,38 @@ function ChannelRow({
  */
 export function ChannelListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { channels, isLoading, error, refetch } = useChannels();
+  const { isConnected, resolveNotificationRef } = useMessageSocket();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const resolvingNotificationRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const notificationRef = searchParams.get('notificationRef');
+    if (
+      !notificationRef ||
+      !isConnected ||
+      resolvingNotificationRef.current === notificationRef
+    ) {
+      return;
+    }
+
+    resolvingNotificationRef.current = notificationRef;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('notificationRef');
+
+    void resolveNotificationRef(notificationRef).then((resolved) => {
+      setSearchParams(nextParams, { replace: true });
+      if (resolved) {
+        navigate(`/messages/${resolved.channelId}`, { replace: true });
+      }
+    });
+  }, [isConnected, navigate, resolveNotificationRef, searchParams, setSearchParams]);
 
   // Filter channels by search query
   const filteredChannels = useMemo(() => {

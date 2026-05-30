@@ -51,6 +51,9 @@ describe('MessagingPushService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockRedis.get.mockResolvedValue(null);
+    mockRedis.setex.mockResolvedValue('OK');
+    mockMessageService.getUnreadCount.mockResolvedValue(3);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -85,7 +88,10 @@ describe('MessagingPushService', () => {
         userId: 'user-a',
         title: 'Alice',
         body: 'Sent you a message',
-        data: expect.objectContaining({ type: 'CHAT_MESSAGE' }),
+        data: {
+          type: 'CHAT_MESSAGE',
+          notificationRef: expect.any(String),
+        },
       }),
     );
   });
@@ -179,5 +185,7 @@ describe('MessagingPushService', () => {
     const emittedPayload = mockNatsClient.emit.mock.calls[0]?.[1];
     expect(emittedPayload?.body).toBe('Sent you a message');
     expect(JSON.stringify(emittedPayload)).not.toContain('content');
+    expect(emittedPayload?.data).not.toHaveProperty('channelId');
+    expect(emittedPayload?.data).not.toHaveProperty('messageId');
   });
 });

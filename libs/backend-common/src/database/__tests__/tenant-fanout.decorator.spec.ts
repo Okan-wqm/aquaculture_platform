@@ -2,10 +2,13 @@ import 'reflect-metadata';
 
 import {
   AllowTenantDelta,
+  SourceOnlyMigration,
   TENANT_FANOUT_META_KEY,
   TenantFanOut,
   getAllowedTenantDeltaPrefixes,
+  getSourceOnlyMigrationMetadata,
   getTenantFanOutMetadata,
+  isSourceOnlyMigration,
   isTenantDeltaAllowed,
 } from '../tenant-fanout.decorator';
 
@@ -118,5 +121,28 @@ describe('@AllowTenantDelta decorator', () => {
     @AllowTenantDelta({ columnPrefix: ['enterprise_'] })
     class E {}
     expect(isTenantDeltaAllowed(E, '')).toBe(false);
+  });
+});
+
+describe('@SourceOnlyMigration decorator', () => {
+  it('attaches source-only metadata to a migration class', () => {
+    @SourceOnlyMigration({ reason: 'outbox is source-owned infrastructure' })
+    class SourceOnly {}
+
+    expect(isSourceOnlyMigration(SourceOnly)).toBe(true);
+    expect(getSourceOnlyMigrationMetadata(SourceOnly)).toMatchObject({
+      reason: 'outbox is source-owned infrastructure',
+      target: SourceOnly,
+    });
+  });
+
+  it('returns null for undecorated classes', () => {
+    class Plain {}
+    expect(isSourceOnlyMigration(Plain)).toBe(false);
+    expect(getSourceOnlyMigrationMetadata(Plain)).toBeNull();
+  });
+
+  it('requires a reason', () => {
+    expect(() => SourceOnlyMigration({ reason: '' })).toThrow(/reason/);
   });
 });

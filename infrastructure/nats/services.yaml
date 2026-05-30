@@ -187,8 +187,36 @@ services:
       - "AQUACULTURE_EVENTS.Admin*.>"
       # ST Language bridge: forward IDE requests to sensor-service
       - "st.language.>"
-      # Request-reply for cross-service queries
-      - "request.>"
+      # Request-reply for cross-service queries. Explicit subjects only:
+      # broad request.> publish is forbidden by the messaging enterprise gate.
+      - "request.messaging.verifyMembership"
+      - "request.messaging.resolveNotificationRef"
+      - "request.sensor.verifyDeviceOwnership"
+      - "request.messaging.admin.complianceStats"
+      - "request.messaging.admin.getLegalHolds"
+      - "request.messaging.admin.createLegalHold"
+      - "request.messaging.admin.releaseLegalHold"
+      - "request.messaging.admin.getRetentionPolicies"
+      - "request.messaging.admin.updateRetentionPolicy"
+      - "request.messaging.admin.getAuditLog"
+      - "request.messaging.admin.triggerExport"
+      - "request.messaging.admin.getPersonas"
+      - "request.billing.admin.createInvoice"
+      - "request.billing.admin.markInvoicePaid"
+      - "request.billing.admin.voidInvoice"
+      - "request.billing.admin.recordPayment"
+      - "request.billing.admin.refundPayment"
+      - "request.billing.admin.changeSubscriptionPlan"
+      - "request.billing.admin.cancelSubscription"
+      - "request.billing.admin.reactivateSubscription"
+      - "request.billing.admin.extendSubscriptionTrial"
+      - "request.auth.admin.createUser"
+      - "request.auth.admin.resetUserPassword"
+      - "request.auth.admin.updateUser"
+      - "request.auth.admin.deactivateUser"
+      - "request.auth.admin.forceLogoutUser"
+      - "request.auth.admin.inviteUser"
+      - "request.auth.admin.checkUserLimit"
       # Dynamic IngestBackend policy change events — admin-api is the
       # authoritative publisher; sensor-ingestion + sensor-service
       # subscribe. ADR-027 (per-tenant toggle) + ADR-031 (request-reply
@@ -227,6 +255,28 @@ services:
       - "AQUACULTURE_EVENTS.PasswordResetRequested.>"
       - "AQUACULTURE_EVENTS.UserInvited.>"
       - "AQUACULTURE_EVENTS.Notification*.>"
+      - "commands.notification.sendPush"
+      - "events.*.PasswordResetRequested"
+      - "events.*.UserInvited"
+      - "events.*.UserDeleted"
+      - "$JS.API.>"
+      - "_INBOX.>"
+
+  # ---------------------------------------------------------------------------
+  # ai-service: AI chat, tool execution, conversations
+  # ---------------------------------------------------------------------------
+  - name: ai_service
+    description: AI domain — model/tool execution and agent conversations
+    publish:
+      - "$JS.API.>"
+      - "_INBOX.>"
+    subscribe:
+      - "request.ai.chat"
+      - "request.ai.executeAction"
+      - "request.ai.generateEmbeddings"
+      - "request.ai.analyzeSentiment"
+      - "events.*.UserDeleted"
+      - "events.*.GdprAnonymizeRequested"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -296,15 +346,59 @@ services:
   - name: messaging_service
     description: Messaging domain — channels, messages, retention policies, compliance audit
     publish:
+      # Canonical event-bus subjects: events.{tenantId}.{eventType}.
+      - "events.*.ThreadCreated"
+      - "events.*.ThreadStatusChanged"
+      - "events.*.MessageSent"
+      - "events.*.MessageRead"
+      - "events.*.BulkThreadsCreated"
+      - "events.*.AnnouncementPublished"
+      - "events.*.AnnouncementExpired"
+      - "events.*.AnnouncementAcknowledged"
+      - "events.*.ChannelCreated"
+      - "events.*.ChannelUpdated"
+      - "events.*.ChannelArchived"
+      - "events.*.ChannelMemberAdded"
+      - "events.*.ChannelMemberRemoved"
+      - "events.*.MessageUpdated"
+      - "events.*.MessageDeleted"
+      - "events.*.MessagePinned"
+      - "events.*.MessageUnpinned"
+      - "events.*.MessageForwarded"
+      - "events.*.ReactionAdded"
+      - "events.*.ReactionRemoved"
+      - "events.*.RetentionPolicyChanged"
+      - "events.*.LegalHoldToggled"
+      - "events.*.SentimentAlert"
+      - "events.*.StorageWarning"
+      - "events.*.UserDataAnonymized"
+      - "events.*.GdprAnonymizeRequested"
+      # Legacy AQUACULTURE_EVENTS subjects remain as an explicit exception
+      # until 2026-08-31 while remaining consumers migrate to events.*.
       - "AQUACULTURE_EVENTS.Message*.>"
       - "AQUACULTURE_EVENTS.Channel*.>"
       - "AQUACULTURE_EVENTS.RetentionPolicy*.>"
+      - "commands.notification.sendPush"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
+      # Legacy event subjects remain as an explicit exception until
+      # 2026-08-31 while consumers migrate to canonical events.*.
       - "AQUACULTURE_EVENTS.>"
-      # NestJS microservice transport: request-reply subjects
-      - "request.messaging.>"
+      # NestJS microservice transport: explicit request-reply subjects only.
+      - "request.messaging.verifyMembership"
+      - "request.messaging.getChannelMembers"
+      - "request.messaging.getMessageBatch"
+      - "request.messaging.resolveNotificationRef"
+      - "request.messaging.admin.complianceStats"
+      - "request.messaging.admin.getLegalHolds"
+      - "request.messaging.admin.createLegalHold"
+      - "request.messaging.admin.releaseLegalHold"
+      - "request.messaging.admin.getRetentionPolicies"
+      - "request.messaging.admin.updateRetentionPolicy"
+      - "request.messaging.admin.getAuditLog"
+      - "request.messaging.admin.triggerExport"
+      - "request.messaging.admin.getPersonas"
       # @EventPattern subscriptions from auth/admin
       - "events.>"
       - "$JS.API.>"

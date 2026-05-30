@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, MigrationExecutor, MigrationInterface, QueryRunner } from 'typeorm';
+import { DataSource, Migration, MigrationExecutor, MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
  * Optional post-condition probe contract for TypeORM migrations.
@@ -161,6 +161,7 @@ import {
   type MigrationSinkEventType,
 } from '../migration-event-sink';
 import { assertExpandContractDependency } from '../assert-expand-contract-dependency';
+import { isSourceOnlyMigration } from '../tenant-fanout.decorator';
 
 export interface MigrationRunnerOptions {
   /**
@@ -494,6 +495,29 @@ export function createMigrationRunnerService(
                 migrationClass: migrationCtor,
                 environment: env,
               });
+
+              if (
+                schema !== sourceSchema &&
+                isSourceOnlyMigration(migrationCtor)
+              ) {
+                await this.recordSourceOnlySkip(
+                  queryRunner,
+                  schema,
+                  migrationsTableName,
+                  migration,
+                );
+                appliedNames.push(`${migration.name} (source-only skipped)`);
+                this.logger.log(
+                  `Migration "${migration.name}" recorded as source-only skipped on "${schema}"`,
+                );
+                this.emit(
+                  schema,
+                  migration.name,
+                  'applied',
+                  Date.now() - migrationStartedAt,
+                );
+                continue;
+              }
             }
 
             // Per-migration transaction so a partial failure in migration
@@ -650,6 +674,30 @@ export function createMigrationRunnerService(
       // `undefined` / `void` / `true` all pass — runner proceeds to commit.
       this.logger.debug?.(
         `[postCondition] Migration "${migration.name}" passed on "${schema}"`,
+      );
+    }
+
+    private async recordSourceOnlySkip(
+      queryRunner: QueryRunner,
+      schema: string,
+      migrationsTableName: string,
+      migration: Migration,
+    ): Promise<void> {
+      await queryRunner.query(
+        `CREATE TABLE IF NOT EXISTS "${schema}"."${migrationsTableName}" (
+           "id" SERIAL NOT NULL PRIMARY KEY,
+           "timestamp" bigint NOT NULL,
+           "name" varchar NOT NULL
+         )`,
+      );
+      await queryRunner.query(
+        `INSERT INTO "${schema}"."${migrationsTableName}" ("timestamp", "name")
+         SELECT $1, $2
+         WHERE NOT EXISTS (
+           SELECT 1 FROM "${schema}"."${migrationsTableName}"
+            WHERE "timestamp" = $1 AND "name" = $2
+         )`,
+        [migration.timestamp, migration.name],
       );
     }
 

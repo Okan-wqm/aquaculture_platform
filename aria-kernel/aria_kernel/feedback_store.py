@@ -9,6 +9,8 @@ from typing import Any
 from .ledger import append_jsonl as append_chained_jsonl
 from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
+from .runtime_artifacts import resolve_finding_from_artifact, run_ledger_format
+from .runs_reader import read_runs_rows
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -54,7 +56,7 @@ def record_raw_findings_for_run(
     # security signal, not a sampling source — re-flag them as invalid.
     runner_block = run.get("runner") or {}
     has_scope_out = bool(runner_block.get("scope_out_mutations"))
-    for finding in raw_findings:
+    for finding_index, finding in enumerate(raw_findings):
         if not isinstance(finding, dict):
             continue
         fingerprint = finding_fingerprint(run["tool_id"], finding)
@@ -64,22 +66,27 @@ def record_raw_findings_for_run(
             status = "invalid_evidence"
         elif suppressed:
             status = "suppressed_false_positive"
-        append_jsonl(
-            raw_findings_path(base_dir),
-            {
-                "schema_version": 1,
-                "recorded_at": utc_now(),
-                "tool_id": run["tool_id"],
-                "run_id": run["run_id"],
-                "cycle_id": run.get("cycle_id"),
-                "finding_id": finding.get("id"),
-                "finding_fingerprint": fingerprint,
-                "evidence_hash": evidence_hash_for_finding(finding),
-                "status": status,
-                "suppressed_by_feedback": suppressed,
-                "finding": finding,
-            },
-        )
+        row = {
+            "schema_version": 2 if run.get("artifact_ref") else 1,
+            "recorded_at": utc_now(),
+            "tool_id": run["tool_id"],
+            "run_id": run["run_id"],
+            "cycle_id": run.get("cycle_id"),
+            "finding_id": finding.get("id"),
+            "finding_fingerprint": fingerprint,
+            "evidence_hash": evidence_hash_for_finding(finding),
+            "status": status,
+            "suppressed_by_feedback": suppressed,
+            "artifact_ref": run.get("artifact_ref"),
+            "artifact_hash": run.get("artifact_hash"),
+            "adapter_version": run.get("adapter_version") or run.get("tool_id"),
+            "redaction_status": "none",
+            "reason_code": "artifact_backed_raw_finding" if run.get("artifact_ref") else "legacy_inline_or_sample_only",
+            "json_pointer": f"/payload/raw_findings/{finding_index}",
+        }
+        if run_ledger_format(base_dir) != "v2":
+            row["finding"] = finding
+        append_jsonl(raw_findings_path(base_dir), row)
 
 
 def record_findings_for_run(run: dict[str, Any], base_dir: str | Path | None = None) -> None:
@@ -467,6 +474,8 @@ def _sampleable_raw_findings(
         if cycle_id is not None and row.get("cycle_id") != cycle_id:
             continue
         finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
+        if not finding and row.get("artifact_ref"):
+            finding = resolve_finding_from_artifact(row, base_dir=base_dir) or {}
         finding_id = str(row.get("finding_id") or finding.get("id") or "")
         run_id = str(row.get("run_id") or "")
         if not finding_id or not run_id or (run_id, finding_id) in existing_feedback:
@@ -477,7 +486,7 @@ def _sampleable_raw_findings(
         candidates.append(_sample_item_from_finding(tool_id, run_id, row.get("cycle_id"), finding_id, finding, fingerprint))
     if candidates:
         return _cap_candidates_by_rule(candidates, limit=50)
-    for run in load_jsonl(ensure_tools_dir(base_dir) / "runs.jsonl"):
+    for run in read_runs_rows(ensure_tools_dir(base_dir) / "runs.jsonl", base_dir=ensure_tools_dir(base_dir)):
         if run.get("tool_id") != tool_id or run.get("status") != "ok":
             continue
         if cycle_id is not None and run.get("cycle_id") != cycle_id:
@@ -784,7 +793,7 @@ def _max_severity(values: Any) -> str:
 
 def _feedback_cycle(row: dict[str, Any], base_dir: str | Path | None) -> str | None:
     run_id = str(row.get("run_id") or "")
-    for run in load_jsonl(ensure_tools_dir(base_dir) / "runs.jsonl"):
+    for run in read_runs_rows(ensure_tools_dir(base_dir) / "runs.jsonl", base_dir=ensure_tools_dir(base_dir)):
         if run.get("run_id") == run_id:
             return str(run.get("cycle_id") or "")
     return None

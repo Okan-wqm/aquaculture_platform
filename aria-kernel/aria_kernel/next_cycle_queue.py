@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, load_jsonl
-from .tool_registry import ensure_tools_dir, utc_now
+from .tool_registry import append_tools_governance, ensure_tools_dir, utc_now
 
 
 __all__ = [
@@ -92,16 +92,42 @@ def append_pending(
 ) -> dict[str, Any] | None:
     """Append a pending queue item.
 
-    Returns the persisted row on success, or ``None`` when the
-    queue is at depth — caller can treat ``None`` as "cap hit;
-    item dropped" and emit a governance event if desired.
+    Returns the persisted row on success. When the queue is at depth,
+    a blocked row and governance event are written so overflow cannot
+    silently drop operator-visible work.
     """
     path = queue_path(base_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     pending = read_pending(base_dir)
-    if len(pending) >= queue_depth():
-        return None
+    depth = queue_depth()
     queue_item_id = f"qi-{uuid.uuid4().hex[:12]}"
+    if len(pending) >= depth:
+        row = {
+            "schema_version": 1,
+            "queue_item_id": queue_item_id,
+            "source_cycle_id": source_cycle_id,
+            "pressure_id": pressure_id,
+            "recommended_action": recommended_action,
+            "candidate_tools": list(candidate_tools or []),
+            "state": "blocked",
+            "reason": "queue_depth_exceeded",
+            "queue_depth": depth,
+            "pending_count": len(pending),
+            "recorded_at": utc_now(),
+        }
+        stored = append_jsonl(path, row)
+        append_tools_governance(
+            ensure_tools_dir(base_dir),
+            "next_cycle_queue_overflow_blocked",
+            {
+                "queue_item_id": queue_item_id,
+                "source_cycle_id": source_cycle_id,
+                "pressure_id": pressure_id,
+                "queue_depth": depth,
+                "pending_count": len(pending),
+            },
+        )
+        return stored
     row: dict[str, Any] = {
         "schema_version": 1,
         "queue_item_id": queue_item_id,

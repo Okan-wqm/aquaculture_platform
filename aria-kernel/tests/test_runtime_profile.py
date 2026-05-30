@@ -83,6 +83,11 @@ class ProfileTaxonomyTests(unittest.TestCase):
             "finding", "debt", "governance", "observation",
             "agent_genesis", "tool_governance",
             "critical_observation", "human_required",
+            # Enterprise autonomy hardening surfaces
+            "runtime_v2_promotion", "plan_promotion_dispatch",
+            "worker_verification", "worker_result",
+            "pr_lifecycle", "pr_action",
+            "tool_registry", "tool_lifecycle", "skill_genesis",
         }
         self.assertEqual(PLAN_020_WRITE_SURFACES, frozenset(expected))
 

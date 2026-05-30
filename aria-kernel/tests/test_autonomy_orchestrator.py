@@ -168,8 +168,10 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         ]
         self.assertEqual(len(cycle_completed_rows), 1)
         self.assertEqual(cycle_completed_rows[0]["status"], "failed")
-        # Orchestrator still emits subsequent phases.
-        self.assertTrue(
+        self.assertEqual(result["exit_reason"], "cycle_failed")
+        self.assertFalse(result["exits_clean"])
+        # Fail-closed: planner/bridge/worker drains do not run after a failed cycle.
+        self.assertFalse(
             any(r["phase"] == "worker_dispatch_drained" for r in rows),
         )
 

@@ -8,6 +8,7 @@ from typing import Any
 from .capability_gap import latest_capability_gaps
 from .feedback_store import list_findings
 from .ledger import append_jsonl, load_jsonl
+from .runs_reader import read_runs_rows
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
 
@@ -30,7 +31,7 @@ def generate_task_candidates(
     for gap in latest_capability_gaps(base_dir=base_dir):
         if gap.get("cycle_id") == cycle_id:
             candidates.append(_candidate_from_capability_gap(cycle_id, gap))
-    for run in load_jsonl(runs_path(root)):
+    for run in list(read_runs_rows(runs_path(root), base_dir=root)):
         if run.get("cycle_id") != cycle_id or run.get("status") != "ok":
             continue
         raw_count = int(run.get("runner", {}).get("raw_findings_count") or 0)

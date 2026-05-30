@@ -48,6 +48,7 @@ _EXPORT_MODULES = (
     "readiness",
     "reflection",
     "report_ingestion",
+    "runtime_artifacts",
     "reverify",
     "research",
     "self_modification",

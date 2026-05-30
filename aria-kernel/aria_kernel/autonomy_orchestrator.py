@@ -127,31 +127,82 @@ def _drain_next_cycle_queue(
     daemon_agent_id: str,
     limit: int,
 ) -> int:
-    """Drain pending §F.2 queue items.
+    # A queue item is consumed only after its agent request is appended.
+    import json
 
-    Marks each pending item as consumed by the orchestrator.
-    Returns the count drained — caller emits a single transition
-    row carrying the count.
+    from .agent_invocations import create_agent_invocation_request
+    from .tool_registry import append_tools_governance
 
-    NOTE: pre-§F.1 there was no consumer for ``next_cycle_queue``;
-    drain currently marks-and-counts but does NOT yet synthesize
-    agent-invocation requests (that wire goes through the planner
-    dispatcher per Plan 025 §D contract). The drain prevents
-    queue-bloat and surfaces the volume as a metric; the routing
-    upgrade lands once the planner-dispatch hook accepts
-    queue-derived pressure inputs.
-    """
     pending = read_pending(base_dir, limit=limit)
+    consumed = 0
     for item in pending:
         qid = item.get("queue_item_id")
         if not isinstance(qid, str) or not qid:
             continue
-        mark_consumed(
+        prompt = {
+            "$schema": "aria/next-cycle-queue-request/v1",
+            "queue_item_id": qid,
+            "source_cycle_id": item.get("source_cycle_id"),
+            "pressure_id": item.get("pressure_id"),
+            "recommended_action": item.get("recommended_action"),
+            "candidate_tools": item.get("candidate_tools", []),
+        }
+        try:
+            request = create_agent_invocation_request(
+                target_agent="aria-autonomy-planner",
+                role="maintenance_utility",
+                suggested_prompt=json.dumps(prompt, indent=2, sort_keys=True),
+                must_satisfy=[{
+                    "id": "queue_item_projected",
+                    "description": "Resolve the queued next-cycle item or produce a concrete blocked reason.",
+                    "required": True,
+                }],
+                allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
+                evidence_refs=[str(item.get("pressure_id") or qid)],
+                pressure_event_id=str(item.get("pressure_id") or "") or None,
+                base_dir=base_dir,
+            )
+        except Exception as exc:
+            append_tools_governance(
+                base_dir,
+                "next_cycle_queue_projection_failed",
+                {"queue_item_id": qid, "error": str(exc)},
+            )
+            continue
+        mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
+        append_tools_governance(
             base_dir,
-            queue_item_id=qid,
-            consumed_by=daemon_agent_id,
+            "next_cycle_queue_item_projected",
+            {"queue_item_id": qid, "request_id": request.get("request_id")},
         )
-    return len(pending)
+        consumed += 1
+    return consumed
+
+
+def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
+    tool_runs = cycle_result.get("tool_run_summary") if isinstance(cycle_result.get("tool_run_summary"), list) else []
+    artifact_refs = [
+        ref for ref in cycle_result.get("artifact_refs", [])
+        if isinstance(ref, dict)
+    ] if isinstance(cycle_result.get("artifact_refs"), list) else []
+    failed_phases = cycle_result.get("failed_phases")
+    if not isinstance(failed_phases, list):
+        failed_phases = [
+            {"phase": str(item), "status": "failed"}
+            for item in cycle_result.get("extended_phase_failures", [])
+        ] if isinstance(cycle_result.get("extended_phase_failures"), list) else []
+    return {
+        "schema_version": 2,
+        "cycle_id": cycle_result.get("cycle_id"),
+        "status": cycle_result.get("status"),
+        "runtime_status": cycle_result.get("runtime_status", "ok" if cycle_result.get("status") == "completed" else cycle_result.get("status")),
+        "tool_run_summary": tool_runs,
+        "artifact_refs": artifact_refs,
+        "artifact_integrity": cycle_result.get("artifact_integrity"),
+        "non_ok_tools": cycle_result.get("non_ok_tools", []),
+        "failed_phases": failed_phases,
+        "incomplete_lifecycle_count": cycle_result.get("incomplete_lifecycle_count", 0),
+    }
 
 
 def run_autonomy_orchestrator(
@@ -167,6 +218,7 @@ def run_autonomy_orchestrator(
     worker_drainer: Callable[..., dict[str, Any]] | None = None,
     bridge_drainer: Callable[..., dict[str, Any]] | None = None,
     auto_merge_runner: Callable[..., dict[str, Any]] | None = None,
+    fail_closed_on_cycle_failure: bool = True,
 ) -> dict[str, Any]:
     """Plan 026R §F.1 LOAD-BEARING — run one or more autonomy cycles.
 
@@ -330,11 +382,15 @@ def run_autonomy_orchestrator(
                         cycle_id=cycle_id,
                         base_dir=root,
                     )
-                    cycle_summary["cycle"] = cycle_result
-                    cycle_status = "ok"
+                    cycle_summary["cycle"] = _bounded_cycle_summary(cycle_result)
+                    raw_status = str(cycle_result.get("runtime_status") or cycle_result.get("status") or "failed")
+                    cycle_status = "ok" if raw_status in {"ok", "completed"} and not cycle_result.get("non_ok_tools") else "failed"
                 except Exception as exc:
                     cycle_summary["cycle"] = {
+                        "schema_version": 2,
+                        "cycle_id": cycle_id,
                         "status": "failed",
+                        "runtime_status": "failed",
                         "error": str(exc),
                     }
                     cycle_status = "failed"
@@ -350,6 +406,10 @@ def run_autonomy_orchestrator(
                 )
                 if cycle_status == "ok":
                     cycles_completed += 1
+                elif fail_closed_on_cycle_failure:
+                    per_cycle_results.append(cycle_summary)
+                    exit_reason = "cycle_failed"
+                    break
 
                 # Phase: planner dispatch drain (bounded).
                 planner_result = planner_drainer(
@@ -483,7 +543,7 @@ def run_autonomy_orchestrator(
                 "worker_assignments_dispatched": worker_total,
                 "auto_merges_completed": auto_merges_total,
                 "exit_reason": exit_reason,
-                "exits_clean": True,
+                "exits_clean": exit_reason not in {"cycle_failed"},
                 "per_cycle": per_cycle_results,
                 "daemon_agent_id": daemon_agent_id,
             }

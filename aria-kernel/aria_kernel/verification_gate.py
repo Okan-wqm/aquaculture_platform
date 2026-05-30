@@ -109,6 +109,7 @@ def submit_worker_result(
     validation_commands: list[str] | None = None,
     tools_root: str | Path | None = None,
     lease_token: str | None = None,
+    allow_legacy_no_token: bool = True,
 ) -> dict[str, Any]:
     """Submit a worker result for verification.
 
@@ -146,6 +147,11 @@ def submit_worker_result(
         return _reject(root, "validation_command_not_required", assignment_id=str(request["assignment_id"]), worktree=worktree, details={"required_tests": sorted(required), "commands": commands})
     # Plan 026R §G.3 — lease-bound submit (when lease_token provided).
     active_claim: dict[str, Any] | None = None
+    if lease_token is None and not allow_legacy_no_token:
+        return _reject(
+            root, "submit_worker_result_lease_token_required",
+            assignment_id=str(request["assignment_id"]), worktree=worktree,
+        )
     if lease_token is not None:
         if not lease_token.strip():
             return _reject(

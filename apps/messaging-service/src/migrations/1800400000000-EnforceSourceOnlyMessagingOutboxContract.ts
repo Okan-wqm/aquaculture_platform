@@ -8,10 +8,10 @@ import {
   reason:
     'messaging_outbox is source-owned infrastructure; upgrade paths must keep the canonical UUID PK and reject tenant-schema clones',
 })
-export class RepairSourceOnlyMessagingOutboxContract1800400000000
+export class EnforceSourceOnlyMessagingOutboxContract1800400000000
   implements MigrationInterface
 {
-  name = 'RepairSourceOnlyMessagingOutboxContract1800400000000';
+  name = 'EnforceSourceOnlyMessagingOutboxContract1800400000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await pinSearchPath(queryRunner, 'messaging');
@@ -138,6 +138,6 @@ export class RepairSourceOnlyMessagingOutboxContract1800400000000
   }
 
   public async down(_queryRunner: QueryRunner): Promise<void> {
-    // Forward-only contract repair; rollback would risk reintroducing tenant outbox drift.
+    // Forward-only contract enforcement; rollback would risk reintroducing tenant outbox drift.
   }
 }

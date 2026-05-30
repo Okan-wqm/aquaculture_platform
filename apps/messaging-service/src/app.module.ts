@@ -102,6 +102,7 @@ import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 import { Baseline1800000000000 } from './migrations/1800000000000-Baseline';
 import { CreateMessagingOutboxTable1800200000000 } from './migrations/1800200000000-CreateMessagingOutboxTable';
 import { AddUserAiConsentTenantUserUnique1800300000000 } from './migrations/1800300000000-AddUserAiConsentTenantUserUnique';
+import { RepairSourceOnlyMessagingOutboxContract1800400000000 } from './migrations/1800400000000-RepairSourceOnlyMessagingOutboxContract';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -174,6 +175,7 @@ const complexityCache = new Map<string, number>();
             Baseline1800000000000,
             CreateMessagingOutboxTable1800200000000,
             AddUserAiConsentTenantUserUnique1800300000000,
+            RepairSourceOnlyMessagingOutboxContract1800400000000,
           ],
         }),
     }),

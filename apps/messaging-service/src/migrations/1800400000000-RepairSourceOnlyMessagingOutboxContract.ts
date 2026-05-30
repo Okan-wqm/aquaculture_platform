@@ -6,12 +6,12 @@ import {
 
 @SourceOnlyMigration({
   reason:
-    'messaging_outbox is source-owned infrastructure and must never be cloned into tenant schemas',
+    'messaging_outbox is source-owned infrastructure; upgrade paths must keep the canonical UUID PK and reject tenant-schema clones',
 })
-export class CreateMessagingOutboxTable1800200000000
+export class RepairSourceOnlyMessagingOutboxContract1800400000000
   implements MigrationInterface
 {
-  name = 'CreateMessagingOutboxTable1800200000000';
+  name = 'RepairSourceOnlyMessagingOutboxContract1800400000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await pinSearchPath(queryRunner, 'messaging');
@@ -40,7 +40,20 @@ export class CreateMessagingOutboxTable1800200000000
       DECLARE
         id_type text;
         outbox_rows bigint;
+        tenant_outbox_count bigint;
       BEGIN
+        SELECT count(*)
+          INTO tenant_outbox_count
+          FROM information_schema.tables
+         WHERE table_schema ~ '^tenant_[a-f0-9]{16}$'
+           AND table_name = 'messaging_outbox';
+
+        IF tenant_outbox_count > 0 THEN
+          RAISE EXCEPTION
+            'messaging_outbox exists in % tenant schema(s); remove tenant clones via audited remediation before applying 180040',
+            tenant_outbox_count;
+        END IF;
+
         SELECT data_type
           INTO id_type
           FROM information_schema.columns
@@ -54,7 +67,7 @@ export class CreateMessagingOutboxTable1800200000000
 
           IF outbox_rows > 0 THEN
             RAISE EXCEPTION
-              'messaging_outbox id is %, but canonical PK is uuid; drain or explicitly remediate existing outbox rows before applying 180020',
+              'messaging_outbox id is %, but canonical PK is uuid; drain outbox rows or run audited id remapping before applying 180040',
               id_type;
           END IF;
 
@@ -64,6 +77,12 @@ export class CreateMessagingOutboxTable1800200000000
             ALTER COLUMN "id" TYPE UUID USING gen_random_uuid();
           ALTER TABLE messaging.messaging_outbox
             ALTER COLUMN "id" SET DEFAULT gen_random_uuid();
+        END IF;
+
+        IF id_type IS NOT NULL AND id_type NOT IN ('uuid', 'bigint', 'integer') THEN
+          RAISE EXCEPTION
+            'messaging_outbox id has unsupported type %; expected uuid',
+            id_type;
         END IF;
       END
       $$;
@@ -119,6 +138,6 @@ export class CreateMessagingOutboxTable1800200000000
   }
 
   public async down(_queryRunner: QueryRunner): Promise<void> {
-    // Forward-only repair: this table may already exist in deployed databases.
+    // Forward-only contract repair; rollback would risk reintroducing tenant outbox drift.
   }
 }

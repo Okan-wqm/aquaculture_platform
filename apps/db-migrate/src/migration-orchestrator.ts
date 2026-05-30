@@ -296,10 +296,10 @@ async function recordSourceOnlySkip(
   );
   await queryRunner.query(
     `INSERT INTO "${schema}"."${migrationsTableName}" ("timestamp", "name")
-     SELECT $1, $2
+     SELECT $1::bigint, $2::varchar
      WHERE NOT EXISTS (
        SELECT 1 FROM "${schema}"."${migrationsTableName}"
-        WHERE "timestamp" = $1 AND "name" = $2
+        WHERE "timestamp" = $1::bigint AND "name" = $2::varchar
      )`,
     [migration.timestamp, migration.name],
   );

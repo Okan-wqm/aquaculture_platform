@@ -97,7 +97,7 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^git\s+status(\s+\S+)*\s*$"),
     re.compile(r"^git\s+rev-parse(\s+\S+)*\s*$"),
     re.compile(r"^git\s+push\s+origin\s+aria-impl-[a-f0-9]{6,32}(\s+\S+)*\s*$"),
-    re.compile(r"^gh\s+pr\s+create\s+--base\s+snowball(\s+\S+)*\s*$"),
+    re.compile(r"^gh\s+pr\s+create\s+--base\s+main(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+checks(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+view(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+diff(\s+\S+)*\s*$"),

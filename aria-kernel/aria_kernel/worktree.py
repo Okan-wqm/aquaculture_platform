@@ -69,12 +69,12 @@ def preflight(
     *,
     workspace_root: str | Path,
     base_dir: str | Path | None = None,
-    expected_branch: str = "snowball",
+    expected_branch: str = "main",
     skip_fetch: bool = False,
 ) -> dict[str, Any]:
     """Record a `worktree_preflight` governance event and return the gate result.
 
-    Why: ARIA implementation work must run from a clean snowball worktree
+    Why: ARIA implementation work must run from a clean mainline worktree
     (Plan 016 V-25, Faz 0). Persisting the precondition to governance.jsonl
     makes the gate auditable and hash-chained — callers fail closed when
     `gate_pass` is False rather than relying on out-of-band convention.

@@ -93,7 +93,7 @@ class AutoMergeTripleGateTests(unittest.TestCase):
         # Bind the PR ↔ change_id via pr-lifecycle row.
         record_pr_lifecycle(
             {"number": pr_number, "head_sha": commit_sha,
-             "change_id": change_id, "base_branch": "snowball"},
+             "change_id": change_id, "base_branch": "main"},
             event="opened", base_dir=self.base,
         )
         return change_id

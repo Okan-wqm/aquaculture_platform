@@ -24,7 +24,7 @@ from aria_kernel.tool_registry import GovernanceError
 def pr_snapshot(**overrides):
     payload = {
         "number": 7,
-        "base_branch": "snowball",
+        "base_branch": "main",
         "head_sha": "abc123",
         "changed_files": ["apps/farm-service/src/app.module.ts"],
         "reviews": [],

@@ -39,7 +39,7 @@ class ResultContentHashAliasTests(unittest.TestCase):
         )
 
         self.req = create_agent_invocation_request(
-            target_agent="ext-agent",
+            target_agent="aria-evidence-judge",
             role="evidence_judgment",
             suggested_prompt="verify",
             expected_output_path=str(self.workspace / "out.json"),

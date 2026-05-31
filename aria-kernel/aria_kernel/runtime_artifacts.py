@@ -4,17 +4,20 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .artifact_safety import scrub_json
 from .ledger import LedgerIntegrityError, append_jsonl, file_hash, load_jsonl, verify_jsonl
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, tools_dir, utc_now
 
 
 RUN_LEDGER_FORMAT_ENV = "ARIA_RUN_LEDGER_FORMAT"
 RUN_LEDGER_FORMATS = ("v1", "v2-shadow", "v2")
 DEFAULT_RUN_LEDGER_FORMAT = "v2-shadow"
+ARTIFACT_VERIFIER_VERSION = "runtime-artifact-graph-v2"
 SUMMARY_STDOUT_MAX_BYTES = 32 * 1024
 ARTIFACT_BEARING = "artifact_bearing"
 LIFECYCLE_ONLY = "lifecycle_only"
@@ -30,14 +33,18 @@ DISCOVERY_ARTIFACTS = (
 )
 
 
-def run_ledger_format(base_dir: str | Path | None = None) -> str:
+def run_ledger_format(
+    base_dir: str | Path | None = None,
+    *,
+    workspace_root: str | Path | None = None,
+) -> str:
     value = os.environ.get(RUN_LEDGER_FORMAT_ENV, DEFAULT_RUN_LEDGER_FORMAT).strip()
     if value not in RUN_LEDGER_FORMATS:
         raise GovernanceError(
             f"{RUN_LEDGER_FORMAT_ENV} must be one of {', '.join(RUN_LEDGER_FORMATS)}",
         )
     if value == "v2":
-        require_runtime_v2_promotion(base_dir=base_dir)
+        require_runtime_v2_promotion(base_dir=base_dir, workspace_root=workspace_root)
     return value
 
 
@@ -96,7 +103,7 @@ def write_run_artifact(
         "cycle_uid": cycle_uid,
         "tool_id": tool_id,
         "created_at": utc_now(),
-        "payload": payload,
+        "payload": scrub_json(payload),
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     digest = _sha256_bytes(encoded)
@@ -302,21 +309,30 @@ def classify_cycle_evidence(
     cycle_rows = [row for row in load_jsonl(root / "cycles.jsonl") if row.get("cycle_id") == cycle_id]
     has_terminal = any(row.get("event") in {"completed", "failed", "stopped", "aborted"} or row.get("status") in {"completed", "failed", "stopped", "aborted"} for row in cycle_rows)
     run_rows = [row for row in load_jsonl(root / "runs.jsonl") if row.get("cycle_id") == cycle_id]
-    runnable_tools = [tool for tool in _load_registry_tools(root) if tool.get("status") in {"ACTIVE", "SHADOW", "CALIBRATE"}]
+    registry_issues: list[dict[str, Any]] = []
+    runnable_tools = [
+        tool for tool in _load_registry_tools(root, issues=registry_issues)
+        if tool.get("status") in {"ACTIVE", "SHADOW", "CALIBRATE"}
+    ]
     expected_tool_count = len(runnable_tools)
     ok_runs = [row for row in run_rows if row.get("status") == "ok"]
+    artifact_ok_runs = [row for row in ok_runs if _artifact_refs_from_run(row)]
+    missing_artifact_ok_runs = len(ok_runs) - len(artifact_ok_runs)
     non_ok_count = sum(1 for row in run_rows if row.get("status") != "ok")
     missing_expected = max(0, expected_tool_count - len(run_rows))
     hidden_non_ok_count = non_ok_count + missing_expected
     if not has_terminal:
         evidence_class = INCOMPLETE
-    elif verification["status"] != "ok" or hidden_non_ok_count:
+    elif verification["status"] != "ok" or registry_issues or hidden_non_ok_count or missing_artifact_ok_runs:
         evidence_class = INTEGRITY_FAILED
-    elif ok_runs:
+    elif artifact_ok_runs:
         evidence_class = ARTIFACT_BEARING
     else:
         evidence_class = LIFECYCLE_ONLY
-    return {"schema_version": 1, "cycle_id": cycle_id, "cycle_evidence_class": evidence_class, "verified_artifact_count": int(verification["verified_artifact_count"]), "expected_tool_count": expected_tool_count, "hidden_non_ok_count": hidden_non_ok_count, "promotion_eligible": evidence_class == ARTIFACT_BEARING, "issues": verification["issues"]}
+    issues = list(verification["issues"]) + registry_issues
+    if missing_artifact_ok_runs:
+        issues.append({"code": "ok_run_missing_artifact_ref", "count": missing_artifact_ok_runs})
+    return {"schema_version": 1, "cycle_id": cycle_id, "cycle_evidence_class": evidence_class, "verified_artifact_count": int(verification["verified_artifact_count"]), "expected_tool_count": expected_tool_count, "hidden_non_ok_count": hidden_non_ok_count, "promotion_eligible": evidence_class == ARTIFACT_BEARING, "issues": issues}
 
 
 def verify_runtime_artifacts(
@@ -325,7 +341,7 @@ def verify_runtime_artifacts(
     workspace_root: str | Path | None = None,
     cycle_id: str | None = None,
 ) -> dict[str, Any]:
-    root = ensure_tools_dir(base_dir)
+    root = tools_dir(base_dir)
     workspace = Path(workspace_root).resolve() if workspace_root else None
     issues: list[dict[str, Any]] = []
     verified = 0
@@ -333,9 +349,10 @@ def verify_runtime_artifacts(
     issues.extend(_ledger_issues(root / "raw-findings.jsonl", "raw_findings"))
     issues.extend(_ledger_issues(root / "cycles.jsonl", "cycles"))
     issues.extend(_ledger_issues(root / "pressure" / "pressure-log.jsonl", "pressure_log"))
-    issues.extend(_ledger_issues(artifact_index_path(root), "runtime_artifact_index"))
-    issues.extend(_ledger_issues(artifact_manifest_path(root), "runtime_artifact_manifest"))
-    issues.extend(_ledger_issues(artifact_inventory_path(root), "runtime_artifact_inventory"))
+    issues.extend(_ledger_issues(root / "run-artifacts" / "artifact-index.jsonl", "runtime_artifact_index"))
+    issues.extend(_ledger_issues(root / "run-artifacts" / "manifest.jsonl", "runtime_artifact_manifest"))
+    issues.extend(_ledger_issues(root / "observability" / "artifact-inventory.jsonl", "runtime_artifact_inventory"))
+    _load_registry_tools(root, issues=issues)
     runs = _safe_load_jsonl(root / "runs.jsonl", issues, "runs")
     by_cycle = root / "runs" / "by-cycle" / f"{_safe_segment(cycle_id)}.jsonl" if cycle_id is not None else None
     if by_cycle is not None and by_cycle.exists():
@@ -347,7 +364,7 @@ def verify_runtime_artifacts(
     raw_by_run: dict[str, list[dict[str, Any]]] = {}
     for row in raw_findings:
         raw_by_run.setdefault(str(row.get("run_id") or ""), []).append(row)
-        raw_issue = _raw_finding_issue(row)
+        raw_issue = _raw_finding_issue(row, base_dir=root)
         if raw_issue:
             issues.append(raw_issue)
     artifact_refs_seen: list[Any] = []
@@ -371,7 +388,7 @@ def verify_runtime_artifacts(
                 verified += 1
     verified += _verify_cycle_files(root=root, cycle_id=cycle_id, issues=issues)
     _verify_artifact_indexes(root=root, artifact_refs_seen=artifact_refs_seen, issues=issues)
-    _verify_manifests_and_inventory(root=root, cycle_id=cycle_id, issues=issues)
+    _verify_manifests_and_inventory(root=root, cycle_id=cycle_id, artifact_refs_seen=artifact_refs_seen, issues=issues)
     _verify_retention_events(root=root, issues=issues)
     return {"schema_version": 1, "status": "ok" if not issues else "failed", "valid": not issues, "cycle_id": cycle_id, "verified_artifact_count": verified, "issues": issues}
 
@@ -381,10 +398,16 @@ def approve_runtime_v2_promotion(
     evidence_bundle: str | Path,
     base_dir: str | Path | None = None,
     operator_approval_ref: str | None = None,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
     from .runtime_profile import enforce_profile_for_write
-    enforce_profile_for_write("runtime_v2_promotion", base_dir=base_dir)
-    root = ensure_tools_dir(base_dir)
+
+    root = (
+        ensure_tools_binding(base_dir, workspace_root=workspace_root)
+        if workspace_root is not None
+        else ensure_tools_dir(base_dir)
+    )
+    enforce_profile_for_write("runtime_v2_promotion", base_dir=root)
     bundle_path = Path(evidence_bundle).expanduser().resolve()
     if not bundle_path.exists() or not bundle_path.is_file():
         raise GovernanceError("runtime_v2_evidence_bundle_missing")
@@ -397,19 +420,81 @@ def approve_runtime_v2_promotion(
         operator_approval_ref = str(payload.get("operator_approval_ref") or "")
     if not operator_approval_ref.strip():
         raise GovernanceError("runtime_v2_promotion_requires_operator_approval_ref")
-    verification = verify_runtime_artifacts(base_dir=root)
+    bound_workspace = Path(workspace_root).resolve() if workspace_root is not None else _bound_workspace_root(root)
+    if bound_workspace is None:
+        raise GovernanceError("runtime_v2_promotion_requires_workspace_root")
+    target_sha = str(payload.get("target_sha") or payload.get("code_sha") or "")
+    if not target_sha.strip():
+        raise GovernanceError("runtime_v2_promotion_requires_target_sha")
+    current_sha = _git_head(bound_workspace)
+    if current_sha != target_sha:
+        raise GovernanceError("runtime_v2_promotion_target_sha_mismatch")
+    verification = verify_runtime_artifacts(base_dir=root, workspace_root=bound_workspace)
     if verification["status"] != "ok":
         raise GovernanceError("runtime_v2_promotion_evidence_integrity_failed")
-    row = {"$schema": "aria/runtime-v2-promotion/v1", "schema_version": 1, "recorded_at": utc_now(), "status": "approved", "operator_approval_ref": operator_approval_ref, "evidence_bundle": bundle_path.as_posix(), "evidence_bundle_hash": "sha256:" + hashlib.sha256(bundle_path.read_bytes()).hexdigest(), "verification": {"verified_artifact_count": verification["verified_artifact_count"], "issue_count": len(verification["issues"])}}
+    bundle_hash = "sha256:" + hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    identity_hash = _current_tools_identity_hash(root)
+    if identity_hash is None:
+        raise GovernanceError("runtime_v2_promotion_requires_tools_identity")
+    row = {
+        "$schema": "aria/runtime-v2-promotion/v1",
+        "schema_version": 2,
+        "recorded_at": utc_now(),
+        "status": "approved",
+        "operator_approval_ref": operator_approval_ref,
+        "target_sha": target_sha,
+        "tools_identity_hash": identity_hash,
+        "artifact_verifier_version": ARTIFACT_VERIFIER_VERSION,
+        "evidence_bundle": bundle_path.as_posix(),
+        "evidence_bundle_hash": bundle_hash,
+        "verification": {
+            "verified_artifact_count": verification["verified_artifact_count"],
+            "issue_count": len(verification["issues"]),
+        },
+    }
     return append_jsonl(root / "runtime" / "v2-promotions.jsonl", row)
 
 
-def require_runtime_v2_promotion(*, base_dir: str | Path | None = None) -> None:
-    root = ensure_tools_dir(base_dir)
+def require_runtime_v2_promotion(
+    *,
+    base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
+) -> None:
+    root = (
+        ensure_tools_binding(base_dir, workspace_root=workspace_root)
+        if workspace_root is not None
+        else ensure_tools_dir(base_dir)
+    )
     rows = load_jsonl(root / "runtime" / "v2-promotions.jsonl")
-    if not any(row.get("status") == "approved" for row in rows):
+    approved = [row for row in rows if row.get("status") == "approved"]
+    if not approved:
         raise GovernanceError("ARIA_RUN_LEDGER_FORMAT=v2 requires approved runtime v2 promotion record")
-
+    latest = approved[-1]
+    if latest.get("artifact_verifier_version") != ARTIFACT_VERIFIER_VERSION:
+        raise GovernanceError("runtime_v2_promotion_stale_verifier_version")
+    if not latest.get("operator_approval_ref") or not latest.get("evidence_bundle_hash"):
+        raise GovernanceError("runtime_v2_promotion_unbound_approval")
+    target_sha = str(latest.get("target_sha") or "")
+    if not target_sha:
+        raise GovernanceError("runtime_v2_promotion_unbound_target_sha")
+    bound_workspace = Path(workspace_root).resolve() if workspace_root is not None else _bound_workspace_root(root)
+    if bound_workspace is None:
+        raise GovernanceError("runtime_v2_promotion_requires_workspace_root")
+    if _git_head(bound_workspace) != target_sha:
+        raise GovernanceError("runtime_v2_promotion_target_sha_mismatch")
+    identity_hash = _current_tools_identity_hash(root)
+    if latest.get("tools_identity_hash") != identity_hash:
+        raise GovernanceError("runtime_v2_promotion_tools_identity_mismatch")
+    bundle_path = Path(str(latest.get("evidence_bundle") or "")).expanduser().resolve()
+    try:
+        bundle_path.relative_to(root.resolve())
+    except ValueError as exc:
+        raise GovernanceError("runtime_v2_promotion_evidence_bundle_outside_tools_root") from exc
+    if not bundle_path.exists() or not bundle_path.is_file():
+        raise GovernanceError("runtime_v2_promotion_evidence_bundle_missing")
+    actual_hash = "sha256:" + hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    if latest.get("evidence_bundle_hash") != actual_hash:
+        raise GovernanceError("runtime_v2_promotion_evidence_bundle_hash_mismatch")
 
 def retention_dry_run(
     *,
@@ -432,10 +517,21 @@ def retention_apply(
     base_dir: str | Path | None = None,
     acknowledge: bool = False,
     retain_hot_cycles: int = 20,
+    workspace_root: str | Path | None = None,
+    reason: str | None = None,
+    operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
     if not acknowledge:
         raise GovernanceError("retention_apply_requires_acknowledge")
-    root = ensure_tools_dir(base_dir)
+    if not reason or not reason.strip():
+        raise GovernanceError("retention_apply_requires_reason")
+    if not operator_approval_ref or not operator_approval_ref.strip():
+        raise GovernanceError("retention_apply_requires_operator_approval_ref")
+    root = (
+        ensure_tools_binding(base_dir, workspace_root=workspace_root)
+        if workspace_root is not None
+        else ensure_tools_dir(base_dir)
+    )
     candidates = _retention_candidates(load_jsonl(artifact_index_path(root)), retain_hot_cycles=retain_hot_cycles)
     archived: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -461,7 +557,9 @@ def retention_apply(
             "new_path": _relative_uri(root, archive_path),
             "sha256": actual,
             "size": archive_path.stat().st_size,
-            "reason": candidate.get("reason"),
+            "reason": reason.strip(),
+            "candidate_reason": candidate.get("reason"),
+            "operator_approval_ref": operator_approval_ref.strip(),
             "reviewed": True,
             "recorded_at": utc_now(),
         }
@@ -474,19 +572,30 @@ def retention_apply(
         "archived": archived,
     }
 
-
 def restore_artifact(
     *,
     base_dir: str | Path | None = None,
     artifact_ref: str,
+    workspace_root: str | Path | None = None,
+    reason: str | None = None,
+    operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
-    root = ensure_tools_dir(base_dir)
+    if not reason or not reason.strip():
+        raise GovernanceError("restore_artifact_requires_reason")
+    if not operator_approval_ref or not operator_approval_ref.strip():
+        raise GovernanceError("restore_artifact_requires_operator_approval_ref")
+    root = (
+        ensure_tools_binding(base_dir, workspace_root=workspace_root)
+        if workspace_root is not None
+        else ensure_tools_dir(base_dir)
+    )
     rows = load_jsonl(root / "run-artifacts" / "artifact-index.jsonl")
     row = next((item for item in rows if item.get("artifact_id") == artifact_ref or item.get("current_uri") == artifact_ref), None)
     if row is None:
         raise GovernanceError(f"artifact_not_found:{artifact_ref}")
     uri = str(row.get("current_uri") or "")
     path = _resolve_uri(root, uri)
+    restored_from_archive = False
     if not path.exists():
         archive = _latest_archive_event(root, str(row.get("artifact_id") or ""))
         if archive is None:
@@ -496,24 +605,47 @@ def restore_artifact(
             raise GovernanceError(f"archive_restore_failed:{artifact_ref}")
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(archived_path, path)
+        restored_from_archive = True
     actual = _sha256_bytes(path.read_bytes())
     if actual != row.get("sha256"):
         raise GovernanceError(f"artifact_hash_mismatch:{artifact_ref}")
+    event = append_jsonl(retention_events_path(root), {
+        "schema_version": 1,
+        "event": "artifact_restored",
+        "artifact_id": row.get("artifact_id"),
+        "path": uri,
+        "sha256": actual,
+        "restored_from_archive": restored_from_archive,
+        "reason": reason.strip(),
+        "operator_approval_ref": operator_approval_ref.strip(),
+        "recorded_at": utc_now(),
+    })
     return {
         "schema_version": 1,
         "status": "restored",
         "artifact_id": row.get("artifact_id"),
         "path": uri,
         "sha256": actual,
+        "retention_event_id": event.get("event_id"),
     }
-
 
 def rollback_retention(
     *,
     base_dir: str | Path | None = None,
     manifest_id: str,
+    workspace_root: str | Path | None = None,
+    reason: str | None = None,
+    operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
-    root = ensure_tools_dir(base_dir)
+    if not reason or not reason.strip():
+        raise GovernanceError("rollback_retention_requires_reason")
+    if not operator_approval_ref or not operator_approval_ref.strip():
+        raise GovernanceError("rollback_retention_requires_operator_approval_ref")
+    root = (
+        ensure_tools_binding(base_dir, workspace_root=workspace_root)
+        if workspace_root is not None
+        else ensure_tools_dir(base_dir)
+    )
     events = load_jsonl(retention_events_path(root))
     matches = [row for row in events if row.get("manifest_id") == manifest_id]
     restored: list[dict[str, Any]] = []
@@ -528,14 +660,23 @@ def rollback_retention(
         if actual != row.get("sha256"):
             raise GovernanceError(f"artifact_hash_mismatch:{manifest_id}")
         restored.append({"artifact_id": row.get("artifact_id"), "path": row.get("original_path")})
+    event = append_jsonl(retention_events_path(root), {
+        "schema_version": 1,
+        "event": "retention_rollback",
+        "manifest_id": manifest_id,
+        "restored_count": len(restored),
+        "reason": reason.strip(),
+        "operator_approval_ref": operator_approval_ref.strip(),
+        "recorded_at": utc_now(),
+    })
     return {
         "schema_version": 1,
         "status": "rolled_back",
         "manifest_id": manifest_id,
         "restored_count": len(restored),
         "restored": restored,
+        "retention_event_id": event.get("event_id"),
     }
-
 
 def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "summary") -> dict[str, Any]:
     per_cycle = result.get("per_cycle") if isinstance(result.get("per_cycle"), list) else []
@@ -662,11 +803,14 @@ def _artifact_refs_from_run(run: dict[str, Any]) -> list[Any]:
 
 def _verify_artifact_ref(ref: Any, *, root: Path, workspace_root: Path | None, source: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(ref, str):
-        raw_path = ref
-        expected_hash = None
-    elif isinstance(ref, dict):
+        return {"code": "artifact_ref_hashless_legacy", "ref": ref, "source": source}
+    if isinstance(ref, dict):
         raw_path = str(ref.get("uri") or ref.get("path") or ref.get("artifact_path") or "")
         expected_hash = ref.get("sha256") or ref.get("hash") or ref.get("content_hash")
+        if not ref.get("artifact_id"):
+            return {"code": "artifact_ref_missing_artifact_id", "ref": ref, "source": source}
+        if not expected_hash:
+            return {"code": "artifact_ref_missing_hash", "ref": ref, "source": source}
     else:
         return {"code": "artifact_ref_invalid", "ref": repr(ref), "source": source}
     if not raw_path.strip():
@@ -679,12 +823,11 @@ def _verify_artifact_ref(ref: Any, *, root: Path, workspace_root: Path | None, s
         return {"code": "artifact_ref_missing", "path": raw_path, "source": source}
     if path.is_file():
         actual = file_hash(path)
-        if expected_hash:
-            normalized = str(expected_hash)
-            if normalized.startswith("sha256:"):
-                normalized = normalized.split(":", 1)[1]
-            if normalized != actual:
-                return {"code": "artifact_hash_mismatch", "path": raw_path, "expected": expected_hash, "actual": "sha256:" + actual, "source": source}
+        normalized = str(expected_hash)
+        if normalized.startswith("sha256:"):
+            normalized = normalized.split(":", 1)[1]
+        if normalized != actual:
+            return {"code": "artifact_hash_mismatch", "path": raw_path, "expected": expected_hash, "actual": "sha256:" + actual, "source": source}
     return None
 
 
@@ -714,8 +857,10 @@ def _artifact_ref_has_raw_findings(run: dict[str, Any], *, base_dir: Path) -> bo
     return False
 
 
-def _raw_finding_issue(row: dict[str, Any]) -> dict[str, Any] | None:
+def _raw_finding_issue(row: dict[str, Any], *, base_dir: Path) -> dict[str, Any] | None:
     finding = row.get("finding")
+    if not isinstance(finding, dict):
+        finding = resolve_finding_from_artifact(row, base_dir=base_dir)
     if not isinstance(finding, dict):
         return {"code": "raw_pointer_corrupt", "run_id": row.get("run_id"), "finding_id": row.get("finding_id")}
     expected = row.get("evidence_hash")
@@ -727,10 +872,10 @@ def _raw_finding_issue(row: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _evidence_hash_for_finding(finding: dict[str, Any]) -> str:
-    refs = finding.get("evidence_refs") or finding.get("evidence") or []
+    refs = finding.get("evidence", [])
     if not isinstance(refs, list):
         refs = []
-    canonical = json.dumps(sorted(str(ref) for ref in refs), sort_keys=True, separators=(",", ":"))
+    canonical = json.dumps(refs, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -761,7 +906,7 @@ def _verify_cycle_files(*, root: Path, cycle_id: str | None, issues: list[dict[s
 
 
 def _verify_artifact_indexes(*, root: Path, artifact_refs_seen: list[Any], issues: list[dict[str, Any]]) -> None:
-    index_paths = [artifact_index_path(root), root / "artifact-index.json", root / "artifact-index.jsonl", root / "artifacts" / "index.json"]
+    index_paths = [root / "run-artifacts" / "artifact-index.jsonl", root / "artifact-index.json", root / "artifact-index.jsonl", root / "artifacts" / "index.json"]
     existing = [path for path in index_paths if path.exists()]
     if artifact_refs_seen and not existing:
         issues.append({"code": "missing_artifact_index", "artifact_ref_count": len(artifact_refs_seen)})
@@ -771,6 +916,7 @@ def _verify_artifact_indexes(*, root: Path, artifact_refs_seen: list[Any], issue
             rows = _safe_load_jsonl(path, issues, "artifact_index")
             if artifact_refs_seen and not rows:
                 issues.append({"code": "artifact_index_empty_with_run_refs", "path": path.as_posix()})
+            _verify_index_rows_cover_refs(rows, artifact_refs_seen, issues=issues, path=path)
             continue
         try:
             payload = _read_json(path)
@@ -780,9 +926,46 @@ def _verify_artifact_indexes(*, root: Path, artifact_refs_seen: list[Any], issue
         entries = payload.get("artifacts") or payload.get("entries") or []
         if artifact_refs_seen and not entries:
             issues.append({"code": "artifact_index_empty_with_run_refs", "path": path.as_posix()})
+        if isinstance(entries, list):
+            dict_entries = [entry for entry in entries if isinstance(entry, dict)]
+            _verify_index_rows_cover_refs(dict_entries, artifact_refs_seen, issues=issues, path=path)
 
 
-def _verify_manifests_and_inventory(*, root: Path, cycle_id: str | None, issues: list[dict[str, Any]]) -> None:
+def _verify_index_rows_cover_refs(
+    rows: list[dict[str, Any]],
+    artifact_refs_seen: list[Any],
+    *,
+    issues: list[dict[str, Any]],
+    path: Path,
+) -> None:
+    if not artifact_refs_seen:
+        return
+    for ref in artifact_refs_seen:
+        if not isinstance(ref, dict):
+            continue
+        artifact_id = str(ref.get("artifact_id") or "")
+        uri = str(ref.get("uri") or ref.get("path") or ref.get("artifact_path") or "")
+        expected = str(ref.get("sha256") or ref.get("hash") or ref.get("content_hash") or "")
+        match = None
+        for row in rows:
+            row_id = str(row.get("artifact_id") or "")
+            row_uri = str(row.get("current_uri") or row.get("uri") or row.get("path") or row.get("artifact_path") or "")
+            if artifact_id and row_id == artifact_id:
+                match = row
+                break
+            if uri and row_uri == uri:
+                match = row
+                break
+        if match is None:
+            issues.append({"code": "artifact_index_ref_missing", "artifact_id": artifact_id, "uri": uri, "index": path.as_posix()})
+            continue
+        indexed_hash = str(match.get("sha256") or match.get("hash") or match.get("content_hash") or "")
+        if expected and indexed_hash and indexed_hash != expected:
+            issues.append({"code": "artifact_index_hash_mismatch", "artifact_id": artifact_id, "uri": uri, "expected": expected, "actual": indexed_hash, "index": path.as_posix()})
+
+
+def _verify_manifests_and_inventory(*, root: Path, cycle_id: str | None, artifact_refs_seen: list[Any], issues: list[dict[str, Any]]) -> None:
+    _verify_global_manifest_inventory(root=root, artifact_refs_seen=artifact_refs_seen, issues=issues)
     cycle_dirs: list[Path] = []
     by_cycle = root / "runs" / "by-cycle"
     if cycle_id is not None:
@@ -832,8 +1015,59 @@ def _item_paths(payload: dict[str, Any]) -> list[str]:
     return out
 
 
+def _verify_global_manifest_inventory(*, root: Path, artifact_refs_seen: list[Any], issues: list[dict[str, Any]]) -> None:
+    if not artifact_refs_seen:
+        return
+    manifest_path = root / "run-artifacts" / "manifest.jsonl"
+    inventory_path = root / "observability" / "artifact-inventory.jsonl"
+    manifest_rows = _safe_load_jsonl(manifest_path, issues, "runtime_artifact_manifest")
+    inventory_rows = _safe_load_jsonl(inventory_path, issues, "runtime_artifact_inventory")
+    if not manifest_rows:
+        issues.append({"code": "artifact_manifest_empty_with_run_refs", "path": manifest_path.as_posix()})
+    if not inventory_rows:
+        issues.append({"code": "artifact_inventory_empty_with_run_refs", "path": inventory_path.as_posix()})
+    manifest_by_id = {str(row.get("artifact_id") or ""): row for row in manifest_rows if isinstance(row, dict)}
+    inventory_by_id = {str(row.get("artifact_id") or ""): row for row in inventory_rows if isinstance(row, dict)}
+    for ref in artifact_refs_seen:
+        if not isinstance(ref, dict):
+            continue
+        artifact_id = str(ref.get("artifact_id") or "")
+        expected_hash = str(ref.get("sha256") or ref.get("hash") or ref.get("content_hash") or "")
+        expected_uri = str(ref.get("uri") or ref.get("path") or ref.get("artifact_path") or "")
+        if not artifact_id:
+            continue
+        manifest = manifest_by_id.get(artifact_id)
+        if manifest is None:
+            issues.append({"code": "artifact_manifest_ref_missing", "artifact_id": artifact_id, "path": manifest_path.as_posix()})
+        else:
+            _verify_summary_row_against_ref(manifest, artifact_id=artifact_id, expected_hash=expected_hash, expected_uri=expected_uri, issues=issues, code_prefix="artifact_manifest", path=manifest_path)
+        inventory = inventory_by_id.get(artifact_id)
+        if inventory is None:
+            issues.append({"code": "artifact_inventory_ref_missing", "artifact_id": artifact_id, "path": inventory_path.as_posix()})
+        else:
+            _verify_summary_row_against_ref(inventory, artifact_id=artifact_id, expected_hash=expected_hash, expected_uri=expected_uri, issues=issues, code_prefix="artifact_inventory", path=inventory_path)
+
+
+def _verify_summary_row_against_ref(
+    row: dict[str, Any],
+    *,
+    artifact_id: str,
+    expected_hash: str,
+    expected_uri: str,
+    issues: list[dict[str, Any]],
+    code_prefix: str,
+    path: Path,
+) -> None:
+    row_hash = str(row.get("sha256") or row.get("hash") or row.get("content_hash") or "")
+    row_uri = str(row.get("current_uri") or row.get("uri") or row.get("path") or row.get("artifact_path") or "")
+    if expected_hash and row_hash and row_hash != expected_hash:
+        issues.append({"code": f"{code_prefix}_hash_mismatch", "artifact_id": artifact_id, "expected": expected_hash, "actual": row_hash, "path": path.as_posix()})
+    if expected_uri and row_uri and row_uri != expected_uri:
+        issues.append({"code": f"{code_prefix}_uri_mismatch", "artifact_id": artifact_id, "expected": expected_uri, "actual": row_uri, "path": path.as_posix()})
+
+
 def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> None:
-    candidates = [retention_events_path(root), root / "retention-events.jsonl", root / "archive" / "retention-events.jsonl"]
+    candidates = [root / "retention" / "events.jsonl", root / "retention-events.jsonl", root / "archive" / "retention-events.jsonl"]
     for path in candidates:
         for row in _safe_load_jsonl(path, issues, "retention_events"):
             kind = str(row.get("kind") or row.get("event") or row.get("event_type") or "")
@@ -859,13 +1093,47 @@ def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> Non
                 issues.append({"code": "unknown_manifest_rollback", "details": row})
 
 
-def _load_registry_tools(root: Path) -> list[dict[str, Any]]:
+def _load_registry_tools(root: Path, *, issues: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    path = root / "registry.json"
     try:
-        payload = _read_json(root / "registry.json")
-    except (OSError, json.JSONDecodeError):
+        payload = _read_json(path)
+    except FileNotFoundError:
+        if issues is not None and (root / "repo_identity.json").exists() and _runtime_tool_evidence_present(root):
+            issues.append({"code": "registry_missing", "path": path.as_posix()})
+        return []
+    except (OSError, json.JSONDecodeError) as exc:
+        if issues is not None:
+            issues.append({"code": "registry_corrupt", "path": path.as_posix(), "error": str(exc)})
         return []
     tools = payload.get("tools")
-    return tools if isinstance(tools, list) else []
+    if not isinstance(tools, list):
+        if issues is not None:
+            issues.append({"code": "registry_tools_invalid", "path": path.as_posix()})
+        return []
+    return tools
+
+
+def _runtime_tool_evidence_present(root: Path) -> bool:
+    for relative in (
+        "cycles.jsonl",
+        "runs.jsonl",
+        "raw-findings.jsonl",
+        "run-artifacts/artifact-index.jsonl",
+        "run-artifacts/manifest.jsonl",
+        "observability/artifact-inventory.jsonl",
+    ):
+        path = root / relative
+        try:
+            if path.exists() and path.stat().st_size > 0:
+                return True
+        except OSError:
+            return True
+    runs_path = root / "runs.jsonl"
+    if runs_path.exists():
+        for row in load_jsonl(runs_path):
+            if _artifact_refs_from_run(row):
+                return True
+    return False
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -988,6 +1256,43 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
             os.fsync(dir_fd)
         finally:
             os.close(dir_fd)
+
+
+def _current_tools_identity_hash(root: Path) -> str | None:
+    identity_path = root / "repo_identity.json"
+    if not identity_path.exists():
+        return None
+    return "sha256:" + hashlib.sha256(identity_path.read_bytes()).hexdigest()
+
+
+def _bound_workspace_root(root: Path) -> Path | None:
+    identity_path = root / "repo_identity.json"
+    if not identity_path.exists():
+        return None
+    try:
+        identity = _read_json(identity_path)
+    except (OSError, json.JSONDecodeError):
+        return None
+    raw = identity.get("bound_repo_root")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    candidate = Path(raw).expanduser().resolve()
+    return candidate if candidate.exists() else None
+
+
+def _git_head(workspace_root: Path) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=workspace_root,
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise GovernanceError("runtime_v2_workspace_head_unavailable") from exc
+    return completed.stdout.strip()
 
 
 __all__ = [

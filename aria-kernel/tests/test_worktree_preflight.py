@@ -40,14 +40,14 @@ class WorktreePreflightTests(unittest.TestCase):
         # Build a fake "origin" remote (bare repo) and a working clone.
         self.origin = self.tmp / "origin.git"
         subprocess.run(
-            ["git", "init", "--bare", "--initial-branch=snowball", str(self.origin)],
+            ["git", "init", "--bare", "--initial-branch=main", str(self.origin)],
             check=True,
             capture_output=True,
         )
 
         self.repo = self.tmp / "repo"
         subprocess.run(
-            ["git", "init", "--initial-branch=snowball", str(self.repo)],
+            ["git", "init", "--initial-branch=main", str(self.repo)],
             check=True,
             capture_output=True,
         )
@@ -55,7 +55,7 @@ class WorktreePreflightTests(unittest.TestCase):
         (self.repo / "README.md").write_text("seed\n", encoding="utf-8")
         _git(["add", "README.md"], self.repo)
         _git(["commit", "-m", "seed"], self.repo)
-        _git(["push", "-u", "origin", "snowball"], self.repo)
+        _git(["push", "-u", "origin", "main"], self.repo)
 
         # Wire a workspace + tools-dir under the temp tree so preflight can record events.
         self.workspace_base = self.tmp / "workspaces"
@@ -79,16 +79,16 @@ class WorktreePreflightTests(unittest.TestCase):
             if line.strip()
         ]
 
-    def test_clean_snowball_passes_gate_and_records_event(self) -> None:
+    def test_clean_main_passes_gate_and_records_event(self) -> None:
         result = preflight(
             workspace_root=self.repo,
             base_dir=self.tools_dir,
-            expected_branch="snowball",
+            expected_branch="main",
             skip_fetch=True,
         )
         self.assertTrue(result["gate_pass"], result)
         details = result["details"]
-        self.assertEqual(details["actual_branch"], "snowball")
+        self.assertEqual(details["actual_branch"], "main")
         self.assertTrue(details["branch_ok"])
         self.assertTrue(details["clean"])
         self.assertEqual(details["dirty_files_count"], 0)
@@ -96,7 +96,7 @@ class WorktreePreflightTests(unittest.TestCase):
         rows = self._governance_rows()
         worktree_rows = [r for r in rows if r.get("kind") == "worktree_preflight"]
         self.assertEqual(len(worktree_rows), 1)
-        self.assertEqual(worktree_rows[0]["details"]["actual_branch"], "snowball")
+        self.assertEqual(worktree_rows[0]["details"]["actual_branch"], "main")
         self.assertEqual(worktree_rows[0]["schema_version"], 2)
         self.assertTrue(worktree_rows[0]["ledger_hash"].startswith("sha256:"))
 
@@ -109,7 +109,7 @@ class WorktreePreflightTests(unittest.TestCase):
         result = preflight(
             workspace_root=self.repo,
             base_dir=self.tools_dir,
-            expected_branch="snowball",
+            expected_branch="main",
             skip_fetch=True,
         )
         self.assertFalse(result["gate_pass"])
@@ -124,7 +124,7 @@ class WorktreePreflightTests(unittest.TestCase):
         result = preflight(
             workspace_root=self.repo,
             base_dir=self.tools_dir,
-            expected_branch="snowball",
+            expected_branch="main",
             skip_fetch=True,
         )
         self.assertFalse(result["gate_pass"])
@@ -146,7 +146,7 @@ class WorktreePreflightTests(unittest.TestCase):
         result = preflight(
             workspace_root=self.repo,
             base_dir=self.tools_dir,
-            expected_branch="snowball",
+            expected_branch="main",
             skip_fetch=True,
         )
         self.assertTrue(result["gate_pass"], result)
@@ -163,7 +163,7 @@ class WorktreePreflightTests(unittest.TestCase):
         result = preflight(
             workspace_root=self.repo,
             base_dir=self.tools_dir,
-            expected_branch="snowball",
+            expected_branch="main",
             skip_fetch=True,
         )
         self.assertFalse(result["gate_pass"])
@@ -172,7 +172,7 @@ class WorktreePreflightTests(unittest.TestCase):
         self.assertIn("src.txt", result["details"]["dirty_sample"][0])
 
     def test_ahead_behind_recorded_when_upstream_known(self) -> None:
-        # Add a local commit so HEAD is ahead of origin/snowball.
+        # Add a local commit so HEAD is ahead of origin/main.
         (self.repo / "ahead.txt").write_text("ahead\n", encoding="utf-8")
         _git(["add", "ahead.txt"], self.repo)
         _git(["commit", "-m", "ahead"], self.repo)
@@ -180,7 +180,7 @@ class WorktreePreflightTests(unittest.TestCase):
         result = preflight(
             workspace_root=self.repo,
             base_dir=self.tools_dir,
-            expected_branch="snowball",
+            expected_branch="main",
             skip_fetch=True,
         )
         details = result["details"]

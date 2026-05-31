@@ -107,10 +107,12 @@ from aria_kernel.handoff_ledger import (
     take_handoff_snapshot,
 )
 from aria_kernel.runtime_artifacts import (
+    ARTIFACT_BEARING,
     SUMMARY_STDOUT_MAX_BYTES,
     approve_runtime_v2_promotion,
     autonomy_exit_code,
     autonomy_output_summary,
+    classify_cycle_evidence,
     restore_artifact,
     retention_apply,
     retention_dry_run,
@@ -225,6 +227,12 @@ _TOOLS_DIR_REQUIRED_COMMANDS: frozenset[tuple[str, ...]] = frozenset({
     # ``--tools-dir is required`` error instead of the downstream
     # ``tools_root_unresolvable`` GovernanceError.
     ("integrity", "migrate-tools-bootstrap"),
+    ("integrity", "migrate-tools-v2-to-v3"),
+    ("integrity", "rollback-tools-v3-to-v2"),
+    ("runtime", "promotion", "approve-v2"),
+    ("runtime", "retention", "apply"),
+    ("runtime", "restore-artifact"),
+    ("runtime", "rollback-retention"),
 })
 
 
@@ -247,6 +255,9 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "handoff_command",
         "context_command",
         "profile_command",
+        "runtime_command",
+        "runtime_promotion_command",
+        "runtime_retention_command",
         "memory_command",
         "pressure_command",
         "telemetry_command",
@@ -622,10 +633,14 @@ def _main(argv: list[str] | None = None) -> int:
     runtime_parser = add_subparser(sub, "runtime")
     runtime_sub = runtime_parser.add_subparsers(dest="runtime_command", required=True)
     runtime_verify = add_subparser(runtime_sub, "verify-artifacts")
+    runtime_verify.add_argument("--cycle-id", default=None)
+    runtime_verify.add_argument("--workspace-root", default=None)
+    runtime_verify.add_argument("--require-artifact-bearing", action="store_true")
     runtime_promotion = add_subparser(runtime_sub, "promotion")
     runtime_promotion_sub = runtime_promotion.add_subparsers(dest="runtime_promotion_command", required=True)
     runtime_approve_v2 = add_subparser(runtime_promotion_sub, "approve-v2")
     runtime_approve_v2.add_argument("--evidence-bundle", required=True)
+    runtime_approve_v2.add_argument("--workspace-root", required=True)
     runtime_approve_v2.add_argument("--operator-approval-ref", required=True)
     runtime_retention = add_subparser(runtime_sub, "retention")
     runtime_retention_sub = runtime_retention.add_subparsers(dest="runtime_retention_command", required=True)
@@ -633,11 +648,20 @@ def _main(argv: list[str] | None = None) -> int:
     runtime_retention_dry.add_argument("--retain-hot-cycles", type=int, default=20)
     runtime_retention_apply = add_subparser(runtime_retention_sub, "apply")
     runtime_retention_apply.add_argument("--retain-hot-cycles", type=int, default=20)
+    runtime_retention_apply.add_argument("--workspace-root", required=True)
+    runtime_retention_apply.add_argument("--reason", required=True, type=_validate_reason)
+    runtime_retention_apply.add_argument("--operator-approval-ref", required=True)
     runtime_retention_apply.add_argument("--acknowledge", action="store_true")
     runtime_restore = add_subparser(runtime_sub, "restore-artifact")
     runtime_restore.add_argument("--artifact-ref", required=True)
+    runtime_restore.add_argument("--workspace-root", required=True)
+    runtime_restore.add_argument("--reason", required=True, type=_validate_reason)
+    runtime_restore.add_argument("--operator-approval-ref", required=True)
     runtime_rollback = add_subparser(runtime_sub, "rollback-retention")
     runtime_rollback.add_argument("--manifest-id", required=True)
+    runtime_rollback.add_argument("--workspace-root", required=True)
+    runtime_rollback.add_argument("--reason", required=True, type=_validate_reason)
+    runtime_rollback.add_argument("--operator-approval-ref", required=True)
 
     memory_parser = add_subparser(sub, "memory")
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
@@ -800,8 +824,8 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(worktree_preflight_parser)
     worktree_preflight_parser.add_argument(
         "--expected-branch",
-        default="snowball",
-        help="Branch the worktree must be checked out to (default: snowball).",
+        default="main",
+        help="Branch the worktree must be checked out to (default: main).",
     )
     worktree_preflight_parser.add_argument(
         "--no-fetch",
@@ -1242,8 +1266,8 @@ def _main(argv: list[str] | None = None) -> int:
             "validation_runs verified) can fire."
         ),
     )
-    pr_create.add_argument("--base", default="snowball",
-                           help="ARIA invariant: base MUST be snowball; any other value rejected at function entry (Plan 018 Phase 6.2).")
+    pr_create.add_argument("--base", default="main",
+                           help="ARIA invariant: base MUST be main; any other value rejected at function entry (Plan 018 Phase 6.2).")
     pr_create.add_argument("--no-dry-run", action="store_true")
     pr_status = add_subparser(pr_sub, "list-actions", help="List recorded pr lifecycle actions (prepare/commit/push).")
     pr_lifecycle = add_subparser(pr_sub, "lifecycle-plan",
@@ -1650,6 +1674,7 @@ def _main(argv: list[str] | None = None) -> int:
         "--ack-token", required=True,
         help="ack_id minted via `aria-kernel ack mint` (Plan ARIA-V3 §A5).",
     )
+    ag_materialize.add_argument("--operator-synthetic-override", action="store_true")
     ag_materialize.add_argument("--run-invariants", action="store_true")
     ag_list = add_subparser(agent_genesis_sub, "list")
     ag_list.add_argument("--materializations", action="store_true")
@@ -1713,9 +1738,12 @@ def _main(argv: list[str] | None = None) -> int:
                                   help="Skill markdown source — parsed for ## Fixture: <id> blocks (preferred).")
     sg_sandbox_input.add_argument("--checklist-results-file", default=None,
                                   help="Explicit JSON checklist results array (deprecated; use --markdown-file).")
+    sg_sandbox.add_argument("--synthetic-test-mode", action="store_true")
+    sg_sandbox.add_argument("--operator-approval-ref", default=None)
     sg_approve = add_subparser(skill_genesis_sub, "approve")
     sg_approve.add_argument("--draft-id", required=True)
     sg_approve.add_argument("--operator-approval-ref", required=True)
+    sg_approve.add_argument("--operator-synthetic-override", action="store_true")
     sg_materialize = add_subparser(skill_genesis_sub, "materialize")
     add_workspace_args(sg_materialize)
     sg_materialize.add_argument("--draft-id", required=True)
@@ -1725,6 +1753,7 @@ def _main(argv: list[str] | None = None) -> int:
         "--ack-token", required=True,
         help="ack_id minted via `aria-kernel ack mint` (Plan ARIA-V3 §A5).",
     )
+    sg_materialize.add_argument("--operator-synthetic-override", action="store_true")
     sg_materialize.add_argument("--run-invariants", action="store_true")
     sg_list = add_subparser(skill_genesis_sub, "list")
     sg_list.add_argument("--kind", choices=["requests", "drafts", "sandbox", "materializations"], default="drafts")
@@ -1778,14 +1807,10 @@ def _main(argv: list[str] | None = None) -> int:
     # tool_registry.tools_dir() raises ``tools_root_unresolvable``
     # with the bootstrap remediation pointer.
     cmd_path = _command_path(args)
-    explicit_or_env = (
-        getattr(args, "tools_dir", None)
-        or os.environ.get("ARIA_TOOLS_DIR")
-    )
-    if cmd_path in _TOOLS_DIR_REQUIRED_COMMANDS and not explicit_or_env:
+    explicit_tools_dir = getattr(args, "tools_dir", None)
+    if cmd_path in _TOOLS_DIR_REQUIRED_COMMANDS and not explicit_tools_dir:
         parser.error(
-            f"--tools-dir is required for command {' '.join(cmd_path)} "
-            f"(or set ARIA_TOOLS_DIR env var)"
+            f"--tools-dir is required explicitly for command {' '.join(cmd_path)}"
         )
 
     if getattr(args, "tools_dir", None):
@@ -2167,7 +2192,35 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "runtime" and args.runtime_command == "verify-artifacts":
-        result = verify_runtime_artifacts(base_dir=args.tools_dir)
+        result = verify_runtime_artifacts(
+            base_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            cycle_id=args.cycle_id,
+        )
+        if args.require_artifact_bearing:
+            if not args.cycle_id:
+                result = {
+                    **result,
+                    "status": "failed",
+                    "valid": False,
+                    "issues": list(result.get("issues", [])) + [
+                        {"code": "require_artifact_bearing_needs_cycle_id"},
+                    ],
+                }
+            else:
+                evidence = classify_cycle_evidence(
+                    base_dir=args.tools_dir, cycle_id=args.cycle_id,
+                )
+                result["cycle_evidence"] = evidence
+                if evidence.get("cycle_evidence_class") != ARTIFACT_BEARING:
+                    result["status"] = "failed"
+                    result["valid"] = False
+                    result["issues"] = list(result.get("issues", [])) + [
+                        {
+                            "code": "cycle_not_artifact_bearing",
+                            "cycle_evidence_class": evidence.get("cycle_evidence_class"),
+                        },
+                    ]
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("status") == "ok" else 4
     if args.command == "runtime" and args.runtime_command == "promotion":
@@ -2175,6 +2228,7 @@ def _main(argv: list[str] | None = None) -> int:
             result = approve_runtime_v2_promotion(
                 evidence_bundle=args.evidence_bundle,
                 operator_approval_ref=args.operator_approval_ref,
+                workspace_root=args.workspace_root,
                 base_dir=args.tools_dir,
             )
             print(json.dumps(result, indent=2, sort_keys=True))
@@ -2188,15 +2242,30 @@ def _main(argv: list[str] | None = None) -> int:
                 base_dir=args.tools_dir,
                 retain_hot_cycles=args.retain_hot_cycles,
                 acknowledge=args.acknowledge,
+                workspace_root=args.workspace_root,
+                reason=args.reason,
+                operator_approval_ref=args.operator_approval_ref,
             )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "runtime" and args.runtime_command == "restore-artifact":
-        result = restore_artifact(base_dir=args.tools_dir, artifact_ref=args.artifact_ref)
+        result = restore_artifact(
+            base_dir=args.tools_dir,
+            artifact_ref=args.artifact_ref,
+            workspace_root=args.workspace_root,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+        )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "runtime" and args.runtime_command == "rollback-retention":
-        result = rollback_retention(base_dir=args.tools_dir, manifest_id=args.manifest_id)
+        result = rollback_retention(
+            base_dir=args.tools_dir,
+            manifest_id=args.manifest_id,
+            workspace_root=args.workspace_root,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+        )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
@@ -3048,7 +3117,7 @@ def _main(argv: list[str] | None = None) -> int:
         if args.pr_command == "create":
             # Plan 018 Phase 6.2 — explicit base guard fires inside
             # open_pr_for_action; we forward the operator's --base value
-            # verbatim so the kernel can fail-closed on base != snowball.
+            # verbatim so the kernel can fail-closed on base != main.
             row = open_pr_for_action(
                 proposal_id=args.proposal_id,
                 workspace_root=args.workspace_root,
@@ -3441,6 +3510,7 @@ def _main(argv: list[str] | None = None) -> int:
                 base_dir=args.tools_dir,
                 run_invariants=args.run_invariants,
                 ack_id=args.ack_token,
+                operator_synthetic_override=args.operator_synthetic_override,
             )
         elif args.agent_genesis_command == "list":
             result = list_agent_materializations(base_dir=args.tools_dir) if args.materializations else list_agent_drafts(base_dir=args.tools_dir)
@@ -3548,18 +3618,23 @@ def _main(argv: list[str] | None = None) -> int:
                     draft_id=args.draft_id,
                     markdown_path=args.markdown_file,
                     base_dir=args.tools_dir,
+                    synthetic_test_mode=args.synthetic_test_mode,
+                    operator_approval_ref=args.operator_approval_ref,
                 )
             else:
                 result = sandbox_skill(
                     draft_id=args.draft_id,
                     checklist_results=json.loads(Path(args.checklist_results_file).read_text(encoding="utf-8")),
                     base_dir=args.tools_dir,
+                    synthetic_test_mode=args.synthetic_test_mode,
+                    operator_approval_ref=args.operator_approval_ref,
                 )
         elif args.skill_genesis_command == "approve":
             result = approve_skill_pr(
                 draft_id=args.draft_id,
                 operator_approval_ref=args.operator_approval_ref,
                 base_dir=args.tools_dir,
+                operator_synthetic_override=args.operator_synthetic_override,
             )
         elif args.skill_genesis_command == "materialize":
             # Plan ARIA-V3 §A4 — gate-driven materialize. Same factory
@@ -3586,6 +3661,7 @@ def _main(argv: list[str] | None = None) -> int:
                 base_dir=args.tools_dir,
                 run_invariants=args.run_invariants,
                 ack_id=args.ack_token,
+                operator_synthetic_override=args.operator_synthetic_override,
             )
         elif args.skill_genesis_command == "list":
             result = list_skill_genesis(base_dir=args.tools_dir, kind=args.kind)
@@ -3730,6 +3806,7 @@ def _main(argv: list[str] | None = None) -> int:
         # budget cap to the orchestrator environment so child ci_executor
         # subprocesses read it via MAX_BUDGET_USD_PER_RUN env var.
         os.environ["MAX_BUDGET_USD_PER_RUN"] = str(args.max_budget_usd_per_run)
+        os.environ["MAX_BUDGET_USD_PER_CYCLE"] = str(args.max_budget_usd_per_cycle)
         convergence_runner = select_convergence_runner(profile=profile)
         review_runner = select_review_runner(profile=profile)
         specialist_review_runner = select_specialist_review_runner(profile=profile)
@@ -3781,6 +3858,7 @@ def _main(argv: list[str] | None = None) -> int:
             # value so the orchestrator always fell back to NoOp; the
             # V9 implementation phase was structurally unreachable.
             v9_implementation_runner=select_v9_implementation_runner(profile=profile),
+            max_budget_usd_per_cycle=args.max_budget_usd_per_cycle,
         )
         if args.output == "full" and not args.artifact:
             contract = {

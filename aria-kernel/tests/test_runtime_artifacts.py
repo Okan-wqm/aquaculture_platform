@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +11,7 @@ from aria_kernel.feedback_store import raw_findings_path
 from aria_kernel.integrity import verify_integrity
 from aria_kernel.ledger import append_jsonl, load_jsonl
 from aria_kernel.runtime_artifacts import (
+    approve_runtime_v2_promotion,
     resolve_finding_from_artifact,
     restore_artifact,
     retention_apply,
@@ -16,7 +19,7 @@ from aria_kernel.runtime_artifacts import (
     verify_artifacts,
 )
 from aria_kernel.tool_health import record_run, runs_path
-from aria_kernel.tool_registry import register_tool
+from aria_kernel.tool_registry import ensure_tools_binding, register_tool
 
 
 def _tool() -> dict:
@@ -91,10 +94,25 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.tools = self.tmp / "aria-tools"
         self.old_format = os.environ.get("ARIA_RUN_LEDGER_FORMAT")
         os.environ["ARIA_RUN_LEDGER_FORMAT"] = "v2"
+        self.repo_root = Path(__file__).resolve().parents[2]
+        ensure_tools_binding(self.tools, workspace_root=self.repo_root)
         register_tool(_tool(), base_dir=self.tools)
-        append_jsonl(
-            self.tools / "runtime" / "v2-promotions.jsonl",
-            {"schema_version": 1, "status": "approved", "operator_approval_ref": "test"},
+        target_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo_root,
+            text=True,
+        ).strip()
+        evidence_bundle = self.tools / "runtime" / "v2-promotion-evidence.json"
+        evidence_bundle.parent.mkdir(parents=True, exist_ok=True)
+        evidence_bundle.write_text(
+            json.dumps({"operator_approval_ref": "test", "target_sha": target_sha}),
+            encoding="utf-8",
+        )
+        approve_runtime_v2_promotion(
+            evidence_bundle=evidence_bundle,
+            base_dir=self.tools,
+            workspace_root=self.repo_root,
+            operator_approval_ref="test",
         )
 
     def tearDown(self) -> None:
@@ -140,10 +158,23 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.assertEqual(plan["candidate_count"], 1)
         with self.assertRaises(Exception):
             retention_apply(base_dir=self.tools, retain_hot_cycles=0)
-        applied = retention_apply(base_dir=self.tools, retain_hot_cycles=0, acknowledge=True)
+        applied = retention_apply(
+            base_dir=self.tools,
+            retain_hot_cycles=0,
+            acknowledge=True,
+            workspace_root=self.repo_root,
+            reason="unit-test-retention",
+            operator_approval_ref="test-approval",
+        )
         self.assertEqual(applied["archived_count"], 1)
         artifact_id = applied["archived"][0]["artifact_id"]
-        restored = restore_artifact(base_dir=self.tools, artifact_ref=artifact_id)
+        restored = restore_artifact(
+            base_dir=self.tools,
+            artifact_ref=artifact_id,
+            workspace_root=self.repo_root,
+            reason="unit-test-restore",
+            operator_approval_ref="test-approval",
+        )
         self.assertEqual(restored["status"], "restored")
 
 

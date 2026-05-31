@@ -56,7 +56,7 @@ class SkillSandboxMarkdownDeviationTests(unittest.TestCase):
         with self.assertRaises(GovernanceError):
             sandbox_skill(draft_id=self.draft["draft_id"], markdown_path=path, base_dir=self.tools_dir)
 
-    def test_json_checklist_path_remains_backward_compatible(self):
+    def test_json_checklist_path_requires_explicit_synthetic_mode(self):
         result = sandbox_skill(
             draft_id=self.draft["draft_id"],
             checklist_results=[
@@ -65,9 +65,12 @@ class SkillSandboxMarkdownDeviationTests(unittest.TestCase):
                 {"id": "handoff", "status": "pass"},
             ],
             base_dir=self.tools_dir,
+            synthetic_test_mode=True,
+            operator_approval_ref="test-synthetic-fixture",
         )
         self.assertEqual(result["decision"], "pass")
         self.assertEqual(result["source"], "checklist_json")
+        self.assertTrue(result["synthetic_test_mode"])
 
     def test_mutually_exclusive_inputs_are_rejected(self):
         path = self._write_markdown("## Fixture: tp1\n## Fixture: fp1\n## Fixture: handoff\n")

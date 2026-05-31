@@ -1,14 +1,14 @@
 name: aria-kernel
 
 # Plan ARIA-V2 §3.7 (Phase 6) — workflow hygiene closures:
-#   * paths: filter removed from push block (snowball re-push must
+#   * paths: filter removed from push block (mainline re-push must
 #     re-evaluate the kernel regardless of which files changed; the
 #     paths gate caused the validation cycle to skip re-runs that
 #     were architecturally meaningful — closes ARIA-V-007)
 #   * workflow_dispatch added so operators can manually re-fire
 #   * top-level permissions: contents: read (INFRA-HIGH-003)
 #   * actions/checkout: persist-credentials: false (INFRA-HIGH-004)
-#   * npm ci → npm ci --ignore-scripts --no-audit (INFRA-CRITICAL-001)
+#   * npm ci → npm ci --ignore-scripts --no-audit --no-fund with retry (INFRA-CRITICAL-001)
 #   * concurrency key unified across workflows (INFRA-HIGH-001)
 # Invariant lock: aria-kernel/tests/test_ci_workflow_invariants.py (I-25).
 
@@ -25,7 +25,7 @@ on:
       - "tools/shared/**"
   push:
     branches:
-      - snowball
+      - main
 
 # Plan ARIA-V2 §3.7 — top-level default-deny token surface.
 permissions:
@@ -50,17 +50,30 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
-      - run: npm ci --ignore-scripts --no-audit
+      - run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
       # Plan ARIA-V2 §Phase 1 CRITICAL-020 — aria-kernel declares
       # pyyaml>=6.0 in pyproject.toml (required by I-25 + I-26
       # invariants for YAML workflow + frontmatter parsing).
-      # Architectural shape: pyproject.toml is the dep SSoT; CI
-      # installs from it editable so any future kernel-dep addition
-      # propagates without CI surgery.
-      - name: Install aria-kernel package (pyyaml + future deps)
-        run: python3 -m pip install --upgrade pip && python3 -m pip install -e aria-kernel
+      # Architectural shape: pyproject.toml is the dependency SSoT;
+      # source imports come from PYTHONPATH below. Installing the local
+      # package directly writes aria_kernel.egg-info into the checkout,
+      # which violates the post-run clean-worktree contract.
+      - name: Install aria-kernel dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 - <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          with Path("aria-kernel/pyproject.toml").open("rb") as fh:
+              dependencies = tomllib.load(fh).get("project", {}).get("dependencies", [])
+          if dependencies:
+              subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
+          PY
       - name: Run aria-kernel unit + invariant tests
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
       # Plan ARIA-V2 §3.6 + CRITICAL-013 — tests under tools/aria-poc/invariants
@@ -94,3 +107,78 @@ jobs:
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity migrate-tools-bootstrap --tools-dir ./.aria-ci/tools --workspace-root . --acknowledge --reason "ci bootstrap (Plan ARIA-V2 §3.8 idempotent umbrella)"
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel discovery run --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools --cycle-id ci-${{ github.run_id }} --snapshot-mode committed
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools
+      - name: Run ARIA docs/runtime SSoT invariant
+        run: npm run aria:docs:ssot
+      - name: Run ARIA runtime artifact smoke
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 - <<'PY'
+          import json
+          import tempfile
+          from pathlib import Path
+
+          from aria_kernel.ledger import append_jsonl
+          from aria_kernel.runtime_artifacts import ARTIFACT_BEARING, classify_cycle_evidence, write_run_artifact
+          from aria_kernel.tool_registry import ensure_tools_binding
+
+          repo = Path.cwd().resolve()
+          watched_repo_outputs = [
+              repo / "aria-tools" / "runs.jsonl",
+              repo / "aria-tools" / "autonomy_state.jsonl",
+              repo / "aria-tools" / "governance.jsonl",
+              repo / "aria-tools" / "run-artifacts",
+              repo / "aria-kernel" / "aria-tools",
+              repo / "artifacts",
+          ]
+          before = {
+              path: (path.exists(), path.stat().st_mtime_ns if path.exists() else None)
+              for path in watched_repo_outputs
+          }
+          tools = Path(tempfile.mkdtemp(prefix="aria-tools-smoke-"))
+          root = ensure_tools_binding(tools, workspace_root=repo)
+          (root / "registry.json").write_text(
+              json.dumps({"schema_version": 1, "tools": [{"tool_id": "smoke-tool", "status": "ACTIVE"}]}) + "\n",
+              encoding="utf-8",
+          )
+          cycle_id = "ci-runtime-smoke"
+          run_id = "run-1"
+          artifact = write_run_artifact(
+              base_dir=root,
+              run_id=run_id,
+              cycle_uid=cycle_id,
+              tool_id="smoke-tool",
+              kind="runtime_smoke",
+              payload={"stdout": "ok", "stderr": "", "parsed_output": {"observations": [], "findings": []}},
+              run_status="ok",
+              repo_state_id="ci-smoke",
+              owner="ci-runtime-smoke",
+          )
+          append_jsonl(root / "runs.jsonl", {
+              "schema_version": 2,
+              "cycle_id": cycle_id,
+              "run_id": run_id,
+              "tool_id": "smoke-tool",
+              "status": "ok",
+              "artifact_ref": artifact["artifact_ref"],
+              "artifact_hash": artifact["artifact_hash"],
+              "artifact_status": artifact["artifact_status"],
+              "runner": {"raw_findings_count": 0},
+          })
+          append_jsonl(root / "cycles.jsonl", {"schema_version": 1, "cycle_id": cycle_id, "event": "completed"})
+          evidence = classify_cycle_evidence(base_dir=root, cycle_id=cycle_id)
+          if evidence.get("cycle_evidence_class") != ARTIFACT_BEARING:
+              raise SystemExit(json.dumps(evidence, indent=2, sort_keys=True))
+          after = {
+              path: (path.exists(), path.stat().st_mtime_ns if path.exists() else None)
+              for path in watched_repo_outputs
+          }
+          changed = [path.relative_to(repo).as_posix() for path in watched_repo_outputs if before[path] != after[path]]
+          if changed:
+              raise SystemExit(f"repo-local runtime output touched by smoke: {changed}")
+          PY
+      - name: Verify post-run clean worktree
+        run: |
+          status="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            exit 1
+          fi

@@ -49,8 +49,8 @@ class PlanCandidateSource(str, Enum):
     ``unsigned_operator_feedback`` governance event."""
 
     FAILING_CI = "failing_ci"
-    """Failing CI runs on ``snowball`` queried via
-    ``gh run list --branch snowball --status failure --limit 5``.
+    """Failing CI runs on ``main`` queried via
+    ``gh run list --branch main --status failure --limit 5``.
     Cached 10-min TTL at ``aria-tools/cache/gh-run-list.json`` to
     stay below GitHub API 5000/hr rate limit."""
 

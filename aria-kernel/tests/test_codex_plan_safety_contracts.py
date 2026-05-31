@@ -21,7 +21,7 @@ class V9MergeDemotionTests(unittest.TestCase):
             pr_number=123,
             diff_hash="sha256:diff",
             branch_tip_sha="abc123",
-            base_branch="snowball",
+            base_branch="main",
             profile="autonomous",
         )
         self.assertFalse(decision.eligible)
@@ -38,7 +38,7 @@ class RemoteCasLeaseTests(unittest.TestCase):
             root = Path(tmp)
             first = acquire_remote_cas_lease(
                 base_dir=root,
-                target_ref="snowball",
+                target_ref="main",
                 head_sha="abc123",
                 owner="local:a",
             )
@@ -48,7 +48,7 @@ class RemoteCasLeaseTests(unittest.TestCase):
             with self.assertRaises(GovernanceError):
                 acquire_remote_cas_lease(
                     base_dir=root,
-                    target_ref="snowball",
+                    target_ref="main",
                     head_sha="abc123",
                     owner="gha-runner:b",
                 )

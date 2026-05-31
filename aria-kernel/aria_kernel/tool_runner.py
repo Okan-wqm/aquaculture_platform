@@ -12,8 +12,9 @@ from typing import Any
 from .evidence_validator import validate_tool_output_evidence
 from .runtime_profile import enforce_profile_for_write
 from .snapshot import build_repo_snapshot, ignored_dirty_path, normalize_path, snapshot_allowed_set
+from .artifact_safety import scrub_text
 from .tool_health import can_emit_operator_facing, find_scope_violations, record_run
-from .tool_registry import GovernanceError, get_tool
+from .tool_registry import GovernanceError, ensure_tools_binding, get_tool
 
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
@@ -37,8 +38,10 @@ def run_tool(
     # top of run_tool is the single chokepoint that covers Phase 4 spine
     # orchestrator + Phase 10 agent-harness-security adapter + every
     # backend adapter without each call site having to remember the gate.
-    enforce_profile_for_write("tool_runs", base_dir=base_dir)
-    tool = get_tool(tool_id, base_dir)
+    root = Path(workspace_root or os.getcwd()).resolve()
+    tools_root = ensure_tools_binding(base_dir, workspace_root=root)
+    enforce_profile_for_write("tool_runs", base_dir=tools_root)
+    tool = get_tool(tool_id, tools_root)
     if tool["status"] == "QUARANTINED":
         raise GovernanceError("QUARANTINED tool cannot be run by the normal runner")
     runner = tool.get("runner")
@@ -47,7 +50,6 @@ def run_tool(
     if runner.get("type") != "subprocess":
         raise GovernanceError(f"unsupported runner type: {runner.get('type')}")
 
-    root = Path(workspace_root or os.getcwd()).resolve()
     repo_snapshot = _input_repo_snapshot(input_payload)
     if repo_snapshot is None:
         repo_snapshot = build_repo_snapshot(workspace_root=root, mode="working-tree", enforce_clean=False)
@@ -153,7 +155,7 @@ def run_tool(
     raw_observations = output.get("observations", [])
     raw_findings = output.get("findings", [])
     memory_candidates = _array_or_empty(output.get("belief_candidates"))
-    can_emit = can_emit_operator_facing(tool_id, base_dir=base_dir)
+    can_emit = can_emit_operator_facing(tool_id, base_dir=tools_root)
     envelope = {
         "schema_version": 1,
         "run_id": run_id or str(uuid.uuid4()),
@@ -176,7 +178,7 @@ def run_tool(
             "exit_code": exit_code,
             "timed_out": timed_out,
             "stderr_hash": _sha256(stderr.encode("utf-8")),
-            "stderr_sample": stderr[:4096],
+            "stderr_sample": scrub_text(stderr[:4096]),
             "raw_observations_count": len(_array_or_empty(raw_observations)),
             "raw_findings_count": len(_array_or_empty(raw_findings)),
             "raw_findings_sample": _raw_finding_sample(_array_or_empty(raw_findings)),
@@ -204,7 +206,7 @@ def run_tool(
             "raw_findings": _array_or_empty(raw_findings),
         },
     }
-    decision = record_run(envelope, base_dir=base_dir)
+    decision = record_run(envelope, base_dir=tools_root)
     # Plan 024 v3 §B-7 — return contract split. Pre-fix run_tool returned
     # ONLY the registry-side health_decision (decision dict from
     # record_run); the runner envelope (with the canonical 'ok|crash|

@@ -86,6 +86,8 @@ class SkillGenesisChainTests(unittest.TestCase):
                     {"fixture_id": "f3", "status": "pass"},
                 ],
                 base_dir=self.base,
+                synthetic_test_mode=True,
+                operator_approval_ref="test-synthetic-fixture",
             )
         self.assertIn("draft_not_found", str(ctx.exception))
 
@@ -140,6 +142,8 @@ class SkillGenesisChainTests(unittest.TestCase):
                 {"fixture_id": "f3", "status": "pass"},
             ],
             base_dir=self.base,
+            synthetic_test_mode=True,
+            operator_approval_ref="test-synthetic-fixture",
         )
         with self.assertRaises(GovernanceError) as ctx:
             materialize_skill(

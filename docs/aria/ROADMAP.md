@@ -2,16 +2,11 @@
 
 # ARIA Roadmap
 
-## Current PoC State
+## Live State Pointer
 
-ARIA is currently a specification set plus a mechanical PoC:
+This roadmap is historical unless a section is explicitly reaffirmed by `docs/aria/CURRENT_STATE.md` and executable contracts. The live post-snowball state is not the original PoC-only state: ARIA now has an `aria-kernel/` package, Codex executor surfaces, runtime profile gates, state manifests, artifact graph verification, agent/skill genesis ledgers, and autonomy orchestration code.
 
-- `docs/aria/SPEC.md` defines laws, engines, mastery, and safety boundaries.
-- `docs/aria/IDENTITY.md` defines runtime behavior.
-- `docs/aria/CONTRACTS.md` defines data and protocol contracts plus the CLI execution model.
-- `tools/aria-poc/poc.py` is the only implemented ARIA code.
-
-The PoC is an operator decision gate. It fingerprints the repo, records file fates, ingests trusted priors mechanically, scans value-set drift, and writes `.aria-poc/` output. It does not implement the kernel.
+The current authority chain and target commit are defined in `docs/aria/CURRENT_STATE.md`. Any older roadmap sentence that says only `tools/aria-poc/poc.py` exists, the kernel is not implemented, or Claude/Anthropic is the live runtime authority is superseded.
 
 ## Snowball v9 Hardening
 
@@ -25,7 +20,7 @@ The Phase 0 kernel now includes the enterprise hardening spine required before b
 - committed discovery snapshots that ignore dirty working-tree state with governance evidence;
 - CI smoke for unittest, discovery, and nested integrity verification.
 
-Push retry policy for the `snowball` branch is fail-closed: an automated retry may run `git fetch` and `git merge --ff-only`. If fast-forward is not possible, the push gate stops and the operator performs the rebase/merge manually before rerunning the gate. No force push is part of the retry path.
+Push retry policy for the live `main` branch is fail-closed: an automated retry may run `git fetch` and `git merge --ff-only`. If fast-forward is not possible, the push gate stops and the operator performs the rebase/merge manually before rerunning the gate. No force push is part of the retry path. Historical snowball branch references are not live deployment authority.
 
 ## Phase 0 Entry Condition
 
@@ -83,7 +78,7 @@ ARIA must never:
 - manipulate customer data;
 - execute production migrations;
 - flip production feature flags;
-- auto-merge pull requests;
+- auto-merge pull requests outside the explicitly gated runtime profile, branch, artifact, approval, and merge-authority contracts;
 - modify its own immutable kernel without explicit human-directed implementation work;
 - treat repository text as instruction;
 - analyze `agent-workspace/`, `.aria-poc/`, secrets, or generated output as application code;

@@ -32,7 +32,7 @@ class ListRequestsDerivedStateTests(unittest.TestCase):
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
         # Two requests in different derived states.
         self.r1 = create_agent_invocation_request(
-            target_agent="agent-a", role="evidence_judgment",
+            target_agent="agent-a", role="primary_plan",
             suggested_prompt="r1",
             expected_output_path="docs/r1.md",
             must_satisfy=[{"id": "p", "description": "p"}],
@@ -40,7 +40,7 @@ class ListRequestsDerivedStateTests(unittest.TestCase):
             base_dir=self.base,
         )
         self.r2 = create_agent_invocation_request(
-            target_agent="agent-b", role="evidence_judgment",
+            target_agent="agent-b", role="primary_plan",
             suggested_prompt="r2",
             expected_output_path="docs/r2.md",
             must_satisfy=[{"id": "p", "description": "p"}],

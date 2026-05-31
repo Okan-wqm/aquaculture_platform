@@ -180,7 +180,10 @@ def _drain_next_cycle_queue(
     # A queue item is consumed only after its agent request is appended.
     import json
 
-    from .agent_invocations import create_agent_invocation_request
+    from .agent_invocations import (
+        create_agent_invocation_request,
+        list_agent_invocation_requests,
+    )
     from .tool_registry import append_tools_governance
 
     pending = read_pending(base_dir, limit=limit)
@@ -188,6 +191,22 @@ def _drain_next_cycle_queue(
     for item in pending:
         qid = item.get("queue_item_id")
         if not isinstance(qid, str) or not qid:
+            continue
+        existing_request = _find_projected_queue_request(
+            base_dir=base_dir, queue_item_id=qid,
+            requests=list_agent_invocation_requests(base_dir=base_dir),
+        )
+        if existing_request is not None:
+            mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
+            append_tools_governance(
+                base_dir,
+                "next_cycle_queue_item_projection_replayed",
+                {
+                    "queue_item_id": qid,
+                    "request_id": existing_request.get("request_id"),
+                },
+            )
+            consumed += 1
             continue
         prompt = {
             "$schema": "aria/next-cycle-queue-request/v1",
@@ -228,6 +247,24 @@ def _drain_next_cycle_queue(
         consumed += 1
     return consumed
 
+
+
+def _find_projected_queue_request(
+    *,
+    base_dir: Path,
+    queue_item_id: str,
+    requests: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    marker = f'"queue_item_id": "{queue_item_id}"'
+    for request in reversed(requests):
+        if request.get("role") != "maintenance_utility":
+            continue
+        if request.get("target_agent") != "aria-autonomy-planner":
+            continue
+        prompt = str(request.get("suggested_prompt") or "")
+        if marker in prompt or queue_item_id in prompt:
+            return request
+    return None
 
 def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
     tool_runs = cycle_result.get("tool_run_summary") if isinstance(cycle_result.get("tool_run_summary"), list) else []
@@ -352,6 +389,7 @@ def run_autonomy_orchestrator(
     # convergence_drainer round-poll) — the V9 implementer pipeline
     # has its own wall-clock budget.
     implementer_poll_seconds: float = 1800.0,
+    max_budget_usd_per_cycle: float = 1.50,
     # Runtime v2 hardening: artifact/lifecycle failures must stop the
     # autonomy loop by default after the cycle ledger has been closed.
     fail_closed_on_cycle_failure: bool = True,
@@ -433,6 +471,7 @@ def run_autonomy_orchestrator(
         profile_gate = NoOpProfileGate()
 
     root = ensure_tools_dir(base_dir)
+    os.environ["MAX_BUDGET_USD_PER_CYCLE"] = str(max_budget_usd_per_cycle)
     daemons_dir = root / "daemons"
     daemons_dir.mkdir(parents=True, exist_ok=True)
     daemon_pid_path = daemons_dir / f"{daemon_id}.pid.lock"
@@ -564,6 +603,7 @@ def run_autonomy_orchestrator(
                         "max_cycles": max_cycles,
                         "max_iterations_per_phase":
                             max_iterations_per_phase,
+                        "max_budget_usd_per_cycle": max_budget_usd_per_cycle,
                         "started_at": _iso_now(),
                         "profile": profile_snapshot,
                     },
@@ -876,6 +916,34 @@ def run_autonomy_orchestrator(
                         "iterations": bridge_result.get("iterations"),
                     },
                 )
+                bridge_status = str(bridge_result.get("status") or "ok")
+                pending_after = int(bridge_result.get("pending_after") or 0)
+                if profile_snapshot in {"strict", "autonomous"} and (
+                    bridge_status in {"skipped", "unknown", "failed"}
+                    or pending_after > 0
+                ):
+                    AutonomyStateReducer.transition(
+                        root,
+                        cycle_id=cycle_id,
+                        phase="bridge_replay_required",
+                        status="failed",
+                        profile=profile_snapshot,
+                        details={
+                            "bridge_status": bridge_status,
+                            "pending_after": pending_after,
+                        },
+                    )
+                    cycle_summary["failed_phases"] = list(cycle_summary.get("failed_phases", [])) + [
+                        {
+                            "phase": "bridge",
+                            "status": "failed",
+                            "bridge_status": bridge_status,
+                            "pending_after": pending_after,
+                        },
+                    ]
+                    per_cycle_results.append(cycle_summary)
+                    exit_reason = "bridge_replay_required"
+                    break
 
                 # Plan ARIA-V7 §2h v2 Phase 7.4 — skill_genesis_drainer.
                 # Polls skill-genesis/requests.jsonl for convergent=True

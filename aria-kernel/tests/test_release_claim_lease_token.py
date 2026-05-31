@@ -42,7 +42,7 @@ class ReleaseClaimLeaseTokenTests(unittest.TestCase):
         set_profile("standard", operator_approval_ref="test", base_dir=self.base)
         # Stage a request + claim it so release_claim has a valid target.
         req = create_agent_invocation_request(
-            target_agent="test-agent",
+            target_agent="aria-evidence-judge",
             role="evidence_judgment",
             suggested_prompt="prove docs/a.md",
             expected_output_path="docs/x.md",
@@ -104,7 +104,7 @@ class ReleaseClaimCliEnvVarTests(unittest.TestCase):
         self.base = self.tmp / "aria-tools"
         set_profile("standard", operator_approval_ref="test", base_dir=self.base)
         req = create_agent_invocation_request(
-            target_agent="test-agent",
+            target_agent="aria-evidence-judge",
             role="evidence_judgment",
             suggested_prompt="prove docs/a.md",
             expected_output_path="docs/x.md",

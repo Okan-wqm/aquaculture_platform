@@ -10,7 +10,7 @@ from aria_kernel.integrity import verify_integrity
 
 
 def enabled_policy(**overrides):
-    policy = {"enabled": True, "base_branch": "snowball", "merge_method": "squash"}
+    policy = {"enabled": True, "base_branch": "main", "merge_method": "squash"}
     policy.update(overrides)
     return policy
 
@@ -18,7 +18,7 @@ def enabled_policy(**overrides):
 def pr(**overrides):
     payload = {
         "number": 42,
-        "base_branch": "snowball",
+        "base_branch": "main",
         "head_sha": "abc1234",
         "changed_files": ["docs/aria/plans/008-auto-merge.md"],
         "reviews": [],
@@ -164,7 +164,7 @@ class AutoMergeTests(unittest.TestCase):
         )
         record_pr_lifecycle(
             {"number": pr_number, "head_sha": head_sha,
-             "change_id": change_id, "base_branch": "snowball"},
+             "change_id": change_id, "base_branch": "main"},
             event="opened", base_dir=self.tools_dir,
         )
 
@@ -173,15 +173,15 @@ class AutoMergeTests(unittest.TestCase):
         self.assertFalse(decision["eligible"])
         self.assertIn("policy disabled", decision["reasons"])
 
-    def test_non_snowball_base_branch_blocks(self):
+    def test_non_main_base_branch_blocks(self):
         decision = evaluate_auto_merge(
-            pr=pr(base_branch="main"),
+            pr=pr(base_branch="develop"),
             github=github(),
             policy=enabled_policy(),
             base_dir=self.tools_dir,
         )
         self.assertFalse(decision["eligible"])
-        self.assertIn("base branch must be snowball", decision["reasons"])
+        self.assertIn("base branch must be main", decision["reasons"])
 
     def test_classifier_allows_docs_and_tests_but_blocks_runtime_and_mixed_diffs(self):
         self.assertEqual(

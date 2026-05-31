@@ -15,6 +15,18 @@
 .claude/knowledge/               @Okan-wqm
 .claude/skills/                  @Okan-wqm
 
+# ── ARIA autonomy control plane ───────────────────────────────────────
+# Kernel/runtime contracts, live ARIA docs, and Codex executor surfaces
+# are one authority chain. Changes must be reviewed together so docs,
+# workflows, runtime gates, and tests cannot drift independently.
+aria-kernel/                    @Okan-wqm
+docs/aria/                      @Okan-wqm
+tools/aria-poc/                @Okan-wqm
+aria-tools/preflight/           @Okan-wqm
+package.json                    @Okan-wqm
+package-lock.json               @Okan-wqm
+.gitignore                      @Okan-wqm
+
 # ── Enforcement gate configuration ────────────────────────────────────
 # Allowlists, rule manifests, and boundary carve-outs must not drift silently.
 .claude/allowlists/              @Okan-wqm

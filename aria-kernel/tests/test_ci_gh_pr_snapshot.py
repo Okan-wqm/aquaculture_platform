@@ -27,7 +27,7 @@ def _gh_json_stub(checks_payload: list[dict]):
         if "pr" in argv and "view" in argv:
             return {
                 "number": 42,
-                "baseRefName": "snowball",
+                "baseRefName": "main",
                 "headRefOid": "abc1234",
                 "files": [],
             }
@@ -41,7 +41,7 @@ class GhPrSnapshotChecksRunsTests(unittest.TestCase):
     def _snapshot(self, checks_payload):
         # Plan ARIA-V10.3-B prereq fix — also mock
         # `_fetch_branch_protection_contexts` so the test does not
-        # depend on the snowball branch's live protection state. Pre-
+        # depend on the main branch's live protection state. Pre-
         # V10.3-B prereq the branch was unprotected (404), the helper
         # returned (None, "branch_protection_disabled_on_base"), and
         # `_gh_pr_snapshot` fell back to the `required` list derived
@@ -49,8 +49,8 @@ class GhPrSnapshotChecksRunsTests(unittest.TestCase):
         # protected and the helper returns ([], None) because the
         # operator-acknowledged Tier-1 rules deliberately leave
         # `required_status_checks.contexts=[]` (Free-plan public repo;
-        # snowball is the ARIA experimental branch — see
-        # aria-tools/preflight/snowball-branch-protection-v4.json
+        # main is the ARIA experimental branch — see
+        # aria-tools/preflight/main-branch-protection-v4.json
         # compatibility_decision=compatible_without_push_restrictions).
         # That empty list shrank `required_runs` to zero + every
         # checks-payload-derived assertion broke. Mocking the helper
@@ -99,7 +99,7 @@ class GhPrSnapshotChecksRunsTests(unittest.TestCase):
         # gh state) -> must NOT default to success.
         with patch("aria_kernel.ci._gh_json") as mock_gh:
             mock_gh.side_effect = lambda root, argv: (
-                {"number": 1, "baseRefName": "snowball", "headRefOid": "abc", "files": []}
+                {"number": 1, "baseRefName": "main", "headRefOid": "abc", "files": []}
                 if "view" in argv else
                 # Empty checks: required_checks list will be empty too.
                 []

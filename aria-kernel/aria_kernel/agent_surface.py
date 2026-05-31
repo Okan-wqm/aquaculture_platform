@@ -92,6 +92,8 @@ DEFAULT_TARGET_AGENT_WHITELIST: tuple[str, ...] = (
     "aria-consensus-arbiter",
     "aria-change-intelligence",
     "aria-goldset-curator",
+    "aria-autonomy-planner",
+    "aria-worker",
     "architectural-arbiter",
     "auth-security-expert",
     "access-boundary-auditor",

@@ -226,7 +226,7 @@ def _cross_task(
         "target_revision_id": target_revision_id,
         "target_plan_content_hash": target_hash,
         "status_after": "PENDING",
-        "sla_deadline": utc_now(),
+        "sla_deadline": f"round-{round_number}-operator-policy",
     }
     packet["task_packet_hash"] = "sha256:" + hashlib.sha256(
         json.dumps(packet, sort_keys=True, separators=(",", ":")).encode("utf-8"),
@@ -242,7 +242,6 @@ def _prompt_for_role(role: str, state: dict[str, Any]) -> str:
         "state": state.get("state"),
         "latest_revision": state.get("latest_revision"),
         "current_round": state.get("current_round") or 1,
-        "created_at": utc_now(),
     }
     return json.dumps(payload, indent=2, sort_keys=True)
 

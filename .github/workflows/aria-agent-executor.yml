@@ -40,7 +40,7 @@ on:
           - 'false'
 
 concurrency:
-  group: aria-agent-executor-snowball
+  group: aria-agent-executor-main
   cancel-in-progress: false
 
 permissions:
@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: snowball
+          ref: main
           persist-credentials: false
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -64,8 +64,8 @@ jobs:
         with:
           node-version: '20'
 
-      # Plan ARIA-V3 §B1 INFRA-CRITICAL-003 — install pinned Claude
-      # Code CLI BEFORE the executor step. The proven-contract doc
+      # Plan ARIA-V3 §B1 INFRA-CRITICAL-003 — verify the pinned Codex
+      # CLI floor BEFORE the executor step. The proven-contract doc
       # (tools/aria-poc/ci_executor_contract_proven.md) is the SSoT
       # for the argv shape; this step ensures the binary that
       # interprets that argv is present and version-pinned. The
@@ -74,14 +74,25 @@ jobs:
       - name: Pre-flight - Codex CLI present
         run: |
           set -euo pipefail
-          codex --version
+          REQUIRED_CODEX_VERSION="0.135.0"
+          CODEX_VERSION="$(codex --version | awk '{print $2}')"
+          python3 - "$REQUIRED_CODEX_VERSION" "$CODEX_VERSION" <<'PY'
+          import sys
+          def parse(value):
+              return tuple(int(part) for part in value.split('.'))
+          required = parse(sys.argv[1])
+          current = parse(sys.argv[2])
+          if current < required:
+              raise SystemExit(f"codex-cli {sys.argv[2]} is below required {sys.argv[1]}")
+          print(f"codex-cli {sys.argv[2]} satisfies required {sys.argv[1]}")
+          PY
 
       # Plan ARIA-V3 §B2 + §2n + INFRA-HIGH-004 — cross-host lease
       # check. If a local daemon currently holds the autonomous-loop
       # lease (e.g. operator is running ``aria-kernel autonomy run``
       # on their laptop), this GHA cron MUST refuse to enter the
       # autonomous path to prevent double-claim / double-materialize
-      # races. The lease state is read from the snowball-committed
+      # races. The lease state is read from the mainline
       # ``aria-tools/locks/autonomous-host.lock`` file; a fresh lease
       # (< 5 min old) belonging to a different host blocks the cron.
       # The cron exits cleanly with reason ``autonomous_host_lease_blocked``

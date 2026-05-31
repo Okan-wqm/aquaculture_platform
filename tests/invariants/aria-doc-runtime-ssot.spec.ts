@@ -114,8 +114,8 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(read('.github/workflows/aria-kernel-full.yml')).toMatch(/branches:\s*\n\s*- main/);
     const kernelWorkflow = read('.github/workflows/aria-kernel.yml');
     const kernelFullWorkflow = read('.github/workflows/aria-kernel-full.yml');
-    expect(kernelWorkflow).toContain('node-version: \"22\"');
-    expect(kernelFullWorkflow).toContain('node-version: \"22\"');
+    expect(kernelWorkflow).toContain('node-version: "22"');
+    expect(kernelFullWorkflow).toContain('node-version: "22"');
     for (const workflow of [kernelWorkflow, kernelFullWorkflow]) {
       expect(workflow).toContain('tomllib.load');
       expect(workflow).toContain('aria-kernel/pyproject.toml');

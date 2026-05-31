@@ -95,7 +95,7 @@ jobs:
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel discovery run --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools --cycle-id ci-${{ github.run_id }} --snapshot-mode committed
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools
       - name: Run ARIA docs/runtime SSoT invariant
-        run: npx jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts
+        run: npm run aria:docs:ssot
       - name: Run ARIA runtime artifact smoke
         run: |
           PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 - <<'PY'

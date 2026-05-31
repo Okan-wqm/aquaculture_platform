@@ -123,6 +123,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(pkg.scripts['aria:compile']).toContain("compile(p.read_text(encoding='utf-8'), str(p), 'exec')");
     expect(pkg.scripts['aria:compile']).not.toContain('compileall');
     expect(pkg.scripts['aria:test:unit']).toContain("python3 -m unittest discover aria-kernel -p '*test*.py'");
+    expect(pkg.scripts['aria:docs:ssot']).toBe('jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts');
     expect(pkg.scripts['aria:ci:all']).toBe('npm run aria:compile && npm run aria:test:unit && npm run invariants:fast');
   });
 

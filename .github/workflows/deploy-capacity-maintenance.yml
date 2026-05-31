@@ -1,0 +1,108 @@
+name: Deploy Capacity Maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Capacity operation to run on the production droplet.'
+        required: true
+        type: choice
+        default: report
+        options:
+          - report
+          - safe-image-gc
+          - gate
+      deploy_sha:
+        description: 'Optional 40-character SHA to protect and evaluate. Blank uses origin/main.'
+        required: false
+        type: string
+        default: ''
+      full_deploy:
+        description: 'Use full deploy capacity thresholds and pull estimate.'
+        required: true
+        type: choice
+        default: 'true'
+        options:
+          - 'true'
+          - 'false'
+      deploy_services:
+        description: 'Space-separated service list for selective estimates; use all for full deploy.'
+        required: false
+        type: string
+        default: 'all'
+      image_prefix:
+        description: 'Registry image prefix used by production deploy images.'
+        required: true
+        type: string
+        default: 'ghcr.io/okan-wqm/aquaculture_platform'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-capacity-maintenance-production
+  cancel-in-progress: false
+
+jobs:
+  capacity-maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - name: Run capacity operation through production deploy control plane
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
+        env:
+          OPERATION: ${{ inputs.operation }}
+          REQUESTED_DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          FULL_DEPLOY: ${{ inputs.full_deploy }}
+          DEPLOY_SERVICES: ${{ inputs.deploy_services }}
+          IMAGE_PREFIX: ${{ inputs.image_prefix }}
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          command_timeout: 12m
+          envs: OPERATION,REQUESTED_DEPLOY_SHA,FULL_DEPLOY,DEPLOY_SERVICES,IMAGE_PREFIX
+          script: |
+            set -euo pipefail
+
+            cd /var/aqua-saas
+            git fetch --force --prune origin main
+
+            if [ -n "${REQUESTED_DEPLOY_SHA}" ]; then
+              case "${REQUESTED_DEPLOY_SHA}" in
+                *[!0-9a-f]*)
+                  echo "::error::deploy_sha must be lowercase hex."
+                  exit 2
+                  ;;
+              esac
+              if [ "${#REQUESTED_DEPLOY_SHA}" -ne 40 ]; then
+                echo "::error::deploy_sha must be exactly 40 characters."
+                exit 2
+              fi
+              TARGET_SHA="${REQUESTED_DEPLOY_SHA}"
+            else
+              TARGET_SHA="$(git rev-parse origin/main)"
+            fi
+
+            git checkout -f "${TARGET_SHA}"
+            export DEPLOY_SHA="${TARGET_SHA}"
+
+            case "${OPERATION}" in
+              report)
+                bash scripts/deploy/droplet-capacity.sh report
+                ;;
+              safe-image-gc)
+                bash scripts/deploy/droplet-capacity.sh report
+                bash scripts/deploy/droplet-capacity.sh gc
+                bash scripts/deploy/droplet-capacity.sh report
+                CAPACITY_GC_MODE=off bash scripts/deploy/droplet-capacity.sh gate
+                ;;
+              gate)
+                CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate
+                ;;
+              *)
+                echo "::error::Unsupported operation: ${OPERATION}"
+                exit 2
+                ;;
+            esac

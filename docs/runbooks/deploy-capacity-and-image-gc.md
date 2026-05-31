@@ -8,12 +8,17 @@ images locally or deploy mutable `latest` tags.
 1. Treat the failed run as zero-state-change if it failed before image pull,
    migration, or restart. The release ledger records
    `rollback_skipped_reason=no_state_changed`.
-2. Inspect the Actions capacity summary and the droplet output from:
-   `scripts/deploy/droplet-capacity.sh report`.
-3. Run image-only cleanup only:
-   `scripts/deploy/droplet-capacity.sh gc`.
-4. Re-run the same GitHub Actions deploy SHA after capacity is above the hard
+2. Inspect the failed `deploy / capacity-preflight` GitHub Actions job log.
+3. If a separate report or cleanup pass is needed, run the
+   `Deploy Capacity Maintenance` workflow from GitHub Actions. Use `report`
+   for inspection, `safe-image-gc` for image-only cleanup, or `gate` to run the
+   same capacity gate with the safe GC pass enabled.
+4. Re-run the failed GitHub Actions deploy job after capacity is above the hard
    reserve.
+
+Operators must not SSH into the droplet to run capacity scripts manually.
+GitHub Actions is the deploy remediation control plane and provides the audit
+trail for report, image-only GC, gate, and deploy reruns.
 
 ## Forbidden Cleanup
 

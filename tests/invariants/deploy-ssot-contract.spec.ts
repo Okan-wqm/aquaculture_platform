@@ -60,10 +60,19 @@ describe('deploy SSOT contract', () => {
 
   it('verifies SHA images and capacity before SSH mutation', () => {
     const workflow = read('.github/workflows/deploy-digitalocean.yml');
+    const maintenance = read('.github/workflows/deploy-capacity-maintenance.yml');
 
     expect(workflow).toContain('verify-images:');
     expect(workflow).toContain('capacity-preflight:');
     expect(workflow).toContain('DEPLOY_IMAGE_DIGESTS_B64');
-    expect(workflow).toContain('scripts/deploy/droplet-capacity.sh gate');
+    expect(workflow).toContain(
+      'CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate',
+    );
+    expect(maintenance).toContain('workflow_dispatch:');
+    expect(maintenance).toContain('safe-image-gc');
+    expect(maintenance).toContain('bash scripts/deploy/droplet-capacity.sh gc');
+    expect(maintenance).toContain(
+      'CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate',
+    );
   });
 });

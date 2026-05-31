@@ -180,9 +180,8 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
     this.processing = true;
 
     try {
-      // Refresh gauges. Counting is cheap — a partial index on
-      // `(createdAt) WHERE publishedAt IS NULL` makes the pending count
-      // fast even when the table is large.
+      // Refresh gauges. Counting is cheap — the service migrations install
+      // partial poll indexes for unpublished, non-dead-lettered rows.
       const [pendingCount, deadLetterCount] = await Promise.all([
         this.repo.count({
           where: {
@@ -247,12 +246,17 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
    *   publishedAt IS NULL
    *   AND retryCount < MAX_RETRIES
    *   AND (leasedAt IS NULL OR leasedAt < NOW() - OUTBOX_LEASE_DURATION_MS)
+   *   AND no earlier unpublished row exists for the same tenant + aggregate
    *
    * The lease expiry window is computed in JavaScript (not in SQL with
    * `NOW() - INTERVAL`) so the query plan remains index-friendly: the
    * partial index `idx_<service>_outbox_poll` already filters on
    * `publishedAt IS NULL`, and the remaining predicate is evaluated
    * row-by-row on the narrowed set.
+   *
+   * The aggregate gate is the per-aggregate FIFO boundary. The worker may
+   * publish different aggregates concurrently, but it never claims sequence N+1
+   * for an aggregate while sequence N is still unpublished.
    */
   private async acquireLease(): Promise<OutboxEntityBase[]> {
     const tableName = this.repo.metadata.tableName;
@@ -264,13 +268,25 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       // parameterized WHERE clauses has been inconsistent across driver
       // versions. A parameterized raw query is the simplest correct form.
       const rows: OutboxEntityBase[] = await manager.query(
-        `SELECT * FROM "${tableName}"
-         WHERE "publishedAt" IS NULL
-           AND "isDeadLettered" = false
-           AND "retryCount" < $1
-           AND ("leasedAt" IS NULL OR "leasedAt" < $2)
-           AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= NOW())
-         ORDER BY "createdAt" ASC
+        `SELECT candidate.* FROM "${tableName}" AS candidate
+         WHERE candidate."publishedAt" IS NULL
+           AND candidate."isDeadLettered" = false
+           AND candidate."retryCount" < $1
+           AND (candidate."leasedAt" IS NULL OR candidate."leasedAt" < $2)
+           AND (candidate."nextAttemptAt" IS NULL OR candidate."nextAttemptAt" <= NOW())
+           AND (
+             candidate."aggregateId" IS NULL
+             OR NOT EXISTS (
+               SELECT 1
+               FROM "${tableName}" AS prior
+               WHERE prior."tenantId" IS NOT DISTINCT FROM candidate."tenantId"
+                 AND prior."aggregateId" = candidate."aggregateId"
+                 AND prior."publishedAt" IS NULL
+                 AND prior."isDeadLettered" = false
+                 AND prior."sequence" < candidate."sequence"
+             )
+           )
+         ORDER BY candidate."sequence" ASC
          LIMIT $3
          FOR UPDATE SKIP LOCKED`,
         [OUTBOX_MAX_RETRIES, leaseCutoff, OUTBOX_BATCH_SIZE],

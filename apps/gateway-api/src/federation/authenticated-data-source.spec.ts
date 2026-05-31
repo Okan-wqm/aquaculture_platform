@@ -1,4 +1,9 @@
-import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+import {
+  VERIFIED_USER_ASSERTION_HEADER,
+  VERIFIED_USER_ASSERTION_SIGNATURE_HEADER,
+  buildSignedInternalHeaders,
+  hashVerifiedUserAssertionHeaders,
+} from '@aquaculture/backend-common/http';
 import { verifyServiceIdentityRequest } from '@aquaculture/backend-common/utils';
 import { AuthenticatedDataSource } from './authenticated-data-source';
 import type { GatewayContext } from './authenticated-data-source';
@@ -151,13 +156,18 @@ describe('AuthenticatedDataSource service identity signing', () => {
     });
 
     const sent = calls[0]?.init;
-    expect((sent?.headers as Record<string, string>)['X-Tenant-ID']).toBe(TENANT_ID);
+    const sentHeaders = sent?.headers as Record<string, string>;
+    const sentHeadersLower = lowerCaseHeaders(sent?.headers);
+    expect(sentHeaders['X-Tenant-ID']).toBe(TENANT_ID);
+    expect(sentHeadersLower[VERIFIED_USER_ASSERTION_HEADER.toLowerCase()]).toBeDefined();
+    expect(sentHeadersLower[VERIFIED_USER_ASSERTION_SIGNATURE_HEADER.toLowerCase()]).toBeDefined();
     expect(
       verifyServiceIdentityRequest({
-        headers: lowerCaseHeaders(sent?.headers),
+        headers: sentHeadersLower,
         observedMethod: 'POST',
         observedPath: '/graphql',
         observedBody: wireBody,
+        observedAssertionHash: hashVerifiedUserAssertionHeaders(sentHeaders),
         secret: SECRET,
         expectedTenantId: TENANT_ID,
       }),

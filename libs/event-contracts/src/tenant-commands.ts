@@ -165,6 +165,37 @@ export const AUTH_ADMIN_COMMAND_SUBJECTS = {
   CHECK_USER_LIMIT: 'request.auth.admin.checkUserLimit',
 } as const;
 
+export const AUTH_PASSWORD_RESET_SUBJECTS = {
+  REQUEST: 'request.auth.passwordReset.request',
+  COMPLETE: 'request.auth.passwordReset.complete',
+} as const;
+
+export interface AuthPasswordResetRequestCommand {
+  email: string;
+  ipAddress?: string;
+  correlationId?: string;
+}
+
+export interface AuthPasswordResetRequestResult {
+  success: boolean;
+  message: string;
+}
+
+export interface AuthPasswordResetCompleteCommand {
+  token: string;
+  newPassword: string;
+  ipAddress?: string;
+  userAgent?: string;
+  correlationId?: string;
+}
+
+export interface AuthPasswordResetCompleteResult {
+  success: boolean;
+  message: string;
+  errorCode?: 'INVALID_OR_EXPIRED_TOKEN' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
 /**
  * Command to create a user by a SUPER_ADMIN operator.
  *

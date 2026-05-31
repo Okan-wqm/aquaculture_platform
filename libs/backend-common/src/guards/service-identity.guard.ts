@@ -9,8 +9,18 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import {
+  type FieldNode,
+  type FragmentDefinitionNode,
+  Kind,
+  type OperationDefinitionNode,
+  type SelectionNode,
+  type SelectionSetNode,
+  parse,
+} from 'graphql';
 import { verifyServiceIdentityRequest } from '../utils/service-identity.util';
 import { SecurityEventService } from '../security/security-event.service';
+import { hashVerifiedUserAssertionHeaders } from '../http/gateway-verified-user-assertion';
 
 /**
  * ServiceIdentityGuard — validates that incoming requests to a subgraph
@@ -58,15 +68,15 @@ export class ServiceIdentityGuard implements CanActivate {
       if (process.env['NODE_ENV'] === 'production') {
         throw new Error(
           'INTERNAL_SERVICE_SECRET is not set. ' +
-          'Inter-service authentication is required in production. ' +
-          'Set INTERNAL_SERVICE_SECRET to enable service identity validation.',
+            'Inter-service authentication is required in production. ' +
+            'Set INTERNAL_SERVICE_SECRET to enable service identity validation.',
         );
       }
       if (!this.warned) {
         this.warned = true;
         this.logger.warn(
           'INTERNAL_SERVICE_SECRET is not set — service identity validation is DISABLED. ' +
-          'Set INTERNAL_SERVICE_SECRET in production to enforce inter-service authentication.',
+            'Set INTERNAL_SERVICE_SECRET in production to enforce inter-service authentication.',
         );
       }
       return true;
@@ -80,10 +90,13 @@ export class ServiceIdentityGuard implements CanActivate {
       return true;
     }
 
-    // Allow introspection queries without identity headers.
+    // Allow only pure introspection/schema-composition queries without
+    // identity headers.
     // The gateway's IntrospectAndCompose polls subgraph schemas periodically
     // and Apollo's internal introspection does not go through willSendRequest
     // context flow (context is undefined for health-check/schema loads).
+    // SECURITY: a mixed operation containing `__schema` plus an ordinary
+    // resolver is NOT introspection and must pass service identity HMAC.
     const body = req.body as { query?: string; operationName?: string } | undefined;
     if (this.isIntrospectionQuery(body)) {
       return true;
@@ -107,6 +120,9 @@ export class ServiceIdentityGuard implements CanActivate {
       observedMethod: req.method ?? 'POST',
       observedPath: this.canonicalisePath(req),
       observedBody,
+      observedAssertionHash: hashVerifiedUserAssertionHeaders(
+        req.headers as Record<string, string | string[] | undefined>,
+      ),
       secret: this.secret,
       expectedTenantId: tenantHeader,
     });
@@ -116,13 +132,17 @@ export class ServiceIdentityGuard implements CanActivate {
         `Rejected request: ${outcome.reason} from "${serviceName}"` +
           (tenantHeader ? ` (tenant=${tenantHeader})` : ''),
       );
-      this.securityEventService?.publishServiceIdentityRejected({
-        serviceName,
-        reason:
-          outcome.reason === 'missing-headers'
-            ? 'Missing service identity headers'
-            : `Service identity verification failed: ${outcome.reason}`,
-      }).catch(() => { /* best-effort */ });
+      this.securityEventService
+        ?.publishServiceIdentityRejected({
+          serviceName,
+          reason:
+            outcome.reason === 'missing-headers'
+              ? 'Missing service identity headers'
+              : `Service identity verification failed: ${outcome.reason}`,
+        })
+        .catch(() => {
+          /* best-effort */
+        });
       throw new ForbiddenException(
         outcome.reason === 'missing-headers'
           ? 'Missing service identity headers. Direct access to subgraph services is not allowed.'
@@ -133,10 +153,14 @@ export class ServiceIdentityGuard implements CanActivate {
     if (outcome.version === 'v1') {
       // Deprecated path observed — emit a security event so the metric
       // for "safe to remove v1" can be tracked. Not a rejection (yet).
-      this.securityEventService?.publishServiceIdentityRejected({
-        serviceName,
-        reason: 'service-identity-v1-deprecated-accepted',
-      }).catch(() => { /* best-effort */ });
+      this.securityEventService
+        ?.publishServiceIdentityRejected({
+          serviceName,
+          reason: 'service-identity-v1-deprecated-accepted',
+        })
+        .catch(() => {
+          /* best-effort */
+        });
     }
 
     return true;
@@ -179,29 +203,97 @@ export class ServiceIdentityGuard implements CanActivate {
   private isIntrospectionQuery(
     body: { query?: string; operationName?: string } | undefined,
   ): boolean {
-    if (!body) {
+    if (!body || typeof body.query !== 'string') {
       return false;
     }
 
-    // Apollo Gateway introspection uses specific operation names
-    if (body.operationName === 'IntrospectionQuery') {
+    let document;
+    try {
+      document = parse(body.query);
+    } catch {
+      return false;
+    }
+
+    const fragments = new Map<string, FragmentDefinitionNode>();
+    const operations: OperationDefinitionNode[] = [];
+    for (const definition of document.definitions) {
+      if (definition.kind === Kind.FRAGMENT_DEFINITION) {
+        fragments.set(definition.name.value, definition);
+      } else if (definition.kind === Kind.OPERATION_DEFINITION) {
+        operations.push(definition);
+      }
+    }
+
+    const targetOperations = body.operationName
+      ? operations.filter((operation) => operation.name?.value === body.operationName)
+      : operations;
+    if (targetOperations.length !== 1) {
+      return false;
+    }
+
+    const operation = targetOperations[0];
+    if (!operation || operation.operation !== 'query') {
+      return false;
+    }
+
+    return this.selectionSetIsPureIntrospection(operation.selectionSet, fragments);
+  }
+
+  private selectionSetIsPureIntrospection(
+    selectionSet: SelectionSetNode,
+    fragments: Map<string, FragmentDefinitionNode>,
+    seenFragments = new Set<string>(),
+  ): boolean {
+    if (selectionSet.selections.length === 0) {
+      return false;
+    }
+
+    return selectionSet.selections.every((selection) =>
+      this.rootSelectionIsIntrospection(selection, fragments, seenFragments),
+    );
+  }
+
+  private rootSelectionIsIntrospection(
+    selection: SelectionNode,
+    fragments: Map<string, FragmentDefinitionNode>,
+    seenFragments: Set<string>,
+  ): boolean {
+    if (selection.kind === Kind.FIELD) {
+      return this.rootFieldIsIntrospection(selection);
+    }
+
+    if (selection.kind === Kind.INLINE_FRAGMENT) {
+      return this.selectionSetIsPureIntrospection(selection.selectionSet, fragments, seenFragments);
+    }
+
+    const fragmentName = selection.name.value;
+    if (seenFragments.has(fragmentName)) {
+      return false;
+    }
+    const fragment = fragments.get(fragmentName);
+    if (!fragment) {
+      return false;
+    }
+    seenFragments.add(fragmentName);
+    const result = this.selectionSetIsPureIntrospection(
+      fragment.selectionSet,
+      fragments,
+      seenFragments,
+    );
+    seenFragments.delete(fragmentName);
+    return result;
+  }
+
+  private rootFieldIsIntrospection(field: FieldNode): boolean {
+    const fieldName = field.name.value;
+    if (fieldName === '__schema' || fieldName === '__type') {
       return true;
     }
-
-    // Check if the query body contains introspection fields
-    const query = body.query;
-    if (typeof query === 'string') {
-      const trimmed = query.replace(/\s+/g, ' ').trim();
-      // Match __schema or __type introspection patterns
-      if (trimmed.includes('__schema') || trimmed.includes('__type')) {
-        return true;
-      }
-      // Apollo Gateway's _service { sdl } federation query
-      if (trimmed.includes('_service') && trimmed.includes('sdl')) {
-        return true;
-      }
+    if (fieldName !== '_service' || !field.selectionSet) {
+      return false;
     }
-
-    return false;
+    return field.selectionSet.selections.every(
+      (selection) => selection.kind === Kind.FIELD && selection.name.value === 'sdl',
+    );
   }
 }

@@ -56,6 +56,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Request, Response, NextFunction } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { verifyServiceIdentityRequest } from '../utils/service-identity.util';
+import { hashVerifiedUserAssertionHeaders } from '../http/gateway-verified-user-assertion';
 
 /**
  * The four request headers we treat as INTERNAL trust anchors. Any of
@@ -129,6 +130,9 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
         observedMethod: req.method ?? 'GET',
         observedPath: this.canonicalisePath(req),
         observedBody: this.serializeBodyForHash(req.body),
+        observedAssertionHash: hashVerifiedUserAssertionHeaders(
+          req.headers as Record<string, string | string[] | undefined>,
+        ),
         secret: this.serviceSecret,
         expectedTenantId: tenantHeader,
       });

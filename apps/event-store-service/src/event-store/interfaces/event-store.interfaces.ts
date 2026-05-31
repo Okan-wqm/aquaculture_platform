@@ -115,9 +115,28 @@ export interface ConcurrencyCheckResult {
 }
 
 /**
- * Event handler callback type
+ * Transaction context passed to projection handlers.
+ *
+ * Handlers that write read-model state must use this manager for their
+ * projection writes. The projections service records the inbox row and
+ * checkpoint in the same transaction, so handler side effects, dedupe state,
+ * and checkpoint movement commit or roll back together.
  */
-export type EventHandler = (event: PersistedEvent) => Promise<void>;
+export interface ProjectionHandlerContext {
+  manager: EntityManager;
+}
+
+/**
+ * Event handler callback type.
+ *
+ * Existing handlers that only accept `event` remain valid; transactional
+ * handlers accept the second context argument and write through
+ * `context.manager`.
+ */
+export type EventHandler = (
+  event: PersistedEvent,
+  context: ProjectionHandlerContext,
+) => Promise<void>;
 
 /**
  * Retry policy for failed event processing
@@ -128,3 +147,4 @@ export interface RetryPolicy {
   maxDelayMs: number;
   backoffMultiplier: number;
 }
+import type { EntityManager } from 'typeorm';

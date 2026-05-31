@@ -2,16 +2,15 @@
  * NatsIngestionConsumerService unit tests — Faz 3 stage 2.
  *
  * Covers the Rust-sidecar → NestJS bridge contract:
- *   - SensorMetricIngested events from the sidecar are persisted via
- *     the existing BatchProcessorService.enqueue path.
+ *   - SensorMetricIngested events from the sidecar are already
+ *     persisted by Rust before outbox dispatch; this consumer never
+ *     writes them a second time.
  *   - The typed SensorReadingEvent is re-emitted for downstream
  *     consumers, with channelKey selecting the readingXxx field.
  *   - Drops on unknown sensor / unknown channel / tenant mismatch
  *     never throw (would re-poison the JetStream consumer).
  *   - Cache TTL prevents redundant DB hits within the 60s window.
  */
-
-import { ConfigService } from '@nestjs/config';
 
 import {
   IEventBus,
@@ -21,7 +20,6 @@ import { type SensorMetricIngestedEvent } from '@platform/event-contracts';
 
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import { Sensor } from '../../database/entities/sensor.entity';
-import { BatchProcessorService } from '../batch-processor.service';
 import { NatsIngestionConsumerService } from '../nats-ingestion-consumer.service';
 
 const TENANT_ID  = '11111111-1111-1111-1111-111111111111';
@@ -70,13 +68,6 @@ function fakeEvent(overrides: Partial<SensorMetricIngestedEvent> = {}): SensorMe
   } as unknown as SensorMetricIngestedEvent;
 }
 
-function makeBatch(): jest.Mocked<BatchProcessorService> {
-  return {
-    enqueue: jest.fn(),
-    enqueueBatch: jest.fn(),
-  } as unknown as jest.Mocked<BatchProcessorService>;
-}
-
 function makeBus(): jest.Mocked<IEventBus> {
   return {
     publish: jest.fn().mockResolvedValue(undefined),
@@ -96,7 +87,6 @@ function makeService(opts?: {
   bus?: IEventBus | null;
   sensor?: Sensor | null;
   channels?: SensorDataChannel[];
-  batch?: jest.Mocked<BatchProcessorService>;
 }) {
   // Faz 3 follow-on: cache extracted to SensorMetaCacheService. The
   // test uses a thin stub that returns whatever the test scenario
@@ -111,16 +101,12 @@ function makeService(opts?: {
     invalidateSensor: jest.fn(),
     invalidateTenant: jest.fn(),
   } as const;
-  const batch = opts?.batch ?? makeBatch();
   const bus = opts?.bus === undefined ? makeBus() : opts.bus;
-  const config = { get: jest.fn() } as unknown as ConfigService;
   const svc = new NatsIngestionConsumerService(
-    batch,
-    config,
     metaCache as unknown as import('../sensor-meta-cache.service').SensorMetaCacheService,
     bus,
   );
-  return { svc, metaCache, batch, bus };
+  return { svc, metaCache, bus };
 }
 
 describe('NatsIngestionConsumerService', () => {
@@ -178,30 +164,30 @@ describe('NatsIngestionConsumerService', () => {
     });
   });
 
-  describe('handle — drop semantics (no throw, no enqueue)', () => {
+  describe('handle — drop semantics (no throw, no publish)', () => {
     it('drops events for unknown sensorId', async () => {
-      const batch = makeBatch();
-      const { svc } = makeService({ sensor: null, batch });
+      const bus = makeBus();
+      const { svc } = makeService({ sensor: null, bus });
       await svc.handle(fakeEvent());
-      expect(batch.enqueue).not.toHaveBeenCalled();
+      expect(bus.publish).not.toHaveBeenCalled();
     });
 
     it('drops events when payload tenantId mismatches sensor tenantId', async () => {
-      const batch = makeBatch();
+      const bus = makeBus();
       const sensor = fakeSensor({ tenantId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' });
-      const { svc } = makeService({ sensor, batch });
+      const { svc } = makeService({ sensor, bus });
       await svc.handle(fakeEvent({ tenantId: TENANT_ID }));
-      expect(batch.enqueue).not.toHaveBeenCalled();
+      expect(bus.publish).not.toHaveBeenCalled();
     });
 
     it('drops events for unknown channelId', async () => {
-      const batch = makeBatch();
+      const bus = makeBus();
       const { svc } = makeService({
         channels: [fakeChannel('temperature', { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc' })],
-        batch,
+        bus,
       });
       await svc.handle(fakeEvent());
-      expect(batch.enqueue).not.toHaveBeenCalled();
+      expect(bus.publish).not.toHaveBeenCalled();
     });
 
     it('never throws on drop paths (would poison JetStream consumer)', async () => {
@@ -214,68 +200,28 @@ describe('NatsIngestionConsumerService', () => {
       // The event would have been rejected by the Rust producer's
       // serde(deny_unknown_fields), but the consumer-side validator
       // catches the case where a future producer somehow emits this.
-      const batch = makeBatch();
       const metaCache = {
         getSensor: jest.fn().mockResolvedValue(fakeSensor()),
         getChannels: jest.fn().mockResolvedValue([fakeChannel('temperature')]),
         invalidateSensor: jest.fn(),
         invalidateTenant: jest.fn(),
       };
+      const bus = makeBus();
       const svc = new NatsIngestionConsumerService(
-        batch,
-        { get: jest.fn() } as unknown as ConfigService,
         metaCache as unknown as import('../sensor-meta-cache.service').SensorMetaCacheService,
-        makeBus(),
+        bus,
       );
       await svc.handle(fakeEvent({ qualityCode: 99 }));
       // Schema rejection short-circuits BEFORE the cache lookup —
       // proves the validator runs first (defence in depth, not a
       // post-hoc check).
       expect(metaCache.getSensor).not.toHaveBeenCalled();
-      expect(batch.enqueue).not.toHaveBeenCalled();
+      expect(bus.publish).not.toHaveBeenCalled();
     });
   });
 
   describe('handle — happy path', () => {
-    it('enqueues a SensorMetricInput onto BatchProcessor (event-side farm/pond honored)', async () => {
-      // Faz 3 follow-on: the sidecar populates `event.farmId` /
-      // `event.pondId` from its warm cache. The consumer MUST honor
-      // those values (event-side is the SoT when the cache was warm
-      // at publish time). This test threads explicit event-side
-      // values that match the sensor row to keep the assertion shape
-      // unchanged from the pre-Faz-3-follow-on behaviour while
-      // proving the new fallback chain accepts the event-side path.
-      const batch = makeBatch();
-      const { svc } = makeService({ batch });
-      await svc.handle(
-        fakeEvent({ farmId: FARM_ID, pondId: POND_ID }),
-      );
-      expect(batch.enqueue).toHaveBeenCalledTimes(1);
-      const firstCall = batch.enqueue.mock.calls[0];
-      if (!firstCall) throw new Error('expected at least one enqueue call');
-      const arg = firstCall[0];
-      expect(arg).toMatchObject({
-        sensorId: SENSOR_ID,
-        channelId: CHANNEL_ID,
-        tenantId: TENANT_ID,
-        rawValue: 24.5,
-        value: 24.5,
-        qualityCode: 1,
-        sourceProtocol: 'rust-sidecar',
-        farmId: FARM_ID,
-        pondId: POND_ID,
-      });
-      // time / sourceTimestamp must be Date (not number) — match the
-      // existing SensorMetricInput contract.
-      expect(arg.time).toBeInstanceOf(Date);
-      expect(arg.sourceTimestamp).toBeInstanceOf(Date);
-      // 1_730_000_000_000 ms since UNIX epoch = 2024-10-27T03:33:20Z.
-      // Pin the producerTs → time conversion so a future Date(0)
-      // refactor cannot silently shift the persisted timestamp.
-      expect(arg.time?.toISOString()).toBe('2024-10-27T03:33:20.000Z');
-    });
-
-    it('publishes a typed SensorReadingEvent after enqueue (event-side farm/pond honored)', async () => {
+    it('publishes a typed SensorReadingEvent after Rust outbox dispatch (event-side farm/pond honored)', async () => {
       const bus = makeBus();
       const { svc } = makeService({ bus });
       await svc.handle(
@@ -304,30 +250,21 @@ describe('NatsIngestionConsumerService', () => {
       // consumer's TTL-bounded cache after a recent write).
       //
       // Test setup: event carries farm A / pond A; sensor row carries
-      // farm B / pond B. The consumer MUST prefer A on BOTH the
-      // SensorMetricInput AND the typed SensorReadingEvent — proving
-      // the fallback chain `event.* ?? sensor.* ?? undefined` actually
-      // walks left-to-right.
+      // farm B / pond B. The consumer MUST prefer A on the typed
+      // SensorReadingEvent — proving the fallback chain
+      // `event.* ?? sensor.* ?? undefined` actually walks left-to-right.
       const EVENT_FARM = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
       const EVENT_POND = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
       const SENSOR_FARM = 'cccccccc-dddd-eeee-ffff-aaaaaaaaaaaa';
       const SENSOR_POND = 'dddddddd-eeee-ffff-aaaa-bbbbbbbbbbbb';
-      const batch = makeBatch();
       const bus = makeBus();
       const { svc } = makeService({
-        batch,
         bus,
         sensor: fakeSensor({ farmId: SENSOR_FARM, pondId: SENSOR_POND }),
       });
       await svc.handle(
         fakeEvent({ farmId: EVENT_FARM, pondId: EVENT_POND }),
       );
-      // SensorMetricInput receives the EVENT-side ids.
-      const enqArg = batch.enqueue.mock.calls[0]?.[0];
-      if (!enqArg) throw new Error('expected enqueue arg');
-      expect(enqArg.farmId).toBe(EVENT_FARM);
-      expect(enqArg.pondId).toBe(EVENT_POND);
-      // Typed event also carries the EVENT-side ids.
       const typedEv = bus.publish.mock.calls[0]?.[0] as unknown as Record<
         string,
         unknown
@@ -341,12 +278,9 @@ describe('NatsIngestionConsumerService', () => {
       // event.farmId / event.pondId absent. The consumer's own cache
       // covers the gap — defence-in-depth + cold-path correctness.
       // Test: event has no farm/pond; sensor row carries the values;
-      // both the SensorMetricInput AND the typed event surface the
-      // sensor-side values.
-      const batch = makeBatch();
+      // the typed event surfaces the sensor-side values.
       const bus = makeBus();
       const { svc } = makeService({
-        batch,
         bus,
         sensor: fakeSensor({ farmId: FARM_ID, pondId: POND_ID }),
       });
@@ -355,10 +289,6 @@ describe('NatsIngestionConsumerService', () => {
         // sidecar's cold-path emission shape.
         fakeEvent({ farmId: undefined, pondId: undefined }),
       );
-      const enqArg = batch.enqueue.mock.calls[0]?.[0];
-      if (!enqArg) throw new Error('expected enqueue arg');
-      expect(enqArg.farmId).toBe(FARM_ID);
-      expect(enqArg.pondId).toBe(POND_ID);
       const typedEv = bus.publish.mock.calls[0]?.[0] as unknown as Record<
         string,
         unknown
@@ -367,13 +297,12 @@ describe('NatsIngestionConsumerService', () => {
       expect(typedEv['pondId']).toBe(POND_ID);
     });
 
-    it('publish failure does not abort persistence — enqueue already happened', async () => {
+    it('publish failure does not throw — persistence already happened in Rust', async () => {
       const bus = makeBus();
       bus.publish.mockRejectedValueOnce(new Error('broker down'));
-      const batch = makeBatch();
-      const { svc } = makeService({ bus, batch });
+      const { svc } = makeService({ bus });
       await expect(svc.handle(fakeEvent())).resolves.toBeUndefined();
-      expect(batch.enqueue).toHaveBeenCalledTimes(1);
+      expect(bus.publish).toHaveBeenCalledTimes(1);
     });
   });
 

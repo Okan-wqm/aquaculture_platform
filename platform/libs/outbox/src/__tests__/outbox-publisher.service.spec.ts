@@ -76,14 +76,15 @@ interface SaveCall {
  * `manager.queryRunner.isTransactionActive`; the double exposes a
  * mutable boolean so each test sets the precondition explicitly.
  */
-function makeManager(opts: {
-  isTransactionActive: boolean;
-  hasQueryRunner?: boolean;
-}): { manager: EntityManager; saveCalls: SaveCall[] } {
+function makeManager(opts: { isTransactionActive: boolean; hasQueryRunner?: boolean }): {
+  manager: EntityManager;
+  saveCalls: SaveCall[];
+} {
   const saveCalls: SaveCall[] = [];
-  const queryRunner = opts.hasQueryRunner === false
-    ? undefined
-    : ({ isTransactionActive: opts.isTransactionActive } as Partial<QueryRunner>);
+  const queryRunner =
+    opts.hasQueryRunner === false
+      ? undefined
+      : ({ isTransactionActive: opts.isTransactionActive } as Partial<QueryRunner>);
   const manager = {
     queryRunner: queryRunner as QueryRunner | undefined,
     save: jest
@@ -97,6 +98,7 @@ function makeManager(opts: {
 }
 
 const VALID_TENANT = '11111111-1111-4111-8111-111111111111';
+const VALID_AGGREGATE = '22222222-2222-4222-8222-222222222222';
 
 // BaseEvent.eventId is a branded `string & { __brand }` type — the
 // brand is enforced at the constructor boundary in production
@@ -175,21 +177,46 @@ describe('OutboxPublisher', () => {
 
       await publisher.enqueue(makeEvent(), manager, {
         idempotencyKey: 'idem-abc-123',
-        aggregateId: 'aggregate-xyz-789',
+        aggregateId: VALID_AGGREGATE,
       });
 
       const row = saveCalls[0]!;
       expect(row.payload['idempotencyKey']).toBe('idem-abc-123');
-      expect(row.payload['aggregateId']).toBe('aggregate-xyz-789');
+      expect(row.payload['aggregateId']).toBe(VALID_AGGREGATE);
+    });
+
+    it('uses event.aggregateId as the FIFO key when options omit aggregateId', async () => {
+      const { manager, saveCalls } = makeManager({ isTransactionActive: true });
+      const event = {
+        ...makeEvent(),
+        aggregateId: VALID_AGGREGATE,
+      } as unknown as BaseEvent;
+
+      await publisher.enqueue(event, manager);
+
+      const row = saveCalls[0]!;
+      expect(row.payload['aggregateId']).toBe(VALID_AGGREGATE);
+    });
+
+    it('rejects malformed aggregateId before saving', async () => {
+      const { manager, saveCalls } = makeManager({ isTransactionActive: true });
+
+      await expect(
+        publisher.enqueue(makeEvent(), manager, {
+          aggregateId: 'aggregate-xyz-789',
+        }),
+      ).rejects.toThrow(/aggregateId must be a UUID/);
+      expect(saveCalls).toHaveLength(0);
+      expect(manager.save).not.toHaveBeenCalled();
     });
   });
 
   describe('enqueue() — eventType validation', () => {
     it('rejects empty eventType', async () => {
       const { manager } = makeManager({ isTransactionActive: true });
-      await expect(
-        publisher.enqueue(makeEvent({ eventType: '' }), manager),
-      ).rejects.toThrow(/eventType is required/);
+      await expect(publisher.enqueue(makeEvent({ eventType: '' }), manager)).rejects.toThrow(
+        /eventType is required/,
+      );
     });
 
     it('rejects camelCase eventType (would break NATS PascalCase discriminator)', async () => {
@@ -208,12 +235,12 @@ describe('OutboxPublisher', () => {
 
     it('rejects eventType with NATS wildcards (* and >)', async () => {
       const { manager } = makeManager({ isTransactionActive: true });
-      await expect(
-        publisher.enqueue(makeEvent({ eventType: 'Order*' }), manager),
-      ).rejects.toThrow(/PascalCase/);
-      await expect(
-        publisher.enqueue(makeEvent({ eventType: 'Order>' }), manager),
-      ).rejects.toThrow(/PascalCase/);
+      await expect(publisher.enqueue(makeEvent({ eventType: 'Order*' }), manager)).rejects.toThrow(
+        /PascalCase/,
+      );
+      await expect(publisher.enqueue(makeEvent({ eventType: 'Order>' }), manager)).rejects.toThrow(
+        /PascalCase/,
+      );
     });
 
     it('accepts valid PascalCase eventType', async () => {
@@ -228,16 +255,16 @@ describe('OutboxPublisher', () => {
   describe('enqueue() — tenantId validation (cross-tenant safety)', () => {
     it('rejects empty tenantId', async () => {
       const { manager } = makeManager({ isTransactionActive: true });
-      await expect(
-        publisher.enqueue(makeEvent({ tenantId: '' }), manager),
-      ).rejects.toThrow(/tenantId is required/);
+      await expect(publisher.enqueue(makeEvent({ tenantId: '' }), manager)).rejects.toThrow(
+        /tenantId is required/,
+      );
     });
 
     it('rejects non-UUID tenantId (would inject NATS subject wildcards / Socket.IO room collision)', async () => {
       const { manager } = makeManager({ isTransactionActive: true });
-      await expect(
-        publisher.enqueue(makeEvent({ tenantId: 'tenant-1' }), manager),
-      ).rejects.toThrow(/UUID/);
+      await expect(publisher.enqueue(makeEvent({ tenantId: 'tenant-1' }), manager)).rejects.toThrow(
+        /UUID/,
+      );
     });
 
     it('rejects tenantId with embedded newline (log-injection vector)', async () => {
@@ -250,9 +277,9 @@ describe('OutboxPublisher', () => {
 
     it('rejects tenantId with embedded NATS wildcard', async () => {
       const { manager } = makeManager({ isTransactionActive: true });
-      await expect(
-        publisher.enqueue(makeEvent({ tenantId: '*.evil' }), manager),
-      ).rejects.toThrow(/UUID/);
+      await expect(publisher.enqueue(makeEvent({ tenantId: '*.evil' }), manager)).rejects.toThrow(
+        /UUID/,
+      );
     });
 
     it('accepts UUID v4 tenantId in any case', async () => {

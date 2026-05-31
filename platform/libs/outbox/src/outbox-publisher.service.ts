@@ -2,11 +2,7 @@ import { Injectable, Inject, Logger, Type } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import type { BaseEvent } from '@platform/event-contracts';
 import { OutboxEntityBase } from './outbox-entity.base';
-import {
-  OUTBOX_ENTITY_CLASS,
-  OUTBOX_UUID_REGEX,
-  OUTBOX_EVENT_TYPE_REGEX,
-} from './constants';
+import { OUTBOX_ENTITY_CLASS, OUTBOX_UUID_REGEX, OUTBOX_EVENT_TYPE_REGEX } from './constants';
 
 /**
  * OutboxPublisher
@@ -88,9 +84,7 @@ export class OutboxPublisher {
   ): Promise<void> {
     // ── Event type validation ───────────────────────────────────────
     if (!event.eventType) {
-      throw new Error(
-        'OutboxPublisher.enqueue: event.eventType is required (got empty string)',
-      );
+      throw new Error('OutboxPublisher.enqueue: event.eventType is required (got empty string)');
     }
     if (!OUTBOX_EVENT_TYPE_REGEX.test(event.eventType)) {
       throw new Error(
@@ -104,8 +98,7 @@ export class OutboxPublisher {
     // ── Tenant ID validation — the single most important check ──────
     if (!event.tenantId) {
       throw new Error(
-        `OutboxPublisher.enqueue: event.tenantId is required ` +
-          `(event: ${event.eventType})`,
+        `OutboxPublisher.enqueue: event.tenantId is required ` + `(event: ${event.eventType})`,
       );
     }
     if (!OUTBOX_UUID_REGEX.test(event.tenantId)) {
@@ -145,11 +138,23 @@ export class OutboxPublisher {
     // Performance: negligible — outbox rows are single-digit KB, enqueued
     // at most a few hundred per second. The round-trip takes <0.1ms per event.
     const payload = JSON.parse(JSON.stringify(event)) as OutboxEntityBase['payload'];
+    const eventAggregateId = (event as { aggregateId?: unknown }).aggregateId;
+    const aggregateId =
+      options?.aggregateId ?? (typeof eventAggregateId === 'string' ? eventAggregateId : null);
+
+    if (aggregateId !== null && !OUTBOX_UUID_REGEX.test(aggregateId)) {
+      throw new Error(
+        `OutboxPublisher.enqueue: aggregateId must be a UUID when supplied ` +
+          `(got: ${JSON.stringify(aggregateId)}, event: ${event.eventType}). ` +
+          `Aggregate ordering depends on this key; malformed values are rejected ` +
+          `before they can poison the per-aggregate FIFO worker lane.`,
+      );
+    }
 
     await manager.save(this.entityClass, {
       eventType: event.eventType,
       tenantId: event.tenantId,
-      aggregateId: options?.aggregateId ?? null,
+      aggregateId,
       idempotencyKey: options?.idempotencyKey ?? null,
       payload,
       retryCount: 0,

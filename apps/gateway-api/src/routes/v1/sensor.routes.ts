@@ -9,7 +9,23 @@
 import { Module, Controller, Get, Post, Req, Res, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { signedFetch } from '@aquaculture/backend-common/http';
+import { signedFetch, type SignedFetchOptions } from '@aquaculture/backend-common/http';
+
+type GatewayUser = {
+  id?: string;
+  sub?: string;
+  email?: string;
+  tenantId?: string | null;
+  role?: string;
+  roles?: string[];
+  permissions?: string[];
+  resourcePermissions?: string[];
+  modules?: string[];
+  mfaVerified?: boolean;
+  jti?: string;
+};
+
+type GatewayRequest = Request & { user?: GatewayUser };
 
 // Helper to extract tenant UUID from incoming request for signed propagation.
 function resolveTenantId(req: Request): string {
@@ -19,6 +35,30 @@ function resolveTenantId(req: Request): string {
   const trimmed = value.trim();
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   return uuidRegex.test(trimmed) ? trimmed : '';
+}
+
+function resolveVerifiedUser(req: Request): SignedFetchOptions['verifiedUser'] | undefined {
+  const user = (req as GatewayRequest).user;
+  if (!user) {
+    return undefined;
+  }
+  const sub = user.sub ?? user.id;
+  if (!sub) {
+    return undefined;
+  }
+  const roles = Array.isArray(user.roles) ? user.roles : user.role ? [user.role] : [];
+  return {
+    sub,
+    ...(user.email ? { email: user.email } : {}),
+    tenantId: user.tenantId ?? null,
+    ...(user.role ? { role: user.role } : {}),
+    roles,
+    ...(user.permissions ? { permissions: user.permissions } : {}),
+    ...(user.resourcePermissions ? { resourcePermissions: user.resourcePermissions } : {}),
+    ...(user.modules ? { modules: user.modules } : {}),
+    mfaVerified: user.mfaVerified === true,
+    ...(user.jti ? { jti: user.jti } : {}),
+  };
 }
 
 /**
@@ -33,7 +73,7 @@ export class SensorRoutesController {
   constructor(private readonly configService: ConfigService) {
     this.sensorServiceUrl = this.configService.get<string>(
       'SENSOR_SERVICE_URL',
-      'http://localhost:3003'
+      'http://localhost:3003',
     );
   }
 
@@ -69,6 +109,7 @@ export class SensorRoutesController {
       const response = await signedFetch(`${this.sensorServiceUrl}/api/mqtt/status`, {
         serviceName: 'gateway-api',
         tenantId: resolveTenantId(req),
+        verifiedUser: resolveVerifiedUser(req),
         headers: {
           Authorization: req.headers.authorization || '',
         },
@@ -90,10 +131,7 @@ export class SensorRoutesController {
    * Used for OTA firmware updates to sensors
    */
   @Post(':sensorId/firmware')
-  async uploadFirmware(
-    @Req() req: Request,
-    @Res() res: Response,
-  ): Promise<void> {
+  async uploadFirmware(@Req() req: Request, @Res() res: Response): Promise<void> {
     const sensorId = req.params.sensorId;
 
     try {
@@ -104,12 +142,13 @@ export class SensorRoutesController {
           method: 'POST',
           serviceName: 'gateway-api',
           tenantId: resolveTenantId(req),
+          verifiedUser: resolveVerifiedUser(req),
           headers: {
             Authorization: req.headers.authorization || '',
             'Content-Type': req.headers['content-type'] || 'application/octet-stream',
           },
           body: req.body as BodyInit,
-        }
+        },
       );
 
       const data: unknown = await response.json();
@@ -128,10 +167,7 @@ export class SensorRoutesController {
    * Streams large data exports directly
    */
   @Get(':sensorId/export')
-  async exportData(
-    @Req() req: Request,
-    @Res() res: Response,
-  ): Promise<void> {
+  async exportData(@Req() req: Request, @Res() res: Response): Promise<void> {
     const sensorId = req.params.sensorId;
     const queryString = new URLSearchParams(req.query as Record<string, string>).toString();
 
@@ -142,20 +178,22 @@ export class SensorRoutesController {
         {
           serviceName: 'gateway-api',
           tenantId: resolveTenantId(req),
+          verifiedUser: resolveVerifiedUser(req),
           headers: {
             Authorization: req.headers.authorization || '',
           },
-        }
+        },
       );
 
       // Forward headers for file download
       res.setHeader(
         'Content-Type',
-        response.headers.get('content-type') || 'application/octet-stream'
+        response.headers.get('content-type') || 'application/octet-stream',
       );
       res.setHeader(
         'Content-Disposition',
-        response.headers.get('content-disposition') || `attachment; filename="${sensorId}-export.csv"`
+        response.headers.get('content-disposition') ||
+          `attachment; filename="${sensorId}-export.csv"`,
       );
 
       // Stream the response

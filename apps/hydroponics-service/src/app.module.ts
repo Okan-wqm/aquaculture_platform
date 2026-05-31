@@ -31,6 +31,7 @@ import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import {
   SlidingWindowStrategy,
@@ -248,6 +249,7 @@ export class AppModule implements NestModule {
         StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
         TenantSchemaMiddleware,

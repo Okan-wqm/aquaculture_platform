@@ -37,14 +37,14 @@ import {
 import { AllowTenantAdmin, Roles } from '../decorators/roles.decorator';
 import { EmailSenderService, InvitationEmailData } from '../settings/services/email-sender.service';
 
-import { InviteUserDto, UpdateUserPermissionsDto, UserWithPermissionsDto } from './dto/invite-user.dto';
+import {
+  InviteUserDto,
+  UpdateUserPermissionsDto,
+  UserWithPermissionsDto,
+} from './dto/invite-user.dto';
 import { ResetPasswordByAdminDto } from './dto/reset-password.dto';
 import { PanelPermissions, DEFAULT_USER_PERMISSIONS } from './entities/user-permissions.entity';
-import {
-  RoleTemplateService,
-  Permission,
-  RoleTemplate,
-} from './services/role-template.service';
+import { RoleTemplateService, Permission, RoleTemplate } from './services/role-template.service';
 import { UserPermissionsService } from './services/user-permissions.service';
 import {
   UserProvisioningService,
@@ -52,10 +52,18 @@ import {
   UserLimitCheckResult,
 } from './services/user-provisioning.service';
 import { UsersService, UserFilter, PaginatedUsers } from './users.service';
+import { getAuthUserId, type AuthenticatedRequest } from '../shared/authenticated-request';
 
 // Allowed sort fields whitelist for security
-const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'lastName', 'role'] as const;
-type SortField = typeof ALLOWED_SORT_FIELDS[number];
+const ALLOWED_SORT_FIELDS = [
+  'createdAt',
+  'updatedAt',
+  'email',
+  'firstName',
+  'lastName',
+  'role',
+] as const;
+type SortField = (typeof ALLOWED_SORT_FIELDS)[number];
 
 export class CreateUserDto {
   @IsEmail({}, { message: 'Invalid email format' })
@@ -267,9 +275,7 @@ export class UsersController {
    */
   @Get('recent-activity')
   async getRecentlyActiveUsers(@Query('limit') limit?: string) {
-    return this.usersService.getRecentlyActiveUsers(
-      limit ? parseInt(limit, 10) : 50,
-    );
+    return this.usersService.getRecentlyActiveUsers(limit ? parseInt(limit, 10) : 50);
   }
 
   /**
@@ -284,14 +290,8 @@ export class UsersController {
    * Get user's activity log
    */
   @Get(':id/activity')
-  async getUserActivity(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.usersService.getUserActivity(
-      id,
-      limit ? parseInt(limit, 10) : 50,
-    );
+  async getUserActivity(@Param('id', ParseUUIDPipe) id: string, @Query('limit') limit?: string) {
+    return this.usersService.getUserActivity(id, limit ? parseInt(limit, 10) : 50);
   }
 
   /**
@@ -315,10 +315,7 @@ export class UsersController {
    * Update user
    */
   @Put(':id')
-  async updateUser(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateUserDto,
-  ) {
+  async updateUser(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateUserDto) {
     return this.usersService.updateUser(id, dto);
   }
 
@@ -345,8 +342,9 @@ export class UsersController {
   async resetUserPassword(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ResetPasswordByAdminDto,
+    @Req() req: AuthenticatedRequest,
   ) {
-    return this.usersService.resetPassword(id, dto.newPassword);
+    return this.usersService.resetPassword(id, dto.newPassword, getAuthUserId(req));
   }
 
   /**
@@ -386,10 +384,7 @@ export class UsersController {
    */
   @Post('invite')
   @HttpCode(HttpStatus.CREATED)
-  async inviteUser(
-    @Body() dto: InviteUserRequestDto,
-    @Req() req: { user: { id: string } },
-  ) {
+  async inviteUser(@Body() dto: InviteUserRequestDto, @Req() req: { user: { id: string } }) {
     const result = await this.userProvisioningService.inviteUser({
       tenantId: dto.tenantId,
       email: dto.email,
@@ -543,7 +538,10 @@ export class UsersController {
         );
       } catch (error) {
         // Log error but don't fail the invitation
-        this.logger.error('Failed to set initial permissions', error instanceof Error ? error.stack : error);
+        this.logger.error(
+          'Failed to set initial permissions',
+          error instanceof Error ? error.stack : error,
+        );
       }
     } else {
       // Create default permissions
@@ -666,12 +664,7 @@ export class UsersController {
 
     if (!permissions) {
       // Create default permissions first
-      await this.userPermissionsService.createDefaultPermissions(
-        id,
-        tenantId,
-        req.user.id,
-        false,
-      );
+      await this.userPermissionsService.createDefaultPermissions(id, tenantId, req.user.id, false);
     }
 
     // Update permissions
@@ -713,12 +706,10 @@ export class UsersController {
 
     // Get permissions for all users
     const allPermissions = await this.userPermissionsService.getTenantUsersPermissions(tenantId);
-    const permissionsMap = new Map(
-      allPermissions.map(p => [p.userId, p.permissions]),
-    );
+    const permissionsMap = new Map(allPermissions.map((p) => [p.userId, p.permissions]));
 
     // Merge user data with permissions
-    const usersWithPermissions: UserWithPermissionsDto[] = usersResult.data.map(user => ({
+    const usersWithPermissions: UserWithPermissionsDto[] = usersResult.data.map((user) => ({
       id: user.id,
       email: user.email,
       firstName: user.firstName,

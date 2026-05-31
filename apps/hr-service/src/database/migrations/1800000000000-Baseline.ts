@@ -140,7 +140,13 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_e7a69d3162369fbb6a595185a0" ON "hr"."payroll_audit" ("tenantId", "action", "createdAt") `);
         await queryRunner.query(`CREATE INDEX "IDX_8e4287bb68d0161280382f24e9" ON "hr"."payroll_audit" ("tenantId", "employeeId") `);
         await queryRunner.query(`CREATE INDEX "IDX_ecf3910335f006d19650e7138c" ON "hr"."payroll_audit" ("tenantId", "payrollId") `);
-        await queryRunner.query(`CREATE TABLE "hr"."hr_outbox" ("id" BIGSERIAL NOT NULL, "eventType" character varying(100) NOT NULL, "tenantId" uuid, "aggregateId" uuid, "payload" jsonb NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "publishedAt" TIMESTAMP WITH TIME ZONE, "retryCount" integer NOT NULL DEFAULT '0', "lastError" text, "nextAttemptAt" TIMESTAMP WITH TIME ZONE, "idempotencyKey" character varying(255), "isDeadLettered" boolean NOT NULL DEFAULT false, "leasedAt" TIMESTAMP WITH TIME ZONE, "leasedBy" character varying(128), CONSTRAINT "PK_56a95fb9c3872fafc7cb499b69e" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE SEQUENCE IF NOT EXISTS "hr"."hr_outbox_sequence_seq" AS BIGINT START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1`);
+        await queryRunner.query(`CREATE TABLE "hr"."hr_outbox" ("id" BIGSERIAL NOT NULL, "sequence" bigint NOT NULL DEFAULT nextval('"hr"."hr_outbox_sequence_seq"'), "eventType" character varying(100) NOT NULL, "tenantId" uuid, "aggregateId" uuid, "payload" jsonb NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "publishedAt" TIMESTAMP WITH TIME ZONE, "retryCount" integer NOT NULL DEFAULT '0', "lastError" text, "nextAttemptAt" TIMESTAMP WITH TIME ZONE, "idempotencyKey" character varying(255), "isDeadLettered" boolean NOT NULL DEFAULT false, "leasedAt" TIMESTAMP WITH TIME ZONE, "leasedBy" character varying(128), CONSTRAINT "PK_56a95fb9c3872fafc7cb499b69e" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "idx_hr_outbox_sequence" ON "hr"."hr_outbox" ("sequence") `);
+        await queryRunner.query(`CREATE INDEX "idx_hr_outbox_aggregate_fifo" ON "hr"."hr_outbox" ("tenantId", "aggregateId", "sequence") WHERE "publishedAt" IS NULL AND "isDeadLettered" = false AND "aggregateId" IS NOT NULL`);
+        await queryRunner.query(`CREATE INDEX "idx_hr_outbox_poll" ON "hr"."hr_outbox" ("createdAt") WHERE "publishedAt" IS NULL AND "isDeadLettered" = false`);
+        await queryRunner.query(`CREATE INDEX "idx_hr_outbox_tenant" ON "hr"."hr_outbox" ("tenantId") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "idx_hr_outbox_idempotency" ON "hr"."hr_outbox" ("tenantId", "idempotencyKey") WHERE "idempotencyKey" IS NOT NULL`);
         await queryRunner.query(`DO $$ BEGIN CREATE TYPE "hr"."schedules_scheduletype_enum" AS ENUM('fixed', 'rotating', 'flexible', 'offshore_rotation'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
         await queryRunner.query(`DO $$ BEGIN CREATE TYPE "hr"."schedules_status_enum" AS ENUM('draft', 'published', 'active', 'completed', 'cancelled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
         await queryRunner.query(`CREATE TABLE "hr"."schedules" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "employeeId" uuid NOT NULL, "departmentId" character varying, "shiftId" uuid, "scheduleType" "hr"."schedules_scheduletype_enum" NOT NULL DEFAULT 'fixed', "startDate" date NOT NULL, "endDate" date NOT NULL, "status" "hr"."schedules_status_enum" NOT NULL DEFAULT 'draft', "notes" text, "rotationDaysOn" integer, "rotationDaysOff" integer, "nextRotationDate" date, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "createdBy" character varying, "updatedBy" character varying, "version" integer NOT NULL, "isDeleted" boolean NOT NULL DEFAULT false, "deletedAt" TIMESTAMP, "deletedBy" character varying, CONSTRAINT "PK_7e33fc2ea755a5765e3564e66dd" PRIMARY KEY ("id"))`);
@@ -368,7 +374,13 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`DROP TABLE "hr"."schedules"`);
         await queryRunner.query(`DROP TYPE "hr"."schedules_status_enum"`);
         await queryRunner.query(`DROP TYPE "hr"."schedules_scheduletype_enum"`);
+        await queryRunner.query(`DROP INDEX "hr"."idx_hr_outbox_idempotency"`);
+        await queryRunner.query(`DROP INDEX "hr"."idx_hr_outbox_tenant"`);
+        await queryRunner.query(`DROP INDEX "hr"."idx_hr_outbox_poll"`);
+        await queryRunner.query(`DROP INDEX "hr"."idx_hr_outbox_aggregate_fifo"`);
+        await queryRunner.query(`DROP INDEX "hr"."idx_hr_outbox_sequence"`);
         await queryRunner.query(`DROP TABLE "hr"."hr_outbox"`);
+        await queryRunner.query(`DROP SEQUENCE IF EXISTS "hr"."hr_outbox_sequence_seq"`);
         await queryRunner.query(`DROP INDEX "hr"."IDX_ecf3910335f006d19650e7138c"`);
         await queryRunner.query(`DROP INDEX "hr"."IDX_8e4287bb68d0161280382f24e9"`);
         await queryRunner.query(`DROP INDEX "hr"."IDX_e7a69d3162369fbb6a595185a0"`);

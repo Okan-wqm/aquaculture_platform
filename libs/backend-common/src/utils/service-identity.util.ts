@@ -19,6 +19,7 @@ import { createHash, createHmac, timingSafeEqual } from 'crypto';
  * <UPPERCASE method> \n
  * <path WITHOUT query string> \n
  * <sha256(body) hex; '' for empty body> \n
+ * <sha256(verified-user-assertion.signature) hex; sha256('') when absent> \n
  * <tenantId; '' for non-tenant paths>
  * ```
  *
@@ -57,7 +58,7 @@ import { createHash, createHmac, timingSafeEqual } from 'crypto';
  *
  * # Header set
  *
- * v2 emits 7 headers (vs. v1's 3):
+ * v2 emits 8 headers (vs. v1's 3):
  *
  *   - X-Service-Identity      — service name (e.g. 'gateway-api')
  *   - X-Service-Timestamp     — ISO-8601 UTC; v2 standardises here
@@ -66,6 +67,9 @@ import { createHash, createHmac, timingSafeEqual } from 'crypto';
  *   - X-Service-Method        — upper-case HTTP verb
  *   - X-Service-Path          — request path without query string
  *   - X-Service-Body-Hash     — sha256(body) hex; '' for empty body
+ *   - X-Service-Assertion-Hash — sha256 of the gateway verified-user
+ *                                assertion header pair, or sha256('')
+ *                                when the request has no authenticated user
  *
  * The receiver reads these and re-builds the canonical string, so the
  * verifier knows exactly which method/path/body the SIGNER claimed to
@@ -142,6 +146,7 @@ export interface ServiceIdentityHeadersV2 {
   'X-Service-Method': string;
   'X-Service-Path': string;
   'X-Service-Body-Hash': string;
+  'X-Service-Assertion-Hash': string;
 }
 
 // ─── v2 generator + verifier (primary path) ────────────────────────────────
@@ -177,6 +182,7 @@ function buildCanonicalV2(input: {
   method: string;
   path: string;
   bodyHash: string;
+  assertionHash: string;
   tenantId: string;
 }): string {
   return [
@@ -186,6 +192,7 @@ function buildCanonicalV2(input: {
     input.method.toUpperCase(),
     input.path,
     input.bodyHash,
+    input.assertionHash,
     input.tenantId,
   ].join(CANONICAL_DELIM);
 }
@@ -199,7 +206,7 @@ function buildCanonicalV2(input: {
  * that are not yet migrated do not break the build during the W0.A
  * rolling-deploy window.
  *
- * WHAT: Returns the 7 v2 headers. Empty body produces `sha256('')` —
+ * WHAT: Returns the 8 v2 headers. Empty body produces `sha256('')` —
  * never falls back to a literal empty string because that would let a
  * tamperer append a body to a "empty" GET and pass verification.
  *
@@ -212,6 +219,8 @@ function buildCanonicalV2(input: {
  * @param args.path        - Request path without query string.
  * @param args.body        - Raw body bytes. Buffer for binary, string for
  *                            text. Empty body uses '' (sha256 still computed).
+ * @param args.assertionHash - Hash of the gateway verified-user assertion
+ *                              header pair. Omit only on public/non-user calls.
  */
 export function generateServiceIdentityHeadersV2(args: {
   serviceName: string;
@@ -220,15 +229,18 @@ export function generateServiceIdentityHeadersV2(args: {
   method: string;
   path: string;
   body: string | Buffer;
+  assertionHash?: string;
 }): ServiceIdentityHeadersV2 {
   const timestamp = new Date().toISOString();
   const bodyHash = sha256Hex(args.body);
+  const assertionHash = args.assertionHash ?? sha256Hex('');
   const canonical = buildCanonicalV2({
     timestamp,
     serviceName: args.serviceName,
     method: args.method,
     path: args.path,
     bodyHash,
+    assertionHash,
     tenantId: args.tenantId,
   });
   const signature = createHmac('sha256', args.secret).update(canonical).digest('hex');
@@ -240,6 +252,7 @@ export function generateServiceIdentityHeadersV2(args: {
     'X-Service-Method': args.method.toUpperCase(),
     'X-Service-Path': args.path,
     'X-Service-Body-Hash': bodyHash,
+    'X-Service-Assertion-Hash': assertionHash,
   };
 }
 
@@ -264,10 +277,12 @@ export function verifyServiceIdentityV2(args: {
   method: string;
   path: string;
   bodyHash: string;
+  assertionHash: string;
   // What the receiver actually observes (for cross-check)
   observedMethod: string;
   observedPath: string;
   observedBody: string | Buffer;
+  observedAssertionHash: string;
   // Trust inputs
   secret: string;
   expectedTenantId: string;
@@ -287,6 +302,7 @@ export function verifyServiceIdentityV2(args: {
   if (args.path !== args.observedPath) return false;
   const observedBodyHash = sha256Hex(args.observedBody);
   if (args.bodyHash !== observedBodyHash) return false;
+  if (args.assertionHash !== args.observedAssertionHash) return false;
 
   // Step 3: HMAC. Re-derive canonical from the SIGNED claims (not the
   // observed values — equivalent here since they matched) and compare.
@@ -298,6 +314,7 @@ export function verifyServiceIdentityV2(args: {
         method: args.method,
         path: args.path,
         bodyHash: args.bodyHash,
+        assertionHash: args.assertionHash,
         tenantId: args.expectedTenantId,
       }),
     )
@@ -380,7 +397,7 @@ export function verifyServiceIdentity(
  */
 export type VerificationOutcome =
   | { valid: true; version: 'v1' | 'v2' }
-  | { valid: false; reason: 'missing-headers' | 'unknown-version' | 'expired' | 'method-mismatch' | 'path-mismatch' | 'body-mismatch' | 'invalid-hmac' };
+  | { valid: false; reason: 'missing-headers' | 'unknown-version' | 'expired' | 'method-mismatch' | 'path-mismatch' | 'body-mismatch' | 'assertion-mismatch' | 'invalid-hmac' };
 
 /**
  * One-stop verifier for an inbound request.
@@ -403,6 +420,7 @@ export function verifyServiceIdentityRequest(args: {
   observedMethod: string;
   observedPath: string;
   observedBody: string | Buffer;
+  observedAssertionHash?: string;
   secret: string;
   expectedTenantId: string;
   maxAgeMs?: number;
@@ -425,8 +443,13 @@ export function verifyServiceIdentityRequest(args: {
     const method = get('x-service-method');
     const path = get('x-service-path');
     const bodyHash = get('x-service-body-hash');
-    if (!method || !path || bodyHash === undefined) {
+    const assertionHash = get('x-service-assertion-hash');
+    if (!method || !path || bodyHash === undefined || assertionHash === undefined) {
       return { valid: false, reason: 'missing-headers' };
+    }
+    const observedAssertionHash = args.observedAssertionHash ?? sha256Hex('');
+    if (assertionHash !== observedAssertionHash) {
+      return { valid: false, reason: 'assertion-mismatch' };
     }
     const ok = verifyServiceIdentityV2({
       serviceName,
@@ -435,9 +458,11 @@ export function verifyServiceIdentityRequest(args: {
       method,
       path,
       bodyHash,
+      assertionHash,
       observedMethod: args.observedMethod,
       observedPath: args.observedPath,
       observedBody: args.observedBody,
+      observedAssertionHash,
       secret: args.secret,
       expectedTenantId: args.expectedTenantId,
       maxAgeMs: args.maxAgeMs,

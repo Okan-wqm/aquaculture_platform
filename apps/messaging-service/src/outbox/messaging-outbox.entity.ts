@@ -27,6 +27,10 @@ import {
   unique: true,
   where: '"idempotencyKey" IS NOT NULL',
 })
+@Index('idx_outbox_sequence', ['sequence'], { unique: true })
+@Index('idx_outbox_aggregate_fifo', ['tenantId', 'aggregateId', 'sequence'], {
+  where: '"publishedAt" IS NULL AND "isDeadLettered" = false AND "aggregateId" IS NOT NULL',
+})
 export class MessagingOutbox extends OutboxEntityBase {
   /** Override PK to UUID — base uses BIGINT increment. */
   @PrimaryGeneratedColumn('uuid')

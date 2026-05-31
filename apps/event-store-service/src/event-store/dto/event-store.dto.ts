@@ -11,6 +11,7 @@ import {
   IsEnum,
   IsDateString,
   IsArray,
+  ArrayMinSize,
   ValidateNested,
   registerDecorator,
   ValidationOptions,
@@ -128,6 +129,7 @@ export class AppendEventsDto {
   expectedVersion!: number; // -1 for any, 0 for new stream
 
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => AppendEventDto)
   events!: AppendEventDto[];

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -18,6 +18,12 @@ import {
 } from '@aquaculture/backend-common/database';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
+import {
+  StripInternalHeadersMiddleware,
+  TenantContextMiddleware,
+  UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
+} from '@aquaculture/backend-common/middleware';
 
 /**
  * ConfigMigrationRunnerService — runs pending TypeORM migrations against
@@ -208,4 +214,15 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer
+      .apply(
+        StripInternalHeadersMiddleware,
+        VerifiedUserAssertionMiddleware,
+        UserContextMiddleware,
+        TenantContextMiddleware,
+      )
+      .forRoutes('*');
+  }
+}

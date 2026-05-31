@@ -28,10 +28,9 @@ import {
  *     `events.<tenant>.SensorMetricIngested`) emits a payload with
  *     extra fields, missing required fields, or a wrong-type value.
  *   - The TS side does `JSON.parse` and trusts the static type, so
- *     extra fields silently flow into BatchProcessorService.enqueue
- *     and then into the typed re-emit. That's exactly the H-3
- *     trusted-source XSS footgun this validator class closes for the
- *     farm domain.
+ *     extra fields silently flow into typed re-emit. That's exactly
+ *     the H-3 trusted-source XSS footgun this validator class closes
+ *     for the farm domain.
  *
  * Same posture as `farm-events.schema.ts`: every schema has
  * `additionalProperties: false`, every Optional field declares

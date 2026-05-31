@@ -182,6 +182,8 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
     "@opentelemetry/resources": "^2.7.1",
     "@opentelemetry/sdk-node": "^0.218.0",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.1",
     "@socket.io/redis-adapter": "^8.3.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",

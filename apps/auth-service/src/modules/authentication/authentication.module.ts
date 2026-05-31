@@ -9,6 +9,7 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { UserModuleAssignment } from './entities/user-module-assignment.entity';
 import { User } from './entities/user.entity';
 import { WebAuthnCredential } from './entities/webauthn-credential.entity';
+import { AuthPasswordResetNatsHandler } from './handlers/auth-password-reset-nats.handler';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AccountResolver } from './resolvers/account.resolver';
 import { AuthResolver } from './resolvers/auth.resolver';
@@ -33,6 +34,7 @@ import { WebAuthnService } from './services/webauthn.service';
     ]),
     AuditModule,
   ],
+  controllers: [AuthPasswordResetNatsHandler],
   providers: [
     AccountService,
     TokenService,

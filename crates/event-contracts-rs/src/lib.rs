@@ -322,14 +322,12 @@ impl<'de> Deserialize<'de> for SensorMetricIngestedEventType {
 /// ADR-006; nested `payload` shapes rejected by `deny_unknown_fields`.
 ///
 /// WHY this event is distinct from [`SensorReadingEvent`] (ADR-022):
-///   The sidecar sees raw per-channel metric tuples; it does NOT have
-///   the sensor-meta cache that maps channel UUID → typed
-///   water-quality field. sensor-service consumes this raw event,
-///   enriches it via the in-process sensor-meta cache, calls
-///   `BatchProcessorService.enqueue()`, then re-emits the typed
-///   `SensorReadingEvent` to the in-process EventBus for downstream
-///   consumers (alert-engine). One mapping concern, one owner —
-///   the service that already owns the metadata.
+///   The sidecar persists raw per-channel metric tuples and publishes
+///   this event through its transactional outbox. sensor-service then
+///   enriches the event via the in-process sensor-meta cache and
+///   re-emits the typed `SensorReadingEvent` to the EventBus for
+///   downstream consumers (alert-engine). One mapping concern, one
+///   owner — the service that already owns the metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SensorMetricIngestedEvent {

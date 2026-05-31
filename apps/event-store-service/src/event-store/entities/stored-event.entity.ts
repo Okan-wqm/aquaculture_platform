@@ -12,7 +12,11 @@ import { BigIntTransformer } from '../transformers/bigint.transformer';
  * This is the core entity that stores all domain events
  */
 @Entity('stored_events', { schema: 'event_store' })
-@Index(['aggregateType', 'aggregateId', 'version'], { unique: true })
+@Index(
+  'IDX_stored_events_tenant_aggregate_type_id_version',
+  ['tenantId', 'aggregateType', 'aggregateId', 'version'],
+  { unique: true },
+)
 @Index(['globalPosition'], { unique: true })
 @Index(['streamName'])
 @Index(['eventType'])

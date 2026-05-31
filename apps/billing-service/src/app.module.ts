@@ -18,6 +18,7 @@ import {
   UserContextMiddleware,
   TenantContextMiddleware,
   StripInternalHeadersMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
@@ -292,7 +293,12 @@ export class AppModule implements NestModule {
     // 1. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
     // 2. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
     consumer
-      .apply(StripInternalHeadersMiddleware, UserContextMiddleware, TenantContextMiddleware)
+      .apply(
+        StripInternalHeadersMiddleware,
+        VerifiedUserAssertionMiddleware,
+        UserContextMiddleware,
+        TenantContextMiddleware,
+      )
       .forRoutes('*');
   }
 }

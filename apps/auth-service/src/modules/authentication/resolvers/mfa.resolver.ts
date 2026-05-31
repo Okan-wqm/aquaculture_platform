@@ -147,7 +147,9 @@ export class MfaResolver {
       userAgent,
     );
 
-    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    if (result.refreshToken) {
+      this.setRefreshTokenCookie(context.res, result.refreshToken);
+    }
     return this.stripRefreshToken(result);
   }
 

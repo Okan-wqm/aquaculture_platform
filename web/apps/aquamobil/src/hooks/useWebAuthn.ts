@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
 import { useAuth } from './useAuth';
 
 // SEC-06: CSRF defense-in-depth header
@@ -45,6 +46,7 @@ const REGISTRATION_CHALLENGE_MUTATION = `
       rpName
       userId
       userName
+      options
     }
   }
 `;
@@ -65,6 +67,7 @@ const LOGIN_CHALLENGE_MUTATION = `
       challenge
       rpId
       allowedCredentialIds
+      options
     }
   }
 `;
@@ -111,30 +114,6 @@ const REMOVE_CREDENTIAL_MUTATION = `
     }
   }
 `;
-
-// ============================================================================
-// Helper: Base64URL encoding/decoding
-// ============================================================================
-
-function bufferToBase64url(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]!);
-  }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-function base64urlToBuffer(base64url: string): ArrayBuffer {
-  const padding = '='.repeat((4 - (base64url.length % 4)) % 4);
-  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/') + padding;
-  const binary = atob(base64);
-  const buffer = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    buffer[i] = binary.charCodeAt(i);
-  }
-  return buffer.buffer;
-}
 
 // ============================================================================
 // Types
@@ -289,60 +268,21 @@ export function useWebAuthn() {
         });
         const challengeResponse = challengeData.webAuthnRegistrationChallenge;
 
-        // Step 2: Call WebAuthn API
-        const credential = (await navigator.credentials.create({
-          publicKey: {
-            challenge: base64urlToBuffer(challengeResponse.challenge),
-            rp: {
-              id: challengeResponse.rpId,
-              name: challengeResponse.rpName,
-            },
-            user: {
-              id: new TextEncoder().encode(challengeResponse.userId),
-              name: challengeResponse.userName,
-              displayName: challengeResponse.userName,
-            },
-            pubKeyCredParams: [
-              { alg: -7, type: 'public-key' },   // ES256 (ECDSA P-256)
-              { alg: -257, type: 'public-key' },  // RS256 (RSASSA-PKCS1-v1_5)
-            ],
-            authenticatorSelection: {
-              authenticatorAttachment: 'platform', // Only platform authenticators (Touch ID, Face ID)
-              userVerification: 'required',
-              residentKey: 'preferred',
-            },
-            timeout: 60000, // 60 seconds
-            attestation: 'none', // We don't need attestation for biometric login
-          },
-        })) as PublicKeyCredential | null;
+        // Step 2: Call audited WebAuthn browser helper
+        const credential = await startRegistration({
+          optionsJSON: challengeResponse.options,
+        });
 
         if (!credential) {
           setError('Biometric registration was cancelled');
           return false;
         }
 
-        const attestationResponse = credential.response as AuthenticatorAttestationResponse;
-
-        // Extract public key in SPKI format
-        const publicKey = attestationResponse.getPublicKey?.();
-        if (!publicKey) {
-          setError('Failed to extract public key from credential');
-          return false;
-        }
-
-        // Get transports if available
-        const transports = attestationResponse.getTransports?.() || [];
-
         // Step 3: Send to backend
         const registerData = await graphqlRequest(REGISTER_CREDENTIAL_MUTATION, {
           input: {
-            credentialId: bufferToBase64url(credential.rawId),
-            publicKey: bufferToBase64url(publicKey),
-            clientDataJSON: bufferToBase64url(attestationResponse.clientDataJSON),
-            challenge: challengeResponse.challenge,
-            origin: window.location.origin,
+            response: credential,
             deviceName: deviceName || 'Biometric Device',
-            transports,
           },
         });
 
@@ -399,41 +339,20 @@ export function useWebAuthn() {
         });
         const challengeResponse = challengeData.webAuthnLoginChallenge;
 
-        // Step 2: Call WebAuthn API
-        const allowCredentials = challengeResponse.allowedCredentialIds.map(
-          (id: string) => ({
-            id: base64urlToBuffer(id),
-            type: 'public-key' as const,
-            transports: ['internal' as AuthenticatorTransport],
-          }),
-        );
-
-        const assertion = (await navigator.credentials.get({
-          publicKey: {
-            challenge: base64urlToBuffer(challengeResponse.challenge),
-            rpId: challengeResponse.rpId,
-            allowCredentials,
-            userVerification: 'required',
-            timeout: 60000,
-          },
-        })) as PublicKeyCredential | null;
+        // Step 2: Call audited WebAuthn browser helper
+        const assertion = await startAuthentication({
+          optionsJSON: challengeResponse.options,
+        });
 
         if (!assertion) {
           setError('Biometric verification was cancelled');
           return null;
         }
 
-        const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
-
         // Step 3: Send assertion to backend
         const verifyData = await graphqlRequest(VERIFY_LOGIN_MUTATION, {
           input: {
-            credentialId: bufferToBase64url(assertion.rawId),
-            authenticatorData: bufferToBase64url(assertionResponse.authenticatorData),
-            clientDataJSON: bufferToBase64url(assertionResponse.clientDataJSON),
-            signature: bufferToBase64url(assertionResponse.signature),
-            challenge: challengeResponse.challenge,
-            origin: window.location.origin,
+            response: assertion,
           },
         });
 

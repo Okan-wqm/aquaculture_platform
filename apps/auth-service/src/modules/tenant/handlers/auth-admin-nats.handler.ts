@@ -25,7 +25,13 @@
  *
  * @see libs/event-contracts/src/tenant-commands.ts (AUTH_ADMIN_COMMAND_SUBJECTS)
  */
-import { Controller, Logger, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Logger,
+  ConflictException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import {
   AUTH_ADMIN_COMMAND_SUBJECTS,
@@ -77,9 +83,7 @@ export class AuthAdminNatsHandler {
    * making double-hashing and column-name drift impossible.
    */
   @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_USER)
-  async createUser(
-    @Payload() command: AdminCreateUserCommand,
-  ): Promise<AdminCreateUserResult> {
+  async createUser(@Payload() command: AdminCreateUserCommand): Promise<AdminCreateUserResult> {
     try {
       const user = await this.userLifecycleService.adminCreateUser({
         email: command.email,
@@ -107,9 +111,7 @@ export class AuthAdminNatsHandler {
       const errorCode = this.mapCreateError(err);
       const message = err instanceof Error ? err.message : String(err);
       // SECURITY: log the error code path, never the caller's password.
-      this.logger.warn(
-        `adminCreateUser failed: code=${errorCode}, reason=${message}`,
-      );
+      this.logger.warn(`adminCreateUser failed: code=${errorCode}, reason=${message}`);
       return { success: false, errorCode, error: message };
     }
   }
@@ -129,6 +131,7 @@ export class AuthAdminNatsHandler {
       const result = await this.userLifecycleService.adminResetPassword(
         command.userId,
         command.newPassword,
+        command.performedBy,
       );
       return {
         success: true,
@@ -154,9 +157,7 @@ export class AuthAdminNatsHandler {
    * names columns.
    */
   @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_USER)
-  async updateUser(
-    @Payload() command: AdminUpdateUserCommand,
-  ): Promise<AdminUpdateUserResult> {
+  async updateUser(@Payload() command: AdminUpdateUserCommand): Promise<AdminUpdateUserResult> {
     try {
       const user = await this.userLifecycleService.adminUpdateUser(command.userId, {
         firstName: command.firstName,
@@ -203,9 +204,7 @@ export class AuthAdminNatsHandler {
     @Payload() command: AdminDeactivateUserCommand,
   ): Promise<AdminDeactivateUserResult> {
     try {
-      const result = await this.userLifecycleService.adminDeactivateUser(
-        command.userId,
-      );
+      const result = await this.userLifecycleService.adminDeactivateUser(command.userId);
       return {
         success: true,
         userId: result.userId,
@@ -233,9 +232,7 @@ export class AuthAdminNatsHandler {
     @Payload() command: AdminForceLogoutUserCommand,
   ): Promise<AdminForceLogoutUserResult> {
     try {
-      const result = await this.userLifecycleService.adminForceLogout(
-        command.userId,
-      );
+      const result = await this.userLifecycleService.adminForceLogout(command.userId);
       return {
         success: true,
         userId: result.userId,
@@ -273,14 +270,10 @@ export class AuthAdminNatsHandler {
       // The service throws NotFound for both "user not found" and
       // "tenant not found"; disambiguate on the message so admin-api
       // can surface the correct REST status.
-      return err.message.toLowerCase().includes('tenant')
-        ? 'TENANT_NOT_FOUND'
-        : 'USER_NOT_FOUND';
+      return err.message.toLowerCase().includes('tenant') ? 'TENANT_NOT_FOUND' : 'USER_NOT_FOUND';
     }
     if (err instanceof BadRequestException) {
-      return err.message.toLowerCase().includes('role')
-        ? 'INVALID_ROLE'
-        : 'VALIDATION_ERROR';
+      return err.message.toLowerCase().includes('role') ? 'INVALID_ROLE' : 'VALIDATION_ERROR';
     }
     return 'INTERNAL_ERROR';
   }
@@ -304,9 +297,7 @@ export class AuthAdminNatsHandler {
    * with snake_case columns drifting from the entity definitions.
    */
   @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.INVITE_USER)
-  async inviteUser(
-    @Payload() command: AdminInviteUserCommand,
-  ): Promise<AdminInviteUserResult> {
+  async inviteUser(@Payload() command: AdminInviteUserCommand): Promise<AdminInviteUserResult> {
     try {
       const result = await this.userLifecycleService.adminInviteUser({
         tenantId: command.tenantId,
@@ -345,9 +336,7 @@ export class AuthAdminNatsHandler {
     @Payload() query: AdminCheckUserLimitQuery,
   ): Promise<AdminCheckUserLimitResult> {
     try {
-      const result = await this.userLifecycleService.adminCheckUserLimit(
-        query.tenantId,
-      );
+      const result = await this.userLifecycleService.adminCheckUserLimit(query.tenantId);
       return {
         success: true,
         canCreate: result.canCreate,

@@ -25,6 +25,7 @@ import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
@@ -363,6 +364,7 @@ export class AppModule implements NestModule {
         StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
         TenantSchemaMiddleware,

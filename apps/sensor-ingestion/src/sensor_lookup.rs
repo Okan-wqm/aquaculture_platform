@@ -132,6 +132,11 @@ struct LookupRequest {
     /// Sensor id the cache miss applies to. The responder uses this as
     /// the `findOne` key against the `sensors` table.
     sensor_id: Uuid,
+    /// Device id carried by `tenants/<tenant>/devices/<device>/io_data`.
+    /// The responder checks the resolved sensor's protocol/metadata binding
+    /// and replies null on mismatch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_id: Option<Uuid>,
 }
 
 /// Metric name for the successful cache-miss spawn (we won the
@@ -209,10 +214,12 @@ impl SensorLookupClient {
         &self,
         tenant: TenantId,
         sensor: Uuid,
+        device: Option<Uuid>,
     ) -> Result<Option<SensorMeta>, LookupError> {
         let body = LookupRequest {
             tenant_id: *tenant.as_uuid(),
             sensor_id: sensor,
+            device_id: device,
         };
         let bytes = serde_json::to_vec(&body).map_err(LookupError::Encode)?;
 
@@ -307,6 +314,7 @@ pub fn spawn_lookup_and_populate_cache(
     cache: Arc<TopicCache>,
     tenant: TenantId,
     sensor: Uuid,
+    device: Option<Uuid>,
 ) -> LookupSpawnOutcome {
     let key = (tenant, sensor);
     let Some(notify) = try_claim_inflight(&client.inflight, key) else {
@@ -329,7 +337,7 @@ pub fn spawn_lookup_and_populate_cache(
     let inflight = Arc::clone(&client.inflight);
     let notify_for_cleanup = Arc::clone(&notify);
     tokio::spawn(async move {
-        let result = client.fetch_sensor_meta(tenant, sensor).await;
+        let result = client.fetch_sensor_meta(tenant, sensor, device).await;
         // Clear the inflight slot + wake any waiters BEFORE processing
         // the result. Reason: a subsequent miss on the same key
         // immediately after completion should see an empty slot and
@@ -444,6 +452,7 @@ mod tests {
         let req = LookupRequest {
             tenant_id: Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap(),
             sensor_id: Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap(),
+            device_id: None,
         };
         let v: Value = serde_json::to_value(&req).unwrap();
         let obj = v.as_object().expect("request must be a JSON object");
@@ -461,6 +470,23 @@ mod tests {
         assert_eq!(
             obj.get("sensorId").and_then(Value::as_str),
             Some("22222222-2222-2222-2222-222222222222")
+        );
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn request_payload_includes_deviceId_when_topic_is_device_scoped() {
+        let req = LookupRequest {
+            tenant_id: Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap(),
+            sensor_id: Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap(),
+            device_id: Some(Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap()),
+        };
+        let v: Value = serde_json::to_value(&req).unwrap();
+        let obj = v.as_object().expect("request must be a JSON object");
+        assert_eq!(obj.len(), 3, "deviceId must be present only when scoped");
+        assert_eq!(
+            obj.get("deviceId").and_then(Value::as_str),
+            Some("33333333-3333-3333-3333-333333333333")
         );
     }
 

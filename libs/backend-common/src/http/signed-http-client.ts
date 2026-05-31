@@ -1,3 +1,8 @@
+import {
+  createVerifiedUserAssertionHeaders,
+  hashVerifiedUserAssertionHeaders,
+  type VerifiedUserPayload,
+} from './gateway-verified-user-assertion';
 import { generateServiceIdentityHeadersV2 } from '../utils/service-identity.util';
 
 /**
@@ -166,6 +171,24 @@ export interface SignedFetchOptions extends RequestInit {
    * spread that and override only failureMode.
    */
   circuitBreakerOptions?: SignedFetchCircuitBreakerOptionsLike;
+  /**
+   * Verified gateway user context for authenticated REST proxy calls.
+   * When supplied, signedFetch emits X-Verified-User-Assertion headers and
+   * binds their hash into the v2 service identity HMAC.
+   */
+  verifiedUser?: Pick<
+    VerifiedUserPayload,
+    | 'sub'
+    | 'email'
+    | 'tenantId'
+    | 'role'
+    | 'roles'
+    | 'permissions'
+    | 'resourcePermissions'
+    | 'modules'
+    | 'mfaVerified'
+    | 'jti'
+  >;
 }
 
 /**
@@ -191,6 +214,12 @@ export function buildSignedInternalHeaders(args: {
    * a tamperer cannot append a body to a "empty" GET and pass verification.
    */
   body: string | Buffer;
+  /**
+   * sha256 hash of the gateway verified-user assertion header pair. The
+   * canonical HMAC binds this value so an authenticated subgraph request
+   * cannot have its user assertion stripped or swapped after signing.
+   */
+  userAssertionHash?: string;
   secret?: string;
 }): Record<string, string> {
   const secret = args.secret ?? process.env['INTERNAL_SERVICE_SECRET'];
@@ -208,6 +237,7 @@ export function buildSignedInternalHeaders(args: {
     method: args.method,
     path: args.path,
     body: args.body,
+    assertionHash: args.userAssertionHash,
   });
   const headers: Record<string, string> = {
     'X-Service-Identity': v2['X-Service-Identity'],
@@ -217,6 +247,7 @@ export function buildSignedInternalHeaders(args: {
     'X-Service-Method': v2['X-Service-Method'],
     'X-Service-Path': v2['X-Service-Path'],
     'X-Service-Body-Hash': v2['X-Service-Body-Hash'],
+    'X-Service-Assertion-Hash': v2['X-Service-Assertion-Hash'],
   };
   if (args.tenantId) {
     // Only forward the tenant header when there is one — the signature was
@@ -230,7 +261,7 @@ export function buildSignedInternalHeaders(args: {
 /**
  * Drop-in replacement for `fetch` that attaches v2 signed identity + tenant
  * headers. Existing Content-Type/Authorization headers from `options.headers`
- * are preserved; the seven X-Service-* headers are always overwritten with
+ * are preserved; the X-Service-* headers are always overwritten with
  * the freshly-minted values to prevent replay of stale signatures.
  *
  * # Body normalisation for HMAC
@@ -256,6 +287,17 @@ export async function signedFetch(
   const url = typeof input === 'string' ? new URL(input) : input;
   const path = url.pathname;
   const body = normalizeBodyForSigning(options.body);
+  const secret = options.secret ?? process.env['INTERNAL_SERVICE_SECRET'];
+  const assertionHeaders =
+    options.verifiedUser && secret
+      ? createVerifiedUserAssertionHeaders({
+          user: options.verifiedUser,
+          secret,
+        })
+      : undefined;
+  const userAssertionHash = assertionHeaders
+    ? hashVerifiedUserAssertionHeaders({ ...assertionHeaders })
+    : undefined;
 
   const signedHeaders = buildSignedInternalHeaders({
     serviceName: options.serviceName,
@@ -263,12 +305,18 @@ export async function signedFetch(
     method,
     path,
     body,
+    userAssertionHash,
     secret: options.secret,
   });
 
   // Merge caller-supplied headers first, then overwrite the X-Service-*
   // and X-Tenant-ID keys so they always reflect the fresh signature.
   const merged = new Headers(options.headers);
+  if (assertionHeaders) {
+    for (const [name, value] of Object.entries(assertionHeaders)) {
+      merged.set(name, value);
+    }
+  }
   for (const [name, value] of Object.entries(signedHeaders)) {
     merged.set(name, value);
   }
@@ -289,9 +337,14 @@ export async function signedFetch(
     headers: _h,
     circuitBreaker,
     circuitBreakerOptions,
+    verifiedUser: _verifiedUser,
     ...init
   } = options;
-  void _s; void _t; void _sec; void _h;
+  void _s;
+  void _t;
+  void _sec;
+  void _h;
+  void _verifiedUser;
 
   const finalInit = { ...init, headers: merged };
 

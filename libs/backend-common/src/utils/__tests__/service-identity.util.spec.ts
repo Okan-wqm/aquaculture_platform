@@ -22,9 +22,10 @@ const PATH = '/graphql';
 const METHOD = 'POST';
 const BODY = '{"query":"{ farms { id } }"}';
 const BODY_HASH = createHash('sha256').update(BODY).digest('hex');
+const EMPTY_ASSERTION_HASH = createHash('sha256').update('').digest('hex');
 
 describe('service-identity v2 — generate', () => {
-  it('emits all 7 v2 headers including Sig-Version, Method, Path, Body-Hash', () => {
+  it('emits all v2 headers including Sig-Version, Method, Path, Body-Hash, Assertion-Hash', () => {
     const h = generateServiceIdentityHeadersV2({
       serviceName: SERVICE,
       secret: SECRET,
@@ -38,6 +39,7 @@ describe('service-identity v2 — generate', () => {
     expect(h['X-Service-Method']).toBe('POST');
     expect(h['X-Service-Path']).toBe(PATH);
     expect(h['X-Service-Body-Hash']).toBe(BODY_HASH);
+    expect(h['X-Service-Assertion-Hash']).toBe(EMPTY_ASSERTION_HASH);
     expect(h['X-Service-Signature']).toMatch(/^[0-9a-f]{64}$/);
     expect(Date.parse(h['X-Service-Timestamp'])).not.toBeNaN();
   });
@@ -91,9 +93,11 @@ describe('service-identity v2 — verify (round-trip)', () => {
         method: h['X-Service-Method'],
         path: h['X-Service-Path'],
         bodyHash: h['X-Service-Body-Hash'],
+        assertionHash: h['X-Service-Assertion-Hash'],
         observedMethod: METHOD,
         observedPath: PATH,
         observedBody: BODY,
+        observedAssertionHash: EMPTY_ASSERTION_HASH,
         secret: SECRET,
         expectedTenantId: TENANT,
       }),
@@ -110,9 +114,11 @@ describe('service-identity v2 — verify (round-trip)', () => {
         method: h['X-Service-Method'],
         path: h['X-Service-Path'],
         bodyHash: h['X-Service-Body-Hash'],
+        assertionHash: h['X-Service-Assertion-Hash'],
         observedMethod: METHOD,
         observedPath: PATH,
         observedBody: BODY + ' tampered',
+        observedAssertionHash: EMPTY_ASSERTION_HASH,
         secret: SECRET,
         expectedTenantId: TENANT,
       }),
@@ -129,9 +135,11 @@ describe('service-identity v2 — verify (round-trip)', () => {
         method: h['X-Service-Method'],
         path: h['X-Service-Path'],
         bodyHash: h['X-Service-Body-Hash'],
+        assertionHash: h['X-Service-Assertion-Hash'],
         observedMethod: 'GET',
         observedPath: PATH,
         observedBody: BODY,
+        observedAssertionHash: EMPTY_ASSERTION_HASH,
         secret: SECRET,
         expectedTenantId: TENANT,
       }),
@@ -148,9 +156,11 @@ describe('service-identity v2 — verify (round-trip)', () => {
         method: h['X-Service-Method'],
         path: h['X-Service-Path'],
         bodyHash: h['X-Service-Body-Hash'],
+        assertionHash: h['X-Service-Assertion-Hash'],
         observedMethod: METHOD,
         observedPath: '/admin',
         observedBody: BODY,
+        observedAssertionHash: EMPTY_ASSERTION_HASH,
         secret: SECRET,
         expectedTenantId: TENANT,
       }),
@@ -167,9 +177,11 @@ describe('service-identity v2 — verify (round-trip)', () => {
         method: h['X-Service-Method'],
         path: h['X-Service-Path'],
         bodyHash: h['X-Service-Body-Hash'],
+        assertionHash: h['X-Service-Assertion-Hash'],
         observedMethod: METHOD,
         observedPath: PATH,
         observedBody: BODY,
+        observedAssertionHash: EMPTY_ASSERTION_HASH,
         secret: SECRET,
         expectedTenantId: '22222222-2222-4222-8222-222222222222',
       }),
@@ -189,6 +201,7 @@ describe('service-identity v2 — verify (round-trip)', () => {
       'POST',
       PATH,
       BODY_HASH,
+      EMPTY_ASSERTION_HASH,
       TENANT,
     ].join('\n');
     const sig = createHmac('sha256', SECRET).update(canonical).digest('hex');
@@ -200,9 +213,11 @@ describe('service-identity v2 — verify (round-trip)', () => {
         method: 'POST',
         path: PATH,
         bodyHash: BODY_HASH,
+        assertionHash: EMPTY_ASSERTION_HASH,
         observedMethod: 'POST',
         observedPath: PATH,
         observedBody: BODY,
+        observedAssertionHash: EMPTY_ASSERTION_HASH,
         secret: SECRET,
         expectedTenantId: TENANT,
       }),
@@ -219,9 +234,11 @@ describe('service-identity v2 — verify (round-trip)', () => {
         method: h['X-Service-Method'],
         path: h['X-Service-Path'],
         bodyHash: h['X-Service-Body-Hash'],
+        assertionHash: h['X-Service-Assertion-Hash'],
         observedMethod: METHOD,
         observedPath: PATH,
         observedBody: BODY,
+        observedAssertionHash: EMPTY_ASSERTION_HASH,
         secret: 'wrong-secret',
         expectedTenantId: TENANT,
       }),
@@ -248,6 +265,7 @@ describe('service-identity unified verifier (verifyServiceIdentityRequest)', () 
         'x-service-method': h['X-Service-Method'],
         'x-service-path': h['X-Service-Path'],
         'x-service-body-hash': h['X-Service-Body-Hash'],
+        'x-service-assertion-hash': h['X-Service-Assertion-Hash'],
       },
       observedMethod: METHOD,
       observedPath: PATH,
@@ -349,6 +367,7 @@ describe('service-identity unified verifier (verifyServiceIdentityRequest)', () 
         'x-service-method': h['X-Service-Method'],
         'x-service-path': h['X-Service-Path'],
         'x-service-body-hash': h['X-Service-Body-Hash'],
+        'x-service-assertion-hash': h['X-Service-Assertion-Hash'],
       },
       observedMethod: METHOD,
       observedPath: PATH,

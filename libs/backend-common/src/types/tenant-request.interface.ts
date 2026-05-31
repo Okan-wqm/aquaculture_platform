@@ -6,10 +6,13 @@ import { Request } from 'express';
  */
 export interface JwtUser {
   sub: string;
-  tenantId?: string;
+  tenantId?: string | null;
   roles?: string[];
   /** @deprecated Use `roles` array instead */
   role?: string;
+  permissions?: string[];
+  resourcePermissions?: string[];
+  modules?: string[];
   /**
    * Whether the user has completed MFA verification in the current session.
    * Set by the auth service when MFA challenge is successfully completed.

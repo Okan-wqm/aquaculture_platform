@@ -7,62 +7,13 @@ import {
   hasLocalCredentials,
   getStoredBiometricEmail,
   storeBiometricEmail,
+  useWebAuthn,
 } from '@/hooks/useWebAuthn';
-
-// SEC-06: CSRF defense-in-depth header
-const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' };
-
-// GraphQL operations for WebAuthn login (inline to avoid circular dependency with useWebAuthn)
-const WEBAUTHN_LOGIN_CHALLENGE = `
-  mutation WebAuthnLoginChallenge($input: WebAuthnLoginChallengeInput!) {
-    webAuthnLoginChallenge(input: $input) {
-      challenge
-      rpId
-      allowedCredentialIds
-    }
-  }
-`;
-
-const WEBAUTHN_VERIFY_LOGIN = `
-  mutation VerifyWebAuthnLogin($input: WebAuthnVerifyLoginInput!) {
-    verifyWebAuthnLogin(input: $input) {
-      accessToken
-      refreshToken
-      user {
-        id
-        email
-        firstName
-        lastName
-        role
-        tenantId
-      }
-    }
-  }
-`;
-
-function bufferToBase64url(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]!);
-  }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-function base64urlToBuffer(base64url: string): ArrayBuffer {
-  const padding = '='.repeat((4 - (base64url.length % 4)) % 4);
-  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/') + padding;
-  const binary = atob(base64);
-  const buffer = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    buffer[i] = binary.charCodeAt(i);
-  }
-  return buffer.buffer;
-}
 
 export function LoginPage() {
   const navigate = useNavigate();
   const { login, loginWithToken, isLoading, isAuthenticated, isMobileDisabled } = useAuth();
+  const { biometricLogin } = useWebAuthn();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -145,79 +96,16 @@ export function LoginPage() {
     setError('');
 
     try {
-      // Step 1: Get challenge from backend
-      const challengeRes = await fetch('/graphql', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...CSRF_HEADER },
-        credentials: 'include',
-        body: JSON.stringify({
-          query: WEBAUTHN_LOGIN_CHALLENGE,
-          variables: { input: { email: biometricEmail } },
-        }),
-      });
-      const challengeResult = await challengeRes.json();
-
-      if (challengeResult.errors) {
-        throw new Error(challengeResult.errors[0]?.message || 'Biometric login not available');
-      }
-
-      const challenge = challengeResult.data.webAuthnLoginChallenge;
-
-      // Step 2: Call WebAuthn API
-      const allowCredentials = challenge.allowedCredentialIds.map((id: string) => ({
-        id: base64urlToBuffer(id),
-        type: 'public-key' as const,
-        transports: ['internal' as AuthenticatorTransport],
-      }));
-
-      const assertion = (await navigator.credentials.get({
-        publicKey: {
-          challenge: base64urlToBuffer(challenge.challenge),
-          rpId: challenge.rpId,
-          allowCredentials,
-          userVerification: 'required',
-          timeout: 60000,
-        },
-      })) as PublicKeyCredential | null;
-
-      if (!assertion) {
-        setError('Biometric verification was cancelled');
+      const result = await biometricLogin(biometricEmail);
+      if (!result) {
+        setError('Biometric login failed. Please try again or use your password.');
         return;
       }
 
-      const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
-
-      // Step 3: Verify with backend
-      const verifyRes = await fetch('/graphql', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...CSRF_HEADER },
-        credentials: 'include',
-        body: JSON.stringify({
-          query: WEBAUTHN_VERIFY_LOGIN,
-          variables: {
-            input: {
-              credentialId: bufferToBase64url(assertion.rawId),
-              authenticatorData: bufferToBase64url(assertionResponse.authenticatorData),
-              clientDataJSON: bufferToBase64url(assertionResponse.clientDataJSON),
-              signature: bufferToBase64url(assertionResponse.signature),
-              challenge: challenge.challenge,
-              origin: window.location.origin,
-            },
-          },
-        }),
-      });
-
-      const verifyResult = await verifyRes.json();
-
-      if (verifyResult.errors) {
-        throw new Error(verifyResult.errors[0]?.message || 'Biometric verification failed');
-      }
-
-      const { accessToken, user } = verifyResult.data.verifyWebAuthnLogin;
-
       // Complete login using the token received from WebAuthn verification.
       // The httpOnly refresh token cookie has already been set by the backend.
-      await loginWithToken(accessToken, user);
+      await loginWithToken(result.accessToken, result.user);
+      storeBiometricEmail(biometricEmail);
       navigate('/', { replace: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Biometric login failed';
@@ -336,7 +224,6 @@ export function LoginPage() {
                 </button>
               </div>
             </div>
-
 
             <button
               type="submit"

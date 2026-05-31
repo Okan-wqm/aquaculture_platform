@@ -52,6 +52,13 @@ export class WebAuthnCredential {
   publicKey!: string;
 
   /**
+   * Base64url WebAuthn user handle used during registration.
+   */
+  @HideField()
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  webAuthnUserId?: string | null;
+
+  /**
    * Signature counter from the authenticator.
    * SECURITY: Incremented on each use. If counter goes backward, it indicates
    * a cloned authenticator and login should be rejected.
@@ -67,6 +74,22 @@ export class WebAuthnCredential {
   @Field(() => [String], { nullable: true })
   @Column({ type: 'simple-array', nullable: true })
   transports?: string[];
+
+  @HideField()
+  @Column({ type: 'int', default: 2 })
+  version!: number;
+
+  @HideField()
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  deviceType?: string | null;
+
+  @HideField()
+  @Column({ type: 'boolean', default: false })
+  backedUp!: boolean;
+
+  @HideField()
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  aaguid?: string | null;
 
   /**
    * User-defined name for this credential (e.g., "iPhone 15", "Work Laptop").

@@ -25,6 +25,7 @@ import {
   UserContextMiddleware,
   createTenantSchemaMiddleware,
   StripInternalHeadersMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import {
@@ -232,6 +233,7 @@ export class AppModule implements NestModule {
         StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
         TenantSchemaMiddleware, // Schema-level tenant isolation via search_path

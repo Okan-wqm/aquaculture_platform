@@ -8,7 +8,6 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -47,17 +46,11 @@ const RECOVERY_CODE_COUNT = 8;
 /** Recovery code length (characters) */
 const RECOVERY_CODE_LENGTH = 10;
 
-/** MFA token (intermediate JWT) TTL in seconds */
-const MFA_TOKEN_TTL_SECONDS = 300; // 5 minutes
-
 /** Max failed MFA attempts before lockout */
 const MFA_MAX_FAILED_ATTEMPTS = 5;
 
 /** MFA lockout duration in minutes */
 const MFA_LOCKOUT_DURATION_MINUTES = 15;
-
-/** MFA token JWT subject prefix to distinguish from regular tokens */
-const MFA_TOKEN_PREFIX = 'mfa:';
 
 /** Base32 alphabet for TOTP secret encoding */
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -170,11 +163,7 @@ function generateTOTP(
  * @param window - Number of periods before/after to check (default: 1)
  * @returns true if the code matches any period in the window
  */
-function verifyTOTP(
-  secret: Buffer,
-  code: string,
-  window: number = TOTP_WINDOW,
-): boolean {
+function verifyTOTP(secret: Buffer, code: string, window: number = TOTP_WINDOW): boolean {
   const now = Math.floor(Date.now() / 1000);
 
   for (let i = -window; i <= window; i++) {
@@ -208,15 +197,11 @@ export class MfaService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
   ) {
-    this.issuerName = this.configService.get<string>(
-      'MFA_ISSUER_NAME',
-      'AquaculturePlatform',
-    );
+    this.issuerName = this.configService.get<string>('MFA_ISSUER_NAME', 'AquaculturePlatform');
 
     /**
      * SECURITY (H-17): MFA encryption key validation with graceful degradation.
@@ -246,8 +231,8 @@ export class MfaService {
 
       this.logger.warn(
         'SECURITY: MFA_ENCRYPTION_KEY not configured — MFA features DISABLED. ' +
-        'Users cannot enable or use multi-factor authentication until this env var is set. ' +
-        'Generate a 64-character hex key: openssl rand -hex 32',
+          'Users cannot enable or use multi-factor authentication until this env var is set. ' +
+          'Generate a 64-character hex key: openssl rand -hex 32',
       );
       this.mfaDisabled = true;
       this.mfaUnavailableReason = 'MFA_ENCRYPTION_KEY is not configured';
@@ -264,7 +249,7 @@ export class MfaService {
       }
       this.logger.warn(
         'SECURITY: MFA_ENCRYPTION_KEY is not a 64-character hex key. ' +
-        'Deriving a development-only encryption key with scrypt; production-like environments reject this format.',
+          'Deriving a development-only encryption key with scrypt; production-like environments reject this format.',
       );
       const salt = crypto.createHash('sha256').update(masterKey).digest().subarray(0, 16);
       this.encryptionKey = crypto.scryptSync(masterKey, salt, 32);
@@ -362,7 +347,9 @@ export class MfaService {
     // Verify the TOTP code
     if (!verifyTOTP(secretBuffer, code)) {
       await this.logMfaEvent('MFA_SETUP_VERIFY_FAILED', user, false, 'Invalid TOTP code');
-      throw new BadRequestException('Invalid TOTP code. Please try again with a new code from your authenticator app.');
+      throw new BadRequestException(
+        'Invalid TOTP code. Please try again with a new code from your authenticator app.',
+      );
     }
 
     // Enable MFA
@@ -431,7 +418,10 @@ export class MfaService {
   /**
    * Regenerate recovery codes (requires authentication + TOTP verification).
    */
-  async regenerateRecoveryCodes(userId: string, code: string): Promise<RegenerateMfaRecoveryCodesResponse> {
+  async regenerateRecoveryCodes(
+    userId: string,
+    code: string,
+  ): Promise<RegenerateMfaRecoveryCodesResponse> {
     if (this.mfaDisabled) {
       throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
     }
@@ -473,22 +463,10 @@ export class MfaService {
    *
    * Called from AuthenticationService.login() after successful password validation.
    */
-  generateMfaChallenge(user: User): { mfaRequired: true; mfaToken: string } {
-    // Generate a short-lived JWT specifically for MFA verification
-    const mfaPayload = {
-      sub: `${MFA_TOKEN_PREFIX}${user.id}`,
-      purpose: 'mfa_verification',
-      userId: user.id,
-      jti: crypto.randomUUID(),
-    };
-
-    const mfaToken = this.jwtService.sign(mfaPayload, {
-      expiresIn: MFA_TOKEN_TTL_SECONDS,
-    });
-
+  async generateMfaChallenge(user: User): Promise<{ mfaRequired: true; mfaToken: string }> {
     return {
       mfaRequired: true,
-      mfaToken,
+      mfaToken: await this.tokenService.generateMfaChallengeToken(user),
     };
   }
 
@@ -508,9 +486,9 @@ export class MfaService {
       throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
     }
     // Validate the MFA token
-    let mfaPayload: { sub: string; userId: string; purpose: string; jti: string };
+    let mfaPayload: { sub: string; userId: string; purpose: string; type: string; jti: string };
     try {
-      mfaPayload = this.jwtService.verify(mfaToken);
+      mfaPayload = this.tokenService.verifyMfaChallengeToken(mfaToken);
     } catch {
       throw new UnauthorizedException('MFA token is invalid or expired. Please login again.');
     }
@@ -518,7 +496,8 @@ export class MfaService {
     // Validate token purpose
     if (
       mfaPayload.purpose !== 'mfa_verification' ||
-      !mfaPayload.sub?.startsWith(MFA_TOKEN_PREFIX)
+      mfaPayload.type !== 'mfa_challenge' ||
+      !mfaPayload.sub?.startsWith('mfa:')
     ) {
       throw new UnauthorizedException('Invalid MFA token');
     }
@@ -562,7 +541,12 @@ export class MfaService {
       if (user.mfaFailedAttempts >= MFA_MAX_FAILED_ATTEMPTS) {
         user.mfaLockedUntil = new Date(Date.now() + MFA_LOCKOUT_DURATION_MINUTES * 60 * 1000);
         await this.userRepository.save(user);
-        await this.logMfaEvent('MFA_LOCKOUT', user, false, `Locked after ${MFA_MAX_FAILED_ATTEMPTS} failed attempts`);
+        await this.logMfaEvent(
+          'MFA_LOCKOUT',
+          user,
+          false,
+          `Locked after ${MFA_MAX_FAILED_ATTEMPTS} failed attempts`,
+        );
         throw new ForbiddenException(
           `Too many failed MFA attempts. Account locked for ${MFA_LOCKOUT_DURATION_MINUTES} minutes.`,
         );
@@ -608,7 +592,7 @@ export class MfaService {
    * @param code      - 6-digit TOTP code or recovery code
    * @param ipAddress - Client IP for audit logging
    * @param userAgent - Client user agent for audit logging
-   * @returns New auth tokens with mfaVerified=true claim
+   * @returns Access-only auth payload with mfaVerified=true claim
    */
   async verifyStepUp(
     userId: string,
@@ -657,8 +641,12 @@ export class MfaService {
       if (user.mfaFailedAttempts >= MFA_MAX_FAILED_ATTEMPTS) {
         user.mfaLockedUntil = new Date(Date.now() + MFA_LOCKOUT_DURATION_MINUTES * 60 * 1000);
         await this.userRepository.save(user);
-        await this.logMfaEvent('MFA_STEPUP_LOCKOUT', user, false,
-          `Locked after ${MFA_MAX_FAILED_ATTEMPTS} failed attempts`);
+        await this.logMfaEvent(
+          'MFA_STEPUP_LOCKOUT',
+          user,
+          false,
+          `Locked after ${MFA_MAX_FAILED_ATTEMPTS} failed attempts`,
+        );
         throw new ForbiddenException(
           `Too many failed MFA attempts. Account locked for ${MFA_LOCKOUT_DURATION_MINUTES} minutes.`,
         );
@@ -675,7 +663,12 @@ export class MfaService {
 
     await this.logMfaEvent('MFA_STEPUP_SUCCESS', user, true);
 
-    return this.tokenService.generateTokens(user, ipAddress, userAgent, { mfaVerified: true });
+    void ipAddress;
+    void userAgent;
+    return this.tokenService.generateAccessOnlyToken(user, {
+      mfaVerified: true,
+      expiresIn: this.configService.get<string>('MFA_STEP_UP_JWT_EXPIRES_IN', '5m'),
+    });
   }
 
   // ==========================================================================
@@ -723,9 +716,10 @@ export class MfaService {
     // Normalize code: uppercase, remove dashes
     const normalizedCode = code.toUpperCase().replace(/-/g, '');
     // Re-add the dash for hashing (codes are stored as hashes of XXXXX-XXXXX format)
-    const formattedCode = normalizedCode.length === 10
-      ? `${normalizedCode.substring(0, 5)}-${normalizedCode.substring(5)}`
-      : code.toUpperCase();
+    const formattedCode =
+      normalizedCode.length === 10
+        ? `${normalizedCode.substring(0, 5)}-${normalizedCode.substring(5)}`
+        : code.toUpperCase();
 
     const codeHash = crypto.createHash('sha256').update(formattedCode).digest('hex');
     const storedHashes = user.mfaRecoveryCodes.split(',');
@@ -743,7 +737,12 @@ export class MfaService {
     user.mfaRecoveryCodes = storedHashes.length > 0 ? storedHashes.join(',') : null;
     await this.userRepository.save(user);
 
-    await this.logMfaEvent('MFA_RECOVERY_CODE_USED', user, true, `Remaining codes: ${storedHashes.length}`);
+    await this.logMfaEvent(
+      'MFA_RECOVERY_CODE_USED',
+      user,
+      true,
+      `Remaining codes: ${storedHashes.length}`,
+    );
 
     return true;
   }

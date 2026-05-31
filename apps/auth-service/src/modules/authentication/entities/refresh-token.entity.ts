@@ -38,6 +38,9 @@ export class RefreshToken {
   @Column({ type: 'boolean', default: false })
   isRevoked!: boolean;
 
+  @Column({ type: 'boolean', default: false })
+  mfaVerified!: boolean;
+
   @Column({ type: 'timestamptz', nullable: true })
   revokedAt?: Date | null;
 

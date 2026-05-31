@@ -40,11 +40,10 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     // NatsIngestionConsumer (read path) and the SensorCacheInvalidation
     // handler (write path) share one Map per process.
     SensorMetaCacheService,
-    // Faz 3 stage 2 — bridges the Rust ingestion sidecar (ADR-025)
-    // events into the existing BatchProcessor + typed-event publish
-    // path. Co-exists with MqttListenerService until Faz 3 stage 3
-    // wires the SENSOR_SERVICE_PROFILE env-gate that disables MQTT
-    // entirely on the control-plane profile.
+    // Bridges Rust ingestion sidecar (ADR-025) outbox events into
+    // the typed-event publish path. Persistence is already committed
+    // by Rust before SensorMetricIngested dispatch, so this consumer
+    // must not call BatchProcessorService.
     NatsIngestionConsumerService,
     // Faz 3 follow-on — drops SensorMetaCacheService entries on
     // SensorConfigurationUpdated / Suspended / Reactivated so ops

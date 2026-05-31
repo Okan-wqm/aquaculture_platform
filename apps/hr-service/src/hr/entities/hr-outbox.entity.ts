@@ -1,4 +1,4 @@
-import { Entity } from 'typeorm';
+import { Entity, Index } from 'typeorm';
 import { OutboxEntityBase } from '@platform/outbox';
 
 /**
@@ -17,4 +17,16 @@ import { OutboxEntityBase } from '@platform/outbox';
  * @see OutboxPublisher.enqueue() for the write-side API
  */
 @Entity('hr_outbox', { schema: 'hr' })
+@Index('idx_hr_outbox_poll', ['createdAt'], {
+  where: '"publishedAt" IS NULL AND "isDeadLettered" = false',
+})
+@Index('idx_hr_outbox_tenant', ['tenantId'])
+@Index('idx_hr_outbox_idempotency', ['tenantId', 'idempotencyKey'], {
+  unique: true,
+  where: '"idempotencyKey" IS NOT NULL',
+})
+@Index('idx_hr_outbox_sequence', ['sequence'], { unique: true })
+@Index('idx_hr_outbox_aggregate_fifo', ['tenantId', 'aggregateId', 'sequence'], {
+  where: '"publishedAt" IS NULL AND "isDeadLettered" = false AND "aggregateId" IS NOT NULL',
+})
 export class HrOutbox extends OutboxEntityBase {}

@@ -17,17 +17,10 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { EventBusModule } from '@platform/event-bus';
 import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { APP_GUARD, Reflector } from '@nestjs/core';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
-import {
-  fieldExtensionsEstimator,
-  getComplexity,
-  simpleEstimator,
-} from 'graphql-query-complexity';
+import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
@@ -48,6 +41,7 @@ import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import {
   SlidingWindowStrategy,
@@ -103,6 +97,7 @@ import { Baseline1800000000000 } from './migrations/1800000000000-Baseline';
 import { CreateMessagingOutboxTable1800200000000 } from './migrations/1800200000000-CreateMessagingOutboxTable';
 import { AddUserAiConsentTenantUserUnique1800300000000 } from './migrations/1800300000000-AddUserAiConsentTenantUserUnique';
 import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from './migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
+import { MessagingOutboxSequence1800500000000 } from './migrations/1800500000000-MessagingOutboxSequence';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -176,6 +171,7 @@ const complexityCache = new Map<string, number>();
             CreateMessagingOutboxTable1800200000000,
             AddUserAiConsentTenantUserUnique1800300000000,
             EnforceSourceOnlyMessagingOutboxContract1800400000000,
+            MessagingOutboxSequence1800500000000,
           ],
         }),
     }),
@@ -246,8 +242,7 @@ const complexityCache = new Map<string, number>();
           // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
           // WHY: messaging subgraph developer UI must not rely on deprecated Apollo Playground behavior.
           introspection:
-            !isProduction ||
-            configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
+            !isProduction || configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
           context: ({ req }: { req: Request }) => ({ req }),
         };
       },
@@ -334,10 +329,27 @@ const complexityCache = new Map<string, number>();
   ],
   providers: [
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
-    { provide: APP_GUARD, useFactory: (c: ConfigService): ServiceIdentityGuard => new ServiceIdentityGuard(c), inject: [ConfigService] },
-    { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService): TenantGuard => new TenantGuard(r, undefined, c), inject: [Reflector, ConfigService] },
-    { provide: APP_GUARD, useFactory: (r: Reflector): RolesGuard => new RolesGuard(r), inject: [Reflector] },
-    { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard => new ThrottlerGuard(r, c, s), inject: [Reflector, ConfigService, SlidingWindowStrategy] },
+    {
+      provide: APP_GUARD,
+      useFactory: (c: ConfigService): ServiceIdentityGuard => new ServiceIdentityGuard(c),
+      inject: [ConfigService],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector, c: ConfigService): TenantGuard => new TenantGuard(r, undefined, c),
+      inject: [Reflector, ConfigService],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector): RolesGuard => new RolesGuard(r),
+      inject: [Reflector],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard =>
+        new ThrottlerGuard(r, c, s),
+      inject: [Reflector, ConfigService, SlidingWindowStrategy],
+    },
 
     // Migration runner — runs pending TypeORM migrations on the messaging
     // source schema at OnApplicationBootstrap with search_path pinning.
@@ -364,6 +376,7 @@ export class AppModule implements NestModule {
         StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware,
+        VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
         TenantSchemaMiddleware,

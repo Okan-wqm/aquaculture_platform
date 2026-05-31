@@ -18,15 +18,10 @@
 //!     Runtime Tuning): worker_threads = 2, blocking pool 8, no
 //!     spawn_blocking on hot path, LIFO slot enabled.
 //!   - Observability init via the workspace `observability` crate.
-//!   - Stub main loop that logs "started" and waits for SIGTERM.
-//!
-//! WHAT lands in subsequent commits on this same PR:
-//!   - MQTT subscribe loop (rumqttc).
-//!   - Topic parse + tenant resolution (papaya cache).
-//!   - Payload validate (protocol-codec PDU decoders + topic↔payload
-//!     tenantId enforcement).
-//!   - Batch aggregator + tokio-postgres COPY pipeline.
-//!   - NATS event publish (event-contracts-rs once codegen lands).
+//!   - MQTT subscribe loop (rumqttc) → topic parse → per-tenant
+//!     IngestBackend gate → strict payload validate → cache-backed
+//!     sensor/channel validation → bounded batch aggregator →
+//!     Timescale COPY + transactional outbox → NATS dispatcher.
 
 #![cfg_attr(not(test), forbid(unsafe_code))]
 #![cfg_attr(not(test), deny(missing_docs))]
@@ -43,12 +38,24 @@
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
-use sensor_ingestion::cache::{self, DEFAULT_TOTAL_CAPACITY, TopicCache};
-use sensor_ingestion::config::Config;
-use sensor_ingestion::mqtt::{self, MqttMessageStream};
+use sensor_ingestion::batch::{
+    BatchAggregator, BatchOpts, DEFAULT_INPUT_CHANNEL_CAPACITY, DEFAULT_OUTPUT_CHANNEL_CAPACITY,
+};
+use sensor_ingestion::cache::{DEFAULT_TOTAL_CAPACITY, SensorMeta, TopicCache};
+use sensor_ingestion::config::{Config, IngestBackend};
+use sensor_ingestion::events::NatsOutboxPublisher;
+use sensor_ingestion::ingest_backend::{DynamicBackendPolicy, IngestBackendPolicy};
+use sensor_ingestion::mqtt::{self, MqttMessageStream, RawMqttMessage};
+use sensor_ingestion::payload::{self, SensorReading};
+use sensor_ingestion::persistence::{BatchSink, LoggingSink, PostgresSink, run_sink_loop};
+use sensor_ingestion::policy::{bootstrap_policy, spawn_policy_subscriber};
 use sensor_ingestion::runtime::build_runtime;
+use sensor_ingestion::sensor_lookup::{SensorLookupClient, build_sensor_lookup_client};
+use sensor_ingestion::topic::{self, ParsedTopic};
 
 // Bootstrap exists in a window where `tracing` is not yet installed
 // and there is no other reporting channel. Allow `eprintln!` for the
@@ -103,12 +110,12 @@ fn main() -> ExitCode {
 }
 
 async fn async_main(cfg: Config) -> anyhow::Result<()> {
+    let _metrics_handle =
+        observability::init_metrics(&cfg.metrics).context("initialising metrics recorder")?;
+
     // The tenant/sensor topic-cache is process-wide singleton state.
-    // Build it before any stream runs so a future cache-miss handler
-    // can hand the same `Arc<TopicCache>` to every parser worker.
-    // Capacity defaults to the plan number (100K) until config
-    // surfaces a per-deploy override; the override knob lands in the
-    // batch-aggregator commit on this same PR.
+    // Build it before any stream runs so cache miss fill + parser
+    // workers share the same bounded memory surface.
     let cache = Arc::new(TopicCache::new(DEFAULT_TOTAL_CAPACITY));
     tracing::info!(
         cache_total_capacity = DEFAULT_TOTAL_CAPACITY,
@@ -116,27 +123,108 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
         cache_initial_len = cache.len(),
         "topic cache constructed"
     );
-    // Exercise the cache's public surface (insert -> get -> invalidate
-    // -> invalidate_tenant) at process start as a self-smoke check.
-    // The full lookup pipeline that calls these methods at message
-    // rate lands in the next commit on this PR; running them once here
-    // proves the cache layer is wired correctly on this build before
-    // any traffic arrives, AND keeps the binary's dead-code lint
-    // honest about every surface the topic-parser stage will reach
-    // for. The smoke key is a fixed nil-tenant + nil-sensor and is
-    // removed before the loop begins, so the cache's observable state
-    // post-bootstrap is exactly len = 0.
-    cache::self_smoke_check(&cache);
-    debug_assert!(
-        cache.is_empty(),
-        "cache must be empty after self-smoke teardown"
-    );
-    // If the config names an MQTT broker, start the subscriber task
-    // so the entire chain is exercised end-to-end. Downstream stages
-    // (topic parser, payload validator, batch aggregator, COPY
-    // pipeline) are wired onto this receiver in subsequent commits
-    // on this PR; until they land we log-and-drop so the module is
-    // live at runtime and the dead-code lint cannot hide a typo.
+
+    if cfg.postgres.is_some() && cfg.nats.is_none() {
+        return Err(anyhow!(
+            "postgres sink requires [nats] config so transactional outbox rows can dispatch"
+        ));
+    }
+    if cfg.mqtt.is_some() && cfg.postgres.is_none() {
+        return Err(anyhow!(
+            "mqtt subscriber requires [postgres] config; refusing logging sink for live ingestion"
+        ));
+    }
+
+    let nats = if let Some(nats_cfg) = cfg.nats.as_ref() {
+        Some(Arc::new(
+            nats_client::NatsClient::connect(nats_cfg)
+                .await
+                .context("connecting to NATS with mTLS")?,
+        ))
+    } else {
+        None
+    };
+
+    let (snapshot, source) = bootstrap_policy(nats.as_deref(), &cfg.ingest_backend).await;
+    source.emit_metric();
+    let backend_policy = Arc::new(DynamicBackendPolicy::new(snapshot));
+
+    let cancel = CancellationToken::new();
+    let policy_task = nats.as_ref().map(|client| {
+        spawn_policy_subscriber(
+            Arc::clone(client),
+            Arc::clone(&backend_policy),
+            cfg.ingest_backend.disk_fallback_path.clone(),
+            cancel.clone(),
+        )
+    });
+
+    let (sink, outbox_repo): (Arc<dyn BatchSink>, Option<outbox_rs::PgOutboxRepository>) =
+        if let Some(pg_cfg) = cfg.postgres.as_ref() {
+            let pg_sink = PostgresSink::connect(pg_cfg)
+                .await
+                .context("connecting postgres sensor sink")?;
+            let repo = pg_sink.outbox_repository();
+            (Arc::new(pg_sink), Some(repo))
+        } else {
+            tracing::warn!(
+                "postgres config absent; using logging sink (no metric persistence or outbox)"
+            );
+            (Arc::new(LoggingSink::new()), None)
+        };
+
+    let dispatcher = if let Some(repo) = outbox_repo {
+        let Some(nats_client) = nats.as_ref() else {
+            return Err(anyhow!(
+                "outbox dispatcher requires a connected NATS client"
+            ));
+        };
+        let dispatcher = Arc::new(outbox_rs::OutboxDispatcher::new(
+            Arc::new(repo),
+            Arc::new(NatsOutboxPublisher::from_client(Arc::clone(nats_client))),
+            outbox_rs::DispatcherConfig::default(),
+        ));
+        let runner = Arc::clone(&dispatcher);
+        let handle = tokio::spawn(async move {
+            runner.run().await;
+        });
+        Some((dispatcher, handle))
+    } else {
+        None
+    };
+
+    let lookup_client = nats
+        .as_ref()
+        .map(|client| build_sensor_lookup_client(Arc::clone(client)));
+
+    let (aggregator, reading_tx, batch_rx) = BatchAggregator::new(
+        BatchOpts::default(),
+        DEFAULT_INPUT_CHANNEL_CAPACITY,
+        DEFAULT_OUTPUT_CHANNEL_CAPACITY,
+    )
+    .context("constructing batch aggregator")?;
+
+    let (exit_tx, mut exit_rx) = mpsc::channel::<TaskExit>(4);
+
+    let aggregator_task = {
+        let tx = exit_tx.clone();
+        let cancel = cancel.clone();
+        tokio::spawn(async move {
+            let result = aggregator.run(cancel).await.map_err(|e| e.to_string());
+            let _ = tx.send(TaskExit::Aggregator(result)).await;
+        })
+    };
+
+    let sink_task = {
+        let tx = exit_tx.clone();
+        tokio::spawn(async move {
+            let result = run_sink_loop(sink, batch_rx)
+                .await
+                .map_err(|e| e.to_string());
+            let _ = tx.send(TaskExit::Sink(result)).await;
+        })
+    };
+
     let mqtt_stream = if let Some(mqtt_cfg) = cfg.mqtt.clone() {
         tracing::info!(
             broker = %mqtt_cfg.broker_url,
@@ -149,94 +237,312 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
                 .context("starting mqtt subscriber")?,
         )
     } else {
-        tracing::info!("mqtt config absent; skipping subscriber (stub mode)");
+        tracing::info!("mqtt config absent; waiting for shutdown without subscriber");
         None
     };
 
-    // Split the stream into an Arc<Mutex<Option<...>>> so both the
-    // drain task and the signal-handler path can reach it. The signal
-    // path needs ownership to call shutdown(); the drain path needs
-    // &mut for recv(). The Mutex mediates the handoff.
-    let stream_slot = std::sync::Arc::new(tokio::sync::Mutex::new(mqtt_stream));
-    let drain_slot = stream_slot.clone();
-    let shutdown_slot = stream_slot;
-    // Hand the cache to the drain path so the topic-cache module is
-    // exercised at runtime end-to-end. When the topic parser + cache-
-    // miss handler land in subsequent commits the same `Arc` shifts
-    // from the placeholder log-line to the real lookup callsite.
-    let drain_cache = Arc::clone(&cache);
+    let pipeline = PipelineDeps {
+        cache: Arc::clone(&cache),
+        backend_policy,
+        lookup_client,
+        reading_tx,
+        cancel: cancel.clone(),
+    };
+    let mqtt_task = {
+        let tx = exit_tx.clone();
+        tokio::spawn(async move {
+            let result = run_mqtt_pipeline(mqtt_stream, pipeline)
+                .await
+                .map_err(|e| format!("{e:#}"));
+            let _ = tx.send(TaskExit::Mqtt(result)).await;
+        })
+    };
+    drop(exit_tx);
 
+    let mut stop_error: Option<anyhow::Error> = None;
     tokio::select! {
         () = wait_for_shutdown_signal() => {
-            tracing::info!("shutdown signal received, closing mqtt subscriber");
-            let taken = shutdown_slot.lock().await.take();
-            if let Some(s) = taken {
-                s.shutdown().await;
+            tracing::info!("shutdown signal received");
+        }
+        maybe_exit = exit_rx.recv() => {
+            if let Some(exit) = maybe_exit {
+                record_task_exit(exit, &mut stop_error);
             }
         }
-        () = drain_mqtt_stream(drain_slot, drain_cache) => {
-            tracing::info!("mqtt stream closed");
-        }
     }
-    // Surface the post-shutdown cache footprint in the log so an
-    // operator can correlate cache fill with broker traffic. The
-    // explicit reference also keeps the cache alive past the select!
-    // suspension point — the compiler would otherwise be free to drop
-    // it as soon as it sees the last use.
+    cancel.cancel();
+    if let Some((dispatcher, _)) = dispatcher.as_ref() {
+        dispatcher.shutdown();
+    }
+
+    while let Ok(exit) = exit_rx.try_recv() {
+        record_task_exit(exit, &mut stop_error);
+    }
+
+    let _ = mqtt_task.await;
+    let _ = aggregator_task.await;
+    let _ = sink_task.await;
+    if let Some(handle) = policy_task {
+        let _ = handle.await;
+    }
+    if let Some((_dispatcher, handle)) = dispatcher {
+        let _ = handle.await;
+    }
+    while let Ok(exit) = exit_rx.try_recv() {
+        record_task_exit(exit, &mut stop_error);
+    }
+
     tracing::info!(
         cache_final_len = cache.len(),
         "topic cache state at shutdown"
     );
+    if let Some(err) = stop_error {
+        return Err(err);
+    }
     Ok(())
 }
 
-/// Pull messages off the MQTT stream and drop them. A placeholder for
-/// the real pipeline; exists so the module is actually exercised at
-/// runtime and the compiler does not treat it as dead code. The
-/// `cache` argument is held across the loop so the topic-cache
-/// allocation lives for the whole drain session — when the real
-/// `topic::parse → cache.get → upstream lookup → cache.insert` wiring
-/// lands on this PR, the parameter signature is already in place and
-/// callers do not need to be re-routed.
-async fn drain_mqtt_stream(
-    stream: std::sync::Arc<tokio::sync::Mutex<Option<MqttMessageStream>>>,
-    cache: Arc<TopicCache>,
-) {
-    let mut guard = stream.lock().await;
-    let Some(s) = guard.as_mut() else {
-        // No MQTT configured — block forever so the select! arm that
-        // owns this future cannot race the SIGTERM arm.
-        drop(guard);
-        std::future::pending::<()>().await;
-        return;
-    };
-    let mut count = 0u64;
-    while let Some(msg) = s.recv().await {
-        count = count.saturating_add(1);
-        let age_micros = msg.received_at.elapsed().as_micros();
-        // Read the cache fill periodically so the cache reference is
-        // exercised even before the topic-parser commit lands. Once
-        // every 1024 messages keeps the log volume bounded — the
-        // count is observable in tracing without polluting trace
-        // output for short bursts.
-        let cache_len = if count.is_multiple_of(1024) {
-            Some(cache.len())
-        } else {
-            None
-        };
-        tracing::trace!(
-            topic = %msg.topic,
-            bytes = msg.payload.len(),
-            age_micros,
-            cache_len = ?cache_len,
-            "mqtt msg (stub drain)"
-        );
-        // The real pipeline replaces this in the next commit:
-        // topic::parse -> cache.get(tenant, sensor) -> on miss issue
-        // upstream lookup and cache.insert -> payload::validate ->
-        // batch aggregator -> COPY -> NATS publish.
+#[derive(Debug)]
+enum TaskExit {
+    Mqtt(Result<u64, String>),
+    Aggregator(Result<u64, String>),
+    Sink(Result<(), String>),
+}
+
+fn record_task_exit(exit: TaskExit, stop_error: &mut Option<anyhow::Error>) {
+    match exit {
+        TaskExit::Mqtt(Ok(count)) => {
+            tracing::info!(count, "mqtt pipeline exited");
+        }
+        TaskExit::Mqtt(Err(e)) => {
+            tracing::error!(error = %e, "mqtt pipeline failed");
+            *stop_error = Some(anyhow!("mqtt pipeline failed: {e}"));
+        }
+        TaskExit::Aggregator(Ok(flushed)) => {
+            tracing::info!(flushed_batches = flushed, "batch aggregator exited");
+        }
+        TaskExit::Aggregator(Err(e)) => {
+            tracing::error!(error = %e, "batch aggregator failed");
+            *stop_error = Some(anyhow!("batch aggregator failed: {e}"));
+        }
+        TaskExit::Sink(Ok(())) => {
+            tracing::info!("batch sink loop exited");
+        }
+        TaskExit::Sink(Err(e)) => {
+            tracing::error!(error = %e, "batch sink failed");
+            *stop_error = Some(anyhow!("batch sink failed: {e}"));
+        }
     }
-    tracing::info!(count, cache_len = cache.len(), "mqtt drain complete");
+}
+
+#[derive(Clone)]
+struct PipelineDeps {
+    cache: Arc<TopicCache>,
+    backend_policy: Arc<DynamicBackendPolicy>,
+    lookup_client: Option<Arc<SensorLookupClient>>,
+    reading_tx: mpsc::Sender<SensorReading>,
+    cancel: CancellationToken,
+}
+
+async fn run_mqtt_pipeline(
+    stream: Option<MqttMessageStream>,
+    deps: PipelineDeps,
+) -> anyhow::Result<u64> {
+    let Some(mut stream) = stream else {
+        deps.cancel.cancelled().await;
+        return Ok(0);
+    };
+
+    let mut accepted = 0u64;
+    loop {
+        tokio::select! {
+            biased;
+            () = deps.cancel.cancelled() => {
+                break;
+            }
+            msg = stream.recv() => {
+                let Some(msg) = msg else {
+                    break;
+                };
+                if process_mqtt_message(msg, &deps).await? {
+                    accepted = accepted.saturating_add(1);
+                }
+            }
+        }
+    }
+
+    stream.shutdown().await;
+    Ok(accepted)
+}
+
+async fn process_mqtt_message(msg: RawMqttMessage, deps: &PipelineDeps) -> anyhow::Result<bool> {
+    metrics::counter!("sensor_ingestion_mqtt_received_total").increment(1);
+    let topic_for_log = bounded_topic(&msg.topic);
+    let parsed = match topic::parse(&msg.topic) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            metrics::counter!("sensor_ingestion_topic_parse_failed_total").increment(1);
+            tracing::warn!(
+                topic = %topic_for_log,
+                error = %e,
+                "mqtt topic rejected"
+            );
+            return Ok(false);
+        }
+    };
+
+    let (tenant, topic_sensor, topic_device) = match parsed {
+        ParsedTopic::Sensor { tenant, sensor } => (tenant, Some(sensor), None),
+        ParsedTopic::Device { tenant, device } => {
+            tracing::trace!(
+                tenant = %tenant.as_uuid(),
+                device = %device,
+                "device io_data topic accepted"
+            );
+            (tenant, None, Some(device))
+        }
+    };
+
+    if !matches!(deps.backend_policy.backend_for(tenant), IngestBackend::Rust) {
+        metrics::counter!("sensor_ingestion_policy_node_routed_total").increment(1);
+        tracing::trace!(
+            tenant = %tenant.as_uuid(),
+            topic = %topic_for_log,
+            "tenant routed to node ingestion; rust sidecar skipped message"
+        );
+        return Ok(false);
+    }
+
+    let reading = match payload::validate(&msg.payload, tenant) {
+        Ok(reading) => reading,
+        Err(e) => {
+            metrics::counter!("sensor_ingestion_payload_rejected_total").increment(1);
+            tracing::warn!(
+                tenant = %tenant.as_uuid(),
+                topic = %topic_for_log,
+                error = %e,
+                "mqtt payload rejected"
+            );
+            return Ok(false);
+        }
+    };
+
+    if let Some(expected_sensor) = topic_sensor {
+        if reading.sensor_id != expected_sensor {
+            metrics::counter!("sensor_ingestion_topic_sensor_mismatch_total").increment(1);
+            tracing::warn!(
+                tenant = %tenant.as_uuid(),
+                topic_sensor = %expected_sensor,
+                payload_sensor = %reading.sensor_id,
+                "topic sensor id does not match payload sensor id; dropping"
+            );
+            return Ok(false);
+        }
+    }
+
+    if let Some(meta) = resolve_sensor_meta(
+        &deps.cache,
+        deps.lookup_client.as_deref(),
+        tenant,
+        reading.sensor_id,
+        topic_device,
+    )
+    .await
+    {
+        if !meta.channel_ids.contains(&reading.channel_id) {
+            metrics::counter!("sensor_ingestion_cache_channel_rejected_total").increment(1);
+            tracing::warn!(
+                tenant = %tenant.as_uuid(),
+                sensor = %reading.sensor_id,
+                channel = %reading.channel_id,
+                "channel id not present in resolved sensor metadata; dropping"
+            );
+            return Ok(false);
+        }
+    } else if deps.lookup_client.is_some() {
+        tracing::warn!(
+            tenant = %tenant.as_uuid(),
+            sensor = %reading.sensor_id,
+            "sensor metadata lookup returned no authoritative result; dropping"
+        );
+        return Ok(false);
+    } else {
+        tracing::warn!(
+            tenant = %tenant.as_uuid(),
+            sensor = %reading.sensor_id,
+            "sensor lookup unavailable; accepting message only because postgres sink is disabled"
+        );
+    }
+
+    deps.reading_tx
+        .send(reading)
+        .await
+        .map_err(|_| anyhow!("batch input channel closed"))?;
+    metrics::counter!("sensor_ingestion_reading_enqueued_total").increment(1);
+    tracing::trace!(
+        topic = %topic_for_log,
+        age_micros = msg.received_at.elapsed().as_micros(),
+        "mqtt reading accepted into batch aggregator"
+    );
+    Ok(true)
+}
+
+async fn resolve_sensor_meta(
+    cache: &TopicCache,
+    lookup: Option<&SensorLookupClient>,
+    tenant: tenant_context::TenantId,
+    sensor: uuid::Uuid,
+    device: Option<uuid::Uuid>,
+) -> Option<Arc<SensorMeta>> {
+    if let Some(meta) = cache.get(tenant, sensor) {
+        return Some(meta);
+    }
+    metrics::counter!("sensor_ingestion_cache_miss_total").increment(1);
+    let Some(client) = lookup else {
+        return None;
+    };
+    match client.fetch_sensor_meta(tenant, sensor, device).await {
+        Ok(Some(meta)) if meta.tenant_id == tenant && meta.sensor_id == sensor => {
+            let returned = Arc::new(meta.clone());
+            cache.insert(meta);
+            Some(returned)
+        }
+        Ok(Some(meta)) => {
+            tracing::warn!(
+                request_tenant = %tenant.as_uuid(),
+                request_sensor = %sensor,
+                response_tenant = %meta.tenant_id.as_uuid(),
+                response_sensor = %meta.sensor_id,
+                "sensor lookup returned mismatched metadata; refusing cache insert"
+            );
+            None
+        }
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!(
+                tenant = %tenant.as_uuid(),
+                sensor = %sensor,
+                error = %e,
+                "sensor lookup request failed"
+            );
+            None
+        }
+    }
+}
+
+fn bounded_topic(topic: &str) -> String {
+    const MAX_TOPIC_LOG_BYTES: usize = 256;
+    if topic.len() <= MAX_TOPIC_LOG_BYTES {
+        return topic.to_owned();
+    }
+    let mut end = MAX_TOPIC_LOG_BYTES;
+    while end > 0 && !topic.is_char_boundary(end) {
+        end -= 1;
+    }
+    match topic.get(..end) {
+        Some(head) => format!("{head}..."),
+        None => "...".to_owned(),
+    }
 }
 
 async fn wait_for_shutdown_signal() {

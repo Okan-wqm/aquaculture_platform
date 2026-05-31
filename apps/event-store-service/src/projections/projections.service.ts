@@ -1,13 +1,15 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { DataSource, MoreThan, Repository } from 'typeorm';
 import { SchedulerRegistry } from '@nestjs/schedule';
-import {
-  ProjectionCheckpoint,
-  ProjectionStatus,
-} from './entities/projection-checkpoint.entity';
+import { ProjectionCheckpoint, ProjectionStatus } from './entities/projection-checkpoint.entity';
+import { ProjectionInbox } from './entities/projection-inbox.entity';
 import { StoredEvent } from '../event-store/entities/stored-event.entity';
-import { EventHandler, RetryPolicy } from '../event-store/interfaces/event-store.interfaces';
+import {
+  EventHandler,
+  PersistedEvent,
+  RetryPolicy,
+} from '../event-store/interfaces/event-store.interfaces';
 
 const MAX_ERROR_LENGTH = 500;
 const EMA_ALPHA = 0.1;
@@ -53,6 +55,8 @@ export class ProjectionsService {
   constructor(
     @InjectRepository(ProjectionCheckpoint)
     private readonly checkpointRepository: Repository<ProjectionCheckpoint>,
+    @InjectRepository(ProjectionInbox)
+    private readonly inboxRepository: Repository<ProjectionInbox>,
     @InjectRepository(StoredEvent)
     private readonly eventRepository: Repository<StoredEvent>,
     private readonly schedulerRegistry: SchedulerRegistry,
@@ -121,7 +125,8 @@ export class ProjectionsService {
    * Start processing a projection
    */
   async startProjection(name: string, tenantId: string): Promise<void> {
-    const registration = this.registeredProjections.get(name);
+    const projectionKey = this.getProjectionKey(tenantId, name);
+    const registration = this.registeredProjections.get(projectionKey);
     if (!registration) {
       throw new NotFoundException(`Projection ${name} not found`);
     }
@@ -136,11 +141,13 @@ export class ProjectionsService {
 
     checkpoint.status = ProjectionStatus.RUNNING;
     await this.checkpointRepository.save(checkpoint);
+    registration.cachedCheckpoint = checkpoint;
+    registration.idleBatchCount = 0;
 
     // Start processing loop
-    this.startProcessingLoop(name);
+    this.startProcessingLoop(name, tenantId);
 
-    this.logger.log(`Started projection: ${name}`);
+    this.logger.log(`Started projection: ${projectionKey}`);
   }
 
   /**
@@ -158,10 +165,17 @@ export class ProjectionsService {
     checkpoint.status = ProjectionStatus.STOPPED;
     await this.checkpointRepository.save(checkpoint);
 
-    // Stop processing loop
-    this.clearProjectionInterval(name);
+    const projectionKey = this.getProjectionKey(tenantId, name);
+    const registration = this.registeredProjections.get(projectionKey);
+    if (registration) {
+      registration.cachedCheckpoint = undefined;
+      registration.idleBatchCount = 0;
+    }
 
-    this.logger.log(`Stopped projection: ${name}`);
+    // Stop processing loop
+    this.clearProjectionInterval(name, tenantId);
+
+    this.logger.log(`Stopped projection: ${projectionKey}`);
   }
 
   /**
@@ -179,7 +193,15 @@ export class ProjectionsService {
     checkpoint.status = ProjectionStatus.PAUSED;
     await this.checkpointRepository.save(checkpoint);
 
-    this.logger.log(`Paused projection: ${name}`);
+    const projectionKey = this.getProjectionKey(tenantId, name);
+    const registration = this.registeredProjections.get(projectionKey);
+    if (registration) {
+      registration.cachedCheckpoint = undefined;
+      registration.idleBatchCount = 0;
+    }
+    this.clearProjectionInterval(name, tenantId);
+
+    this.logger.log(`Paused projection: ${projectionKey}`);
   }
 
   /**
@@ -201,7 +223,15 @@ export class ProjectionsService {
     checkpoint.status = ProjectionStatus.RUNNING;
     await this.checkpointRepository.save(checkpoint);
 
-    this.logger.log(`Resumed projection: ${name}`);
+    const projectionKey = this.getProjectionKey(tenantId, name);
+    const registration = this.registeredProjections.get(projectionKey);
+    if (registration) {
+      registration.cachedCheckpoint = checkpoint;
+      registration.idleBatchCount = 0;
+      this.startProcessingLoop(name, tenantId);
+    }
+
+    this.logger.log(`Resumed projection: ${projectionKey}`);
   }
 
   /**
@@ -225,13 +255,19 @@ export class ProjectionsService {
 
     // Invalidate in-memory checkpoint cache so the next processBatch re-reads
     // from the DB and picks up the new position.
-    const registration = this.registeredProjections.get(name);
+    const projectionKey = this.getProjectionKey(tenantId, name);
+    const registration = this.registeredProjections.get(projectionKey);
     if (registration) {
       registration.cachedCheckpoint = undefined;
       registration.idleBatchCount = 0;
     }
+    await this.inboxRepository.delete({
+      tenantId,
+      projectionName: name,
+      globalPosition: MoreThan(position),
+    });
 
-    this.logger.log(`Reset projection ${name} to position ${position}`);
+    this.logger.log(`Reset projection ${projectionKey} to position ${position}`);
   }
 
   /**
@@ -279,25 +315,27 @@ export class ProjectionsService {
   /**
    * Process a batch of events for a projection
    */
-  async processBatch(name: string, tenantId: string): Promise<{
+  async processBatch(
+    name: string,
+    tenantId: string,
+  ): Promise<{
     processed: number;
     failed: number;
     newPosition: number;
   }> {
-    // Key lock on name:tenantId for proper tenant isolation
-    const lockKey = `${name}:${tenantId}`;
+    const projectionKey = this.getProjectionKey(tenantId, name);
 
     // Check if already processing
-    if (this.processingLocks.get(lockKey)) {
+    if (this.processingLocks.get(projectionKey)) {
       return { processed: 0, failed: 0, newPosition: 0 };
     }
 
-    this.processingLocks.set(lockKey, true);
+    this.processingLocks.set(projectionKey, true);
 
     try {
-      const registration = this.registeredProjections.get(name);
+      const registration = this.registeredProjections.get(projectionKey);
       if (!registration) {
-        throw new Error(`Projection ${name} not registered`);
+        throw new Error(`Projection ${projectionKey} not registered`);
       }
 
       // Load checkpoint from DB only on first call (cache cold) or periodically
@@ -374,81 +412,45 @@ export class ProjectionsService {
         const startTime = Date.now();
 
         try {
-          // SECURITY (PLAT-CRITICAL-004): Wrap handler callback + checkpoint
-          // update in a single database transaction. If the handler succeeds
-          // but checkpoint persistence fails, both are rolled back. This
-          // prevents duplicate side effects on restart after a crash between
-          // the handler apply and checkpoint save.
-          const queryRunner = this.dataSource.createQueryRunner();
-          await queryRunner.connect();
-          await queryRunner.startTransaction();
+          const outcome = await this.processEventInTransactionWithRetry(
+            name,
+            tenantId,
+            registration,
+            checkpoint.id,
+            event,
+          );
 
-          try {
-            await this.processEventWithRetry(
-              registration.handler,
-              {
-                id: event.id,
-                streamName: event.streamName,
-                globalPosition: event.globalPosition,
-                streamPosition: event.streamPosition,
-                aggregateType: event.aggregateType,
-                aggregateId: event.aggregateId,
-                version: event.version,
-                eventType: event.eventType,
-                payload: event.payload,
-                metadata: event.metadata,
-                tenantId: event.tenantId,
-                correlationId: event.correlationId,
-                causationId: event.causationId,
-                userId: event.userId,
-                occurredAt: event.occurredAt,
-                storedAt: event.storedAt,
-                schemaVersion: event.schemaVersion,
-              },
-              registration.retryPolicy,
-            );
+          if (outcome.stopped) {
+            registration.cachedCheckpoint = undefined;
+            break;
+          }
 
-            // Update checkpoint position atomically within the same transaction
-            await queryRunner.manager.update(
-              ProjectionCheckpoint,
-              { id: checkpoint.id },
-              {
-                position: event.globalPosition,
-                eventsProcessed: checkpoint.eventsProcessed + processed + 1,
-                lastProcessedAt: new Date(),
-              },
-            );
-
-            await queryRunner.commitTransaction();
-
+          if (outcome.applied) {
             processed++;
-            lastPosition = event.globalPosition;
             processingTimes.push(Date.now() - startTime);
-          } catch (txError) {
-            await queryRunner.rollbackTransaction();
-            throw txError;
-          } finally {
-            await queryRunner.release();
+          }
+          if (outcome.advanced) {
+            lastPosition = outcome.position;
           }
         } catch (error) {
           failed++;
           this.logger.error(
-            `Failed to process event ${event.id} in projection ${name}: ${(error as Error).message}`,
+            `Failed to process event ${event.id} in projection ${projectionKey}: ${(error as Error).message}`,
           );
 
           // Truncate error message before storing
           const errorMsg = (error as Error).message || 'Unknown error';
-          checkpoint.lastError = errorMsg.length > MAX_ERROR_LENGTH
-            ? errorMsg.substring(0, MAX_ERROR_LENGTH)
-            : errorMsg;
+          checkpoint.lastError =
+            errorMsg.length > MAX_ERROR_LENGTH ? errorMsg.substring(0, MAX_ERROR_LENGTH) : errorMsg;
           checkpoint.lastErrorAt = new Date();
 
           // Any event that exhausts retries faults the projection
           if (failed >= 1) {
             checkpoint.status = ProjectionStatus.FAULTED;
-            await this.checkpointRepository.save(checkpoint);
+            await this.markProjectionFaulted(checkpoint.id, errorMsg);
             // Stop the interval when transitioning to FAULTED
-            this.clearProjectionInterval(name);
+            this.clearProjectionInterval(name, tenantId);
+            registration.cachedCheckpoint = undefined;
             break;
           }
         }
@@ -465,16 +467,12 @@ export class ProjectionsService {
 
       // Use exponential moving average (EMA) for processing time
       if (processingTimes.length > 0) {
-        const avgTime =
-          processingTimes.reduce((a, b) => a + b, 0) / processingTimes.length;
+        const avgTime = processingTimes.reduce((a, b) => a + b, 0) / processingTimes.length;
         checkpoint.avgProcessingTimeMs =
           EMA_ALPHA * avgTime + (1 - EMA_ALPHA) * checkpoint.avgProcessingTimeMs;
-      }
-
-      // Persist remaining stats (eventsFailed, avgProcessingTimeMs) that were
-      // not covered by the per-event transaction. These are best-effort counters.
-      if (failed > 0 || processingTimes.length > 0) {
-        await this.checkpointRepository.save(checkpoint);
+        await this.checkpointRepository.update(checkpoint.id, {
+          avgProcessingTimeMs: checkpoint.avgProcessingTimeMs,
+        });
       }
 
       return {
@@ -483,49 +481,179 @@ export class ProjectionsService {
         newPosition: lastPosition,
       };
     } finally {
-      const lockKey = `${name}:${tenantId}`;
-      this.processingLocks.set(lockKey, false);
+      this.processingLocks.set(projectionKey, false);
     }
   }
 
-  /**
-   * Process an event with retry logic
-   */
-  private async processEventWithRetry(
-    handler: EventHandler,
-    event: Parameters<EventHandler>[0],
-    retryPolicy: RetryPolicy,
-  ): Promise<void> {
-    let lastError: Error | undefined;
-    let delay = retryPolicy.initialDelayMs;
+  private async processEventInTransaction(
+    name: string,
+    tenantId: string,
+    registration: ProjectionRegistration,
+    checkpointId: string,
+    event: StoredEvent,
+  ): Promise<{
+    applied: boolean;
+    advanced: boolean;
+    position: number;
+    stopped: boolean;
+  }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    for (let attempt = 0; attempt <= retryPolicy.maxRetries; attempt++) {
+    try {
+      const lockedCheckpoint = await queryRunner.manager.findOne(ProjectionCheckpoint, {
+        where: { id: checkpointId, tenantId, projectionName: name },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!lockedCheckpoint || lockedCheckpoint.status !== ProjectionStatus.RUNNING) {
+        await queryRunner.commitTransaction();
+        return {
+          applied: false,
+          advanced: false,
+          position: lockedCheckpoint?.position ?? 0,
+          stopped: true,
+        };
+      }
+
+      if (lockedCheckpoint.position >= event.globalPosition) {
+        await queryRunner.commitTransaction();
+        return {
+          applied: false,
+          advanced: false,
+          position: lockedCheckpoint.position,
+          stopped: false,
+        };
+      }
+
+      const insertedInboxRows: Array<{ id: string }> = await queryRunner.manager.query(
+        `INSERT INTO "event_store"."projection_inbox"
+           ("tenantId", "projectionName", "eventId", "globalPosition", "processedAt")
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT ("tenantId", "projectionName", "eventId") DO NOTHING
+         RETURNING "id"`,
+        [tenantId, name, event.id, event.globalPosition],
+      );
+
+      const applied = insertedInboxRows.length > 0;
+      if (applied) {
+        await registration.handler(this.toPersistedEvent(event), {
+          manager: queryRunner.manager,
+        });
+      }
+
+      await queryRunner.manager.query(
+        `UPDATE "event_store"."projection_checkpoints"
+            SET "position" = $1,
+                "eventsProcessed" = "eventsProcessed" + $2,
+                "lastProcessedAt" = NOW(),
+                "updatedAt" = NOW()
+          WHERE "id" = $3`,
+        [event.globalPosition, applied ? 1 : 0, checkpointId],
+      );
+
+      await queryRunner.commitTransaction();
+      return {
+        applied,
+        advanced: true,
+        position: event.globalPosition,
+        stopped: false,
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  private async processEventInTransactionWithRetry(
+    name: string,
+    tenantId: string,
+    registration: ProjectionRegistration,
+    checkpointId: string,
+    event: StoredEvent,
+  ): Promise<{
+    applied: boolean;
+    advanced: boolean;
+    position: number;
+    stopped: boolean;
+  }> {
+    let lastError: Error | undefined;
+    let delay = registration.retryPolicy.initialDelayMs;
+
+    for (let attempt = 0; attempt <= registration.retryPolicy.maxRetries; attempt++) {
       try {
-        await handler(event);
-        return;
+        return await this.processEventInTransaction(
+          name,
+          tenantId,
+          registration,
+          checkpointId,
+          event,
+        );
       } catch (error) {
         lastError = error as Error;
-
-        if (attempt < retryPolicy.maxRetries) {
+        if (attempt < registration.retryPolicy.maxRetries) {
           await this.sleep(delay);
           delay = Math.min(
-            delay * retryPolicy.backoffMultiplier,
-            retryPolicy.maxDelayMs,
+            delay * registration.retryPolicy.backoffMultiplier,
+            registration.retryPolicy.maxDelayMs,
           );
         }
       }
     }
 
-    throw lastError;
+    throw lastError ?? new Error('Projection retry failed without an error');
+  }
+
+  private toPersistedEvent(event: StoredEvent): PersistedEvent {
+    return {
+      id: event.id,
+      streamName: event.streamName,
+      globalPosition: event.globalPosition,
+      streamPosition: event.streamPosition,
+      aggregateType: event.aggregateType,
+      aggregateId: event.aggregateId,
+      version: event.version,
+      eventType: event.eventType,
+      payload: event.payload,
+      metadata: event.metadata,
+      tenantId: event.tenantId,
+      correlationId: event.correlationId,
+      causationId: event.causationId,
+      userId: event.userId,
+      occurredAt: event.occurredAt,
+      storedAt: event.storedAt,
+      schemaVersion: event.schemaVersion,
+    };
+  }
+
+  private async markProjectionFaulted(checkpointId: string, errorMessage: string): Promise<void> {
+    const lastError =
+      errorMessage.length > MAX_ERROR_LENGTH
+        ? errorMessage.substring(0, MAX_ERROR_LENGTH)
+        : errorMessage;
+
+    await this.dataSource.query(
+      `UPDATE "event_store"."projection_checkpoints"
+          SET "status" = $1,
+              "eventsFailed" = "eventsFailed" + 1,
+              "lastError" = $2,
+              "lastErrorAt" = NOW(),
+              "updatedAt" = NOW()
+        WHERE "id" = $3`,
+      [ProjectionStatus.FAULTED, lastError, checkpointId],
+    );
   }
 
   /**
    * Start the processing loop for a projection with adaptive back-off
    */
-  private startProcessingLoop(name: string): void {
-    const intervalName = `projection-${name}`;
+  private startProcessingLoop(name: string, tenantId: string): void {
+    const intervalName = this.getProjectionIntervalName(tenantId, name);
 
-    this.clearProjectionInterval(name);
+    this.clearProjectionInterval(name, tenantId);
 
     let currentDelay = 100;
     const minDelay = 100;
@@ -538,7 +666,7 @@ export class ProjectionsService {
 
       const timeout = setTimeout(async () => {
         try {
-          const result = await this.processBatch(name, this.getProjectionTenantId(name));
+          const result = await this.processBatch(name, tenantId);
 
           // Adaptive back-off: if no events processed, increase delay
           if (result.processed === 0) {
@@ -548,7 +676,7 @@ export class ProjectionsService {
           }
         } catch (error) {
           this.logger.error(
-            `Error in projection ${name} processing loop: ${(error as Error).message}`,
+            `Error in projection ${this.getProjectionKey(tenantId, name)} processing loop: ${(error as Error).message}`,
           );
         }
 
@@ -576,19 +704,15 @@ export class ProjectionsService {
     scheduleNext();
   }
 
-  /**
-   * Get the tenantId for a registered projection
-   */
-  private getProjectionTenantId(name: string): string {
-    const registration = this.registeredProjections.get(name);
-    return registration?.tenantId ?? '';
+  private getProjectionIntervalName(tenantId: string, name: string): string {
+    return `projection:${this.getProjectionKey(tenantId, name)}`;
   }
 
   /**
    * Clear the processing interval for a projection
    */
-  private clearProjectionInterval(name: string): void {
-    const intervalName = `projection-${name}`;
+  private clearProjectionInterval(name: string, tenantId: string): void {
+    const intervalName = this.getProjectionIntervalName(tenantId, name);
     try {
       if (this.schedulerRegistry.doesExist('interval', intervalName)) {
         this.schedulerRegistry.deleteInterval(intervalName);

@@ -9,13 +9,16 @@ import { TenantRequest as CanonicalTenantRequest } from '../types/tenant-request
  */
 export interface UserPayload {
   sub: string;
-  email: string;
-  tenantId: string;
+  email?: string;
+  tenantId: string | null;
   role?: string;
   roles?: string[];
+  permissions?: string[];
+  resourcePermissions?: string[];
   modules?: string[];
   firstName?: string;
   lastName?: string;
+  mfaVerified?: boolean;
   iat?: number;
   exp?: number;
 }

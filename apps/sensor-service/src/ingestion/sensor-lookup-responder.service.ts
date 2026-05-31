@@ -1,21 +1,42 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  connect,
-  type Msg,
-  type NatsConnection,
-  StringCodec,
-  type Subscription,
-} from 'nats';
+import { connect, type Msg, type NatsConnection, StringCodec, type Subscription } from 'nats';
 
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
+import { Sensor } from '../database/entities/sensor.entity';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const DEVICE_BINDING_KEYS = new Set([
+  'device',
+  'deviceId',
+  'device_id',
+  'deviceUuid',
+  'device_uuid',
+  'edgeDevice',
+  'edge_device',
+  'edgeDeviceId',
+  'edge_device_id',
+  'gatewayDevice',
+  'gateway_device',
+  'gatewayDeviceId',
+  'gateway_device_id',
+]);
+
+const DEVICE_BINDING_VALUE_KEYS = new Set([
+  'id',
+  'uuid',
+  'deviceId',
+  'device_id',
+  'deviceUuid',
+  'device_uuid',
+  'edgeDeviceId',
+  'edge_device_id',
+  'gatewayDeviceId',
+  'gateway_device_id',
+]);
 
 /**
  * NATS request-reply responder for `sensor.lookup.by-topic`.
@@ -66,9 +87,7 @@ import { SensorMetaCacheService } from './sensor-meta-cache.service';
  *   wrong shape impossible" pattern.
  */
 @Injectable()
-export class SensorLookupResponderService
-  implements OnModuleInit, OnModuleDestroy
-{
+export class SensorLookupResponderService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SensorLookupResponderService.name);
 
   /**
@@ -98,10 +117,7 @@ export class SensorLookupResponderService
     private readonly cacheService: SensorMetaCacheService,
     private readonly configService: ConfigService,
   ) {
-    this.natsUrl = this.configService.get<string>(
-      'NATS_URL',
-      'nats://localhost:4222',
-    );
+    this.natsUrl = this.configService.get<string>('NATS_URL', 'nats://localhost:4222');
   }
 
   async onModuleInit(): Promise<void> {
@@ -129,9 +145,7 @@ export class SensorLookupResponderService
       try {
         await this.connection.drain();
       } catch (error) {
-        this.logger.warn(
-          `NATS drain failed at shutdown: ${(error as Error).message}`,
-        );
+        this.logger.warn(`NATS drain failed at shutdown: ${(error as Error).message}`);
       }
       this.connection = null;
     }
@@ -151,11 +165,12 @@ export class SensorLookupResponderService
    * negative reply.
    */
   async handleLookupRequest(msg: Msg): Promise<void> {
-    let request: { tenantId?: unknown; sensorId?: unknown };
+    let request: { tenantId?: unknown; sensorId?: unknown; deviceId?: unknown };
     try {
       request = JSON.parse(this.codec.decode(msg.data)) as {
         tenantId?: unknown;
         sensorId?: unknown;
+        deviceId?: unknown;
       };
     } catch (error) {
       this.logger.warn(
@@ -165,14 +180,21 @@ export class SensorLookupResponderService
       return;
     }
 
-    const tenantId =
-      typeof request.tenantId === 'string' ? request.tenantId : null;
-    const sensorId =
-      typeof request.sensorId === 'string' ? request.sensorId : null;
+    const tenantId = typeof request.tenantId === 'string' ? request.tenantId : null;
+    const sensorId = typeof request.sensorId === 'string' ? request.sensorId : null;
+    const deviceId =
+      typeof request.deviceId === 'string' && UUID_REGEX.test(request.deviceId)
+        ? request.deviceId.toLowerCase()
+        : null;
     if (!tenantId || !sensorId) {
       this.logger.warn(
         'sensor.lookup.by-topic request missing tenantId or sensorId; replying null',
       );
+      this.respondNull(msg);
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(request, 'deviceId') && deviceId === null) {
+      this.logger.warn('sensor.lookup.by-topic request carried invalid deviceId; replying null');
       this.respondNull(msg);
       return;
     }
@@ -184,9 +206,7 @@ export class SensorLookupResponderService
       // Cache / repo failure: do not leak the error class to the
       // sidecar; reply null so the cache stays cold for this key
       // and the operator alarms on the structured log.
-      this.logger.error(
-        `getSensor failed for sensorId=${sensorId}: ${(error as Error).message}`,
-      );
+      this.logger.error(`getSensor failed for sensorId=${sensorId}: ${(error as Error).message}`);
       this.respondNull(msg);
       return;
     }
@@ -217,13 +237,19 @@ export class SensorLookupResponderService
       return;
     }
 
+    if (deviceId && !this.sensorMatchesDevice(sensor, deviceId)) {
+      this.logger.warn(
+        `sensor.lookup.by-topic device mismatch: request.deviceId=${deviceId} sensorId=${sensor.id}; replying null`,
+      );
+      this.respondNull(msg);
+      return;
+    }
+
     let channels;
     try {
       channels = await this.cacheService.getChannels(sensorId);
     } catch (error) {
-      this.logger.error(
-        `getChannels failed for sensorId=${sensorId}: ${(error as Error).message}`,
-      );
+      this.logger.error(`getChannels failed for sensorId=${sensorId}: ${(error as Error).message}`);
       this.respondNull(msg);
       return;
     }
@@ -272,21 +298,14 @@ export class SensorLookupResponderService
   private async connectAndSubscribe(): Promise<void> {
     /** SEC-H01: shared NATS connection factory for consistent auth. */
     this.connection = await connect({
-      ...buildNatsConnectionOptions(
-        `sensor-service-lookup-responder-${process.pid}`,
-      ),
+      ...buildNatsConnectionOptions(`sensor-service-lookup-responder-${process.pid}`),
       maxReconnectAttempts: -1,
     });
-    this.logger.log(
-      `Connected to NATS for sensor.lookup.by-topic responder (url=${this.natsUrl})`,
-    );
+    this.logger.log(`Connected to NATS for sensor.lookup.by-topic responder (url=${this.natsUrl})`);
 
-    const sub = this.connection.subscribe(
-      SensorLookupResponderService.SUBJECT,
-      {
-        queue: SensorLookupResponderService.QUEUE_GROUP,
-      },
-    );
+    const sub = this.connection.subscribe(SensorLookupResponderService.SUBJECT, {
+      queue: SensorLookupResponderService.QUEUE_GROUP,
+    });
     this.subscriptions.push(sub);
     this.logger.log(
       `Subscribed to ${SensorLookupResponderService.SUBJECT} (queue=${SensorLookupResponderService.QUEUE_GROUP})`,
@@ -338,5 +357,71 @@ export class SensorLookupResponderService
     if (msg.reply) {
       msg.respond(this.codec.encode(JSON.stringify(reply)));
     }
+  }
+
+  private sensorMatchesDevice(sensor: Sensor, deviceId: string): boolean {
+    const candidates = new Set<string>();
+    const dynamicSensor = sensor as unknown as Record<string, unknown>;
+
+    for (const value of [
+      sensor.protocolConfiguration,
+      sensor.metadata,
+      sensor.configuration,
+      dynamicSensor['deviceId'],
+      dynamicSensor['device_id'],
+      dynamicSensor['edgeDeviceId'],
+      dynamicSensor['edge_device_id'],
+      dynamicSensor['gatewayDeviceId'],
+      dynamicSensor['gateway_device_id'],
+    ]) {
+      this.collectDeviceBindingFields(value, candidates);
+      this.collectDeviceBindingValue(value, candidates);
+    }
+
+    return candidates.has(deviceId.toLowerCase());
+  }
+
+  private collectDeviceBindingFields(value: unknown, candidates: Set<string>, depth = 0): void {
+    if (depth > 4 || !this.isRecord(value)) {
+      return;
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      if (DEVICE_BINDING_KEYS.has(key)) {
+        this.collectDeviceBindingValue(child, candidates);
+        continue;
+      }
+      if (this.isRecord(child) || Array.isArray(child)) {
+        this.collectDeviceBindingFields(child, candidates, depth + 1);
+      }
+    }
+  }
+
+  private collectDeviceBindingValue(value: unknown, candidates: Set<string>, depth = 0): void {
+    if (depth > 4 || value == null) {
+      return;
+    }
+    if (typeof value === 'string') {
+      if (UUID_REGEX.test(value)) {
+        candidates.add(value.toLowerCase());
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        this.collectDeviceBindingValue(item, candidates, depth + 1);
+      }
+      return;
+    }
+    if (!this.isRecord(value)) {
+      return;
+    }
+    for (const key of DEVICE_BINDING_VALUE_KEYS) {
+      this.collectDeviceBindingValue(value[key], candidates, depth + 1);
+    }
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 }

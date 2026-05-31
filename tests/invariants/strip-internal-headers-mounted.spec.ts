@@ -71,8 +71,9 @@ const SERVICES_REQUIRED: ReadonlyArray<string> = [
   'alert-engine',
   'messaging-service',
   'notification-service',
+  'config-service',
   'ai-service',
-  // Future: admin-api-service, config-service, event-store-service,
+  // Future: admin-api-service, event-store-service,
   // observability-service — these don't currently mount UserContextMiddleware
   // (no x-user-payload trust). Adding StripInternalHeadersMiddleware to
   // them is defense-in-depth and lands in W0.I-followup once each gets a

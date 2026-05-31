@@ -395,6 +395,7 @@ export class TenantService {
     const previousStatus = tenant.status;
     tenant.status = TenantStatus.SUSPENDED;
     const saved = await this.tenantRepository.save(tenant);
+    await this.revokeTenantRefreshTokens(saved.id, 'TENANT_SUSPENDED');
 
     this.logger.log(`Tenant suspended: ${saved.name} (${saved.id})`);
 
@@ -422,6 +423,7 @@ export class TenantService {
     const previousStatus = tenant.status;
     tenant.status = TenantStatus.CANCELLED;
     const saved = await this.tenantRepository.save(tenant);
+    await this.revokeTenantRefreshTokens(saved.id, 'TENANT_CANCELLED');
 
     this.logger.log(`Tenant cancelled: ${saved.name} (${saved.id})`);
 
@@ -436,6 +438,20 @@ export class TenantService {
     await this.eventBus.publish(statusChangedEvent);
 
     return saved;
+  }
+
+  private async revokeTenantRefreshTokens(tenantId: string, reason: string): Promise<void> {
+    const result = await this.refreshTokenRepository.update(
+      { tenantId, isRevoked: false },
+      {
+        isRevoked: true,
+        revokedAt: new Date(),
+        revokedReason: reason,
+      },
+    );
+    this.logger.warn(
+      `Revoked ${result.affected ?? 0} refresh token(s) for tenant ${tenantId} (${reason})`,
+    );
   }
 
   /**

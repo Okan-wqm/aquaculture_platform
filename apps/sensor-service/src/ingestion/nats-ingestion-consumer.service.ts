@@ -6,7 +6,6 @@ import {
   OnModuleInit,
   Optional,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import {
   IEventBus,
@@ -20,26 +19,22 @@ import {
 } from '@platform/event-contracts';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
-import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 
-import { BatchProcessorService } from './batch-processor.service';
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
 
 /**
  * NATS consumer that bridges the Rust ingestion sidecar
- * (`apps/sensor-ingestion`, ADR-025) into the existing NestJS
- * `BatchProcessorService` persistence path AND re-emits the typed
- * `SensorReadingEvent` for downstream consumers.
+ * (`apps/sensor-ingestion`, ADR-025) into the typed
+ * `SensorReadingEvent` contract downstream consumers already use.
  *
  * WHY this service exists (ADR-022 control / data plane separation):
- *   The Rust sidecar publishes `SensorMetricIngested` — a raw per-channel
- *   tuple it can honestly produce without a sensor-meta cache. Downstream
+ *   The Rust sidecar persists the raw per-channel tuple and enqueues
+ *   `SensorMetricIngested` in the same Postgres transaction. Downstream
  *   consumers (alert-engine, AI service, audit) still expect the typed
  *   `SensorReading` event with `readingTemperature` / `readingPh` /
  *   etc. flat fields. This service is the ONE place where raw → typed
- *   mapping happens — it owns the cache lookup, calls the existing
- *   batch persistence path, then publishes the typed event.
+ *   mapping happens after the Rust outbox dispatch.
  *
  *   Architectural payoff: the sidecar stays minimal and the existing
  *   downstream contract (alert rules, AI prompts, audit log shape) is
@@ -54,13 +49,12 @@ import { SensorMetaCacheService } from './sensor-meta-cache.service';
  *   The 60-second TTL is now the upper bound on staleness when no
  *   invalidation event arrived (e.g. raw SQL UPDATE).
  *
- * WHY publish typed event AFTER enqueue (not before):
- *   `BatchProcessorService.enqueue` is fire-and-forget into an
- *   in-memory buffer; it returns synchronously without waiting for the
- *   actual DB write. Publishing typed events after the enqueue
- *   guarantees alert-engine receives the event in topology order
- *   (persistence-pending → event-published) which matches the existing
- *   NestJS data-plane semantic.
+ * WHY this service does NOT write sensor_metrics:
+ *   `SensorMetricIngested` is emitted by the Rust transactional outbox
+ *   only after the Timescale COPY/upsert transaction commits. Writing it
+ *   again through `BatchProcessorService.enqueue` would make the primary
+ *   path rely on ON CONFLICT idempotency and double the hot-path I/O.
+ *   Persistence SoT stays in Rust; NestJS is the typed-event bridge.
  */
 @Injectable()
 export class NatsIngestionConsumerService
@@ -85,13 +79,10 @@ export class NatsIngestionConsumerService
   private rejectedSchemaCount = 0;
   private skippedNoSensorCount = 0;
   private skippedNoChannelCount = 0;
-  private enqueuedCount = 0;
   private publishedCount = 0;
   private statsTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    private readonly batchProcessor: BatchProcessorService,
-    private readonly configService: ConfigService,
     private readonly metaCache: SensorMetaCacheService,
     @Optional()
     @Inject('EVENT_BUS')
@@ -119,7 +110,7 @@ export class NatsIngestionConsumerService
     );
 
     // One-minute stats roll-up so an operator can correlate sidecar
-    // throughput against the consumer's enqueue + publish rate without
+    // throughput against the consumer's typed publish rate without
     // sampling tracing spans.
     this.statsTimer = setInterval(() => {
       this.logger.log(
@@ -127,13 +118,12 @@ export class NatsIngestionConsumerService
           `rejectedSchema=${this.rejectedSchemaCount} ` +
           `skippedNoSensor=${this.skippedNoSensorCount} ` +
           `skippedNoChannel=${this.skippedNoChannelCount} ` +
-          `enqueued=${this.enqueuedCount} published=${this.publishedCount}`,
+          `published=${this.publishedCount}`,
       );
       this.receivedCount = 0;
       this.rejectedSchemaCount = 0;
       this.skippedNoSensorCount = 0;
       this.skippedNoChannelCount = 0;
-      this.enqueuedCount = 0;
       this.publishedCount = 0;
     }, 60_000);
   }
@@ -233,9 +223,11 @@ export class NatsIngestionConsumerService
       return;
     }
 
-    // 4. Build the SensorMetricInput and hand to the existing
-    //    BatchProcessor. The batch processor flushes on time (500ms)
-    //    or size (500 rows), preserving the platform invariant 4.
+    // 4. Re-emit the typed SensorReadingEvent for downstream consumers
+    //    (alert-engine, AI service, audit). channelKey selects the
+    //    typed field name; if the channelKey is unrecognised we still
+    //    publish the event with the value attached to the closest
+    //    field — the alert-engine has its own untyped eval path.
     //
     // WHY prefer event-side farmId / pondId over sensor.farmId /
     //    sensor.pondId:
@@ -252,29 +244,8 @@ export class NatsIngestionConsumerService
     //    path (sidecar's cache was cold; it left the field absent on
     //    the wire) AND the staleness inversion (sidecar's cache is
     //    stale relative to the consumer's). The `?? undefined`
-    //    terminator preserves the SensorMetricInput contract which
-    //    forbids `null` for these optional FK columns.
-    const metric: SensorMetricInput = {
-      time: new Date(event.producerTs),
-      sensorId: event.sensorId,
-      channelId: event.channelId,
-      tenantId: event.tenantId,
-      rawValue: event.rawValue,
-      value: event.value,
-      qualityCode: event.qualityCode,
-      sourceProtocol: 'rust-sidecar',
-      sourceTimestamp: new Date(event.producerTs),
-      farmId: event.farmId ?? sensor.farmId ?? undefined,
-      pondId: event.pondId ?? sensor.pondId ?? undefined,
-    };
-    this.batchProcessor.enqueue(metric);
-    this.enqueuedCount++;
-
-    // 5. Re-emit the typed SensorReadingEvent for downstream consumers
-    //    (alert-engine, AI service, audit). channelKey selects the
-    //    typed field name; if the channelKey is unrecognised we still
-    //    publish the event with the value attached to the closest
-    //    field — the alert-engine has its own untyped eval path.
+    //    terminator preserves the SensorReadingEvent contract which
+    //    forbids `null` for these optional fields.
     if (this.eventBus) {
       try {
         const typed = this.buildTypedReadingEvent(event, sensor, channel);
@@ -303,7 +274,7 @@ export class NatsIngestionConsumerService
     sensor: Sensor,
     channel: SensorDataChannel,
   ): SensorReadingEvent {
-    // Same fallback chain as the SensorMetricInput build above:
+    // Same fallback chain as the handle() bridge above:
     //   event.* (sidecar cache-warm SoT)  →  sensor.* (consumer-side
     //   cache fallback / cold-path)  →  undefined.
     // Architectural-tier-1 reasoning: with both sides present the

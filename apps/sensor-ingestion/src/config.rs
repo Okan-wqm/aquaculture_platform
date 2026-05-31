@@ -5,11 +5,9 @@
 //!   2. `SENSOR_INGESTION_CONFIG` env var.
 //!   3. Default: `/etc/sensor-ingestion/config.toml`.
 //!
-//! Individual fields can also be overridden via env vars (matched
-//! upper-snake-cased with prefix `SENSOR_INGESTION__`, e.g.
-//! `SENSOR_INGESTION__RUNTIME__WORKER_THREADS=2`). This file ships
-//! only the TOML path; the env-var merge layer lands when the
-//! deployment pipeline calls for it (Faz 2 stage 5+).
+//! The deployment contract is TOML-first: operators mount the complete
+//! config file and the process validates it before any live MQTT drain
+//! starts.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -50,13 +48,15 @@ pub struct Config {
     #[serde(default)]
     pub runtime: RuntimeConfig,
 
-    /// MQTT broker connection. Filled in by a follow-on commit when
-    /// the rumqttc subscribe loop lands.
+    /// MQTT broker connection consumed by the live rumqttc subscribe
+    /// loop. When present with `[postgres]`, the binary must start a
+    /// real persistence sink; logging-only live ingestion is rejected.
     #[serde(default)]
     pub mqtt: Option<MqttConfig>,
 
-    /// NATS broker connection (mTLS-only per ADR-014/015).
-    /// Filled in by a follow-on commit when the publisher lands.
+    /// NATS broker connection (mTLS-only per ADR-014/015). Used for
+    /// policy snapshot/change traffic, sensor metadata lookups, and
+    /// outbox publishing.
     #[serde(default)]
     pub nats: Option<nats_client::MtlsConfig>,
 

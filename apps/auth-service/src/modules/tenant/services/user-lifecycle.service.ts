@@ -22,7 +22,10 @@ import { RefreshToken } from '../../authentication/entities/refresh-token.entity
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { User, AccessType } from '../../authentication/entities/user.entity';
 import { Tenant } from '../entities/tenant.entity';
-import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
+import {
+  MobileUserSettings,
+  DEFAULT_MOBILE_FEATURES,
+} from '../entities/mobile-user-settings.entity';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 
 /**
@@ -147,9 +150,8 @@ export class UserLifecycleService {
 
     // Generate invitation token if not providing password
     // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
-    const plainInvitationToken = sendInvitation && !input.password
-      ? crypto.randomBytes(32).toString('hex')
-      : null;
+    const plainInvitationToken =
+      sendInvitation && !input.password ? crypto.randomBytes(32).toString('hex') : null;
     // SECURITY: Hash invitation token with SHA-256 before storage (SEC-005)
     const invitationTokenHash = plainInvitationToken
       ? crypto.createHash('sha256').update(plainInvitationToken).digest('hex')
@@ -192,7 +194,9 @@ export class UserLifecycleService {
         this.logger.debug(`Auto-provisioned mobile settings for user ${savedUser.id}`);
       } catch (mobileErr) {
         // Non-fatal: mobile settings can be created on-demand when user first opens the app
-        this.logger.warn(`Failed to auto-provision mobile settings for ${savedUser.id}: ${(mobileErr as Error).message}`);
+        this.logger.warn(
+          `Failed to auto-provision mobile settings for ${savedUser.id}: ${(mobileErr as Error).message}`,
+        );
       }
     }
 
@@ -214,7 +218,9 @@ export class UserLifecycleService {
         invitationSent = true;
       } catch (error) {
         // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
-        this.logger.error(`Failed to send invitation email for userId=${savedUser.id}: ${(error as Error).message}`);
+        this.logger.error(
+          `Failed to send invitation email for userId=${savedUser.id}: ${(error as Error).message}`,
+        );
       }
     }
 
@@ -255,11 +261,7 @@ export class UserLifecycleService {
    * 4. Prevent deleting another TENANT_ADMIN
    * 5. Prevent self-deletion
    */
-  async deleteUser(
-    tenantId: string,
-    userId: string,
-    deletedBy: string,
-  ): Promise<boolean> {
+  async deleteUser(tenantId: string, userId: string, deletedBy: string): Promise<boolean> {
     // SECURITY: Prevent self-deletion
     if (deletedBy === userId) {
       throw new BadRequestException('Cannot delete your own account');
@@ -293,7 +295,9 @@ export class UserLifecycleService {
         [userId, deletedBy],
       );
     } catch (error) {
-      this.logger.warn(`Failed to revoke role assignments for user ${userId}: ${(error as Error).message}`);
+      this.logger.warn(
+        `Failed to revoke role assignments for user ${userId}: ${(error as Error).message}`,
+      );
     }
 
     // 3. CRITICAL: Revoke ALL refresh tokens
@@ -305,7 +309,9 @@ export class UserLifecycleService {
     );
 
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}, revoked all refresh tokens`);
+    this.logger.log(
+      `Deleted (soft) userId=${user.id} from tenant ${tenantId}, revoked all refresh tokens`,
+    );
 
     // SECURITY AUDIT: Log user deletion
     try {
@@ -435,6 +441,7 @@ export class UserLifecycleService {
   async adminResetPassword(
     userId: string,
     newPassword: string,
+    performedBy = 'admin-api-service',
   ): Promise<{ userId: string; refreshTokensRevoked: number }> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
@@ -452,12 +459,16 @@ export class UserLifecycleService {
     // is populated by Postgres driver. Default to 0 when driver omits it.
     const revokeResult = await this.refreshTokenRepository.update(
       { userId, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date(), revokedReason: 'Admin password reset' },
+      {
+        isRevoked: true,
+        revokedAt: new Date(),
+        revokedReason: `Admin password reset by ${performedBy}`,
+      },
     );
     const refreshTokensRevoked = revokeResult.affected ?? 0;
 
     this.logger.log(
-      `Admin password reset for userId=${user.id}, refreshTokensRevoked=${refreshTokensRevoked}`,
+      `Admin password reset for userId=${user.id}, performedBy=${performedBy}, refreshTokensRevoked=${refreshTokensRevoked}`,
     );
     return { userId: user.id, refreshTokensRevoked };
   }
@@ -492,8 +503,7 @@ export class UserLifecycleService {
       throw new NotFoundException(`User with ID "${userId}" not found`);
     }
 
-    if (patch.role !== undefined &&
-        !(Object.values(Role) as string[]).includes(patch.role)) {
+    if (patch.role !== undefined && !(Object.values(Role) as string[]).includes(patch.role)) {
       throw new BadRequestException(`Unknown role "${patch.role}"`);
     }
 
@@ -562,9 +572,7 @@ export class UserLifecycleService {
    * suspected credential leak, operator wants to invalidate sessions
    * without locking the account.
    */
-  async adminForceLogout(
-    userId: string,
-  ): Promise<{ userId: string; sessionsInvalidated: number }> {
+  async adminForceLogout(userId: string): Promise<{ userId: string; sessionsInvalidated: number }> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException(`User with ID "${userId}" not found`);
@@ -707,10 +715,7 @@ export class UserLifecycleService {
         lastName: input.lastName ?? null,
         role: input.role as Role,
         tenantId: input.tenantId,
-        moduleIds:
-          input.moduleIds && input.moduleIds.length > 0
-            ? input.moduleIds
-            : null,
+        moduleIds: input.moduleIds && input.moduleIds.length > 0 ? input.moduleIds : null,
         primaryModuleId: input.primaryModuleId ?? null,
         status: InvitationStatus.PENDING,
         expiresAt,
@@ -725,9 +730,7 @@ export class UserLifecycleService {
       // TENANT_ADMIN inherits access from TenantModule rows and gets
       // no UserModuleAssignment entries.
       const wantsModuleAssignments =
-        input.role !== Role.TENANT_ADMIN &&
-        input.moduleIds &&
-        input.moduleIds.length > 0;
+        input.role !== Role.TENANT_ADMIN && input.moduleIds && input.moduleIds.length > 0;
       if (wantsModuleAssignments) {
         const assignments = input.moduleIds!.map((moduleId) =>
           umaRepo.create({
@@ -735,8 +738,7 @@ export class UserLifecycleService {
             moduleId,
             tenantId: input.tenantId,
             isPrimaryManager:
-              input.role === Role.MODULE_MANAGER &&
-              moduleId === input.primaryModuleId,
+              input.role === Role.MODULE_MANAGER && moduleId === input.primaryModuleId,
             isActive: true,
             assignedBy: input.invitedBy,
           }),
@@ -820,11 +822,7 @@ export class UserLifecycleService {
    * invite into their own tenant, and only at a role ≤ their own.
    * MODULE_MANAGER can invite only MODULE_USER. Anything else throws.
    */
-  private assertRoleHierarchy(
-    inviter: User,
-    targetTenantId: string,
-    targetRole: string,
-  ): void {
+  private assertRoleHierarchy(inviter: User, targetTenantId: string, targetRole: string): void {
     const ranks: Record<string, number> = {
       [Role.SUPER_ADMIN]: 4,
       [Role.TENANT_ADMIN]: 3,
@@ -835,23 +833,17 @@ export class UserLifecycleService {
     if (inviter.role === Role.SUPER_ADMIN) return;
 
     if (inviter.tenantId !== targetTenantId) {
-      throw new ForbiddenException(
-        'Cannot invite users to a different tenant',
-      );
+      throw new ForbiddenException('Cannot invite users to a different tenant');
     }
 
     if (inviter.role === Role.TENANT_ADMIN) {
       if ((ranks[targetRole] ?? 0) <= (ranks[Role.TENANT_ADMIN] ?? 0)) return;
-      throw new ForbiddenException(
-        'Cannot create user with higher role than your own',
-      );
+      throw new ForbiddenException('Cannot create user with higher role than your own');
     }
 
     if (inviter.role === Role.MODULE_MANAGER) {
       if (targetRole === Role.MODULE_USER) return;
-      throw new ForbiddenException(
-        'Module managers can only invite module users',
-      );
+      throw new ForbiddenException('Module managers can only invite module users');
     }
 
     throw new ForbiddenException('You do not have permission to invite users');
@@ -957,7 +949,10 @@ export class UserLifecycleService {
       .digest('hex');
 
     const event: UserInvitedEvent = {
-      ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, { aggregateId: user.id, aggregateType: 'User' }),
+      ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, {
+        aggregateId: user.id,
+        aggregateType: 'User',
+      }),
       userId: user.id,
       role: user.role,
       invitedBy: user.invitedBy || undefined,

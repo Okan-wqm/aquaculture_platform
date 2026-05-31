@@ -13,10 +13,12 @@
 //!   `COPY` does not support `ON CONFLICT`, so the existing semantic
 //!   ("re-publish updates the row") would silently break if we
 //!   COPY-ed straight into the hypertable. Plan-blessed Option A:
-//!   COPY into an UNLOGGED `<tenant>.sensor_metrics_stage` then
-//!   `INSERT ... SELECT ... ON CONFLICT DO UPDATE` from the stage to
-//!   the hypertable, then `TRUNCATE` the stage. Atomic per tenant
-//!   per batch via `BEGIN ... COMMIT`.
+//!   CREATE a transaction-local TEMP staging table, COPY into
+//!   `pg_temp.sensor_metrics_stage`, then `INSERT ... SELECT ... ON
+//!   CONFLICT DO UPDATE` from the temp stage to the tenant hypertable.
+//!   The temp table is `ON COMMIT DROP`, so concurrent dispatchers
+//!   never share a staging surface and existing tenant schemas do not
+//!   need an out-of-band stage-table sync.
 //!
 //! WHY tenant-scoped schema name:
 //!   ADR-011: every tenant gets its own schema `tenant_<32-hex>`. The
@@ -37,13 +39,26 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use deadpool_postgres::{ManagerConfig, Pool, RecyclingMethod, Runtime};
+use event_contracts_rs::{SENSOR_METRIC_INGESTED_EVENT_TYPE, SensorMetricIngestedEvent};
+use outbox_rs::{PgOutboxRepository, encode_payload};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio_postgres::types::{ToSql, Type as PgType};
 use tracing::instrument;
 
 use crate::payload::SensorReading;
-use tenant_context::SchemaName;
+use tenant_context::{SchemaName, TenantId};
+
+pub const SQL_CREATE_TEMP_STAGE: &str = "\
+CREATE TEMP TABLE sensor_metrics_stage (\
+  time TIMESTAMP WITH TIME ZONE NOT NULL,\
+  sensor_id uuid NOT NULL,\
+  channel_id uuid NOT NULL,\
+  tenant_id uuid NOT NULL,\
+  value double precision NOT NULL,\
+  raw_value double precision NOT NULL,\
+  quality_code smallint NOT NULL\
+) ON COMMIT DROP";
 
 /// Errors raised by [`BatchSink`] implementations.
 #[derive(Debug, Error)]
@@ -92,6 +107,11 @@ pub enum SinkError {
     /// A postgres query / COPY frame / transaction step failed.
     #[error("postgres operation failed")]
     Postgres(#[source] tokio_postgres::Error),
+
+    /// Transactional outbox enqueue failed inside the same
+    /// persistence transaction.
+    #[error("outbox enqueue failed")]
+    Outbox(#[source] outbox_rs::OutboxError),
 }
 
 /// Persistence sink. Implementations: [`LoggingSink`] for the
@@ -165,13 +185,12 @@ impl BatchSink for LoggingSink {
 pub async fn run_sink_loop(
     sink: Arc<dyn BatchSink>,
     mut rx: tokio::sync::mpsc::Receiver<Vec<SensorReading>>,
-) {
+) -> Result<(), SinkError> {
     while let Some(batch) = rx.recv().await {
-        if let Err(e) = sink.write(batch).await {
-            tracing::error!(error = %e, "batch sink write failed");
-        }
+        sink.write(batch).await?;
     }
     tracing::info!("batch sink loop exited (channel closed)");
+    Ok(())
 }
 
 // -----------------------------------------------------------------
@@ -208,6 +227,7 @@ pub struct PostgresConfig {
 #[derive(Debug, Clone)]
 pub struct PostgresSink {
     pool: Pool,
+    outbox: PgOutboxRepository,
 }
 
 impl PostgresSink {
@@ -277,7 +297,16 @@ impl PostgresSink {
             .await
             .map_err(SinkError::Postgres)?;
 
-        Ok(Self { pool })
+        let outbox = PgOutboxRepository::new(pool.clone());
+        Ok(Self { pool, outbox })
+    }
+
+    /// Return a repository handle over the same pool this sink uses.
+    /// The dispatcher consumes this clone to claim and publish rows
+    /// that `write_tenant_batch` enqueued transactionally.
+    #[must_use]
+    pub fn outbox_repository(&self) -> PgOutboxRepository {
+        self.outbox.clone()
     }
 }
 
@@ -288,9 +317,10 @@ impl BatchSink for PostgresSink {
         if batch.is_empty() {
             return Err(SinkError::EmptyBatch);
         }
-        // Group readings by tenant — one transaction + one COPY per
-        // tenant. Tenants in the same batch are independent so a
-        // failure on tenant A does not abort tenant B's commit.
+        // Group readings by tenant — one transaction + one COPY +
+        // one transactional-outbox enqueue set per tenant. Tenants
+        // in the same batch are independent so a failure on tenant A
+        // does not abort tenant B's commit.
         let by_tenant = group_by_tenant(batch);
         for (tenant, readings) in by_tenant {
             self.write_tenant_batch(tenant, readings).await?;
@@ -302,23 +332,37 @@ impl BatchSink for PostgresSink {
 impl PostgresSink {
     async fn write_tenant_batch(
         &self,
-        schema: SchemaName,
+        tenant: TenantId,
         readings: Vec<SensorReading>,
     ) -> Result<(), SinkError> {
         if readings.is_empty() {
             return Ok(());
         }
+        let schema = SchemaName::from_tenant_id(tenant);
         let mut conn = self.pool.get().await.map_err(SinkError::PoolGet)?;
         let tx = conn.transaction().await.map_err(SinkError::Postgres)?;
+        let tenant_text = tenant.as_uuid().to_string();
+        tx.execute(
+            "SELECT set_config('app.current_tenant', $1, true)",
+            &[&tenant_text],
+        )
+        .await
+        .map_err(SinkError::Postgres)?;
+
+        tx.batch_execute(SQL_CREATE_TEMP_STAGE)
+            .await
+            .map_err(SinkError::Postgres)?;
 
         let copy_sql = build_copy_in_sql(&schema);
         let copy_sink = tx.copy_in(&copy_sql).await.map_err(SinkError::Postgres)?;
-        // Column types match the `(time, sensor_id, channel_id, value,
-        // raw_value, quality_code)` order in build_copy_in_sql.
+        // Column types match the `(time, sensor_id, channel_id,
+        // tenant_id, value, raw_value, quality_code)` order in
+        // build_copy_in_sql.
         let writer = tokio_postgres::binary_copy::BinaryCopyInWriter::new(
             copy_sink,
             &[
                 PgType::TIMESTAMPTZ,
+                PgType::UUID,
                 PgType::UUID,
                 PgType::UUID,
                 PgType::FLOAT8,
@@ -343,12 +387,13 @@ impl PostgresSink {
                 });
             };
             let value = r.value;
-            let raw_value = r.value;
+            let raw_value = r.raw_value;
             let quality = i16::from(r.quality);
-            let row: [&(dyn ToSql + Sync); 6] = [
+            let row: [&(dyn ToSql + Sync); 7] = [
                 &ts,
                 r.sensor_id.as_uuid_ref(),
                 r.channel_id.as_uuid_ref(),
+                tenant.as_uuid(),
                 &value,
                 &raw_value,
                 &quality,
@@ -366,14 +411,29 @@ impl PostgresSink {
             "BinaryCopyInWriter row count mismatch",
         );
 
-        // Upsert from stage to hypertable, then truncate the stage.
-        // batch_execute runs both in one round-trip.
+        // Upsert from the transaction-local temp stage to the tenant
+        // hypertable. The temp table drops on commit/rollback.
         let upsert_sql = build_upsert_sql(&schema);
-        let truncate_sql = build_truncate_stage_sql(&schema);
-        let combined = format!("{upsert_sql};\n{truncate_sql};");
-        tx.batch_execute(&combined)
+        tx.batch_execute(&upsert_sql)
             .await
             .map_err(SinkError::Postgres)?;
+
+        for r in &readings {
+            let mut event = SensorMetricIngestedEvent::new(
+                *tenant.as_uuid(),
+                r.sensor_id,
+                r.channel_id,
+                r.value,
+                r.quality,
+                r.producer_ts,
+            );
+            event.raw_value = r.raw_value;
+            let payload = encode_payload(&event).map_err(SinkError::Outbox)?;
+            self.outbox
+                .enqueue_in_tx(&tx, tenant, SENSOR_METRIC_INGESTED_EVENT_TYPE, payload)
+                .await
+                .map_err(SinkError::Outbox)?;
+        }
         tx.commit().await.map_err(SinkError::Postgres)?;
         Ok(())
     }
@@ -391,11 +451,10 @@ impl UuidExt for uuid::Uuid {
     }
 }
 
-fn group_by_tenant(batch: Vec<SensorReading>) -> HashMap<SchemaName, Vec<SensorReading>> {
-    let mut groups: HashMap<SchemaName, Vec<SensorReading>> = HashMap::new();
+fn group_by_tenant(batch: Vec<SensorReading>) -> HashMap<TenantId, Vec<SensorReading>> {
+    let mut groups: HashMap<TenantId, Vec<SensorReading>> = HashMap::new();
     for r in batch {
-        let schema = SchemaName::from_tenant_id(r.tenant_id);
-        groups.entry(schema).or_default().push(r);
+        groups.entry(r.tenant_id).or_default().push(r);
     }
     groups
 }
@@ -403,24 +462,23 @@ fn group_by_tenant(batch: Vec<SensorReading>) -> HashMap<SchemaName, Vec<SensorR
 /// Per-tenant `COPY ... FROM STDIN BINARY` SQL. Pure function so the
 /// SQL shape can be unit-tested without postgres.
 #[must_use]
-pub fn build_copy_in_sql(schema: &SchemaName) -> String {
-    format!(
-        "COPY {schema}.sensor_metrics_stage \
-         (time, sensor_id, channel_id, value, raw_value, quality_code) \
-         FROM STDIN WITH (FORMAT BINARY)"
-    )
+pub fn build_copy_in_sql(_schema: &SchemaName) -> String {
+    "COPY pg_temp.sensor_metrics_stage \
+     (time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code) \
+     FROM STDIN WITH (FORMAT BINARY)"
+        .to_owned()
 }
 
-/// Per-tenant upsert from staging table to the hypertable. Preserves
-/// the existing NestJS contract: re-publish updates value/raw_value/
-/// quality_code on conflict.
+/// Per-tenant upsert from the transaction-local temp staging table to
+/// the hypertable. Preserves the existing NestJS contract: re-publish
+/// updates value/raw_value/quality_code on conflict.
 #[must_use]
 pub fn build_upsert_sql(schema: &SchemaName) -> String {
     format!(
         "INSERT INTO {schema}.sensor_metrics \
-         (time, sensor_id, channel_id, value, raw_value, quality_code) \
-         SELECT time, sensor_id, channel_id, value, raw_value, quality_code \
-           FROM {schema}.sensor_metrics_stage \
+         (time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code) \
+         SELECT time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code \
+           FROM pg_temp.sensor_metrics_stage \
          ON CONFLICT (time, sensor_id, channel_id) DO UPDATE \
            SET value = EXCLUDED.value, \
                raw_value = EXCLUDED.raw_value, \
@@ -428,18 +486,12 @@ pub fn build_upsert_sql(schema: &SchemaName) -> String {
     )
 }
 
-/// Truncate the staging table after a successful upsert.
-#[must_use]
-pub fn build_truncate_stage_sql(schema: &SchemaName) -> String {
-    format!("TRUNCATE TABLE {schema}.sensor_metrics_stage")
-}
-
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
     use uuid::Uuid;
 
-    use super::{BatchSink, LoggingSink, SinkError, run_sink_loop};
+    use super::{BatchSink, LoggingSink, SQL_CREATE_TEMP_STAGE, SinkError, run_sink_loop};
     use crate::payload::{PayloadSource, SensorReading};
     use std::sync::Arc;
     use tenant_context::{SchemaName, TenantId};
@@ -482,14 +534,25 @@ mod tests {
     }
 
     #[test]
-    fn copy_sql_uses_validated_schema_name() {
+    fn copy_sql_uses_transaction_local_temp_stage() {
         let tenant = TenantId::from_uuid(fixed_uuid(0xAA));
         let schema = SchemaName::from_tenant_id(tenant);
         let sql = super::build_copy_in_sql(&schema);
-        assert!(sql.contains(schema.as_str()));
-        assert!(sql.contains("sensor_metrics_stage"));
+        assert!(!sql.contains(schema.as_str()));
+        assert!(sql.contains("pg_temp.sensor_metrics_stage"));
         assert!(sql.contains("FORMAT BINARY"));
-        assert!(sql.contains("(time, sensor_id, channel_id, value, raw_value, quality_code)"));
+        assert!(
+            sql.contains(
+                "(time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code)"
+            )
+        );
+    }
+
+    #[test]
+    fn temp_stage_sql_is_transaction_scoped() {
+        assert!(SQL_CREATE_TEMP_STAGE.contains("CREATE TEMP TABLE sensor_metrics_stage"));
+        assert!(SQL_CREATE_TEMP_STAGE.contains("ON COMMIT DROP"));
+        assert!(!SQL_CREATE_TEMP_STAGE.contains("UNLOGGED"));
     }
 
     #[test]
@@ -500,21 +563,16 @@ mod tests {
         // Mirrors the NestJS path's INSERT ... ON CONFLICT DO UPDATE
         // SET value/raw_value/quality_code = EXCLUDED.* contract.
         assert!(sql.contains(schema.as_str()));
+        assert!(sql.contains("FROM pg_temp.sensor_metrics_stage"));
+        assert!(
+            sql.contains(
+                "(time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code)"
+            )
+        );
         assert!(sql.contains("ON CONFLICT (time, sensor_id, channel_id) DO UPDATE"));
         assert!(sql.contains("SET value = EXCLUDED.value"));
         assert!(sql.contains("raw_value = EXCLUDED.raw_value"));
         assert!(sql.contains("quality_code = EXCLUDED.quality_code"));
-    }
-
-    #[test]
-    fn truncate_stage_sql_uses_correct_table() {
-        let tenant = TenantId::from_uuid(fixed_uuid(0xCC));
-        let schema = SchemaName::from_tenant_id(tenant);
-        let sql = super::build_truncate_stage_sql(&schema);
-        assert!(sql.contains("TRUNCATE"));
-        assert!(sql.contains(schema.as_str()));
-        assert!(sql.contains("sensor_metrics_stage"));
-        assert!(!sql.contains("sensor_metrics ")); // not the hypertable
     }
 
     #[test]
@@ -552,10 +610,8 @@ mod tests {
         };
         let batch = vec![mk(tenant_a), mk(tenant_b), mk(tenant_a), mk(tenant_a)];
         let groups = super::group_by_tenant(batch);
-        let schema_a = SchemaName::from_tenant_id(tenant_a);
-        let schema_b = SchemaName::from_tenant_id(tenant_b);
-        assert_eq!(groups.get(&schema_a).map(Vec::len), Some(3));
-        assert_eq!(groups.get(&schema_b).map(Vec::len), Some(1));
+        assert_eq!(groups.get(&tenant_a).map(Vec::len), Some(3));
+        assert_eq!(groups.get(&tenant_b).map(Vec::len), Some(1));
     }
 
     #[tokio::test]
@@ -599,9 +655,9 @@ mod tests {
 
     /// Live-postgres integration test. Skipped by default; set
     /// `SENSOR_INGESTION_PG_INTEGRATION=1` and ensure a TimescaleDB
-    /// instance with the per-tenant schema + sensor_metrics +
-    /// sensor_metrics_stage tables is reachable to run it. CI ships
-    /// a service-container `timescale/timescaledb-ha:pg16` for this.
+    /// instance with the per-tenant schema + sensor_metrics table is
+    /// reachable to run it. The staging table is transaction-local
+    /// `pg_temp` and is created by the sink itself.
     #[tokio::test]
     #[ignore = "requires SENSOR_INGESTION_PG_INTEGRATION=1 + reachable TimescaleDB; CI service-container job in follow-on commit"]
     async fn postgres_sink_live_smoke_writes_and_upserts() {
@@ -625,7 +681,7 @@ mod tests {
         tx.send(vec![reading(), reading()]).await.unwrap();
         drop(tx);
 
-        handle.await.unwrap();
+        handle.await.unwrap().unwrap();
         assert_eq!(counter.batches(), 2);
         assert_eq!(counter.last_batch_size(), 2);
     }

@@ -23,6 +23,7 @@ import {
   UserContextMiddleware,
   RequestLoggingMiddleware,
   StripInternalHeadersMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
@@ -388,6 +389,7 @@ export class AppModule implements NestModule {
         MetricsMiddleware, // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
         RequestLoggingMiddleware,

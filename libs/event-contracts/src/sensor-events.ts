@@ -125,11 +125,12 @@ export interface SensorReadingEvent extends BaseEvent {
  *   path to a control-plane lookup that lives in sensor-service.
  *
  *   Architectural cut (ADR-022 control / data plane separation):
- *     - Rust sidecar publishes the raw shape it OWNS.
+ *     - Rust sidecar persists the raw metric and publishes the raw
+ *       shape it OWNS through its transactional outbox.
  *     - sensor-service NATS consumer enriches with sensor-meta from its
- *       in-process cache, calls `BatchProcessorService.enqueue()`, then
- *       emits the existing typed `SensorReadingEvent` to the in-process
- *       EventBus for downstream consumers (alert-engine).
+ *       in-process cache, then emits the existing typed
+ *       `SensorReadingEvent` to the EventBus for downstream consumers
+ *       (alert-engine).
  *
  *   Result: no breakage of the typed `SensorReadingEvent` contract,
  *   sidecar does what it can with what it has, mapping concern lives

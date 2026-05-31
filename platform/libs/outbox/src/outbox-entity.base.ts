@@ -34,6 +34,16 @@ export abstract class OutboxEntityBase {
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id!: string;
 
+  /**
+   * Monotonic service-local outbox sequence used for deterministic publish order.
+   *
+   * This is separate from the primary key because some services use UUID outbox
+   * IDs for NATS Msg-Id stability. The worker orders and gates by sequence so
+   * per-aggregate FIFO does not depend on timestamp precision or UUID ordering.
+   */
+  @Column({ type: 'bigint', nullable: true })
+  sequence!: string | null;
+
   /** PascalCase event type — e.g. 'BatchCreated', 'MortalityRecorded'. */
   @Column({ type: 'varchar', length: 100 })
   eventType!: string;

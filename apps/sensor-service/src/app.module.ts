@@ -22,6 +22,7 @@ import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
@@ -338,7 +339,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     RlsModule.forPoolService({
       serviceName: 'sensor',
       syncTenantSchemas: true,
-      excludeTables: ['sensor_outbox'],
+      excludeTables: ['sensor_outbox', 'event_outbox'],
     }),
 
     // Prometheus metrics (per-service /metrics endpoint)
@@ -434,6 +435,7 @@ export class AppModule implements NestModule {
         MetricsMiddleware, // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
         TenantSchemaMiddleware, // Sets PostgreSQL search_path to tenant schema

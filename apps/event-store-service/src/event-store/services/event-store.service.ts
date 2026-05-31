@@ -53,6 +53,9 @@ export class EventStoreService {
     expectedVersion: number,
   ): Promise<AppendResult> {
     this.validateAggregateType(aggregateType);
+    if (events.length === 0) {
+      throw new BadRequestException('appendToStream requires at least one event');
+    }
     const streamName = this.buildStreamName(aggregateType, aggregateId);
     const queryRunner = this.dataSource.createQueryRunner();
 
@@ -98,7 +101,7 @@ export class EventStoreService {
 
       // Use PostgreSQL sequence for atomic global position assignment
       const positionResults = await queryRunner.manager.query(
-        `SELECT nextval('stored_events_global_position_seq') as pos FROM generate_series(1, $1)`,
+        `SELECT nextval('"event_store"."stored_events_global_position_seq"') as pos FROM generate_series(1, $1)`,
         [events.length],
       );
 

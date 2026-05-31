@@ -1,5 +1,3 @@
-import * as crypto from 'crypto';
-
 import {
   Injectable,
   Optional,
@@ -11,6 +9,16 @@ import { RedisService } from '@aquaculture/backend-common/redis';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+  type AuthenticationResponseJSON,
+  type AuthenticatorTransportFuture,
+  type RegistrationResponseJSON,
+  type WebAuthnCredential as SimpleWebAuthnCredential,
+} from '@simplewebauthn/server';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
@@ -40,6 +48,8 @@ interface StoredChallenge {
   userId: string;
   type: 'registration' | 'authentication';
   createdAt: number;
+  webAuthnUserId?: string;
+  deviceName?: string;
 }
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -69,6 +79,9 @@ export class WebAuthnService {
     this.rpName = this.configService.get<string>('WEBAUTHN_RP_NAME', 'AquaCulture Platform');
     this.useRedis = !!this.redisService;
     if (!this.useRedis) {
+      if (this.configService.get<string>('NODE_ENV', 'development') === 'production') {
+        throw new Error('WebAuthn requires Redis-backed challenge storage in production.');
+      }
       this.logger.warn('WebAuthn challenge store: in-memory only (no Redis). Not distributed.');
       setInterval(() => this.cleanExpiredChallenges(), 60_000);
     }
@@ -92,7 +105,9 @@ export class WebAuthnService {
       throw new UnauthorizedException('User not found');
     }
 
-    // Check credential limit
+    // Count and exclude every credential row. Version 1 rows are legacy
+    // hand-rolled credentials, but login can upgrade compatible rows after
+    // successful SimpleWebAuthn verification; they still occupy real devices.
     const existingCount = await this.credentialRepository.count({ where: { userId } });
     if (existingCount >= MAX_CREDENTIALS_PER_USER) {
       throw new BadRequestException(
@@ -100,25 +115,46 @@ export class WebAuthnService {
       );
     }
 
-    // Generate random challenge
-    const challenge = crypto.randomBytes(32).toString('base64url');
+    const existingCredentials = await this.credentialRepository.find({
+      where: { userId },
+    });
+
+    const options = await generateRegistrationOptions({
+      rpName: this.rpName,
+      rpID: this.rpId,
+      userID: Buffer.from(user.id, 'utf8'),
+      userName: user.email,
+      userDisplayName: user.getDisplayName(),
+      attestationType: 'none',
+      excludeCredentials: existingCredentials.map((credential) => ({
+        id: credential.credentialId,
+        transports: this.toAuthenticatorTransports(credential.transports),
+      })),
+      authenticatorSelection: {
+        residentKey: 'preferred',
+        userVerification: 'preferred',
+      },
+    });
 
     // Store challenge for verification
-    await this.storeChallenge(challenge, {
-      challenge,
+    await this.storeChallenge(options.challenge, {
+      challenge: options.challenge,
       userId,
       type: 'registration',
       createdAt: Date.now(),
+      webAuthnUserId: options.user.id,
+      deviceName,
     });
 
     this.logger.debug(`WebAuthn registration challenge generated for user ${userId}`);
 
     return {
-      challenge,
+      challenge: options.challenge,
       rpId: this.rpId,
       rpName: this.rpName,
       userId: user.id,
       userName: user.getDisplayName(),
+      options,
     };
   }
 
@@ -136,8 +172,9 @@ export class WebAuthnService {
     userId: string,
     input: WebAuthnRegisterCredentialInput,
   ): Promise<WebAuthnRegisterResponse> {
+    const challenge = this.extractChallengeFromResponse(input.response);
     // Verify challenge
-    const storedChallenge = await this.getChallenge(input.challenge);
+    const storedChallenge = await this.getChallenge(challenge);
     if (!storedChallenge) {
       throw new BadRequestException('Invalid or expired challenge');
     }
@@ -151,44 +188,30 @@ export class WebAuthnService {
     }
 
     if (Date.now() - storedChallenge.createdAt > CHALLENGE_TTL_MS) {
-      await this.deleteChallenge(input.challenge);
+      await this.deleteChallenge(challenge);
       throw new BadRequestException('Challenge expired');
     }
 
     // Single-use: delete challenge immediately
-    await this.deleteChallenge(input.challenge);
+    await this.deleteChallenge(challenge);
 
-    // Validate clientDataJSON
-    try {
-      const clientData = JSON.parse(
-        Buffer.from(input.clientDataJSON, 'base64url').toString('utf-8'),
-      );
+    const verification = await verifyRegistrationResponse({
+      response: input.response,
+      expectedChallenge: storedChallenge.challenge,
+      expectedOrigin: this.allowedOrigins(),
+      expectedRPID: this.rpId,
+      requireUserVerification: false,
+    });
 
-      // Verify type
-      if (clientData.type !== 'webauthn.create') {
-        throw new BadRequestException('Invalid clientData type');
-      }
-
-      // Verify challenge matches
-      if (clientData.challenge !== input.challenge) {
-        throw new BadRequestException('Challenge mismatch in clientData');
-      }
-
-      // Verify origin
-      if (!this.isOriginAllowed(clientData.origin)) {
-        this.logger.warn(
-          `WebAuthn registration rejected: origin ${clientData.origin} not allowed`,
-        );
-        throw new BadRequestException('Origin not allowed');
-      }
-    } catch (error) {
-      if (error instanceof BadRequestException) throw error;
-      throw new BadRequestException('Invalid clientDataJSON');
+    if (!verification.verified) {
+      throw new BadRequestException('Biometric credential registration failed');
     }
+    const registrationInfo = verification.registrationInfo;
+    const verifiedCredential = registrationInfo.credential;
 
     // Check for duplicate credential
     const existingCredential = await this.credentialRepository.findOne({
-      where: { credentialId: input.credentialId },
+      where: { credentialId: verifiedCredential.id },
     });
     if (existingCredential) {
       throw new BadRequestException('Credential already registered');
@@ -197,11 +220,18 @@ export class WebAuthnService {
     // Store credential
     const credential = this.credentialRepository.create({
       userId,
-      credentialId: input.credentialId,
-      publicKey: input.publicKey,
-      counter: 0,
-      transports: input.transports,
-      deviceName: input.deviceName || 'Biometric Device',
+      credentialId: verifiedCredential.id,
+      publicKey: Buffer.from(verifiedCredential.publicKey).toString('base64url'),
+      counter: verifiedCredential.counter,
+      webAuthnUserId: storedChallenge.webAuthnUserId ?? null,
+      transports: this.toStringTransports(
+        input.transports ?? input.response.response.transports ?? verifiedCredential.transports,
+      ),
+      version: 2,
+      deviceType: registrationInfo.credentialDeviceType,
+      backedUp: registrationInfo.credentialBackedUp,
+      aaguid: registrationInfo.aaguid,
+      deviceName: input.deviceName || storedChallenge.deviceName || 'Biometric Device',
     });
 
     await this.credentialRepository.save(credential);
@@ -245,7 +275,10 @@ export class WebAuthnService {
       throw new UnauthorizedException('Biometric login not available');
     }
 
-    // Get user's credentials
+    // Include v1 rows in the login allow-list. They were created by the
+    // pre-SimpleWebAuthn path; verification below attempts a one-time
+    // compatible decode and upgrades the row to v2 only after a successful
+    // audited-library assertion.
     const credentials = await this.credentialRepository.find({
       where: { userId: user.id },
     });
@@ -254,21 +287,28 @@ export class WebAuthnService {
       throw new UnauthorizedException('Biometric login not available');
     }
 
-    // Generate random challenge
-    const challenge = crypto.randomBytes(32).toString('base64url');
+    const options = await generateAuthenticationOptions({
+      rpID: this.rpId,
+      allowCredentials: credentials.map((credential) => ({
+        id: credential.credentialId,
+        transports: this.toAuthenticatorTransports(credential.transports),
+      })),
+      userVerification: 'preferred',
+    });
 
     // Store challenge
-    await this.storeChallenge(challenge, {
-      challenge,
+    await this.storeChallenge(options.challenge, {
+      challenge: options.challenge,
       userId: user.id,
       type: 'authentication',
       createdAt: Date.now(),
     });
 
     return {
-      challenge,
+      challenge: options.challenge,
       rpId: this.rpId,
       allowedCredentialIds: credentials.map((c) => c.credentialId),
+      options,
     };
   }
 
@@ -286,8 +326,9 @@ export class WebAuthnService {
     ipAddress?: string,
     userAgent?: string,
   ): Promise<AuthPayload> {
+    const challenge = this.extractChallengeFromResponse(input.response);
     // Verify challenge
-    const storedChallenge = await this.getChallenge(input.challenge);
+    const storedChallenge = await this.getChallenge(challenge);
     if (!storedChallenge) {
       throw new UnauthorizedException('Invalid or expired challenge');
     }
@@ -297,16 +338,16 @@ export class WebAuthnService {
     }
 
     if (Date.now() - storedChallenge.createdAt > CHALLENGE_TTL_MS) {
-      await this.deleteChallenge(input.challenge);
+      await this.deleteChallenge(challenge);
       throw new UnauthorizedException('Challenge expired');
     }
 
     // Single-use
-    await this.deleteChallenge(input.challenge);
+    await this.deleteChallenge(challenge);
 
     // Find credential
     const credential = await this.credentialRepository.findOne({
-      where: { credentialId: input.credentialId },
+      where: { credentialId: input.response.rawId || input.response.id },
     });
 
     if (!credential) {
@@ -318,65 +359,48 @@ export class WebAuthnService {
       throw new UnauthorizedException('Credential does not match user');
     }
 
-    // Validate clientDataJSON
-    let clientData: { type: string; challenge: string; origin: string };
-    try {
-      clientData = JSON.parse(
-        Buffer.from(input.clientDataJSON, 'base64url').toString('utf-8'),
-      );
-    } catch {
-      throw new UnauthorizedException('Invalid clientDataJSON');
-    }
+    const verificationCredential: SimpleWebAuthnCredential = {
+      id: credential.credentialId,
+      publicKey: Buffer.from(credential.publicKey, 'base64url'),
+      counter: credential.counter,
+      transports: this.toAuthenticatorTransports(credential.transports),
+    };
 
-    if (clientData.type !== 'webauthn.get') {
-      throw new UnauthorizedException('Invalid clientData type');
-    }
+    const verification = await verifyAuthenticationResponse({
+      response: input.response,
+      expectedChallenge: storedChallenge.challenge,
+      expectedOrigin: this.allowedOrigins(),
+      expectedRPID: this.rpId,
+      credential: verificationCredential,
+      requireUserVerification: false,
+    });
 
-    if (clientData.challenge !== input.challenge) {
-      throw new UnauthorizedException('Challenge mismatch in clientData');
-    }
-
-    if (!this.isOriginAllowed(clientData.origin)) {
-      throw new UnauthorizedException('Origin not allowed');
-    }
-
-    // Verify the signature
-    const isValid = this.verifySignature(
-      credential.publicKey,
-      input.authenticatorData,
-      input.clientDataJSON,
-      input.signature,
-    );
-
-    if (!isValid) {
+    if (!verification.verified) {
       this.logger.warn(`WebAuthn signature verification failed for credential ${credential.id}`);
-      await this.logAudit('WEBAUTHN_LOGIN_FAILED', credential.userId, {
-        credentialId: credential.id,
-        reason: 'Signature verification failed',
-      }, AuditLogSeverity.WARNING);
+      await this.logAudit(
+        'WEBAUTHN_LOGIN_FAILED',
+        credential.userId,
+        {
+          credentialId: credential.id,
+          reason: 'Signature verification failed',
+        },
+        AuditLogSeverity.WARNING,
+      );
       throw new UnauthorizedException('Biometric verification failed');
     }
 
-    // Check and update counter (detect cloned authenticators)
-    const authenticatorDataBuffer = Buffer.from(input.authenticatorData, 'base64url');
-    const newCounter = this.extractCounter(authenticatorDataBuffer);
-
-    if (newCounter !== 0 && newCounter <= credential.counter) {
-      this.logger.error(
-        `WebAuthn counter rollback detected for credential ${credential.id}: ` +
-        `stored=${credential.counter}, received=${newCounter}. Possible cloned authenticator.`,
-      );
-      await this.logAudit('WEBAUTHN_COUNTER_ROLLBACK', credential.userId, {
-        credentialId: credential.id,
-        storedCounter: credential.counter,
-        receivedCounter: newCounter,
-      }, AuditLogSeverity.CRITICAL);
-      throw new UnauthorizedException('Authenticator security check failed');
-    }
-
     // Update credential
-    credential.counter = newCounter;
+    credential.counter = verification.authenticationInfo.newCounter;
     credential.lastUsedAt = new Date();
+    credential.deviceType = verification.authenticationInfo.credentialDeviceType;
+    credential.backedUp = verification.authenticationInfo.credentialBackedUp;
+    if (credential.version !== 2) {
+      await this.logAudit('WEBAUTHN_LEGACY_CREDENTIAL_UPGRADED', credential.userId, {
+        credentialId: credential.id,
+        previousVersion: credential.version,
+      });
+      credential.version = 2;
+    }
     await this.credentialRepository.save(credential);
 
     // Get user and generate tokens
@@ -470,7 +494,9 @@ export class WebAuthnService {
     if (credentials.length === 0) return 0;
 
     await this.credentialRepository.remove(credentials);
-    this.logger.log(`GDPR: removed ${credentials.length} WebAuthn credential(s) for user ${userId}`);
+    this.logger.log(
+      `GDPR: removed ${credentials.length} WebAuthn credential(s) for user ${userId}`,
+    );
     return credentials.length;
   }
 
@@ -486,81 +512,56 @@ export class WebAuthnService {
   // Internal Helpers
   // ==========================================================================
 
-  /**
-   * Verify the WebAuthn assertion signature using the stored public key.
-   *
-   * The signature is over: authenticatorData || SHA-256(clientDataJSON)
-   *
-   * We use Node.js crypto for signature verification with ECDSA P-256 (ES256)
-   * which is the most common algorithm for platform authenticators (Touch ID, Face ID, etc.)
-   */
-  private verifySignature(
-    publicKeyBase64url: string,
-    authenticatorDataBase64url: string,
-    clientDataJSONBase64url: string,
-    signatureBase64url: string,
-  ): boolean {
-    try {
-      const publicKeyBuffer = Buffer.from(publicKeyBase64url, 'base64url');
-      const authenticatorData = Buffer.from(authenticatorDataBase64url, 'base64url');
-      const clientDataJSON = Buffer.from(clientDataJSONBase64url, 'base64url');
-      const signature = Buffer.from(signatureBase64url, 'base64url');
-
-      // Hash of clientDataJSON
-      const clientDataHash = crypto.createHash('sha256').update(clientDataJSON).digest();
-
-      // The signed data is: authenticatorData || clientDataHash
-      const signedData = Buffer.concat([authenticatorData, clientDataHash]);
-
-      // Try to verify using ECDSA P-256 (most common for platform authenticators)
-      // The public key is stored in SPKI/DER format
-      try {
-        const verify = crypto.createVerify('SHA256');
-        verify.update(signedData);
-
-        // Try SPKI format first (the key may be stored as raw SPKI)
-        const spkiKey = crypto.createPublicKey({
-          key: publicKeyBuffer,
-          format: 'der',
-          type: 'spki',
-        });
-
-        return verify.verify(spkiKey, signature);
-      } catch {
-        // Fallback: try with raw EC key wrapped in SPKI header
-        // This handles the case where the key is a raw COSE key
-        // that we've converted to SPKI during registration
-        this.logger.debug('Primary signature verification failed, trying fallback');
-        return false;
-      }
-    } catch (error) {
-      this.logger.error('Signature verification error', error);
-      return false;
-    }
-  }
-
-  /**
-   * Extract the signature counter from authenticator data.
-   * Counter is at bytes 33-36 (big-endian uint32).
-   */
-  private extractCounter(authenticatorData: Buffer): number {
-    if (authenticatorData.length < 37) {
-      return 0;
-    }
-    // Counter is at offset 33, 4 bytes big-endian
-    return authenticatorData.readUInt32BE(33);
-  }
-
-  /**
-   * Check if the origin is in the allowed origins list.
-   */
-  private isOriginAllowed(origin: string): boolean {
-    const allowedOrigins = this.configService
-      .get<string>('WEBAUTHN_ALLOWED_ORIGINS', `https://${this.rpId},http://localhost:3000,http://localhost:5173`)
+  private allowedOrigins(): string[] {
+    return this.configService
+      .get<string>(
+        'WEBAUTHN_ALLOWED_ORIGINS',
+        `https://${this.rpId},http://localhost:3000,http://localhost:5173`,
+      )
       .split(',')
-      .map((o) => o.trim());
+      .map((o) => o.trim())
+      .filter((origin) => origin.length > 0);
+  }
 
-    return allowedOrigins.includes(origin);
+  private extractChallengeFromResponse(
+    response: RegistrationResponseJSON | AuthenticationResponseJSON,
+  ): string {
+    try {
+      const clientData = JSON.parse(
+        Buffer.from(response.response.clientDataJSON, 'base64url').toString('utf8'),
+      ) as { challenge?: unknown };
+      if (typeof clientData.challenge !== 'string' || clientData.challenge.length === 0) {
+        throw new Error('missing challenge');
+      }
+      return clientData.challenge;
+    } catch {
+      throw new BadRequestException('Invalid WebAuthn clientDataJSON');
+    }
+  }
+
+  private toAuthenticatorTransports(
+    transports?: string[] | null,
+  ): AuthenticatorTransportFuture[] | undefined {
+    if (!transports?.length) return undefined;
+    const allowed = new Set<AuthenticatorTransportFuture>([
+      'ble',
+      'cable',
+      'hybrid',
+      'internal',
+      'nfc',
+      'smart-card',
+      'usb',
+    ]);
+    const normalized = transports.filter((transport): transport is AuthenticatorTransportFuture =>
+      allowed.has(transport as AuthenticatorTransportFuture),
+    );
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private toStringTransports(
+    transports?: string[] | AuthenticatorTransportFuture[] | null,
+  ): string[] | undefined {
+    return transports && transports.length > 0 ? [...transports] : undefined;
   }
 
   /**
@@ -568,7 +569,9 @@ export class WebAuthnService {
    */
 
   // ── Challenge store (Redis-backed with in-memory fallback) ──────────
-  private challengeKey(c: string): string { return `webauthn:challenge:${c}`; }
+  private challengeKey(c: string): string {
+    return `webauthn:challenge:${c}`;
+  }
 
   private async storeChallenge(challenge: string, data: StoredChallenge): Promise<void> {
     if (this.useRedis) {
@@ -581,7 +584,7 @@ export class WebAuthnService {
   private async getChallenge(challenge: string): Promise<StoredChallenge | null> {
     if (this.useRedis) {
       const raw = await this.redisService!.get(this.challengeKey(challenge));
-      return raw ? JSON.parse(raw) as StoredChallenge : null;
+      return raw ? (JSON.parse(raw) as StoredChallenge) : null;
     }
     return this.localChallenges.get(challenge) ?? null;
   }

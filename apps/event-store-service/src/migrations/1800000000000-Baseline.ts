@@ -5,10 +5,14 @@ export class Baseline1800000000000 implements MigrationInterface {
 
     public async up(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`DO $$ BEGIN CREATE TYPE "event_store"."projection_checkpoints_status_enum" AS ENUM('running', 'paused', 'stopped', 'faulted'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+        await queryRunner.query(`CREATE SEQUENCE IF NOT EXISTS "event_store"."stored_events_global_position_seq" AS BIGINT START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1`);
         await queryRunner.query(`CREATE TABLE "event_store"."projection_checkpoints" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "projectionName" character varying(255) NOT NULL, "description" character varying(500), "position" bigint NOT NULL DEFAULT '0', "status" "event_store"."projection_checkpoints_status_enum" NOT NULL DEFAULT 'running', "tenantId" uuid NOT NULL, "consumerGroup" character varying(100), "eventTypes" jsonb NOT NULL DEFAULT '[]', "aggregateTypes" jsonb NOT NULL DEFAULT '[]', "eventsProcessed" bigint NOT NULL DEFAULT '0', "eventsFailed" bigint NOT NULL DEFAULT '0', "lastError" text, "lastErrorAt" TIMESTAMP WITH TIME ZONE, "avgProcessingTimeMs" double precision NOT NULL DEFAULT '0', "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "lastProcessedAt" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_70f507452232333f1f0f9043f87" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_79857894fad3b933d4d2ae192a" ON "event_store"."projection_checkpoints" ("status") `);
         await queryRunner.query(`CREATE INDEX "IDX_fcb5ec546dab48a3040b230181" ON "event_store"."projection_checkpoints" ("tenantId") `);
         await queryRunner.query(`CREATE UNIQUE INDEX "IDX_29d4c7b6d922e327386fb4667d" ON "event_store"."projection_checkpoints" ("tenantId", "projectionName") `);
+        await queryRunner.query(`CREATE TABLE "event_store"."projection_inbox" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "projectionName" character varying(255) NOT NULL, "eventId" uuid NOT NULL, "globalPosition" bigint NOT NULL, "processedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_projection_inbox" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_projection_inbox_tenant_projection_position" ON "event_store"."projection_inbox" ("tenantId", "projectionName", "globalPosition") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_projection_inbox_tenant_projection_event" ON "event_store"."projection_inbox" ("tenantId", "projectionName", "eventId") `);
         await queryRunner.query(`CREATE TABLE "event_store"."stored_events" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "streamName" character varying(255) NOT NULL, "globalPosition" bigint NOT NULL, "streamPosition" bigint NOT NULL, "aggregateType" character varying(255) NOT NULL, "aggregateId" uuid NOT NULL, "version" integer NOT NULL, "eventType" character varying(255) NOT NULL, "payload" jsonb NOT NULL, "metadata" jsonb, "tenantId" uuid NOT NULL, "correlationId" uuid, "causationId" uuid, "userId" uuid, "occurredAt" TIMESTAMP WITH TIME ZONE NOT NULL, "storedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "schemaVersion" integer NOT NULL DEFAULT '1', CONSTRAINT "PK_7328fbed828c2b2e51e42b67766" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_stored_events_tenant_aggregate_version" ON "event_store"."stored_events" ("tenantId", "aggregateId", "version") `);
         await queryRunner.query(`CREATE INDEX "IDX_239b5387b20fa4764cf948bd21" ON "event_store"."stored_events" ("tenantId", "storedAt") `);
@@ -21,7 +25,7 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_f0a5a44cca7ebaab68e15e8c8a" ON "event_store"."stored_events" ("eventType") `);
         await queryRunner.query(`CREATE INDEX "IDX_48f625ce1fa34fcd62e5fc5cea" ON "event_store"."stored_events" ("streamName") `);
         await queryRunner.query(`CREATE UNIQUE INDEX "IDX_b238050cd7edc5343f34fba655" ON "event_store"."stored_events" ("globalPosition") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_aebc68416a5ae504289cb6893d" ON "event_store"."stored_events" ("aggregateType", "aggregateId", "version") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_stored_events_tenant_aggregate_type_id_version" ON "event_store"."stored_events" ("tenantId", "aggregateType", "aggregateId", "version") `);
         await queryRunner.query(`CREATE TABLE "event_store"."snapshots" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "aggregateType" character varying(255) NOT NULL, "aggregateId" uuid NOT NULL, "version" integer NOT NULL, "state" jsonb NOT NULL, "tenantId" uuid NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "schemaVersion" integer NOT NULL DEFAULT '1', CONSTRAINT "PK_f5661b5fd4224d23e26a631986b" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_49e3cac6f172eaeea8d22738a4" ON "event_store"."snapshots" ("tenantId") `);
         await queryRunner.query(`CREATE UNIQUE INDEX "IDX_f9eb2ef365ee551cb36ce80d5e" ON "event_store"."snapshots" ("aggregateType", "aggregateId", "tenantId") `);
@@ -39,7 +43,7 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`DROP INDEX "event_store"."IDX_f9eb2ef365ee551cb36ce80d5e"`);
         await queryRunner.query(`DROP INDEX "event_store"."IDX_49e3cac6f172eaeea8d22738a4"`);
         await queryRunner.query(`DROP TABLE "event_store"."snapshots"`);
-        await queryRunner.query(`DROP INDEX "event_store"."IDX_aebc68416a5ae504289cb6893d"`);
+        await queryRunner.query(`DROP INDEX "event_store"."IDX_stored_events_tenant_aggregate_type_id_version"`);
         await queryRunner.query(`DROP INDEX "event_store"."IDX_b238050cd7edc5343f34fba655"`);
         await queryRunner.query(`DROP INDEX "event_store"."IDX_48f625ce1fa34fcd62e5fc5cea"`);
         await queryRunner.query(`DROP INDEX "event_store"."IDX_f0a5a44cca7ebaab68e15e8c8a"`);
@@ -52,10 +56,14 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`DROP INDEX "event_store"."IDX_239b5387b20fa4764cf948bd21"`);
         await queryRunner.query(`DROP INDEX "event_store"."IDX_stored_events_tenant_aggregate_version"`);
         await queryRunner.query(`DROP TABLE "event_store"."stored_events"`);
+        await queryRunner.query(`DROP INDEX "event_store"."IDX_projection_inbox_tenant_projection_event"`);
+        await queryRunner.query(`DROP INDEX "event_store"."IDX_projection_inbox_tenant_projection_position"`);
+        await queryRunner.query(`DROP TABLE "event_store"."projection_inbox"`);
         await queryRunner.query(`DROP INDEX "event_store"."IDX_29d4c7b6d922e327386fb4667d"`);
         await queryRunner.query(`DROP INDEX "event_store"."IDX_fcb5ec546dab48a3040b230181"`);
         await queryRunner.query(`DROP INDEX "event_store"."IDX_79857894fad3b933d4d2ae192a"`);
         await queryRunner.query(`DROP TABLE "event_store"."projection_checkpoints"`);
+        await queryRunner.query(`DROP SEQUENCE IF EXISTS "event_store"."stored_events_global_position_seq"`);
         await queryRunner.query(`DROP TYPE "event_store"."projection_checkpoints_status_enum"`);
     }
 

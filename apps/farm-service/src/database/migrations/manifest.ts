@@ -5,6 +5,7 @@ import { AlignEquipmentTypesRuntimeContract1800300000000 } from './1800300000000
 import { CreateFarmStockReadModel1800400000000 } from './1800400000000-CreateFarmStockReadModel';
 import { AssertFarmStockBatchSnapshotMetadata1800500000000 } from './1800500000000-AssertFarmStockBatchSnapshotMetadata';
 import { ExtendFarmStockReadModelFanout1800600000000 } from './1800600000000-ExtendFarmStockReadModelFanout';
+import { FarmOutboxSequence1800700000000 } from './1800700000000-FarmOutboxSequence';
 
 /**
  * Canonical farm-service migration class list.
@@ -22,4 +23,5 @@ export const FARM_MIGRATIONS = [
   CreateFarmStockReadModel1800400000000,
   AssertFarmStockBatchSnapshotMetadata1800500000000,
   ExtendFarmStockReadModelFanout1800600000000,
+  FarmOutboxSequence1800700000000,
 ] as const;

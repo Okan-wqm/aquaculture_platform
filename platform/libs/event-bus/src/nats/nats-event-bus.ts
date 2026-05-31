@@ -49,6 +49,8 @@ import {
 
 import type { EventBusModuleOptions } from './nats.module';
 
+export const JETSTREAM_DUPLICATE_WINDOW_NS = 10 * 60 * 1_000_000_000;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -733,7 +735,10 @@ export class NatsEventBus
       max_msg_size: 1024 * 1024, // 1MB per message
       max_msgs: 1_000_000, // 1M messages safety net
       discard: DiscardPolicy.Old,
-      duplicate_window: 2 * 60 * 1_000_000_000, // 2 minutes for deduplication
+      // Must exceed OUTBOX_LEASE_DURATION_MS (5 minutes). If a worker publishes
+      // and crashes before marking the row, the re-lease happens after the lease
+      // window; JetStream must still remember the msgID when that retry arrives.
+      duplicate_window: JETSTREAM_DUPLICATE_WINDOW_NS,
       num_replicas: 1,
     };
   }

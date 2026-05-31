@@ -3,7 +3,10 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { connect, NatsConnection } from 'nats';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
-import { NatsEventBus } from '../nats-event-bus';
+import {
+  JETSTREAM_DUPLICATE_WINDOW_NS,
+  NatsEventBus,
+} from '../nats-event-bus';
 
 jest.mock('@aquaculture/backend-common/nats', () => ({
   buildNatsConnectionOptions: jest.fn(),
@@ -92,6 +95,12 @@ describe('NatsEventBus boot invariant signals', () => {
     expect(errorSpy).toHaveBeenCalledWith(
       'Failed to connect to NATS',
       expect.any(Error),
+    );
+  });
+
+  it('keeps JetStream duplicate memory longer than the outbox lease window', () => {
+    expect(JETSTREAM_DUPLICATE_WINDOW_NS).toBeGreaterThanOrEqual(
+      10 * 60 * 1_000_000_000,
     );
   });
 });

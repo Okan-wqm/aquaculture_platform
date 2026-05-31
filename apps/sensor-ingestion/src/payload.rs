@@ -189,6 +189,12 @@ pub enum PayloadError {
         got: u8,
     },
 
+    /// A legacy V1 payload carried `rawValue`. That is ambiguous:
+    /// either the producer is half-migrated to V2 or the field is noise.
+    /// Rejecting keeps raw-value provenance explicit.
+    #[error("rawValue is only accepted with payloadVersion 2")]
+    RawValueWithoutV2,
+
     /// The payload's `tenantId` did not match the `topic_tenant`
     /// argument supplied by the caller (extracted from the MQTT topic
     /// by the topic parser). This is the ADR-025 § Threat 2 bind.
@@ -302,10 +308,10 @@ pub fn validate(bytes: &[u8], topic_tenant: TenantId) -> Result<SensorReading, P
     // edge-fleet migration cut-over point.
     let (raw_value, source) = match wire.payload_version {
         None | Some(1) => {
+            if wire.raw_value.is_some() {
+                return Err(PayloadError::RawValueWithoutV2);
+            }
             // V1 — no raw_value field; upcast raw_value = value.
-            // A V1 payload that carries a stray rawValue is rejected
-            // by the deny_unknown_fields serde attribute at parse
-            // time, so by here we already know the field is absent.
             (value, PayloadSource::UpcastedFromV1)
         }
         Some(2) => {
@@ -468,30 +474,18 @@ mod tests {
     }
 
     #[test]
-    fn v1_with_stray_raw_value_is_rejected_by_deny_unknown() {
+    fn v1_with_stray_raw_value_is_rejected() {
         // A V1 payload that accidentally carries a rawValue field
         // (without declaring payloadVersion: 2) is ambiguous — we do
         // not know whether the producer meant V1 with extra noise or
-        // a half-migrated V2 emitter. Serde's deny_unknown_fields
-        // catches this at parse time; the test pins the invariant.
-        //
-        // Note: `rawValue` IS a known field on the WirePayload type,
-        // so deny_unknown_fields alone does NOT block it. The test
-        // here documents the actual observable behaviour: a V1
-        // payload with rawValue is accepted and the rawValue is
-        // IGNORED (the V1 match arm uses `value` as the upcast
-        // source). If that behaviour drifts — e.g. a future refactor
-        // that starts honouring rawValue on V1 — this test anchors
-        // the documented contract.
+        // a half-migrated V2 emitter.
         let bytes = format!(
             r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":10.0,"rawValue":99.9,"quality":1,"producerTs":1735689600000}}"#
         ).into_bytes();
-        let r = validate(&bytes, tenant_a()).unwrap();
-        assert!((r.value - 10.0).abs() < f64::EPSILON);
-        // V1 path: raw_value = value (not the 99.9 the producer sent).
-        // The wire rawValue is effectively noise under the V1 contract.
-        assert!((r.raw_value - 10.0).abs() < f64::EPSILON);
-        assert_eq!(r.source, PayloadSource::UpcastedFromV1);
+        assert_eq!(
+            validate(&bytes, tenant_a()).unwrap_err(),
+            PayloadError::RawValueWithoutV2
+        );
     }
 
     #[test]

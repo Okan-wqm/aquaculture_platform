@@ -16,7 +16,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
-import { TimingSafeService, ISessionManager, ITokenBlacklist, SESSION_MANAGER, TOKEN_BLACKLIST, SecurityEventService } from '@aquaculture/backend-common/security';
+import {
+  TimingSafeService,
+  ISessionManager,
+  ITokenBlacklist,
+  SESSION_MANAGER,
+  TOKEN_BLACKLIST,
+  SecurityEventService,
+} from '@aquaculture/backend-common/security';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { DataSource, Repository } from 'typeorm';
@@ -184,7 +191,11 @@ export class AuthenticationService {
 
     // Publish event
     await this.eventBus.publish({
-      ...createBaseEvent('UserRegistered', savedUser.tenantId ?? 'system', { aggregateId: savedUser.id, aggregateType: 'User', userId: savedUser.id }),
+      ...createBaseEvent('UserRegistered', savedUser.tenantId ?? 'system', {
+        aggregateId: savedUser.id,
+        aggregateType: 'User',
+        userId: savedUser.id,
+      }),
     });
 
     return this.tokenService.generateTokens(savedUser);
@@ -217,13 +228,17 @@ export class AuthenticationService {
         await this.ensureMinDuration(startTime);
         this.logger.debug(`Login failed: user not found`);
         // SECURITY AUDIT: Log failed login attempt
-        await this.logSecurityEvent('LOGIN_FAILED', {
-          email: input.email,
-          ipAddress,
-          userAgent,
-          success: false,
-          reason: 'User not found',
-        }, AuditLogSeverity.WARNING);
+        await this.logSecurityEvent(
+          'LOGIN_FAILED',
+          {
+            email: input.email,
+            ipAddress,
+            userAgent,
+            success: false,
+            reason: 'User not found',
+          },
+          AuditLogSeverity.WARNING,
+        );
         throw new UnauthorizedException(INVALID_CREDENTIALS_MSG);
       }
 
@@ -243,15 +258,19 @@ export class AuthenticationService {
         // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
         this.logger.debug(`Login failed: account locked for userId=${user.id}`);
         // SECURITY AUDIT: Log locked account access attempt
-        await this.logSecurityEvent('LOGIN_BLOCKED_ACCOUNT_LOCKED', {
-          userId: user.id,
-          email: user.email,
-          tenantId: user.tenantId,
-          ipAddress,
-          userAgent,
-          success: false,
-          reason: 'Account locked due to failed attempts',
-        }, AuditLogSeverity.WARNING);
+        await this.logSecurityEvent(
+          'LOGIN_BLOCKED_ACCOUNT_LOCKED',
+          {
+            userId: user.id,
+            email: user.email,
+            tenantId: user.tenantId,
+            ipAddress,
+            userAgent,
+            success: false,
+            reason: 'Account locked due to failed attempts',
+          },
+          AuditLogSeverity.WARNING,
+        );
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
@@ -270,15 +289,19 @@ export class AuthenticationService {
         if (tenant && (tenant.status === 'SUSPENDED' || tenant.status === 'CANCELLED')) {
           await this.ensureMinDuration(startTime);
           this.logger.debug(`Login failed: tenant ${user.tenantId} is ${tenant.status}`);
-          await this.logSecurityEvent('LOGIN_BLOCKED_TENANT_SUSPENDED', {
-            userId: user.id,
-            email: user.email,
-            tenantId: user.tenantId,
-            ipAddress,
-            userAgent,
-            success: false,
-            reason: `Tenant account is ${tenant.status.toLowerCase()}`,
-          }, AuditLogSeverity.WARNING);
+          await this.logSecurityEvent(
+            'LOGIN_BLOCKED_TENANT_SUSPENDED',
+            {
+              userId: user.id,
+              email: user.email,
+              tenantId: user.tenantId,
+              ipAddress,
+              userAgent,
+              success: false,
+              reason: `Tenant account is ${tenant.status.toLowerCase()}`,
+            },
+            AuditLogSeverity.WARNING,
+          );
           throw new UnauthorizedException('Tenant account is suspended');
         }
       }
@@ -298,15 +321,19 @@ export class AuthenticationService {
         const updatedAttempts = await this.handleFailedLogin(user);
         await this.ensureMinDuration(startTime);
         // SECURITY AUDIT: Log failed password attempt
-        await this.logSecurityEvent('LOGIN_FAILED_INVALID_PASSWORD', {
-          userId: user.id,
-          email: user.email,
-          tenantId: user.tenantId,
-          ipAddress,
-          userAgent,
-          success: false,
-          reason: `Invalid password (attempt ${updatedAttempts})`,
-        }, AuditLogSeverity.WARNING);
+        await this.logSecurityEvent(
+          'LOGIN_FAILED_INVALID_PASSWORD',
+          {
+            userId: user.id,
+            email: user.email,
+            tenantId: user.tenantId,
+            ipAddress,
+            userAgent,
+            success: false,
+            reason: `Invalid password (attempt ${updatedAttempts})`,
+          },
+          AuditLogSeverity.WARNING,
+        );
         throw new UnauthorizedException(INVALID_CREDENTIALS_MSG);
       }
 
@@ -323,14 +350,18 @@ export class AuthenticationService {
       if (user.mfaEnabled && !this.mfaService?.isMfaAvailable()) {
         await this.ensureMinDuration(startTime);
         this.logger.error(`Login blocked: MFA enabled but unavailable for userId=${user.id}`);
-        await this.logSecurityEvent('LOGIN_BLOCKED_MFA_UNAVAILABLE', {
-          userId: user.id,
-          tenantId: user.tenantId,
-          ipAddress,
-          userAgent,
-          success: false,
-          reason: 'MFA enabled but MFA_ENCRYPTION_KEY is unavailable',
-        }, AuditLogSeverity.CRITICAL);
+        await this.logSecurityEvent(
+          'LOGIN_BLOCKED_MFA_UNAVAILABLE',
+          {
+            userId: user.id,
+            tenantId: user.tenantId,
+            ipAddress,
+            userAgent,
+            success: false,
+            reason: 'MFA enabled but MFA_ENCRYPTION_KEY is unavailable',
+          },
+          AuditLogSeverity.CRITICAL,
+        );
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
@@ -339,7 +370,7 @@ export class AuthenticationService {
         // (it will be set after MFA verification succeeds)
         await this.userRepository.save(user);
 
-        const mfaChallenge = this.mfaService.generateMfaChallenge(user);
+        const mfaChallenge = await this.mfaService.generateMfaChallenge(user);
 
         await this.logSecurityEvent('LOGIN_MFA_REQUIRED', {
           userId: user.id,
@@ -396,7 +427,11 @@ export class AuthenticationService {
           success: true,
         }),
         this.eventBus.publish({
-          ...createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id }),
+          ...createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', {
+            aggregateId: user.id,
+            aggregateType: 'User',
+            userId: user.id,
+          }),
         }),
       ]);
 
@@ -466,9 +501,8 @@ export class AuthenticationService {
         );
       }
       // SUPER_ADMIN: audited bypass for platform-level session creation.
-      return await this.bypassRls.withBypass(
-        'auth-service:super-admin-login-tokens',
-        () => this.tokenService.generateTokens(user, ipAddress, userAgent),
+      return await this.bypassRls.withBypass('auth-service:super-admin-login-tokens', () =>
+        this.tokenService.generateTokens(user, ipAddress, userAgent),
       );
     } catch (error) {
       await this.ensureMinDuration(startTime);
@@ -487,7 +521,7 @@ export class AuthenticationService {
       const elapsed = Date.now() - startTime;
       const remaining = this.minLoginDurationMs - elapsed;
       if (remaining > 0) {
-        await new Promise(resolve => setTimeout(resolve, remaining));
+        await new Promise((resolve) => setTimeout(resolve, remaining));
       }
     }
   }
@@ -558,9 +592,7 @@ export class AuthenticationService {
       if (!user) {
         // Backward compatibility: try plaintext token for pre-migration users
         // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
-        user = await manager
-          .getRepository(User)
-          .findOne({ where: { invitationToken: token } });
+        user = await manager.getRepository(User).findOne({ where: { invitationToken: token } });
       }
 
       if (!user) {
@@ -604,7 +636,11 @@ export class AuthenticationService {
       }),
       // Publish event (outside transaction - events can be retried)
       this.eventBus.publish({
-        ...createBaseEvent('InvitationAccepted', result.tenantId ?? 'system', { aggregateId: result.id, aggregateType: 'User', userId: result.id }),
+        ...createBaseEvent('InvitationAccepted', result.tenantId ?? 'system', {
+          aggregateId: result.id,
+          aggregateType: 'User',
+          userId: result.id,
+        }),
       }),
     ]);
 
@@ -716,6 +752,7 @@ export class AuthenticationService {
         user,
         refreshToken.ipAddress ?? undefined,
         refreshToken.userAgent ?? undefined,
+        { mfaVerified: refreshToken.mfaVerified === true },
       );
     });
   }
@@ -788,17 +825,9 @@ export class AuthenticationService {
         // and the rotated copy. This is the OWASP-recommended response
         // ("revoke the entire refresh-token chain on reuse-detection").
         if (userIdPrefix) {
-          const revokedMatch = await this.detectRefreshTokenReuse(
-            manager,
-            userIdPrefix,
-            tokenPart,
-          );
+          const revokedMatch = await this.detectRefreshTokenReuse(manager, userIdPrefix, tokenPart);
           if (revokedMatch) {
-            await this.revokeAllUserTokensOnReuseDetection(
-              manager,
-              userIdPrefix,
-              revokedMatch,
-            );
+            await this.revokeAllUserTokensOnReuseDetection(manager, userIdPrefix, revokedMatch);
           }
         }
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
@@ -829,6 +858,7 @@ export class AuthenticationService {
         user,
         matchedToken.ipAddress ?? undefined,
         matchedToken.userAgent ?? undefined,
+        { mfaVerified: matchedToken.mfaVerified === true },
       );
     });
   }
@@ -1099,19 +1129,24 @@ export class AuthenticationService {
       );
 
     const updatedAttempts = result[0]?.failedLoginAttempts ?? 0;
-    const isNowLocked = result[0]?.lockedUntil !== null && updatedAttempts >= this.maxFailedAttempts;
+    const isNowLocked =
+      result[0]?.lockedUntil !== null && updatedAttempts >= this.maxFailedAttempts;
 
     if (isNowLocked) {
       // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
       this.logger.warn(`Account locked for userId=${user.id} until ${lockoutUntil.toISOString()}`);
       // SECURITY AUDIT: Log account lockout (critical security event)
-      await this.logSecurityEvent('ACCOUNT_LOCKED', {
-        userId: user.id,
-        email: user.email,
-        tenantId: user.tenantId,
-        success: false,
-        reason: `Account locked after ${this.maxFailedAttempts} failed attempts. Locked until ${lockoutUntil.toISOString()}`,
-      }, AuditLogSeverity.CRITICAL);
+      await this.logSecurityEvent(
+        'ACCOUNT_LOCKED',
+        {
+          userId: user.id,
+          email: user.email,
+          tenantId: user.tenantId,
+          success: false,
+          reason: `Account locked after ${this.maxFailedAttempts} failed attempts. Locked until ${lockoutUntil.toISOString()}`,
+        },
+        AuditLogSeverity.CRITICAL,
+      );
     }
 
     return updatedAttempts;
@@ -1169,7 +1204,12 @@ export class AuthenticationService {
       // The notification service calls auth-service's internal API with this ID to get
       // the pre-built action URL without the raw token ever touching the event bus.
       await this.eventBus.publish({
-        ...createBaseEvent('PasswordResetRequested', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id, version: 2 }),
+        ...createBaseEvent('PasswordResetRequested', user.tenantId ?? 'system', {
+          aggregateId: user.id,
+          aggregateType: 'User',
+          userId: user.id,
+          version: 2,
+        }),
         actionTokenId: resetTokenHash,
         cryptoShredKeyId: user.id,
       });
@@ -1273,7 +1313,11 @@ export class AuthenticationService {
         success: true,
       }),
       this.eventBus.publish({
-        ...createBaseEvent('PasswordResetCompleted', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id }),
+        ...createBaseEvent('PasswordResetCompleted', user.tenantId ?? 'system', {
+          aggregateId: user.id,
+          aggregateType: 'User',
+          userId: user.id,
+        }),
       }),
     ]);
 

@@ -1,7 +1,7 @@
 //! PostgreSQL-backed [`OutboxRepository`] implementation.
 //!
 //! Targets the `sensor.event_outbox` table created by migration
-//! `1786000200000-CreateSensorEventOutbox`. Every SQL string lives
+//! `1800800000000-SensorRustIngestionOutbox`. Every SQL string lives
 //! as a `pub const` so the unit tests can anchor the SQL-shape
 //! contract without spinning up a PG container; the integration test
 //! (`live_crud_round_trip`, `#[ignore]`) covers end-to-end behaviour
@@ -48,29 +48,48 @@ RETURNING id";
 ///   1. `$1` — batch limit (INT)
 ///   2. `$2` — backoff base in seconds, as FLOAT8 (e.g. `0.1` for
 ///      100 ms). Driven from [`ClaimBatch::backoff_base`].
+///   3. `$3` — claim lease age in seconds. Rows claimed more recently
+///      than this are treated as in-flight and skipped.
+///   4. `$4` — worker identity recorded in `claimed_by` for operator
+///      diagnosis.
 ///
 /// The exponential-backoff filter uses
 /// `make_interval(secs => $2 * power(2, LEAST(dispatch_attempts, 10)))`
 /// which postgres-natively produces the delay interval without the
 /// caller computing it client-side. `ORDER BY created_at` gives
-/// tenant-fair-by-default semantics (the oldest unclaimed row across
-/// all tenants wins). `FOR UPDATE SKIP LOCKED` is the contract's
-/// concurrency primitive: a row returned to one caller is invisible
-/// to any other concurrent claim until the calling transaction
-/// completes (or the caller's connection closes, releasing the lock).
+/// tenant-fair-by-default semantics (the oldest re-claimable row
+/// across all tenants wins). The CTE's `FOR UPDATE SKIP LOCKED` plus
+/// outer `UPDATE ... RETURNING` is the lease primitive: a row returned
+/// to one dispatcher has `claimed_at/claimed_by` durably set before
+/// the function returns, so another dispatcher skips it until the
+/// lease window expires.
 pub const SQL_CLAIM_PENDING: &str = "\
-SELECT id, tenant_id, event_type, payload, created_at, dispatched_at, \
-       dispatch_attempts, last_attempted_at, last_error \
-FROM sensor.event_outbox \
-WHERE dispatched_at IS NULL \
-  AND ( \
+WITH candidate AS ( \
+  SELECT id \
+  FROM sensor.event_outbox \
+  WHERE dispatched_at IS NULL \
+    AND dispatch_attempts < 10 \
+    AND (claimed_at IS NULL OR claimed_at < NOW() - make_interval(secs => $3)) \
+    AND ( \
         dispatch_attempts = 0 \
         OR last_attempted_at IS NULL \
         OR last_attempted_at < NOW() - make_interval(secs => $2 * power(2.0, LEAST(dispatch_attempts, 10))) \
-      ) \
-ORDER BY created_at \
-LIMIT $1 \
-FOR UPDATE SKIP LOCKED";
+    ) \
+  ORDER BY created_at \
+  LIMIT $1 \
+  FOR UPDATE SKIP LOCKED \
+) \
+UPDATE sensor.event_outbox AS outbox \
+SET claimed_at = NOW(), \
+    claimed_by = $4, \
+    last_attempted_at = NOW() \
+FROM candidate \
+WHERE outbox.id = candidate.id \
+RETURNING outbox.id AS id, outbox.tenant_id AS tenant_id, outbox.event_type AS event_type, \
+          outbox.payload AS payload, outbox.created_at AS created_at, \
+          outbox.dispatched_at AS dispatched_at, \
+          outbox.dispatch_attempts AS dispatch_attempts, \
+          outbox.last_attempted_at AS last_attempted_at, outbox.last_error AS last_error";
 
 /// Mark-dispatched SQL.
 ///
@@ -80,7 +99,9 @@ FOR UPDATE SKIP LOCKED";
 /// "row not found" without a separate SELECT.
 pub const SQL_MARK_DISPATCHED: &str = "\
 UPDATE sensor.event_outbox \
-SET dispatched_at = NOW() \
+SET dispatched_at = NOW(), \
+    claimed_at = NULL, \
+    claimed_by = NULL \
 WHERE id = $1 \
   AND dispatched_at IS NULL \
 RETURNING id";
@@ -98,7 +119,9 @@ pub const SQL_MARK_FAILED: &str = "\
 UPDATE sensor.event_outbox \
 SET dispatch_attempts = dispatch_attempts + 1, \
     last_attempted_at = NOW(), \
-    last_error = $2 \
+    last_error = $2, \
+    claimed_at = NULL, \
+    claimed_by = NULL \
 WHERE id = $1 \
   AND dispatched_at IS NULL \
 RETURNING id";
@@ -131,6 +154,11 @@ WHERE dispatched_at IS NULL \
 /// before the UPDATE so a pathological error chain cannot grow the
 /// row unboundedly; matches the ADR-029 hint "truncated".
 pub const LAST_ERROR_MAX_LEN: usize = 2000;
+
+/// Duration of an outbox claim lease in seconds. Mirrors the
+/// TypeScript platform outbox default (5 minutes) so operational
+/// dashboards have one lease window across runtimes.
+pub const CLAIM_LEASE_SECONDS: f64 = 5.0 * 60.0;
 
 // =====================================================================
 // Struct
@@ -273,37 +301,30 @@ impl OutboxRepository for PgOutboxRepository {
     }
 
     async fn claim_pending(&self, req: ClaimBatch) -> Result<Vec<OutboxRecord>, OutboxError> {
-        let mut client = self
+        let client = self
             .pool
             .get()
             .await
             .map_err(|e| OutboxError::Storage(Box::new(e)))?;
-        let tx = client
-            .transaction()
-            .await
-            .map_err(|e| OutboxError::Storage(Box::new(e)))?;
         let limit_i64 = i64::from(req.limit);
         let backoff_secs = req.backoff_base.as_secs_f64();
-        let rows = tx
-            .query(SQL_CLAIM_PENDING, &[&limit_i64, &backoff_secs])
+        let claim_owner = format!("sensor-ingestion-{}", std::process::id());
+        let rows = client
+            .query(
+                SQL_CLAIM_PENDING,
+                &[
+                    &limit_i64,
+                    &backoff_secs,
+                    &CLAIM_LEASE_SECONDS,
+                    &claim_owner,
+                ],
+            )
             .await
             .map_err(|e| OutboxError::Storage(Box::new(e)))?;
         let mut out = Vec::with_capacity(rows.len());
         for row in &rows {
             out.push(Self::row_to_record(row)?);
         }
-        // The FOR UPDATE SKIP LOCKED rows are held by this
-        // transaction. The caller's contract is to mark_dispatched /
-        // mark_failed every returned id, but those calls lease a
-        // fresh connection (outside this tx). Committing here
-        // releases the locks so the later UPDATEs see the rows;
-        // concurrent claims see the rows as already-in-flight via
-        // the dispatched_at / last_attempted_at bookkeeping the
-        // mark_* paths write. This is the standard claim-and-release
-        // pattern the TS @platform/outbox uses.
-        tx.commit()
-            .await
-            .map_err(|e| OutboxError::Storage(Box::new(e)))?;
         Ok(out)
     }
 
@@ -398,8 +419,9 @@ impl OutboxRepository for PgOutboxRepository {
 #[cfg(test)]
 mod tests {
     use super::{
-        LAST_ERROR_MAX_LEN, PgOutboxRepository, SQL_CLAIM_PENDING, SQL_CLEANUP_PUBLISHED,
-        SQL_ENQUEUE, SQL_EXISTS_BY_ID, SQL_MARK_DISPATCHED, SQL_MARK_FAILED, SQL_PENDING_COUNT,
+        CLAIM_LEASE_SECONDS, LAST_ERROR_MAX_LEN, PgOutboxRepository, SQL_CLAIM_PENDING,
+        SQL_CLEANUP_PUBLISHED, SQL_ENQUEUE, SQL_EXISTS_BY_ID, SQL_MARK_DISPATCHED, SQL_MARK_FAILED,
+        SQL_PENDING_COUNT,
     };
     use crate::repository::EVENT_TYPE_MAX_LEN;
 
@@ -431,6 +453,23 @@ mod tests {
             SQL_CLAIM_PENDING.contains("FOR UPDATE SKIP LOCKED"),
             "claim must use FOR UPDATE SKIP LOCKED"
         );
+        assert!(
+            SQL_CLAIM_PENDING.contains("UPDATE sensor.event_outbox AS outbox"),
+            "claim must durably lease rows via UPDATE ... RETURNING"
+        );
+        assert!(
+            SQL_CLAIM_PENDING.contains("claimed_at = NOW()"),
+            "claim must set claimed_at before returning"
+        );
+        assert!(
+            SQL_CLAIM_PENDING.contains("claimed_by = $4"),
+            "claim must record the worker owner"
+        );
+        assert!(
+            SQL_CLAIM_PENDING.contains("claimed_at IS NULL")
+                && SQL_CLAIM_PENDING.contains("make_interval(secs => $3)"),
+            "claim must skip rows whose lease has not expired"
+        );
         // Tenant-fair-by-default ordering comes from created_at.
         assert!(
             SQL_CLAIM_PENDING.contains("ORDER BY created_at"),
@@ -457,10 +496,20 @@ mod tests {
     }
 
     #[test]
-    fn mark_dispatched_is_idempotent_via_null_guard() {
+    fn claim_lease_matches_platform_default() {
+        assert_eq!(CLAIM_LEASE_SECONDS, 300.0);
+    }
+
+    #[test]
+    fn mark_dispatched_is_idempotent_and_clears_claim() {
         assert!(
             SQL_MARK_DISPATCHED.contains("AND dispatched_at IS NULL"),
             "mark_dispatched must guard on NULL → idempotent re-mark"
+        );
+        assert!(
+            SQL_MARK_DISPATCHED.contains("claimed_at = NULL")
+                && SQL_MARK_DISPATCHED.contains("claimed_by = NULL"),
+            "mark_dispatched must clear the lease"
         );
         assert!(
             SQL_MARK_DISPATCHED.contains("RETURNING id"),
@@ -481,6 +530,11 @@ mod tests {
         assert!(
             SQL_MARK_FAILED.contains("last_attempted_at = NOW()"),
             "mark_failed must refresh last_attempted_at"
+        );
+        assert!(
+            SQL_MARK_FAILED.contains("claimed_at = NULL")
+                && SQL_MARK_FAILED.contains("claimed_by = NULL"),
+            "mark_failed must clear the lease for retry"
         );
         assert!(
             SQL_MARK_FAILED.contains("AND dispatched_at IS NULL"),

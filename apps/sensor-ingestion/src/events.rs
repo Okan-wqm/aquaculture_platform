@@ -46,6 +46,11 @@ use tracing::instrument;
 
 use outbox_rs::{OutboxPublisher, OutboxRecord, PublishError};
 
+/// JetStream duplicate-detection header. The TS event bus writes the
+/// same header for outbox publishes; using the outbox row id keeps
+/// Rust sensor events idempotent across dispatcher retries.
+pub const NATS_MSG_ID_HEADER: &str = "Nats-Msg-Id";
+
 /// Derive the NATS subject for an outbox record. Pure helper so the
 /// subject shape can be unit-tested without a broker. Byte-for-byte
 /// equivalent to the TS `deriveSubject` at
@@ -129,6 +134,8 @@ impl OutboxPublisher for NatsOutboxPublisher {
             observability::TRACEPARENT_HEADER,
             observability::generate_traceparent().as_str(),
         );
+        let msg_id = record.id.to_string();
+        headers.insert(NATS_MSG_ID_HEADER, msg_id.as_str());
 
         // `Bytes::from` moves the Vec<u8> into an Arc-backed buffer
         // so async-nats can ship it without a second allocation.
@@ -208,7 +215,7 @@ impl OutboxPublisher for LoggingOutboxPublisher {
 
 #[cfg(test)]
 mod tests {
-    use super::{LoggingOutboxPublisher, subject_for};
+    use super::{LoggingOutboxPublisher, NATS_MSG_ID_HEADER, subject_for};
     use chrono::Utc;
     use event_contracts_rs::SENSOR_METRIC_INGESTED_EVENT_TYPE;
     use outbox_rs::{OutboxPublisher, OutboxRecord, OutboxStatus};
@@ -276,6 +283,11 @@ mod tests {
             subject.contains("aabbccdd-eeff-0011-2233-445566778899"),
             "subject must embed the lower-case hyphenated UUID; got: {subject}"
         );
+    }
+
+    #[test]
+    fn nats_msg_id_header_matches_jetstream_contract() {
+        assert_eq!(NATS_MSG_ID_HEADER, "Nats-Msg-Id");
     }
 
     #[tokio::test]

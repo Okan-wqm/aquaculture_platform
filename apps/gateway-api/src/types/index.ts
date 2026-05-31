@@ -20,8 +20,12 @@ export interface JwtPayload {
   sub: string; // User ID
   email?: string;
   tenantId: string;
+  role?: string;
   roles: string[];
   permissions?: string[];
+  resourcePermissions?: string[];
+  modules?: string[];
+  mfaVerified?: boolean;
   type?: 'access' | 'refresh'; // Optional for backward compat with legacy tokens
   iat: number;
   exp: number;

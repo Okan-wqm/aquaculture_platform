@@ -5,7 +5,11 @@ import {
 } from '@apollo/server-gateway-interface';
 import type { GraphQLDataSourceProcessOptions } from '@apollo/gateway/dist/datasources/types';
 import type { ResponsePath } from '@apollo/query-planner';
-import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+import {
+  buildSignedInternalHeaders,
+  createVerifiedUserAssertionHeaders,
+  hashVerifiedUserAssertionHeaders,
+} from '@aquaculture/backend-common/http';
 import { JwtPayload } from '../guards/auth.guard';
 
 export interface RequestHeaders {
@@ -136,12 +140,14 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
         const tenantId = getHeader(headers, 'x-tenant-id') ?? '';
         const signedTenantId = TENANT_UUID_RE.test(tenantId) ? tenantId : '';
         const subgraphUrl = new URL(String(url), 'http://subgraph.local');
+        const userAssertionHash = hashVerifiedUserAssertionHeaders(headers);
         const identityHeaders = buildSignedInternalHeaders({
           serviceName: 'gateway-api',
           tenantId: signedTenantId,
           method: requestInit.method ?? 'POST',
           path: subgraphUrl.pathname,
           body: bodyForServiceIdentitySigning(requestInit.body),
+          userAssertionHash,
           secret: this.secret,
         });
         for (const [key, value] of Object.entries(identityHeaders)) {
@@ -169,7 +175,7 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
     }
 
     const authorization = req.headers.authorization;
-    if (authorization) {
+    if (authorization && req.user) {
       httpRequest.headers.set('authorization', authorization);
     }
 
@@ -221,10 +227,24 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
     }
 
     const user = req.user;
-    if (user) {
-      httpRequest.headers.set('x-user-id', user.sub);
-      httpRequest.headers.set('x-user-roles', JSON.stringify(user.roles ?? []));
-      httpRequest.headers.set('x-user-payload', JSON.stringify(user));
+    if (user && this.secret) {
+      const assertionHeaders = createVerifiedUserAssertionHeaders({
+        user: {
+          sub: user.sub,
+          email: user.email,
+          tenantId: user.tenantId,
+          role: user.role,
+          roles: user.roles,
+          permissions: user.permissions,
+          modules: user.modules,
+          mfaVerified: user.mfaVerified === true,
+          jti: user.jti,
+        },
+        secret: this.secret,
+      });
+      for (const [key, value] of Object.entries(assertionHeaders)) {
+        httpRequest.headers.set(key, value);
+      }
     }
   }
 

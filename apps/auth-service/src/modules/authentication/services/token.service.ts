@@ -1,7 +1,14 @@
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 
-import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  Optional,
+  Inject,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -14,6 +21,7 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
 import { AuthPayload } from '../dto/auth-response.dto';
+import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 
 /**
  * JWT access token payload.
@@ -63,6 +71,14 @@ interface TenantModuleRow {
   code: string;
   name: string;
   defaultRoute: string;
+}
+
+export interface MfaChallengePayload {
+  sub: string;
+  purpose: 'mfa_verification';
+  userId: string;
+  type: 'mfa_challenge';
+  jti: string;
 }
 
 /**
@@ -117,10 +133,13 @@ export class TokenService {
   // so keys().next().value is always the oldest entry — O(1) eviction.
   // Combined with 60-second TTL (lazy eviction on access), memory is always bounded.
   private static readonly MAX_MODULE_CACHE_SIZE = 5_000;
-  private readonly moduleCache = new Map<string, {
-    modules: Array<{ code: string; name: string; defaultRoute: string }>;
-    cachedAt: number;
-  }>();
+  private readonly moduleCache = new Map<
+    string,
+    {
+      modules: Array<{ code: string; name: string; defaultRoute: string }>;
+      cachedAt: number;
+    }
+  >();
   // WHY: In-memory cache — stale for up to TTL across pods. Use Redis pub/sub for instant invalidation when multi-pod.
   private readonly moduleCacheTtlMs = 60 * 1000; // 60 seconds
 
@@ -129,6 +148,8 @@ export class TokenService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(UserModuleAssignment)
     private readonly userModuleAssignmentRepository: Repository<UserModuleAssignment>,
+    @InjectRepository(Tenant)
+    private readonly tenantRepository: Repository<Tenant>,
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
@@ -157,42 +178,14 @@ export class TokenService {
     userAgent?: string,
     options?: { mfaVerified?: boolean },
   ): Promise<AuthPayload> {
+    await this.assertTokenIssuanceAllowed(user);
+
     // Enforce concurrent session limit
     if (this.sessionManager) {
       await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);
     }
 
-    // Get user's module codes for JWT
-    const modules = await this.getUserModules(user);
-    const moduleCodes = modules.map((m) => m.code);
-
-    // Get user's tenant-level resource permissions for JWT (MODULE_MANAGER, MODULE_USER only)
-    const resourcePermissions = await this.getUserResourcePermissions(user);
-
-    // Generate JWT ID for token blacklisting
-    const jti = crypto.randomUUID();
-
-    /**
-     * SECURITY (H-08): JWT payload contains only non-PII identifiers.
-     * Email, firstName, and lastName are intentionally excluded to prevent
-     * PII leakage through token interception or base64 decoding.
-     *
-     * Downstream services needing user profile data should query auth-service
-     * via NATS request (auth.user.get) or the /users/:id REST endpoint.
-     */
-    const payload: JwtPayload = {
-      sub: user.id,
-      role: user.role,
-      roles: [user.role],
-      tenantId: user.tenantId ?? null,
-      modules: moduleCodes.length > 0 ? moduleCodes : undefined,
-      resourcePermissions: resourcePermissions.length > 0 ? resourcePermissions : undefined,
-      type: 'access',
-      jti,
-      // IP-2: MFA step-up claim — set after successful TOTP verification.
-      // TenantGuard checks this claim for cross-tenant access (MFA_REQUIRED_FOR_CROSS_TENANT=true).
-      ...(options?.mfaVerified ? { mfaVerified: true } : {}),
-    };
+    const { payload, modules } = await this.buildAccessTokenPayload(user, options);
 
     // SECURITY: Include audience claim to prevent cross-service token replay
     const accessToken = await this.jwtService.signAsync(payload, {
@@ -217,6 +210,7 @@ export class TokenService {
       userId: user.id,
       tenantId: user.tenantId,
       expiresAt: new Date(Date.now() + this.refreshTokenExpiryDays * 24 * 60 * 60 * 1000),
+      mfaVerified: options?.mfaVerified === true,
       ipAddress,
       userAgent,
     });
@@ -248,6 +242,54 @@ export class TokenService {
     };
   }
 
+  async generateAccessOnlyToken(
+    user: User,
+    options?: { mfaVerified?: boolean; expiresIn?: string },
+  ): Promise<AuthPayload> {
+    await this.assertTokenIssuanceAllowed(user);
+
+    const { payload, modules } = await this.buildAccessTokenPayload(user, options);
+    const expiresIn = options?.expiresIn ?? this.configService.get<string>('JWT_EXPIRES_IN', '15m');
+    const accessToken = await this.jwtService.signAsync(payload, {
+      audience: this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
+      expiresIn: parseExpiresIn(expiresIn),
+    });
+
+    return {
+      accessToken,
+      refreshToken: '',
+      user,
+      expiresIn: parseExpiresIn(expiresIn),
+      tokenType: 'Bearer',
+      redirectUrl: this.getRedirectUrl(user, modules),
+    };
+  }
+
+  async generateMfaChallengeToken(user: User): Promise<string> {
+    await this.assertTokenIssuanceAllowed(user);
+
+    const mfaPayload: MfaChallengePayload = {
+      sub: `mfa:${user.id}`,
+      purpose: 'mfa_verification',
+      userId: user.id,
+      type: 'mfa_challenge',
+      jti: crypto.randomUUID(),
+    };
+
+    return this.jwtService.sign(mfaPayload, {
+      expiresIn: 300,
+      audience: this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
+    });
+  }
+
+  verifyMfaChallengeToken(mfaToken: string): MfaChallengePayload {
+    return this.jwtService.verify<MfaChallengePayload>(mfaToken, {
+      algorithms: this.jwtVerificationAlgorithms(),
+      issuer: this.configService.get<string>('JWT_ISSUER', 'aquaculture-platform'),
+      audience: this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
+    });
+  }
+
   /**
    * Invalidate module cache for a user (call when module assignments change).
    */
@@ -259,11 +301,15 @@ export class TokenService {
   // Private Helpers
   // ==========================================================================
 
-  async getUserModules(user: User): Promise<Array<{ code: string; name: string; defaultRoute: string }>> {
+  async getUserModules(
+    user: User,
+  ): Promise<Array<{ code: string; name: string; defaultRoute: string }>> {
     if (user.role === Role.SUPER_ADMIN) {
       // SUPER_ADMIN sees ALL active modules (platform-wide, not tenant-scoped).
       // Previous behavior returned [] which made the sidebar empty.
-      const allModules = await this.dataSource.query<Array<{ code: string; name: string; defaultRoute: string }>>(
+      const allModules = await this.dataSource.query<
+        Array<{ code: string; name: string; defaultRoute: string }>
+      >(
         `SELECT code, name, "defaultRoute"
          FROM auth.modules
          WHERE "isActive" = true
@@ -273,7 +319,7 @@ export class TokenService {
     }
 
     const cached = this.moduleCache.get(user.id);
-    if (cached && (Date.now() - cached.cachedAt) < this.moduleCacheTtlMs) {
+    if (cached && Date.now() - cached.cachedAt < this.moduleCacheTtlMs) {
       return cached.modules;
     }
 
@@ -319,6 +365,78 @@ export class TokenService {
     }
     this.moduleCache.set(user.id, { modules, cachedAt: Date.now() });
     return modules;
+  }
+
+  private async buildAccessTokenPayload(
+    user: User,
+    options?: { mfaVerified?: boolean },
+  ): Promise<{
+    payload: JwtPayload;
+    modules: Array<{ code: string; name: string; defaultRoute: string }>;
+  }> {
+    // Get user's module codes for JWT
+    const modules = await this.getUserModules(user);
+    const moduleCodes = modules.map((m) => m.code);
+
+    // Get user's tenant-level resource permissions for JWT (MODULE_MANAGER, MODULE_USER only)
+    const resourcePermissions = await this.getUserResourcePermissions(user);
+
+    // Generate JWT ID for token blacklisting
+    const jti = crypto.randomUUID();
+
+    /**
+     * SECURITY (H-08): JWT payload contains only non-PII identifiers.
+     * Email, firstName, and lastName are intentionally excluded to prevent
+     * PII leakage through token interception or base64 decoding.
+     *
+     * Downstream services needing user profile data should query auth-service
+     * via NATS request (auth.user.get) or the /users/:id REST endpoint.
+     */
+    const payload: JwtPayload = {
+      sub: user.id,
+      role: user.role,
+      roles: [user.role],
+      tenantId: user.tenantId ?? null,
+      modules: moduleCodes.length > 0 ? moduleCodes : undefined,
+      resourcePermissions: resourcePermissions.length > 0 ? resourcePermissions : undefined,
+      type: 'access',
+      jti,
+      // IP-2: MFA step-up claim — set after successful TOTP verification.
+      // TenantGuard checks this claim for cross-tenant access (MFA_REQUIRED_FOR_CROSS_TENANT=true).
+      ...(options?.mfaVerified ? { mfaVerified: true } : {}),
+    };
+
+    return { payload, modules };
+  }
+
+  private async assertTokenIssuanceAllowed(user: User): Promise<void> {
+    if (!user.isActive) {
+      throw new UnauthorizedException('User account is inactive');
+    }
+    if (user.isLocked()) {
+      throw new UnauthorizedException('User account is locked');
+    }
+    if (user.isPendingInvitation()) {
+      throw new UnauthorizedException('User invitation is pending');
+    }
+    if (!user.tenantId) {
+      return;
+    }
+
+    const tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
+    if (!tenant || tenant.status !== TenantStatus.ACTIVE) {
+      throw new ForbiddenException('Tenant account is not active');
+    }
+  }
+
+  private jwtVerificationAlgorithms(): Array<'RS256' | 'HS256'> {
+    const hasPublicKey = Boolean(
+      this.configService.get<string>('JWT_PUBLIC_KEY') ||
+        this.configService.get<string>('JWT_PUBLIC_KEY_PATH'),
+    );
+    const allowDevSecret =
+      this.configService.get<string>('ALLOW_DEV_JWT_SECRET', 'false') === 'true';
+    return !hasPublicKey && allowDevSecret ? ['HS256'] : ['RS256'];
   }
 
   /**

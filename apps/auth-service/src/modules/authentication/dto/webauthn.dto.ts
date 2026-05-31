@@ -1,5 +1,12 @@
 import { InputType, Field, ObjectType } from '@nestjs/graphql';
 import { IsString, IsNotEmpty, IsOptional, MaxLength } from 'class-validator';
+import GraphQLJSON from 'graphql-type-json';
+import type {
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+  RegistrationResponseJSON,
+} from '@simplewebauthn/server';
 
 // ============================================================================
 // WebAuthn Input DTOs
@@ -16,30 +23,8 @@ export class WebAuthnRegistrationChallengeInput {
 
 @InputType()
 export class WebAuthnRegisterCredentialInput {
-  @Field({ description: 'Base64url-encoded credential ID from navigator.credentials.create()' })
-  @IsString()
-  @IsNotEmpty()
-  credentialId!: string;
-
-  @Field({ description: 'Base64url-encoded raw public key (COSE format)' })
-  @IsString()
-  @IsNotEmpty()
-  publicKey!: string;
-
-  @Field({ description: 'Base64url-encoded attestation client data JSON' })
-  @IsString()
-  @IsNotEmpty()
-  clientDataJSON!: string;
-
-  @Field({ description: 'Challenge string that was used during registration' })
-  @IsString()
-  @IsNotEmpty()
-  challenge!: string;
-
-  @Field({ description: 'Origin of the request (e.g., https://example.com)' })
-  @IsString()
-  @IsNotEmpty()
-  origin!: string;
+  @Field(() => GraphQLJSON, { description: 'Full RegistrationResponseJSON from @simplewebauthn/browser startRegistration()' })
+  response!: RegistrationResponseJSON;
 
   @Field({ nullable: true, description: 'Device name for this credential' })
   @IsOptional()
@@ -47,7 +32,7 @@ export class WebAuthnRegisterCredentialInput {
   @MaxLength(100)
   deviceName?: string;
 
-  @Field(() => [String], { nullable: true, description: 'Supported transports (usb, nfc, ble, internal)' })
+  @Field(() => [String], { nullable: true, description: 'Supported transports override; normally read from the verified browser response' })
   @IsOptional()
   transports?: string[];
 }
@@ -62,35 +47,8 @@ export class WebAuthnLoginChallengeInput {
 
 @InputType()
 export class WebAuthnVerifyLoginInput {
-  @Field({ description: 'Base64url-encoded credential ID' })
-  @IsString()
-  @IsNotEmpty()
-  credentialId!: string;
-
-  @Field({ description: 'Base64url-encoded authenticator data' })
-  @IsString()
-  @IsNotEmpty()
-  authenticatorData!: string;
-
-  @Field({ description: 'Base64url-encoded client data JSON' })
-  @IsString()
-  @IsNotEmpty()
-  clientDataJSON!: string;
-
-  @Field({ description: 'Base64url-encoded signature' })
-  @IsString()
-  @IsNotEmpty()
-  signature!: string;
-
-  @Field({ description: 'Challenge string from the login challenge' })
-  @IsString()
-  @IsNotEmpty()
-  challenge!: string;
-
-  @Field({ description: 'Origin of the request' })
-  @IsString()
-  @IsNotEmpty()
-  origin!: string;
+  @Field(() => GraphQLJSON, { description: 'Full AuthenticationResponseJSON from @simplewebauthn/browser startAuthentication()' })
+  response!: AuthenticationResponseJSON;
 }
 
 // ============================================================================
@@ -128,6 +86,9 @@ export class WebAuthnRegistrationChallengeResponse {
 
   @Field({ description: 'User display name' })
   userName!: string;
+
+  @Field(() => GraphQLJSON, { description: 'Full PublicKeyCredentialCreationOptionsJSON for @simplewebauthn/browser startRegistration()' })
+  options!: PublicKeyCredentialCreationOptionsJSON;
 }
 
 @ObjectType()
@@ -152,6 +113,9 @@ export class WebAuthnLoginChallengeResponse {
 
   @Field(() => [String], { description: 'Allowed credential IDs for this user' })
   allowedCredentialIds!: string[];
+
+  @Field(() => GraphQLJSON, { description: 'Full PublicKeyCredentialRequestOptionsJSON for @simplewebauthn/browser startAuthentication()' })
+  options!: PublicKeyCredentialRequestOptionsJSON;
 }
 
 @ObjectType()

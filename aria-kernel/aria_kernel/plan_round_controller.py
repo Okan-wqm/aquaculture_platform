@@ -242,7 +242,6 @@ def _prompt_for_role(role: str, state: dict[str, Any]) -> str:
         "state": state.get("state"),
         "latest_revision": state.get("latest_revision"),
         "current_round": state.get("current_round") or 1,
-        "created_at": utc_now(),
     }
     return json.dumps(payload, indent=2, sort_keys=True)
 

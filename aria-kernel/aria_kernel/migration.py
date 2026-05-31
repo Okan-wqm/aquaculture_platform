@@ -143,6 +143,8 @@ def migrate_tools_v1_to_v2(
                 "schema_version": 2,
             }
             _atomic_write_json(root / "repo_identity.json", identity)
+            if not (root / "registry.json").exists():
+                _atomic_write_json(root / "registry.json", {"schema_version": TOOLS_SCHEMA_VERSION, "tools": []})
             append_tools_governance(
                 root,
                 "tools_root_bootstrapped",
@@ -197,6 +199,8 @@ def migrate_tools_v1_to_v2(
             "schema_version": 2,
         }
         _atomic_write_json(root / "repo_identity.json", identity)
+        if not (root / "registry.json").exists():
+            _atomic_write_json(root / "registry.json", {"schema_version": TOOLS_SCHEMA_VERSION, "tools": []})
         index = _read_json(root / "integrity_index.json")
         if "pressure_keys_emitted" in index:
             dropped_legacy_fields.append("pressure_keys_emitted")

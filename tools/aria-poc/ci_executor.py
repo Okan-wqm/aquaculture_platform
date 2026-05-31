@@ -618,6 +618,10 @@ def _max_budget_usd() -> float:
     return float(os.environ.get("MAX_BUDGET_USD_PER_RUN", "2.0"))
 
 
+def _max_budget_usd_per_cycle() -> float:
+    return float(os.environ.get("MAX_BUDGET_USD_PER_CYCLE", "1.50"))
+
+
 _TRUTHY_BOOL_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
 _FALSY_BOOL_VALUES: frozenset[str] = frozenset({"0", "false", "no", "off", ""})
 
@@ -680,6 +684,13 @@ def _validate_cost_cap(*, request: dict[str, Any]) -> None:
     + `reconcile_envelope_cost`; this function preserves the legacy
     heuristic turn-count guard as a defense-in-depth pre-flight.
     """
+    estimated_cost = _estimate_envelope_cost_usd(request=request)
+    cycle_cap = _max_budget_usd_per_cycle()
+    if estimated_cost > cycle_cap:
+        raise CostCapExceeded(
+            f"estimated envelope cost ${estimated_cost:.4f} exceeds "
+            f"MAX_BUDGET_USD_PER_CYCLE=${cycle_cap:.4f}"
+        )
     expected_evidence_count = len(request.get("evidence_refs") or [])
     if expected_evidence_count > _max_turns() * 4:  # rough heuristic: 4 refs per turn
         raise CostCapExceeded(

@@ -389,6 +389,7 @@ def run_autonomy_orchestrator(
     # convergence_drainer round-poll) — the V9 implementer pipeline
     # has its own wall-clock budget.
     implementer_poll_seconds: float = 1800.0,
+    max_budget_usd_per_cycle: float = 1.50,
     # Runtime v2 hardening: artifact/lifecycle failures must stop the
     # autonomy loop by default after the cycle ledger has been closed.
     fail_closed_on_cycle_failure: bool = True,
@@ -470,6 +471,7 @@ def run_autonomy_orchestrator(
         profile_gate = NoOpProfileGate()
 
     root = ensure_tools_dir(base_dir)
+    os.environ["MAX_BUDGET_USD_PER_CYCLE"] = str(max_budget_usd_per_cycle)
     daemons_dir = root / "daemons"
     daemons_dir.mkdir(parents=True, exist_ok=True)
     daemon_pid_path = daemons_dir / f"{daemon_id}.pid.lock"
@@ -601,6 +603,7 @@ def run_autonomy_orchestrator(
                         "max_cycles": max_cycles,
                         "max_iterations_per_phase":
                             max_iterations_per_phase,
+                        "max_budget_usd_per_cycle": max_budget_usd_per_cycle,
                         "started_at": _iso_now(),
                         "profile": profile_snapshot,
                     },

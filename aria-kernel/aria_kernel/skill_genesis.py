@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 from pathlib import Path
@@ -13,7 +14,7 @@ from .draft_intent import (
 from .draft_pii_filter import mask_pii_in_intent
 from .ledger import append_jsonl, load_jsonl
 from .runtime_profile import enforce_profile_for_write
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
 # Plan ARIA-V3 §A3 — skill grammar contract (required sections in
@@ -519,6 +520,8 @@ def sandbox_skill(
     checklist_results: list[dict[str, Any]] | None = None,
     markdown_path: str | Path | None = None,
     base_dir: str | Path | None = None,
+    synthetic_test_mode: bool = False,
+    operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
     """Validate a skill draft against fixture coverage.
 
@@ -539,13 +542,22 @@ def sandbox_skill(
         )
     if markdown_path is not None and checklist_results is not None:
         raise GovernanceError("provide either markdown_path or checklist_results, not both")
+    source_path: Path | None = None
+    source_sha256: str | None = None
     if markdown_path is not None:
         path = Path(markdown_path)
         if not path.exists():
             raise GovernanceError(f"markdown_path not found: {markdown_path}")
-        checklist_results = parse_fixture_blocks(path.read_text(encoding="utf-8"))
+        raw_markdown = path.read_text(encoding="utf-8")
+        checklist_results = parse_fixture_blocks(raw_markdown)
+        source_path = path.resolve()
+        source_sha256 = "sha256:" + hashlib.sha256(raw_markdown.encode("utf-8")).hexdigest()
     if checklist_results is None:
         raise GovernanceError("skill sandbox requires markdown_path or checklist_results")
+    if markdown_path is None and not synthetic_test_mode:
+        raise GovernanceError("skill_checklist_sandbox_requires_synthetic_test_mode")
+    if synthetic_test_mode and not (operator_approval_ref or "").strip():
+        raise GovernanceError("skill_synthetic_sandbox_requires_operator_approval_ref")
     if len(checklist_results) < MIN_FIXTURES:
         raise GovernanceError(
             f"skill sandbox requires at least {MIN_FIXTURES} fixture entries (## Fixture: <id> blocks or checklist results)"
@@ -558,8 +570,25 @@ def sandbox_skill(
         "decision": "fail" if failed else "pass",
         "checklist_results": checklist_results,
         "source": "markdown" if markdown_path is not None else "checklist_json",
+        "source_path": source_path.as_posix() if source_path is not None else None,
+        "source_sha256": source_sha256,
+        "synthetic_test_mode": bool(synthetic_test_mode),
+        "operator_approval_ref": operator_approval_ref if synthetic_test_mode else None,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "sandbox.jsonl", row)
+    root = ensure_tools_dir(base_dir)
+    stored = append_jsonl(root / "skill-genesis" / "sandbox.jsonl", row)
+    if synthetic_test_mode:
+        append_tools_governance(
+            root,
+            "skill_genesis_synthetic_sandbox_used",
+            {
+                "draft_id": draft_id,
+                "operator_approval_ref": operator_approval_ref,
+                "source": row["source"],
+                "sandbox_event_id": stored.get("event_id"),
+            },
+        )
+    return stored
 
 
 def approve_skill_pr(
@@ -567,6 +596,7 @@ def approve_skill_pr(
     draft_id: str,
     operator_approval_ref: str,
     base_dir: str | Path | None = None,
+    operator_synthetic_override: bool = False,
 ) -> dict[str, Any]:
     from .runtime_profile import enforce_profile_for_write
     enforce_profile_for_write("skill_genesis", base_dir=base_dir)
@@ -578,6 +608,8 @@ def approve_skill_pr(
     sandbox = _latest_sandbox(draft_id, base_dir)
     if not sandbox or sandbox.get("decision") != "pass":
         raise GovernanceError("skill draft must pass sandbox before PR approval")
+    if sandbox.get("synthetic_test_mode") and not operator_synthetic_override:
+        raise GovernanceError("skill_synthetic_sandbox_requires_operator_override")
     row = dict(draft)
     row["recorded_at"] = utc_now()
     row["status"] = "approved_for_skill_pr"
@@ -594,6 +626,7 @@ def materialize_skill(
     base_dir: str | Path | None = None,
     run_invariants: bool = False,
     ack_id: str | None = None,
+    operator_synthetic_override: bool = False,
 ) -> dict[str, Any]:
     """Plan ARIA-V3 §A4 — acknowledge parameter REMOVED; gate REQUIRED.
 
@@ -618,6 +651,8 @@ def materialize_skill(
             f"skill_materialize_requires_passing_sandbox: "
             f"draft_id={draft_id!r} sandbox={sandbox}"
         )
+    if sandbox.get("synthetic_test_mode") and not operator_synthetic_override:
+        raise GovernanceError("skill_synthetic_sandbox_requires_operator_override")
     # Plan 026R §E.3 — chain: materialise requires passing sandbox and explicit approval.
     if draft.get("status") != "approved_for_skill_pr":
         raise GovernanceError("skill draft must be approved_for_skill_pr before materialization")

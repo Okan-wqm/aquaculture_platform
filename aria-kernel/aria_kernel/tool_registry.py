@@ -179,6 +179,8 @@ def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
         }
         _prepare_tools_dirs(root)
         _atomic_write_json(identity_file, identity)
+        if not registry_path(root).exists():
+            _atomic_write_json(registry_path(root), {"schema_version": SCHEMA_VERSION, "tools": []})
         append_tools_governance(
             root,
             "tools_root_bootstrapped",

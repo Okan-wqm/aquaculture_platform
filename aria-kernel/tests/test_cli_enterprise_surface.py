@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -33,6 +34,10 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
             'runtime_verify.add_argument("--workspace-root"',
             'runtime_verify.add_argument("--require-artifact-bearing"',
             'add_subparser(runtime_promotion_sub, "approve-v2")',
+            'runtime_approve_v2.add_argument("--workspace-root", required=True)',
+            'runtime_retention_apply.add_argument("--reason", required=True, type=_validate_reason)',
+            'runtime_restore.add_argument("--operator-approval-ref", required=True)',
+            'runtime_rollback.add_argument("--workspace-root", required=True)',
             'add_subparser(autonomy_sub, "project-queue")',
             '"--output", choices=["summary", "full"]',
             'add_subparser(plan_sub, "advance-rounds")',
@@ -67,21 +72,24 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
         self.assertIn("cycle_not_artifact_bearing", {i.get("code") for i in payload["issues"]})
 
     def test_runtime_promotion_approve_v2_persists_bound_record(self) -> None:
+        repo_root = Path(__file__).resolve().parents[2]
+        target_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root, text=True).strip()
         bundle = self.tools / "runtime" / "promotion-evidence.json"
         bundle.parent.mkdir(parents=True, exist_ok=True)
-        bundle.write_text('{"operator_approval_ref":"op:test","target_sha":"abc123"}', encoding="utf-8")
+        bundle.write_text(json.dumps({"operator_approval_ref": "op:test", "target_sha": target_sha}), encoding="utf-8")
 
         with redirect_stdout(io.StringIO()) as buf:
             rc = cli_main([
                 "--tools-dir", str(self.tools),
                 "runtime", "promotion", "approve-v2",
                 "--evidence-bundle", str(bundle),
+                "--workspace-root", str(repo_root),
                 "--operator-approval-ref", "op:test",
             ])
         payload = json.loads(buf.getvalue())
         self.assertEqual(rc, 0)
         self.assertEqual(payload["schema_version"], 2)
-        self.assertEqual(payload["target_sha"], "abc123")
+        self.assertEqual(payload["target_sha"], target_sha)
         self.assertEqual(payload["artifact_verifier_version"], "runtime-artifact-graph-v2")
         rows = load_jsonl(self.tools / "runtime" / "v2-promotions.jsonl")
         self.assertEqual(rows[-1]["operator_approval_ref"], "op:test")

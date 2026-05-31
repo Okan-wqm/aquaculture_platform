@@ -21,9 +21,11 @@
 # workflows, runtime gates, and tests cannot drift independently.
 aria-kernel/                    @Okan-wqm
 docs/aria/                      @Okan-wqm
-tools/aria-poc/ci_executor.py   @Okan-wqm
-tools/aria-poc/worker_executor.py @Okan-wqm
-tools/aria-poc/ci_executor_contract_proven.md @Okan-wqm
+tools/aria-poc/                @Okan-wqm
+aria-tools/preflight/           @Okan-wqm
+package.json                    @Okan-wqm
+package-lock.json               @Okan-wqm
+.gitignore                      @Okan-wqm
 
 # ── Enforcement gate configuration ────────────────────────────────────
 # Allowlists, rule manifests, and boundary carve-outs must not drift silently.

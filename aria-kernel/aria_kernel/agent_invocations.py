@@ -148,7 +148,28 @@ def create_agent_invocation_request(
             role_cap_override=role_cap_override,
         )
     root = ensure_tools_dir(base_dir)
-    request_id = _request_id(target_agent, role, suggested_prompt, convergence_id, round_number)
+    request_id = _request_id(
+        target_agent,
+        role,
+        suggested_prompt,
+        convergence_id,
+        round_number,
+        {
+            "allowed_scope": list(allowed_scope or []),
+            "cycle_id": cycle_id,
+            "evidence_refs": list(evidence_refs or []),
+            "finding_id": finding_id,
+            "judgment_group_id": judgment_group_id,
+            "must_satisfy": list(must_satisfy or []),
+            "plan_revision_hash": plan_revision_hash,
+            "pressure_event_id": pressure_event_id,
+            "run_id": run_id,
+            "tool_id": tool_id,
+        },
+    )
+    existing_request = _find_request_by_id(root, request_id)
+    if existing_request is not None:
+        return existing_request
     expected = expected_output_path or _default_expected_output_path(root, request_id, convergence_id, round_number, role)
     row: dict[str, Any] = {
         "$schema": "aria/agent-invocation-request/v1",
@@ -416,10 +437,33 @@ def _find_request(root: Path, request_id: str) -> dict[str, Any]:
     raise GovernanceError(f"agent invocation request not found: {request_id}")
 
 
-def _request_id(target_agent: str, role: str, prompt: str, convergence_id: str | None, round_number: int | None) -> str:
+def _request_id(
+    target_agent: str,
+    role: str,
+    prompt: str,
+    convergence_id: str | None,
+    round_number: int | None,
+    identity_components: dict[str, Any] | None = None,
+) -> str:
     slug = "".join(ch if ch.isalnum() else "-" for ch in target_agent.lower()).strip("-")[:32] or "agent"
-    digest = hashlib.sha256(f"{target_agent}|{role}|{prompt}|{convergence_id}|{round_number}|{utc_now()}".encode("utf-8")).hexdigest()[:8]
+    payload = {
+        "target_agent": target_agent,
+        "role": role,
+        "prompt": prompt,
+        "convergence_id": convergence_id,
+        "round_number": round_number,
+        "identity_components": identity_components or {},
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
     return f"AIR-{slug}-{digest}"
+
+
+def _find_request_by_id(root: Path, request_id: str) -> dict[str, Any] | None:
+    for row in reversed(load_jsonl(root / "agent-invocations" / "requests.jsonl")):
+        if row.get("request_id") == request_id:
+            return row
+    return None
 
 
 def _default_expected_output_path(root: Path, request_id: str, convergence_id: str | None, round_number: int | None, role: str) -> str:

@@ -118,18 +118,19 @@ def _gaps_from_adapter_registry(
         ]
     tools = [tool for tool in registry.get("tools", []) if isinstance(tool, dict)]
     registry_ids = {str(tool.get("tool_id")) for tool in tools if tool.get("tool_id")}
-    repo_root = Path(getattr(paths, "repo_root", Path.cwd())).resolve()
-    manifest_dir = repo_root / "tools" / "aria-adapters"
     manifests = {}
-    if manifest_dir.exists():
-        for manifest in manifest_dir.glob("*.tool.json"):
-            try:
-                payload = json.loads(manifest.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            tool_id = str(payload.get("tool_id") or "")
-            if tool_id:
-                manifests[tool_id] = manifest
+    if paths is not None:
+        repo_root = Path(getattr(paths, "repo_root")).resolve()
+        manifest_dir = repo_root / "tools" / "aria-adapters"
+        if manifest_dir.exists():
+            for manifest in manifest_dir.glob("*.tool.json"):
+                try:
+                    payload = json.loads(manifest.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                tool_id = str(payload.get("tool_id") or "")
+                if tool_id:
+                    manifests[tool_id] = manifest
     manifest_ids = set(manifests)
     gaps: list[dict[str, Any]] = []
     for tool in tools:

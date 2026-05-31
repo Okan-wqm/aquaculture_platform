@@ -112,11 +112,16 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(read('.github/workflows/aria-kernel.yml')).toMatch(/branches:\s*\n\s*- main/);
     expect(read('.github/workflows/aria-kernel-fast.yml')).toMatch(/branches:\s*\n\s*- main/);
     expect(read('.github/workflows/aria-kernel-full.yml')).toMatch(/branches:\s*\n\s*- main/);
+    const kernelWorkflow = read('.github/workflows/aria-kernel.yml');
+    expect(kernelWorkflow).toContain('Run ARIA docs/runtime SSoT invariant');
+    expect(kernelWorkflow).toContain('Run ARIA runtime artifact smoke');
+    expect(kernelWorkflow).toContain('Verify post-run clean worktree');
   });
 
   it('package scripts expose the clean ARIA validation entrypoints', () => {
     const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
-    expect(pkg.scripts['aria:compile']).toBe('python3 -m compileall -q aria-kernel/aria_kernel aria-kernel/tests');
+    expect(pkg.scripts['aria:compile']).toContain("compile(p.read_text(encoding='utf-8'), str(p), 'exec')");
+    expect(pkg.scripts['aria:compile']).not.toContain('compileall');
     expect(pkg.scripts['aria:test:unit']).toContain("python3 -m unittest discover aria-kernel -p '*test*.py'");
     expect(pkg.scripts['aria:ci:all']).toBe('npm run aria:compile && npm run aria:test:unit && npm run invariants:fast');
   });
@@ -126,9 +131,10 @@ describe('ARIA live runtime/documentation SSoT', () => {
     for (const required of [
       'aria-kernel/',
       'docs/aria/',
-      'tools/aria-poc/ci_executor.py',
-      'tools/aria-poc/worker_executor.py',
-      'tools/aria-poc/ci_executor_contract_proven.md',
+      'tools/aria-poc/',
+      'aria-tools/preflight/',
+      'package.json',
+      '.gitignore',
     ]) {
       expect(owners).toContain(required);
     }

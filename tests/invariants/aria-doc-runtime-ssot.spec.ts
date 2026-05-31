@@ -113,6 +113,8 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(read('.github/workflows/aria-kernel-fast.yml')).toMatch(/branches:\s*\n\s*- main/);
     expect(read('.github/workflows/aria-kernel-full.yml')).toMatch(/branches:\s*\n\s*- main/);
     const kernelWorkflow = read('.github/workflows/aria-kernel.yml');
+    expect(kernelWorkflow).toContain('node-version: \"22\"');
+    expect(read('.github/workflows/aria-kernel-full.yml')).toContain('node-version: \"22\"');
     expect(kernelWorkflow).toContain('Run ARIA docs/runtime SSoT invariant');
     expect(kernelWorkflow).toContain('Run ARIA runtime artifact smoke');
     expect(kernelWorkflow).toContain('Verify post-run clean worktree');

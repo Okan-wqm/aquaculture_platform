@@ -43,9 +43,9 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
-      - run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+      - run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
       # Plan ARIA-V2 §Phase 1 CRITICAL-020 — install kernel deps
       # (pyyaml etc.) from pyproject.toml SSoT.
       - name: Install aria-kernel package

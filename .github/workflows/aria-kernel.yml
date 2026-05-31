@@ -8,7 +8,7 @@ name: aria-kernel
 #   * workflow_dispatch added so operators can manually re-fire
 #   * top-level permissions: contents: read (INFRA-HIGH-003)
 #   * actions/checkout: persist-credentials: false (INFRA-HIGH-004)
-#   * npm ci → npm ci --ignore-scripts --no-audit (INFRA-CRITICAL-001)
+#   * npm ci → npm ci --ignore-scripts --no-audit --no-fund with retry (INFRA-CRITICAL-001)
 #   * concurrency key unified across workflows (INFRA-HIGH-001)
 # Invariant lock: aria-kernel/tests/test_ci_workflow_invariants.py (I-25).
 
@@ -50,9 +50,9 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
-      - run: npm ci --ignore-scripts --no-audit
+      - run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
       # Plan ARIA-V2 §Phase 1 CRITICAL-020 — aria-kernel declares
       # pyyaml>=6.0 in pyproject.toml (required by I-25 + I-26
       # invariants for YAML workflow + frontmatter parsing).

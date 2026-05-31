@@ -35,7 +35,7 @@ from aria_kernel.auto_merge import evaluate_auto_merge
 def _make_pr(*, head_sha: str = "abc1234567890abc1234567890abc1234567890a") -> dict:
     return {
         "number": 42,
-        "base_branch": "snowball",
+        "base_branch": "main",
         "head_sha": head_sha,
         "changed_files": [{"path": "apps/x.ts"}],
     }
@@ -70,7 +70,7 @@ def _make_github(
 def _make_policy() -> dict:
     return {
         "enabled": True,
-        "base_branch": "snowball",
+        "base_branch": "main",
         "merge_method": "squash",
         "low_risk_paths": ["apps/**/*.ts"],
         "high_risk_paths": [],

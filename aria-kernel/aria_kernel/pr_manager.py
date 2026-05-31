@@ -62,7 +62,7 @@ def build_pr_body(*, proposal: dict[str, Any], action: dict[str, Any]) -> str:
     )
 
 
-ARIA_PR_BASE = "snowball"
+ARIA_PR_BASE = "main"
 
 
 def open_pr_for_action(
@@ -95,15 +95,15 @@ def open_pr_for_action(
         )
     # Plan 018 Phase 6.2 (G7) — explicit base-branch guard.
     #
-    # Why: previously the snowball-only invariant was enforced
-    # implicitly by the hardcoded `--base snowball` argv passed to
+    # Why: previously the mainline base invariant was enforced
+    # implicitly by the hardcoded `--base main` argv passed to
     # `gh pr create`. Convention-only enforcement at the subprocess
     # boundary leaves the function signature itself permissive — a
-    # caller cannot tell from the function contract that base=main is
-    # forbidden, and a future `gh` argv refactor could silently drop
+    # caller cannot tell from the function contract which base branch is
+    # permitted, and a future `gh` argv refactor could silently drop
     # the constraint. The explicit `base` parameter + GovernanceError
     # surfaces the rule structurally; the subprocess argv keeps
-    # `--base snowball` as defense-in-depth.
+    # `--base main` as defense-in-depth.
     if base != ARIA_PR_BASE:
         raise GovernanceError(
             f"ARIA PRs MUST target {ARIA_PR_BASE!r}; got base={base!r}"

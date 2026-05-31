@@ -74,7 +74,7 @@ class _SingleClaimBase(unittest.TestCase):
         prompt.write_text("# test", encoding="utf-8")
 
         self.req = create_agent_invocation_request(
-            target_agent="test-agent", role="evidence_judgment",
+            target_agent="aria-evidence-judge", role="evidence_judgment",
             suggested_prompt="prove",
             expected_output_path=str(
                 self.tools / "agent-invocations" / "outputs" / "out.json"

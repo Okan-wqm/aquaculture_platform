@@ -9,6 +9,7 @@ from typing import Any
 
 from .ledger import append_jsonl, load_jsonl
 from .file_lock import with_exclusive_lock
+from .runtime_profile import enforce_profile_for_write
 from .tool_registry import append_tools_governance, ensure_tools_dir, update_tools_index, utc_now
 
 
@@ -131,6 +132,7 @@ def submit_worker_result(
     execution boundary, so preserving the pre-§G.3 path would leave the
     canonical CLI fail-open.
     """
+    enforce_profile_for_write("worker_result", base_dir=tools_root)
     root = ensure_tools_dir(tools_root)
     worktree = Path(from_worktree).resolve()
     request = _request_for(root, assignment_id=assignment_id, worktree=worktree)
@@ -214,6 +216,7 @@ def verify_worker_result(
     tools_root: str | Path | None = None,
     auto_merge_eligible: bool = False,
 ) -> dict[str, Any]:
+    enforce_profile_for_write("worker_verification", base_dir=tools_root)
     root = ensure_tools_dir(tools_root)
     request = _request_for(root, assignment_id=assignment_id)
     result = _latest_result(root, assignment_id)
@@ -222,6 +225,19 @@ def verify_worker_result(
     worktree = Path(str(request["worktree_path"])).resolve()
     if not worktree.exists():
         return _verification(root, assignment_id, "failed", ["worktree_unreachable"], auto_merge_eligible=False)
+    submitted_head = str(result.get("head_sha") or "")
+    current_head = _git(worktree, "rev-parse", "HEAD")
+    if submitted_head and current_head != submitted_head:
+        return _verification(root, assignment_id, "failed", ["submitted_head_drift"], auto_merge_eligible=False)
+    dirty = _git(worktree, "status", "--porcelain")
+    if dirty.strip():
+        return _verification(root, assignment_id, "failed", ["worktree_dirty_at_verification"], auto_merge_eligible=False)
+    base_sha = str(request.get("base_sha") or "")
+    if base_sha:
+        try:
+            _git(worktree, "merge-base", "--is-ancestor", base_sha, current_head)
+        except RuntimeError:
+            return _verification(root, assignment_id, "failed", ["base_sha_not_ancestor"], auto_merge_eligible=False)
     trailer = str(request.get("expected_trailer") or "")
     log = _git(worktree, "log", "--format=%B", f"{request['base_sha']}..HEAD")
     if trailer and trailer not in log:

@@ -14,7 +14,7 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 DEFAULT_POLICY: dict[str, Any] = {
     "schema_version": 1,
     "enabled": False,
-    "base_branch": "snowball",
+    "base_branch": "main",
     "merge_method": "squash",
     "allowed_low_risk_globs": [
         "docs/**",
@@ -117,8 +117,8 @@ def normalize_policy(policy: dict[str, Any] | None = None) -> dict[str, Any]:
             candidate[key] = value
     if candidate.get("merge_method") != "squash":
         raise GovernanceError("auto-merge policy supports only squash merge")
-    if candidate.get("base_branch") != "snowball":
-        raise GovernanceError("auto-merge policy supports only the snowball base branch")
+    if candidate.get("base_branch") != "main":
+        raise GovernanceError("auto-merge policy supports only the main base branch")
     return candidate
 
 

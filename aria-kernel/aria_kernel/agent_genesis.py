@@ -16,6 +16,7 @@ from .draft_intent import (
 )
 from .draft_pii_filter import mask_pii_in_intent
 from .ledger import append_jsonl, load_jsonl
+from .runtime_profile import enforce_profile_for_write
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -34,6 +35,7 @@ def draft_agent_from_gap(
     gap_id: str,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    enforce_profile_for_write("agent_genesis", base_dir=base_dir)
     gap = _find_gap(gap_id, base_dir)
     name = _agent_name(gap)
     draft = {
@@ -188,6 +190,7 @@ def evaluate_genesis_sandbox(
     audit reviewers can distinguish real-execution sandboxes from
     test-mode synthetic ones.
     """
+    enforce_profile_for_write("agent_genesis", base_dir=base_dir)
     draft = _find_draft(draft_id, base_dir)
     if len(fixture_results) < 3:
         raise GovernanceError("genesis sandbox requires at least 3 fixture results")
@@ -480,7 +483,7 @@ def materialize_agent_draft(
         intent_id=str(intent_dict.get("intent_id", "")) if isinstance(intent_dict, dict) else "",
         target_path=target_path,
         kind="agent",
-        commit_sha_at_mint="HEAD",
+        commit_sha_at_mint=_git_head(worktree),
         profile_state_at_mint=f"{gate.profile}:v1",
     )
     target = worktree / target_path
@@ -488,6 +491,7 @@ def materialize_agent_draft(
         target.resolve().relative_to(worktree.resolve())
     except ValueError as exc:
         raise GovernanceError("target_path_escapes_worktree") from exc
+    file_sha256_pre = _file_sha256(target)
     touched = [target_path]
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
@@ -510,9 +514,9 @@ def materialize_agent_draft(
         {
             "materialize_event_id": materialize_event_id,
             "target_path": target_path,
-            "file_sha256_pre": "",
+            "file_sha256_pre": file_sha256_pre,
             "file_sha256_post": hashlib.sha256(body.encode("utf-8")).hexdigest(),
-            "commit_sha": "unknown",
+            "commit_sha": _git_head(worktree),
             "draft_id": draft_id,
             "assignment_id": assignment_id,
             "kind": "agent",
@@ -538,6 +542,17 @@ def materialize_agent_draft(
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "materializations.jsonl", row)
 
+
+
+def _git_head(path: Path) -> str:
+    completed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, text=True, capture_output=True, check=False)
+    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
+
+
+def _file_sha256(path: Path) -> str:
+    if not path.exists() or not path.is_file():
+        return ""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def request_agent_genesis(
     gap: dict[str, Any],

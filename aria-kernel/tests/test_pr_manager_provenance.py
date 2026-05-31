@@ -159,7 +159,7 @@ class PrNumberParseTests(unittest.TestCase):
     def test_extra_diagnostic_then_url_parses(self) -> None:
         # gh sometimes prints diagnostic lines before the URL.
         stdout = (
-            "Creating pull request for aria/test-proposal into snowball...\n"
+            "Creating pull request for aria/test-proposal into main...\n"
             "https://github.com/o/r/pull/777\n"
         )
         row = self._run_with_stdout(stdout)

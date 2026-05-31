@@ -1,3 +1,5 @@
+<!-- ARIA-LIVE-AUTHORITY: docs/aria/CURRENT_STATE.md and executable contracts supersede stale runtime/provider/branch statements in this document. -->
+
 <!-- ARIA-CURRENT-STATE-NOTICE: This document may contain historical state. For normative current state, see docs/aria/CURRENT_STATE.md and executable contracts. -->
 
 # ARIA Contracts & Phase-1 PoC

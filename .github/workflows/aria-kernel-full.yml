@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - snowball
+      - main
     paths-ignore:
       - "docs/**"
       - "**.md"

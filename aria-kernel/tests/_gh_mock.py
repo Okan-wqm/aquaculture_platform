@@ -14,7 +14,7 @@ Usage:
     with patch("aria_kernel.pr_manager.subprocess.run", side_effect=gh_create_success):
         result = pr_manager.open_pr_for_action(...)
 
-The factories assert that the gh argv contains `--base snowball` and
+The factories assert that the gh argv contains `--base main` and
 the title/body kwargs are passed through; they fail loudly on any
 attempt to invoke gh with a different base.
 """
@@ -65,15 +65,15 @@ def _record(args: tuple[Any, ...], kwargs: dict[str, Any]) -> _RecordedCall:
 
 
 def _assert_pr_create_invariants(call: _RecordedCall) -> None:
-    """Every gh pr create invocation MUST go to base=snowball and carry title + body."""
+    """Every gh pr create invocation MUST go to base=main and carry title + body."""
     if call.argv[:3] != ["gh", "pr", "create"]:
         raise AssertionError(f"unexpected gh argv: {call.argv!r}")
     if "--base" not in call.argv:
         raise AssertionError("gh pr create missing --base flag")
     base_idx = call.argv.index("--base")
-    if call.argv[base_idx + 1] != "snowball":
+    if call.argv[base_idx + 1] != "main":
         raise AssertionError(
-            f"gh pr create --base must be 'snowball', got {call.argv[base_idx + 1]!r}"
+            f"gh pr create --base must be 'main', got {call.argv[base_idx + 1]!r}"
         )
     if "--title" not in call.argv:
         raise AssertionError("gh pr create missing --title")
@@ -84,7 +84,7 @@ def _assert_pr_create_invariants(call: _RecordedCall) -> None:
 def gh_create_success(*args, **kwargs):
     """Returns CompletedProcess(returncode=0, stdout=<fake-pr-url>) for gh pr create.
 
-    Asserts the invocation matches Plan 016 contract (--base snowball + title +
+    Asserts the invocation matches Plan 016 contract (--base main + title +
     body). Records the call so tests can inspect it.
     """
     call = _record(args, kwargs)

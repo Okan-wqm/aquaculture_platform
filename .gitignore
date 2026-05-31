@@ -3,6 +3,8 @@
 # ARIA Phase-1 PoC runtime output (tools/aria-poc/poc.py is committed; outputs are not)
 .aria-poc/
 .aria-ci/
+artifacts/
+aria-kernel/aria-tools/
 aria-tools/.archive/
 aria-tools/.backups/
 # Plan 019 Phase 0.3 — recursive_impact runtime artifacts (live evidence
@@ -168,7 +170,10 @@ aria-tools/reviews.jsonl
 aria-tools/operator-feedback.jsonl
 aria-tools/feedback-consensus-uncertainties.jsonl
 aria-tools/quarantine.jsonl
+aria-tools/autonomy_state.jsonl
 aria-tools/migration_state.json
+aria-tools/daemons/
+aria-tools/quarantine/
 aria-tools/diagnostics/
 
 # Plan ARIA-V2 §3.4 — full per-clone runtime state sweep (Phase 5).

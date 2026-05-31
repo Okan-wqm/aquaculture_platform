@@ -1,3 +1,5 @@
+<!-- ARIA-LIVE-AUTHORITY: docs/aria/CURRENT_STATE.md and executable contracts supersede stale runtime/provider/branch statements in this document. -->
+
 # ARIA Snowball — v7.2 (Repo-Aware Canonical)
 
 > **A repository-shaped intelligence that grows by touching code**

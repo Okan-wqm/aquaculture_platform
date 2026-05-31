@@ -1,3 +1,5 @@
+<!-- ARIA-LIVE-AUTHORITY: docs/aria/CURRENT_STATE.md and executable contracts supersede stale runtime/provider/branch statements in this document. -->
+
 # ADR-033 — ARIA Autonomous Runtime Profile + Self-Closing Loop Architecture
 
 **Status:** Accepted (Plan ARIA-V3 §B2 + §B3)

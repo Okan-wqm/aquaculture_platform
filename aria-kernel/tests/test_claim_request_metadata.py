@@ -37,7 +37,7 @@ class ClaimRequestFusedReturnTests(unittest.TestCase):
         self.base = self.tmp / "aria-tools"
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
         self.req = create_agent_invocation_request(
-            target_agent="test-agent",
+            target_agent="aria-evidence-judge",
             role="evidence_judgment",
             suggested_prompt="prove docs/a.md",
             expected_output_path="docs/b3-out.md",
@@ -109,7 +109,7 @@ class ClaimRequestFusedReturnTests(unittest.TestCase):
         # writes the claim row. A second concurrent claim attempt on a
         # different request must not alter the first claim's return.
         other_req = create_agent_invocation_request(
-            target_agent="other-agent",
+            target_agent="aria-evidence-judge",
             role="evidence_judgment",
             suggested_prompt="other",
             expected_output_path="docs/other.md",

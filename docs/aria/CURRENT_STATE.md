@@ -1,40 +1,58 @@
 # ARIA Current State
 
-Date: 2026-05-26
-Branch: `snowball`
+Date: 2026-05-31
+Target ref: `origin/main`
+Last verified commit: `ffdef128aee928ba09f8fceb847fa56ab6caa334`
+Status: post-snowball mainline hardening in progress
 
-## Normative Sources
+## Authority Chain
 
-Executable code and machine-checked contracts are normative for ARIA. Historical docs, older plans, and Claude-era runbooks are non-normative when they conflict with code.
+ARIA authority is ordered and fail-closed:
 
-Current normative anchors:
+1. Executable code and machine-checked contracts are normative.
+2. This file is the live human-readable state index.
+3. Accepted ADRs are normative only when they do not contradict executable contracts or this file.
+4. `SPEC.md`, `CONTRACTS.md`, `IDENTITY.md`, `ROADMAP.md`, and `docs/aria/plans/**` are live only in sections that are not marked historical, superseded, or compatibility reference.
+5. Historical snowball/Claude-era docs are evidence of design history, not runtime authority.
 
-- Codex runtime contract: `tools/aria-poc/ci_executor_contract_proven.md`
-- Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, `tools/aria-poc/codex_runtime.py`
-- Merge authority: `aria-kernel/aria_kernel/auto_merge.py::merge_if_green`
+When two sources disagree, the lower-priority source must be updated, generated from code, or explicitly marked historical. Runtime behavior must not be inferred from stale prose.
+
+## Current Normative Anchors
+
+- Runtime CLI and public surface: `aria-kernel/aria_kernel/cli.py`
+- Runtime profile and write authorization: `aria-kernel/aria_kernel/runtime_profile.py`
 - State surface inventory: `aria-kernel/aria_kernel/state_manifest.py`
-- Autonomous lease authority: `aria-kernel/aria_kernel/autonomous_host_lease.py::acquire_remote_cas_lease`
-- Artifact safety boundary: `aria-kernel/aria_kernel/artifact_safety.py`
-- Agent instruction style: `docs/aria/AGENT_INSTRUCTION_STYLE.md`
+- Tools root identity and binding: `aria-kernel/aria_kernel/tool_registry.py`
+- Runtime artifact graph and v2 approval: `aria-kernel/aria_kernel/runtime_artifacts.py`
+- Run envelope/status owner: `aria-kernel/aria_kernel/tool_health.py`
+- Strict run-ledger reader/upcaster: `aria-kernel/aria_kernel/runs_reader.py`
 - Agent role/lifecycle SSoT: `aria-kernel/aria_kernel/agent_surface.py`
-- Transactional ledger primitive: `aria-kernel/aria_kernel/ledger.py::state_transaction`
+- Agent request/response contract: `aria-kernel/aria_kernel/agent_contract.py`
+- Transactional append/index primitive: `aria-kernel/aria_kernel/ledger.py`
+- Merge authority: `aria-kernel/aria_kernel/auto_merge.py::merge_if_green`
+- Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, `tools/aria-poc/codex_runtime.py`
+- Runtime artifact safety boundary: `aria-kernel/aria_kernel/artifact_safety.py`
 
 ## Runtime
 
-ARIA is being migrated to Codex CLI. Live autonomous agent execution must use ChatGPT-managed Codex CLI auth on a trusted/private runner. API-key mode is not allowed by default because the project relies on an existing ChatGPT/Codex account and must not open an extra API-billing path.
+ARIA live autonomous execution is Codex CLI based and must use ChatGPT-managed Codex CLI authentication on a trusted/private runner. Direct API-key runtime mode is not the default authority for this repository.
 
-Legacy Claude/Anthropic executor docs and variables are superseded for ARIA runtime. They may remain only as historical records or compatibility references and must not be treated as live authority.
+Legacy Claude/Anthropic executor language in older docs is historical or compatibility reference unless an executable contract explicitly calls it. Any live doc section that treats Claude Code, Anthropic API keys, or `llm_bridge.py` as the current ARIA runtime authority is a documentation defect.
 
 ## State And Lifecycle
 
-`state_manifest.py` declares write-driving ledgers, queue surfaces, lock files, and artifacts. New queue/ack lifecycle writes use `state_transaction()` for ordered locks plus strict reads before append. Ack consumption is append-only: new consumes append `aria/ack-consumption/v1` rows; old rows with populated `consumed_at` remain readable as legacy consumed tokens.
+`state_manifest.py` is the inventory for write-driving ledgers, runtime state, indexes, locks, and artifacts. Runtime writes that can drive future behavior must be declared there before they are trusted by autonomy.
 
-`agent_surface.py` owns request roles, invocation roles, dispatchable roles, bridge-required roles, target-agent whitelist, role-target pairing, and derived request lifecycle labels. `agent_contract.py`, `agent_invocations.py`, `dispatcher_factory.py`, bridge modules, and the Codex executor consume that SSoT instead of maintaining independent role sets.
+`runtime_profile.py` is the single write-authorization boundary for profile-aware surfaces. The live profile taxonomy is `observe`, `standard`, `strict`, `frozen`, and `autonomous`.
 
-## Merge
+`runtime_artifacts.py` owns artifact graph verification. Promotion evidence must be artifact-bearing, hash-bound, path-contained, indexed, and connected to the relevant cycle/run ledgers. Lifecycle-only cycles do not authorize promotion.
 
-`merge_if_green` is the only real merge executor. Legacy V9 implementation merge APIs are demoted and must fail closed instead of invoking direct `gh pr merge` flows.
+`agent_surface.py` owns request roles, invocation roles, dispatchable roles, bridge-required roles, target-agent whitelist, role-target pairing, and derived request lifecycle labels. Callers must consume that SSoT rather than maintaining local role sets.
 
-## Documentation
+## Clean Trial Rule
 
-The ARIA docs set contains historical material. Any document that still says the kernel/orchestrator/contracts do not exist, or that references Claude as the live executor, must be updated, generated from code, or marked historical/superseded.
+A clean ARIA trial must run from an isolated worktree at the declared target commit. Existing detached or dirty operator worktrees are not validation surfaces. Every runtime command in a trial must receive an explicit bound `--tools-dir` and `--workspace-root`; repo-local shadow roots such as `aria-kernel/aria-tools/` are invalid.
+
+## Documentation State
+
+The ARIA docs set contains historical material. Sections still saying only the PoC exists, the kernel does not exist, live runtime is Claude/Anthropic, or auto-merge is categorically impossible are superseded unless explicitly restated by this file and the executable contracts above.

@@ -128,7 +128,7 @@ def evaluate_pr_ci_gate(
     auto = evaluate_auto_merge(
         pr=pr,
         github=github,
-        policy=policy or {"enabled": True, "base_branch": "snowball", "merge_method": "squash"},
+        policy=policy or {"enabled": True, "base_branch": "main", "merge_method": "squash"},
         base_dir=base_dir,
         cycle_id=cycle_id,
         dry_run=True,
@@ -699,7 +699,7 @@ def _gh_pr_snapshot(*, pr_number: int, workspace_root: str | Path) -> dict[str, 
     # instead of deriving from already-run gh-pr-checks list. The
     # checks-list approach silently accepted PRs with 0 runs against a
     # protected base.
-    base_branch = pr.get("baseRefName") or "snowball"
+    base_branch = pr.get("baseRefName") or "main"
     bp_contexts, bp_error = _fetch_branch_protection_contexts(
         root=root, base_branch=str(base_branch),
     )

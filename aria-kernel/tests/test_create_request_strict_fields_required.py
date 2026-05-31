@@ -160,6 +160,19 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
             str(claim_ctx.exception),
         )
 
+    def test_role_target_pairing_rejected_at_write_boundary(self) -> None:
+        """Enterprise hardening: bound roles cannot target arbitrary agents."""
+        with self.assertRaises(GovernanceError) as ctx:
+            create_agent_invocation_request(
+                target_agent="farm-expert",
+                role="implementation",
+                suggested_prompt="x",
+                must_satisfy=[{"id": "c", "criterion": "ok"}],
+                allowed_scope=["aria-kernel/**"],
+                base_dir=self.tools_dir,
+            )
+        self.assertIn("role_target_pairing_violation", str(ctx.exception))
+
     def test_evidence_refs_must_be_list_of_strings(self) -> None:
         """Plan 024 §B-2 acceptance (6)."""
         with self.assertRaises(GovernanceError) as ctx:

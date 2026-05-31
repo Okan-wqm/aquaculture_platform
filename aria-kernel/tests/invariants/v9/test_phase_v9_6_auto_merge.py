@@ -36,7 +36,7 @@ class TestV9IdempotencyKey(unittest.TestCase):
     def test_key_is_sha256(self):
         k = _am.compute_v9_idempotency_key(
             plan_id="p", diff_hash="sha256:" + "0" * 64,
-            pr_number=42, base_branch="snowball",
+            pr_number=42, base_branch="main",
             branch_tip_sha="abcdef",
         )
         self.assertTrue(k.startswith("sha256:"))
@@ -47,12 +47,12 @@ class TestV9IdempotencyKey(unittest.TestCase):
         force-push between mint + merge produces a DIFFERENT key."""
         k_before = _am.compute_v9_idempotency_key(
             plan_id="p", diff_hash="sha256:" + "0" * 64,
-            pr_number=42, base_branch="snowball",
+            pr_number=42, base_branch="main",
             branch_tip_sha="abc",
         )
         k_after = _am.compute_v9_idempotency_key(
             plan_id="p", diff_hash="sha256:" + "0" * 64,
-            pr_number=42, base_branch="snowball",
+            pr_number=42, base_branch="main",
             branch_tip_sha="xyz",  # rebased branch tip
         )
         self.assertNotEqual(k_before, k_after)
@@ -60,12 +60,12 @@ class TestV9IdempotencyKey(unittest.TestCase):
     def test_key_changes_on_pr_number(self):
         k1 = _am.compute_v9_idempotency_key(
             plan_id="p", diff_hash="sha256:" + "0" * 64,
-            pr_number=42, base_branch="snowball",
+            pr_number=42, base_branch="main",
             branch_tip_sha="abc",
         )
         k2 = _am.compute_v9_idempotency_key(
             plan_id="p", diff_hash="sha256:" + "0" * 64,
-            pr_number=43, base_branch="snowball",
+            pr_number=43, base_branch="main",
             branch_tip_sha="abc",
         )
         self.assertNotEqual(k1, k2)
@@ -196,7 +196,7 @@ class TestV9MergeOrchestration(unittest.TestCase):
         d = _am.evaluate_v9_implementation_merge(
             plan_id="p", pr_number=42,
             diff_hash="sha256:" + "0" * 64,
-            branch_tip_sha="abc", base_branch="snowball",
+            branch_tip_sha="abc", base_branch="main",
             profile="strict",
             sleep_fn=lambda _: None,
         )
@@ -212,7 +212,7 @@ class TestV9MergeOrchestration(unittest.TestCase):
             d = _am.evaluate_v9_implementation_merge(
                 plan_id="p", pr_number=42,
                 diff_hash="sha256:" + "0" * 64,
-                branch_tip_sha="abc", base_branch="snowball",
+                branch_tip_sha="abc", base_branch="main",
                 profile="autonomous",
                 sleep_fn=lambda _: None,
             )
@@ -240,7 +240,7 @@ class TestV9MergeOrchestration(unittest.TestCase):
                 plan_id="p", pr_number=42,
                 diff_hash="sha256:" + "0" * 64,
                 branch_tip_sha="EXPECTED_TIP",
-                base_branch="snowball",
+                base_branch="main",
                 profile="autonomous",
                 sleep_fn=lambda _: None,
             )

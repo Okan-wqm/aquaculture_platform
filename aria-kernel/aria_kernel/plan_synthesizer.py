@@ -598,11 +598,11 @@ def scan_failing_ci(
     *,
     cache_dir: str | Path | None = None,
     gh_cli: str = "gh",
-    branch: str = "snowball",
+    branch: str = "main",
     gh_token: str | None = None,
 ) -> list[dict[str, Any]]:
     """Plan ARIA-V9.4 + V3.1-D-4 source — failing CI runs from
-    ``gh run list --branch snowball --status failure --limit 5``.
+    ``gh run list --branch main --status failure --limit 5``.
 
     Cached at ``<workspace>/aria-tools/cache/gh-run-list.json`` with
     10-min TTL (arb MED-003 + perf CRIT-003 rate-limit mitigation).

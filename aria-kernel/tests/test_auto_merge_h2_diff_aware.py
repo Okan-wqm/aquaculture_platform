@@ -26,7 +26,7 @@ _TEST_LOW_RISK_PATH = "apps/x/foo.test.ts"  # in **/*.test.ts allowlist
 def _base_pr_payload(**extras) -> dict:
     payload = {
         "number": 42,
-        "base_branch": "snowball",
+        "base_branch": "main",
         "head_sha": "abc1234",
         "changed_files": [_LOW_RISK_PATH],
     }

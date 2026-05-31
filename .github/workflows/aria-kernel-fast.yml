@@ -1,7 +1,7 @@
 name: aria-kernel-fast
 
 # Plan ARIA-V2 §3.7 (Phase 6) — fast pre-merge gate.
-#   * push: trigger added so snowball commits get a green/red signal
+#   * push: trigger added so mainline commits get a green/red signal
 #     without waiting for the full kernel cycle (covers I-25 clause 3).
 #   * paths-ignore on docs/** + aria-tools/reports/daily/** so the
 #     aria-bot daily commit does not re-fire the gate.
@@ -19,7 +19,7 @@ on:
       - "tools/shared/**"
   push:
     branches:
-      - snowball
+      - main
     paths-ignore:
       - "docs/**"
       - "**.md"

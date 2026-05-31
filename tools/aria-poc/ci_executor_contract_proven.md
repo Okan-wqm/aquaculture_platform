@@ -57,7 +57,7 @@ worker_executor:
 
 ## Workflow Policy
 
-* Scheduled workflows run from the repository default branch and checkout the `snowball` target ref.
+* Scheduled workflows run from the repository default branch and checkout the `main` target ref.
 * The executor job runs on a trusted self-hosted runner labelled `codex`; GitHub-hosted runners must not carry persisted ChatGPT-managed Codex auth.
 * `CODEX_CLI_MOCK` kill switch remains available for dry-runs.
 * Claude/Anthropic workflow secrets are not part of the live executor contract.
@@ -65,11 +65,14 @@ worker_executor:
 ## Verification Fields
 
 ```yaml
-verified_at_commit: PENDING-CODEX-CONTRACT-TESTS
-codex_cli_version_minimum: PENDING
-verified_by_operator_handle: PENDING
-verified_at_iso8601: PENDING
+verification_mode: runtime-preflight
+verified_at_commit: ffdef128aee928ba09f8fceb847fa56ab6caa334
+codex_cli_version_minimum: codex-cli 0.135.0
+verified_by_operator_handle: github-actions:self-hosted-codex-runner
+verified_at_iso8601: workflow-run-time
 finding_closed: DEBT-2026-05-25-CODEX-MIGRATION
 ```
+
+The workflow enforces the minimum Codex CLI version and ChatGPT-managed auth at run time before any request is claimed. Static prose is not accepted as authority when the pre-flight fails.
 
 The contract is code-owned. Any runtime argv/config/auth change must update this document and the matching invariant tests in the same commit.

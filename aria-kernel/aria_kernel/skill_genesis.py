@@ -12,6 +12,7 @@ from .draft_intent import (
 )
 from .draft_pii_filter import mask_pii_in_intent
 from .ledger import append_jsonl, load_jsonl
+from .runtime_profile import enforce_profile_for_write
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -49,6 +50,7 @@ def request_skill_genesis(
     adapter_lang). The request is persisted with ``convergent=true``
     so the CLI seed-batcher can replay it.
     """
+    enforce_profile_for_write("skill_genesis", base_dir=base_dir)
     if not capability_gap_key.strip() or not title.strip():
         raise GovernanceError("capability_gap_key and title are required")
     if convergent and not seed:
@@ -467,6 +469,7 @@ def draft_skill(
     silent acceptance lets a skill enter the pipeline with no
     audit-trail anchor.
     """
+    enforce_profile_for_write("skill_genesis", base_dir=base_dir)
     request = _find_request(request_id, base_dir)
     if request is None:
         raise GovernanceError(
@@ -528,6 +531,7 @@ def sandbox_skill(
     Both paths require at least MIN_FIXTURES (3) entries; failure entries flip
     decision to "fail" without bypassing the minimum-count guard.
     """
+    enforce_profile_for_write("skill_genesis", base_dir=base_dir)
     # Plan 026R §E.3 — chain enforcement.
     if _find_draft(draft_id, base_dir) is None:
         raise GovernanceError(
@@ -637,8 +641,57 @@ def materialize_skill(
             f"skill_materialize_requires_drafter_body: draft_id={draft_id!r} "
             f"has no validated body yet (drafter run pending or failed)"
         )
-    # Plan ARIA-V3 §2g event 2 — ack_consumed (operator or auto).
     intent_dict = draft.get("intent") or {}
+    if isinstance(intent_dict, dict):
+        from .draft_intent import AcceptanceTest as _AT, SkillDraftIntent as _SDI
+        from .draft_validator import validate_body_against_intent
+        intent_obj = _SDI(
+            intent_kind=intent_dict.get("intent_kind", "skill"),
+            intent_id=intent_dict.get("intent_id", ""),
+            name=intent_dict.get("name", ""),
+            target_path=intent_dict.get("target_path", target_path),
+            description=intent_dict.get("description", ""),
+            required_sections=tuple(intent_dict.get("required_sections") or ()),
+            owners=tuple(intent_dict.get("owners") or ()),
+            handoff_agents=tuple(intent_dict.get("handoff_agents") or ()),
+            shadow_period_days=int(intent_dict.get("shadow_period_days") or 14),
+            precision_threshold=float(intent_dict.get("precision_threshold") or 0.85),
+            acceptance_tests=tuple(
+                _AT(
+                    name=t.get("name", ""),
+                    expected=t.get("expected", ""),
+                    description=t.get("description", ""),
+                )
+                for t in intent_dict.get("acceptance_tests") or ()
+                if isinstance(t, dict)
+            ),
+            evidence_allowlist=tuple(intent_dict.get("evidence_allowlist") or ()),
+            diff_classifier_lane=intent_dict.get("diff_classifier_lane", "L3-snowball"),
+            banned_phrases=tuple(intent_dict.get("banned_phrases") or ()),
+        )
+        policy_path = Path(__file__).resolve().parent / "data" / "auto_action_policy.json"
+        result = validate_body_against_intent(
+            body, intent_obj, auto_action_policy_path=policy_path,
+        )
+        if not result.valid:
+            raise GovernanceError(
+                "skill_materialize_body_grammar_invalid: "
+                + ";".join(result.complaints)
+            )
+        from .tool_registry import append_tools_governance
+        append_tools_governance(
+            ensure_tools_dir(base_dir),
+            "draft_validated",
+            {
+                "materialize_event_id": materialize_event_id,
+                "draft_id": draft_id,
+                "intent_id": intent_obj.intent_id,
+                "validator_result": "valid",
+                "body_sha256": __import__("hashlib").sha256(body.encode("utf-8")).hexdigest(),
+                "kind": "skill",
+            },
+        )
+    # Plan ARIA-V3 §2g event 2 — ack_consumed (operator or auto).
     gate_outcome = gate.acquire_or_consume(
         ack_id=ack_id,
         base_dir=ensure_tools_dir(base_dir),
@@ -646,7 +699,7 @@ def materialize_skill(
         intent_id=str(intent_dict.get("intent_id", "")),
         target_path=target_path,
         kind="skill",
-        commit_sha_at_mint="HEAD",
+        commit_sha_at_mint=_git_head(worktree),
         profile_state_at_mint=f"{gate.profile}:v1",
     )
     target = worktree / target_path
@@ -654,6 +707,7 @@ def materialize_skill(
         target.resolve().relative_to(worktree.resolve())
     except ValueError as exc:
         raise GovernanceError("target_path_escapes_worktree") from exc
+    file_sha256_pre = _file_sha256(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
     tmp.write_text(body, encoding="utf-8")
@@ -675,7 +729,9 @@ def materialize_skill(
         {
             "materialize_event_id": materialize_event_id,
             "target_path": target_path,
+            "file_sha256_pre": file_sha256_pre,
             "file_sha256_post": _hl.sha256(body.encode("utf-8")).hexdigest(),
+            "commit_sha": _git_head(worktree),
             "draft_id": draft_id,
             "assignment_id": assignment_id,
             "kind": "skill",
@@ -701,6 +757,18 @@ def materialize_skill(
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "materializations.jsonl", row)
 
+
+
+def _git_head(path: Path) -> str:
+    completed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, text=True, capture_output=True, check=False)
+    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
+
+
+def _file_sha256(path: Path) -> str:
+    if not path.exists() or not path.is_file():
+        return ""
+    import hashlib as _hashlib
+    return _hashlib.sha256(path.read_bytes()).hexdigest()
 
 def list_skill_genesis(*, base_dir: str | Path | None = None, kind: str = "drafts") -> list[dict[str, Any]]:
     filename = {

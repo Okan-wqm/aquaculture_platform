@@ -55,7 +55,7 @@ class PRChangeIdRequirementTests(unittest.TestCase):
         pr_payload = {
             "number": 42,
             "head_sha": "abc1234",
-            "base_branch": "snowball",
+            "base_branch": "main",
             "change_id": "ch-d3",
             "proposal_id": "p-d3",
         }
@@ -68,7 +68,7 @@ class PRChangeIdRequirementTests(unittest.TestCase):
         pr_payload = {
             "number": 99,
             "head_sha": "deadbeef",
-            "base_branch": "snowball",
+            "base_branch": "main",
             "change_id": "ch-reverse-99",
             "proposal_id": "p-d3",
         }

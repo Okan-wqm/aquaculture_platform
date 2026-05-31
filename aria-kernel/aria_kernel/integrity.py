@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import file_hash, load_jsonl, load_index, verify_jsonl
-from .runtime_artifacts import verify_artifacts
+from .runtime_artifacts import verify_runtime_artifacts
 from .tool_registry import covered_tool_ledgers, ensure_tools_dir, tools_contract_version, tools_dir
 from .workspace import ensure_workspace, workspace_contract_version, workspace_paths, repo_hash
 
@@ -25,7 +25,7 @@ def verify_integrity(
         else {"index_path": None, "ledgers": [], "issues": []}
     )
     lifecycle = _verify_cycle_lifecycle(root)
-    artifact_integrity = verify_artifacts(base_dir=root)
+    artifact_integrity = verify_runtime_artifacts(base_dir=root, workspace_root=workspace_root)
     issues = list(workspace.get("issues", [])) + list(tools.get("issues", []))
     if not lifecycle["valid"]:
         issues.append({"code": "cycle_lifecycle_incomplete", "details": lifecycle})

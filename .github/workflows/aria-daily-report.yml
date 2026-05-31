@@ -40,7 +40,7 @@ jobs:
   generate-report:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.ref == 'refs/heads/snowball'
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
     outputs:
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: snowball
+          ref: main
           fetch-depth: 0
           # Plan ARIA-V2 §3.7 INFRA-HIGH-004 — generate-report is the
           # read-only job; bot token is only injected in commit-report.
@@ -122,7 +122,7 @@ jobs:
     needs: generate-report
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.ref == 'refs/heads/snowball'
+    if: github.ref == 'refs/heads/main'
     permissions:
       # Plan 024 v3 §B-3 — write scope localized to this job only.
       contents: write
@@ -133,7 +133,7 @@ jobs:
       # token + persist-credentials is the canonical injection point.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: snowball
+          ref: main
           token: ${{ secrets.ARIA_BOT_TOKEN }}
           persist-credentials: true
           fetch-depth: 0
@@ -164,7 +164,7 @@ jobs:
                      -m "Automated daily report from aria-daily-report.yml."
           # Pull-rebase loop handles concurrent commits from other bots.
           for i in 1 2 3; do
-            if git pull --rebase origin snowball && git push origin snowball; then
+            if git pull --rebase origin main && git push origin main; then
               echo "Daily report ${REPORT_DATE} committed."
               exit 0
             fi

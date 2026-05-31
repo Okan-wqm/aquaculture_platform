@@ -170,11 +170,11 @@ class PrCliCreateTests(unittest.TestCase):
         ])
         self.assertEqual(exit_code, 0)
         row = json.loads(stdout)
-        self.assertEqual(row["base_branch"], "snowball")
+        self.assertEqual(row["base_branch"], "main")
         self.assertIn("## Problem", row["body"])
         self.assertIn("## Provenance", row["body"])
 
-    def test_create_explicit_base_main_rejected(self) -> None:
+    def test_create_explicit_base_develop_rejected(self) -> None:
         # Plan 018 Phase 6.2 explicit base guard fires inside
         # open_pr_for_action and propagates up through cli main as a
         # GovernanceError. The CLI does not swallow it (the kernel's
@@ -182,13 +182,13 @@ class PrCliCreateTests(unittest.TestCase):
         # asserts the exception surfaces with the expected message so
         # operator scripts/CI workflows can pattern-match the failure.
         from aria_kernel.tool_registry import GovernanceError
-        with self.assertRaisesRegex(GovernanceError, "ARIA PRs MUST target 'snowball'; got base='main'"):
+        with self.assertRaisesRegex(GovernanceError, "ARIA PRs MUST target 'main'; got base='develop'"):
             _run_cli([
                 "pr", "create",
                 "--tools-dir", str(self.tools),
                 "--proposal-id", self.pid,
                 "--workspace-root", str(self.repo),
-                "--base", "main",
+                "--base", "develop",
             ])
 
     def test_create_no_dry_run_invokes_gh(self) -> None:
@@ -203,7 +203,7 @@ class PrCliCreateTests(unittest.TestCase):
             ])
         self.assertEqual(exit_code, 0)
         row = json.loads(stdout)
-        self.assertEqual(row["base_branch"], "snowball")
+        self.assertEqual(row["base_branch"], "main")
         # Plan 022 §C-4 — recorded_calls() now contains BOTH the
         # `git rev-parse <branch>` head_sha resolution + the gh pr
         # create invocation. Filter to gh_calls for the binding assertion.
@@ -212,7 +212,7 @@ class PrCliCreateTests(unittest.TestCase):
         self.assertEqual(len(gh_calls), 1)
         argv = gh_calls[0].argv
         self.assertIn("--base", argv)
-        self.assertEqual(argv[argv.index("--base") + 1], "snowball")
+        self.assertEqual(argv[argv.index("--base") + 1], "main")
 
 
 class PrCliListActionsTests(unittest.TestCase):

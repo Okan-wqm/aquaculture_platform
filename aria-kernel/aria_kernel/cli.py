@@ -107,10 +107,12 @@ from aria_kernel.handoff_ledger import (
     take_handoff_snapshot,
 )
 from aria_kernel.runtime_artifacts import (
+    ARTIFACT_BEARING,
     SUMMARY_STDOUT_MAX_BYTES,
     approve_runtime_v2_promotion,
     autonomy_exit_code,
     autonomy_output_summary,
+    classify_cycle_evidence,
     restore_artifact,
     retention_apply,
     retention_dry_run,
@@ -225,6 +227,11 @@ _TOOLS_DIR_REQUIRED_COMMANDS: frozenset[tuple[str, ...]] = frozenset({
     # ``--tools-dir is required`` error instead of the downstream
     # ``tools_root_unresolvable`` GovernanceError.
     ("integrity", "migrate-tools-bootstrap"),
+    ("integrity", "migrate-tools-v2-to-v3"),
+    ("integrity", "rollback-tools-v3-to-v2"),
+    ("runtime", "retention", "apply"),
+    ("runtime", "restore-artifact"),
+    ("runtime", "rollback-retention"),
 })
 
 
@@ -247,6 +254,9 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "handoff_command",
         "context_command",
         "profile_command",
+        "runtime_command",
+        "runtime_promotion_command",
+        "runtime_retention_command",
         "memory_command",
         "pressure_command",
         "telemetry_command",
@@ -622,6 +632,9 @@ def _main(argv: list[str] | None = None) -> int:
     runtime_parser = add_subparser(sub, "runtime")
     runtime_sub = runtime_parser.add_subparsers(dest="runtime_command", required=True)
     runtime_verify = add_subparser(runtime_sub, "verify-artifacts")
+    runtime_verify.add_argument("--cycle-id", default=None)
+    runtime_verify.add_argument("--workspace-root", default=None)
+    runtime_verify.add_argument("--require-artifact-bearing", action="store_true")
     runtime_promotion = add_subparser(runtime_sub, "promotion")
     runtime_promotion_sub = runtime_promotion.add_subparsers(dest="runtime_promotion_command", required=True)
     runtime_approve_v2 = add_subparser(runtime_promotion_sub, "approve-v2")
@@ -800,8 +813,8 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(worktree_preflight_parser)
     worktree_preflight_parser.add_argument(
         "--expected-branch",
-        default="snowball",
-        help="Branch the worktree must be checked out to (default: snowball).",
+        default="main",
+        help="Branch the worktree must be checked out to (default: main).",
     )
     worktree_preflight_parser.add_argument(
         "--no-fetch",
@@ -1242,8 +1255,8 @@ def _main(argv: list[str] | None = None) -> int:
             "validation_runs verified) can fire."
         ),
     )
-    pr_create.add_argument("--base", default="snowball",
-                           help="ARIA invariant: base MUST be snowball; any other value rejected at function entry (Plan 018 Phase 6.2).")
+    pr_create.add_argument("--base", default="main",
+                           help="ARIA invariant: base MUST be main; any other value rejected at function entry (Plan 018 Phase 6.2).")
     pr_create.add_argument("--no-dry-run", action="store_true")
     pr_status = add_subparser(pr_sub, "list-actions", help="List recorded pr lifecycle actions (prepare/commit/push).")
     pr_lifecycle = add_subparser(pr_sub, "lifecycle-plan",
@@ -2167,7 +2180,35 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "runtime" and args.runtime_command == "verify-artifacts":
-        result = verify_runtime_artifacts(base_dir=args.tools_dir)
+        result = verify_runtime_artifacts(
+            base_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            cycle_id=args.cycle_id,
+        )
+        if args.require_artifact_bearing:
+            if not args.cycle_id:
+                result = {
+                    **result,
+                    "status": "failed",
+                    "valid": False,
+                    "issues": list(result.get("issues", [])) + [
+                        {"code": "require_artifact_bearing_needs_cycle_id"},
+                    ],
+                }
+            else:
+                evidence = classify_cycle_evidence(
+                    base_dir=args.tools_dir, cycle_id=args.cycle_id,
+                )
+                result["cycle_evidence"] = evidence
+                if evidence.get("cycle_evidence_class") != ARTIFACT_BEARING:
+                    result["status"] = "failed"
+                    result["valid"] = False
+                    result["issues"] = list(result.get("issues", [])) + [
+                        {
+                            "code": "cycle_not_artifact_bearing",
+                            "cycle_evidence_class": evidence.get("cycle_evidence_class"),
+                        },
+                    ]
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("status") == "ok" else 4
     if args.command == "runtime" and args.runtime_command == "promotion":
@@ -3048,7 +3089,7 @@ def _main(argv: list[str] | None = None) -> int:
         if args.pr_command == "create":
             # Plan 018 Phase 6.2 — explicit base guard fires inside
             # open_pr_for_action; we forward the operator's --base value
-            # verbatim so the kernel can fail-closed on base != snowball.
+            # verbatim so the kernel can fail-closed on base != main.
             row = open_pr_for_action(
                 proposal_id=args.proposal_id,
                 workspace_root=args.workspace_root,

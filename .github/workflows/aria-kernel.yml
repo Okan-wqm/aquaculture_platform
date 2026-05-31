@@ -1,7 +1,7 @@
 name: aria-kernel
 
 # Plan ARIA-V2 §3.7 (Phase 6) — workflow hygiene closures:
-#   * paths: filter removed from push block (snowball re-push must
+#   * paths: filter removed from push block (mainline re-push must
 #     re-evaluate the kernel regardless of which files changed; the
 #     paths gate caused the validation cycle to skip re-runs that
 #     were architecturally meaningful — closes ARIA-V-007)
@@ -25,7 +25,7 @@ on:
       - "tools/shared/**"
   push:
     branches:
-      - snowball
+      - main
 
 # Plan ARIA-V2 §3.7 — top-level default-deny token surface.
 permissions:

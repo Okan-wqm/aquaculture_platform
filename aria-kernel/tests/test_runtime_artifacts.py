@@ -9,6 +9,7 @@ from aria_kernel.feedback_store import raw_findings_path
 from aria_kernel.integrity import verify_integrity
 from aria_kernel.ledger import append_jsonl, load_jsonl
 from aria_kernel.runtime_artifacts import (
+    approve_runtime_v2_promotion,
     resolve_finding_from_artifact,
     restore_artifact,
     retention_apply,
@@ -92,9 +93,16 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.old_format = os.environ.get("ARIA_RUN_LEDGER_FORMAT")
         os.environ["ARIA_RUN_LEDGER_FORMAT"] = "v2"
         register_tool(_tool(), base_dir=self.tools)
-        append_jsonl(
-            self.tools / "runtime" / "v2-promotions.jsonl",
-            {"schema_version": 1, "status": "approved", "operator_approval_ref": "test"},
+        evidence_bundle = self.tools / "runtime" / "v2-promotion-evidence.json"
+        evidence_bundle.parent.mkdir(parents=True, exist_ok=True)
+        evidence_bundle.write_text(
+            '{"operator_approval_ref":"test","target_sha":"test-sha"}',
+            encoding="utf-8",
+        )
+        approve_runtime_v2_promotion(
+            evidence_bundle=evidence_bundle,
+            base_dir=self.tools,
+            operator_approval_ref="test",
         )
 
     def tearDown(self) -> None:

@@ -40,7 +40,7 @@ class AgentInvocationListFilterTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         self.req_c = create_agent_invocation_request(
-            target_agent="farm-expert",
+            target_agent="aria-implementer",
             role="implementation",
             suggested_prompt="C",
             legacy_strict_fields_optional=True,
@@ -64,7 +64,7 @@ class AgentInvocationListFilterTests(unittest.TestCase):
 
     def test_filter_by_target_agent(self):
         rows = list_agent_invocation_requests(base_dir=self.tools_dir, target_agent="farm-expert")
-        self.assertEqual(len(rows), 2)
+        self.assertEqual(len(rows), 1)
 
     def test_filter_by_convergence_id(self):
         rows = list_agent_invocation_requests(base_dir=self.tools_dir, convergence_id="C-1")
@@ -73,7 +73,7 @@ class AgentInvocationListFilterTests(unittest.TestCase):
     def test_combined_filter_role_and_target_agent(self):
         rows = list_agent_invocation_requests(
             base_dir=self.tools_dir,
-            target_agent="farm-expert",
+            target_agent="aria-implementer",
             role="implementation",
         )
         self.assertEqual(len(rows), 1)

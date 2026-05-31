@@ -49,7 +49,7 @@ class BranchProtectionLookupErrorTests(unittest.TestCase):
         result = evaluate_auto_merge(
             pr={
                 "number": 42,
-                "base_branch": "snowball",
+                "base_branch": "main",
                 "head_sha": "abc1234567890abc1234567890abc1234567890a",
                 "changed_files": [{"path": "apps/x.ts"}],
             },
@@ -67,7 +67,7 @@ class BranchProtectionLookupErrorTests(unittest.TestCase):
             },
             policy={
                 "enabled": True,
-                "base_branch": "snowball",
+                "base_branch": "main",
                 "merge_method": "squash",
             },
             diff_text=(

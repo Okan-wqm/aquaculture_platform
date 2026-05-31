@@ -7,7 +7,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .agent_surface import DERIVED_REQUEST_STATES, INVOCATION_ROLES
+from .agent_surface import (
+    DERIVED_REQUEST_STATES,
+    INVOCATION_ROLES,
+    allowed_targets_for_role,
+)
 from .bridge_exceptions import BridgeContractViolation
 from .file_lock import with_exclusive_lock
 from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl
@@ -79,6 +83,12 @@ def create_agent_invocation_request(
         raise GovernanceError(f"unknown invocation role: {role}")
     if not target_agent.strip():
         raise GovernanceError("target_agent is required")
+    allowed_targets = allowed_targets_for_role(role)
+    if allowed_targets is not None and target_agent not in allowed_targets:
+        raise GovernanceError(
+            f"role_target_pairing_violation: role {role!r} requires "
+            f"target_agent in {allowed_targets}; got {target_agent!r}"
+        )
     if not suggested_prompt.strip():
         raise GovernanceError("suggested_prompt is required")
     # Plan 024 §B-2 — strict fields enforcement at write-side. The legacy

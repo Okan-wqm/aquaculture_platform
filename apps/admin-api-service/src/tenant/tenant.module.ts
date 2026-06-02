@@ -9,6 +9,8 @@ import { ModuleAssignmentService } from '../modules/tenant-management/services/m
 import { AdminOutboxModule } from '../outbox/admin-outbox.module';
 import { SettingsModule } from '../settings/settings.module';
 import { UsersModule } from '../users/users.module';
+import { AuthCommandClientModule } from '../auth/auth-command-client.module';
+import { MessagingCommandClientModule } from '../messaging/messaging-command-client.module';
 
 import {
   TenantActivity,
@@ -76,6 +78,8 @@ const QueryHandlers = [
     BillingModule,
     UsersModule,
     AdminOutboxModule,
+    AuthCommandClientModule,
+    MessagingCommandClientModule,
   ],
   controllers: [TenantController],
   providers: [

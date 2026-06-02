@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 
 import { SettingsModule } from '../settings/settings.module';
+import { AuthCommandClientModule } from '../auth/auth-command-client.module';
 
 import { UserPermissions } from './entities/user-permissions.entity';
 import { RoleTemplateService } from './services/role-template.service';
@@ -17,6 +18,7 @@ import { UsersService } from './users.service';
   imports: [
     TypeOrmModule.forFeature([UserPermissions]),
     SettingsModule,
+    AuthCommandClientModule,
     /**
      * NATS client for auth-service delegation.
      *

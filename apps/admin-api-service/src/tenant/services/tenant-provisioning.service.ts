@@ -1,9 +1,22 @@
-import * as crypto from 'crypto';
-
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { SchemaManagerService, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
 import { LegalHoldService } from '@aquaculture/backend-common/compliance';
+import {
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  type AdminAssignTenantModulesCommand,
+  type AdminAssignTenantModulesResult,
+  type AdminClaimTenantProvisioningCommand,
+  type AdminClaimTenantProvisioningResult,
+  type AdminRemoveTenantAuthResourcesCommand,
+  type AdminRemoveTenantAuthResourcesResult,
+  type AdminSetTenantStatusCommand,
+  type AdminSetTenantStatusResult,
+  type AdminSetupTenantRolesCommand,
+  type AdminSetupTenantRolesResult,
+  type CreateTenantAdminCommand,
+  type CreateTenantAdminResult,
+} from '@platform/event-contracts';
 import { Repository, DataSource } from 'typeorm';
 
 import {
@@ -17,6 +30,7 @@ import { RoleTemplateService } from '../../users/services/role-template.service'
 import { UserPermissionsService } from '../../users/services/user-permissions.service';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 import { ProvisioningSagaService, SagaResult } from './provisioning-saga.service';
+import { AuthCommandClientService } from '../../auth/auth-command-client.service';
 
 /**
  * Default tenant role definition for provisioning
@@ -69,13 +83,6 @@ export class TenantProvisioningService {
   private readonly schemaManager: SchemaManagerService;
 
   /**
-   * MEDIUM-008 fix: guard flag so the DDL in ensureTenantRolesTableExists()
-   * only executes once per service-instance lifetime instead of on every
-   * provisioning call.  The ideal long-term fix is a proper TypeORM migration.
-   */
-  private tenantRolesTableEnsured = false;
-
-  /**
    * Default roles to be created for each tenant during provisioning.
    * Only TENANT_ADMIN role is created - actual permissions are managed via user_permissions table.
    */
@@ -83,7 +90,8 @@ export class TenantProvisioningService {
     {
       code: 'TENANT_ADMIN',
       name: 'Tenant Administrator',
-      description: 'Full administrative access to all tenant features. Can manage users and assign permissions.',
+      description:
+        'Full administrative access to all tenant features. Can manage users and assign permissions.',
       permissions: ['*'], // Full access - actual permissions managed via user_permissions table
       isDefault: false,
       isEditable: false,
@@ -102,6 +110,7 @@ export class TenantProvisioningService {
     private readonly roleTemplateService: RoleTemplateService,
     private readonly userPermissionsService: UserPermissionsService,
     private readonly backupRestoreService: BackupRestoreService,
+    private readonly authCommandClient: AuthCommandClientService,
     @Optional()
     private readonly emailSenderService?: EmailSenderService,
     // LEGAL-HIGH-006 cure: tenant deprovisioning issues DROP SCHEMA on
@@ -121,15 +130,8 @@ export class TenantProvisioningService {
    * Provision a new tenant with all required resources.
    *
    * Uses ProvisioningSagaService to orchestrate steps with compensating
-   * transactions. On failure, completed steps are rolled back in reverse.
-   *
-   * TODO(NATS-MIGRATION): The following steps currently write directly to
-   * auth.* tables. They should be replaced with NATS request-reply commands
-   * using the contracts in @platform/event-contracts/tenant-commands:
-   *   - setupDefaultRoles → SetupTenantRolesCommand
-   *   - createFirstAdminUser → CreateTenantAdminCommand
-   *   - assignModulesToTenant → AssignTenantModulesCommand
-   *   - On rollback → RollbackTenantProvisioningCommand
+   * transactions. Auth-owned resources are mutated through auth-service NATS
+   * commands so admin-api never becomes a second writer for auth.* tables.
    */
   async provisionTenant(
     tenantId: string,
@@ -153,7 +155,9 @@ export class TenantProvisioningService {
       return {
         success: false,
         tenantId,
-        steps: [{ name: 'validate_tenant', status: 'failed', error: `Tenant ${tenantId} not found` }],
+        steps: [
+          { name: 'validate_tenant', status: 'failed', error: `Tenant ${tenantId} not found` },
+        ],
         error: `Tenant ${tenantId} not found`,
       };
     }
@@ -166,11 +170,13 @@ export class TenantProvisioningService {
       return {
         success: false,
         tenantId,
-        steps: [{
-          name: 'validate_tenant',
-          status: 'failed',
-          error: `Tenant status must be PENDING, got ${tenant.status}`,
-        }],
+        steps: [
+          {
+            name: 'validate_tenant',
+            status: 'failed',
+            error: `Tenant status must be PENDING, got ${tenant.status}`,
+          },
+        ],
         error: `Tenant status must be PENDING, got ${tenant.status}`,
       };
     }
@@ -181,22 +187,30 @@ export class TenantProvisioningService {
     // Previously, the tenant was set to ACTIVE here, before schema creation,
     // role setup, and admin creation, allowing partially provisioned tenants
     // to become visible as active.
-    const [, rowsAffected] = await this.dataSource.query(
-      `UPDATE auth.tenants
-          SET status = $2, "updatedAt" = NOW()
-        WHERE id = $1 AND status = ANY($3::text[])`,
-      [tenantId, TenantStatus.PROVISIONING, [TenantStatus.PENDING, TenantStatus.PROVISIONING_FAILED]],
-    );
-    if ((rowsAffected as number) === 0) {
+    const claim = await this.authCommandClient.request<
+      AdminClaimTenantProvisioningCommand,
+      AdminClaimTenantProvisioningResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.CLAIM_TENANT_PROVISIONING, {
+      tenantId,
+      provisioningStatus: TenantStatus.PROVISIONING,
+      allowedStatuses: [TenantStatus.PENDING, TenantStatus.PROVISIONING_FAILED],
+    });
+    if (!claim.success || !claim.claimed) {
       return {
         success: false,
         tenantId,
-        steps: [{
-          name: 'validate_tenant',
-          status: 'failed',
-          error: 'Tenant provisioning already in progress or completed by a concurrent request',
-        }],
-        error: 'Tenant provisioning already in progress or completed by a concurrent request',
+        steps: [
+          {
+            name: 'validate_tenant',
+            status: 'failed',
+            error:
+              claim.error ||
+              'Tenant provisioning already in progress or completed by a concurrent request',
+          },
+        ],
+        error:
+          claim.error ||
+          'Tenant provisioning already in progress or completed by a concurrent request',
       };
     }
     // Keep as PENDING internally — will be set to ACTIVE only after full saga success
@@ -208,7 +222,6 @@ export class TenantProvisioningService {
     const warnings: string[] = [];
 
     // Step: Assign modules (optional, before schema creation)
-    // TODO(NATS-MIGRATION): Replace with NATS AssignTenantModulesCommand
     if (assignModules.length > 0) {
       saga.addStep(
         'assign_modules',
@@ -218,10 +231,12 @@ export class TenantProvisioningService {
         async () => {
           // Compensate: remove assigned modules
           this.logger.warn(`Compensating: removing modules for tenant ${tenant.id}`);
-          await this.dataSource.query(
-            `DELETE FROM auth.tenant_modules WHERE "tenantId" = $1`,
-            [tenant.id],
-          ).catch((err: Error) => {
+          await this.removeTenantAuthResources(tenant.id, {
+            deactivateUsers: false,
+            removeInvitations: false,
+            removeTenantModules: true,
+            removeTenantRoles: false,
+          }).catch((err: Error) => {
             this.logger.error(`Failed to remove modules during compensation: ${err.message}`);
           });
         },
@@ -240,7 +255,9 @@ export class TenantProvisioningService {
           this.logger.warn(`Compensating: deleting schema for tenant ${tenant.id}`);
           await this.schemaManager.deleteTenantSchema(tenant.id);
           // Also clean up tracking record
-          const schemaRecord = await this.tenantSchemaRepository.findOne({ where: { tenantId: tenant.id } });
+          const schemaRecord = await this.tenantSchemaRepository.findOne({
+            where: { tenantId: tenant.id },
+          });
           if (schemaRecord) {
             schemaRecord.status = 'deleted' as SchemaStatus;
             await this.tenantSchemaRepository.save(schemaRecord);
@@ -248,16 +265,14 @@ export class TenantProvisioningService {
         },
       );
     } else {
-      saga.addStep(
-        'create_schema',
-        async () => {
-          this.logger.log(`Skipping schema creation for tenant ${tenantId} (skipSchemaCreation=true)`);
-        },
-      );
+      saga.addStep('create_schema', async () => {
+        this.logger.log(
+          `Skipping schema creation for tenant ${tenantId} (skipSchemaCreation=true)`,
+        );
+      });
     }
 
     // Step: Setup default roles
-    // TODO(NATS-MIGRATION): Replace with NATS SetupTenantRolesCommand
     saga.addStep(
       'setup_default_roles',
       async () => {
@@ -266,10 +281,12 @@ export class TenantProvisioningService {
       async () => {
         // Compensate: delete roles created for this tenant
         this.logger.warn(`Compensating: deleting roles for tenant ${tenant.id}`);
-        await this.dataSource.query(
-          `DELETE FROM auth.tenant_roles WHERE "tenantId" = $1`,
-          [tenant.id],
-        ).catch((err: Error) => {
+        await this.removeTenantAuthResources(tenant.id, {
+          deactivateUsers: false,
+          removeInvitations: false,
+          removeTenantModules: false,
+          removeTenantRoles: true,
+        }).catch((err: Error) => {
           this.logger.error(`Failed to delete roles during compensation: ${err.message}`);
         });
       },
@@ -299,18 +316,19 @@ export class TenantProvisioningService {
           // Compensate: best effort cleanup
           this.logger.warn(`Compensating: removing water quality params for tenant ${tenant.id}`);
           const schemaName = `tenant_${tenant.id.replace(/-/g, '_')}`;
-          await this.dataSource.query(
-            `DELETE FROM "${schemaName}".water_quality_parameter_configs WHERE "tenantId" = $1`,
-            [tenant.id],
-          ).catch((err: Error) => {
-            this.logger.error(`Failed to remove water quality params: ${err.message}`);
-          });
+          await this.dataSource
+            .query(
+              `DELETE FROM "${schemaName}".water_quality_parameter_configs WHERE "tenantId" = $1`,
+              [tenant.id],
+            )
+            .catch((err: Error) => {
+              this.logger.error(`Failed to remove water quality params: ${err.message}`);
+            });
         },
       );
     }
 
     // Step (Optional): Create first admin user
-    // TODO(NATS-MIGRATION): Replace with NATS CreateTenantAdminCommand
     if (createFirstAdmin && adminEmail) {
       saga.addStep(
         'create_first_admin',
@@ -348,17 +366,13 @@ export class TenantProvisioningService {
         async () => {
           // Compensate: delete the admin user and invitation
           this.logger.warn(`Compensating: deleting admin user for tenant ${tenant.id}`);
-          await this.dataSource.query(
-            `DELETE FROM auth.users WHERE "tenantId" = $1 AND role = 'TENANT_ADMIN'`,
-            [tenant.id],
-          ).catch((err: Error) => {
+          await this.removeTenantAuthResources(tenant.id, {
+            deactivateUsers: true,
+            removeInvitations: true,
+            removeTenantModules: false,
+            removeTenantRoles: false,
+          }).catch((err: Error) => {
             this.logger.error(`Failed to delete admin user during compensation: ${err.message}`);
-          });
-          await this.dataSource.query(
-            `DELETE FROM auth.invitations WHERE "tenantId" = $1`,
-            [tenant.id],
-          ).catch((err: Error) => {
-            this.logger.error(`Failed to delete invitations during compensation: ${err.message}`);
           });
         },
       );
@@ -375,10 +389,7 @@ export class TenantProvisioningService {
       async () => {
         // Compensate: revert tenant to PENDING
         this.logger.warn(`Compensating: reverting tenant ${tenant.id} to PENDING`);
-        await this.dataSource.query(
-          `UPDATE auth.tenants SET status = $1, "updatedAt" = NOW() WHERE id = $2`,
-          [TenantStatus.PENDING, tenant.id],
-        );
+        await this.setTenantStatus(tenant.id, TenantStatus.PENDING);
       },
     );
 
@@ -388,11 +399,16 @@ export class TenantProvisioningService {
     // Map saga result to ProvisioningResult
     const provisioningSteps: ProvisioningStep[] = sagaResult.steps.map((s) => ({
       name: s.name,
-      status: s.status === 'completed' ? 'completed'
-        : s.status === 'failed' ? 'failed'
-        : s.status === 'compensated' ? 'failed'
-        : s.status === 'compensation_failed' ? 'failed'
-        : 'pending',
+      status:
+        s.status === 'completed'
+          ? 'completed'
+          : s.status === 'failed'
+            ? 'failed'
+            : s.status === 'compensated'
+              ? 'failed'
+              : s.status === 'compensation_failed'
+                ? 'failed'
+                : 'pending',
       duration: s.duration,
       error: s.error,
     }));
@@ -400,9 +416,10 @@ export class TenantProvisioningService {
     if (sagaResult.success) {
       this.logger.log(`Tenant ${tenantId} provisioned successfully`);
     } else {
-      await this.dataSource.query(
-        `UPDATE auth.tenants SET status = $1, "updatedAt" = NOW() WHERE id = $2 AND status = $3`,
-        [TenantStatus.PROVISIONING_FAILED, tenantId, TenantStatus.PROVISIONING],
+      await this.setTenantStatus(
+        tenantId,
+        TenantStatus.PROVISIONING_FAILED,
+        TenantStatus.PROVISIONING,
       );
       this.logger.error(
         `Tenant ${tenantId} provisioning failed at step [${sagaResult.failedStep}]: ${sagaResult.error}`,
@@ -415,7 +432,8 @@ export class TenantProvisioningService {
       steps: provisioningSteps,
       error: sagaResult.error,
       warnings: warnings.length > 0 ? warnings : undefined,
-      compensationErrors: sagaResult.compensationErrors.length > 0 ? sagaResult.compensationErrors : undefined,
+      compensationErrors:
+        sagaResult.compensationErrors.length > 0 ? sagaResult.compensationErrors : undefined,
       adminUser: sagaResult.success ? adminUser : undefined,
     };
   }
@@ -553,9 +571,7 @@ export class TenantProvisioningService {
   /**
    * Get provisioning status for a tenant
    */
-  async getProvisioningStatus(
-    tenantId: string,
-  ): Promise<{ status: string; tenant?: Tenant }> {
+  async getProvisioningStatus(tenantId: string): Promise<{ status: string; tenant?: Tenant }> {
     const tenant = await this.tenantRepository.findOne({
       where: { id: tenantId },
     });
@@ -597,14 +613,11 @@ export class TenantProvisioningService {
          WHERE tm."tenantId" = $1 AND tm."isEnabled" = true`,
         [tenant.id],
       );
-      modulesToCreate = assignedModules.length > 0
-        ? assignedModules.map((m) => m.code)
-        : DEFAULT_TENANT_MODULES;
+      modulesToCreate =
+        assignedModules.length > 0 ? assignedModules.map((m) => m.code) : DEFAULT_TENANT_MODULES;
 
       if (assignedModules.length > 0) {
-        this.logger.log(
-          `Creating schema with assigned modules: ${modulesToCreate.join(', ')}`,
-        );
+        this.logger.log(`Creating schema with assigned modules: ${modulesToCreate.join(', ')}`);
       } else {
         this.logger.log(
           `No assigned modules found for tenant ${tenant.id}; using platform default modules: ${modulesToCreate.join(', ')}`,
@@ -690,112 +703,18 @@ export class TenantProvisioningService {
    */
   private async setupDefaultRoles(tenant: Tenant): Promise<void> {
     this.logger.log(`Setting up default roles for tenant ${tenant.id}`);
-
-    // Ensure the tenant_roles table exists
-    await this.ensureTenantRolesTableExists();
-
-    // Create each default role for the tenant
-    for (const role of this.defaultRoles) {
-      try {
-        // Check if role already exists for this tenant
-        const existingRole = await this.dataSource.query(
-          `SELECT id FROM auth.tenant_roles WHERE "tenantId" = $1 AND code = $2`,
-          [tenant.id, role.code],
-        );
-
-        if (existingRole && existingRole.length > 0) {
-          this.logger.debug(
-            `Role ${role.code} already exists for tenant ${tenant.id}, skipping`,
-          );
-          continue;
-        }
-
-        // Insert the role
-        await this.dataSource.query(
-          `
-          INSERT INTO auth.tenant_roles (
-            id, "tenantId", code, name, description, permissions,
-            is_default, is_editable, display_order, created_at, updated_at
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3, $4, $5,
-            $6, $7, $8, NOW(), NOW()
-          )
-        `,
-          [
-            tenant.id,
-            role.code,
-            role.name,
-            role.description,
-            JSON.stringify(role.permissions),
-            role.isDefault,
-            role.isEditable,
-            role.displayOrder,
-          ],
-        );
-
-        this.logger.debug(`Created role ${role.code} for tenant ${tenant.id}`);
-      } catch (error) {
-        this.logger.error(
-          `Failed to create role ${role.code} for tenant ${tenant.id}: ${(error as Error).message}`,
-        );
-        throw error;
-      }
-    }
+    const result = await this.authCommandClient.request<
+      AdminSetupTenantRolesCommand,
+      AdminSetupTenantRolesResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.SETUP_TENANT_ROLES, {
+      tenantId: tenant.id,
+      roles: this.defaultRoles,
+    });
+    this.authCommandClient.assertSuccess(result, `Could not setup tenant roles for ${tenant.id}`);
 
     this.logger.log(
-      `Successfully created ${this.defaultRoles.length} default roles for tenant ${tenant.id}`,
+      `Successfully ensured ${result.rolesCreated ?? 0} default roles for tenant ${tenant.id}`,
     );
-  }
-
-  /**
-   * Ensure the tenant_roles table exists in the database.
-   * MEDIUM-008 fix: the DDL is skipped after the first successful call within
-   * this service instance to avoid issuing locking DDL on every provisioning.
-   * The authoritative fix is to move these statements into a TypeORM migration.
-   */
-  private async ensureTenantRolesTableExists(): Promise<void> {
-    if (this.tenantRolesTableEnsured) return;
-    try {
-      await this.dataSource.query(`
-        CREATE TABLE IF NOT EXISTS auth.tenant_roles (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          "tenantId" UUID NOT NULL,
-          code VARCHAR(50) NOT NULL,
-          name VARCHAR(100) NOT NULL,
-          description TEXT,
-          permissions JSONB NOT NULL DEFAULT '[]',
-          is_default BOOLEAN NOT NULL DEFAULT false,
-          is_editable BOOLEAN NOT NULL DEFAULT true,
-          display_order INTEGER NOT NULL DEFAULT 0,
-          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-          CONSTRAINT uk_tenant_roles_tenant_code UNIQUE ("tenantId", code),
-          CONSTRAINT fk_tenant_roles_tenant FOREIGN KEY ("tenantId")
-            REFERENCES auth.tenants(id) ON DELETE CASCADE
-        )
-      `);
-
-      // Create indexes for better query performance
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_tenant_roles_tenant_id
-        ON auth.tenant_roles("tenantId")
-      `);
-
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_tenant_roles_code
-        ON auth.tenant_roles(code)
-      `);
-
-      // Mark as done so subsequent provisioning calls skip these DDL statements
-      this.tenantRolesTableEnsured = true;
-    } catch (error) {
-      // Table might already exist or constraint might already be in place
-      this.logger.debug(
-        `tenant_roles table setup: ${(error as Error).message}`,
-      );
-      // Still mark as ensured if the table was already there (CREATE IF NOT EXISTS)
-      this.tenantRolesTableEnsured = true;
-    }
   }
 
   /**
@@ -833,9 +752,7 @@ export class TenantProvisioningService {
         name: row.name,
         description: row.description,
         permissions:
-          typeof row.permissions === 'string'
-            ? JSON.parse(row.permissions)
-            : row.permissions,
+          typeof row.permissions === 'string' ? JSON.parse(row.permissions) : row.permissions,
         isDefault: row.is_default,
         isEditable: row.is_editable,
         displayOrder: row.display_order,
@@ -873,9 +790,7 @@ export class TenantProvisioningService {
       name: row.name,
       description: row.description,
       permissions:
-        typeof row.permissions === 'string'
-          ? JSON.parse(row.permissions)
-          : row.permissions,
+        typeof row.permissions === 'string' ? JSON.parse(row.permissions) : row.permissions,
       isDefault: row.is_default,
       isEditable: row.is_editable,
       displayOrder: row.display_order,
@@ -907,15 +822,11 @@ export class TenantProvisioningService {
         },
       });
 
-      this.logger.log(
-        `Successfully created default configuration for tenant ${tenant.id}`,
-      );
+      this.logger.log(`Successfully created default configuration for tenant ${tenant.id}`);
     } catch (error) {
       // If configuration already exists, log and continue
       if ((error as Error).message?.includes('already exists')) {
-        this.logger.warn(
-          `Configuration already exists for tenant ${tenant.id}, skipping creation`,
-        );
+        this.logger.warn(`Configuration already exists for tenant ${tenant.id}, skipping creation`);
         return;
       }
 
@@ -936,9 +847,7 @@ export class TenantProvisioningService {
     });
 
     if (backup.status !== 'completed') {
-      throw new Error(
-        `Tenant backup did not complete before deprovisioning: ${backup.status}`,
-      );
+      throw new Error(`Tenant backup did not complete before deprovisioning: ${backup.status}`);
     }
   }
 
@@ -946,22 +855,12 @@ export class TenantProvisioningService {
     // Deprovisioning must remove auth/admin side resources only after a
     // completed schema backup. Tenant business data is removed by dropping the
     // tenant schema in cleanupTenantSchema().
-    await this.dataSource.query(
-      `DELETE FROM auth.invitations WHERE "tenantId" = $1`,
-      [tenant.id],
-    );
-    await this.dataSource.query(
-      `UPDATE auth.users SET "isActive" = false, "updatedAt" = NOW() WHERE "tenantId" = $1`,
-      [tenant.id],
-    );
-    await this.dataSource.query(
-      `DELETE FROM auth.tenant_modules WHERE "tenantId" = $1`,
-      [tenant.id],
-    );
-    await this.dataSource.query(
-      `DELETE FROM auth.tenant_roles WHERE "tenantId" = $1`,
-      [tenant.id],
-    );
+    await this.removeTenantAuthResources(tenant.id, {
+      deactivateUsers: true,
+      removeInvitations: true,
+      removeTenantModules: true,
+      removeTenantRoles: true,
+    });
   }
 
   private async cleanupTenantSchema(tenant: Tenant): Promise<void> {
@@ -1006,75 +905,24 @@ export class TenantProvisioningService {
     error?: string;
   }> {
     try {
-      // Check if email already exists
-      const existingUser = await this.dataSource.query(
-        `SELECT id FROM auth.users WHERE LOWER(email) = LOWER($1)`,
-        [email],
-      );
-
-      if (existingUser && existingUser.length > 0) {
-        return {
-          success: false,
-          error: 'A user with this email already exists',
-        };
-      }
-
-      // Generate invitation token — raw token goes to email, SHA-256 hash goes to DB.
-      // This follows the auth-service pattern: if the DB is compromised, the attacker
-      // cannot use the hashed tokens to accept invitations.
-      const rawInvitationToken = crypto.randomBytes(32).toString('hex');
-      const hashedToken = crypto.createHash('sha256').update(rawInvitationToken).digest('hex');
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
-
-      // Create user in transaction
-      const result = await this.dataSource.transaction(async (manager) => {
-        // Create user with hashed invitation token
-        const userResult = await manager.query(
-          `
-          INSERT INTO auth.users (
-            id, email, "firstName", "lastName", role, "tenantId",
-            "isActive", "isEmailVerified", "invitationToken", "invitationExpiresAt",
-            "createdAt", "updatedAt"
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3, 'TENANT_ADMIN', $4,
-            true, false, $5, $6,
-            NOW(), NOW()
-          )
-          RETURNING id
-        `,
-          [email, firstName, lastName, tenantId, hashedToken, expiresAt],
-        );
-
-        const userId = userResult[0].id;
-
-        // Create invitation record with hashed token
-        await manager.query(
-          `
-          INSERT INTO auth.invitations (
-            id, token, email, "firstName", "lastName", role, "tenantId",
-            status, "expiresAt", "invitedBy", "sendCount", "lastSentAt", "createdAt", "updatedAt"
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3, $4, 'TENANT_ADMIN', $5,
-            'PENDING', $6, $7, 1, NOW(), NOW(), NOW()
-          )
-        `,
-          [hashedToken, email, firstName, lastName, tenantId, expiresAt, userId],
-        );
-
-        // Update tenant user count
-        await manager.query(
-          `UPDATE auth.tenants SET user_count = 1 WHERE id = $1`,
-          [tenantId],
-        );
-
-        return { userId };
+      const result = await this.authCommandClient.request<
+        CreateTenantAdminCommand,
+        CreateTenantAdminResult
+      >(AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_TENANT_ADMIN, {
+        tenantId,
+        email,
+        firstName,
+        lastName,
       });
 
       // Create user permissions with TENANT_ADMIN_PERMISSIONS
       // grantedBy is UUID type — use null for system-provisioned users
+      this.authCommandClient.assertSuccess(
+        result,
+        `Could not create first admin for tenant ${tenantId}`,
+      );
       await this.userPermissionsService.createDefaultPermissions(
-        result.userId,
+        result.userId!,
         tenantId,
         undefined, // grantedBy: omitted for system provisioning (column is nullable UUID)
         true, // isAdmin - true to use TENANT_ADMIN_PERMISSIONS
@@ -1087,12 +935,10 @@ export class TenantProvisioningService {
       return {
         success: true,
         userId: result.userId,
-        invitationToken: rawInvitationToken, // Raw token for email — DB stores only the hash
+        invitationToken: result.invitationToken,
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to create first admin: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to create first admin: ${(error as Error).message}`);
       return {
         success: false,
         error: (error as Error).message,
@@ -1105,25 +951,61 @@ export class TenantProvisioningService {
    * HIGH-004 fix: replaced sequential per-module INSERT calls with a single
    * bulk INSERT … VALUES … ON CONFLICT DO NOTHING.
    */
-  private async assignModulesToTenant(
-    tenantId: string,
-    moduleIds: string[],
-  ): Promise<void> {
+  private async assignModulesToTenant(tenantId: string, moduleIds: string[]): Promise<void> {
     if (moduleIds.length === 0) return;
 
     this.logger.log(`Assigning ${moduleIds.length} modules to tenant ${tenantId}`);
 
     try {
-      // Build a single query with unnest for safe parameterised bulk insert
-      await this.dataSource.query(
-        `INSERT INTO auth.tenant_modules (id, "tenantId", "moduleId", "isEnabled", "activatedAt", "createdAt", "updatedAt")
-         SELECT gen_random_uuid(), $1, unnest($2::uuid[]), true, NOW(), NOW(), NOW()
-         ON CONFLICT ("tenantId", "moduleId") DO NOTHING`,
-        [tenantId, moduleIds],
+      const result = await this.authCommandClient.request<
+        AdminAssignTenantModulesCommand,
+        AdminAssignTenantModulesResult
+      >(AUTH_ADMIN_COMMAND_SUBJECTS.ASSIGN_TENANT_MODULES, {
+        tenantId,
+        modules: moduleIds.map((moduleId) => ({ moduleId, assignedBy: tenantId })),
+      });
+      this.authCommandClient.assertSuccess(
+        result,
+        `Could not assign modules to tenant ${tenantId}`,
       );
     } catch (error) {
-      throw new Error(`Could not assign modules to tenant ${tenantId}: ${(error as Error).message}`);
+      throw new Error(
+        `Could not assign modules to tenant ${tenantId}: ${(error as Error).message}`,
+      );
     }
+  }
+
+  private async setTenantStatus(
+    tenantId: string,
+    status: TenantStatus,
+    expectedStatus?: TenantStatus,
+  ): Promise<void> {
+    const result = await this.authCommandClient.request<
+      AdminSetTenantStatusCommand,
+      AdminSetTenantStatusResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.SET_TENANT_STATUS, {
+      tenantId,
+      status,
+      expectedStatus,
+    });
+    this.authCommandClient.assertSuccess(result, `Could not set tenant ${tenantId} status`);
+  }
+
+  private async removeTenantAuthResources(
+    tenantId: string,
+    options: Omit<AdminRemoveTenantAuthResourcesCommand, 'tenantId'>,
+  ): Promise<void> {
+    const result = await this.authCommandClient.request<
+      AdminRemoveTenantAuthResourcesCommand,
+      AdminRemoveTenantAuthResourcesResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.REMOVE_TENANT_AUTH_RESOURCES, {
+      tenantId,
+      ...options,
+    });
+    this.authCommandClient.assertSuccess(
+      result,
+      `Could not remove auth resources for tenant ${tenantId}`,
+    );
   }
 
   /**
@@ -1145,18 +1027,210 @@ export class TenantProvisioningService {
 
     // Common aquaculture parameters — covers freshwater + seawater basics
     const params = [
-      { code: 'temperature', name: 'Temperature', unit: '°C', precision: 1, group: 'basic', optMin: 8, optMax: 20, warnMin: 4, warnMax: 24, critMin: 2, critMax: 28, color: '#3b82f6', order: 1, required: true, axis: 'left' },
-      { code: 'dissolved_oxygen', name: 'Dissolved Oxygen', unit: 'mg/L', precision: 1, group: 'basic', optMin: 6, optMax: 12, warnMin: 4.5, warnMax: 14, critMin: 3, critMax: 16, color: '#22c55e', order: 2, required: true, axis: 'left' },
-      { code: 'ph', name: 'pH', unit: '', precision: 2, group: 'basic', optMin: 6.5, optMax: 8.5, warnMin: 6.0, warnMax: 9.0, critMin: 5.5, critMax: 9.5, color: '#8b5cf6', order: 3, required: true, axis: 'left' },
-      { code: 'ammonia', name: 'Ammonia (NH₃)', unit: 'mg/L', precision: 3, group: 'nitrogen_cycle', optMin: 0, optMax: 0.02, warnMin: 0, warnMax: 0.05, critMin: 0, critMax: 0.1, color: '#ef4444', order: 4, required: true, axis: 'right' },
-      { code: 'nitrite', name: 'Nitrite (NO₂)', unit: 'mg/L', precision: 3, group: 'nitrogen_cycle', optMin: 0, optMax: 0.1, warnMin: 0, warnMax: 0.3, critMin: 0, critMax: 0.5, color: '#f97316', order: 5, required: true, axis: 'right' },
-      { code: 'nitrate', name: 'Nitrate (NO₃)', unit: 'mg/L', precision: 1, group: 'nitrogen_cycle', optMin: 0, optMax: 50, warnMin: 0, warnMax: 80, critMin: 0, critMax: 100, color: '#eab308', order: 6, required: false, axis: 'right' },
-      { code: 'salinity', name: 'Salinity', unit: 'ppt', precision: 1, group: 'basic', optMin: 0, optMax: 38, warnMin: 0, warnMax: 42, critMin: 0, critMax: 45, color: '#0891b2', order: 7, required: false, axis: 'left' },
-      { code: 'alkalinity', name: 'Alkalinity', unit: 'mg/L CaCO₃', precision: 0, group: 'basic', optMin: 40, optMax: 200, warnMin: 20, warnMax: 300, critMin: 10, critMax: 400, color: '#a855f7', order: 8, required: false, axis: 'left' },
-      { code: 'turbidity', name: 'Turbidity', unit: 'NTU', precision: 1, group: 'basic', optMin: 0, optMax: 10, warnMin: 0, warnMax: 25, critMin: 0, critMax: 50, color: '#78716c', order: 9, required: false, axis: 'left' },
-      { code: 'co2', name: 'Carbon Dioxide', unit: 'mg/L', precision: 1, group: 'basic', optMin: 0, optMax: 15, warnMin: 0, warnMax: 25, critMin: 0, critMax: 40, color: '#06b6d4', order: 10, required: false, axis: 'right' },
-      { code: 'oxygen_saturation', name: 'Oxygen Saturation', unit: '%', precision: 0, group: 'basic', optMin: 70, optMax: 120, warnMin: 50, warnMax: 130, critMin: 30, critMax: 150, color: '#16a34a', order: 11, required: false, axis: 'left' },
-      { code: 'conductivity', name: 'Conductivity', unit: 'µS/cm', precision: 0, group: 'basic', optMin: 50, optMax: 800, warnMin: 20, warnMax: 1200, critMin: 10, critMax: 2000, color: '#14b8a6', order: 12, required: false, axis: 'right' },
+      {
+        code: 'temperature',
+        name: 'Temperature',
+        unit: '°C',
+        precision: 1,
+        group: 'basic',
+        optMin: 8,
+        optMax: 20,
+        warnMin: 4,
+        warnMax: 24,
+        critMin: 2,
+        critMax: 28,
+        color: '#3b82f6',
+        order: 1,
+        required: true,
+        axis: 'left',
+      },
+      {
+        code: 'dissolved_oxygen',
+        name: 'Dissolved Oxygen',
+        unit: 'mg/L',
+        precision: 1,
+        group: 'basic',
+        optMin: 6,
+        optMax: 12,
+        warnMin: 4.5,
+        warnMax: 14,
+        critMin: 3,
+        critMax: 16,
+        color: '#22c55e',
+        order: 2,
+        required: true,
+        axis: 'left',
+      },
+      {
+        code: 'ph',
+        name: 'pH',
+        unit: '',
+        precision: 2,
+        group: 'basic',
+        optMin: 6.5,
+        optMax: 8.5,
+        warnMin: 6.0,
+        warnMax: 9.0,
+        critMin: 5.5,
+        critMax: 9.5,
+        color: '#8b5cf6',
+        order: 3,
+        required: true,
+        axis: 'left',
+      },
+      {
+        code: 'ammonia',
+        name: 'Ammonia (NH₃)',
+        unit: 'mg/L',
+        precision: 3,
+        group: 'nitrogen_cycle',
+        optMin: 0,
+        optMax: 0.02,
+        warnMin: 0,
+        warnMax: 0.05,
+        critMin: 0,
+        critMax: 0.1,
+        color: '#ef4444',
+        order: 4,
+        required: true,
+        axis: 'right',
+      },
+      {
+        code: 'nitrite',
+        name: 'Nitrite (NO₂)',
+        unit: 'mg/L',
+        precision: 3,
+        group: 'nitrogen_cycle',
+        optMin: 0,
+        optMax: 0.1,
+        warnMin: 0,
+        warnMax: 0.3,
+        critMin: 0,
+        critMax: 0.5,
+        color: '#f97316',
+        order: 5,
+        required: true,
+        axis: 'right',
+      },
+      {
+        code: 'nitrate',
+        name: 'Nitrate (NO₃)',
+        unit: 'mg/L',
+        precision: 1,
+        group: 'nitrogen_cycle',
+        optMin: 0,
+        optMax: 50,
+        warnMin: 0,
+        warnMax: 80,
+        critMin: 0,
+        critMax: 100,
+        color: '#eab308',
+        order: 6,
+        required: false,
+        axis: 'right',
+      },
+      {
+        code: 'salinity',
+        name: 'Salinity',
+        unit: 'ppt',
+        precision: 1,
+        group: 'basic',
+        optMin: 0,
+        optMax: 38,
+        warnMin: 0,
+        warnMax: 42,
+        critMin: 0,
+        critMax: 45,
+        color: '#0891b2',
+        order: 7,
+        required: false,
+        axis: 'left',
+      },
+      {
+        code: 'alkalinity',
+        name: 'Alkalinity',
+        unit: 'mg/L CaCO₃',
+        precision: 0,
+        group: 'basic',
+        optMin: 40,
+        optMax: 200,
+        warnMin: 20,
+        warnMax: 300,
+        critMin: 10,
+        critMax: 400,
+        color: '#a855f7',
+        order: 8,
+        required: false,
+        axis: 'left',
+      },
+      {
+        code: 'turbidity',
+        name: 'Turbidity',
+        unit: 'NTU',
+        precision: 1,
+        group: 'basic',
+        optMin: 0,
+        optMax: 10,
+        warnMin: 0,
+        warnMax: 25,
+        critMin: 0,
+        critMax: 50,
+        color: '#78716c',
+        order: 9,
+        required: false,
+        axis: 'left',
+      },
+      {
+        code: 'co2',
+        name: 'Carbon Dioxide',
+        unit: 'mg/L',
+        precision: 1,
+        group: 'basic',
+        optMin: 0,
+        optMax: 15,
+        warnMin: 0,
+        warnMax: 25,
+        critMin: 0,
+        critMax: 40,
+        color: '#06b6d4',
+        order: 10,
+        required: false,
+        axis: 'right',
+      },
+      {
+        code: 'oxygen_saturation',
+        name: 'Oxygen Saturation',
+        unit: '%',
+        precision: 0,
+        group: 'basic',
+        optMin: 70,
+        optMax: 120,
+        warnMin: 50,
+        warnMax: 130,
+        critMin: 30,
+        critMax: 150,
+        color: '#16a34a',
+        order: 11,
+        required: false,
+        axis: 'left',
+      },
+      {
+        code: 'conductivity',
+        name: 'Conductivity',
+        unit: 'µS/cm',
+        precision: 0,
+        group: 'basic',
+        optMin: 50,
+        optMax: 800,
+        warnMin: 20,
+        warnMax: 1200,
+        critMin: 10,
+        critMax: 2000,
+        color: '#14b8a6',
+        order: 12,
+        required: false,
+        axis: 'right',
+      },
     ];
 
     try {
@@ -1176,17 +1250,34 @@ export class TenantProvisioningService {
               $13, $14, $15, $15, true, $16,
               false, 'default_seed', NOW(), NOW())
            ON CONFLICT ("tenantId", code) DO NOTHING`,
-          [tenantId, p.code, p.name, p.unit, p.precision, p.group,
-           p.optMin, p.optMax, p.warnMin, p.warnMax, p.critMin, p.critMax,
-           p.color, p.order, p.required, p.axis],
+          [
+            tenantId,
+            p.code,
+            p.name,
+            p.unit,
+            p.precision,
+            p.group,
+            p.optMin,
+            p.optMax,
+            p.warnMin,
+            p.warnMax,
+            p.critMin,
+            p.critMax,
+            p.color,
+            p.order,
+            p.required,
+            p.axis,
+          ],
         );
       }
 
-      this.logger.log(`Seeded ${params.length} default water quality parameters for tenant ${tenantId}`);
+      this.logger.log(
+        `Seeded ${params.length} default water quality parameters for tenant ${tenantId}`,
+      );
     } catch (error) {
       this.logger.warn(
         `Failed to seed water quality params for tenant ${tenantId}: ${(error as Error).message}. ` +
-        `Tenant can manually configure parameters via the Parameters tab.`,
+          `Tenant can manually configure parameters via the Parameters tab.`,
       );
       // Non-fatal — tenant can still use the system, just needs to set up params manually
     }

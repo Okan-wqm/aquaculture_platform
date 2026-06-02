@@ -7,8 +7,16 @@ import {
 } from '@nestjs/common';
 import { EventBus } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
+import {
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  createBaseEvent,
+  type AdminAssignTenantModulesCommand,
+  type AdminAssignTenantModulesResult,
+  type AdminRemoveTenantModuleCommand,
+  type AdminTenantModuleMutationResult,
+} from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
-import { createBaseEvent } from '@platform/event-contracts';
+import { AuthCommandClientService } from '../../../auth/auth-command-client.service';
 
 import { PlanTier, BillingCycle } from '../../../billing/entities/plan-definition.entity';
 import {
@@ -119,6 +127,7 @@ export class ModuleAssignmentService {
     private readonly dataSource: DataSource,
     private readonly eventBus: EventBus,
     private readonly pricingCalculator: PricingCalculatorService,
+    private readonly authCommandClient: AuthCommandClientService,
   ) {}
 
   /**
@@ -150,88 +159,44 @@ export class ModuleAssignmentService {
     // Prepare modules for pricing calculation
     const moduleSelections: ModuleSelection[] = [];
 
-    // Process each module within a transaction for atomicity
-    await this.dataSource.transaction(async (manager) => {
-      for (const moduleRequest of modules) {
-        const { moduleId, quantities = {} } = moduleRequest;
-
-        try {
-          const moduleInfo = moduleInfoMap.get(moduleId);
-          if (!moduleInfo) {
-            failedModules.push({
-              moduleId,
-              error: `Module ${moduleId} not found`,
-            });
-            continue;
-          }
-
-          // Check if already assigned
-          const existingResult = await manager.query(
-            `SELECT EXISTS(
-              SELECT 1 FROM auth.tenant_modules
-              WHERE "tenantId" = $1 AND "moduleId" = $2 AND "isEnabled" = true
-            ) as exists`,
-            [tenantId, moduleId],
-          );
-          const existing = existingResult[0]?.exists === true ||
-                          existingResult[0]?.exists === 't' ||
-                          existingResult[0]?.exists === 'true';
-
-          if (existing) {
-            // Update quantities instead of failing
-            await manager.query(
-              `UPDATE auth.tenant_modules
-               SET configuration = jsonb_set(COALESCE(configuration, '{}')::jsonb, '{quantities}', $3::jsonb),
-                   "updatedAt" = NOW(), "assignedBy" = $4
-               WHERE "tenantId" = $1 AND "moduleId" = $2`,
-              [tenantId, moduleId, JSON.stringify(quantities), assignedBy],
-            );
-            assignedModules.push(moduleId);
-            this.logger.log(`Updated quantities for module ${moduleId} on tenant ${tenantId}`);
-          } else {
-            // Insert new assignment
-            await manager.query(
-              `INSERT INTO auth.tenant_modules (
-                id, "tenantId", "moduleId", "isEnabled", "activatedAt",
-                "assignedBy", configuration, "createdAt", "updatedAt"
-              ) VALUES (
-                gen_random_uuid(), $1, $2, true, NOW(), $3, jsonb_build_object('quantities', $4::jsonb), NOW(), NOW()
-              )
-              ON CONFLICT ("tenantId", "moduleId")
-              DO UPDATE SET
-                "isEnabled" = true,
-                "activatedAt" = NOW(),
-                "assignedBy" = $3,
-                configuration = jsonb_set(COALESCE(auth.tenant_modules.configuration, '{}')::jsonb, '{quantities}', $4::jsonb),
-                "updatedAt" = NOW()`,
-              [tenantId, moduleId, assignedBy, JSON.stringify(quantities)],
-            );
-            assignedModules.push(moduleId);
-            this.logger.log(`Assigned module ${moduleId} to tenant ${tenantId}`);
-          }
-
-          // Add to pricing calculation
-          moduleSelections.push({
-            moduleId,
-            moduleCode: moduleInfo.code,
-            moduleName: moduleInfo.name,
-            quantities: {
-              users: quantities.users ?? 5,
-              farms: quantities.farms ?? 1,
-              ponds: quantities.ponds ?? 10,
-              sensors: quantities.sensors ?? 5,
-              ...quantities,
-            },
-          });
-        } catch (error) {
-          const errorMessage = (error as Error).message;
-          this.logger.error(
-            `Failed to assign module ${moduleId} to tenant ${tenantId}: ${errorMessage}`,
-          );
-          failedModules.push({ moduleId, error: errorMessage });
-        }
+    for (const moduleRequest of modules) {
+      const { moduleId, quantities = {} } = moduleRequest;
+      const moduleInfo = moduleInfoMap.get(moduleId);
+      if (!moduleInfo) {
+        failedModules.push({ moduleId, error: `Module ${moduleId} not found` });
+        continue;
       }
-    });
+      moduleSelections.push({
+        moduleId,
+        moduleCode: moduleInfo.code,
+        moduleName: moduleInfo.name,
+        quantities: {
+          users: quantities.users ?? 5,
+          farms: quantities.farms ?? 1,
+          ponds: quantities.ponds ?? 10,
+          sensors: quantities.sensors ?? 5,
+          ...quantities,
+        },
+      });
+    }
+
+    if (moduleSelections.length > 0) {
+      const result = await this.authCommandClient.request<
+        AdminAssignTenantModulesCommand,
+        AdminAssignTenantModulesResult
+      >(AUTH_ADMIN_COMMAND_SUBJECTS.ASSIGN_TENANT_MODULES, {
+        tenantId,
+        modules: modules
+          .filter((moduleRequest) => moduleInfoMap.has(moduleRequest.moduleId))
+          .map((moduleRequest) => ({
+            moduleId: moduleRequest.moduleId,
+            assignedBy,
+            configuration: { quantities: moduleRequest.quantities ?? {} },
+          })),
+      });
+      this.authCommandClient.assertSuccess(result, `Could not assign modules to tenant ${tenantId}`);
+      assignedModules.push(...moduleSelections.map((selection) => selection.moduleId));
+    }
 
     // Calculate pricing for assigned modules
     let pricing: PricingCalculation | undefined;
@@ -301,15 +266,15 @@ export class ModuleAssignmentService {
       );
     }
 
-    await this.dataSource.query(
-      `
-      UPDATE auth.tenant_modules
-      SET "isEnabled" = false,
-          "updatedAt" = NOW()
-      WHERE "tenantId" = $1 AND "moduleId" = $2
-      `,
-      [tenantId, moduleId],
-    );
+    const result = await this.authCommandClient.request<
+      AdminRemoveTenantModuleCommand,
+      AdminTenantModuleMutationResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.REMOVE_TENANT_MODULE, {
+      tenantId,
+      moduleId,
+      softDisable: true,
+    });
+    this.authCommandClient.assertSuccess(result, `Could not remove module ${moduleId}`);
 
     // Publish event
     this.eventBus.publish({
@@ -472,50 +437,6 @@ export class ModuleAssignmentService {
       });
     }
     return map;
-  }
-
-  private async insertModuleAssignment(
-    tenantId: string,
-    moduleId: string,
-    quantities: ModuleQuantities,
-    assignedBy: string,
-  ): Promise<void> {
-    await this.dataSource.query(
-      `
-      INSERT INTO auth.tenant_modules (
-        id, "tenantId", "moduleId", "isEnabled", "activatedAt",
-        "assignedBy", configuration, "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid(), $1, $2, true, NOW(), $3, jsonb_build_object('quantities', $4::jsonb), NOW(), NOW()
-      )
-      ON CONFLICT ("tenantId", "moduleId")
-      DO UPDATE SET
-        "isEnabled" = true,
-        "activatedAt" = NOW(),
-        "assignedBy" = $3,
-        configuration = jsonb_set(COALESCE(auth.tenant_modules.configuration, '{}')::jsonb, '{quantities}', $4::jsonb),
-        "updatedAt" = NOW()
-      `,
-      [tenantId, moduleId, assignedBy, JSON.stringify(quantities)],
-    );
-  }
-
-  private async updateModuleQuantities(
-    tenantId: string,
-    moduleId: string,
-    quantities: ModuleQuantities,
-    updatedBy: string,
-  ): Promise<void> {
-    await this.dataSource.query(
-      `
-      UPDATE auth.tenant_modules
-      SET configuration = jsonb_set(COALESCE(configuration, '{}')::jsonb, '{quantities}', $3::jsonb),
-          "updatedAt" = NOW(),
-          "assignedBy" = $4
-      WHERE "tenantId" = $1 AND "moduleId" = $2
-      `,
-      [tenantId, moduleId, JSON.stringify(quantities), updatedBy],
-    );
   }
 
   private async updateTenantModulesPricing(

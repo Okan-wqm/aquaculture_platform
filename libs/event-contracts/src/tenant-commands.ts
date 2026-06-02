@@ -42,8 +42,8 @@ export interface CreateTenantAdminCommand {
 
 /**
  * Result returned by the auth-service after processing CreateTenantAdminCommand.
- * The invitationToken is intentionally omitted -- it must only travel via email
- * to prevent token leakage through API responses or logs.
+ * invitationToken is returned only for the caller's email delivery path.
+ * Callers MUST NOT log it or include it in API responses.
  */
 export interface CreateTenantAdminResult {
   success: boolean;
@@ -51,6 +51,9 @@ export interface CreateTenantAdminResult {
   userId?: string;
   /** Admin email echoed back for confirmation */
   email?: string;
+  /** Raw invitation token for email delivery */
+  invitationToken?: string;
+  errorCode?: 'DUPLICATE_EMAIL' | 'TENANT_NOT_FOUND' | 'INTERNAL_ERROR';
   /** Error message (only present on failure) */
   error?: string;
 }
@@ -132,9 +135,7 @@ export interface RollbackTenantProvisioningCommand {
   /** Tenant UUID */
   tenantId: string;
   /** Which provisioning steps completed and need rollback */
-  completedSteps: Array<
-    'create_admin' | 'setup_roles' | 'assign_modules' | 'activate_tenant'
-  >;
+  completedSteps: Array<'create_admin' | 'setup_roles' | 'assign_modules' | 'activate_tenant'>;
   /** Reason for rollback (for audit logging) */
   reason: string;
   /** Correlation ID for distributed tracing */
@@ -163,6 +164,25 @@ export const AUTH_ADMIN_COMMAND_SUBJECTS = {
   FORCE_LOGOUT_USER: 'request.auth.admin.forceLogoutUser',
   INVITE_USER: 'request.auth.admin.inviteUser',
   CHECK_USER_LIMIT: 'request.auth.admin.checkUserLimit',
+  CREATE_TENANT_ADMIN: 'request.auth.admin.createTenantAdmin',
+  CLAIM_TENANT_PROVISIONING: 'request.auth.admin.claimTenantProvisioning',
+  SET_TENANT_STATUS: 'request.auth.admin.setTenantStatus',
+  UPDATE_TENANT_BILLING_STATE: 'request.auth.admin.updateTenantBillingState',
+  SETUP_TENANT_ROLES: 'request.auth.admin.setupTenantRoles',
+  ASSIGN_TENANT_MODULES: 'request.auth.admin.assignTenantModules',
+  REMOVE_TENANT_AUTH_RESOURCES: 'request.auth.admin.removeTenantAuthResources',
+  CREATE_MODULE: 'request.auth.admin.createModule',
+  UPDATE_MODULE: 'request.auth.admin.updateModule',
+  DELETE_MODULE: 'request.auth.admin.deleteModule',
+  UPSERT_TENANT_MODULE: 'request.auth.admin.upsertTenantModule',
+  REMOVE_TENANT_MODULE: 'request.auth.admin.removeTenantModule',
+  CREATE_TENANT_ROLE: 'request.auth.admin.createTenantRole',
+  UPDATE_TENANT_ROLE: 'request.auth.admin.updateTenantRole',
+  DELETE_TENANT_ROLE: 'request.auth.admin.deleteTenantRole',
+  SEED_TENANT_ROLES: 'request.auth.admin.seedTenantRoles',
+  ASSIGN_USER_ROLE: 'request.auth.admin.assignUserRole',
+  UPDATE_USER_ROLE_ASSIGNMENT: 'request.auth.admin.updateUserRoleAssignment',
+  REVOKE_USER_ROLE_ASSIGNMENT: 'request.auth.admin.revokeUserRoleAssignment',
 } as const;
 
 export const AUTH_PASSWORD_RESET_SUBJECTS = {
@@ -192,7 +212,11 @@ export interface AuthPasswordResetCompleteCommand {
 export interface AuthPasswordResetCompleteResult {
   success: boolean;
   message: string;
-  errorCode?: 'INVALID_OR_EXPIRED_TOKEN' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  errorCode?:
+    | 'INVALID_OR_EXPIRED_TOKEN'
+    | 'PASSWORD_POLICY_VIOLATION'
+    | 'VALIDATION_ERROR'
+    | 'INTERNAL_ERROR';
   error?: string;
 }
 
@@ -251,6 +275,7 @@ export interface AdminCreateUserResult {
     | 'DUPLICATE_EMAIL'
     | 'TENANT_NOT_FOUND'
     | 'INVALID_ROLE'
+    | 'PASSWORD_POLICY_VIOLATION'
     | 'VALIDATION_ERROR'
     | 'INTERNAL_ERROR';
   /** Human-readable error detail (safe for logs — no PII) */
@@ -290,7 +315,11 @@ export interface AdminResetUserPasswordResult {
   userId?: string;
   /** Number of refresh tokens revoked as a side-effect of the reset */
   refreshTokensRevoked?: number;
-  errorCode?: 'USER_NOT_FOUND' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  errorCode?:
+    | 'USER_NOT_FOUND'
+    | 'PASSWORD_POLICY_VIOLATION'
+    | 'VALIDATION_ERROR'
+    | 'INTERNAL_ERROR';
   error?: string;
 }
 
@@ -540,6 +569,278 @@ export interface AdminCheckUserLimitResult {
   error?: string;
 }
 
+export interface AdminClaimTenantProvisioningCommand {
+  tenantId: string;
+  allowedStatuses: string[];
+  provisioningStatus: string;
+  correlationId?: string;
+}
+
+export interface AdminClaimTenantProvisioningResult {
+  success: boolean;
+  claimed?: boolean;
+  errorCode?: 'TENANT_NOT_FOUND' | 'INVALID_STATUS' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminSetTenantStatusCommand {
+  tenantId: string;
+  status: string;
+  expectedStatus?: string;
+  touchLastActivityAt?: boolean;
+  correlationId?: string;
+}
+
+export interface AdminSetTenantStatusResult {
+  success: boolean;
+  updated?: boolean;
+  errorCode?: 'TENANT_NOT_FOUND' | 'INVALID_STATUS' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminUpdateTenantBillingStateCommand {
+  tenantId: string;
+  planTier: string;
+  limits: Record<string, unknown>;
+  correlationId?: string;
+}
+
+export interface AdminUpdateTenantBillingStateResult {
+  success: boolean;
+  errorCode?: 'TENANT_NOT_FOUND' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminSetupTenantRolesCommand {
+  tenantId: string;
+  roles: Array<{
+    code: string;
+    name: string;
+    description: string;
+    permissions: string[];
+    isDefault: boolean;
+    isEditable: boolean;
+    displayOrder: number;
+  }>;
+  correlationId?: string;
+}
+
+export interface AdminSetupTenantRolesResult {
+  success: boolean;
+  rolesCreated?: number;
+  errorCode?: 'TENANT_NOT_FOUND' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminAssignTenantModulesCommand {
+  tenantId: string;
+  modules: Array<{
+    moduleId: string;
+    expiresAt?: string | null;
+    assignedBy?: string | null;
+    configuration?: Record<string, unknown> | null;
+  }>;
+  correlationId?: string;
+}
+
+export interface AdminAssignTenantModulesResult {
+  success: boolean;
+  modulesAssigned?: number;
+  errorCode?: 'TENANT_NOT_FOUND' | 'MODULE_NOT_FOUND' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminRemoveTenantAuthResourcesCommand {
+  tenantId: string;
+  deactivateUsers?: boolean;
+  removeInvitations?: boolean;
+  removeTenantModules?: boolean;
+  removeTenantRoles?: boolean;
+  correlationId?: string;
+}
+
+export interface AdminRemoveTenantAuthResourcesResult {
+  success: boolean;
+  errorCode?: 'TENANT_NOT_FOUND' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminCreateModuleCommand {
+  code: string;
+  name: string;
+  description?: string | null;
+  defaultRoute: string;
+  icon?: string | null;
+  isCore?: boolean;
+  price?: number;
+  correlationId?: string;
+}
+
+export interface AdminModuleMutationResult {
+  success: boolean;
+  module?: {
+    id: string;
+    code: string;
+    name: string;
+    description: string | null;
+    defaultRoute: string;
+    icon: string | null;
+    isCore: boolean;
+    isActive: boolean;
+    price: number;
+    createdAt?: string;
+    updatedAt?: string;
+  };
+  errorCode?: 'DUPLICATE_CODE' | 'MODULE_NOT_FOUND' | 'MODULE_ASSIGNED' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminUpdateModuleCommand {
+  moduleId: string;
+  name?: string;
+  description?: string | null;
+  defaultRoute?: string;
+  icon?: string | null;
+  isActive?: boolean;
+  price?: number;
+  correlationId?: string;
+}
+
+export interface AdminDeleteModuleCommand {
+  moduleId: string;
+  correlationId?: string;
+}
+
+export interface AdminDeleteModuleResult {
+  success: boolean;
+  errorCode?: 'MODULE_NOT_FOUND' | 'MODULE_ASSIGNED' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminUpsertTenantModuleCommand {
+  tenantId: string;
+  moduleId: string;
+  expiresAt?: string | null;
+  assignedBy?: string | null;
+  quantities?: Record<string, unknown> | null;
+  configuration?: Record<string, unknown> | null;
+  correlationId?: string;
+}
+
+export interface AdminTenantModuleMutationResult {
+  success: boolean;
+  assignment?: {
+    id: string;
+    tenantId: string;
+    moduleId: string;
+    assignedAt: string;
+    expiresAt: string | null;
+    quantities?: Record<string, unknown>;
+    configuration?: Record<string, unknown>;
+  };
+  errorCode?: 'TENANT_NOT_FOUND' | 'MODULE_NOT_FOUND' | 'ASSIGNMENT_NOT_FOUND' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminRemoveTenantModuleCommand {
+  tenantId: string;
+  moduleId: string;
+  softDisable?: boolean;
+  correlationId?: string;
+}
+
+export interface AdminCreateTenantRoleCommand {
+  tenantId: string;
+  name: string;
+  description?: string | null;
+  color?: string | null;
+  icon?: string | null;
+  level?: number;
+  isDefault?: boolean;
+  panelPermissions: Record<string, unknown>;
+  createdBy: string;
+  correlationId?: string;
+}
+
+export interface AdminUpdateTenantRoleCommand {
+  tenantId: string;
+  roleId: string;
+  name?: string;
+  description?: string | null;
+  color?: string | null;
+  icon?: string | null;
+  level?: number;
+  isDefault?: boolean;
+  panelPermissions?: Record<string, unknown>;
+  updatedBy: string;
+  correlationId?: string;
+}
+
+export interface AdminDeleteTenantRoleCommand {
+  tenantId: string;
+  roleId: string;
+  deletedBy: string;
+  correlationId?: string;
+}
+
+export interface AdminSeedTenantRolesCommand {
+  tenantId: string;
+  roles: Array<{
+    name: string;
+    description: string;
+    color: string;
+    icon: string;
+    level: number;
+    isSystem: boolean;
+    isDefault: boolean;
+    panelPermissions: Record<string, unknown>;
+  }>;
+  createdBy: string;
+  correlationId?: string;
+}
+
+export interface AdminTenantRoleMutationResult {
+  success: boolean;
+  roleId?: string;
+  rolesCreated?: number;
+  errorCode?: 'DUPLICATE_ROLE' | 'ROLE_NOT_FOUND' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminAssignUserRoleCommand {
+  tenantId: string;
+  userId: string;
+  roleId: string;
+  permissionOverrides: { grants: string[]; revokes: string[] };
+  expiresAt?: string | null;
+  assignedBy: string;
+  correlationId?: string;
+}
+
+export interface AdminUpdateUserRoleAssignmentCommand {
+  tenantId: string;
+  userId: string;
+  roleId?: string;
+  permissionOverrides?: { grants: string[]; revokes: string[] };
+  expiresAt?: string | null;
+  isActive?: boolean;
+  updatedBy: string;
+  correlationId?: string;
+}
+
+export interface AdminRevokeUserRoleAssignmentCommand {
+  tenantId: string;
+  userId: string;
+  revokedBy: string;
+  correlationId?: string;
+}
+
+export interface AdminUserRoleAssignmentMutationResult {
+  success: boolean;
+  errorCode?: 'ASSIGNMENT_NOT_FOUND' | 'ROLE_NOT_FOUND' | 'DUPLICATE_ASSIGNMENT' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
 /**
  * Union type for all admin-api → auth-service user lifecycle commands.
  */
@@ -550,4 +851,23 @@ export type AuthAdminCommand =
   | AdminDeactivateUserCommand
   | AdminForceLogoutUserCommand
   | AdminInviteUserCommand
-  | AdminCheckUserLimitQuery;
+  | AdminCheckUserLimitQuery
+  | CreateTenantAdminCommand
+  | AdminClaimTenantProvisioningCommand
+  | AdminSetTenantStatusCommand
+  | AdminUpdateTenantBillingStateCommand
+  | AdminSetupTenantRolesCommand
+  | AdminAssignTenantModulesCommand
+  | AdminRemoveTenantAuthResourcesCommand
+  | AdminCreateModuleCommand
+  | AdminUpdateModuleCommand
+  | AdminDeleteModuleCommand
+  | AdminUpsertTenantModuleCommand
+  | AdminRemoveTenantModuleCommand
+  | AdminCreateTenantRoleCommand
+  | AdminUpdateTenantRoleCommand
+  | AdminDeleteTenantRoleCommand
+  | AdminSeedTenantRolesCommand
+  | AdminAssignUserRoleCommand
+  | AdminUpdateUserRoleAssignmentCommand
+  | AdminRevokeUserRoleAssignmentCommand;

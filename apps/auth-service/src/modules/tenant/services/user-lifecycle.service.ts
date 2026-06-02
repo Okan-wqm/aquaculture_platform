@@ -12,6 +12,7 @@ import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 import { SchemaManagerService, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { passwordPolicyViolation } from '@aquaculture/backend-common/security';
 import { IEventBus } from '@platform/event-bus';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
 
@@ -146,6 +147,13 @@ export class UserLifecycleService {
     const role = await this.tenantRoleService.getRoleById(tenantId, input.roleId);
     if (!role) {
       throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
+    }
+
+    if (input.password) {
+      const violation = passwordPolicyViolation(input.password);
+      if (violation) {
+        throw new BadRequestException(violation);
+      }
     }
 
     // Generate invitation token if not providing password
@@ -378,6 +386,10 @@ export class UserLifecycleService {
     tenantId?: string | null;
   }): Promise<User> {
     const normalisedEmail = input.email.toLowerCase();
+    const violation = passwordPolicyViolation(input.password);
+    if (violation) {
+      throw new BadRequestException(violation);
+    }
 
     // Duplicate-email guard — expression index `LOWER(email)` enforces this
     // at the DB level too, but catching it in-service gives a clean typed
@@ -443,6 +455,11 @@ export class UserLifecycleService {
     newPassword: string,
     performedBy = 'admin-api-service',
   ): Promise<{ userId: string; refreshTokensRevoked: number }> {
+    const passwordPolicyError = passwordPolicyViolation(newPassword);
+    if (passwordPolicyError) {
+      throw new BadRequestException(passwordPolicyError);
+    }
+
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException(`User with ID "${userId}" not found`);

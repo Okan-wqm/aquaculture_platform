@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class TenantProvisioningWorkflow1800400000000
-  implements MigrationInterface
-{
+export class TenantProvisioningWorkflow1800400000000 implements MigrationInterface {
   name = 'TenantProvisioningWorkflow1800400000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -130,15 +128,14 @@ export class TenantProvisioningWorkflow1800400000000
 
           GRANT USAGE ON SCHEMA "auth", "admin", "shared" TO "admin_service";
 
-          GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+          GRANT SELECT ON TABLE
             "auth"."tenants",
             "auth"."tenant_modules",
             "auth"."tenant_roles",
             "auth"."users",
-            "auth"."invitations"
+            "auth"."invitations",
+            "auth"."modules"
           TO "admin_service";
-
-          GRANT SELECT ON TABLE "auth"."modules" TO "admin_service";
 
           GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
             "shared"."user_permissions"

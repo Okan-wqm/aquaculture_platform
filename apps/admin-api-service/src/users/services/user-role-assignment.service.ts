@@ -1,6 +1,14 @@
 import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import {
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  type AdminAssignUserRoleCommand,
+  type AdminRevokeUserRoleAssignmentCommand,
+  type AdminUpdateUserRoleAssignmentCommand,
+  type AdminUserRoleAssignmentMutationResult,
+} from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
+import { AuthCommandClientService } from '../../auth/auth-command-client.service';
 
 import { PanelPermissions } from '../entities/tenant-role-permissions.entity';
 import {
@@ -106,6 +114,7 @@ export class UserRoleAssignmentService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly tenantRoleService: TenantRoleService,
+    private readonly authCommandClient: AuthCommandClientService,
   ) {}
 
   /**
@@ -196,15 +205,18 @@ export class UserRoleAssignmentService {
     const overrides = input.permissionOverrides || { grants: [], revokes: [] };
     this.validatePermissionOverrides(overrides);
 
-    // Create assignment
-    await this.dataSource.query(
-      `
-      INSERT INTO "auth"."user_role_assignments" (
-        user_id, role_id, permission_overrides, assigned_by, assigned_at, expires_at, is_active, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, NOW(), $5, true, NOW(), NOW())
-      `,
-      [userId, input.roleId, JSON.stringify(overrides), assignedBy, input.expiresAt || null],
-    );
+    const result = await this.authCommandClient.request<
+      AdminAssignUserRoleCommand,
+      AdminUserRoleAssignmentMutationResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.ASSIGN_USER_ROLE, {
+      tenantId,
+      userId,
+      roleId: input.roleId,
+      permissionOverrides: overrides,
+      expiresAt: input.expiresAt?.toISOString() ?? null,
+      assignedBy,
+    });
+    this.authCommandClient.assertSuccess(result, `Could not assign role ${input.roleId}`);
 
     this.logger.log(
       `Assigned role "${role.name}" to user ${userId} in tenant ${tenantId} by ${assignedBy}`,
@@ -245,35 +257,19 @@ export class UserRoleAssignmentService {
       this.validatePermissionOverrides(input.permissionOverrides);
     }
 
-    // Build update query
-    const updateFields: string[] = [];
-    const values: unknown[] = [];
-    let paramIndex = 1;
-
-    if (input.roleId !== undefined) {
-      updateFields.push(`role_id = $${paramIndex++}`);
-      values.push(input.roleId);
-    }
-    if (input.permissionOverrides !== undefined) {
-      updateFields.push(`permission_overrides = $${paramIndex++}`);
-      values.push(JSON.stringify(input.permissionOverrides));
-    }
-    if (input.expiresAt !== undefined) {
-      updateFields.push(`expires_at = $${paramIndex++}`);
-      values.push(input.expiresAt);
-    }
-    if (input.isActive !== undefined) {
-      updateFields.push(`is_active = $${paramIndex++}`);
-      values.push(input.isActive);
-    }
-
-    updateFields.push(`updated_at = NOW()`);
-    values.push(userId);
-
-    await this.dataSource.query(
-      `UPDATE "auth"."user_role_assignments" SET ${updateFields.join(', ')} WHERE user_id = $${paramIndex}`,
-      values,
-    );
+    const result = await this.authCommandClient.request<
+      AdminUpdateUserRoleAssignmentCommand,
+      AdminUserRoleAssignmentMutationResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_USER_ROLE_ASSIGNMENT, {
+      tenantId,
+      userId,
+      roleId: input.roleId,
+      permissionOverrides: input.permissionOverrides,
+      expiresAt: input.expiresAt instanceof Date ? input.expiresAt.toISOString() : input.expiresAt,
+      isActive: input.isActive,
+      updatedBy,
+    });
+    this.authCommandClient.assertSuccess(result, `Could not update role assignment for ${userId}`);
 
     this.logger.log(
       `Updated role assignment for user ${userId} in tenant ${tenantId} by ${updatedBy}`,
@@ -300,15 +296,15 @@ export class UserRoleAssignmentService {
       throw new NotFoundException(`No role assignment found for user ${userId}`);
     }
 
-    // Delete the assignment
-    await this.dataSource.query(
-      `
-      DELETE FROM "auth"."user_role_assignments" a
-      USING "auth"."tenant_roles" r
-      WHERE a.role_id = r.id AND r."tenantId" = $1 AND a.user_id = $2
-      `,
-      [tenantId, userId],
-    );
+    const result = await this.authCommandClient.request<
+      AdminRevokeUserRoleAssignmentCommand,
+      AdminUserRoleAssignmentMutationResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.REVOKE_USER_ROLE_ASSIGNMENT, {
+      tenantId,
+      userId,
+      revokedBy,
+    });
+    this.authCommandClient.assertSuccess(result, `Could not revoke role assignment for ${userId}`);
 
     this.logger.log(
       `Revoked role "${existing.roleName}" from user ${userId} in tenant ${tenantId} by ${revokedBy}`,

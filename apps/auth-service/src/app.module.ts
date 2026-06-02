@@ -3,7 +3,7 @@ import { Logger, Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
-import { JwtModule, JwtService } from '@nestjs/jwt';
+import { JwtModule } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
@@ -26,7 +26,7 @@ import {
   VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
-import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
+import { AccessTokenVerifierService, SecurityModule } from '@aquaculture/backend-common/security';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { EventBusModule } from '@platform/event-bus';
 
@@ -96,7 +96,10 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
         return {
-          autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/auth.graphql') },
+          autoSchemaFile: {
+            federation: 2,
+            path: join(process.cwd(), 'dist/graphql/subgraphs/auth.graphql'),
+          },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
            *  The gateway already blocks batching, but subgraphs must also enforce this as
            *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -240,8 +243,9 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
       },
     }),
 
-    // Redis — WebAuthn challenge store, session management, token blacklist.
-    // @Optional() in consumers: graceful in-memory fallback when Redis unavailable.
+    // Redis-backed security SSoT. Token/session/WebAuthn revocation stores fail
+    // closed in production when Redis is unavailable; in-memory storage is limited
+    // to dev/test.
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -250,6 +254,10 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
         keyPrefix: 'auth:',
       }),
     }),
+
+    // Security SSoT providers: token blacklist + session manager are required
+    // for tenant suspend/cancel revocation and logout-all semantics.
+    SecurityModule,
 
     // Event Bus
     EventBusModule.forRoot(),
@@ -352,12 +360,10 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
     {
       provide: APP_GUARD,
       useFactory: (
-        jwtService: JwtService,
         reflector: Reflector,
-        configService: ConfigService,
-        tokenBlacklist?: ITokenBlacklist,
-      ): JwtAuthGuard => new JwtAuthGuard(jwtService, reflector, configService, tokenBlacklist),
-      inject: [JwtService, Reflector, ConfigService, { token: TOKEN_BLACKLIST, optional: true }],
+        accessTokenVerifier: AccessTokenVerifierService,
+      ): JwtAuthGuard => new JwtAuthGuard(reflector, accessTokenVerifier),
+      inject: [Reflector, AccessTokenVerifierService],
     },
     // SECURITY: Global tenant guard - ensures tenant isolation
     {
@@ -378,7 +384,9 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer
       .apply(
-        // SECURITY (SEC-CRITICAL-002): MUST run BEFORE UserContextMiddleware.
+        // Gateway trust chain SSoT: strip, verify assertion, then materialise context.
+        // SECURITY (SEC-CRITICAL-002): StripInternalHeadersMiddleware MUST run
+        // before any context middleware.
         // A Docker-network caller can otherwise forge x-user-payload /
         // x-tenant-id and pass forged SUPER_ADMIN context into downstream
         // guards. The middleware verifies the request carries a valid
@@ -386,12 +394,12 @@ export class AppModule implements NestModule {
         // identity using INTERNAL_SERVICE_SECRET); if not, the four
         // spoofable internal headers are stripped from req.headers.
         StripInternalHeadersMiddleware,
-        MetricsMiddleware, // Record request metrics (first for accurate duration)
-        CorrelationIdMiddleware,
-        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        MetricsMiddleware,
+        CorrelationIdMiddleware,
         RequestLoggingMiddleware,
       )
       .forRoutes('*');

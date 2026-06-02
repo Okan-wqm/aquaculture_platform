@@ -19,6 +19,10 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  PASSWORD_POLICY_MESSAGE,
+  PASSWORD_POLICY_REGEX,
+} from '@aquaculture/backend-common/security';
+import {
   IsString,
   IsEmail,
   IsOptional,
@@ -83,9 +87,7 @@ export class CreateUserDto {
   @IsString()
   @MinLength(8, { message: 'Password must be at least 8 characters' })
   @MaxLength(128)
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, {
-    message: 'Password must contain uppercase, lowercase, number and special character',
-  })
+  @Matches(PASSWORD_POLICY_REGEX, { message: PASSWORD_POLICY_MESSAGE })
   password!: string;
 
   @IsString()

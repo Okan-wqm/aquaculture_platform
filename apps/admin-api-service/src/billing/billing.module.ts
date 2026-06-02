@@ -4,6 +4,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { InvoiceReadOnly } from '../analytics/entities/external/invoice.entity';
+import { AuthCommandClientModule } from '../auth/auth-command-client.module';
 
 import { BillingController } from './billing.controller';
 import { CustomPlan } from './entities/custom-plan.entity';
@@ -38,6 +39,7 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
         options: buildNatsTransportOptions('admin-api-service'),
       },
     ]),
+    AuthCommandClientModule,
     TypeOrmModule.forFeature([
       PlanDefinition,
       DiscountCode,

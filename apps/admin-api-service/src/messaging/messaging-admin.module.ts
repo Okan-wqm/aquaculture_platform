@@ -10,22 +10,12 @@
  * @see ADR-012 Phase 3 (Compliance Admin API)
  */
 import { Module } from '@nestjs/common';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 
+import { MessagingCommandClientModule } from './messaging-command-client.module';
 import { MessagingAdminController } from './messaging-admin.controller';
 
 @Module({
-  imports: [
-    /** SEC-H01: NATS client with shared auth factory for messaging-service proxy. */
-    ClientsModule.register([
-      {
-        name: 'MESSAGING_NATS_CLIENT',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('admin-api-service'),
-      },
-    ]),
-  ],
+  imports: [MessagingCommandClientModule],
   controllers: [MessagingAdminController],
 })
 export class MessagingAdminModule {}

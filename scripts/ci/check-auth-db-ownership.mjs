@@ -13,9 +13,15 @@ const ignoredSegments = new Set([
   '.git',
   '.nx',
   '.codex-worktrees',
+  '.archive',
 ]);
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
-const dmlPattern = /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+auth\.(users|refresh_tokens)\b/gi;
+const dmlPattern =
+  /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"auth"|auth)\s*\.\s*(?:"([A-Za-z_][A-Za-z0-9_]*)"|([A-Za-z_][A-Za-z0-9_]*))/gi;
+const ddlObjectPattern =
+  /\b(CREATE|ALTER|DROP|TRUNCATE)\s+(TABLE|TYPE|SEQUENCE|VIEW|MATERIALIZED\s+VIEW)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:"auth"|auth)\s*\.\s*(?:"([A-Za-z_][A-Za-z0-9_]*)"|([A-Za-z_][A-Za-z0-9_]*))/gi;
+const ddlIndexPattern =
+  /\bCREATE\s+(UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"[A-Za-z_][A-Za-z0-9_]*"|[A-Za-z_][A-Za-z0-9_]*)\s+ON\s+(?:"auth"|auth)\s*\.\s*(?:"([A-Za-z_][A-Za-z0-9_]*)"|([A-Za-z_][A-Za-z0-9_]*))/gi;
 const operationMap = {
   'INSERT INTO': 'INSERT',
   UPDATE: 'UPDATE',
@@ -48,9 +54,28 @@ function stripComments(source) {
 }
 
 function normalizeMatch(match) {
+  const operation = match[1].toUpperCase().replace(/\s+/g, ' ');
+  const table = match[2] ?? match[3];
   return {
-    operation: operationMap[match[1].toUpperCase()],
-    table: `auth.${match[2].toLowerCase()}`,
+    operation: operationMap[operation],
+    table: `auth.${table.toLowerCase()}`,
+  };
+}
+
+function normalizeDdlObjectMatch(match) {
+  const operation = `${match[1].toUpperCase()}_${match[2].toUpperCase().replace(/\s+/g, '_')}`;
+  const table = match[3] ?? match[4];
+  return {
+    operation,
+    table: `auth.${table.toLowerCase()}`,
+  };
+}
+
+function normalizeDdlIndexMatch(match) {
+  const table = match[2] ?? match[3];
+  return {
+    operation: match[1] ? 'CREATE_UNIQUE_INDEX' : 'CREATE_INDEX',
+    table: `auth.${table.toLowerCase()}`,
   };
 }
 
@@ -59,7 +84,7 @@ function exemptionKey(item) {
 }
 
 const exemptions = new Map();
-for (const exemption of baseline.exemptions ?? []) {
+for (const exemption of [...(baseline.exemptions ?? []), ...(baseline.ddlExemptions ?? [])]) {
   for (const key of ['file', 'operation', 'table', 'maxOccurrences', 'owner', 'removeAfterRelease', 'reason']) {
     if (!exemption[key]) {
       console.error(`Invalid auth DB ownership exemption missing ${key}: ${JSON.stringify(exemption)}`);
@@ -83,6 +108,34 @@ for (const root of sourceRoots) {
     const scanSource = stripComments(source);
     for (const match of scanSource.matchAll(dmlPattern)) {
       const normalized = normalizeMatch(match);
+      const key = exemptionKey({ file: rel, ...normalized });
+      const exemption = exemptions.get(key);
+      if (exemption && exemption.count < exemption.maxOccurrences) {
+        exemption.count += 1;
+        continue;
+      }
+      violations.push({
+        file: rel,
+        line: lineFor(source, match.index ?? 0),
+        ...normalized,
+      });
+    }
+    for (const match of scanSource.matchAll(ddlObjectPattern)) {
+      const normalized = normalizeDdlObjectMatch(match);
+      const key = exemptionKey({ file: rel, ...normalized });
+      const exemption = exemptions.get(key);
+      if (exemption && exemption.count < exemption.maxOccurrences) {
+        exemption.count += 1;
+        continue;
+      }
+      violations.push({
+        file: rel,
+        line: lineFor(source, match.index ?? 0),
+        ...normalized,
+      });
+    }
+    for (const match of scanSource.matchAll(ddlIndexPattern)) {
+      const normalized = normalizeDdlIndexMatch(match);
       const key = exemptionKey({ file: rel, ...normalized });
       const exemption = exemptions.get(key);
       if (exemption && exemption.count < exemption.maxOccurrences) {

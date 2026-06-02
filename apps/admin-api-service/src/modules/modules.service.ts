@@ -1,11 +1,18 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ConflictException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import {
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  type AdminCreateModuleCommand,
+  type AdminModuleMutationResult,
+  type AdminUpdateModuleCommand,
+  type AdminDeleteModuleCommand,
+  type AdminDeleteModuleResult,
+  type AdminUpsertTenantModuleCommand,
+  type AdminTenantModuleMutationResult,
+  type AdminRemoveTenantModuleCommand,
+} from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
+import { AuthCommandClientService } from '../auth/auth-command-client.service';
 
 export interface ModuleFilter {
   isActive?: boolean;
@@ -92,16 +99,13 @@ export class ModulesService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly authCommandClient: AuthCommandClientService,
   ) {}
 
   /**
    * List all modules with filtering and pagination
    */
-  async listModules(
-    filter: ModuleFilter,
-    page = 1,
-    limit = 50,
-  ): Promise<PaginatedModules> {
+  async listModules(filter: ModuleFilter, page = 1, limit = 50): Promise<PaginatedModules> {
     const offset = (page - 1) * limit;
 
     const whereConditions: string[] = [];
@@ -126,8 +130,7 @@ export class ModulesService {
       paramIndex++;
     }
 
-    const whereClause =
-      whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     const query = `
       SELECT
@@ -183,22 +186,17 @@ export class ModulesService {
    */
   async getModuleStats(): Promise<ModuleStats> {
     try {
-      const [
-        totalResult,
-        activeResult,
-        coreResult,
-        assignmentsResult,
-        usageResult,
-      ] = await Promise.all([
-        this.dataSource.query(`SELECT COUNT(*) as count FROM auth.modules`),
-        this.dataSource.query(
-          `SELECT COUNT(*) as count FROM auth.modules WHERE "isActive" = true`,
-        ),
-        this.dataSource.query(
-          `SELECT COUNT(*) as count FROM auth.modules WHERE COALESCE(is_core, false) = true`,
-        ),
-        this.dataSource.query(`SELECT COUNT(*) as count FROM auth.tenant_modules`),
-        this.dataSource.query(`
+      const [totalResult, activeResult, coreResult, assignmentsResult, usageResult] =
+        await Promise.all([
+          this.dataSource.query(`SELECT COUNT(*) as count FROM auth.modules`),
+          this.dataSource.query(
+            `SELECT COUNT(*) as count FROM auth.modules WHERE "isActive" = true`,
+          ),
+          this.dataSource.query(
+            `SELECT COUNT(*) as count FROM auth.modules WHERE COALESCE(is_core, false) = true`,
+          ),
+          this.dataSource.query(`SELECT COUNT(*) as count FROM auth.tenant_modules`),
+          this.dataSource.query(`
           SELECT
             m.id as "moduleId",
             m.name as "moduleName",
@@ -208,7 +206,7 @@ export class ModulesService {
           GROUP BY m.id, m.name
           ORDER BY "tenantsCount" DESC
         `),
-      ]);
+        ]);
 
       return {
         totalModules: parseInt(totalResult[0]?.count || '0', 10),
@@ -218,9 +216,7 @@ export class ModulesService {
         moduleUsage: usageResult,
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to get module stats: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get module stats: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -317,34 +313,27 @@ export class ModulesService {
     isCore?: boolean;
     price?: number;
   }): Promise<ModuleDto> {
-    try {
-      const result = await this.dataSource.query(
-        `
-        INSERT INTO auth.modules (code, name, description, "defaultRoute", icon, is_core, "isActive", price)
-        VALUES ($1, $2, $3, $4, $5, $6, true, $7)
-        RETURNING id, code, name, description, "defaultRoute" as "defaultRoute", icon,
-                  COALESCE(is_core, false) as "isCore", "isActive" as "isActive", price, "createdAt" as "createdAt"
-      `,
-        [
-          dto.code,
-          dto.name,
-          dto.description || null,
-          dto.defaultRoute,
-          dto.icon || null,
-          dto.isCore || false,
-          dto.price || 0,
-        ],
-      );
-
-      this.logger.log(`Created module: ${dto.code}`);
-      return { ...result[0], tenantsCount: 0 };
-    } catch (error) {
-      if ((error as { code?: string }).code === '23505') {
-        throw new ConflictException(`Module with code ${dto.code} already exists`);
-      }
-      this.logger.error(`Failed to create module: ${(error as Error).message}`);
-      throw error;
-    }
+    const result = await this.authCommandClient.request<
+      AdminCreateModuleCommand,
+      AdminModuleMutationResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_MODULE, {
+      code: dto.code,
+      name: dto.name,
+      description: dto.description ?? null,
+      defaultRoute: dto.defaultRoute,
+      icon: dto.icon ?? null,
+      isCore: dto.isCore ?? false,
+      price: dto.price ?? 0,
+    });
+    this.authCommandClient.assertSuccess(result, `Could not create module ${dto.code}`);
+    this.logger.log(`Created module: ${dto.code}`);
+    const created = result.module!;
+    return {
+      ...created,
+      tenantsCount: 0,
+      createdAt: new Date(created.createdAt ?? Date.now()),
+      updatedAt: new Date(created.updatedAt ?? Date.now()),
+    };
   }
 
   /**
@@ -361,58 +350,20 @@ export class ModulesService {
       price?: number;
     },
   ): Promise<ModuleDto> {
-    const updates: string[] = [];
-    const params: (string | boolean | number)[] = [];
-    let paramIndex = 1;
-
-    if (dto.name !== undefined) {
-      updates.push(`name = $${paramIndex++}`);
-      params.push(dto.name);
-    }
-    if (dto.description !== undefined) {
-      updates.push(`description = $${paramIndex++}`);
-      params.push(dto.description);
-    }
-    if (dto.defaultRoute !== undefined) {
-      updates.push(`"defaultRoute" = $${paramIndex++}`);
-      params.push(dto.defaultRoute);
-    }
-    if (dto.icon !== undefined) {
-      updates.push(`icon = $${paramIndex++}`);
-      params.push(dto.icon);
-    }
-    if (dto.isActive !== undefined) {
-      updates.push(`"isActive" = $${paramIndex++}`);
-      params.push(dto.isActive);
-    }
-    if (dto.price !== undefined) {
-      updates.push(`price = $${paramIndex++}`);
-      params.push(dto.price);
-    }
-
-    if (updates.length === 0) {
+    if (Object.keys(dto).length === 0) {
       return this.getModuleById(id);
     }
 
-    updates.push(`"updatedAt" = NOW()`);
-    params.push(id);
-
-    try {
-      await this.dataSource.query(
-        `
-        UPDATE auth.modules
-        SET ${updates.join(', ')}
-        WHERE id = $${paramIndex}
-      `,
-        params,
-      );
-
-      this.logger.log(`Updated module: ${id}`);
-      return this.getModuleById(id);
-    } catch (error) {
-      this.logger.error(`Failed to update module: ${(error as Error).message}`);
-      throw error;
-    }
+    const result = await this.authCommandClient.request<
+      AdminUpdateModuleCommand,
+      AdminModuleMutationResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_MODULE, {
+      moduleId: id,
+      ...dto,
+    });
+    this.authCommandClient.assertSuccess(result, `Could not update module ${id}`);
+    this.logger.log(`Updated module: ${id}`);
+    return this.getModuleById(id);
   }
 
   /**
@@ -426,49 +377,18 @@ export class ModulesService {
    * Delete module
    */
   async deleteModule(id: string): Promise<void> {
-    try {
-      // Check if module is assigned to any tenants
-      const assignments = await this.dataSource.query(
-        `SELECT COUNT(*) as count FROM auth.tenant_modules WHERE "moduleId" = $1`,
-        [id],
-      );
-
-      if (parseInt(assignments[0]?.count || '0', 10) > 0) {
-        throw new ConflictException(
-          `Cannot delete module that is assigned to tenants. Remove assignments first.`,
-        );
-      }
-
-      const result = await this.dataSource.query(
-        `DELETE FROM auth.modules WHERE id = $1 RETURNING id`,
-        [id],
-      );
-
-      if (!result[0]) {
-        throw new NotFoundException(`Module with ID ${id} not found`);
-      }
-
-      this.logger.log(`Deleted module: ${id}`);
-    } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof ConflictException
-      ) {
-        throw error;
-      }
-      this.logger.error(`Failed to delete module: ${(error as Error).message}`);
-      throw error;
-    }
+    const result = await this.authCommandClient.request<
+      AdminDeleteModuleCommand,
+      AdminDeleteModuleResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.DELETE_MODULE, { moduleId: id });
+    this.authCommandClient.assertSuccess(result, `Could not delete module ${id}`);
+    this.logger.log(`Deleted module: ${id}`);
   }
 
   /**
    * Get tenants assigned to a module
    */
-  async getModuleTenants(
-    moduleId: string,
-    page = 1,
-    limit = 50,
-  ) {
+  async getModuleTenants(moduleId: string, page = 1, limit = 50) {
     const offset = (page - 1) * limit;
 
     try {
@@ -506,9 +426,7 @@ export class ModulesService {
         totalPages: Math.ceil(total / limit),
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to get module tenants: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get module tenants: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -516,11 +434,7 @@ export class ModulesService {
   /**
    * Get all tenant-module assignments
    */
-  async getAssignments(
-    filter: { tenantId?: string; moduleId?: string },
-    page = 1,
-    limit = 50,
-  ) {
+  async getAssignments(filter: { tenantId?: string; moduleId?: string }, page = 1, limit = 50) {
     const offset = (page - 1) * limit;
     const conditions: string[] = [];
     const params: string[] = [];
@@ -535,8 +449,7 @@ export class ModulesService {
       params.push(filter.moduleId);
     }
 
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     try {
       const [assignments, countResult] = await Promise.all([
@@ -576,9 +489,7 @@ export class ModulesService {
         totalPages: Math.ceil(total / limit),
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to get assignments: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get assignments: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -588,48 +499,19 @@ export class ModulesService {
    */
   async assignModuleToTenant(dto: AssignModuleDto): Promise<TenantModuleAssignment> {
     try {
-      // Check if tenant_modules table has quantities and configuration columns
-      // If they exist, use them; otherwise, use the basic insert
       const hasExtendedColumns = await this.checkExtendedColumns();
-
-      let result;
-      if (hasExtendedColumns && (dto.quantities || dto.configuration)) {
-        result = await this.dataSource.query(
-          `
-          INSERT INTO auth.tenant_modules (
-            "tenantId", "moduleId", "expiresAt", "assignedBy",
-            "quantities", "configuration"
-          )
-          VALUES ($1, $2, $3, $4, $5, $6)
-          ON CONFLICT ("tenantId", "moduleId") DO UPDATE SET
-            "expiresAt" = EXCLUDED."expiresAt",
-            "quantities" = COALESCE(EXCLUDED."quantities", tenant_modules."quantities"),
-            "configuration" = COALESCE(EXCLUDED."configuration", tenant_modules."configuration")
-          RETURNING id, "tenantId" as "tenantId", "moduleId" as "moduleId",
-                    "activatedAt" as "assignedAt", "expiresAt" as "expiresAt",
-                    "quantities", "configuration"
-        `,
-          [
-            dto.tenantId,
-            dto.moduleId,
-            dto.expiresAt || null,
-            dto.assignedBy || dto.tenantId,
-            dto.quantities ? JSON.stringify(dto.quantities) : null,
-            dto.configuration ? JSON.stringify(dto.configuration) : null,
-          ],
-        );
-      } else {
-        result = await this.dataSource.query(
-          `
-          INSERT INTO auth.tenant_modules ("tenantId", "moduleId", "expiresAt", "assignedBy")
-          VALUES ($1, $2, $3, $4)
-          ON CONFLICT ("tenantId", "moduleId") DO UPDATE SET "expiresAt" = $3
-          RETURNING id, "tenantId" as "tenantId", "moduleId" as "moduleId",
-                    "activatedAt" as "assignedAt", "expiresAt" as "expiresAt"
-        `,
-          [dto.tenantId, dto.moduleId, dto.expiresAt || null, dto.assignedBy || dto.tenantId],
-        );
-      }
+      const result = await this.authCommandClient.request<
+        AdminUpsertTenantModuleCommand,
+        AdminTenantModuleMutationResult
+      >(AUTH_ADMIN_COMMAND_SUBJECTS.UPSERT_TENANT_MODULE, {
+        tenantId: dto.tenantId,
+        moduleId: dto.moduleId,
+        expiresAt: dto.expiresAt?.toISOString() ?? null,
+        assignedBy: dto.assignedBy || dto.tenantId,
+        quantities: (dto.quantities as Record<string, unknown> | undefined) ?? null,
+        configuration: dto.configuration ?? null,
+      });
+      this.authCommandClient.assertSuccess(result, `Could not assign module ${dto.moduleId}`);
 
       // Get full assignment details
       const selectQuery = hasExtendedColumns
@@ -666,16 +548,14 @@ export class ModulesService {
           WHERE tm.id = $1
         `;
 
-      const assignment = await this.dataSource.query(selectQuery, [result[0].id]);
+      const assignment = await this.dataSource.query(selectQuery, [result.assignment!.id]);
 
       this.logger.log(
         `Assigned module ${dto.moduleId} to tenant ${dto.tenantId}${dto.quantities ? ' with quantities' : ''}`,
       );
       return assignment[0];
     } catch (error) {
-      this.logger.error(
-        `Failed to assign module: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to assign module: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -701,29 +581,12 @@ export class ModulesService {
   /**
    * Remove module from tenant
    */
-  async removeModuleFromTenant(
-    tenantId: string,
-    moduleId: string,
-  ): Promise<void> {
-    try {
-      const result = await this.dataSource.query(
-        `DELETE FROM auth.tenant_modules WHERE "tenantId" = $1 AND "moduleId" = $2 RETURNING id`,
-        [tenantId, moduleId],
-      );
-
-      if (!result[0]) {
-        throw new NotFoundException(
-          `Assignment not found for tenant ${tenantId} and module ${moduleId}`,
-        );
-      }
-
-      this.logger.log(`Removed module ${moduleId} from tenant ${tenantId}`);
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-      this.logger.error(
-        `Failed to remove module: ${(error as Error).message}`,
-      );
-      throw error;
-    }
+  async removeModuleFromTenant(tenantId: string, moduleId: string): Promise<void> {
+    const result = await this.authCommandClient.request<
+      AdminRemoveTenantModuleCommand,
+      AdminTenantModuleMutationResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.REMOVE_TENANT_MODULE, { tenantId, moduleId });
+    this.authCommandClient.assertSuccess(result, `Could not remove module ${moduleId}`);
+    this.logger.log(`Removed module ${moduleId} from tenant ${tenantId}`);
   }
 }

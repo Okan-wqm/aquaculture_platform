@@ -4,8 +4,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import {
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  type AdminUpdateTenantBillingStateCommand,
+  type AdminUpdateTenantBillingStateResult,
+} from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
+import { AuthCommandClientService } from '../../auth/auth-command-client.service';
 import { BillingCycle } from '../entities/plan-definition.entity';
 
 import { DiscountCodeService } from './discount-code.service';
@@ -31,6 +37,7 @@ export class SubscriptionPlanChangeService {
     private readonly planService: PlanDefinitionService,
     private readonly discountService: DiscountCodeService,
     private readonly subscriptionCore: SubscriptionCoreService,
+    private readonly authCommandClient: AuthCommandClientService,
   ) {}
 
   /**
@@ -117,18 +124,6 @@ export class SubscriptionPlanChangeService {
         ],
       );
 
-      // Update tenant limits
-      await manager.query(
-        `
-        UPDATE auth.tenants SET
-          tier = $1,
-          limits = $2,
-          "updatedAt" = NOW()
-        WHERE id = $3::uuid
-      `,
-        [newPlan.tier, JSON.stringify(newPlan.limits), tenantId],
-      );
-
       // Create invoice for prorated amount if positive
       if (finalAmount > 0 && effectiveImmediately) {
         const invoiceNumber = `INV-${Date.now()}-${tenantId.substring(0, 8)}`;
@@ -203,6 +198,12 @@ export class SubscriptionPlanChangeService {
       );
     });
 
+    await this.updateTenantBillingState(
+      tenantId,
+      newPlan.tier,
+      newPlan.limits as unknown as Record<string, unknown>,
+    );
+
     this.logger.log(
       `Plan changed for tenant ${tenantId}: ${currentPlan.name} -> ${newPlan.name} (${comparison.isUpgrade ? 'upgrade' : 'downgrade'})`,
     );
@@ -226,6 +227,22 @@ export class SubscriptionPlanChangeService {
         ? `Successfully upgraded to ${newPlan.name}`
         : `Successfully downgraded to ${newPlan.name}`,
     };
+  }
+
+  private async updateTenantBillingState(
+    tenantId: string,
+    planTier: string,
+    limits: Record<string, unknown>,
+  ): Promise<void> {
+    const result = await this.authCommandClient.request<
+      AdminUpdateTenantBillingStateCommand,
+      AdminUpdateTenantBillingStateResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_TENANT_BILLING_STATE, {
+      tenantId,
+      planTier,
+      limits,
+    });
+    this.authCommandClient.assertSuccess(result, `Could not update tenant billing state for ${tenantId}`);
   }
 
   /**

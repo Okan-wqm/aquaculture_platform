@@ -12,6 +12,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
+import { AUTH_ADMIN_COMMAND_SUBJECTS } from '@platform/event-contracts';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 
 import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
@@ -21,6 +22,7 @@ import { TenantConfigurationService } from '../../settings/services/tenant-confi
 import { RoleTemplateService } from '../../users/services/role-template.service';
 import { UserPermissionsService } from '../../users/services/user-permissions.service';
 import { Tenant, TenantStatus, TenantTier, TenantPlan } from '../entities/tenant.entity';
+import { AuthCommandClientService } from '../../auth/auth-command-client.service';
 import {
   TenantProvisioningService,
   ProvisioningResult,
@@ -95,6 +97,43 @@ const createMockQueryRunner = (): jest.Mocked<Partial<QueryRunner>> => ({
   } as any,
 });
 
+const mockAuthCommandClient = {
+  request: jest.fn(),
+  assertSuccess: jest.fn(),
+};
+
+const successfulAuthCommandResult = async (
+  subject: string,
+  command: Record<string, any>,
+): Promise<Record<string, any>> => {
+  switch (subject) {
+    case AUTH_ADMIN_COMMAND_SUBJECTS.CLAIM_TENANT_PROVISIONING:
+      return { success: true, claimed: true };
+    case AUTH_ADMIN_COMMAND_SUBJECTS.SETUP_TENANT_ROLES:
+      return { success: true, rolesCreated: command['roles']?.length ?? 1 };
+    case AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_TENANT_ADMIN:
+      return {
+        success: true,
+        userId: 'new-user-id',
+        email: command['email'],
+        invitationToken: 'tenant-admin-invitation-token',
+      };
+    case AUTH_ADMIN_COMMAND_SUBJECTS.ASSIGN_TENANT_MODULES:
+      return { success: true, modulesAssigned: command['modules']?.length ?? 0 };
+    case AUTH_ADMIN_COMMAND_SUBJECTS.SET_TENANT_STATUS:
+      return { success: true, updated: true };
+    case AUTH_ADMIN_COMMAND_SUBJECTS.REMOVE_TENANT_AUTH_RESOURCES:
+      return { success: true };
+    default:
+      return { success: true };
+  }
+};
+
+const authAssertSuccess = (result: any, fallback?: string): any => {
+  if (result.success) return result;
+  throw new Error(result.error || fallback || 'Auth command failed');
+};
+
 // =============================================================================
 // Test Suite
 // =============================================================================
@@ -108,6 +147,10 @@ describe('TenantProvisioningService', () => {
 
   beforeEach(async () => {
     queryRunner = createMockQueryRunner();
+    mockAuthCommandClient.request.mockReset();
+    mockAuthCommandClient.assertSuccess.mockReset();
+    mockAuthCommandClient.request.mockImplementation(successfulAuthCommandResult);
+    mockAuthCommandClient.assertSuccess.mockImplementation(authAssertSuccess);
 
     const mockDataSource = {
       createQueryRunner: jest.fn().mockReturnValue(queryRunner),
@@ -191,10 +234,23 @@ describe('TenantProvisioningService', () => {
           provide: BackupRestoreService,
           useValue: mockBackupRestoreService,
         },
+        {
+          provide: AuthCommandClientService,
+          useValue: mockAuthCommandClient,
+        },
       ],
     }).compile();
 
     service = module.get<TenantProvisioningService>(TenantProvisioningService);
+    (service as any).schemaManager = {
+      createTenantSchema: jest.fn().mockResolvedValue({
+        success: true,
+        schemaName: 'tenant_test_tenant',
+        tablesCreated: ['farms', 'ponds'],
+        duration: 10,
+      }),
+      deleteTenantSchema: jest.fn().mockResolvedValue({ success: true }),
+    };
     tenantRepository = module.get(getRepositoryToken(Tenant));
     dataSource = module.get(getDataSourceToken());
     emailSenderService = module.get(EmailSenderService);
@@ -223,6 +279,17 @@ describe('TenantProvisioningService', () => {
         expect(result.success).toBe(true);
         expect(result.tenantId).toBe(tenant.id);
         expect(result.steps.every((s) => s.status === 'completed')).toBe(true);
+        expect(mockAuthCommandClient.request).toHaveBeenCalledWith(
+          AUTH_ADMIN_COMMAND_SUBJECTS.CLAIM_TENANT_PROVISIONING,
+          expect.objectContaining({
+            tenantId: tenant.id,
+            provisioningStatus: TenantStatus.PROVISIONING,
+          }),
+        );
+        expect(mockAuthCommandClient.request).toHaveBeenCalledWith(
+          AUTH_ADMIN_COMMAND_SUBJECTS.SETUP_TENANT_ROLES,
+          expect.objectContaining({ tenantId: tenant.id }),
+        );
       });
 
       it('tenant bulunamazsa hata döner', async () => {
@@ -255,10 +322,13 @@ describe('TenantProvisioningService', () => {
         // Arrange
         const tenant = createMockTenant({ status: TenantStatus.PENDING });
         tenantRepository.findOne.mockResolvedValue(tenant);
-        tenantRepository.save.mockImplementation(async (t) => ({
-          ...t,
-          status: TenantStatus.ACTIVE,
-        }) as any);
+        tenantRepository.save.mockImplementation(
+          async (t) =>
+            ({
+              ...t,
+              status: TenantStatus.ACTIVE,
+            }) as any,
+        );
 
         // Act
         const result = await service.provisionTenant(tenant.id);
@@ -318,6 +388,15 @@ describe('TenantProvisioningService', () => {
         expect(result.success).toBe(true);
         expect(result.adminUser).toBeDefined();
         expect(result.adminUser?.email).toBe('admin@test.com');
+        expect(mockAuthCommandClient.request).toHaveBeenCalledWith(
+          AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_TENANT_ADMIN,
+          {
+            tenantId: tenant.id,
+            email: 'admin@test.com',
+            firstName: 'Test',
+            lastName: 'Admin',
+          },
+        );
       });
 
       it('email zaten kayıtlıysa admin user oluşturulmaz', async () => {
@@ -325,11 +404,15 @@ describe('TenantProvisioningService', () => {
         const tenant = createMockTenant({ status: TenantStatus.PENDING });
         tenantRepository.findOne.mockResolvedValue(tenant);
         tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-        dataSource.query.mockImplementation(async (sql: string) => {
-          if (sql.includes('SELECT id FROM auth.users')) {
-            return [{ id: 'existing-user-id' }];
+        mockAuthCommandClient.request.mockImplementation(async (subject, command) => {
+          if (subject === AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_TENANT_ADMIN) {
+            return {
+              success: false,
+              errorCode: 'DUPLICATE_EMAIL',
+              error: 'A user with this email already exists',
+            };
           }
-          return [];
+          return successfulAuthCommandResult(subject, command);
         });
 
         // Act
@@ -346,6 +429,10 @@ describe('TenantProvisioningService', () => {
         expect(adminStep?.status).toBe('completed');
         expect(result.adminUser).toBeUndefined();
         expect(result.warnings?.[0]).toContain('A user with this email already exists');
+        expect(mockAuthCommandClient.request).toHaveBeenCalledWith(
+          AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_TENANT_ADMIN,
+          expect.objectContaining({ email: 'existing@test.com' }),
+        );
       });
 
       it('admin oluşturulunca davet emaili gönderilir', async () => {
@@ -508,11 +595,15 @@ describe('TenantProvisioningService', () => {
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
       tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-      dataSource.query.mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT id FROM auth.users')) {
-          return [{ id: 'existing-user-id' }];
+      mockAuthCommandClient.request.mockImplementation(async (subject, command) => {
+        if (subject === AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_TENANT_ADMIN) {
+          return {
+            success: false,
+            errorCode: 'DUPLICATE_EMAIL',
+            error: 'A user with this email already exists',
+          };
         }
-        return [];
+        return successfulAuthCommandResult(subject, command);
       });
 
       // Act
@@ -525,6 +616,7 @@ describe('TenantProvisioningService', () => {
       expect(result.success).toBe(true);
       const activateStep = result.steps.find((s) => s.name === 'activate_tenant');
       expect(activateStep?.status).toBe('completed');
+      expect(result.adminUser).toBeUndefined();
     });
   });
 
@@ -681,7 +773,7 @@ describe('TenantProvisioningService', () => {
   // ===========================================================================
 
   describe('Module Assignment', () => {
-    it('modüller tenant\'a atanır', async () => {
+    it("modüller tenant'a atanır", async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
@@ -697,18 +789,32 @@ describe('TenantProvisioningService', () => {
       expect(result.success).toBe(true);
       const modulesStep = result.steps.find((s) => s.name === 'assign_modules');
       expect(modulesStep?.status).toBe('completed');
+      expect(mockAuthCommandClient.request).toHaveBeenCalledWith(
+        AUTH_ADMIN_COMMAND_SUBJECTS.ASSIGN_TENANT_MODULES,
+        {
+          tenantId: tenant.id,
+          modules: [
+            { moduleId: 'module-1', assignedBy: tenant.id },
+            { moduleId: 'module-2', assignedBy: tenant.id },
+          ],
+        },
+      );
     });
 
-    it('modül ataması hatası provisioning\'i durdurur', async () => {
+    it("modül ataması hatası provisioning'i durdurur", async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
       tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-      dataSource.query.mockImplementation(async (sql: string) => {
-        if (sql.includes('INSERT INTO auth.tenant_modules')) {
-          throw new Error('Module assignment error');
+      mockAuthCommandClient.request.mockImplementation(async (subject, command) => {
+        if (subject === AUTH_ADMIN_COMMAND_SUBJECTS.ASSIGN_TENANT_MODULES) {
+          return {
+            success: false,
+            errorCode: 'MODULE_NOT_FOUND',
+            error: 'Module assignment error',
+          };
         }
-        return [];
+        return successfulAuthCommandResult(subject, command);
       });
 
       // Act
@@ -719,9 +825,13 @@ describe('TenantProvisioningService', () => {
       // Assert
       expect(result.success).toBe(false);
       expect(result.error).toContain('Could not assign modules');
+      expect(mockAuthCommandClient.request).toHaveBeenCalledWith(
+        AUTH_ADMIN_COMMAND_SUBJECTS.ASSIGN_TENANT_MODULES,
+        expect.objectContaining({ tenantId: tenant.id }),
+      );
     });
 
-    it('boş modül listesi ile assign_modules step\'i oluşmaz', async () => {
+    it("boş modül listesi ile assign_modules step'i oluşmaz", async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
@@ -746,15 +856,20 @@ describe('TenantProvisioningService', () => {
   describe('Concurrent İşlemler', () => {
     it('aynı anda birden fazla tenant provision edilebilir', async () => {
       // Arrange
-      const tenant1 = createMockTenant({ id: '00000000-0000-4000-8000-000000000001', status: TenantStatus.PENDING });
-      const tenant2 = createMockTenant({ id: '00000000-0000-4000-8000-000000000002', status: TenantStatus.PENDING });
+      const tenant1 = createMockTenant({
+        id: '00000000-0000-4000-8000-000000000001',
+        status: TenantStatus.PENDING,
+      });
+      const tenant2 = createMockTenant({
+        id: '00000000-0000-4000-8000-000000000002',
+        status: TenantStatus.PENDING,
+      });
 
       tenantRepository.findOne
         .mockResolvedValue(tenant1)
         .mockResolvedValueOnce(tenant1)
         .mockResolvedValueOnce(tenant2);
-      tenantRepository.save
-        .mockResolvedValue({ ...tenant1, status: TenantStatus.ACTIVE } as any);
+      tenantRepository.save.mockResolvedValue({ ...tenant1, status: TenantStatus.ACTIVE } as any);
 
       // Act
       const [result1, result2] = await Promise.all([
@@ -797,11 +912,17 @@ describe('TenantProvisioningService', () => {
           },
           {
             provide: TenantConfigurationService,
-            useValue: { createConfiguration: jest.fn().mockResolvedValue(undefined), getConfiguration: jest.fn().mockResolvedValue({}) },
+            useValue: {
+              createConfiguration: jest.fn().mockResolvedValue(undefined),
+              getConfiguration: jest.fn().mockResolvedValue({}),
+            },
           },
           {
             provide: RoleTemplateService,
-            useValue: { createDefaultRoles: jest.fn().mockResolvedValue(undefined), getRoleTemplates: jest.fn().mockResolvedValue([]) },
+            useValue: {
+              createDefaultRoles: jest.fn().mockResolvedValue(undefined),
+              getRoleTemplates: jest.fn().mockResolvedValue([]),
+            },
           },
           {
             provide: UserPermissionsService,
@@ -811,13 +932,25 @@ describe('TenantProvisioningService', () => {
             provide: BackupRestoreService,
             useValue: { createBackup: jest.fn().mockResolvedValue({ status: 'completed' }) },
           },
+          {
+            provide: AuthCommandClientService,
+            useValue: mockAuthCommandClient,
+          },
           // EmailSenderService yok
         ],
       }).compile();
 
-      const serviceWithoutEmail = moduleWithoutEmail.get<TenantProvisioningService>(
-        TenantProvisioningService,
-      );
+      const serviceWithoutEmail =
+        moduleWithoutEmail.get<TenantProvisioningService>(TenantProvisioningService);
+      (serviceWithoutEmail as any).schemaManager = {
+        createTenantSchema: jest.fn().mockResolvedValue({
+          success: true,
+          schemaName: 'tenant_test_tenant',
+          tablesCreated: ['farms', 'ponds'],
+          duration: 10,
+        }),
+        deleteTenantSchema: jest.fn().mockResolvedValue({ success: true }),
+      };
 
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });

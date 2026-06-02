@@ -10,13 +10,22 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { createBaseEvent, TenantCreatedEvent, type BaseEvent } from '@platform/event-contracts';
+import {
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  createBaseEvent,
+  TenantCreatedEvent,
+  type AdminSetTenantStatusCommand,
+  type AdminSetTenantStatusResult,
+  type BaseEvent,
+} from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
 import { BillingCycle, PlanTier } from '../../billing/entities/plan-definition.entity';
 import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
+import { AuthCommandClientService } from '../../auth/auth-command-client.service';
+import { MessagingCommandClientService } from '../../messaging/messaging-command-client.service';
 import {
   CreateTenantAcceptedResponse,
   CreateTenantDto,
@@ -88,6 +97,8 @@ export class TenantProvisioningWorkflowService {
     private readonly auditLogService: AuditLogService,
     private readonly provisioningService: TenantProvisioningService,
     private readonly moduleAssignmentService: ModuleAssignmentService,
+    private readonly authCommandClient: AuthCommandClientService,
+    private readonly messagingCommandClient: MessagingCommandClientService,
   ) {}
 
   async createTenantOperation(
@@ -285,6 +296,10 @@ export class TenantProvisioningWorkflowService {
         if (!result.success) {
           throw new Error(result.error ?? 'Tenant resource provisioning failed');
         }
+      });
+
+      await this.runStep(run.id, 'ensure_messaging_partitions', async () => {
+        await this.messagingCommandClient.ensureTenantPartitions(tenant.id, run.id);
       });
 
       await this.runStep(run.id, 'apply_runtime_rls', async () => {
@@ -846,14 +861,22 @@ export class TenantProvisioningWorkflowService {
   private async markRunFailed(runId: string, error: unknown): Promise<void> {
     const run = await this.getRun(runId);
     if (run) {
-      await this.queryRows(
-        `UPDATE auth.tenants
-            SET status = $2,
-                "updatedAt" = now()
-          WHERE id = $1
-            AND status <> $3`,
-        [run.tenantId, TenantStatus.PROVISIONING_FAILED, TenantStatus.ACTIVE],
+      const tenantRows = await this.queryRows<{ status: string }>(
+        `SELECT status FROM auth.tenants WHERE id = $1`,
+        [run.tenantId],
       );
+      if (tenantRows[0]?.status !== TenantStatus.ACTIVE) {
+        const result = await this.authCommandClient.request<
+          AdminSetTenantStatusCommand,
+          AdminSetTenantStatusResult
+        >(AUTH_ADMIN_COMMAND_SUBJECTS.SET_TENANT_STATUS, {
+          tenantId: run.tenantId,
+          status: TenantStatus.PROVISIONING_FAILED,
+        });
+        if (!result.success && result.errorCode !== 'INVALID_STATUS') {
+          this.authCommandClient.assertSuccess(result, `Could not mark tenant ${run.tenantId} failed`);
+        }
+      }
     }
 
     await this.queryRows<TenantProvisioningRunRow>(

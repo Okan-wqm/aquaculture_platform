@@ -6,8 +6,14 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import {
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  type AdminUpdateTenantBillingStateCommand,
+  type AdminUpdateTenantBillingStateResult,
+} from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
+import { AuthCommandClientService } from '../../auth/auth-command-client.service';
 import { BillingCycle, PlanTier } from '../entities/plan-definition.entity';
 
 import { DiscountCodeService } from './discount-code.service';
@@ -89,6 +95,7 @@ export class SubscriptionCoreService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly discountService: DiscountCodeService,
+    private readonly authCommandClient: AuthCommandClientService,
   ) {}
 
   /**
@@ -576,18 +583,6 @@ export class SubscriptionCoreService {
         }
       }
 
-      // Update tenant with subscription info
-      await manager.query(
-        `
-        UPDATE auth.tenants SET
-          tier = $1,
-          limits = $2,
-          "updatedAt" = NOW()
-        WHERE id = $3
-      `,
-        [planTier, JSON.stringify(limits), tenantId],
-      );
-
       // Log creation in audit
       await manager.query(
         `
@@ -617,6 +612,8 @@ export class SubscriptionCoreService {
       return newSubscriptionId;
     });
 
+    await this.updateTenantBillingState(tenantId, planTier, limits);
+
     this.logger.log(
       `Created subscription ${subscriptionId} for tenant ${tenantId} with ${modules.length} modules, monthly price: ${finalMonthlyPrice} ${currency}`,
     );
@@ -639,6 +636,22 @@ export class SubscriptionCoreService {
         ? `Subscription created with ${trialDays}-day trial period`
         : 'Subscription created successfully',
     };
+  }
+
+  private async updateTenantBillingState(
+    tenantId: string,
+    planTier: PlanTier,
+    limits: Record<string, unknown>,
+  ): Promise<void> {
+    const result = await this.authCommandClient.request<
+      AdminUpdateTenantBillingStateCommand,
+      AdminUpdateTenantBillingStateResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_TENANT_BILLING_STATE, {
+      tenantId,
+      planTier,
+      limits,
+    });
+    this.authCommandClient.assertSuccess(result, `Could not update tenant billing state for ${tenantId}`);
   }
 
   /**

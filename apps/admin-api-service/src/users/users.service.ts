@@ -741,6 +741,7 @@ export class UsersService {
       case 'TENANT_NOT_FOUND':
         return new NotFoundException(msg);
       case 'INVALID_ROLE':
+      case 'PASSWORD_POLICY_VIOLATION':
       case 'VALIDATION_ERROR':
         return new BadRequestException(msg);
       case 'INTERNAL_ERROR':
@@ -754,6 +755,7 @@ export class UsersService {
     switch (result.errorCode) {
       case 'USER_NOT_FOUND':
         return new NotFoundException(msg);
+      case 'PASSWORD_POLICY_VIOLATION':
       case 'VALIDATION_ERROR':
         return new BadRequestException(msg);
       case 'INTERNAL_ERROR':

@@ -12,7 +12,11 @@ import {
 } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags } from '@nestjs/swagger';
-import { ThrottlePasswordReset } from '@aquaculture/backend-common/security';
+import {
+  PASSWORD_POLICY_MESSAGE,
+  PASSWORD_POLICY_REGEX,
+  ThrottlePasswordReset,
+} from '@aquaculture/backend-common/security';
 import {
   AUTH_PASSWORD_RESET_SUBJECTS,
   type AuthPasswordResetCompleteCommand,
@@ -20,7 +24,7 @@ import {
   type AuthPasswordResetRequestCommand,
   type AuthPasswordResetRequestResult,
 } from '@platform/event-contracts';
-import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import type { Request } from 'express';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 
@@ -38,6 +42,7 @@ export class ResetPasswordDto {
   @IsString()
   @MinLength(8, { message: 'Password must be at least 8 characters' })
   @MaxLength(128)
+  @Matches(PASSWORD_POLICY_REGEX, { message: PASSWORD_POLICY_MESSAGE })
   newPassword!: string;
 }
 
@@ -54,9 +59,8 @@ export class PasswordResetController {
     private readonly authNatsClient: ClientProxy,
   ) {
     const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.authNatsTimeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.authNatsTimeoutMs =
+      Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_AUTH_NATS_TIMEOUT_MS;
   }
 
   @Post('forgot-password')
@@ -101,6 +105,12 @@ export class PasswordResetController {
       if (result.errorCode === 'INVALID_OR_EXPIRED_TOKEN') {
         throw new BadRequestException('Invalid or expired reset token');
       }
+      if (
+        result.errorCode === 'PASSWORD_POLICY_VIOLATION' ||
+        result.errorCode === 'VALIDATION_ERROR'
+      ) {
+        throw new BadRequestException(result.error ?? 'Password does not satisfy policy');
+      }
       throw new ServiceUnavailableException('Password reset is temporarily unavailable');
     }
     return { success: true, message: result.message };
@@ -114,10 +124,8 @@ export class PasswordResetController {
       this.authNatsClient.send<TResult, TCommand>(subject, command).pipe(
         timeout(this.authNatsTimeoutMs),
         catchError((err: Error) =>
-          throwError(() =>
-            new ServiceUnavailableException(
-              `auth-service request failed: ${err.message}`,
-            ),
+          throwError(
+            () => new ServiceUnavailableException(`auth-service request failed: ${err.message}`),
           ),
         ),
       ),

@@ -5,10 +5,23 @@ import {
   ForbiddenException,
   Inject,
   Logger,
+  Optional,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  SchemaManagerService,
+  DEFAULT_TENANT_MODULES,
+  getTenantSchemaName,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
+import {
+  ISessionManager,
+  ITokenBlacklist,
+  SESSION_MANAGER,
+  TOKEN_BLACKLIST,
+} from '@aquaculture/backend-common/security';
 import { IEventBus } from '@platform/event-bus';
 import {
   TenantCreatedEvent,
@@ -25,12 +38,29 @@ import { Repository, DataSource, MoreThan, Between } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
-import { TENANT_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
+import {
+  SECURITY_CONSTANTS,
+  TENANT_CONSTANTS,
+  TOKEN_CONSTANTS,
+} from '../../../constants/auth.constants';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
+import { parseExpiresIn } from '../../authentication/services/token.service';
 import { User } from '../../authentication/entities/user.entity';
 import { Module } from '../../system-module/entities/module.entity';
-import { CreateTenantInput, UpdateTenantInput, AssignModulesToTenantInput } from '../dto/create-tenant.dto';
-import { TenantStats, TenantDatabaseInfo, TableInfo, TableSchemaInfo, ColumnInfo, IndexInfo, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
+import {
+  CreateTenantInput,
+  UpdateTenantInput,
+  AssignModulesToTenantInput,
+} from '../dto/create-tenant.dto';
+import {
+  TenantStats,
+  TenantDatabaseInfo,
+  TableInfo,
+  TableSchemaInfo,
+  ColumnInfo,
+  IndexInfo,
+  ModuleUsageStatResponse,
+} from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 
@@ -121,6 +151,9 @@ export class TenantService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly schemaManager: SchemaManagerService,
     private readonly auditLogService: AuditLogService,
+    private readonly configService: ConfigService,
+    @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
+    @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
   ) {}
 
   async create(input: CreateTenantInput, createdBy: string): Promise<Tenant> {
@@ -133,9 +166,7 @@ export class TenantService {
     });
 
     if (existing) {
-      throw new ConflictException(
-        'Tenant with this name or slug already exists',
-      );
+      throw new ConflictException('Tenant with this name or slug already exists');
     }
 
     // Set trial end date for trial plans
@@ -197,7 +228,6 @@ export class TenantService {
         await this.tenantRepository.save(saved);
         this.logger.log(`Tenant ${saved.id} activated successfully`);
       }
-
     } catch (provisionError) {
       const duration = Date.now() - provisionStartTime;
       this.logger.error(
@@ -209,7 +239,10 @@ export class TenantService {
 
     // Publish event
     const event: TenantCreatedEvent = {
-      ...createBaseEvent<TenantCreatedEvent>('TenantCreated', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
+      ...createBaseEvent<TenantCreatedEvent>('TenantCreated', saved.id, {
+        aggregateId: saved.id,
+        aggregateType: 'Tenant',
+      }),
       name: saved.name,
       slug: saved.slug,
     };
@@ -275,7 +308,9 @@ export class TenantService {
         isActive: true,
         isEmailVerified: false, // Will need to verify
         passwordResetToken: resetTokenStorageHash, // Store hash, not plain token
-        passwordResetExpires: new Date(Date.now() + TOKEN_CONSTANTS.DEFAULT_INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
+        passwordResetExpires: new Date(
+          Date.now() + TOKEN_CONSTANTS.DEFAULT_INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+        ),
       });
 
       const savedUser = await this.userRepository.save(adminUser);
@@ -286,7 +321,10 @@ export class TenantService {
       // on the immutable event bus. The notification service resolves user/tenant details
       // and builds the action URL at delivery time via authenticated internal API calls.
       const userInvitedEvent: UserInvitedEvent = {
-        ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, { aggregateId: savedUser.id, aggregateType: 'User' }),
+        ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, {
+          aggregateId: savedUser.id,
+          aggregateType: 'User',
+        }),
         userId: savedUser.id,
         role: savedUser.role,
         credentialType: 'reset_token',
@@ -297,7 +335,9 @@ export class TenantService {
       // Publish event - notification service will resolve PII at delivery time
       await this.eventBus.publish(userInvitedEvent);
       // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-      this.logger.log(`Published UserInvitedEvent for userId=${savedUser.id} (tenant: ${tenant.id})`);
+      this.logger.log(
+        `Published UserInvitedEvent for userId=${savedUser.id} (tenant: ${tenant.id})`,
+      );
 
       return savedUser;
     } catch (error) {
@@ -356,7 +396,10 @@ export class TenantService {
 
     // Publish event
     const event: TenantUpdatedEvent = {
-      ...createBaseEvent<TenantUpdatedEvent>('TenantUpdated', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
+      ...createBaseEvent<TenantUpdatedEvent>('TenantUpdated', saved.id, {
+        aggregateId: saved.id,
+        aggregateType: 'Tenant',
+      }),
       name: input.name,
     };
 
@@ -375,13 +418,19 @@ export class TenantService {
 
     // Publish TenantActivatedEvent
     const activatedEvent: TenantActivatedEvent = {
-      ...createBaseEvent<TenantActivatedEvent>('TenantActivated', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
+      ...createBaseEvent<TenantActivatedEvent>('TenantActivated', saved.id, {
+        aggregateId: saved.id,
+        aggregateType: 'Tenant',
+      }),
     };
     await this.eventBus.publish(activatedEvent);
 
     // Publish TenantStatusChangedEvent for generic status-change consumers
     const statusChangedEvent: TenantStatusChangedEvent = {
-      ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
+      ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', saved.id, {
+        aggregateId: saved.id,
+        aggregateType: 'Tenant',
+      }),
       previousStatus,
       newStatus: TenantStatus.ACTIVE,
     };
@@ -393,22 +442,29 @@ export class TenantService {
   async suspend(id: string, reason?: string): Promise<Tenant> {
     const tenant = await this.findById(id);
     const previousStatus = tenant.status;
+    await this.revokeTenantRefreshTokens(tenant.id, 'TENANT_SUSPENDED');
+    await this.revokeTenantAccessState(tenant.id, 'TENANT_SUSPENDED');
     tenant.status = TenantStatus.SUSPENDED;
     const saved = await this.tenantRepository.save(tenant);
-    await this.revokeTenantRefreshTokens(saved.id, 'TENANT_SUSPENDED');
 
     this.logger.log(`Tenant suspended: ${saved.name} (${saved.id})`);
 
     // Publish TenantSuspendedEvent
     const suspendedEvent: TenantSuspendedEvent = {
-      ...createBaseEvent<TenantSuspendedEvent>('TenantSuspended', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
+      ...createBaseEvent<TenantSuspendedEvent>('TenantSuspended', saved.id, {
+        aggregateId: saved.id,
+        aggregateType: 'Tenant',
+      }),
       reason,
     };
     await this.eventBus.publish(suspendedEvent);
 
     // Publish TenantStatusChangedEvent for generic status-change consumers
     const statusChangedEvent: TenantStatusChangedEvent = {
-      ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
+      ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', saved.id, {
+        aggregateId: saved.id,
+        aggregateType: 'Tenant',
+      }),
       previousStatus,
       newStatus: TenantStatus.SUSPENDED,
       reason,
@@ -421,16 +477,20 @@ export class TenantService {
   async cancel(id: string, reason?: string): Promise<Tenant> {
     const tenant = await this.findById(id);
     const previousStatus = tenant.status;
+    await this.revokeTenantRefreshTokens(tenant.id, 'TENANT_CANCELLED');
+    await this.revokeTenantAccessState(tenant.id, 'TENANT_CANCELLED');
     tenant.status = TenantStatus.CANCELLED;
     const saved = await this.tenantRepository.save(tenant);
-    await this.revokeTenantRefreshTokens(saved.id, 'TENANT_CANCELLED');
 
     this.logger.log(`Tenant cancelled: ${saved.name} (${saved.id})`);
 
     // Publish TenantStatusChangedEvent — no specific CancelledEvent needed,
     // generic status change is sufficient for this transition
     const statusChangedEvent: TenantStatusChangedEvent = {
-      ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
+      ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', saved.id, {
+        aggregateId: saved.id,
+        aggregateType: 'Tenant',
+      }),
       previousStatus,
       newStatus: TenantStatus.CANCELLED,
       reason,
@@ -454,6 +514,41 @@ export class TenantService {
     );
   }
 
+  private async revokeTenantAccessState(tenantId: string, reason: string): Promise<void> {
+    if (!this.tokenBlacklist) {
+      throw new Error('TOKEN_BLACKLIST provider is required for tenant access revocation');
+    }
+
+    if (!this.sessionManager) {
+      throw new Error('SESSION_MANAGER provider is required for tenant session revocation');
+    }
+
+    await this.tokenBlacklist.blacklistTenantTokens(
+      tenantId,
+      this.accessBlacklistExpiresAt(),
+      reason,
+    );
+
+    const users = await this.userRepository.find({
+      where: { tenantId },
+      select: ['id'],
+    });
+    let revokedSessions = 0;
+    for (const user of users) {
+      revokedSessions += await this.sessionManager.revokeAllSessions(user.id);
+    }
+    this.logger.warn(`Revoked ${revokedSessions} session(s) for tenant ${tenantId} (${reason})`);
+  }
+
+  private accessBlacklistExpiresAt(): Date {
+    const expiresIn = this.configService.get<string>(
+      'JWT_EXPIRES_IN',
+      SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN,
+    );
+    const ttlSeconds = parseExpiresIn(expiresIn);
+    return new Date(Date.now() + ttlSeconds * 1000);
+  }
+
   /**
    * Assign modules to tenant
    */
@@ -465,7 +560,7 @@ export class TenantService {
 
     // Find all modules by codes
     const modules = await moduleRepository.find({
-      where: input.moduleCodes.map(code => ({ code })),
+      where: input.moduleCodes.map((code) => ({ code })),
     });
 
     if (modules.length !== input.moduleCodes.length) {
@@ -483,7 +578,7 @@ export class TenantService {
       await tmRepo.delete({});
 
       // Create new assignments
-      const assignments = modules.map(mod =>
+      const assignments = modules.map((mod) =>
         tmRepo.create({
           tenantId: tenant.id,
           moduleId: mod.id,
@@ -498,8 +593,11 @@ export class TenantService {
 
     // Publish TenantModulesAssignedEvent
     const modulesAssignedEvent: TenantModulesAssignedEvent = {
-      ...createBaseEvent<TenantModulesAssignedEvent>('TenantModulesAssigned', tenant.id, { aggregateId: tenant.id, aggregateType: 'Tenant' }),
-      moduleIds: modules.map(mod => mod.id),
+      ...createBaseEvent<TenantModulesAssignedEvent>('TenantModulesAssigned', tenant.id, {
+        aggregateId: tenant.id,
+        aggregateType: 'Tenant',
+      }),
+      moduleIds: modules.map((mod) => mod.id),
       moduleCodes: input.moduleCodes,
       assignedBy: tenant.createdBy ?? 'system',
     };
@@ -556,7 +654,13 @@ export class TenantService {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
-    const [userStatsResult, activeModules, activeSessions, currentMonthNewUsers, prevMonthNewUsers] = await Promise.all([
+    const [
+      userStatsResult,
+      activeModules,
+      activeSessions,
+      currentMonthNewUsers,
+      prevMonthNewUsers,
+    ] = await Promise.all([
       this.dataSource.query<UserStatsRow[]>(
         `SELECT
           COUNT(*) AS total_users,
@@ -588,9 +692,10 @@ export class TenantService {
     const inactiveUsers = parseInt(stats?.inactive_users ?? '0') || 0;
 
     // Real monthly growth: percentage change in new user registrations month-over-month
-    const monthlyGrowthPercent = prevMonthNewUsers > 0
-      ? Math.round(((currentMonthNewUsers - prevMonthNewUsers) / prevMonthNewUsers) * 100)
-      : 0;
+    const monthlyGrowthPercent =
+      prevMonthNewUsers > 0
+        ? Math.round(((currentMonthNewUsers - prevMonthNewUsers) / prevMonthNewUsers) * 100)
+        : 0;
 
     return {
       totalUsers,
@@ -617,7 +722,8 @@ export class TenantService {
       offset?: number;
     } = {},
   ): Promise<User[]> {
-    const query = this.userRepository.createQueryBuilder('user')
+    const query = this.userRepository
+      .createQueryBuilder('user')
       .where('user.tenantId = :tenantId', { tenantId });
 
     if (options.status) {
@@ -719,8 +825,8 @@ export class TenantService {
 
       // Batch hypertable size queries in parallel for sensor tables
       const hypertableNames = tableResults
-        .filter(row => ['sensor_readings', 'sensor_metrics'].includes(row.name))
-        .map(row => row.name);
+        .filter((row) => ['sensor_readings', 'sensor_metrics'].includes(row.name))
+        .map((row) => row.name);
 
       const hypertableSizes = new Map<string, string>();
       if (hypertableNames.length > 0) {
@@ -814,7 +920,7 @@ export class TenantService {
 
     // Module schemas (farm, hr, sensor, etc.)
     const moduleSchemas = tenantModules
-      .map(tm => tm.module?.code)
+      .map((tm) => tm.module?.code)
       .filter((code): code is string => !!code);
 
     // Get tenant's dedicated schema name
@@ -842,7 +948,10 @@ export class TenantService {
       SELECT 1 FROM pg_tables
       WHERE schemaname = $1 AND tablename = $2
     `;
-    const tableExists: unknown[] = await this.dataSource.query(tableExistsQuery, [schemaName, tableName]);
+    const tableExists: unknown[] = await this.dataSource.query(tableExistsQuery, [
+      schemaName,
+      tableName,
+    ]);
 
     if (tableExists.length === 0) {
       throw new NotFoundException(`Table '${schemaName}.${tableName}' not found`);
@@ -974,7 +1083,9 @@ export class TenantService {
       await this.userRepository.save(user);
     }
 
-    this.logger.log(`Assigned ${user.email} as manager for module ${tenantModule.module?.name || moduleId}`);
+    this.logger.log(
+      `Assigned ${user.email} as manager for module ${tenantModule.module?.name || moduleId}`,
+    );
 
     return saved;
   }
@@ -982,10 +1093,7 @@ export class TenantService {
   /**
    * Remove module manager from a module
    */
-  async removeModuleManager(
-    tenantId: string,
-    moduleId: string,
-  ): Promise<TenantModule> {
+  async removeModuleManager(tenantId: string, moduleId: string): Promise<TenantModule> {
     const tenantModule = await this.tenantModuleRepository.findOne({
       where: { tenantId, moduleId },
       relations: ['module'],
@@ -1006,10 +1114,7 @@ export class TenantService {
   /**
    * Update tenant settings (limited fields for TENANT_ADMIN)
    */
-  async updateTenantSettings(
-    tenantId: string,
-    input: UpdateTenantInput,
-  ): Promise<Tenant> {
+  async updateTenantSettings(tenantId: string, input: UpdateTenantInput): Promise<Tenant> {
     const tenant = await this.findById(tenantId);
 
     // Tenant admins can only update these fields
@@ -1043,7 +1148,10 @@ export class TenantService {
 
     // Publish TenantUpdatedEvent for consistency — settings changes are tenant updates
     const event: TenantUpdatedEvent = {
-      ...createBaseEvent<TenantUpdatedEvent>('TenantUpdated', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
+      ...createBaseEvent<TenantUpdatedEvent>('TenantUpdated', saved.id, {
+        aggregateId: saved.id,
+        aggregateType: 'Tenant',
+      }),
       name: input.name,
     };
     await this.eventBus.publish(event);
@@ -1093,7 +1201,7 @@ export class TenantService {
       userCountMap.set(row.moduleId, parseInt(row.userCount) || 0);
     }
 
-    return modules.map(m => ({
+    return modules.map((m) => ({
       moduleCode: m.module?.code ?? 'unknown',
       userCount: userCountMap.get(m.moduleId) || 0,
       lastAccessAt: undefined as Date | undefined,

@@ -120,19 +120,8 @@ export class UserProvisioningService {
   /**
    * Invite a new user to a tenant.
    *
-   * Delegates to auth-service over NATS. The previous raw-SQL path:
-   *   - Wrote `INSERT INTO auth.users (..., first_name, last_name,
-   *     is_active, is_email_verified, invitation_token,
-   *     invitation_expires_at, invited_by, ...)` — every snake-case
-   *     column name DRIFTED from the User entity, which uses default
-   *     camelCase column names. This was the same drift class that
-   *     CRITICAL-001 fixed for `passwordHash`/`password`.
-   *   - Wrote `INSERT INTO auth.user_module_assignments (..., can_read,
-   *     can_write, can_delete, can_manage, ...)` — those columns DO NOT
-   *     EXIST on the entity at all (the entity has `permissions` jsonb
-   *     + `isPrimaryManager`). Code path would crash at runtime.
-   *   - Did three independent INSERTs + an UPDATE in a transaction, but
-   *     across services without authoritative ownership.
+   * Delegates to auth-service over NATS. The previous raw-SQL path named
+   * auth table columns from admin-api and drifted from auth-service entities.
    *
    * The NATS delegation centralises every write on the schema-owning
    * service (auth-service) where the entities ARE the contract. Drift
@@ -270,4 +259,3 @@ export class UserProvisioningService {
     }
   }
 }
-

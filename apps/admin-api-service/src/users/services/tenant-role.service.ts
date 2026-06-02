@@ -1,12 +1,20 @@
 import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import {
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  type AdminCreateTenantRoleCommand,
+  type AdminDeleteTenantRoleCommand,
+  type AdminSeedTenantRolesCommand,
+  type AdminTenantRoleMutationResult,
+  type AdminUpdateTenantRoleCommand,
+} from '@platform/event-contracts';
 import { DataSource, EntityManager } from 'typeorm';
+import { AuthCommandClientService } from '../../auth/auth-command-client.service';
 
 import {
   TenantRolePermissions,
   PanelPermissions,
   DEFAULT_ROLE_PERMISSIONS,
-  panelPermissionsToResourceArray,
   PERMISSION_CATEGORIES,
 } from '../entities/tenant-role-permissions.entity';
 import {
@@ -99,6 +107,7 @@ export class TenantRoleService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly authCommandClient: AuthCommandClientService,
   ) {}
 
   /**
@@ -215,58 +224,22 @@ export class TenantRoleService {
       throw new ConflictException(`Role with name "${input.name}" already exists`);
     }
 
-    // BUG-027 fix: wrap role + permissions insert in a transaction so an orphaned
-    // role record cannot be left without permissions if the second INSERT fails.
-    const roleId = await this.dataSource.transaction(async (manager) => {
-      // If this is set as default, unset other defaults
-      if (input.isDefault) {
-        await manager.query(
-          `UPDATE "auth"."tenant_roles" SET is_default = false WHERE "tenantId" = $1 AND is_default = true`,
-          [tenantId],
-        );
-      }
-
-      // Create the role
-      const roleResult = await queryRows<{ id: string }>(
-        manager,
-        `
-        INSERT INTO "auth"."tenant_roles" (
-          "tenantId", name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8, NOW(), NOW())
-        RETURNING id
-        `,
-        [
-          tenantId,
-          input.name,
-          input.description || null,
-          input.color || '#6366F1',
-          input.icon || 'shield',
-          input.level ?? 50,
-          input.isDefault ?? false,
-          createdBy,
-        ],
-      );
-
-      const newRole = roleResult[0];
-      if (!newRole) {
-        throw new Error('Failed to create tenant role');
-      }
-      const newRoleId = newRole.id;
-
-      // Create role permissions
-      const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
-
-      await manager.query(
-        `
-        INSERT INTO "auth"."tenant_role_permissions" (
-          role_id, panel_permissions, resource_permissions, created_at, updated_at
-        ) VALUES ($1, $2, $3, NOW(), NOW())
-        `,
-        [newRoleId, JSON.stringify(input.panelPermissions), resourcePermissions],
-      );
-
-      return newRoleId;
+    const result = await this.authCommandClient.request<
+      AdminCreateTenantRoleCommand,
+      AdminTenantRoleMutationResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_TENANT_ROLE, {
+      tenantId,
+      name: input.name,
+      description: input.description ?? null,
+      color: input.color ?? null,
+      icon: input.icon ?? null,
+      level: input.level,
+      isDefault: input.isDefault,
+      panelPermissions: input.panelPermissions as Record<string, unknown>,
+      createdBy,
     });
+    this.authCommandClient.assertSuccess(result, `Could not create role ${input.name}`);
+    const roleId = result.roleId!;
 
     this.logger.log(`Created role "${input.name}" in tenant ${tenantId}`);
 
@@ -311,72 +284,22 @@ export class TenantRoleService {
       }
     }
 
-    // BUG-027 fix: wrap role + permissions update in a transaction so both succeed or
-    // both fail atomically — preventing a role from being updated while its permissions
-    // remain stale (or vice versa) if one of the queries fails mid-way.
-    await this.dataSource.transaction(async (manager) => {
-      // If this is set as default, unset other defaults
-      if (input.isDefault && !existing.isDefault) {
-        await manager.query(
-          `UPDATE "auth"."tenant_roles" SET is_default = false WHERE "tenantId" = $1 AND is_default = true`,
-          [tenantId],
-        );
-      }
-
-      // Update the role
-      const updateFields: string[] = [];
-      const values: unknown[] = [];
-      let paramIndex = 1;
-
-      if (input.name !== undefined) {
-        updateFields.push(`name = $${paramIndex++}`);
-        values.push(input.name);
-      }
-      if (input.description !== undefined) {
-        updateFields.push(`description = $${paramIndex++}`);
-        values.push(input.description);
-      }
-      if (input.color !== undefined) {
-        updateFields.push(`color = $${paramIndex++}`);
-        values.push(input.color);
-      }
-      if (input.icon !== undefined) {
-        updateFields.push(`icon = $${paramIndex++}`);
-        values.push(input.icon);
-      }
-      if (input.level !== undefined) {
-        updateFields.push(`level = $${paramIndex++}`);
-        values.push(input.level);
-      }
-      if (input.isDefault !== undefined) {
-        updateFields.push(`is_default = $${paramIndex++}`);
-        values.push(input.isDefault);
-      }
-
-      updateFields.push(`updated_at = NOW()`);
-      values.push(roleId);
-
-      if (updateFields.length > 1) {
-        await manager.query(
-          `UPDATE "auth"."tenant_roles" SET ${updateFields.join(', ')} WHERE "tenantId" = $${paramIndex} AND id = $${paramIndex + 1}`,
-          [...values.slice(0, -1), tenantId, roleId],
-        );
-      }
-
-      // Update permissions if provided
-      if (input.panelPermissions) {
-        const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
-
-        await manager.query(
-          `
-          UPDATE "auth"."tenant_role_permissions"
-          SET panel_permissions = $1, resource_permissions = $2, updated_at = NOW()
-          WHERE role_id = $3
-          `,
-          [JSON.stringify(input.panelPermissions), resourcePermissions, roleId],
-        );
-      }
+    const result = await this.authCommandClient.request<
+      AdminUpdateTenantRoleCommand,
+      AdminTenantRoleMutationResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_TENANT_ROLE, {
+      tenantId,
+      roleId,
+      name: input.name,
+      description: input.description,
+      color: input.color,
+      icon: input.icon,
+      level: input.level,
+      isDefault: input.isDefault,
+      panelPermissions: input.panelPermissions as Record<string, unknown> | undefined,
+      updatedBy,
     });
+    this.authCommandClient.assertSuccess(result, `Could not update role ${roleId}`);
 
     this.logger.log(`Updated role "${existing.name}" (${roleId}) in tenant ${tenantId} by ${updatedBy}`);
 
@@ -409,11 +332,11 @@ export class TenantRoleService {
       );
     }
 
-    // Delete the role (cascade will delete permissions)
-    await this.dataSource.query(
-      `DELETE FROM "auth"."tenant_roles" WHERE "tenantId" = $1 AND id = $2`,
-      [tenantId, roleId],
-    );
+    const result = await this.authCommandClient.request<
+      AdminDeleteTenantRoleCommand,
+      AdminTenantRoleMutationResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.DELETE_TENANT_ROLE, { tenantId, roleId, deletedBy });
+    this.authCommandClient.assertSuccess(result, `Could not delete role ${roleId}`);
 
     this.logger.log(`Deleted role "${existing.name}" (${roleId}) in tenant ${tenantId} by ${deletedBy}`);
 
@@ -439,52 +362,18 @@ export class TenantRoleService {
 
     this.logger.log(`Seeding default roles for tenant ${tenantId}`);
 
-    // BUG-027 fix: wrap all role + permissions inserts in a single transaction
-    // so either all default roles are created or none are (no orphaned roles).
-    await this.dataSource.transaction(async (manager) => {
-      for (const roleTemplate of DEFAULT_TENANT_ROLES) {
-        const roleResult = await queryRows<{ id: string }>(
-          manager,
-          `
-          INSERT INTO "auth"."tenant_roles" (
-            "tenantId", name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-          RETURNING id
-          `,
-          [
-            tenantId,
-            roleTemplate.name,
-            roleTemplate.description,
-            roleTemplate.color,
-            roleTemplate.icon,
-            roleTemplate.level,
-            roleTemplate.isSystem,
-            roleTemplate.isDefault,
-            createdBy,
-          ],
-        );
-
-        const role = roleResult[0];
-        if (!role) {
-          throw new Error(`Failed to seed default role: ${roleTemplate.name}`);
-        }
-        const roleId = role.id;
-
-        const defaultPermissions = DEFAULT_ROLE_PERMISSIONS[roleTemplate.name] || {};
-        const resourcePermissions = panelPermissionsToResourceArray(defaultPermissions);
-
-        await manager.query(
-          `
-          INSERT INTO "auth"."tenant_role_permissions" (
-            role_id, panel_permissions, resource_permissions, created_at, updated_at
-          ) VALUES ($1, $2, $3, NOW(), NOW())
-          `,
-          [roleId, JSON.stringify(defaultPermissions), resourcePermissions],
-        );
-
-        this.logger.debug(`Created default role: ${roleTemplate.name}`);
-      }
+    const result = await this.authCommandClient.request<
+      AdminSeedTenantRolesCommand,
+      AdminTenantRoleMutationResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.SEED_TENANT_ROLES, {
+      tenantId,
+      createdBy,
+      roles: DEFAULT_TENANT_ROLES.map((roleTemplate) => ({
+        ...roleTemplate,
+        panelPermissions: DEFAULT_ROLE_PERMISSIONS[roleTemplate.name] || {},
+      })),
     });
+    this.authCommandClient.assertSuccess(result, `Could not seed roles for tenant ${tenantId}`);
 
     this.logger.log(`Seeded ${DEFAULT_TENANT_ROLES.length} default roles for tenant ${tenantId}`);
 

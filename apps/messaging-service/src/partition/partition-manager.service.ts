@@ -1,16 +1,9 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-/**
- * Tables that are partitioned by month via RANGE partitioning.
- * Each entry maps a table name to the column used as the partition key.
- */
-const PARTITIONED_TABLES: ReadonlyArray<{ table: string; column: string }> = [
-  { table: 'messages', column: 'created_at' },
-  { table: 'message_receipts', column: 'receipt_created_at' },
-];
+import { createMonthlyPartition, MESSAGING_PARTITIONED_TABLES } from './partition-queries';
 
 /**
  * Manages monthly RANGE partitions for large time-series tables.
@@ -30,7 +23,7 @@ const PARTITIONED_TABLES: ReadonlyArray<{ table: string; column: string }> = [
  * unboundedly and query performance degrades.
  */
 @Injectable()
-export class PartitionManagerService implements OnApplicationBootstrap {
+export class PartitionManagerService {
   private readonly logger = new Logger(PartitionManagerService.name);
 
   constructor(
@@ -38,16 +31,10 @@ export class PartitionManagerService implements OnApplicationBootstrap {
     private readonly dataSource: DataSource,
   ) {}
 
-  /** On startup, ensure current + next 2 months exist. */
-  async onApplicationBootstrap(): Promise<void> {
-    try {
-      const months = this.getMonthRange(0, 2);
-      await this.ensurePartitions(months);
-    } catch (err) {
-      this.logger.error(
-        `Startup partition check failed: ${(err as Error).message}`,
-      );
-    }
+  /** Ensure current + next 2 months exist for source + tenant schemas. */
+  async ensureStartupPartitions(): Promise<void> {
+    const months = this.getMonthRange(0, 2);
+    await this.ensurePartitions(months);
   }
 
   /** Monthly cron: 1st of every month at 00:00. Creates partitions for next 3 months. */
@@ -58,28 +45,69 @@ export class PartitionManagerService implements OnApplicationBootstrap {
       const months = this.getMonthRange(1, 3);
       await this.ensurePartitions(months);
     } catch (err) {
-      this.logger.error(
-        `Monthly partition cron failed: ${(err as Error).message}`,
-      );
+      this.logger.error(`Monthly partition cron failed: ${(err as Error).message}`);
+      throw err;
     }
   }
 
   /**
    * Ensure partitions exist for the given months across all schemas.
    */
-  private async ensurePartitions(
-    months: Array<{ year: number; month: number }>,
-  ): Promise<void> {
+  private async ensurePartitions(months: Array<{ year: number; month: number }>): Promise<void> {
     const schemas = await this.getTenantSchemas();
     // Always include the 'messaging' source schema
-    const allSchemas = ['messaging', ...schemas];
+    await this.ensurePartitionsForSchemas(['messaging', ...schemas], months);
+  }
 
-    for (const schema of allSchemas) {
-      for (const { table, column } of PARTITIONED_TABLES) {
+  /**
+   * Public hook used by tenant-provisioning and E2E bootstrap when tenant
+   * schemas are created after app bootstrap. The same runtime SSoT creates
+   * current + next two monthly partitions for those late-born schemas.
+   */
+  async ensureCurrentPartitionsForSchemas(schemas: readonly string[]): Promise<void> {
+    await this.ensurePartitionsForSchemas(schemas, this.getMonthRange(0, 2));
+  }
+
+  private async ensurePartitionsForSchemas(
+    schemas: readonly string[],
+    months: Array<{ year: number; month: number }>,
+  ): Promise<void> {
+    for (const schema of schemas) {
+      for (const { table, column } of MESSAGING_PARTITIONED_TABLES) {
+        await this.assertPartitionParent(schema, table, column);
         for (const { year, month } of months) {
-          await this.createPartitionIfNotExists(schema, table, column, year, month);
+          await this.createPartitionIfNotExists(schema, table, year, month);
         }
       }
+    }
+  }
+
+  private async assertPartitionParent(
+    schema: string,
+    table: string,
+    column: string,
+  ): Promise<void> {
+    this.assertSafeIdentifier(schema, 'schema');
+    this.assertSafeIdentifier(table, 'table');
+    const rows: Array<{ partition_key: string | null }> = await this.dataSource.query(
+      `SELECT pg_get_partkeydef(c.oid) AS partition_key
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = $1
+         AND c.relname = $2
+         AND c.relkind = 'p'`,
+      [schema, table],
+    );
+
+    const partitionKey = rows[0]?.partition_key;
+    if (!partitionKey) {
+      throw new Error(`Messaging partition parent missing or not partitioned: ${schema}.${table}`);
+    }
+    const expectedPartitionKey = `RANGE ("${column}")`;
+    if (this.normalizePartitionKey(partitionKey) !== expectedPartitionKey) {
+      throw new Error(
+        `Messaging partition parent ${schema}.${table} uses ${partitionKey}, expected ${expectedPartitionKey}`,
+      );
     }
   }
 
@@ -89,31 +117,15 @@ export class PartitionManagerService implements OnApplicationBootstrap {
   private async createPartitionIfNotExists(
     schema: string,
     table: string,
-    _column: string,
     year: number,
     month: number,
   ): Promise<void> {
     const paddedMonth = String(month).padStart(2, '0');
     const partitionName = `${table}_${year}_${paddedMonth}`;
 
-    // Calculate range boundaries
-    const startDate = `${year}-${paddedMonth}-01`;
-    const nextMonth = month === 12 ? 1 : month + 1;
-    const nextYear = month === 12 ? year + 1 : year;
-    const paddedNextMonth = String(nextMonth).padStart(2, '0');
-    const endDate = `${nextYear}-${paddedNextMonth}-01`;
-
-    // Sanitize schema name — only allow alphanumeric + underscores
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema)) {
-      this.logger.warn(`Skipping invalid schema name: ${schema}`);
-      return;
-    }
-
-    const sql = `
-      CREATE TABLE IF NOT EXISTS "${schema}"."${partitionName}"
-        PARTITION OF "${schema}"."${table}"
-        FOR VALUES FROM ('${startDate}') TO ('${endDate}')
-    `;
+    this.assertSafeIdentifier(schema, 'schema');
+    this.assertSafeIdentifier(table, 'table');
+    const sql = createMonthlyPartition(schema, table, year, month);
 
     try {
       await this.dataSource.query(sql);
@@ -124,9 +136,8 @@ export class PartitionManagerService implements OnApplicationBootstrap {
       if (message.includes('already exists') || message.includes('overlaps')) {
         this.logger.debug(`Partition already exists: ${schema}.${partitionName}`);
       } else {
-        this.logger.error(
-          `Failed to create partition ${schema}.${partitionName}: ${message}`,
-        );
+        this.logger.error(`Failed to create partition ${schema}.${partitionName}: ${message}`);
+        throw err;
       }
     }
   }
@@ -142,6 +153,16 @@ export class PartitionManagerService implements OnApplicationBootstrap {
        ORDER BY schema_name`,
     );
     return rows.map((r) => r.schema_name);
+  }
+
+  private assertSafeIdentifier(value: string, label: 'schema' | 'table'): void {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
+      throw new Error(`Invalid ${label} name: ${value}`);
+    }
+  }
+
+  private normalizePartitionKey(partitionKey: string): string {
+    return partitionKey.replace(/\s+/g, ' ').trim();
   }
 
   /**

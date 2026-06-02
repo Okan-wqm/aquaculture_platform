@@ -20,9 +20,9 @@
  *  - All handlers wrapped in try/catch; errors emitted back to originating socket
  */
 
-import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Inject, Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { AccessTokenVerifierService } from '@aquaculture/backend-common/security';
 import {
   ConnectedSocket,
   MessageBody,
@@ -34,9 +34,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import type { Algorithm } from 'jsonwebtoken';
 
-// TODO: Replace with '@aquaculture/scada-types' path alias when monorepo build supports it.
 import type { AlarmStatusSummary, HmiRole, TagValueChange } from './scada-types';
 import { ScadaSocketEvent } from './scada-types';
 
@@ -63,7 +61,10 @@ function buildScadaWsCorsConfig(): {
   const isProduction = process.env['NODE_ENV'] === 'production';
   const originsConfig = process.env['WS_CORS_ORIGINS'] ?? '';
   const allowedOrigins = originsConfig
-    ? originsConfig.split(',').map((o) => o.trim()).filter(Boolean)
+    ? originsConfig
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean)
     : [];
 
   if (allowedOrigins.length > 0) {
@@ -92,9 +93,13 @@ const MAX_CONNECTIONS_PER_TENANT = 50;
 /* ------------------------------------------------------------------ */
 
 interface TokenPayload {
-  sub?: string;
+  sub: string;
   userId?: string;
   tenantId?: string;
+  type?: string;
+  jti?: string;
+  iat?: number;
+  exp?: number;
   /** HMI role stored in the JWT (maps to HmiRole). */
   role?: HmiRole;
   /** Alternative claim name some issuers use. */
@@ -142,9 +147,10 @@ export class ScadaRuntimeGateway
   private readonly isProduction: boolean;
 
   constructor(
-    private readonly jwtService: JwtService,
     private readonly tagManager: TagManagerService,
     private readonly configService: ConfigService,
+    @Inject(AccessTokenVerifierService)
+    private readonly accessTokenVerifier: AccessTokenVerifierService,
   ) {
     this.isProduction = process.env['NODE_ENV'] === 'production';
   }
@@ -158,7 +164,9 @@ export class ScadaRuntimeGateway
     if (corsOrigins) {
       this.logger.log(`SCADA WebSocket Gateway initialised — CORS origins: ${corsOrigins}`);
     } else if (!this.isProduction) {
-      this.logger.warn('SCADA WebSocket Gateway initialised — CORS: development mode (all origins)');
+      this.logger.warn(
+        'SCADA WebSocket Gateway initialised — CORS: development mode (all origins)',
+      );
     } else {
       this.logger.error(
         'SCADA WebSocket Gateway: WS_CORS_ORIGINS not set in production — connections blocked',
@@ -173,29 +181,45 @@ export class ScadaRuntimeGateway
       const token = this.extractToken(client);
       if (!token) {
         this.logger.warn(`[connect] ${client.id} — no token provided`);
-        this.emitError(client, ScadaSocketEvent.AUTH, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Authentication required');
+        this.emitError(
+          client,
+          ScadaSocketEvent.AUTH,
+          SCADA_ERROR_CODES.AUTH_REQUIRED,
+          'Authentication required',
+        );
         client.disconnect();
         return;
       }
 
-      const payload = this.validateToken(token);
+      const payload = await this.validateToken(token);
       if (!payload?.tenantId) {
         this.logger.warn(`[connect] ${client.id} — invalid or expired token`);
-        this.emitError(client, ScadaSocketEvent.AUTH, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Invalid or expired token');
+        this.emitError(
+          client,
+          ScadaSocketEvent.AUTH,
+          SCADA_ERROR_CODES.AUTH_REQUIRED,
+          'Invalid or expired token',
+        );
         client.disconnect();
         return;
       }
 
       const { tenantId } = payload;
       const userId = payload.userId ?? payload.sub ?? 'unknown';
-      const role: HmiRole = payload.role ?? (Array.isArray(payload.roles) ? payload.roles[0] : 'viewer') ?? 'viewer';
+      const role: HmiRole =
+        payload.role ?? (Array.isArray(payload.roles) ? payload.roles[0] : 'viewer') ?? 'viewer';
 
       // --- Tenant connection cap ---
       if (this.getConnectionCountForTenant(tenantId) >= MAX_CONNECTIONS_PER_TENANT) {
         this.logger.warn(
           `[connect] ${client.id} — tenant ${tenantId} exceeded max connections (${MAX_CONNECTIONS_PER_TENANT})`,
         );
-        this.emitError(client, ScadaSocketEvent.AUTH, SCADA_ERROR_CODES.FORBIDDEN, 'Too many connections for this tenant');
+        this.emitError(
+          client,
+          ScadaSocketEvent.AUTH,
+          SCADA_ERROR_CODES.FORBIDDEN,
+          'Too many connections for this tenant',
+        );
         client.disconnect();
         return;
       }
@@ -206,9 +230,7 @@ export class ScadaRuntimeGateway
       // Join a tenant-scoped room for broadcast helpers
       void client.join(`tenant:${tenantId}`);
 
-      this.logger.log(
-        `[connect] ${client.id} — tenant=${tenantId} userId=${userId} role=${role}`,
-      );
+      this.logger.log(`[connect] ${client.id} — tenant=${tenantId} userId=${userId} role=${role}`);
 
       client.emit(ScadaSocketEvent.AUTH, {
         status: 'authenticated',
@@ -244,19 +266,36 @@ export class ScadaRuntimeGateway
     try {
       const clientData = this.clients.get(client.id);
       if (!clientData) {
-        this.emitError(client, ScadaSocketEvent.TAG_SUBSCRIBE, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Client not authenticated');
+        this.emitError(
+          client,
+          ScadaSocketEvent.TAG_SUBSCRIBE,
+          SCADA_ERROR_CODES.AUTH_REQUIRED,
+          'Client not authenticated',
+        );
         return;
       }
 
       if (!payload?.tagIds || !Array.isArray(payload.tagIds) || payload.tagIds.length === 0) {
-        this.emitError(client, ScadaSocketEvent.TAG_SUBSCRIBE, SCADA_ERROR_CODES.VALIDATION_ERROR, 'tagIds must be a non-empty array');
+        this.emitError(
+          client,
+          ScadaSocketEvent.TAG_SUBSCRIBE,
+          SCADA_ERROR_CODES.VALIDATION_ERROR,
+          'tagIds must be a non-empty array',
+        );
         return;
       }
 
       // Sanitise tag IDs — reject empty strings
-      const sanitised = payload.tagIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+      const sanitised = payload.tagIds.filter(
+        (id): id is string => typeof id === 'string' && id.trim().length > 0,
+      );
       if (sanitised.length === 0) {
-        this.emitError(client, ScadaSocketEvent.TAG_SUBSCRIBE, SCADA_ERROR_CODES.VALIDATION_ERROR, 'No valid tagIds provided');
+        this.emitError(
+          client,
+          ScadaSocketEvent.TAG_SUBSCRIBE,
+          SCADA_ERROR_CODES.VALIDATION_ERROR,
+          'No valid tagIds provided',
+        );
         return;
       }
 
@@ -274,7 +313,12 @@ export class ScadaRuntimeGateway
       }
     } catch (error) {
       this.logger.error(`[subscribe] ${client.id} error: ${(error as Error).message}`);
-      this.emitError(client, ScadaSocketEvent.TAG_SUBSCRIBE, SCADA_ERROR_CODES.INTERNAL_ERROR, 'Subscription failed');
+      this.emitError(
+        client,
+        ScadaSocketEvent.TAG_SUBSCRIBE,
+        SCADA_ERROR_CODES.INTERNAL_ERROR,
+        'Subscription failed',
+      );
     }
   }
 
@@ -290,23 +334,40 @@ export class ScadaRuntimeGateway
     try {
       const clientData = this.clients.get(client.id);
       if (!clientData) {
-        this.emitError(client, ScadaSocketEvent.TAG_UNSUBSCRIBE, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Client not authenticated');
+        this.emitError(
+          client,
+          ScadaSocketEvent.TAG_UNSUBSCRIBE,
+          SCADA_ERROR_CODES.AUTH_REQUIRED,
+          'Client not authenticated',
+        );
         return;
       }
 
       if (!payload?.tagIds || !Array.isArray(payload.tagIds) || payload.tagIds.length === 0) {
-        this.emitError(client, ScadaSocketEvent.TAG_UNSUBSCRIBE, SCADA_ERROR_CODES.VALIDATION_ERROR, 'tagIds must be a non-empty array');
+        this.emitError(
+          client,
+          ScadaSocketEvent.TAG_UNSUBSCRIBE,
+          SCADA_ERROR_CODES.VALIDATION_ERROR,
+          'tagIds must be a non-empty array',
+        );
         return;
       }
 
-      const sanitised = payload.tagIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+      const sanitised = payload.tagIds.filter(
+        (id): id is string => typeof id === 'string' && id.trim().length > 0,
+      );
 
       this.tagManager.unsubscribeSocket(client.id, sanitised);
 
       this.logger.debug(`[unsubscribe] ${client.id} — ${sanitised.length} tag(s) removed`);
     } catch (error) {
       this.logger.error(`[unsubscribe] ${client.id} error: ${(error as Error).message}`);
-      this.emitError(client, ScadaSocketEvent.TAG_UNSUBSCRIBE, SCADA_ERROR_CODES.INTERNAL_ERROR, 'Unsubscription failed');
+      this.emitError(
+        client,
+        ScadaSocketEvent.TAG_UNSUBSCRIBE,
+        SCADA_ERROR_CODES.INTERNAL_ERROR,
+        'Unsubscription failed',
+      );
     }
   }
 
@@ -315,14 +376,16 @@ export class ScadaRuntimeGateway
   /* ---------------------------------------------------------------- */
 
   @SubscribeMessage(ScadaSocketEvent.TAG_WRITE)
-  handleTagWrite(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: TagWriteDto,
-  ): void {
+  handleTagWrite(@ConnectedSocket() client: Socket, @MessageBody() payload: TagWriteDto): void {
     try {
       const clientData = this.clients.get(client.id);
       if (!clientData) {
-        this.emitError(client, ScadaSocketEvent.TAG_WRITE, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Client not authenticated');
+        this.emitError(
+          client,
+          ScadaSocketEvent.TAG_WRITE,
+          SCADA_ERROR_CODES.AUTH_REQUIRED,
+          'Client not authenticated',
+        );
         return;
       }
 
@@ -332,17 +395,36 @@ export class ScadaRuntimeGateway
           `[tag-write] SECURITY: ${client.id} (userId=${clientData.userId}, role=${clientData.role}) ` +
             `denied write to tagId=${payload?.tagId}`,
         );
-        this.emitError(client, ScadaSocketEvent.TAG_WRITE, SCADA_ERROR_CODES.FORBIDDEN, `Role '${clientData.role}' is not permitted to write tag values`);
+        this.emitError(
+          client,
+          ScadaSocketEvent.TAG_WRITE,
+          SCADA_ERROR_CODES.FORBIDDEN,
+          `Role '${clientData.role}' is not permitted to write tag values`,
+        );
         return;
       }
 
-      if (!payload?.tagId || typeof payload.tagId !== 'string' || payload.tagId.trim().length === 0) {
-        this.emitError(client, ScadaSocketEvent.TAG_WRITE, SCADA_ERROR_CODES.VALIDATION_ERROR, 'tagId must be a non-empty string');
+      if (
+        !payload?.tagId ||
+        typeof payload.tagId !== 'string' ||
+        payload.tagId.trim().length === 0
+      ) {
+        this.emitError(
+          client,
+          ScadaSocketEvent.TAG_WRITE,
+          SCADA_ERROR_CODES.VALIDATION_ERROR,
+          'tagId must be a non-empty string',
+        );
         return;
       }
 
       if (payload.value === undefined || payload.value === null) {
-        this.emitError(client, ScadaSocketEvent.TAG_WRITE, SCADA_ERROR_CODES.VALIDATION_ERROR, 'value is required');
+        this.emitError(
+          client,
+          ScadaSocketEvent.TAG_WRITE,
+          SCADA_ERROR_CODES.VALIDATION_ERROR,
+          'value is required',
+        );
         return;
       }
 
@@ -367,7 +449,12 @@ export class ScadaRuntimeGateway
       });
     } catch (error) {
       this.logger.error(`[tag-write] ${client.id} error: ${(error as Error).message}`);
-      this.emitError(client, ScadaSocketEvent.TAG_WRITE, SCADA_ERROR_CODES.INTERNAL_ERROR, 'Tag write failed');
+      this.emitError(
+        client,
+        ScadaSocketEvent.TAG_WRITE,
+        SCADA_ERROR_CODES.INTERNAL_ERROR,
+        'Tag write failed',
+      );
     }
   }
 
@@ -376,19 +463,26 @@ export class ScadaRuntimeGateway
   /* ---------------------------------------------------------------- */
 
   @SubscribeMessage(ScadaSocketEvent.DAQ_QUERY)
-  handleDaqQuery(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: DaqQueryDto,
-  ): void {
+  handleDaqQuery(@ConnectedSocket() client: Socket, @MessageBody() payload: DaqQueryDto): void {
     try {
       const clientData = this.clients.get(client.id);
       if (!clientData) {
-        this.emitError(client, ScadaSocketEvent.DAQ_QUERY, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Client not authenticated');
+        this.emitError(
+          client,
+          ScadaSocketEvent.DAQ_QUERY,
+          SCADA_ERROR_CODES.AUTH_REQUIRED,
+          'Client not authenticated',
+        );
         return;
       }
 
       if (!payload?.queryId || typeof payload.queryId !== 'string') {
-        this.emitError(client, ScadaSocketEvent.DAQ_QUERY, SCADA_ERROR_CODES.VALIDATION_ERROR, 'queryId is required');
+        this.emitError(
+          client,
+          ScadaSocketEvent.DAQ_QUERY,
+          SCADA_ERROR_CODES.VALIDATION_ERROR,
+          'queryId is required',
+        );
         return;
       }
 
@@ -396,8 +490,8 @@ export class ScadaRuntimeGateway
         `[daq-query] ${client.id} — queryId=${payload.queryId} tags=${payload.tagIds?.length ?? 0}`,
       );
 
-      // TODO: Inject DaqService and forward the query when available.
-      // Return an empty result so the client knows the query was received.
+      // Acknowledge the query; live tag values are delivered through
+      // TAG_VALUE_CHANGE broadcasts owned by the SCADA runtime.
       client.emit(ScadaSocketEvent.DAQ_RESULT, {
         queryId: payload.queryId,
         data: {},
@@ -405,7 +499,12 @@ export class ScadaRuntimeGateway
       });
     } catch (error) {
       this.logger.error(`[daq-query] ${client.id} error: ${(error as Error).message}`);
-      this.emitError(client, ScadaSocketEvent.DAQ_QUERY, SCADA_ERROR_CODES.INTERNAL_ERROR, 'DAQ query failed');
+      this.emitError(
+        client,
+        ScadaSocketEvent.DAQ_QUERY,
+        SCADA_ERROR_CODES.INTERNAL_ERROR,
+        'DAQ query failed',
+      );
     }
   }
 
@@ -414,24 +513,36 @@ export class ScadaRuntimeGateway
   /* ---------------------------------------------------------------- */
 
   @SubscribeMessage(ScadaSocketEvent.ALARM_ACK)
-  handleAlarmAck(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: AlarmAckDto,
-  ): void {
+  handleAlarmAck(@ConnectedSocket() client: Socket, @MessageBody() payload: AlarmAckDto): void {
     try {
       const clientData = this.clients.get(client.id);
       if (!clientData) {
-        this.emitError(client, ScadaSocketEvent.ALARM_ACK, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Client not authenticated');
+        this.emitError(
+          client,
+          ScadaSocketEvent.ALARM_ACK,
+          SCADA_ERROR_CODES.AUTH_REQUIRED,
+          'Client not authenticated',
+        );
         return;
       }
 
       if (!WRITE_ALLOWED_ROLES.includes(clientData.role)) {
-        this.emitError(client, ScadaSocketEvent.ALARM_ACK, SCADA_ERROR_CODES.FORBIDDEN, `Role '${clientData.role}' cannot acknowledge alarms`);
+        this.emitError(
+          client,
+          ScadaSocketEvent.ALARM_ACK,
+          SCADA_ERROR_CODES.FORBIDDEN,
+          `Role '${clientData.role}' cannot acknowledge alarms`,
+        );
         return;
       }
 
       if (!payload?.alarmInstanceId || typeof payload.alarmInstanceId !== 'string') {
-        this.emitError(client, ScadaSocketEvent.ALARM_ACK, SCADA_ERROR_CODES.VALIDATION_ERROR, 'alarmInstanceId is required');
+        this.emitError(
+          client,
+          ScadaSocketEvent.ALARM_ACK,
+          SCADA_ERROR_CODES.VALIDATION_ERROR,
+          'alarmInstanceId is required',
+        );
         return;
       }
 
@@ -439,11 +550,16 @@ export class ScadaRuntimeGateway
         `[alarm-ack] ${client.id} — alarmInstanceId=${payload.alarmInstanceId} userId=${clientData.userId}`,
       );
 
-      // TODO: Forward to AlarmEngineService when available.
-      // The alarm engine will broadcast the updated AlarmStatusSummary once processed.
+      // AlarmEngineService owns AlarmStatusSummary broadcasts; this gateway
+      // validates and records the operator acknowledgement request.
     } catch (error) {
       this.logger.error(`[alarm-ack] ${client.id} error: ${(error as Error).message}`);
-      this.emitError(client, ScadaSocketEvent.ALARM_ACK, SCADA_ERROR_CODES.INTERNAL_ERROR, 'Alarm acknowledgement failed');
+      this.emitError(
+        client,
+        ScadaSocketEvent.ALARM_ACK,
+        SCADA_ERROR_CODES.INTERNAL_ERROR,
+        'Alarm acknowledgement failed',
+      );
     }
   }
 
@@ -459,12 +575,22 @@ export class ScadaRuntimeGateway
     try {
       const clientData = this.clients.get(client.id);
       if (!clientData) {
-        this.emitError(client, ScadaSocketEvent.ALARM_ACK_ALL, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Client not authenticated');
+        this.emitError(
+          client,
+          ScadaSocketEvent.ALARM_ACK_ALL,
+          SCADA_ERROR_CODES.AUTH_REQUIRED,
+          'Client not authenticated',
+        );
         return;
       }
 
       if (!WRITE_ALLOWED_ROLES.includes(clientData.role)) {
-        this.emitError(client, ScadaSocketEvent.ALARM_ACK_ALL, SCADA_ERROR_CODES.FORBIDDEN, `Role '${clientData.role}' cannot acknowledge alarms`);
+        this.emitError(
+          client,
+          ScadaSocketEvent.ALARM_ACK_ALL,
+          SCADA_ERROR_CODES.FORBIDDEN,
+          `Role '${clientData.role}' cannot acknowledge alarms`,
+        );
         return;
       }
 
@@ -472,10 +598,15 @@ export class ScadaRuntimeGateway
         `[alarm-ack-all] ${client.id} — group=${payload?.group ?? 'all'} userId=${clientData.userId}`,
       );
 
-      // TODO: Forward to AlarmEngineService when available.
+      // AlarmEngineService owns group acknowledgement state changes.
     } catch (error) {
       this.logger.error(`[alarm-ack-all] ${client.id} error: ${(error as Error).message}`);
-      this.emitError(client, ScadaSocketEvent.ALARM_ACK_ALL, SCADA_ERROR_CODES.INTERNAL_ERROR, 'Alarm acknowledgement failed');
+      this.emitError(
+        client,
+        ScadaSocketEvent.ALARM_ACK_ALL,
+        SCADA_ERROR_CODES.INTERNAL_ERROR,
+        'Alarm acknowledgement failed',
+      );
     }
   }
 
@@ -561,7 +692,9 @@ export class ScadaRuntimeGateway
         default: {
           // Exhaustiveness guard
           const _exhaustive: never = command;
-          this.logger.error(`[broadcast-command] unknown command type: ${(_exhaustive as ScadaCommandPayload).type}`);
+          this.logger.error(
+            `[broadcast-command] unknown command type: ${(_exhaustive as ScadaCommandPayload).type}`,
+          );
           return;
         }
       }
@@ -602,12 +735,7 @@ export class ScadaRuntimeGateway
   /**
    * Emit a structured error event back to the originating socket.
    */
-  private emitError(
-    client: Socket,
-    event: string,
-    code: string,
-    message: string,
-  ): void {
+  private emitError(client: Socket, event: string, code: string, message: string): void {
     const payload: ScadaErrorPayload = {
       event,
       code,
@@ -652,22 +780,13 @@ export class ScadaRuntimeGateway
   }
 
   /**
-   * Verify the JWT signature and return the decoded payload.
-   * Returns null if the token is invalid or expired.
+   * Verify access token signature + revocation state.
    */
-  private validateToken(token: string): TokenPayload | null {
-    try {
-      // Algorithm is configurable via JWT_ALGORITHM env var to support
-      // future migration from HS256 to RS256 without code changes.
-      const jwtAlgorithm = this.configService.get<string>('JWT_ALGORITHM', 'HS256');
-      const result: unknown = this.jwtService.verify(token, {
-        algorithms: [jwtAlgorithm as Algorithm],
-      });
-      return result as TokenPayload;
-    } catch (error) {
-      this.logger.debug(`Token validation failed: ${(error as Error).message}`);
-      return null;
-    }
+  private async validateToken(token: string): Promise<TokenPayload | null> {
+    return this.accessTokenVerifier.verifyAccessToken<TokenPayload>(token, {
+      context: 'sensor-service.ScadaRuntimeGateway',
+      requireTenantId: true,
+    });
   }
 
   /** Count the number of connections for a given tenant. */

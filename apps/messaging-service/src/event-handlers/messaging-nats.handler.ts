@@ -1,5 +1,11 @@
 import { Controller, Inject, Logger } from '@nestjs/common';
 import { MessagePattern, EventPattern, Payload } from '@nestjs/microservices';
+import { getTenantSchemaName, TENANT_SCHEMA_NAME_RE } from '@aquaculture/backend-common/database';
+import {
+  EnsureTenantMessagingPartitionsCommand,
+  EnsureTenantMessagingPartitionsResult,
+  MESSAGING_COMMAND_SUBJECTS,
+} from '@platform/event-contracts';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import Redis from 'ioredis';
 import { Repository, DataSource, In, IsNull } from 'typeorm';
@@ -12,16 +18,6 @@ import { REDIS_CLIENT } from '../shared/redis.provider';
 
 /** UUID representing an anonymised / deleted user. */
 const ANONYMOUS_USER_ID = '00000000-0000-0000-0000-000000000000';
-
-/**
- * SEC-M17: Strict tenant schema name validation regex.
- *
- * NATS messages are internal but may originate from compromised containers.
- * Only 'public', 'messaging', or 'tenant_{uuid}' format is accepted.
- * This prevents SQL injection via crafted schema names in NATS payloads.
- */
-const TENANT_SCHEMA_REGEX =
-  /^tenant_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * SEC-M17: Validate a tenant ID for use in SQL search_path.
@@ -95,7 +91,12 @@ interface ResolveNotificationRefResult {
 
 interface TenantProvisionedPayload {
   tenantId: string;
-  schemaName: string;
+  schemaName?: string;
+}
+
+interface TenantPartitionEnsure {
+  tenantId: string;
+  schemaName?: string;
 }
 
 interface ChannelMemberDto {
@@ -500,46 +501,69 @@ export class MessagingNatsHandler {
   /**
    * SEC-M17: When a new tenant is provisioned, create messaging partitions for its schema.
    *
-   * Validates both tenantId (UUID) and schemaName (tenant_{uuid} format) from the
-   * NATS payload before processing. Rejects payloads with invalid formats to prevent
-   * SQL injection via crafted NATS messages from compromised containers.
+   * Validates tenantId and derives the canonical schema name locally. The payload's
+   * schemaName is advisory only and never trusted for SQL routing.
    */
   @EventPattern('events.TenantProvisioned')
   async handleTenantProvisioned(
     @Payload() data: TenantProvisionedPayload,
   ): Promise<void> {
-    // SEC-M17: Validate tenantId format
-    if (!TENANT_ID_REGEX.test(data.tenantId)) {
-      this.logger.error(
-        `SEC-M17: Rejected TenantProvisioned with invalid tenantId: ${String(data.tenantId).substring(0, 50)}`,
-      );
-      return;
-    }
-
-    // SEC-M17: Validate schemaName format (must be tenant_{uuid})
-    if (!TENANT_SCHEMA_REGEX.test(data.schemaName)) {
-      this.logger.error(
-        `SEC-M17: Rejected TenantProvisioned with invalid schemaName: ${String(data.schemaName).substring(0, 80)}`,
-      );
-      return;
-    }
-
     this.logger.log(
-      `TenantProvisioned received — ensuring partitions for ${data.schemaName}`,
+      `TenantProvisioned received — ensuring partitions for tenant ${data.tenantId}`,
     );
 
     try {
-      // Trigger partition creation via the partition manager's startup logic
-      // which checks current + next 2 months
-      await this.partitionManager.onApplicationBootstrap();
-      this.logger.log(
-        `Partitions ensured for tenant ${data.tenantId} (${data.schemaName})`,
-      );
+      const { schemaName } = await this.ensureTenantPartitionsOrThrow(data);
+      this.logger.log(`Partitions ensured for tenant ${data.tenantId} (${schemaName})`);
     } catch (err) {
       this.logger.error(
-        `Partition creation failed for ${data.schemaName}: ${(err as Error).message}`,
+        `Partition creation failed for tenant ${String(data.tenantId).substring(0, 50)}: ${(err as Error).message}`,
+      );
+      throw err;
+    }
+  }
+
+  @MessagePattern(MESSAGING_COMMAND_SUBJECTS.ENSURE_TENANT_PARTITIONS)
+  async ensureTenantMessagingPartitions(
+    @Payload() data: EnsureTenantMessagingPartitionsCommand,
+  ): Promise<EnsureTenantMessagingPartitionsResult> {
+    try {
+      const { tenantId, schemaName } = await this.ensureTenantPartitionsOrThrow(data);
+      return { success: true, tenantId, schemaName };
+    } catch (err) {
+      const message = (err as Error).message;
+      this.logger.error(`Messaging partition command failed: ${message}`);
+      return {
+        success: false,
+        tenantId: data?.tenantId,
+        errorCode: message.startsWith('SEC-M17:') ? 'INVALID_TENANT' : 'PARTITION_FAILURE',
+        error: message,
+      };
+    }
+  }
+
+  private async ensureTenantPartitionsOrThrow(
+    data: TenantPartitionEnsure,
+  ): Promise<{ tenantId: string; schemaName: string }> {
+    if (!TENANT_ID_REGEX.test(data.tenantId)) {
+      throw new Error(
+        `SEC-M17: Invalid tenant ID format rejected: ${String(data.tenantId).substring(0, 50)}`,
       );
     }
+
+    const schemaName = getTenantSchemaName(data.tenantId);
+    if (!TENANT_SCHEMA_NAME_RE.test(schemaName)) {
+      throw new Error(`Derived unsafe tenant schema name for tenant ${data.tenantId}`);
+    }
+
+    if (data.schemaName && data.schemaName !== schemaName) {
+      this.logger.warn(
+        `Tenant schemaName ignored: received=${data.schemaName} derived=${schemaName}`,
+      );
+    }
+
+    await this.partitionManager.ensureCurrentPartitionsForSchemas([schemaName]);
+    return { tenantId: data.tenantId, schemaName };
   }
 
   private async consumeRedisKey(key: string): Promise<string | null> {

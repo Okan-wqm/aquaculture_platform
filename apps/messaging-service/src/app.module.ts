@@ -98,12 +98,14 @@ import { CreateMessagingOutboxTable1800200000000 } from './migrations/1800200000
 import { AddUserAiConsentTenantUserUnique1800300000000 } from './migrations/1800300000000-AddUserAiConsentTenantUserUnique';
 import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from './migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
 import { MessagingOutboxSequence1800500000000 } from './migrations/1800500000000-MessagingOutboxSequence';
+import { PartitionMessagingParents1800600000000 } from './migrations/1800600000000-PartitionMessagingParents';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
 import { MessageModule } from './message/message.module';
 import { PresenceModule } from './presence/presence.module';
 import { PartitionModule } from './partition/partition.module';
+import { PartitionBootstrapService } from './partition/partition-bootstrap.service';
 import { MessagingOutboxModule } from './outbox/messaging-outbox.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { ComplianceModule } from './compliance/compliance.module';
@@ -172,6 +174,7 @@ const complexityCache = new Map<string, number>();
             AddUserAiConsentTenantUserUnique1800300000000,
             EnforceSourceOnlyMessagingOutboxContract1800400000000,
             MessagingOutboxSequence1800500000000,
+            PartitionMessagingParents1800600000000,
           ],
         }),
     }),
@@ -360,6 +363,7 @@ const complexityCache = new Map<string, number>();
     // relies on aqua-db-migrate before service containers start; in E2E the
     // runner is the SSoT for migration execution.
     MessagingMigrationRunnerService,
+    PartitionBootstrapService,
 
     // Tenant infrastructure providers (all 5 required — see ADR-012 section 6.1)
     SourceSchemaBootstrapService,
@@ -372,13 +376,13 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(
-        // SEC-CRITICAL-002 sweep — strip forged internal headers.
+        // Gateway trust chain SSoT: strip, verify assertion, then materialise context.
         StripInternalHeadersMiddleware,
-        CorrelationIdMiddleware,
-        RequestContextMiddleware,
         VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware,
+        CorrelationIdMiddleware,
         TenantSchemaMiddleware,
       )
       // Express v5 path-to-regexp v8: named wildcard required instead of regex capture group

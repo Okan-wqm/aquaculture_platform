@@ -58,9 +58,7 @@ export function createMockChannel(overrides: Partial<Channel> = {}): Channel {
   };
 }
 
-export function createMockChannelMember(
-  overrides: Partial<ChannelMember> = {},
-): ChannelMember {
+export function createMockChannelMember(overrides: Partial<ChannelMember> = {}): ChannelMember {
   return {
     id: fakeUuid('cm'),
     tenantId: TENANT_A,
@@ -129,9 +127,7 @@ export function createMockAttachment(
   };
 }
 
-export function createMockOutboxEvent(
-  overrides: Partial<MessagingOutbox> = {},
-): MessagingOutbox {
+export function createMockOutboxEvent(overrides: Partial<MessagingOutbox> = {}): MessagingOutbox {
   // payload must conform to IEvent (eventId / eventType / timestamp /
   // optional tenantId), not a free-form bag with channelId. The
   // domain-specific channelId belongs in IEvent.metadata or in a
@@ -204,7 +200,12 @@ export function createMockQueryRunnerManager(): MockQueryRunnerManager {
     update: jest.fn(),
     delete: jest.fn(),
     createQueryBuilder: jest.fn(),
-    query: jest.fn().mockResolvedValue([]),
+    query: jest.fn().mockImplementation((sql: string) => {
+      if (sql.includes('INSERT INTO "message_idempotency_keys"')) {
+        return Promise.resolve([{ tenantId: TENANT_A }]);
+      }
+      return Promise.resolve([]);
+    }),
   };
 }
 
@@ -224,7 +225,10 @@ export function createMockQueryRunner(): MockQueryRunner {
 // Mock repository factory
 // ---------------------------------------------------------------------------
 export type MockRepository<T extends ObjectLiteral> = jest.Mocked<
-  Pick<Repository<T>, 'findOne' | 'find' | 'save' | 'create' | 'update' | 'delete' | 'count' | 'createQueryBuilder'>
+  Pick<
+    Repository<T>,
+    'findOne' | 'find' | 'save' | 'create' | 'update' | 'delete' | 'count' | 'createQueryBuilder'
+  >
 >;
 
 export function createMockRepository<T extends ObjectLiteral>(): MockRepository<T> {
@@ -243,14 +247,34 @@ export function createMockRepository<T extends ObjectLiteral>(): MockRepository<
 // ---------------------------------------------------------------------------
 // Mock QueryBuilder
 // ---------------------------------------------------------------------------
-export function createMockQueryBuilder<T extends ObjectLiteral>(): jest.Mocked<SelectQueryBuilder<T>> {
+export function createMockQueryBuilder<T extends ObjectLiteral>(): jest.Mocked<
+  SelectQueryBuilder<T>
+> {
   const qb: Record<string, jest.Mock> = {};
   const methods = [
-    'select', 'addSelect', 'where', 'andWhere', 'orWhere',
-    'orderBy', 'addOrderBy', 'skip', 'take', 'limit', 'offset',
-    'leftJoinAndSelect', 'innerJoinAndSelect', 'leftJoin', 'innerJoin',
-    'getMany', 'getOne', 'getCount', 'getRawMany', 'getRawOne',
-    'getManyAndCount', 'setParameter', 'setParameters',
+    'select',
+    'addSelect',
+    'where',
+    'andWhere',
+    'orWhere',
+    'orderBy',
+    'addOrderBy',
+    'skip',
+    'take',
+    'limit',
+    'offset',
+    'leftJoinAndSelect',
+    'innerJoinAndSelect',
+    'leftJoin',
+    'innerJoin',
+    'getMany',
+    'getOne',
+    'getCount',
+    'getRawMany',
+    'getRawOne',
+    'getManyAndCount',
+    'setParameter',
+    'setParameters',
   ];
   for (const method of methods) {
     qb[method] = jest.fn().mockReturnThis();
@@ -335,9 +359,8 @@ export function createMockDataSource(queryRunner: MockQueryRunner) {
   return {
     createQueryRunner: jest.fn().mockReturnValue(queryRunner),
     getRepository: jest.fn(),
-    transaction: jest.fn(
-      async (cb: (manager: MockQueryRunnerManager) => Promise<unknown>) =>
-        cb(queryRunner.manager),
+    transaction: jest.fn(async (cb: (manager: MockQueryRunnerManager) => Promise<unknown>) =>
+      cb(queryRunner.manager),
     ),
   };
 }
@@ -367,9 +390,7 @@ import {
   ComplianceAction,
 } from '../compliance/entities/compliance-audit-log.entity';
 
-export function createMockAnalysis(
-  overrides: Partial<MessageAnalysis> = {},
-): MessageAnalysis {
+export function createMockAnalysis(overrides: Partial<MessageAnalysis> = {}): MessageAnalysis {
   const defaultResult: SentimentResult = {
     label: 'POSITIVE',
     score: 0.92,
@@ -404,9 +425,7 @@ export function createMockRetentionPolicy(
   };
 }
 
-export function createMockLegalHold(
-  overrides: Partial<LegalHold> = {},
-): LegalHold {
+export function createMockLegalHold(overrides: Partial<LegalHold> = {}): LegalHold {
   return {
     id: fakeUuid('lh'),
     tenantId: TENANT_A,

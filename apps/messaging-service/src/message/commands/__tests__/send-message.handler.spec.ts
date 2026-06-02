@@ -1,11 +1,15 @@
 // Mock sanitize-html (may not have type declarations)
-jest.mock('sanitize-html', () => {
-  return jest.fn((html: string) => html.replace(/<[^>]*>/g, ''));
-}, { virtual: true });
+jest.mock(
+  'sanitize-html',
+  () => {
+    return jest.fn((html: string) => html.replace(/<[^>]*>/g, ''));
+  },
+  { virtual: true },
+);
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { Message, MessageContentType } from '../../entities/message.entity';
@@ -82,9 +86,10 @@ describe('SendMessageHandler', () => {
       // The handler uses processedContent as the final sanitizedContent
       // (see send-message.handler.ts:118), so returning '' would make
       // every TEXT-message test fail the non-empty content guard.
-      parseMentions: jest.fn().mockImplementation(
-        (content: string) => ({ mentionedUserIds: [], processedContent: content }),
-      ),
+      parseMentions: jest.fn().mockImplementation((content: string) => ({
+        mentionedUserIds: [],
+        processedContent: content,
+      })),
     };
     mediaService = {
       // Default: every attachment key validates as image/png 1024 bytes.
@@ -122,13 +127,15 @@ describe('SendMessageHandler', () => {
     jest.clearAllMocks();
   });
 
-  function makeCmd(overrides: Partial<{
-    content: string | null;
-    contentType: MessageContentType;
-    attachmentKeys: string[];
-    metadata: Record<string, unknown> | null;
-    parentId: string | null;
-  }> = {}): SendMessageCommand {
+  function makeCmd(
+    overrides: Partial<{
+      content: string | null;
+      contentType: MessageContentType;
+      attachmentKeys: string[];
+      metadata: Record<string, unknown> | null;
+      parentId: string | null;
+    }> = {},
+  ): SendMessageCommand {
     return new SendMessageCommand(
       tenantId,
       senderId,
@@ -178,6 +185,92 @@ describe('SendMessageHandler', () => {
     );
   });
 
+  it('continues with DB ledger idempotency when Redis SET NX fails', async () => {
+    redisClient.set.mockRejectedValue(new Error('Redis SET NX unavailable'));
+    const cmd = makeCmd();
+
+    const result = await handler.execute(cmd);
+
+    expect(result).toBeDefined();
+    expect(result.channelId).toBe(channelId);
+    expect(queryRunner.manager.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO "message_idempotency_keys"'),
+      [tenantId, idempotencyKey],
+    );
+    expect(outboxPublisher.enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns existing message from DB ledger when Redis key has no message id', async () => {
+    const existingMsg = createMockMessage({ id: fakeUuid('msg'), channelId, senderId });
+    redisClient.set.mockResolvedValue(null);
+    redisClient.get.mockResolvedValue('pending');
+    queryRunner.manager.query.mockImplementation((sql: string) => {
+      if (sql.includes('INSERT INTO "message_idempotency_keys"')) {
+        return Promise.resolve([]);
+      }
+      if (sql.includes('SELECT "messageId", "messageCreatedAt"')) {
+        return Promise.resolve([
+          {
+            messageId: existingMsg.id,
+            messageCreatedAt: existingMsg.createdAt,
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    queryRunner.manager.findOne.mockResolvedValue(existingMsg);
+
+    const cmd = makeCmd();
+    const result = await handler.execute(cmd);
+
+    expect(result.id).toBe(existingMsg.id);
+    expect(queryRunner.manager.findOne).toHaveBeenCalledWith(Message, {
+      where: { tenantId, id: existingMsg.id },
+      relations: ['attachments'],
+    });
+    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('rejects concurrent sends while DB idempotency ledger is in progress', async () => {
+    redisClient.set.mockResolvedValue(null);
+    redisClient.get.mockResolvedValue('pending');
+    queryRunner.manager.query.mockImplementation((sql: string) => {
+      if (sql.includes('INSERT INTO "message_idempotency_keys"')) {
+        return Promise.resolve([]);
+      }
+      if (sql.includes('SELECT "messageId", "messageCreatedAt"')) {
+        return Promise.resolve([{ messageId: null, messageCreatedAt: null }]);
+      }
+      return Promise.resolve([]);
+    });
+
+    await expect(handler.execute(makeCmd())).rejects.toThrow(ConflictException);
+    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('rejects a DB idempotency ledger row that points to a missing message', async () => {
+    redisClient.set.mockResolvedValue(null);
+    redisClient.get.mockResolvedValue('pending');
+    queryRunner.manager.query.mockImplementation((sql: string) => {
+      if (sql.includes('INSERT INTO "message_idempotency_keys"')) {
+        return Promise.resolve([]);
+      }
+      if (sql.includes('SELECT "messageId", "messageCreatedAt"')) {
+        return Promise.resolve([
+          {
+            messageId: fakeUuid('missing-msg'),
+            messageCreatedAt: new Date('2026-03-10T12:00:00Z'),
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    queryRunner.manager.findOne.mockResolvedValue(null);
+
+    await expect(handler.execute(makeCmd())).rejects.toThrow(ConflictException);
+    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+  });
+
   // -----------------------------------------------------------------------
   // HTML sanitization
   // -----------------------------------------------------------------------
@@ -188,9 +281,7 @@ describe('SendMessageHandler', () => {
     const result = await handler.execute(cmd);
 
     // The saved content should not contain script tags
-    const msgSaveCall = queryRunner.manager.save.mock.calls.find(
-      (call) => call[0] === Message,
-    );
+    const msgSaveCall = queryRunner.manager.save.mock.calls.find((call) => call[0] === Message);
     expect(msgSaveCall).toBeDefined();
     const savedContent = (msgSaveCall![1] as Partial<Message>).content;
     expect(savedContent).not.toContain('<script>');
@@ -202,9 +293,7 @@ describe('SendMessageHandler', () => {
 
     await handler.execute(cmd);
 
-    const msgSaveCall = queryRunner.manager.save.mock.calls.find(
-      (call) => call[0] === Message,
-    );
+    const msgSaveCall = queryRunner.manager.save.mock.calls.find((call) => call[0] === Message);
     const savedContent = (msgSaveCall![1] as Partial<Message>).content;
     expect(savedContent).not.toContain('javascript:');
   });
@@ -215,9 +304,7 @@ describe('SendMessageHandler', () => {
 
     await handler.execute(cmd);
 
-    const msgSaveCall = queryRunner.manager.save.mock.calls.find(
-      (call) => call[0] === Message,
-    );
+    const msgSaveCall = queryRunner.manager.save.mock.calls.find((call) => call[0] === Message);
     const savedContent = (msgSaveCall![1] as Partial<Message>).content;
     expect(savedContent).not.toContain('data:');
   });
@@ -228,9 +315,7 @@ describe('SendMessageHandler', () => {
 
     const result = await handler.execute(cmd);
 
-    const msgSaveCall = queryRunner.manager.save.mock.calls.find(
-      (call) => call[0] === Message,
-    );
+    const msgSaveCall = queryRunner.manager.save.mock.calls.find((call) => call[0] === Message);
     const savedContent = (msgSaveCall![1] as Partial<Message>).content as string;
     expect(savedContent).toContain('https://example.com');
     expect(savedContent).toContain('http://example.com');
@@ -309,9 +394,7 @@ describe('SendMessageHandler', () => {
 
     await handler.execute(cmd);
 
-    const attSave = queryRunner.manager.save.mock.calls.find(
-      (c) => c[0] === MessageAttachment,
-    );
+    const attSave = queryRunner.manager.save.mock.calls.find((c) => c[0] === MessageAttachment);
     expect(attSave).toBeDefined();
     const attachments = attSave![1] as Partial<MessageAttachment>[];
     expect(attachments).toHaveLength(2);

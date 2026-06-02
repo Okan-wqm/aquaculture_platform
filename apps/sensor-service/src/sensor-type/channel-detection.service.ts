@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, IsNull, DataSource } from 'typeorm';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { signedFetch } from '@aquaculture/backend-common/http';
 import {
   CircuitBreakerService,
   DEFAULT_BREAKER_OPTIONS,
@@ -262,42 +263,38 @@ export class ChannelDetectionService {
       tools: ['analyze_sensor_data', 'suggest_sensor_channels'],
     };
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'x-tenant-id': tenantId,
-      'x-user-payload': JSON.stringify({ sub: 'system', roles: ['supervisor'] }),
-    };
+    const bodyJson = JSON.stringify(body);
 
-    // CIRCUIT-LOW-002 cure: canonical breaker wrap. Per-tenant key
-    // so a single noisy tenant cannot trip the breaker for every
-    // other tenant's channel-detection. fail-closed because the
-    // caller (detectChannels) already has its own try/catch
-    // wrapping callAiService — a closed breaker becomes a thrown
-    // error which the outer fallback path interprets as
-    // "AI unavailable, use local heuristics" — the same behaviour
-    // a 500-status response triggers.
-    const response = await this.circuitBreaker.execute<Response>({
-      serviceName: 'sensor-channel-detection-ai',
+    const response = await signedFetch(url, {
+      method: 'POST',
+      serviceName: 'sensor-service',
       tenantId,
-      options: {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: bodyJson,
+      verifiedUser: {
+        sub: 'sensor-service:channel-detection',
+        tenantId,
+        role: 'supervisor',
+        roles: ['supervisor'],
+        mfaVerified: true,
+      },
+      circuitBreaker: {
+        service: this.circuitBreaker,
+        serviceName: 'sensor-channel-detection-ai',
+      },
+      circuitBreakerOptions: {
         ...DEFAULT_BREAKER_OPTIONS,
         failureMode: 'fail-closed',
       },
-      fn: async () => {
-        const r = await fetch(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(30000),
-        });
-        if (!r.ok) {
-          throw new Error(
-            `AI service returned ${r.status} ${r.statusText}`,
-          );
-        }
-        return r;
-      },
+      signal: AbortSignal.timeout(30000),
     });
+    if (!response.ok) {
+      throw new Error(
+        `AI service returned ${response.status} ${response.statusText}`,
+      );
+    }
 
     // The chat endpoint returns SSE events; collect tool_result events
     const text = await response.text();

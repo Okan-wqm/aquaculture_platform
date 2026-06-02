@@ -1,12 +1,4 @@
-import {
-  Entity,
-  Column,
-  PrimaryColumn,
-  CreateDateColumn,
-  OneToMany,
-  Index,
-  Check,
-} from 'typeorm';
+import { Entity, Column, PrimaryColumn, CreateDateColumn, OneToMany, Index, Check } from 'typeorm';
 import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import { MessageAttachment } from './message-attachment.entity';
 import { MessageReceipt } from './message-receipt.entity';
@@ -74,11 +66,13 @@ export class Message {
   forwardedFrom: string | null;
 
   /**
-   * Idempotency key for deduplication. UNIQUE constraint prevents duplicate
-   * messages from concurrent or retried sends.
+   * Idempotency key for deduplication. The global uniqueness contract lives in
+   * the non-partitioned message_idempotency_keys ledger; PostgreSQL cannot
+   * enforce a unique index across RANGE partitions unless the partition column
+   * is part of the key.
    * @see MSG-HIGH-015 (no idempotency constraint on message processing)
    */
-  @Index('idx_messages_idempotency', ['tenantId', 'idempotencyKey'], { unique: true })
+  @Index('idx_messages_idempotency', ['tenantId', 'idempotencyKey', 'createdAt'])
   @Column({ type: 'uuid' })
   idempotencyKey: string;
 

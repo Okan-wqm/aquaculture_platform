@@ -158,7 +158,7 @@ pub const LAST_ERROR_MAX_LEN: usize = 2000;
 /// Duration of an outbox claim lease in seconds. Mirrors the
 /// TypeScript platform outbox default (5 minutes) so operational
 /// dashboards have one lease window across runtimes.
-pub const CLAIM_LEASE_SECONDS: f64 = 5.0 * 60.0;
+pub const CLAIM_LEASE_SECONDS: u32 = 5 * 60;
 
 // =====================================================================
 // Struct
@@ -308,16 +308,12 @@ impl OutboxRepository for PgOutboxRepository {
             .map_err(|e| OutboxError::Storage(Box::new(e)))?;
         let limit_i64 = i64::from(req.limit);
         let backoff_secs = req.backoff_base.as_secs_f64();
+        let claim_lease_secs = f64::from(CLAIM_LEASE_SECONDS);
         let claim_owner = format!("sensor-ingestion-{}", std::process::id());
         let rows = client
             .query(
                 SQL_CLAIM_PENDING,
-                &[
-                    &limit_i64,
-                    &backoff_secs,
-                    &CLAIM_LEASE_SECONDS,
-                    &claim_owner,
-                ],
+                &[&limit_i64, &backoff_secs, &claim_lease_secs, &claim_owner],
             )
             .await
             .map_err(|e| OutboxError::Storage(Box::new(e)))?;
@@ -497,7 +493,7 @@ mod tests {
 
     #[test]
     fn claim_lease_matches_platform_default() {
-        assert_eq!(CLAIM_LEASE_SECONDS, 300.0);
+        assert_eq!(CLAIM_LEASE_SECONDS, 300);
     }
 
     #[test]

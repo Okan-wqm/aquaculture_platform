@@ -19,6 +19,7 @@ NATS, and Prometheus proofs that cannot be replaced by static checks.
 - `messaging_outbox` is source-owned infrastructure. It exists only in `messaging.messaging_outbox`, never in `tenant_<uuid>` schemas.
 - The canonical `messaging_outbox.id` type is UUID in the entity, migration, and fresh init SQL.
 - Read receipt idempotency and outbox idempotency use the same logical key: tenant, message, messageCreatedAt, and user.
+- Message send idempotency is enforced by the non-partitioned `message_idempotency_keys` ledger. The `messages` table is RANGE-partitioned, so PostgreSQL cannot enforce a global unique key on `(tenantId, idempotencyKey)` there without including the partition column.
 - Websocket channel membership is tenant-qualified: `channel:{tenantId}:{channelId}` and `user:{tenantId}:{userId}`.
 - Push notifications expose only an opaque `notificationRef`; channel/message identifiers are resolved after app authentication.
 - `UserDeleted` consumers use `deletedUserId` as the deletion target. Base `userId`, when present, is the actor/requester.
@@ -34,6 +35,28 @@ The outbox migration `1800200000000-CreateMessagingOutboxTable` is marked source
 - No `tenant_<uuid>.messaging_outbox` table exists.
 
 The CI gate `npm run gates:messaging-source-outbox` repeats that proof against a real PostgreSQL database. It fails without a DB URL because regex-only proof is not accepted for this boundary.
+
+## Partition Semantics
+
+`messages` and `message_receipts` are monthly RANGE-partitioned parents in the active TypeORM baseline. `PartitionManagerService` is the runtime SSoT for current and future child partitions, using the shared SQL builders in `apps/messaging-service/src/partition/partition-queries.ts`.
+
+Startup is fail-closed: the partition manager validates that each source and tenant parent is registered in `pg_partitioned_table` with the expected partition key before it creates children. Missing or non-partitioned parents abort boot instead of logging through a broken topology.
+
+Tenant schemas created after app bootstrap must be partition-provisioned immediately. E2E uses the same canonical partition query builders for late-born tenant schemas; production tenant provisioning should call the partition manager hook for the new schema before accepting writes.
+
+Partition child creation has exactly two valid locations:
+
+- migrations may create initial empty child partitions as part of schema definition;
+- `apps/messaging-service/src/partition/PartitionManagerService` creates runtime current/future child partitions.
+
+Test fixtures, e2e bootstrap helpers, controllers, and feature services must not issue `CREATE TABLE ... PARTITION OF` directly. This avoids overlapping child ranges and keeps parent/child naming under one runtime owner.
+
+Supported checks:
+
+```bash
+./node_modules/.bin/jest --config tests/invariants/jest.config.ts --selectProjects layer-1 --runTestsByPath tests/invariants/messaging-partition-parent-ssot.spec.ts --runInBand
+./node_modules/.bin/jest --config tests/invariants/jest.config.ts --selectProjects layer-1 --runTestsByPath tests/invariants/single-partition-creator.spec.ts --runInBand
+```
 
 ## Event And Gateway Semantics
 

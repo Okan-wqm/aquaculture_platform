@@ -4,17 +4,17 @@
  * Multi-tenant security is the #1 priority in a SaaS platform.
  */
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException } from '@nestjs/common';
-import { Message } from '../message/entities/message.entity';
+import type { Message } from '../message/entities/message.entity';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
-import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 import {
   createMockChannelMember,
   createMockMessage,
   createMockRepository,
   createMockQueryBuilder,
+  createMockQueryRunner,
+  createMockDataSource,
   createMockRedis,
   fakeUuid,
   resetUuidCounter,
@@ -22,8 +22,9 @@ import {
   TENANT_B,
   MockRepository,
   MockRedis,
+  MockQueryRunner,
 } from './test-helpers';
-import { SelectQueryBuilder } from 'typeorm';
+import { DataSource, SelectQueryBuilder } from 'typeorm';
 
 // Import handlers/services under test
 import { GetMessagesHandler } from '../message/queries/get-messages.handler';
@@ -31,20 +32,24 @@ import { GetMessagesQuery } from '../message/queries/get-messages.query';
 import { PresenceService } from '../presence/presence.service';
 
 describe('Tenant Isolation', () => {
-  let messageRepo: MockRepository<Message>;
   let memberRepo: MockRepository<ChannelMember>;
   let redisClient: MockRedis;
+  let queryRunner: MockQueryRunner;
+  let dataSource: ReturnType<typeof createMockDataSource>;
 
   const tenantAChannelId = fakeUuid('ch');
   const tenantBChannelId = fakeUuid('ch');
   const tenantAUserId = fakeUuid('usr');
   const tenantBUserId = fakeUuid('usr');
+  const tenantAUuid = '00000000-0000-4000-8000-000000000001';
+  const tenantBUuid = '00000000-0000-4000-8000-000000000002';
 
   beforeEach(() => {
     resetUuidCounter();
-    messageRepo = createMockRepository<Message>();
     memberRepo = createMockRepository<ChannelMember>();
     redisClient = createMockRedis();
+    queryRunner = createMockQueryRunner();
+    dataSource = createMockDataSource(queryRunner);
   });
 
   afterEach(() => {
@@ -57,26 +62,28 @@ describe('Tenant Isolation', () => {
   describe('message visibility', () => {
     it('messages from tenant A are NOT visible to tenant B', async () => {
       const qb = createMockQueryBuilder<Message>();
-      messageRepo.createQueryBuilder.mockReturnValue(
+      queryRunner.manager.createQueryBuilder.mockReturnValue(
         qb as unknown as SelectQueryBuilder<Message>,
       );
 
       // When tenant B queries, membership check fails
-      memberRepo.findOne.mockResolvedValue(null);
+      queryRunner.manager.findOne.mockResolvedValue(null);
 
       const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          GetMessagesHandler,
-          { provide: getRepositoryToken(Message), useValue: messageRepo },
-          { provide: getRepositoryToken(ChannelMember), useValue: memberRepo },
-        ],
+        providers: [GetMessagesHandler, { provide: DataSource, useValue: dataSource }],
       }).compile();
 
       const handler = module.get(GetMessagesHandler);
 
       // Tenant B user tries to read tenant A channel
       const query = new GetMessagesQuery(
-        TENANT_B, tenantBUserId, tenantAChannelId, 20, null, null, null,
+        tenantBUuid,
+        tenantBUserId,
+        tenantAChannelId,
+        20,
+        null,
+        null,
+        null,
       );
 
       await expect(handler.execute(query)).rejects.toThrow(ForbiddenException);
@@ -124,10 +131,7 @@ describe('Tenant Isolation', () => {
       redisClient.pipeline.mockReturnValue(pipelineMock);
 
       const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          PresenceService,
-          { provide: REDIS_CLIENT, useValue: redisClient },
-        ],
+        providers: [PresenceService, { provide: REDIS_CLIENT, useValue: redisClient }],
       }).compile();
 
       const presenceService = module.get(PresenceService);
@@ -156,36 +160,40 @@ describe('Tenant Isolation', () => {
   describe('search scoping', () => {
     it('search results are scoped to user tenant via membership check', async () => {
       const qb = createMockQueryBuilder<Message>();
-      messageRepo.createQueryBuilder.mockReturnValue(
+      queryRunner.manager.createQueryBuilder.mockReturnValue(
         qb as unknown as SelectQueryBuilder<Message>,
       );
 
       const tenantAMsg = createMockMessage({
+        tenantId: tenantAUuid,
         channelId: tenantAChannelId,
         content: 'aquaculture report',
       });
       qb.getMany.mockResolvedValue([tenantAMsg]);
 
       // Tenant A user IS a member
-      memberRepo.findOne.mockResolvedValue(
+      queryRunner.manager.findOne.mockResolvedValue(
         createMockChannelMember({
+          tenantId: tenantAUuid,
           channelId: tenantAChannelId,
           userId: tenantAUserId,
         }),
       );
 
       const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          GetMessagesHandler,
-          { provide: getRepositoryToken(Message), useValue: messageRepo },
-          { provide: getRepositoryToken(ChannelMember), useValue: memberRepo },
-        ],
+        providers: [GetMessagesHandler, { provide: DataSource, useValue: dataSource }],
       }).compile();
 
       const handler = module.get(GetMessagesHandler);
 
       const query = new GetMessagesQuery(
-        TENANT_A, tenantAUserId, tenantAChannelId, 50, null, null, null,
+        tenantAUuid,
+        tenantAUserId,
+        tenantAChannelId,
+        50,
+        null,
+        null,
+        null,
       );
 
       const result = await handler.execute(query);
@@ -200,10 +208,7 @@ describe('Tenant Isolation', () => {
   describe('presence tenant scoping', () => {
     it('presence is tenant-scoped', async () => {
       const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          PresenceService,
-          { provide: REDIS_CLIENT, useValue: redisClient },
-        ],
+        providers: [PresenceService, { provide: REDIS_CLIENT, useValue: redisClient }],
       }).compile();
 
       const presenceService = module.get(PresenceService);

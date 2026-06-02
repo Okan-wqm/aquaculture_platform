@@ -23,6 +23,16 @@
  */
 const SAFE_IDENTIFIER_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
+export interface PartitionedTableDefinition {
+  readonly table: 'messages' | 'message_receipts';
+  readonly column: 'createdAt' | 'receiptCreatedAt';
+}
+
+export const MESSAGING_PARTITIONED_TABLES: readonly PartitionedTableDefinition[] = [
+  { table: 'messages', column: 'createdAt' },
+  { table: 'message_receipts', column: 'receiptCreatedAt' },
+] as const;
+
 /**
  * Validate that a string is a safe SQL identifier.
  * Rejects any name that does not match the safe identifier pattern,
@@ -34,9 +44,7 @@ const SAFE_IDENTIFIER_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  */
 function assertSafeSqlIdentifier(name: string, label: string): void {
   if (!SAFE_IDENTIFIER_RE.test(name)) {
-    throw new Error(
-      `Invalid ${label} "${name}": must match ${SAFE_IDENTIFIER_RE.toString()}`,
-    );
+    throw new Error(`Invalid ${label} "${name}": must match ${SAFE_IDENTIFIER_RE.toString()}`);
   }
 }
 
@@ -273,11 +281,7 @@ export function verifyPartitionExists(
  * @param year - Year to create partitions for (all 12 months)
  * @returns Array of SQL CREATE TABLE statements
  */
-export function createYearPartitions(
-  schema: string,
-  tableName: string,
-  year: number,
-): string[] {
+export function createYearPartitions(schema: string, tableName: string, year: number): string[] {
   assertSafeSqlIdentifier(schema, 'schema');
   assertSafeSqlIdentifier(tableName, 'tableName');
   const statements: string[] = [];

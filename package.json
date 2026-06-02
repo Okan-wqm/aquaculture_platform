@@ -139,7 +139,7 @@
     "gates:sens-enterprise-validation": "ts-node --project tools/gates/tsconfig.json tools/gates/sens-enterprise-validation.ts",
     "gates:sens-enterprise-validation:self-test": "npm run gates:sens-enterprise-validation -- --self-test",
     "smoke:nats-messaging-acl": "node scripts/nats/messaging-acl-smoke.mjs",
-    "gates:all": "npm run gates:banned-phrase && npm run gates:migration-sql && npm run gates:tier-claim && npm run gates:type-check-spec && npm run gates:schema-drift-registration && npm run gates:signals-manifest && npm run gates:criticality-manifest",
+    "gates:all": "npm run gates:banned-phrase && npm run gates:migration-sql && npm run gates:tier-claim && npm run gates:type-check-spec && npm run gates:schema-drift-registration && npm run gates:auth-db-ownership && npm run gates:signals-manifest && npm run gates:criticality-manifest",
     "ripple": "npx ts-node --project tools/ripple-tracer/tsconfig.json tools/ripple-tracer/cli.ts",
     "aria": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools cycle run --workspace-root .. --cycle-id aria-$(date -u +%Y%m%dT%H%M%SZ)",
     "aria:index": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools agent-network index --workspace-root ..",

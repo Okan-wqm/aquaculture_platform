@@ -8,5 +8,4 @@ bootstrapService(AppModule, {
   portEnvVar: 'PORT',
   hasGraphQL: true,
   natsTransport: { queue: 'messaging-service' },
-  additionalCorsHeaders: ['X-User-Payload'],
 });

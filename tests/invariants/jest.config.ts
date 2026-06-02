@@ -103,6 +103,9 @@ export default {
         '<rootDir>/lib-creation-rubric.spec.ts',
         '<rootDir>/messaging-joins.spec.ts',
         '<rootDir>/messaging-migration-runner.spec.ts',
+        '<rootDir>/messaging-partition-parent-ssot.spec.ts',
+        '<rootDir>/single-partition-creator.spec.ts',
+        '<rootDir>/token-blacklist-ssot.spec.ts',
         '<rootDir>/admin-api-schema-boundaries.spec.ts',
         '<rootDir>/eslint-rule-presence.spec.ts',
         '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',
@@ -114,6 +117,8 @@ export default {
         '<rootDir>/deploy-ssot-contract.spec.ts',
         '<rootDir>/admin-billing-runtime-contract.spec.ts',
         '<rootDir>/admin-security-runtime-contract.spec.ts',
+        '<rootDir>/auth-token-issuer-ssot.spec.ts',
+        '<rootDir>/auth-password-policy-ssot.spec.ts',
       ],
     },
     {

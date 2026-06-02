@@ -53,6 +53,7 @@ import {
   COMMAND_HANDLER_METADATA,
   QUERY_HANDLER_METADATA,
 } from '@platform/cqrs';
+import { MESSAGING_COMMAND_SUBJECTS } from '@platform/event-contracts';
 import { Observable, of } from 'rxjs';
 
 // ============================================================================
@@ -355,10 +356,7 @@ function createStubCommandHandler(
 /**
  * Creates a stub query handler with the @QueryHandler decorator.
  */
-function createStubQueryHandler(
-  queryClass: AnyQueryConstructor,
-  handlerName: string,
-): Provider {
+function createStubQueryHandler(queryClass: AnyQueryConstructor, handlerName: string): Provider {
   @Injectable()
   @QueryHandlerDecorator(queryClass)
   class StubHandler implements IQueryHandler<IQuery, unknown> {
@@ -897,9 +895,7 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
         proxy!.emit('commands.notification.send', { recipientId: 'usr-002' });
         expect(proxy!.emit).toHaveBeenCalledTimes(1);
 
-        const record = natsCallLog.find(
-          (r) => r.callerModule === 'MessagingNotificationModule',
-        );
+        const record = natsCallLog.find((r) => r.callerModule === 'MessagingNotificationModule');
         expect(record).toBeDefined();
       });
 
@@ -910,7 +906,10 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
           { module: 'AiModule' as NatsModuleName, pattern: 'events.AnalysisStarted' },
           { module: 'OutboxModule' as NatsModuleName, pattern: 'outbox.flush' },
           { module: 'GdprModule' as NatsModuleName, pattern: 'events.GdprRequested' },
-          { module: 'MessagingNotificationModule' as NatsModuleName, pattern: 'commands.push.send' },
+          {
+            module: 'MessagingNotificationModule' as NatsModuleName,
+            pattern: 'commands.push.send',
+          },
         ];
 
         for (const { module, pattern } of patterns) {
@@ -933,10 +932,11 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
         const proxy = moduleProxies.get('MessageModule');
         expect(proxy).toBeDefined();
 
-        const result$ = proxy!.send(
-          'request.messaging.verifyMembership',
-          { channelId: 'ch-001', userId: 'usr-001', tenantId: 'tenant-001' },
-        );
+        const result$ = proxy!.send('request.messaging.verifyMembership', {
+          channelId: 'ch-001',
+          userId: 'usr-001',
+          tenantId: 'tenant-001',
+        });
 
         let resolved: unknown;
         result$.subscribe((val) => {
@@ -1049,7 +1049,9 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
               const handler = providers.find((w) => {
                 if (!w.metatype) return false;
                 const meta = Reflect.getMetadata(COMMAND_HANDLER_METADATA, w.metatype);
-                return meta && (meta as { commandName: string }).commandName === cmdDef.command.name;
+                return (
+                  meta && (meta as { commandName: string }).commandName === cmdDef.command.name
+                );
               });
               expect(handler).toBeDefined();
             });
@@ -1079,9 +1081,7 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
       });
 
       it('should execute CreateChannelCommand through the bus', async () => {
-        const result = await commandBus.execute(
-          new CreateChannelCommand('t1', 'usr1'),
-        );
+        const result = await commandBus.execute(new CreateChannelCommand('t1', 'usr1'));
         expect(result).toEqual({ handled: true, handler: 'CreateChannelHandler' });
       });
 
@@ -1114,30 +1114,22 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
 
     describe('2d. QueryBus.execute() Paths (3+ query handlers)', () => {
       it('should execute GetMessagesQuery through the bus', async () => {
-        const result = await queryBus.execute(
-          new GetMessagesQuery('t1', 'usr1', 'ch1', 50, null),
-        );
+        const result = await queryBus.execute(new GetMessagesQuery('t1', 'usr1', 'ch1', 50, null));
         expect(result).toEqual({ handled: true, handler: 'GetMessagesHandler' });
       });
 
       it('should execute GetChannelQuery through the bus', async () => {
-        const result = await queryBus.execute(
-          new GetChannelQuery('t1', 'usr1', 'ch1'),
-        );
+        const result = await queryBus.execute(new GetChannelQuery('t1', 'usr1', 'ch1'));
         expect(result).toEqual({ handled: true, handler: 'GetChannelHandler' });
       });
 
       it('should execute GetSentimentTrendsQuery through the bus', async () => {
-        const result = await queryBus.execute(
-          new GetSentimentTrendsQuery('t1', null, 4),
-        );
+        const result = await queryBus.execute(new GetSentimentTrendsQuery('t1', null, 4));
         expect(result).toEqual({ handled: true, handler: 'GetSentimentTrendsHandler' });
       });
 
       it('should execute GetAuditLogQuery through the bus', async () => {
-        const result = await queryBus.execute(
-          new GetAuditLogQuery('t1', 50),
-        );
+        const result = await queryBus.execute(new GetAuditLogQuery('t1', 50));
         expect(result).toEqual({ handled: true, handler: 'GetAuditLogHandler' });
       });
 
@@ -1163,33 +1155,31 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
       let hierarchicalModule: TestingModule;
 
       beforeAll(async () => {
-        const messageHandlers = MODULE_HANDLER_DEFS
-          .filter((m) => m.moduleName === 'message')
-          .flatMap((m) => [
-            ...m.commandHandlers.map((c) => createStubCommandHandler(c.command, c.handlerName)),
-            ...m.queryHandlers.map((q) => createStubQueryHandler(q.query, q.handlerName)),
-          ]);
+        const messageHandlers = MODULE_HANDLER_DEFS.filter(
+          (m) => m.moduleName === 'message',
+        ).flatMap((m) => [
+          ...m.commandHandlers.map((c) => createStubCommandHandler(c.command, c.handlerName)),
+          ...m.queryHandlers.map((q) => createStubQueryHandler(q.query, q.handlerName)),
+        ]);
 
-        const channelHandlers = MODULE_HANDLER_DEFS
-          .filter((m) => m.moduleName === 'channel')
-          .flatMap((m) => [
-            ...m.commandHandlers.map((c) => createStubCommandHandler(c.command, c.handlerName)),
-            ...m.queryHandlers.map((q) => createStubQueryHandler(q.query, q.handlerName)),
-          ]);
+        const channelHandlers = MODULE_HANDLER_DEFS.filter(
+          (m) => m.moduleName === 'channel',
+        ).flatMap((m) => [
+          ...m.commandHandlers.map((c) => createStubCommandHandler(c.command, c.handlerName)),
+          ...m.queryHandlers.map((q) => createStubQueryHandler(q.query, q.handlerName)),
+        ]);
 
-        const aiHandlers = MODULE_HANDLER_DEFS
-          .filter((m) => m.moduleName === 'ai')
-          .flatMap((m) => [
-            ...m.commandHandlers.map((c) => createStubCommandHandler(c.command, c.handlerName)),
-            ...m.queryHandlers.map((q) => createStubQueryHandler(q.query, q.handlerName)),
-          ]);
+        const aiHandlers = MODULE_HANDLER_DEFS.filter((m) => m.moduleName === 'ai').flatMap((m) => [
+          ...m.commandHandlers.map((c) => createStubCommandHandler(c.command, c.handlerName)),
+          ...m.queryHandlers.map((q) => createStubQueryHandler(q.query, q.handlerName)),
+        ]);
 
-        const complianceHandlers = MODULE_HANDLER_DEFS
-          .filter((m) => m.moduleName === 'compliance')
-          .flatMap((m) => [
-            ...m.commandHandlers.map((c) => createStubCommandHandler(c.command, c.handlerName)),
-            ...m.queryHandlers.map((q) => createStubQueryHandler(q.query, q.handlerName)),
-          ]);
+        const complianceHandlers = MODULE_HANDLER_DEFS.filter(
+          (m) => m.moduleName === 'compliance',
+        ).flatMap((m) => [
+          ...m.commandHandlers.map((c) => createStubCommandHandler(c.command, c.handlerName)),
+          ...m.queryHandlers.map((q) => createStubQueryHandler(q.query, q.handlerName)),
+        ]);
 
         @Module({ imports: [CqrsModule], providers: [...messageHandlers] })
         class MessageFeatureModule {}
@@ -1262,7 +1252,9 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
         const r2 = await bus.execute(new GetChannelsQuery('t1', 'usr1', 20, 0));
         expect(r2).toEqual({ handled: true, handler: 'GetChannelsHandler' });
 
-        const r3 = await bus.execute(new SearchSimilarMessagesQuery('t1', 'usr1', 'feeding schedule'));
+        const r3 = await bus.execute(
+          new SearchSimilarMessagesQuery('t1', 'usr1', 'feeding schedule'),
+        );
         expect(r3).toEqual({ handled: true, handler: 'SearchSimilarMessagesHandler' });
 
         const r4 = await bus.execute(new GetRetentionPoliciesQuery('t1'));
@@ -1505,12 +1497,7 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
       const notifNats = createNatsStubModule('MessagingNotificationModule');
 
       moduleRef = await Test.createTestingModule({
-        imports: [
-          DiscoveryModule,
-          CqrsModule.forRoot(),
-          outboxNats,
-          notifNats,
-        ],
+        imports: [DiscoveryModule, CqrsModule.forRoot(), outboxNats, notifNats],
         providers: [...allHandlers],
       }).compile();
 
@@ -1567,7 +1554,14 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
 
       const commandBus = moduleRef.get(CommandBus);
       const result = await commandBus.execute(
-        new AnalyzeMessageCommand('t1', 'ch1', 'msg-001', new Date(), 'usr1', 'Water quality is low'),
+        new AnalyzeMessageCommand(
+          't1',
+          'ch1',
+          'msg-001',
+          new Date(),
+          'usr1',
+          'Water quality is low',
+        ),
       );
       expect(result).toEqual({ handled: true, handler: 'AnalyzeMessageHandler' });
 
@@ -1579,9 +1573,7 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
         score: 0.78,
       });
 
-      const analysisCall = natsCallLog.find(
-        (r) => r.pattern === 'events.MessageAnalyzed',
-      );
+      const analysisCall = natsCallLog.find((r) => r.pattern === 'events.MessageAnalyzed');
       expect(analysisCall).toBeDefined();
     });
 
@@ -1597,9 +1589,7 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
         requestId: 'gdpr-001',
       });
 
-      const gdprCall = natsCallLog.find(
-        (r) => r.pattern === 'events.GdprExportRequested',
-      );
+      const gdprCall = natsCallLog.find((r) => r.pattern === 'events.GdprExportRequested');
       expect(gdprCall).toBeDefined();
     });
   });
@@ -1619,13 +1609,11 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
       'request.messaging.verifyMembership',
       'request.messaging.getChannelMembers',
       'request.messaging.getMessageBatch',
+      MESSAGING_COMMAND_SUBJECTS.ENSURE_TENANT_PARTITIONS,
     ] as const;
 
     /** Event patterns consumed by MessagingNatsHandler */
-    const EVENT_PATTERNS = [
-      'events.UserDeleted',
-      'events.TenantProvisioned',
-    ] as const;
+    const EVENT_PATTERNS = ['events.UserDeleted', 'events.TenantProvisioned'] as const;
 
     for (const pattern of MESSAGE_PATTERNS) {
       it(`should define request-reply pattern: ${pattern}`, () => {
@@ -1642,8 +1630,8 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
       });
     }
 
-    it('should have exactly 3 request-reply patterns', () => {
-      expect(MESSAGE_PATTERNS).toHaveLength(3);
+    it('should have exactly 4 request-reply patterns', () => {
+      expect(MESSAGE_PATTERNS).toHaveLength(4);
     });
 
     it('should have exactly 2 event patterns', () => {

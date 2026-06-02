@@ -123,20 +123,22 @@ pub enum LookupError {
 /// responder's expectation (TS object literal default casing). Pinned
 /// by the `request_payload_is_camelCase_uuids` test.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct LookupRequest {
     /// Tenant id the cache miss applies to. The responder cross-checks
     /// this against the resolved sensor's `tenantId` and replies with
     /// `null` (SEC-M01 defence-in-depth) if they disagree.
-    tenant_id: Uuid,
+    #[serde(rename = "tenantId")]
+    tenant: Uuid,
     /// Sensor id the cache miss applies to. The responder uses this as
     /// the `findOne` key against the `sensors` table.
-    sensor_id: Uuid,
+    #[serde(rename = "sensorId")]
+    sensor: Uuid,
     /// Device id carried by `tenants/<tenant>/devices/<device>/io_data`.
     /// The responder checks the resolved sensor's protocol/metadata binding
     /// and replies null on mismatch.
+    #[serde(rename = "deviceId")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    device_id: Option<Uuid>,
+    device: Option<Uuid>,
 }
 
 /// Metric name for the successful cache-miss spawn (we won the
@@ -217,9 +219,9 @@ impl SensorLookupClient {
         device: Option<Uuid>,
     ) -> Result<Option<SensorMeta>, LookupError> {
         let body = LookupRequest {
-            tenant_id: *tenant.as_uuid(),
-            sensor_id: sensor,
-            device_id: device,
+            tenant: *tenant.as_uuid(),
+            sensor,
+            device,
         };
         let bytes = serde_json::to_vec(&body).map_err(LookupError::Encode)?;
 
@@ -450,9 +452,9 @@ mod tests {
         // Synth a request payload, decode as Value, assert the wire
         // keys are camelCase + the values round-trip as UUID strings.
         let req = LookupRequest {
-            tenant_id: Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap(),
-            sensor_id: Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap(),
-            device_id: None,
+            tenant: Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap(),
+            sensor: Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap(),
+            device: None,
         };
         let v: Value = serde_json::to_value(&req).unwrap();
         let obj = v.as_object().expect("request must be a JSON object");
@@ -477,9 +479,9 @@ mod tests {
     #[allow(non_snake_case)]
     fn request_payload_includes_deviceId_when_topic_is_device_scoped() {
         let req = LookupRequest {
-            tenant_id: Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap(),
-            sensor_id: Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap(),
-            device_id: Some(Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap()),
+            tenant: Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap(),
+            sensor: Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap(),
+            device: Some(Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap()),
         };
         let v: Value = serde_json::to_value(&req).unwrap();
         let obj = v.as_object().expect("request must be a JSON object");

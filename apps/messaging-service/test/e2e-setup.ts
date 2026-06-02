@@ -8,7 +8,7 @@
  * - Mocked NATS (no cross-service dependency)
  * - Mocked MinIO/MediaService (no object storage dependency)
  * - Mocked EventBus (outbox DB writes are real; event publish is mock)
- * - Tenant context injected via x-user-payload header (gateway simulation)
+ * - Tenant context injected via gateway-signed verified-user assertion
  *
  * IMPORTANT: Requires docker-compose.dev.yml services running:
  *   docker compose -f docker-compose.dev.yml up -d postgres redis nats
@@ -22,13 +22,20 @@ import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
 import {
   getTenantSchemaName,
+  MODULE_SCHEMAS,
+  SchemaManagerService,
   tenantMigrationLedgerTable,
 } from '@aquaculture/backend-common/database';
+import {
+  createVerifiedUserAssertionHeaders,
+  hashVerifiedUserAssertionHeaders,
+} from '@aquaculture/backend-common/http';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
 import { generateServiceIdentityHeadersV2 } from '@aquaculture/backend-common/utils';
 import { NatsEventBus } from '@platform/event-bus';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
 import { STORAGE_OBJECT_VERIFIER } from '../src/message/services/storage-object-verifier.port';
+import { PartitionManagerService } from '../src/partition/partition-manager.service';
 
 // ── Test Constants ──────────────────────────────────────────────────────────
 
@@ -89,8 +96,9 @@ export async function createE2eTestApp(
   }
 
   // JWT: The JwtModule requires an RSA public key for RS256 verification.
-  // In E2E tests we don't verify JWTs (user context comes from x-user-payload
-  // header), but the module MUST bootstrap without crashing.
+  // In E2E tests we don't verify JWTs; user context comes from the
+  // gateway-signed verified-user assertion, but the module MUST bootstrap
+  // without crashing.
   //
   // WHY unconditional: Production environments have JWT_PUBLIC_KEY_PATH set
   // (e.g. /etc/ssl/jwt/public.pem) but that file may not exist in the test
@@ -117,7 +125,11 @@ export async function createE2eTestApp(
   //    override it with a no-op mock.
   const mockNatsClient = {
     emit: jest.fn().mockReturnValue({ subscribe: jest.fn() }),
-    send: jest.fn().mockReturnValue({ subscribe: jest.fn(), pipe: jest.fn().mockReturnThis(), toPromise: jest.fn() }),
+    send: jest.fn().mockReturnValue({
+      subscribe: jest.fn(),
+      pipe: jest.fn().mockReturnThis(),
+      toPromise: jest.fn(),
+    }),
     connect: jest.fn().mockResolvedValue(undefined),
     close: jest.fn().mockResolvedValue(undefined),
   };
@@ -213,9 +225,7 @@ export async function createE2eTestApp(
  * would produce the misleading `undefined.close()` cascade and the
  * operator chases a false trail.
  */
-export async function closeE2eTestApp(
-  ctx: E2eTestContext | undefined,
-): Promise<void> {
+export async function closeE2eTestApp(ctx: E2eTestContext | undefined): Promise<void> {
   if (!ctx?.app) return;
   await ctx.app.close();
 }
@@ -225,8 +235,8 @@ export async function closeE2eTestApp(
 /**
  * Build a supertest request pre-configured with tenant + user context headers.
  *
- * Simulates what the API gateway does: decodes JWT and forwards the payload
- * as x-user-payload header to the subgraph service.
+ * Simulates what the API gateway does: decodes JWT, emits a signed verified
+ * user assertion, then binds that assertion pair into service-identity v2.
  */
 export function gqlRequest(
   httpServer: ReturnType<INestApplication['getHttpServer']>,
@@ -234,33 +244,37 @@ export function gqlRequest(
   userId: string,
   roles: string[] = ['MODULE_USER'],
 ): { query: (gql: string, variables?: Record<string, unknown>) => supertest.Test } {
-  const userPayload = JSON.stringify({
-    sub: userId,
-    email: `${userId.slice(0, 8)}@test.com`,
-    tenantId,
-    roles,
-    role: roles[0],
-    type: 'access',
-  });
+  const secret = getE2eInternalServiceSecret();
 
   return {
     query: (gql: string, variables?: Record<string, unknown>) => {
-      const body =
-        variables === undefined ? { query: gql } : { query: gql, variables };
+      const body = variables === undefined ? { query: gql } : { query: gql, variables };
+      const assertionHeaders = createVerifiedUserAssertionHeaders({
+        user: {
+          sub: userId,
+          email: `${userId.slice(0, 8)}@test.com`,
+          tenantId,
+          roles,
+          role: roles[0],
+          mfaVerified: false,
+        },
+        secret,
+      });
       const serviceHeaders: Record<string, string> = {
         ...generateServiceIdentityHeadersV2({
           serviceName: 'gateway-api',
-          secret: getE2eInternalServiceSecret(),
+          secret,
           tenantId,
           method: 'POST',
           path: '/graphql',
           body: JSON.stringify(body),
+          assertionHash: hashVerifiedUserAssertionHeaders(assertionHeaders),
         }),
       };
       return supertest(httpServer)
         .post('/graphql')
+        .set(assertionHeaders)
         .set(serviceHeaders)
-        .set('x-user-payload', userPayload)
         .set('x-tenant-id', tenantId)
         .send(body);
     },
@@ -297,8 +311,7 @@ export function expectGqlOk<T = Record<string, unknown>>(
   }
   if (Array.isArray(res.body.errors) && res.body.errors.length > 0) {
     throw new Error(
-      `GraphQL request returned errors${label}:\n` +
-        JSON.stringify(res.body.errors, null, 2),
+      `GraphQL request returned errors${label}:\n` + JSON.stringify(res.body.errors, null, 2),
     );
   }
   if (res.body.data === null || res.body.data === undefined) {
@@ -326,19 +339,31 @@ export async function setupTenantSchemas(
   // Ensure the messaging source schema exists and has tables
   // (SourceSchemaBootstrapService runs on app init, but migrations may need to run first)
   const sourceSchema = 'messaging';
+  const schemaManager = new SchemaManagerService(dataSource);
 
   for (const tenantId of tenantIds) {
     const schemaName = getTenantSchemaName(tenantId);
 
     await dataSource.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
 
-    // Get all tables from the source schema
-    const tables: { tablename: string }[] = await dataSource.query(
-      `SELECT tablename FROM pg_tables WHERE schemaname = $1`,
-      [sourceSchema],
-    );
+    const messagingSchema = MODULE_SCHEMAS.find((schema) => schema.moduleName === 'messaging');
+    if (!messagingSchema) {
+      throw new Error('MODULE_SCHEMAS is missing the messaging schema contract');
+    }
+    const tenantTables = new Set([
+      ...messagingSchema.tables,
+      ...(messagingSchema.referenceDataTables ?? []),
+    ]);
+    const infrastructureTables = new Set(messagingSchema.infrastructureTables ?? []);
+    const tables = [...tenantTables].map((tablename) => ({ tablename }));
 
     for (const { tablename } of tables) {
+      if (infrastructureTables.has(tablename)) {
+        throw new Error(
+          `Messaging E2E schema contract violation: ${tablename} is both tenant-scoped and infrastructure-owned`,
+        );
+      }
+
       // Skip partition children — they'll be created separately
       const isPartition: { is_partition: boolean }[] = await dataSource.query(
         `SELECT EXISTS (
@@ -359,40 +384,16 @@ export async function setupTenantSchemas(
       );
 
       if (!exists[0]?.exists) {
-        // Check if the source table is partitioned
-        const partInfo: { partition_strategy: string | null }[] = await dataSource.query(
-          `SELECT partstrat as partition_strategy
-           FROM pg_partitioned_table
-           WHERE partrelid = (
-             SELECT oid FROM pg_class
-             WHERE relname = $1
-             AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)
-           )`,
-          [tablename, sourceSchema],
-        );
-
-        if (partInfo.length > 0 && partInfo[0]?.partition_strategy) {
-          // For partitioned tables, get the full CREATE TABLE DDL and adapt
-          // WHY: LIKE ... INCLUDING ALL does not copy PARTITION BY clauses
-          await clonePartitionedTable(dataSource, sourceSchema, schemaName, tablename);
-        } else {
-          await dataSource.query(
-            `CREATE TABLE "${schemaName}"."${tablename}" (LIKE "${sourceSchema}"."${tablename}" INCLUDING ALL)`,
-          );
-        }
+        await schemaManager.createTenantTableFromSource(schemaName, sourceSchema, tablename);
       }
     }
 
     await backfillTenantMigrationLedger(dataSource, sourceSchema, schemaName);
 
-    // Partitions for `messages` / `message_receipts` are created by
-    // PartitionManagerService.onApplicationBootstrap (the runtime SSoT).
-    // Per INFRA-CRITICAL-012, the test fixture must NOT create its own
-    // partitions — the runtime service uses naming `<table>_<year>_<month>`
-    // and PostgreSQL detects overlapping FOR VALUES ranges (regardless of
-    // partition NAME), so any duplicate creator deadlocks the boot. The
-    // PartitionManagerService runs at app bootstrap inside the test's
-    // createE2eTestApp() flow and ensures current + next 2 months exist.
+    // Tenant schemas are created by E2E after app bootstrap, so the startup
+    // hook cannot see them. Route late-born schemas through the same runtime
+    // SSoT that production tenant provisioning uses.
+    await new PartitionManagerService(dataSource).ensureCurrentPartitionsForSchemas([schemaName]);
   }
 }
 
@@ -402,10 +403,9 @@ async function backfillTenantMigrationLedger(
   tenantSchema: string,
 ): Promise<void> {
   const ledgerTable = tenantMigrationLedgerTable(sourceSchema);
-  const [sourceLedger] = await dataSource.query(
-    `SELECT to_regclass($1) AS regclass`,
-    [`${sourceSchema}.migrations`],
-  );
+  const [sourceLedger] = await dataSource.query(`SELECT to_regclass($1) AS regclass`, [
+    `${sourceSchema}.migrations`,
+  ]);
 
   if (!sourceLedger?.regclass) {
     return;
@@ -433,56 +433,6 @@ async function backfillTenantMigrationLedger(
   `);
 }
 
-/**
- * Clone a partitioned table from source to tenant schema.
- * Extracts the partition key from pg_catalog and recreates the table.
- */
-async function clonePartitionedTable(
-  dataSource: DataSource,
-  sourceSchema: string,
-  targetSchema: string,
-  tablename: string,
-): Promise<void> {
-  // Get column definitions from the source table
-  const columns: { column_name: string; full_data_type: string; is_nullable: string; column_default: string | null }[] =
-    await dataSource.query(
-      `SELECT
-         a.attname AS column_name,
-         format_type(a.atttypid, a.atttypmod) AS full_data_type,
-         CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
-         pg_get_expr(d.adbin, d.adrelid) AS column_default
-       FROM pg_attribute a
-       LEFT JOIN pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
-       WHERE a.attrelid = ($1 || '.' || $2)::regclass
-         AND a.attnum > 0
-         AND NOT a.attisdropped
-       ORDER BY a.attnum`,
-      [sourceSchema, tablename],
-    );
-
-  // Get the partition key expression
-  const partKey: { partition_expr: string }[] = await dataSource.query(
-    `SELECT pg_get_partkeydef(c.oid) as partition_expr
-     FROM pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid
-     WHERE n.nspname = $1 AND c.relname = $2`,
-    [sourceSchema, tablename],
-  );
-
-  if (columns.length === 0 || partKey.length === 0) return;
-
-  const colDefs = columns.map((c) => {
-    const nullable = c.is_nullable === 'NO' ? ' NOT NULL' : '';
-    const def = c.column_default ? ` DEFAULT ${c.column_default}` : '';
-    return `"${c.column_name}" ${c.full_data_type}${nullable}${def}`;
-  });
-
-  const partExpr = partKey[0]!.partition_expr;
-
-  await dataSource.query(
-    `CREATE TABLE "${targetSchema}"."${tablename}" (${colDefs.join(', ')}) PARTITION BY ${partExpr}`,
-  );
-}
-
 // ── Cleanup ─────────────────────────────────────────────────────────────────
 
 /**
@@ -501,6 +451,7 @@ export async function cleanupTenantData(
     'message_reactions',
     'message_receipts',
     'message_attachments',
+    'message_idempotency_keys',
     'messages',
     'channel_members',
     'channels',
@@ -526,10 +477,7 @@ export async function cleanupTenantData(
 /**
  * Flush Redis keys matching a pattern for clean test isolation.
  */
-export async function flushRedisKeys(
-  redis: Redis | undefined,
-  pattern: string,
-): Promise<void> {
+export async function flushRedisKeys(redis: Redis | undefined, pattern: string): Promise<void> {
   if (!redis) return;
   const keys = await redis.keys(pattern);
   if (keys.length > 0) {
@@ -592,10 +540,7 @@ export async function flushAllTestRedisKeys(redis: Redis | undefined): Promise<v
  * ALS frame is unwound. If you need fire-and-forget within a tenant
  * context, capture the promise and `await` it inside the callback.
  */
-export async function withTenantContext<T>(
-  tenantId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
+export async function withTenantContext<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
   const schemaName = getTenantSchemaName(tenantId);
   const currentStore = requestContextStorage.getStore();
   const newStore = {

@@ -21,6 +21,7 @@ export * from './task-events';
 export * from './edge-device-events';
 export * from './water-quality-events';
 export * from './messaging-events';
+export * from './messaging-commands';
 export * from './messaging-event-registry';
 export * from './storage-events';
 

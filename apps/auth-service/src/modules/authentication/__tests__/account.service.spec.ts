@@ -1,5 +1,5 @@
 import { Role } from '@aquaculture/backend-common/decorators';
-import { SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
+import { PASSWORD_POLICY_MESSAGE, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -154,6 +154,24 @@ describe('AccountService', () => {
         newPassword: 'NewPass1!',
       }),
     ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('rejects new passwords that fail the shared password policy', async () => {
+    const user = createUser();
+    userRepository.findOne.mockResolvedValue(user);
+
+    await expect(
+      service.changeMyPassword('user-1', {
+        currentPassword: 'OldPass1!',
+        newPassword: 'weak',
+      }),
+    ).rejects.toThrow(PASSWORD_POLICY_MESSAGE);
+
+    expect(user.validatePassword).toHaveBeenCalledWith('OldPass1!');
+    expect(userRepository.save).not.toHaveBeenCalled();
+    expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+    expect(tokenBlacklist.blacklistUserTokens).not.toHaveBeenCalled();
+    expect(sessionManager.revokeAllSessions).not.toHaveBeenCalled();
   });
 
   it('reports MFA availability from the MFA service', async () => {

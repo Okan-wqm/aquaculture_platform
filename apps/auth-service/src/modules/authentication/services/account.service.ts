@@ -1,5 +1,11 @@
 /* eslint-disable aquaculture/no-direct-event-publish -- Account events are non-transactional notifications; audit log is the persistent account trail. */
-import { SESSION_MANAGER, TOKEN_BLACKLIST, ISessionManager, ITokenBlacklist } from '@aquaculture/backend-common/security';
+import {
+  SESSION_MANAGER,
+  TOKEN_BLACKLIST,
+  ISessionManager,
+  ITokenBlacklist,
+  passwordPolicyViolation,
+} from '@aquaculture/backend-common/security';
 import { BadRequestException, Inject, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -90,6 +96,12 @@ export class AccountService {
       throw new UnauthorizedException('Current password is incorrect');
     }
 
+    const passwordPolicyError = passwordPolicyViolation(input.newPassword);
+    if (passwordPolicyError) {
+      await this.auditAccountEvent('PASSWORD_CHANGE_FAILED', user, false, 'password_policy');
+      throw new BadRequestException(passwordPolicyError);
+    }
+
     user.password = input.newPassword;
     user.failedLoginAttempts = 0;
     user.lockedUntil = null;
@@ -141,16 +153,20 @@ export class AccountService {
       { isRevoked: true, revokedAt: new Date(), revokedReason: 'Password changed' },
     );
 
-    if (this.tokenBlacklist) {
-      const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-      const expiresInSeconds = parseExpiresIn(expiresIn);
-      const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
-      await this.tokenBlacklist.blacklistUserTokens(userId, expiryDate, 'password_change');
+    if (!this.tokenBlacklist) {
+      throw new Error('TOKEN_BLACKLIST provider is required for password-change revocation');
     }
 
-    if (this.sessionManager) {
-      await this.sessionManager.revokeAllSessions(userId);
+    const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
+    const expiresInSeconds = parseExpiresIn(expiresIn);
+    const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
+    await this.tokenBlacklist.blacklistUserTokens(userId, expiryDate, 'password_change');
+
+    if (!this.sessionManager) {
+      throw new Error('SESSION_MANAGER provider is required for password-change revocation');
     }
+
+    await this.sessionManager.revokeAllSessions(userId);
   }
 
   private async auditAccountEvent(

@@ -108,18 +108,18 @@ export function parseExpiresIn(expiresIn: string): number {
 }
 
 /**
- * TokenService — Single Responsibility: JWT + refresh-token issuance.
+ * TokenIssuerService — Single Responsibility: JWT + refresh-token issuance.
  *
  * Extracted from AuthenticationService to break the circular dependency:
  *   AuthenticationService <-> MfaService / WebAuthnService
  *
  * Both MfaService and WebAuthnService only needed AuthenticationService
- * for token generation. Now they depend on TokenService instead,
+ * for token generation. Now they depend on TokenIssuerService instead,
  * eliminating the cycle entirely.
  */
 @Injectable()
-export class TokenService {
-  private readonly logger = new Logger(TokenService.name);
+export class TokenIssuerService {
+  private readonly logger = new Logger(TokenIssuerService.name);
   private readonly refreshTokenExpiryDays: number;
   private readonly hashRefreshTokens: boolean;
   private readonly maxSessionsPerUser: number;
@@ -357,7 +357,7 @@ export class TokenService {
 
     // LRU eviction: if at capacity, remove the oldest entry before inserting.
     // Map.keys() returns keys in insertion order — first key is the oldest entry.
-    if (this.moduleCache.size >= TokenService.MAX_MODULE_CACHE_SIZE) {
+    if (this.moduleCache.size >= TokenIssuerService.MAX_MODULE_CACHE_SIZE) {
       const oldestKey = this.moduleCache.keys().next().value;
       if (oldestKey !== undefined) {
         this.moduleCache.delete(oldestKey);

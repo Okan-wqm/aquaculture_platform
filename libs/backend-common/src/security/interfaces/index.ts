@@ -63,12 +63,28 @@ export interface ITokenBlacklist {
   blacklistUserTokens(userId: string, expiresAt: Date, reason?: string): Promise<void>;
 
   /**
+   * Blacklist all access tokens for a tenant (tenant suspend/cancel).
+   * @param tenantId - Tenant ID to invalidate
+   * @param expiresAt - Expiration time for the tenant blacklist marker
+   * @param reason - Optional reason for blacklisting
+   */
+  blacklistTenantTokens(tenantId: string, expiresAt: Date, reason?: string): Promise<void>;
+
+  /**
    * Check if all user tokens are blacklisted
    * @param userId - User ID to check
    * @param tokenIssuedAt - Token issue time to compare against blacklist
    * @returns true if token was issued before user blacklist entry
    */
   isUserBlacklisted(userId: string, tokenIssuedAt: Date): Promise<boolean>;
+
+  /**
+   * Check if all tenant tokens are blacklisted.
+   * @param tenantId - Tenant ID from token
+   * @param tokenIssuedAt - Token issue time to compare against blacklist
+   * @returns true if token was issued before tenant blacklist entry
+   */
+  isTenantBlacklisted(tenantId: string, tokenIssuedAt: Date): Promise<boolean>;
 
   /**
    * Composite check: validates a token is not individually blacklisted
@@ -83,7 +99,12 @@ export interface ITokenBlacklist {
    * @param issuedAt - Token issued-at date
    * @returns true if the token is valid (not blacklisted), false if invalid
    */
-  isValidToken(jti: string, userId: string, issuedAt: Date): Promise<boolean>;
+  isValidToken(
+    jti: string,
+    userId: string,
+    issuedAt: Date,
+    tenantId?: string | null,
+  ): Promise<boolean>;
 }
 
 /**
@@ -393,18 +414,6 @@ export const RATE_LIMITER_STRATEGY = 'RATE_LIMITER_STRATEGY';
 
 /**
  * Canonical platform-wide token-blacklist DI symbol.
- *
- * # SEC-LOW-001 cross-reference
- *
- * apps/gateway-api/src/guards/redis-token-blacklist.store.ts has a
- * gateway-local `TOKEN_BLACKLIST_STORE` symbol that pre-dates this
- * canonical declaration. The two surfaces differ structurally
- * (gateway uses `exp: number`/Unix-seconds + composite
- * isValidToken check; canonical uses `exp: Date` + simpler
- * isBlacklisted). Consolidation is the SEC-LOW-001 follow-on,
- * blocked on SEC-MEDIUM-006's broader auth-blacklist
- * convergence. See the gateway-local declaration's class
- * docstring for the full divergence trace.
  */
 export const TOKEN_BLACKLIST = 'TOKEN_BLACKLIST';
 export const SESSION_MANAGER = 'SESSION_MANAGER';

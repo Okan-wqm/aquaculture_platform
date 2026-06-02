@@ -16,16 +16,14 @@
  * login code path in isolation.
  */
 
+jest.mock('bcryptjs', () => ({
+  compare: jest.fn(),
+  hash: jest.fn(),
+}));
+
 // Production uses bcryptjs (see authentication.service.ts:2,
-// token.service.ts:2). The spec was importing 'bcrypt' (without
-// @types/bcrypt declared), so jest.spyOn(bcrypt, 'compare') was
-// patching a DIFFERENT module than the one the SUT actually
-// invokes — every "should reject password X" assertion was
-// passing because the SUT called the real, un-mocked bcryptjs
-// while the test mocked an unrelated bcrypt instance.
-// Aligning to bcryptjs makes the spies intercept the real call
-// path AND silences the missing-types error. Surfaced by PR-31
-// (PROC-MEDIUM-007 ratchet).
+// token.service.ts:2). Mock the exact module the SUT imports so
+// password checks stay deterministic under ts-jest's ESM interop.
 import * as bcrypt from 'bcryptjs';
 import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -34,7 +32,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
-import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
+import {
+  AccessTokenVerifierService,
+  TimingSafeService,
+  SESSION_MANAGER,
+  TOKEN_BLACKLIST,
+} from '@aquaculture/backend-common/security';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -44,6 +47,8 @@ import { UserModuleAssignment } from '../entities/user-module-assignment.entity'
 import { User } from '../entities/user.entity';
 import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { AuthenticationService } from '../services/authentication.service';
+import { MfaService } from '../services/mfa.service';
+import { TokenIssuerService } from '../services/token.service';
 
 // ============================================================================
 // Mock Helpers
@@ -124,6 +129,29 @@ const mockJwtService = {
   signAsync: jest.fn().mockResolvedValue('mock-access-token'),
 };
 
+const mockAccessTokenVerifier = {
+  verifyAccessToken: jest.fn(),
+};
+
+const mockTokenIssuerService = {
+  generateTokens: jest.fn((user: User) =>
+    Promise.resolve({
+      accessToken: 'mock-access-token',
+      refreshToken: 'mock-refresh-token',
+      user,
+      expiresIn: 900,
+      tokenType: 'Bearer',
+      redirectUrl: '/dashboard',
+    }),
+  ),
+  getUserModules: jest.fn().mockResolvedValue([]),
+};
+
+const mockMfaService = {
+  isMfaAvailable: jest.fn().mockReturnValue(false),
+  generateMfaChallenge: jest.fn(),
+};
+
 const mockConfigService = {
   get: jest.fn((key: string, defaultValue?: unknown) => {
     const config: Record<string, unknown> = {
@@ -153,6 +181,26 @@ const mockDataSource = {
   query: jest.fn(),
 };
 
+const createRefreshTokenQueryBuilder = (refreshToken: unknown) => ({
+  setLock: jest.fn().mockReturnThis(),
+  where: jest.fn().mockReturnThis(),
+  andWhere: jest.fn().mockReturnThis(),
+  getOne: jest.fn().mockResolvedValue(refreshToken),
+});
+
+const mockRefreshTokenTransaction = (refreshToken: unknown): void => {
+  mockDataSource.transaction.mockImplementationOnce(
+    async <T>(callback: (manager: unknown) => Promise<T>): Promise<T> =>
+      callback({
+        getRepository: () => ({
+          createQueryBuilder: () => createRefreshTokenQueryBuilder(refreshToken),
+          findOne: jest.fn(),
+          save: jest.fn(),
+        }),
+      }),
+  );
+};
+
 const mockTimingSafe = {
   ensureMinDuration: jest.fn().mockResolvedValue(undefined),
 };
@@ -162,11 +210,13 @@ const mockSessionManager = {
   createSession: jest.fn().mockResolvedValue(undefined),
   invalidateSession: jest.fn().mockResolvedValue(undefined),
   invalidateAllSessions: jest.fn().mockResolvedValue(0),
+  revokeAllSessions: jest.fn().mockResolvedValue(0),
 };
 
 const mockTokenBlacklist = {
   add: jest.fn().mockResolvedValue(undefined),
   isBlacklisted: jest.fn().mockResolvedValue(false),
+  blacklistUserTokens: jest.fn().mockResolvedValue(undefined),
 };
 
 // ============================================================================
@@ -182,9 +232,27 @@ describe('AuthenticationService', () => {
     // Default happy-path setup
     mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
     mockRefreshTokenRepository.count.mockResolvedValue(0);
-    mockRefreshTokenRepository.create.mockImplementation((data: Partial<RefreshToken>) => ({ ...data }));
-    mockRefreshTokenRepository.save.mockImplementation((token: Partial<RefreshToken>) => Promise.resolve(token));
+    mockRefreshTokenRepository.create.mockImplementation((data: Partial<RefreshToken>) => ({
+      ...data,
+    }));
+    mockRefreshTokenRepository.save.mockImplementation((token: Partial<RefreshToken>) =>
+      Promise.resolve(token),
+    );
     mockSessionManager.countActiveSessions.mockResolvedValue(0);
+    mockDataSource.query.mockResolvedValue([{ failedLoginAttempts: 3, lockedUntil: null }]);
+    mockTokenIssuerService.generateTokens.mockImplementation((user: User) =>
+      Promise.resolve({
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+        user,
+        expiresIn: 900,
+        tokenType: 'Bearer',
+        redirectUrl: '/dashboard',
+      }),
+    );
+    mockTokenIssuerService.getUserModules.mockResolvedValue([]);
+    mockMfaService.isMfaAvailable.mockReturnValue(false);
+    mockMfaService.generateMfaChallenge.mockReset();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -192,13 +260,19 @@ describe('AuthenticationService', () => {
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
         { provide: getRepositoryToken(RefreshToken), useValue: mockRefreshTokenRepository },
         { provide: getRepositoryToken(Invitation), useValue: mockInvitationRepository },
-        { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepository },
+        {
+          provide: getRepositoryToken(UserModuleAssignment),
+          useValue: mockUserModuleAssignmentRepository,
+        },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepository },
         { provide: DataSource, useValue: mockDataSource },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        { provide: AccessTokenVerifierService, useValue: mockAccessTokenVerifier },
+        { provide: TokenIssuerService, useValue: mockTokenIssuerService },
+        { provide: MfaService, useValue: mockMfaService },
         { provide: TimingSafeService, useValue: mockTimingSafe },
         { provide: SESSION_MANAGER, useValue: mockSessionManager },
         { provide: TOKEN_BLACKLIST, useValue: mockTokenBlacklist },
@@ -211,8 +285,7 @@ describe('AuthenticationService', () => {
         {
           provide: BypassRlsService,
           useValue: {
-            withBypass: async <T>(_op: string, cb: () => Promise<T> | T): Promise<T> =>
-              cb(),
+            withBypass: async <T>(_op: string, cb: () => Promise<T> | T): Promise<T> => cb(),
             withBypassSync: <T>(_op: string, cb: () => T): T => cb(),
           },
         },
@@ -233,7 +306,7 @@ describe('AuthenticationService', () => {
       const tenant = createMockTenant();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(tenant);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       mockUserRepository.save.mockResolvedValue(user);
 
       const result = await service.login(validInput, '127.0.0.1', 'test-agent');
@@ -246,23 +319,25 @@ describe('AuthenticationService', () => {
     it('throws UnauthorizedException and performs dummy hash check when user not found', async () => {
       // SECURITY: prevents timing-based user enumeration
       mockUserRepository.findOne.mockResolvedValue(null);
-      const compareSpy = jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
+      const compareMock = bcrypt.compare as jest.Mock;
+      compareMock.mockResolvedValue(false);
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
       // Dummy hash compare must always run to equalise timing
-      expect(compareSpy).toHaveBeenCalled();
+      expect(compareMock).toHaveBeenCalled();
     });
 
     it('throws UnauthorizedException on wrong password and increments failedLoginAttempts', async () => {
       const user = createMockUser({ failedLoginAttempts: 2 });
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
       mockUserRepository.save.mockResolvedValue({ ...user, failedLoginAttempts: 3 });
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
-      expect(mockUserRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({ failedLoginAttempts: 3 }),
+      expect(mockDataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE auth.users'),
+        [user.id, 5, expect.any(Date)],
       );
     });
 
@@ -278,7 +353,7 @@ describe('AuthenticationService', () => {
       const tenant = createMockTenant();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(tenant);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       mockUserRepository.save.mockResolvedValue({ ...user, failedLoginAttempts: 0 });
 
       await service.login(validInput);
@@ -300,7 +375,7 @@ describe('AuthenticationService', () => {
       const suspendedTenant = createMockTenant({ status: TenantStatus.SUSPENDED });
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(suspendedTenant);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       await expect(service.login(validInput)).rejects.toThrow(
         expect.objectContaining({ message: expect.any(String) }),
@@ -319,9 +394,12 @@ describe('AuthenticationService', () => {
       const tenant = createMockTenant();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(tenant);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       // maxSessionsPerUser = 5 (from mockConfigService), simulate 5 active sessions
       mockSessionManager.countActiveSessions.mockResolvedValue(5);
+      mockTokenIssuerService.generateTokens.mockRejectedValueOnce(
+        new UnauthorizedException('Maximum sessions reached'),
+      );
       mockUserRepository.save.mockResolvedValue(user);
 
       await expect(service.login(validInput)).rejects.toThrow();
@@ -331,7 +409,7 @@ describe('AuthenticationService', () => {
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       mockUserRepository.save.mockResolvedValue(user);
 
       await service.login(validInput, '127.0.0.1');
@@ -343,7 +421,7 @@ describe('AuthenticationService', () => {
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
       mockUserRepository.save.mockResolvedValue(user);
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
@@ -356,33 +434,19 @@ describe('AuthenticationService', () => {
   // ==========================================================================
   describe('refreshToken()', () => {
     it('throws UnauthorizedException for a token that is not in the store', async () => {
-      mockRefreshTokenRepository.findOne = jest.fn().mockResolvedValue(null);
+      mockRefreshTokenTransaction(null);
 
       await expect(service.refreshToken('invalid-token')).rejects.toThrow(UnauthorizedException);
     });
 
     it('throws UnauthorizedException for an expired refresh token', async () => {
-      const expiredToken = {
-        token: 'expired-token',
-        expiresAt: new Date(Date.now() - 1000), // expired 1 second ago
-        isRevoked: false,
-        userId: 'user-uuid-123',
-        user: createMockUser(),
-      };
-      mockRefreshTokenRepository.findOne = jest.fn().mockResolvedValue(expiredToken);
+      mockRefreshTokenTransaction(null);
 
       await expect(service.refreshToken('expired-token')).rejects.toThrow(UnauthorizedException);
     });
 
     it('throws UnauthorizedException for a revoked refresh token', async () => {
-      const revokedToken = {
-        token: 'revoked-token',
-        expiresAt: new Date(Date.now() + 86400000),
-        isRevoked: true,
-        userId: 'user-uuid-123',
-        user: createMockUser(),
-      };
-      mockRefreshTokenRepository.findOne = jest.fn().mockResolvedValue(revokedToken);
+      mockRefreshTokenTransaction(null);
 
       await expect(service.refreshToken('revoked-token')).rejects.toThrow(UnauthorizedException);
     });
@@ -406,7 +470,7 @@ describe('AuthenticationService', () => {
 
       await service.logout('user-uuid-123', 'jti-123', accessExpiry);
 
-      expect(mockTokenBlacklist.add).toHaveBeenCalledWith('jti-123', accessExpiry);
+      expect(mockTokenBlacklist.add).toHaveBeenCalledWith('jti-123', accessExpiry, 'user_logout');
     });
   });
 });

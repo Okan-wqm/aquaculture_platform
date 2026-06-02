@@ -1,13 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
-import Redis from 'ioredis';
+import { RedisService } from '../../redis';
 
-import {
-  ISessionManager,
-  SessionMetadata,
-  SessionInfo,
-} from '../interfaces';
+import { ISessionManager, SessionMetadata, SessionInfo } from '../interfaces';
 
 /**
  * Session data stored in backend
@@ -53,7 +49,7 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
 
   constructor(
     private readonly configService: ConfigService,
-    @Optional() @Inject('REDIS_CLIENT') private readonly redis?: Redis,
+    @Optional() private readonly redis?: RedisService,
   ) {
     this.maxSessionsPerUser = this.configService.get<number>('MAX_SESSIONS_PER_USER', 5);
     this.sessionTtlMs = this.configService.get<number>('SESSION_TTL_MS', 24 * 60 * 60 * 1000); // 24 hours
@@ -66,26 +62,26 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
     if (!this.useRedis && nodeEnv === 'production') {
       this.logger.error(
         'SessionManagerService is using in-memory storage in production. ' +
-        'Session limits and revocation will NOT work across multiple instances. ' +
-        'Set SESSION_USE_REDIS=true and provide a Redis connection.',
+          'Session limits and revocation will NOT work across multiple instances. ' +
+          'Set SESSION_USE_REDIS=true and provide a Redis connection.',
       );
       throw new Error(
         'SessionManagerService requires Redis in production. ' +
-        'Set SESSION_USE_REDIS=true and provide a Redis connection.',
+          'Set SESSION_USE_REDIS=true and provide a Redis connection.',
       );
     }
 
     if (!this.useRedis) {
       this.logger.warn(
         'SessionManagerService is using in-memory storage. ' +
-        'This is only suitable for single-instance development/test environments.',
+          'This is only suitable for single-instance development/test environments.',
       );
     }
 
     this.logger.log(
       `Session manager initialized (max sessions: ${this.maxSessionsPerUser}, ` +
-      `TTL: ${this.sessionTtlMs / 1000 / 60} minutes, ` +
-      `storage: ${this.useRedis ? 'Redis' : 'in-memory'})`,
+        `TTL: ${this.sessionTtlMs / 1000 / 60} minutes, ` +
+        `storage: ${this.useRedis ? 'Redis' : 'in-memory'})`,
     );
   }
 
@@ -121,10 +117,10 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
       const sessionKey = `${this.keyPrefix}${sessionId}`;
       const userKey = `${this.keyPrefix}user:${userId}`;
 
-      await this.redis.setex(
+      await this.redis.set(
         sessionKey,
-        Math.ceil(this.sessionTtlMs / 1000),
         JSON.stringify(session),
+        Math.ceil(this.sessionTtlMs / 1000),
       );
 
       // Add to user's session set
@@ -274,7 +270,7 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
    */
   async getSessionCount(userId: string): Promise<number> {
     const sessions = await this.getUserSessions(userId);
-    return sessions.filter(s => s.isActive).length;
+    return sessions.filter((s) => s.isActive).length;
   }
 
   /**
@@ -317,7 +313,7 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
       const sessionKey = `${this.keyPrefix}${sessionId}`;
       const ttl = await this.redis.ttl(sessionKey);
       if (ttl > 0) {
-        await this.redis.setex(sessionKey, ttl, JSON.stringify(session));
+        await this.redis.set(sessionKey, JSON.stringify(session), ttl);
       }
     }
     // In-memory is updated in place

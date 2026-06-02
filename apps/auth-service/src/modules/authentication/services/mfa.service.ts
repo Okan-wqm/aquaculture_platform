@@ -21,7 +21,7 @@ import {
   RegenerateMfaRecoveryCodesResponse,
 } from '../dto/mfa.dto';
 import { AuthPayload } from '../dto/auth-response.dto';
-import { TokenService } from './token.service';
+import { TokenIssuerService } from './token.service';
 
 // ============================================================================
 // Constants
@@ -199,7 +199,7 @@ export class MfaService {
     private readonly userRepository: Repository<User>,
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
-    private readonly tokenService: TokenService,
+    private readonly tokenIssuer: TokenIssuerService,
   ) {
     this.issuerName = this.configService.get<string>('MFA_ISSUER_NAME', 'AquaculturePlatform');
 
@@ -466,7 +466,7 @@ export class MfaService {
   async generateMfaChallenge(user: User): Promise<{ mfaRequired: true; mfaToken: string }> {
     return {
       mfaRequired: true,
-      mfaToken: await this.tokenService.generateMfaChallengeToken(user),
+      mfaToken: await this.tokenIssuer.generateMfaChallengeToken(user),
     };
   }
 
@@ -488,7 +488,7 @@ export class MfaService {
     // Validate the MFA token
     let mfaPayload: { sub: string; userId: string; purpose: string; type: string; jti: string };
     try {
-      mfaPayload = this.tokenService.verifyMfaChallengeToken(mfaToken);
+      mfaPayload = this.tokenIssuer.verifyMfaChallengeToken(mfaToken);
     } catch {
       throw new UnauthorizedException('MFA token is invalid or expired. Please login again.');
     }
@@ -566,7 +566,7 @@ export class MfaService {
     await this.logMfaEvent('MFA_VERIFY_SUCCESS', user, true);
 
     // IP-2: MFA login verification → set mfaVerified claim in JWT
-    return this.tokenService.generateTokens(user, ipAddress, userAgent, { mfaVerified: true });
+    return this.tokenIssuer.generateTokens(user, ipAddress, userAgent, { mfaVerified: true });
   }
 
   // ==========================================================================
@@ -665,7 +665,7 @@ export class MfaService {
 
     void ipAddress;
     void userAgent;
-    return this.tokenService.generateAccessOnlyToken(user, {
+    return this.tokenIssuer.generateAccessOnlyToken(user, {
       mfaVerified: true,
       expiresIn: this.configService.get<string>('MFA_STEP_UP_JWT_EXPIRES_IN', '5m'),
     });

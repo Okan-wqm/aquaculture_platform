@@ -11,18 +11,19 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
 import {
+  AccessTokenVerifierService,
   TimingSafeService,
   ISessionManager,
   ITokenBlacklist,
   SESSION_MANAGER,
   TOKEN_BLACKLIST,
   SecurityEventService,
+  passwordPolicyViolation,
 } from '@aquaculture/backend-common/security';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
@@ -39,7 +40,7 @@ import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
 import { MfaService } from './mfa.service';
-import { TokenService, parseExpiresIn } from './token.service';
+import { TokenIssuerService, parseExpiresIn } from './token.service';
 import type { JwtPayload } from './token.service';
 
 // Re-export JwtPayload from its canonical location for backward compatibility
@@ -70,11 +71,10 @@ export class AuthenticationService {
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
     private readonly dataSource: DataSource,
-    private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
-    private readonly tokenService: TokenService,
+    private readonly tokenIssuer: TokenIssuerService,
     private readonly mfaService: MfaService,
     /**
      * SECURITY (DEPLOY-CRITICAL-007): audit-logged RLS bypass primitive for
@@ -84,6 +84,7 @@ export class AuthenticationService {
      * architectural rationale.
      */
     private readonly bypassRls: BypassRlsService,
+    private readonly accessTokenVerifier: AccessTokenVerifierService,
     @Optional() private readonly timingSafe?: TimingSafeService,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
     @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
@@ -198,7 +199,7 @@ export class AuthenticationService {
       }),
     });
 
-    return this.tokenService.generateTokens(savedUser);
+    return this.tokenIssuer.generateTokens(savedUser);
   }
 
   /**
@@ -497,12 +498,12 @@ export class AuthenticationService {
           userId: user.id,
         };
         return await requestContextStorage.run(scopedContext, () =>
-          this.tokenService.generateTokens(user, ipAddress, userAgent),
+          this.tokenIssuer.generateTokens(user, ipAddress, userAgent),
         );
       }
       // SUPER_ADMIN: audited bypass for platform-level session creation.
       return await this.bypassRls.withBypass('auth-service:super-admin-login-tokens', () =>
-        this.tokenService.generateTokens(user, ipAddress, userAgent),
+        this.tokenIssuer.generateTokens(user, ipAddress, userAgent),
       );
     } catch (error) {
       await this.ensureMinDuration(startTime);
@@ -600,6 +601,11 @@ export class AuthenticationService {
         throw new BadRequestException('Invalid or expired invitation');
       }
 
+      const passwordPolicyError = passwordPolicyViolation(password);
+      if (passwordPolicyError) {
+        throw new BadRequestException(passwordPolicyError);
+      }
+
       // Update user with password and clear invitation token
       user.password = password; // Will be hashed by BeforeUpdate hook
       user.invitationToken = null;
@@ -644,7 +650,7 @@ export class AuthenticationService {
       }),
     ]);
 
-    return this.tokenService.generateTokens(result, ipAddress);
+    return this.tokenIssuer.generateTokens(result, ipAddress);
   }
 
   /**
@@ -748,7 +754,7 @@ export class AuthenticationService {
       refreshToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(refreshToken);
 
-      return this.tokenService.generateTokens(
+      return this.tokenIssuer.generateTokens(
         user,
         refreshToken.ipAddress ?? undefined,
         refreshToken.userAgent ?? undefined,
@@ -854,7 +860,7 @@ export class AuthenticationService {
       matchedToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(matchedToken);
 
-      return this.tokenService.generateTokens(
+      return this.tokenIssuer.generateTokens(
         user,
         matchedToken.ipAddress ?? undefined,
         matchedToken.userAgent ?? undefined,
@@ -917,19 +923,21 @@ export class AuthenticationService {
       { isRevoked: true, revokedAt: new Date(), revokedReason: revokeReason },
     );
 
-    if (this.tokenBlacklist) {
-      const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-      const expiresInSeconds = parseExpiresIn(expiresIn);
-      const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
-      await this.tokenBlacklist.blacklistUserTokens(
-        userId,
-        expiryDate,
-        'refresh_token_reuse_detected',
-      );
+    if (!this.tokenBlacklist) {
+      throw new Error('TOKEN_BLACKLIST provider is required for refresh-token reuse revocation');
     }
-    if (this.sessionManager) {
-      await this.sessionManager.revokeAllSessions(userId);
+    const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
+    const expiresInSeconds = parseExpiresIn(expiresIn);
+    const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
+    await this.tokenBlacklist.blacklistUserTokens(
+      userId,
+      expiryDate,
+      'refresh_token_reuse_detected',
+    );
+    if (!this.sessionManager) {
+      throw new Error('SESSION_MANAGER provider is required for refresh-token reuse revocation');
     }
+    await this.sessionManager.revokeAllSessions(userId);
 
     this.logger.warn(
       `Refresh-token reuse detected for user ${userId}; all tokens revoked. ` +
@@ -974,14 +982,18 @@ export class AuthenticationService {
     );
 
     // Blacklist current access token if JTI provided
-    if (jti && accessTokenExpiry && this.tokenBlacklist) {
+    if (jti && accessTokenExpiry) {
+      if (!this.tokenBlacklist) {
+        throw new Error('TOKEN_BLACKLIST provider is required for logout revocation');
+      }
       await this.tokenBlacklist.add(jti, accessTokenExpiry, 'user_logout');
     }
 
     // Revoke all sessions
-    if (this.sessionManager) {
-      await this.sessionManager.revokeAllSessions(userId);
+    if (!this.sessionManager) {
+      throw new Error('SESSION_MANAGER provider is required for logout revocation');
     }
+    await this.sessionManager.revokeAllSessions(userId);
 
     this.logger.log(`User logged out: ${userId}`);
     return true;
@@ -998,17 +1010,19 @@ export class AuthenticationService {
     );
 
     // Blacklist all user tokens
-    if (this.tokenBlacklist) {
-      const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-      const expiresInSeconds = parseExpiresIn(expiresIn);
-      const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
-      await this.tokenBlacklist.blacklistUserTokens(userId, expiryDate, 'logout_all_devices');
+    if (!this.tokenBlacklist) {
+      throw new Error('TOKEN_BLACKLIST provider is required for logout-all revocation');
     }
+    const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
+    const expiresInSeconds = parseExpiresIn(expiresIn);
+    const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
+    await this.tokenBlacklist.blacklistUserTokens(userId, expiryDate, 'logout_all_devices');
 
     // Revoke all sessions
-    if (this.sessionManager) {
-      await this.sessionManager.revokeAllSessions(userId);
+    if (!this.sessionManager) {
+      throw new Error('SESSION_MANAGER provider is required for logout-all revocation');
     }
+    await this.sessionManager.revokeAllSessions(userId);
 
     this.logger.log(`User logged out from all devices: ${userId}`);
     return result.affected || 0;
@@ -1023,36 +1037,17 @@ export class AuthenticationService {
    * - Validates token hasn't expired
    */
   async validateToken(token: string): Promise<{ valid: boolean; payload?: JwtPayload }> {
-    try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
-
-      // Check if token is blacklisted (by JTI or user-level blacklist)
-      if (this.tokenBlacklist && payload.jti) {
-        const isBlacklisted = await this.tokenBlacklist.isBlacklisted(payload.jti);
-        if (isBlacklisted) {
-          this.logger.debug(`Token blacklisted: ${payload.jti}`);
-          return { valid: false };
-        }
-
-        // Check user-level blacklist
-        if (payload.iat) {
-          const tokenIssuedAt = new Date(payload.iat * 1000);
-          const isUserBlacklisted = await this.tokenBlacklist.isUserBlacklisted(
-            payload.sub,
-            tokenIssuedAt,
-          );
-          if (isUserBlacklisted) {
-            this.logger.debug(`User tokens blacklisted: ${payload.sub}`);
-            return { valid: false };
-          }
-        }
-      }
-
-      return { valid: true, payload };
-    } catch (error) {
-      this.logger.debug(`Token validation failed: ${(error as Error).message}`);
+    const payload = await this.accessTokenVerifier.verifyAccessToken<JwtPayload>(token, {
+      context: 'auth-service.AuthenticationService.validateToken',
+    });
+    if (!payload) {
       return { valid: false };
     }
+    return { valid: true, payload };
+  }
+
+  private isProduction(): boolean {
+    return this.configService.get<string>('NODE_ENV', 'development') === 'production';
   }
 
   /**
@@ -1069,7 +1064,7 @@ export class AuthenticationService {
     }
 
     // Get user's accessible modules
-    const modules = await this.tokenService.getUserModules(user);
+    const modules = await this.tokenIssuer.getUserModules(user);
 
     // Determine redirect path based on role
     let redirectPath: string;
@@ -1268,6 +1263,11 @@ export class AuthenticationService {
       throw new BadRequestException('Invalid or expired password reset token');
     }
 
+    const passwordPolicyError = passwordPolicyViolation(newPassword);
+    if (passwordPolicyError) {
+      throw new BadRequestException(passwordPolicyError);
+    }
+
     // Update password (BeforeUpdate hook will bcrypt-hash it)
     user.password = newPassword;
 
@@ -1288,17 +1288,19 @@ export class AuthenticationService {
     );
 
     // Blacklist all existing access tokens for this user
-    if (this.tokenBlacklist) {
-      const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-      const expiresInSeconds = parseExpiresIn(expiresIn);
-      const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
-      await this.tokenBlacklist.blacklistUserTokens(user.id, expiryDate, 'password_reset');
+    if (!this.tokenBlacklist) {
+      throw new Error('TOKEN_BLACKLIST provider is required for password-reset revocation');
     }
+    const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
+    const expiresInSeconds = parseExpiresIn(expiresIn);
+    const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
+    await this.tokenBlacklist.blacklistUserTokens(user.id, expiryDate, 'password_reset');
 
     // Revoke all sessions
-    if (this.sessionManager) {
-      await this.sessionManager.revokeAllSessions(user.id);
+    if (!this.sessionManager) {
+      throw new Error('SESSION_MANAGER provider is required for password-reset revocation');
     }
+    await this.sessionManager.revokeAllSessions(user.id);
 
     this.logger.log(`Password reset successful for user: ${user.id}`);
 
@@ -1322,6 +1324,6 @@ export class AuthenticationService {
     ]);
 
     // Generate new tokens so user is immediately logged in
-    return this.tokenService.generateTokens(user, ipAddress, userAgent);
+    return this.tokenIssuer.generateTokens(user, ipAddress, userAgent);
   }
 }

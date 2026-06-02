@@ -12,8 +12,15 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
-import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
+import {
+  AccessTokenVerifierService,
+  PASSWORD_POLICY_MESSAGE,
+  TimingSafeService,
+  SESSION_MANAGER,
+  TOKEN_BLACKLIST,
+} from '@aquaculture/backend-common/security';
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -23,6 +30,8 @@ import { UserModuleAssignment } from '../entities/user-module-assignment.entity'
 import { User } from '../entities/user.entity';
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { AuthenticationService } from '../services/authentication.service';
+import { MfaService } from '../services/mfa.service';
+import { TokenIssuerService } from '../services/token.service';
 
 
 // ============================================================================
@@ -86,6 +95,10 @@ const mockJwtService = {
   signAsync: jest.fn().mockResolvedValue('mock-access-token'),
 };
 
+const mockAccessTokenVerifier = {
+  verifyAccessToken: jest.fn(),
+};
+
 const mockConfigService = {
   get: jest.fn((key: string, defaultValue?: any) => {
     const config: Record<string, any> = {
@@ -119,11 +132,51 @@ const mockTimingSafe = {
   ensureMinDuration: jest.fn().mockResolvedValue(undefined),
 };
 
+const mockTokenIssuerService = {
+  generateTokens: jest.fn((user: User) =>
+    Promise.resolve({
+      accessToken: 'mock-access-token',
+      refreshToken: 'mock-refresh-token',
+      user,
+      expiresIn: 900,
+      tokenType: 'Bearer',
+      redirectUrl: '/dashboard',
+    }),
+  ),
+};
+
+const mockMfaService = {};
+
+const mockSessionManager = {
+  revokeAllSessions: jest.fn().mockResolvedValue(0),
+};
+
+const mockTokenBlacklist = {
+  blacklistUserTokens: jest.fn().mockResolvedValue(undefined),
+};
+
+const mockBypassRlsService = {
+  withBypass: jest.fn(async <T>(_operation: string, callback: () => Promise<T> | T): Promise<T> =>
+    callback(),
+  ),
+  withBypassSync: jest.fn(<T>(_operation: string, callback: () => T): T => callback()),
+};
+
 describe('AuthenticationService - Password Reset Flow', () => {
   let service: AuthenticationService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockTokenIssuerService.generateTokens.mockImplementation((user: User) =>
+      Promise.resolve({
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+        user,
+        expiresIn: 900,
+        tokenType: 'Bearer',
+        redirectUrl: '/dashboard',
+      }),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -138,9 +191,13 @@ describe('AuthenticationService - Password Reset Flow', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        { provide: AccessTokenVerifierService, useValue: mockAccessTokenVerifier },
+        { provide: TokenIssuerService, useValue: mockTokenIssuerService },
+        { provide: MfaService, useValue: mockMfaService },
+        { provide: BypassRlsService, useValue: mockBypassRlsService },
         { provide: TimingSafeService, useValue: mockTimingSafe },
-        { provide: SESSION_MANAGER, useValue: null },
-        { provide: TOKEN_BLACKLIST, useValue: null },
+        { provide: SESSION_MANAGER, useValue: mockSessionManager },
+        { provide: TOKEN_BLACKLIST, useValue: mockTokenBlacklist },
       ],
     }).compile();
 
@@ -183,7 +240,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
       expect(expiresAt).toBeLessThanOrEqual(after + 60 * 60 * 1000 + 5000);
     });
 
-    it('should publish PasswordResetRequested event with plain token', async () => {
+    it('should publish PasswordResetRequested event with opaque action token reference', async () => {
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockUserRepository.save.mockResolvedValue(user);
@@ -193,10 +250,13 @@ describe('AuthenticationService - Password Reset Flow', () => {
       expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
       const event = mockEventBus.publish.mock.calls[0][0];
       expect(event.eventType).toBe('PasswordResetRequested');
-      expect(event.email).toBe('test@example.com');
       expect(event.userId).toBe('user-uuid-123');
-      expect(event.resetToken).toBeDefined();
-      expect(event.resetToken).toHaveLength(64); // crypto.randomBytes(32).toString('hex')
+      expect(event.version).toBe(2);
+      expect(event.actionTokenId).toBeDefined();
+      expect(event.actionTokenId).toHaveLength(64); // SHA-256 hex digest
+      expect(event.cryptoShredKeyId).toBe('user-uuid-123');
+      expect(event.email).toBeUndefined();
+      expect(event.resetToken).toBeUndefined();
     });
 
     it('should silently return without error when user is not found (enumeration prevention)', async () => {
@@ -479,6 +539,64 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
       expect(savedUser.password).toBe('NewPass123!');
+    });
+  });
+
+  describe('acceptInvitation', () => {
+    it('rejects passwords that fail the shared password policy before accepting invitation', async () => {
+      const plainToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(plainToken).digest('hex');
+      const invitation = new Invitation();
+      Object.assign(invitation, {
+        id: 'invitation-1',
+        token: tokenHash,
+        email: 'invitee@example.com',
+        role: Role.MODULE_USER,
+        tenantId: 'tenant-uuid-123',
+        status: 'PENDING',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      });
+      const invitedUser = createMockUser({
+        email: 'invitee@example.com',
+        password: undefined,
+        invitationToken: tokenHash,
+        invitationExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        isEmailVerified: false,
+      });
+
+      const invitationQueryBuilder = {
+        setLock: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(invitation),
+      };
+      const invitationRepository = {
+        createQueryBuilder: jest.fn().mockReturnValue(invitationQueryBuilder),
+      };
+      const userRepository = {
+        findOne: jest.fn().mockResolvedValue(invitedUser),
+      };
+      const manager = {
+        getRepository: jest.fn((entity: unknown) => {
+          if (entity === Invitation) return invitationRepository;
+          if (entity === User) return userRepository;
+          throw new Error('Unexpected repository requested');
+        }),
+        save: jest.fn(),
+      };
+      mockDataSource.transaction.mockImplementation(async (callback: (transactionManager: typeof manager) => Promise<unknown>) =>
+        callback(manager),
+      );
+
+      await expect(service.acceptInvitation(plainToken, 'weak')).rejects.toThrow(
+        PASSWORD_POLICY_MESSAGE,
+      );
+
+      expect(invitationRepository.createQueryBuilder).toHaveBeenCalled();
+      expect(userRepository.findOne).toHaveBeenCalledWith({ where: { invitationToken: tokenHash } });
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(invitedUser.password).toBeUndefined();
+      expect(invitation.status).toBe('PENDING');
+      expect(mockTokenIssuerService.generateTokens).not.toHaveBeenCalled();
     });
   });
 });

@@ -18,7 +18,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../entities/user.entity';
 import { MfaService } from '../services/mfa.service';
-import { TokenService } from '../services/token.service';
+import { TokenIssuerService } from '../services/token.service';
 
 // ============================================================================
 // Mock Helpers
@@ -122,7 +122,7 @@ describe('MfaService', () => {
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: AuditLogService, useValue: mockAuditLogService },
-        { provide: TokenService, useValue: mockTokenService },
+        { provide: TokenIssuerService, useValue: mockTokenService },
       ],
     }).compile();
 

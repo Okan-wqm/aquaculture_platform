@@ -34,7 +34,7 @@ import {
   WebAuthnRemoveResponse,
 } from '../dto/webauthn.dto';
 import { AuthPayload } from '../dto/auth-response.dto';
-import { TokenService } from './token.service';
+import { TokenIssuerService } from './token.service';
 
 /**
  * In-memory challenge store with TTL.
@@ -71,7 +71,7 @@ export class WebAuthnService {
     private readonly userRepository: Repository<User>,
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
-    private readonly tokenService: TokenService,
+    private readonly tokenIssuer: TokenIssuerService,
     @Optional() private readonly redisService?: RedisService,
   ) {
     // RP ID is the domain without protocol or port
@@ -428,7 +428,7 @@ export class WebAuthnService {
       ipAddress,
     });
 
-    return this.tokenService.generateTokens(user, ipAddress, userAgent);
+    return this.tokenIssuer.generateTokens(user, ipAddress, userAgent);
   }
 
   // ==========================================================================

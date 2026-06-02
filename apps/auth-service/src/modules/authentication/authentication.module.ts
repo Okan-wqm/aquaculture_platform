@@ -19,7 +19,7 @@ import { WebAuthnResolver } from './resolvers/webauthn.resolver';
 import { AccountService } from './services/account.service';
 import { AuthenticationService } from './services/authentication.service';
 import { MfaService } from './services/mfa.service';
-import { TokenService } from './services/token.service';
+import { TokenIssuerService } from './services/token.service';
 import { WebAuthnService } from './services/webauthn.service';
 
 @Module({
@@ -37,7 +37,7 @@ import { WebAuthnService } from './services/webauthn.service';
   controllers: [AuthPasswordResetNatsHandler],
   providers: [
     AccountService,
-    TokenService,
+    TokenIssuerService,
     MfaService,
     WebAuthnService,
     AuthenticationService,
@@ -48,7 +48,15 @@ import { WebAuthnService } from './services/webauthn.service';
     WebAuthnResolver,
     JwtAuthGuard,
   ],
-  exports: [AccountService, AuthenticationService, TokenService, MfaService, WebAuthnService, JwtAuthGuard, TypeOrmModule],
+  exports: [
+    AccountService,
+    AuthenticationService,
+    TokenIssuerService,
+    MfaService,
+    WebAuthnService,
+    JwtAuthGuard,
+    TypeOrmModule,
+  ],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class AuthenticationModule {}

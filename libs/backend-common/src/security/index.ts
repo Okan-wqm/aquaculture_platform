@@ -3,6 +3,8 @@
 
 // SEC-L15: Centralized sensitive field constants for consistent PII redaction
 export * from './security-constants';
+export * from './password-policy';
+export * from './access-token-verifier.service';
 
 // Interfaces and Types
 export * from './interfaces';

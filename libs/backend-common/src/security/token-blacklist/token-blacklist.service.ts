@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ITokenBlacklist } from '../interfaces';
-import Redis from 'ioredis';
+import { RedisService } from '../../redis';
 
 /**
  * Blacklisted token entry
@@ -11,6 +11,8 @@ interface BlacklistEntry {
   expiresAt: number;
   reason?: string;
   blacklistedAt: number;
+  tenantId?: string;
+  userId?: string;
 }
 
 /**
@@ -42,7 +44,7 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
 
   constructor(
     private readonly configService: ConfigService,
-    @Optional() @Inject('REDIS_CLIENT') private readonly redis?: Redis,
+    @Optional() @Inject(RedisService) private readonly redis?: RedisService,
   ) {
     this.useRedis = this.configService.get<boolean>('TOKEN_BLACKLIST_USE_REDIS', false) && !!redis;
 
@@ -53,19 +55,19 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
     if (!this.useRedis && nodeEnv === 'production') {
       this.logger.error(
         'TokenBlacklistService is using in-memory storage in production. ' +
-        'Logout and token invalidation will NOT work across multiple instances. ' +
-        'Set TOKEN_BLACKLIST_USE_REDIS=true and provide a Redis connection.',
+          'Logout and token invalidation will NOT work across multiple instances. ' +
+          'Set TOKEN_BLACKLIST_USE_REDIS=true and provide a Redis connection.',
       );
       throw new Error(
         'TokenBlacklistService requires Redis in production. ' +
-        'Set TOKEN_BLACKLIST_USE_REDIS=true and provide a Redis connection.',
+          'Set TOKEN_BLACKLIST_USE_REDIS=true and provide a Redis connection.',
       );
     }
 
     if (!this.useRedis) {
       this.logger.warn(
         'TokenBlacklistService is using in-memory storage. ' +
-        'This is only suitable for single-instance development/test environments.',
+          'This is only suitable for single-instance development/test environments.',
       );
     }
 
@@ -102,7 +104,7 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
       const ttlMs = expiresAt.getTime() - Date.now();
       if (ttlMs > 0) {
         const key = `${this.keyPrefix}${jti}`;
-        await this.redis.setex(key, Math.ceil(ttlMs / 1000), JSON.stringify(entry));
+        await this.redis.setRaw(key, JSON.stringify(entry), Math.ceil(ttlMs / 1000));
       }
     } else {
       // Store in memory
@@ -120,8 +122,7 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
 
     if (this.useRedis && this.redis) {
       const key = `${this.keyPrefix}${jti}`;
-      const exists = await this.redis.exists(key);
-      return exists === 1;
+      return (await this.redis.getRaw(key)) !== null;
     }
 
     const entry = this.store.get(jti);
@@ -166,11 +167,7 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
    * Blacklist all tokens for a user
    * Requires JWT to include user ID in payload
    */
-  async blacklistUserTokens(
-    userId: string,
-    expiresAt: Date,
-    reason?: string,
-  ): Promise<void> {
+  async blacklistUserTokens(userId: string, expiresAt: Date, reason?: string): Promise<void> {
     // Store user-level blacklist marker
     const userKey = `user:${userId}`;
 
@@ -178,11 +175,15 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
       const ttlMs = expiresAt.getTime() - Date.now();
       if (ttlMs > 0) {
         const key = `${this.keyPrefix}${userKey}`;
-        await this.redis.setex(key, Math.ceil(ttlMs / 1000), JSON.stringify({
-          userId,
-          blacklistedAt: Date.now(),
-          reason,
-        }));
+        await this.redis.setRaw(
+          key,
+          JSON.stringify({
+            userId,
+            blacklistedAt: Date.now(),
+            reason,
+          }),
+          Math.ceil(ttlMs / 1000),
+        );
       }
     } else {
       this.store.set(userKey, {
@@ -190,10 +191,43 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
         expiresAt: expiresAt.getTime(),
         reason,
         blacklistedAt: Date.now(),
+        userId,
       });
     }
 
     this.logger.log(`All tokens blacklisted for user: ${userId} (reason: ${reason || 'none'})`);
+  }
+
+  async blacklistTenantTokens(tenantId: string, expiresAt: Date, reason?: string): Promise<void> {
+    const tenantKey = `tenant:${tenantId}`;
+
+    if (this.useRedis && this.redis) {
+      const ttlMs = expiresAt.getTime() - Date.now();
+      if (ttlMs > 0) {
+        const key = `${this.keyPrefix}${tenantKey}`;
+        await this.redis.setRaw(
+          key,
+          JSON.stringify({
+            tenantId,
+            blacklistedAt: Date.now(),
+            reason,
+          }),
+          Math.ceil(ttlMs / 1000),
+        );
+      }
+    } else {
+      this.store.set(tenantKey, {
+        jti: tenantKey,
+        expiresAt: expiresAt.getTime(),
+        reason,
+        blacklistedAt: Date.now(),
+        tenantId,
+      });
+    }
+
+    this.logger.warn(
+      `All tokens blacklisted for tenant: ${tenantId} (reason: ${reason || 'none'})`,
+    );
   }
 
   /**
@@ -204,19 +238,30 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
 
     if (this.useRedis && this.redis) {
       const key = `${this.keyPrefix}${userKey}`;
-      const data = await this.redis.get(key);
+      const data = await this.redis.getRaw(key);
       if (!data) return false;
 
-      try {
-        const entry = JSON.parse(data);
-        // Token is blacklisted if it was issued before the blacklist entry
-        return tokenIssuedAt.getTime() < entry.blacklistedAt;
-      } catch {
-        return false;
-      }
+      return this.wasIssuedBeforeInvalidation(data, tokenIssuedAt);
     }
 
     const entry = this.store.get(userKey);
+    if (!entry) return false;
+
+    return tokenIssuedAt.getTime() < entry.blacklistedAt;
+  }
+
+  async isTenantBlacklisted(tenantId: string, tokenIssuedAt: Date): Promise<boolean> {
+    const tenantKey = `tenant:${tenantId}`;
+
+    if (this.useRedis && this.redis) {
+      const key = `${this.keyPrefix}${tenantKey}`;
+      const data = await this.redis.getRaw(key);
+      if (!data) return false;
+
+      return this.wasIssuedBeforeInvalidation(data, tokenIssuedAt);
+    }
+
+    const entry = this.store.get(tenantKey);
     if (!entry) return false;
 
     return tokenIssuedAt.getTime() < entry.blacklistedAt;
@@ -231,7 +276,12 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
    *
    * @returns true if the token is valid (not blacklisted), false if invalid
    */
-  async isValidToken(jti: string, userId: string, issuedAt: Date): Promise<boolean> {
+  async isValidToken(
+    jti: string,
+    userId: string,
+    issuedAt: Date,
+    tenantId?: string | null,
+  ): Promise<boolean> {
     if (!jti || !userId) return false;
 
     // Check individual token blacklist
@@ -241,6 +291,11 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
     // Check user-level blacklist
     const userBlacklisted = await this.isUserBlacklisted(userId, issuedAt);
     if (userBlacklisted) return false;
+
+    if (tenantId) {
+      const tenantBlacklisted = await this.isTenantBlacklisted(tenantId, issuedAt);
+      if (tenantBlacklisted) return false;
+    }
 
     return true;
   }
@@ -261,10 +316,34 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
   async remove(jti: string): Promise<boolean> {
     if (this.useRedis && this.redis) {
       const key = `${this.keyPrefix}${jti}`;
-      const deleted = await this.redis.del(key);
+      const deleted = await this.redis.delRaw(key);
       return deleted > 0;
     }
 
     return this.store.delete(jti);
+  }
+
+  private wasIssuedBeforeInvalidation(value: string | null, issuedAt: Date): boolean {
+    if (!value) return false;
+    try {
+      const parsed = JSON.parse(value) as
+        | number
+        | { blacklistedAt?: number; invalidatedAt?: number };
+      if (typeof parsed === 'number') {
+        return Math.floor(issuedAt.getTime() / 1000) < parsed;
+      }
+      if (typeof parsed.blacklistedAt === 'number') {
+        return issuedAt.getTime() < parsed.blacklistedAt;
+      }
+      if (typeof parsed.invalidatedAt === 'number') {
+        return Math.floor(issuedAt.getTime() / 1000) < parsed.invalidatedAt;
+      }
+    } catch {
+      const invalidatedAt = parseInt(value, 10);
+      return (
+        Number.isFinite(invalidatedAt) && Math.floor(issuedAt.getTime() / 1000) < invalidatedAt
+      );
+    }
+    return false;
   }
 }

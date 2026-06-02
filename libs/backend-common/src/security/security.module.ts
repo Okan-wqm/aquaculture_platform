@@ -9,6 +9,7 @@ import { IpValidatorService } from './ip-validation';
 import { InputSanitizerService } from './validators/input-sanitizer.service';
 import { IdorGuard } from './validators/idor-guard';
 import { IP_VALIDATOR } from './interfaces';
+import { AccessTokenVerifierService } from './access-token-verifier.service';
 
 /**
  * Security Module
@@ -47,6 +48,7 @@ import { IP_VALIDATOR } from './interfaces';
     IpValidatorService,
     InputSanitizerService,
     IdorGuard,
+    AccessTokenVerifierService,
     {
       provide: IP_VALIDATOR,
       useExisting: IpValidatorService,
@@ -62,6 +64,7 @@ import { IP_VALIDATOR } from './interfaces';
     IpValidatorService,
     InputSanitizerService,
     IdorGuard,
+    AccessTokenVerifierService,
     IP_VALIDATOR,
   ],
 })
